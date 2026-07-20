@@ -1,24 +1,30 @@
-/** Package-owned runtime contract checks for `@deepseek-ai/dsh-bash`. @module @deepseek-ai/dsh-bash/invariant */
+/** Package-owned session-event invariants for the bash seam. @module @deepseek-ai/dsh-bash/invariant */
 
 import type { Context } from 'cordis'
-import { observeServiceInvariant, serviceShapeViolation, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import { SANDBOX_MODES } from './session-mode.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-bash'
 
 /** Cordis companion plugin name. */
 export const name = 'bash-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Validate every implementation bound to this package's service seam. */
+/** Install validation for the durable sandbox-mode vocabulary. */
 const install: InvariantInstaller = (ctx, fail) => {
-  observeServiceInvariant(ctx, fail, 'bash', value => serviceShapeViolation(value, {
-    methods: ['resolve', 'run', 'start'],
-  }))
+  ctx.on('internal/dispatch', (_mode, eventName, args) => {
+    if (eventName !== 'session/event') return
+    const event = (args as [Session, SessionEvent])[1]
+    if (event.type === 'bash/sandbox-mode' && !SANDBOX_MODES.includes(event.data.mode)) {
+      fail(`bash/sandbox-mode carries unknown mode ${JSON.stringify(event.data.mode)}`)
+    }
+  }, { global: true })
 }
 
 /**
- * Register this package's invariant companion.
+ * Register the bash invariant companion.
  * @param ctx - Cordis context carrying the invariant service.
  * @returns the installed registration's disposer after setup succeeds.
  */

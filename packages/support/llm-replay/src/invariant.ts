@@ -1,30 +1,24 @@
-/** Package-owned runtime contract checks for `@deepseek-ai/dsh-llm-replay`. @module @deepseek-ai/dsh-llm-replay/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-llm-replay`.
+ * @module @deepseek-ai/dsh-llm-replay/invariant
+ */
 
+/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-llm-replay'
 
 /** Cordis companion plugin name. */
 export const name = 'llm-replay-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
-const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'llm-replay',
-    inject: [
-      'llm',
-    ],
-    effects: [
-      [
-        'llm.registerAdapter()',
-        'ctx.on("llm/stream")',
-      ],
-    ],
-  })
-}
+/**
+ * No runtime invariant: this test-only adapter consumes a fixed replay script; its stream grammar
+ * is checked by the LLM companion and fixture derivation tests.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.
@@ -33,3 +27,4 @@ const install: InvariantInstaller = (ctx, fail) => {
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */

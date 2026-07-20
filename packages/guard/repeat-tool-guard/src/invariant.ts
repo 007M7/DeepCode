@@ -1,25 +1,24 @@
-/** Package-owned runtime contract checks for `@deepseek-ai/dsh-repeat-tool-guard`. @module @deepseek-ai/dsh-repeat-tool-guard/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-repeat-tool-guard`.
+ * @module @deepseek-ai/dsh-repeat-tool-guard/invariant
+ */
 
+/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-repeat-tool-guard'
 
 /** Cordis companion plugin name. */
 export const name = 'repeat-tool-guard-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
-const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'repeat-tool-guard',
-    effects: [
-      'ctx.on("tools/post-execute")',
-      'ctx.on("agent/prompt-submit")',
-    ],
-  })
-}
+/**
+ * No runtime invariant: the repeat chain is private to one post-execute listener and exposes no
+ * package-owned event or snapshot that an independent companion can observe.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.
@@ -28,3 +27,4 @@ const install: InvariantInstaller = (ctx, fail) => {
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */

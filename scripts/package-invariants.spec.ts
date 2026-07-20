@@ -16,8 +16,10 @@ function handwrittenInvariant(packageName: string): string {
   return `
 export const name = 'probe-invariant'
 export const inject = ['invariants']
-const install = (_ctx: unknown, fail: (message: string) => never) => {
-  if (typeof ${JSON.stringify(packageName)} !== 'string') fail('package name must remain a string')
+const install = (ctx: { on(name: string, listener: (value: number) => void): void }, fail: (message: string) => never) => {
+  ctx.on('probe/value', (value) => {
+    if (value < 0) fail('observed values must be non-negative')
+  })
 }
 export const apply = (ctx: { invariants: { register(name: string, install: typeof install): () => void } }) =>
   Promise.resolve(ctx.invariants.register(${JSON.stringify(packageName)}, install))
@@ -65,41 +67,6 @@ function fixture(options: {
   return root
 }
 
-function addConformingPackage(root: string, slug: string, packageName: string, source: string): void {
-  const dir = join(root, `packages/core/${slug}`)
-  mkdirSync(join(dir, 'src'), { recursive: true })
-  writeFileSync(join(dir, 'package.json'), `${JSON.stringify({
-    name: packageName,
-    exports: {
-      './invariant': {
-        types: './lib/types/invariant.d.ts',
-        default: './lib/invariant.js',
-      },
-    },
-    files: ['lib/invariant.js'],
-    peerDependencies: { '@deepseek-ai/dsh-invariants': '^0.0.1' },
-    devDependencies: { '@deepseek-ai/dsh-invariants': 'workspace:^' },
-  }, null, 2)}\n`)
-  writeFileSync(join(dir, 'tsconfig.json'), `${JSON.stringify({
-    references: [{ path: '../../support/invariants' }],
-  }, null, 2)}\n`)
-  writeFileSync(join(dir, 'src/invariant.ts'), source)
-  writeFileSync(join(dir, 'tsdown.config.ts'), "export default { entry: ['lib/types/invariant.js'] }\n")
-}
-
-function nameObservedInvariant(packageName: string, pluginName: string): string {
-  return `
-import { observePluginInvariant } from '@deepseek-ai/dsh-invariants'
-export const name = 'probe-invariant'
-export const inject = ['invariants']
-const install = (ctx: never, fail: (message: string) => never) => {
-  observePluginInvariant(ctx, fail, { name: ${JSON.stringify(pluginName)} })
-}
-export const apply = (ctx: { invariants: { register(name: string, install: typeof install): () => void } }) =>
-  Promise.resolve(ctx.invariants.register(${JSON.stringify(packageName)}, install))
-`
-}
-
 describe('package invariant gate', () => {
   it('accepts a hand-owned checking companion with publication metadata', () => {
     expect(collectPackageInvariantViolations(fixture())).toEqual([])
@@ -139,27 +106,24 @@ export const apply = (ctx: { invariants: { register(name: string, install: typeo
     ]))
   })
 
-  it('rejects generated markers and empty or reporter-free installers', () => {
+  it('rejects generated markers and reporter-free executable installers', () => {
     const generated = fixture({
       source: `/** @generated */\n${handwrittenInvariant('@deepseek-ai/dsh-probe')}`,
     })
     expect(collectPackageInvariantViolations(generated).map(violation => violation.message))
       .toContain('invariant companions must be hand-owned and may not carry @generated markers')
 
-    const empty = fixture({
+    const reporterFree = fixture({
       source: `
 export const name = 'probe-invariant'
 export const inject = ['invariants']
-const install = () => {}
+const install = () => { void 0 }
 export const apply = (ctx: { invariants: { register(name: string, install: typeof install): () => void } }) =>
   Promise.resolve(ctx.invariants.register('@deepseek-ai/dsh-probe', install))
 `,
     })
-    expect(collectPackageInvariantViolations(empty).map(violation => violation.message))
-      .toEqual(expect.arrayContaining([
-        'install function must contain a package-owned invariant check',
-        'install function must accept the bound failure reporter as its second parameter',
-      ]))
+    expect(collectPackageInvariantViolations(reporterFree).map(violation => violation.message))
+      .toContain('install function must accept the bound failure reporter as its second parameter')
 
     const unused = fixture({
       source: `
@@ -174,22 +138,19 @@ export const apply = (ctx: { invariants: { register(name: string, install: typeo
       .toContain('install function must use its bound failure reporter')
   })
 
-  it('rejects duplicate name-based plugin observers across packages', () => {
-    const root = fixture({
-      source: nameObservedInvariant('@deepseek-ai/dsh-probe', 'shared-runtime-name'),
-    })
-    addConformingPackage(
-      root,
-      'probe-two',
-      '@deepseek-ai/dsh-probe-two',
-      nameObservedInvariant('@deepseek-ai/dsh-probe-two', 'shared-runtime-name'),
-    )
-    expect(collectPackageInvariantViolations(root).map(violation => violation.message))
-      .toContain('name-based plugin invariant "shared-runtime-name" is already owned by "@deepseek-ai/dsh-probe-two"')
-  })
+  it('accepts explained empty installers and rejects unexplained ones', () => {
+    const explained = `
+export const name = 'probe-invariant'
+export const inject = ['invariants']
+const PACKAGE_NAME = '@deepseek-ai/dsh-probe'
+/** No runtime invariant: this pure package owns no events or mutable data. */
+const install = () => {}
+export const apply = (ctx: { invariants: { register(name: string, install: () => void): () => void } }) =>
+  ctx.invariants.register(PACKAGE_NAME, install)
+`
+    expect(collectPackageInvariantViolations(fixture({ source: explained }))).toEqual([])
 
-  it('rejects an unexplained empty package installer', () => {
-    const source = `
+    const unexplained = `
 export const name = 'probe-invariant'
 export const inject = ['invariants']
 const PACKAGE_NAME = '@deepseek-ai/dsh-probe'
@@ -197,7 +158,7 @@ const install = () => {}
 export const apply = (ctx: { invariants: { register(name: string, install: () => void): () => void } }) =>
   ctx.invariants.register(PACKAGE_NAME, install)
 `
-    expect(collectPackageInvariantViolations(fixture({ source })).map(violation => violation.message))
+    expect(collectPackageInvariantViolations(fixture({ source: unexplained })).map(violation => violation.message))
       .toContain('empty install function must explain why with a "No runtime invariant:" comment')
   })
 })

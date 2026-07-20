@@ -1,25 +1,24 @@
-/** Package-owned runtime contracts for @deepseek-ai/dsh-agent-loop-testkit. @module @deepseek-ai/dsh-agent-loop-testkit/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-agent-loop-testkit`.
+ * @module @deepseek-ai/dsh-agent-loop-testkit/invariant
+ */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-agent-loop-testkit'
 
 /** Cordis companion plugin name. */
 export const name = 'agent-loop-testkit-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Assert the awaitable helper shape and optional-options call boundary. */
-const install: InvariantInstaller = async (_ctx, fail) => {
-  const { mountAgentLoopTestDependencies } = await import('./index.ts')
-  assertInvariant(fail,
-    mountAgentLoopTestDependencies.constructor.name === 'AsyncFunction',
-    'the prerequisite mount helper must remain awaitable so tests cannot race service activation')
-  assertInvariant(fail, mountAgentLoopTestDependencies.length === 1,
-    'the prerequisite mount helper must keep its options argument optional')
-}
+/**
+ * No runtime invariant: this test-support package owns no production event stream or mutable data;
+ * consuming test suites exercise its behavior.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.

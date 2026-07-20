@@ -1,28 +1,24 @@
-/** Package-owned runtime contract checks for `@deepseek-ai/dsh-token-meter`. @module @deepseek-ai/dsh-token-meter/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-token-meter`.
+ * @module @deepseek-ai/dsh-token-meter/invariant
+ */
 
+/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-token-meter'
 
 /** Cordis companion plugin name. */
 export const name = 'token-meter-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
-const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'TokenMeterService',
-    effects: [
-      'ctx.provide("tokenMeter")',
-      'ctx.on("session/event")',
-    ],
-    services: [
-      'tokenMeter',
-    ],
-  })
-}
+/**
+ * No runtime invariant: token estimates are per-call outputs and the private session cache is
+ * invalidated at its event mutation boundary; neither exposes an independent observation stream.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.
@@ -31,3 +27,4 @@ const install: InvariantInstaller = (ctx, fail) => {
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */

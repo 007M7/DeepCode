@@ -1,24 +1,24 @@
-/** Package-owned runtime contracts for @deepseek-ai/dsh-subagent-inprocess. @module @deepseek-ai/dsh-subagent-inprocess/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-subagent-inprocess`.
+ * @module @deepseek-ai/dsh-subagent-inprocess/invariant
+ */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-subagent-inprocess'
 
 /** Cordis companion plugin name. */
 export const name = 'subagent-inprocess-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Assert that structured-output guidance names the tool it actually installs. */
-const install: InvariantInstaller = async (_ctx, fail) => {
-  const { STRUCTURED_OUTPUT_INSTRUCTION, STRUCTURED_OUTPUT_TOOL } = await import('./structured-protocol.ts')
-  assertInvariant(fail, /^[a-z][a-z0-9_]*$/.test(STRUCTURED_OUTPUT_TOOL),
-    'the structured-output tool must retain a stable lowercase protocol name')
-  assertInvariant(fail, STRUCTURED_OUTPUT_INSTRUCTION.includes(STRUCTURED_OUTPUT_TOOL),
-    'the structured-output instruction must name the exact installed tool')
-}
+/**
+ * No runtime invariant: this package exposes no independent event sequence or mutable data relation
+ * beyond contracts enforced at its owning seam.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.

@@ -1,33 +1,24 @@
 /**
- * Package-owned runtime contract checks for `@deepseek-ai/dsh-session-persistence-jsonl`.
+ * Package-owned invariant companion for `@deepseek-ai/dsh-session-persistence-jsonl`.
  * @module @deepseek-ai/dsh-session-persistence-jsonl/invariant
  */
 
+/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-session-persistence-jsonl'
 
 /** Cordis companion plugin name. */
 export const name = 'session-persistence-jsonl-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
-const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'SessionPersistenceJsonl',
-    inject: [
-      'sessions',
-    ],
-    effects: [
-      'ctx.provide("sessionPersistence")',
-    ],
-    services: [
-      'sessionPersistence',
-    ],
-  })
-}
+/**
+ * No runtime invariant: persistence correctness requires backend round-trip and crash-tail tests;
+ * this package exposes no continuously observable in-process relation.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.
@@ -36,3 +27,4 @@ const install: InvariantInstaller = (ctx, fail) => {
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */

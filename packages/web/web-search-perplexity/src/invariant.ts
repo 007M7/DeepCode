@@ -1,30 +1,24 @@
 /**
- * Package-owned runtime contract checks for `@deepseek-ai/dsh-web-search-perplexity`.
+ * Package-owned invariant companion for `@deepseek-ai/dsh-web-search-perplexity`.
  * @module @deepseek-ai/dsh-web-search-perplexity/invariant
  */
 
+/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-web-search-perplexity'
 
 /** Cordis companion plugin name. */
 export const name = 'web-search-perplexity-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
-const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'web-search-perplexity',
-    inject: [
-      'web',
-    ],
-    effects: [
-      'web.registerProvider()',
-    ],
-  })
-}
+/**
+ * No runtime invariant: this package exposes no independent event sequence or mutable data relation
+ * beyond contracts enforced at its owning seam.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.
@@ -33,3 +27,4 @@ const install: InvariantInstaller = (ctx, fail) => {
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */

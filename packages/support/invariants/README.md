@@ -12,38 +12,37 @@ interface Config {
 }
 ```
 
-Defaults are `enabled: true`, `package_allowlist: []`, and `package_blocklist: []`. A package is selected only when the service is enabled, the empty allowlist or at least one allowlist pattern matches its full npm name, and no blocklist pattern matches. Blocklist matches therefore override allowlist matches.
+Defaults are `enabled: true`, `package_allowlist: []`, and `package_blocklist: []`. A package is selected only when the service is enabled, the allowlist is empty or at least one allowlist pattern matches its full npm name, and no blocklist pattern matches. Blocklist matches therefore override allowlist matches.
 
 Each entry is a case-sensitive JavaScript regular-expression source compiled with `new RegExp(pattern)`. Matching is unanchored unless the source supplies `^` and `$`; `/pattern/flags` syntax is not parsed. Blank, whitespace-padded, invalid, or duplicate entries within one list fail service startup. A valid pattern may match no currently loaded package so later loading and HMR remain deterministic.
 
 `ctx.invariants.register(packageName, installer)` reserves one active registration for the full npm package name, including when filters keep its installer inactive, and returns its disposer. An enabled contribution runs in a dedicated child Cordis fiber. The installer can declare its required service surface through `installer.inject` and receives `fail(message)`, which throws an `InvariantError` bound to the registering package. Synchronous or asynchronous installer completion is joined before registration succeeds; failure disposes the child and releases ownership atomically.
 
-The service owns every registration fiber, while the returned disposer also belongs to the companion fiber. Unloading either side removes the listeners and reservation completely. A companion can therefore reload and register the same package name without retaining trace state or duplicate listeners; packages that need an existing baseline rebuild it during installation.
+The service owns every registration fiber, while the returned disposer also belongs to the companion fiber. Unloading either side removes listeners, trace state, and the reservation. A companion can therefore reload and register the same package name without retaining its previous state. Session-backed companions rebuild their baseline from durable events; live-only companions observe operations that begin after reload.
 
-`InvariantError` extends `Error`, carries stable `code: 'INVARIANT'`, and exposes the owning `packageName` without adding a product-package dependency to the service.
+`InvariantError` extends `Error`, carries stable `code: 'INVARIANT'`, and exposes the owning `packageName` without adding a product dependency to the service.
 
 ## Package companions
 
-Every companion installs at least one executable, package-specific contract and reports failure through its bound reporter. There is no generated or ownership-only baseline. `pnpm run verify-package-invariants` rejects generated markers, empty installers, installers that ignore the reporter, duplicate name-based plugin observers, incorrect registration names, and incomplete export, publication, dependency, TypeScript-reference, or bundle wiring.
+Publication and registration are exhaustive; runtime assertions are deliberately not synthetic. A companion installs a check only when its package owns an observable event relationship or relevant mutable-data relationship. Confirming a required method, plugin name, injection, effect, or fixed pure-function result is a type, load, or unit-test concern rather than a runtime invariant.
 
-Packages select the narrowest runtime form that protects their public contract:
+When no plausible runtime relationship exists, the companion uses an empty installer with a package-specific leading `No runtime invariant:` comment explaining why. This is common for pure utilities, thin implementations whose behavior is already observed through their seam, composition-only packages, binaries, persistence adapters whose contracts require crash/round-trip tests, and test-support packages. The explanation must be revisited when the owner gains mutable state or an event protocol.
 
-| Package shape | Companion check |
+The current executable companions protect these relationships:
+
+| Companion | Checks |
 |---|---|
-| Cordis plugin | `observePluginInvariant` validates the plugin's own declared name, required injections, owned effect group, provided services, and optional package-specific relation for existing, late, and HMR-activated fibers. |
-| Cordis service seam | `observeServiceInvariant` plus `serviceShapeViolation` validates current and future structural implementations, including conforming third-party backends and test doubles. |
-| Pure library, bin, or support package | `assertInvariant` checks stable protocol algebra, parser mapping, path/timeout/retention rules, normalization, or entrypoint shape during child startup. |
+| `dsh-session`, `dsh-agent`, `dsh-scope`, `dsh-agent-loop` | Session enclosure and call/result trace, agent-status transitions, scoped subjects, and model-request reconstruction. |
+| `dsh-llm`, `dsh-tools`, `dsh-system-prompt` | Stream grammar, tool-pipeline stages and frozen results, and authoritative prompt-assembly data. |
+| `dsh-compact`, `dsh-hook-protocol`, `dsh-bash` | Durable compaction and hook pairing, compaction metadata, and sandbox-mode vocabulary. |
+| `dsh-fs`, `dsh-subagent`, `dsh-workflow` | Filesystem event identity, provider/child pairing, and workflow/agent lifecycle identity. |
+| `dsh-permission`, `dsh-user-approval` | Active-preset references and approval asked/decided audit pairing. |
+| `dsh-tasks`, `dsh-tool-todo` | Task snapshot lifecycle/ownership fields and durable whole-list todo structure. |
+| `dsh-time-context` | Durable clock readings agree with their turn, step, elapsed baseline, and event timestamp. |
 
-Four companions additionally install stateful event and request checks:
+The root entrypoint of each owner remains independent of diagnostics. Loading the service alone installs no product checks, and loading a companion without the service waits on its declared `invariants` injection.
 
-| Companion | Registration | Checks |
-|---|---|---|
-| `@deepseek-ai/dsh-session/invariant` | `@deepseek-ai/dsh-session` | sequence, turn/step enclosure, and same-step tool call/result trace |
-| `@deepseek-ai/dsh-agent/invariant` | `@deepseek-ai/dsh-agent` | agent-status transitions |
-| `@deepseek-ai/dsh-scope/invariant` | `@deepseek-ai/dsh-scope` | scoped-event carrier presence and subject consistency |
-| `@deepseek-ai/dsh-agent-loop/invariant` | `@deepseek-ai/dsh-agent-loop` | loop-built model-request reconstruction from the session log |
-
-The root entrypoint of each owner remains independent of diagnostics. Loading the service alone installs no checks; loading a companion without the service remains pending on its declared `invariants` dependency. Name-based plugin observers match only a fiber's own declared runtime name, not anonymous child fibers that inherit a parent display name. They avoid importing the product entrypoint before it is loaded; pure-library checks likewise defer owner imports into the installer child so Vitest mocks and deployment loaders establish their module boundary first.
+`pnpm run verify-package-invariants` discovers all workspace packages. It rejects generated markers, unexplained empty installers, non-empty installers that omit or ignore the reporter, incorrect registration names, and incomplete export, publication, dependency, TypeScript-reference, or bundle wiring. This source rule is a minimum ownership check; focused tests prove each executable companion's semantics.
 
 ## Composition
 
@@ -62,11 +61,13 @@ ctx.plugin(InvariantService, {
 ctx.plugin(SessionInvariant)
 ```
 
-The standard agent spine mounts the service and the four stateful companions. Custom compositions explicitly add the companions for the packages whose contracts they want checked and may disable or filter them without changing package entrypoints. Plugin and service helpers multiplex package contracts through indexed lifecycle listeners shared by the Cordis root, while contribution disposal removes only that owner's contract. Vitest gives every ordinary root an explicitly enabled service and mounts the current test package's companion; one exhaustive topology test mounts all companions once, and focused invariant-service tests construct their own topology to exercise filtering and lifecycle behavior.
+The standard agent spine mounts the service and its four core stateful companions. Custom compositions explicitly add companions for other loaded packages whose contracts they want checked; filters can disable or select registrations without changing package entrypoints.
+
+Every ordinary Vitest topology mounts an explicitly enabled service and the current test package's companion. Focused suites cover valid and invalid observations for executable companions, while one exhaustive topology mounts all companions to prove registration and disposal wiring.
 
 ## Model Experience
 
-None, as the service and companions observe runtime events and requests but never alter prompts, messages, schemas, streams, or tool results.
+None. The service and companions observe runtime events, mutable snapshots, and requests but never alter prompts, messages, schemas, streams, or tool results.
 
 #### KV Cache effect
 
@@ -74,7 +75,6 @@ None; invariant checks do not assemble or send provider requests.
 
 ## Known Limitations and Deferred Work
 
-- A name-based plugin observer assumes Cordis plugin names are unique within one root; a package can provide the exact callback when importing it does not preload an unrelated runtime.
-- Pure-library contracts are sampled when their companion child activates rather than observed continuously; mutable package behavior belongs on an event, service, or plugin-fiber observer.
-- Request reconstruction covers frozen loop-built requests with a live session id; direct one-shot calls remain outside that companion's marker contract.
+- Request reconstruction covers frozen loop-built requests with a live session id; direct one-shot LLM calls remain outside that marker contract.
+- Live-only lifecycle companions cannot reconstruct operations that began before their own reload. Standard and test compositions mount them before the corresponding operations begin.
 - Regular-expression filters are fixed for the service lifetime; changing them requires ordinary Cordis plugin reload.

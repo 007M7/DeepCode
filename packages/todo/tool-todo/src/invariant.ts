@@ -1,30 +1,49 @@
-/** Package-owned runtime contract checks for `@deepseek-ai/dsh-tool-todo`. @module @deepseek-ai/dsh-tool-todo/invariant */
+/** Package-owned durable todo-snapshot invariants. @module @deepseek-ai/dsh-tool-todo/invariant */
 
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-tool-todo'
+const TODO_STATUSES = new Set(['pending', 'in_progress', 'completed'])
 
 /** Cordis companion plugin name. */
 export const name = 'tool-todo-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
+/** Validate one whole-list todo snapshot before it reaches the durable log. */
+function validateTodos(value: unknown, fail: InvariantFailure): void {
+  if (!Array.isArray(value)) fail('todo/write todos must be an array')
+  const seen = new Set<string>()
+  let active = 0
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) fail('todo/write entries must be objects')
+    const { content, status } = item as Record<string, unknown>
+    if (typeof content !== 'string' || content.length === 0 || content.trim() !== content) {
+      fail('todo/write content must be non-empty and already trimmed')
+    }
+    if (seen.has(content)) fail(`todo/write repeats content ${JSON.stringify(content)}`)
+    seen.add(content)
+    if (typeof status !== 'string' || !TODO_STATUSES.has(status)) {
+      fail(`todo/write carries unknown status ${JSON.stringify(status)}`)
+    }
+    if (status === 'in_progress') active += 1
+  }
+  if (active > 1) fail(`todo/write contains ${active} in-progress entries; at most one is allowed`)
+}
+
+/** Install validation for durable whole-list todo snapshots. */
 const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'tool-todo',
-    inject: [
-      'tools',
-    ],
-    effects: [
-      'tools.register()',
-    ],
-  })
+  ctx.on('internal/dispatch', (_mode, eventName, args) => {
+    if (eventName !== 'session/event') return
+    const event = (args as [Session, SessionEvent])[1]
+    if (event.type === 'todo/write') validateTodos(event.data.todos, fail)
+  }, { global: true })
 }
 
 /**
- * Register this package's invariant companion.
+ * Register the todo invariant companion.
  * @param ctx - Cordis context carrying the invariant service.
  * @returns the installed registration's disposer after setup succeeds.
  */

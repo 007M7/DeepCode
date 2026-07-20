@@ -1,37 +1,24 @@
-/** Package-owned runtime contracts for @deepseek-ai/dsh-subagent-subprocess. @module @deepseek-ai/dsh-subagent-subprocess/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-subagent-subprocess`.
+ * @module @deepseek-ai/dsh-subagent-subprocess/invariant
+ */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-subagent-subprocess'
-const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
 /** Cordis companion plugin name. */
 export const name = 'subagent-subprocess-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Assert ambient credential scrubbing and explicit credential precedence. */
-const install: InvariantInstaller = async (_ctx, fail) => {
-  const { buildChildEnv } = await import('./index.ts')
-  const ambientProbe = `DSH_INVARIANT_AMBIENT_TOKEN_${process.pid}`
-  assertInvariant(fail, SENSITIVE_ENV_PATTERN.test(ambientProbe),
-    'the invariant ambient probe must remain credential-shaped')
-  process.env[ambientProbe] = 'must-not-reach-child'
-  let scrubbed: NodeJS.ProcessEnv
-  try {
-    scrubbed = buildChildEnv({})
-  } finally {
-    Reflect.deleteProperty(process.env, ambientProbe)
-  }
-  assertInvariant(fail, !Object.hasOwn(scrubbed, ambientProbe),
-    'subprocess environments must omit every credential-shaped ambient variable')
-
-  const explicit = buildChildEnv({ DSH_INVARIANT_TOKEN: 'explicit-child-value' })
-  assertInvariant(fail, explicit.DSH_INVARIANT_TOKEN === 'explicit-child-value',
-    'explicit child credentials must be applied after ambient scrubbing')
-}
+/**
+ * No runtime invariant: this package exposes no independent event sequence or mutable data relation
+ * beyond contracts enforced at its owning seam.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.

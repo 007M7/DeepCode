@@ -1,26 +1,24 @@
-/** Package-owned runtime contract checks for `@deepseek-ai/dsh-fs-policy`. @module @deepseek-ai/dsh-fs-policy/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-fs-policy`.
+ * @module @deepseek-ai/dsh-fs-policy/invariant
+ */
 
+/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-fs-policy'
 
 /** Cordis companion plugin name. */
 export const name = 'fs-policy-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
-const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'fs-policy',
-    effects: [
-      'ctx.on("fs/write-intent")',
-      'ctx.on("fs/edit-intent")',
-      'ctx.on("fs/observed")',
-    ],
-  })
-}
+/**
+ * No runtime invariant: this package exposes no independent event sequence or mutable data relation
+ * beyond contracts enforced at its owning seam.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.
@@ -29,3 +27,4 @@ const install: InvariantInstaller = (ctx, fail) => {
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */

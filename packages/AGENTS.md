@@ -16,7 +16,7 @@ These package-specific rules supplement the repo-wide [conventions](../AGENTS.md
 - **Publish state only at its commit point.** Emit each notification and update derived state only after the success boundary that makes it true; derive caches, prompts, UI echoes, replay, and query views from one authoritative source.
 - **Apply bounds to the complete result.** Enforce byte, token, item, and time limits where the complete emitted or retained value, including wrappers and metadata, is known; test tiny and exact limits, oversized single chunks, and multibyte byte limits.
 - **Registry contributions prove disposal.** Add the HMR-safety test required by the [testing policy](../docs/testing.md): dispose the contributing fiber and observe removal.
-- **Every package owns executable invariants.** Publish `./invariant`, register its manifest name, and enforce a runtime contract with the bound reporter; generated, empty, and reporter-free installers fail `verify-package-invariants` ([rationale](../.agents/notes/implemented/architecture/2026-07-19-package-invariant-runtime-contracts.md)).
+- **Every package owns an explicit invariant companion.** Publish `./invariant` and register its manifest name. Check observable event or mutable-data relationships; when none exists, keep an empty installer with a package-specific `No runtime invariant:` explanation instead of inventing an API-shape assertion. Generated companions, unexplained empties, and non-empty installers that ignore the reporter fail `verify-package-invariants` ([rationale](../.agents/notes/implemented/architecture/2026-07-19-package-invariant-runtime-contracts.md)).
 
 Naming notes:
 

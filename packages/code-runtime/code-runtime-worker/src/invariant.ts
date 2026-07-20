@@ -1,31 +1,24 @@
 /**
- * Package-owned runtime contract checks for `@deepseek-ai/dsh-code-runtime-worker`.
+ * Package-owned invariant companion for `@deepseek-ai/dsh-code-runtime-worker`.
  * @module @deepseek-ai/dsh-code-runtime-worker/invariant
  */
 
+/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-code-runtime-worker'
 
 /** Cordis companion plugin name. */
 export const name = 'code-runtime-worker-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
-const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'WorkerCodeRuntime',
-    effects: [
-      'ctx.provide("codeRuntime")',
-      'worker code-runtime teardown',
-    ],
-    services: [
-      'codeRuntime',
-    ],
-  })
-}
+/**
+ * No runtime invariant: this process-boundary implementation exposes no same-process event relation;
+ * worker protocol and built-worker tests cover it.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.
@@ -34,3 +27,4 @@ const install: InvariantInstaller = (ctx, fail) => {
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */

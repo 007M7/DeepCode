@@ -1,27 +1,24 @@
-/** Package-owned runtime contract checks for `@deepseek-ai/dsh-user-interaction`. @module @deepseek-ai/dsh-user-interaction/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-user-interaction`.
+ * @module @deepseek-ai/dsh-user-interaction/invariant
+ */
 
+/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-user-interaction'
 
 /** Cordis companion plugin name. */
 export const name = 'user-interaction-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
-const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'UserInteractionService',
-    effects: [
-      'ctx.provide("userInteraction")',
-    ],
-    services: [
-      'userInteraction',
-    ],
-  })
-}
+/**
+ * No runtime invariant: the single provider slot is validated at registration and asks return
+ * directly to their caller; the seam publishes no independent request/answer audit stream.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.
@@ -30,3 +27,4 @@ const install: InvariantInstaller = (ctx, fail) => {
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */

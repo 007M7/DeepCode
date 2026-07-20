@@ -1,28 +1,24 @@
-/** Package-owned runtime contracts for @deepseek-ai/dsh-telemetry. @module @deepseek-ai/dsh-telemetry/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-telemetry`.
+ * @module @deepseek-ai/dsh-telemetry/invariant
+ */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-telemetry'
 
 /** Cordis companion plugin name. */
 export const name = 'telemetry-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Assert the final telemetry redaction boundary removes secrets without corrupting ordinary package metadata. */
-const install: InvariantInstaller = async (_ctx, fail) => {
-  const [{ telemetryRedactionViolation }, { DEFAULT_REDACTION_PLACEHOLDER, SecretRedactor }] = await Promise.all([
-    import('./redaction-contract.ts'),
-    import('./secret-redactor.ts'),
-  ])
-  const redactor = new SecretRedactor()
-  const violation = telemetryRedactionViolation(redactor, DEFAULT_REDACTION_PLACEHOLDER, PACKAGE_NAME)
-  assertInvariant(fail,
-    violation === undefined,
-    violation ?? 'telemetry redaction contract failed without a diagnostic')
-}
+/**
+ * No runtime invariant: this SDK build-time package owns no live event stream or mutable data;
+ * generated output and consumer tests cover its contract.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.

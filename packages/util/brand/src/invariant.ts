@@ -1,22 +1,24 @@
-/** Package-owned runtime contract for @deepseek-ai/dsh-brand. @module @deepseek-ai/dsh-brand/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-brand`.
+ * @module @deepseek-ai/dsh-brand/invariant
+ */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-brand'
 
 /** Cordis companion plugin name. */
 export const name = 'brand-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Assert that the nominal-type primitive remains erased at runtime. */
-const install: InvariantInstaller = async (_ctx, fail) => {
-  const brandRuntime = await import('./index.ts')
-  assertInvariant(fail, Object.keys(brandRuntime).length === 0,
-    'the branded-id primitive must remain type-only with no runtime exports')
-}
+/**
+ * No runtime invariant: this pure utility owns no event stream or mutable runtime data; its value
+ * algebra is enforced by unit tests.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.

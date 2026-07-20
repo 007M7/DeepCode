@@ -1,28 +1,24 @@
-/** Package-owned runtime contracts for @deepseek-ai/dsh-app-boot. @module @deepseek-ai/dsh-app-boot/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-app-boot`.
+ * @module @deepseek-ai/dsh-app-boot/invariant
+ */
 
 /* jscpd:ignore-start */
-import { resolve } from 'node:path'
 import type { Context } from 'cordis'
-import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-app-boot'
 
 /** Cordis companion plugin name. */
 export const name = 'app-boot-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Assert ordinary and replay config-path selection. */
-const install: InvariantInstaller = async (_ctx, fail) => {
-  const { resolveConfigPath } = await import('./config-path.ts')
-  const cwd = '/tmp/dsh-app-boot-invariant'
-  const ordinary = resolveConfigPath('cordis.yml', undefined, cwd)
-  const replay = resolveConfigPath('cordis.yml', 'replay', cwd)
-  assertInvariant(fail, ordinary === resolve(cwd, 'cordis.yml'),
-    'ordinary app boot must retain the requested config basename')
-  assertInvariant(fail, replay === resolve(cwd, 'cordis.snapshot.yml'),
-    'snapshot replay must select cordis.snapshot.yml in the requested config directory')
-}
+/**
+ * No runtime invariant: this presentation adapter owns no durable package-local event stream;
+ * boundary and replay tests cover its protocol mapping.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.

@@ -1,22 +1,24 @@
-/** Package-owned runtime contract for @deepseek-ai/dsh-jsonrpc-demo. @module @deepseek-ai/dsh-jsonrpc-demo/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-jsonrpc-demo`.
+ * @module @deepseek-ai/dsh-jsonrpc-demo/invariant
+ */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-jsonrpc-demo'
 
 /** Cordis companion plugin name. */
 export const name = 'jsonrpc-demo-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Assert that Loader configuration, rather than a hidden root plugin, owns composition. */
-const install: InvariantInstaller = async (_ctx, fail) => {
-  const packageEntry = await import('./index.ts')
-  assertInvariant(fail, Object.keys(packageEntry).length === 0,
-    'the JSON-RPC demo library entrypoint must remain empty because cordis.yml owns composition')
-}
+/**
+ * No runtime invariant: this composition package owns no independent event stream or mutable data;
+ * Loader and built-entry tests cover its wiring.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.

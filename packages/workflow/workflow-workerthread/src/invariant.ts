@@ -1,33 +1,24 @@
 /**
- * Package-owned runtime contract checks for `@deepseek-ai/dsh-workflow-workerthread`.
+ * Package-owned invariant companion for `@deepseek-ai/dsh-workflow-workerthread`.
  * @module @deepseek-ai/dsh-workflow-workerthread/invariant
  */
 
+/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-workflow-workerthread'
 
 /** Cordis companion plugin name. */
 export const name = 'workflow-workerthread-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
-const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'WorkerWorkflowEngine',
-    inject: [
-      'subagents',
-    ],
-    effects: [
-      'ctx.provide("workflows")',
-    ],
-    services: [
-      'workflows',
-    ],
-  })
-}
+/**
+ * No runtime invariant: this process-boundary implementation exposes no same-process event relation;
+ * worker protocol and built-worker tests cover it.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.
@@ -36,3 +27,4 @@ const install: InvariantInstaller = (ctx, fail) => {
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */

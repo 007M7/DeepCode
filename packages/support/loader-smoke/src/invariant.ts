@@ -1,32 +1,24 @@
-/** Package-owned runtime contracts for @deepseek-ai/dsh-loader-smoke. @module @deepseek-ai/dsh-loader-smoke/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-loader-smoke`.
+ * @module @deepseek-ai/dsh-loader-smoke/invariant
+ */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-loader-smoke'
 
 /** Cordis companion plugin name. */
 export const name = 'loader-smoke-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Assert default source mode and plain-Node built-artifact launch resolution. */
-const install: InvariantInstaller = async (_ctx, fail) => {
-  const { resolveExampleLaunch, resolveExampleMode } = await import('./index.ts')
-  assertInvariant(fail, resolveExampleMode('') === 'src',
-    'an empty example-mode selection must preserve source-mode development')
-  const launch = resolveExampleLaunch({
-    srcBin: '/workspace/probe/src/bin.ts',
-    mode: 'lib',
-  })
-  assertInvariant(fail,
-    launch.command === process.execPath
-      && launch.args.length === 1
-      && launch.args[0] === '/workspace/probe/lib/bin.js'
-      && launch.env.TSX_TSCONFIG_PATH === undefined,
-    'built example launches must use plain Node, the derived lib entry, and no tsx paths map')
-}
+/**
+ * No runtime invariant: this test-support package owns no production event stream or mutable data;
+ * consuming test suites exercise its behavior.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.

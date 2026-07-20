@@ -18,7 +18,7 @@ Status: implemented
 
 `@deepseek-ai/dsh-invariants` 是与产品无关的 Cordis 服务插件，注册 `ctx.invariants`。它只负责配置、注册唯一性、子 fiber 生命周期和带包归属的失败；不导入 session、agent、scope 或 agent-loop 包，也不包含这些包的检查。
 
-工作区内的每个包都发布 `./invariant` 伴随插件，注册自己完整且准确的 npm 包名，并安装可执行的包专属契约。后续的[运行时契约 Agent Note](2026-07-19-package-invariant-runtime-contracts.md) 禁止生成的仅声明所有权 installer。包的根入口不会隐式导入或注册诊断，因此加载根包不会改变运行时检查，也不要求不变式服务存在。
+工作区内的每个包都发布 `./invariant` 伴随插件，注册自己完整且准确的 npm 包名。如果所有者具备有意义的事件或可变数据关系，companion 就检查该关系；否则空 installer 必须携带该所有者专属的说明。后续的[运行时契约 Agent Note](2026-07-19-package-invariant-runtime-contracts.md) 禁止生成的所有权占位符和合成 API 形状断言。包的根入口不会隐式导入或注册诊断，因此加载根包不会改变运行时检查，也不要求不变式服务存在。
 
 ### 配置与选择
 
@@ -55,7 +55,7 @@ blocklist 匹配优先于 allowlist 匹配。每个条目都是区分大小写�
 
 原有函数式插件入口与单参数 `InvariantError` 构造函数不作为兼容表面保留。仓库尚未发布，所有调用方会一起迁移到服务和带包归属的错误。
 
-### 有状态伴随插件与完整所有权
+### 首批有状态伴随插件与完整所有权
 
 | 伴随入口 | 注册名 | 所属检查 |
 |---|---|---|
@@ -64,9 +64,9 @@ blocklist 匹配优先于 allowlist 匹配。每个条目都是区分大小写�
 | `@deepseek-ai/dsh-scope/invariant` | `@deepseek-ai/dsh-scope` | scoped event carrier 存在性与主体一致性 |
 | `@deepseek-ai/dsh-agent-loop/invariant` | `@deepseek-ai/dsh-agent-loop` | 模型请求重建 |
 
-这四个所有者保存有状态检查与聚焦测试。其他所有者检查自己的插件 fiber 与 effect、结构化服务实现或稳定的纯库代数。每个伴随入口都是单独打包的 `./invariant` export，具有独立声明和对 Loader 安全的命名空间插件形态；服务包自身的伴随插件导入本地服务类型，避免形成自依赖。
+这四个所有者提供了首批有状态检查。后续运行时契约决策为另外十四个确有事件或可变数据关系的所有者增加检查，并为其余包记录有理由的空 companion。每个伴随入口都是单独打包的 `./invariant` export，具有独立声明和对 Loader 安全的命名空间插件形态；服务包自身的伴随插件导入本地服务类型，避免形成自依赖。
 
-`verify-package-invariants` 会发现每个工作区包，并拒绝缺失的伴随插件源码、生成标记、空 installer、不使用失败报告器的 installer、外部或无法解析的注册名、缺失的 `./invariant` export 或发布文件、缺失的不变式对等依赖（peer dependency）、开发依赖及项目引用，以及遗漏伴随入口的自定义构建配置。
+`verify-package-invariants` 会发现每个工作区包，并拒绝缺失的伴随插件源码、生成标记、没有解释的空 installer、缺少或不使用失败报告器的非空 installer、外部或无法解析的注册名、缺失的 `./invariant` export 或发布文件、缺失的不变式对等依赖（peer dependency）、开发依赖及项目引用，以及遗漏伴随入口的自定义构建配置。
 
 ### Scoped event 语义映射
 
@@ -80,7 +80,7 @@ Workspace 约束识别独立的不变式 bundle；包 exports、项目引用、�
 
 ## 测试
 
-服务测试覆盖默认值、全局关闭、allow/block 选择、blocklist 优先级、锚定与非锚定匹配、大小写敏感、无效配置、零匹配模式、延迟注册、重复所有权、dispose、回滚和 HMR 重新注册。所有者测试把各不变式的正向与负向行为保留在其源码旁边。
+服务测试覆盖默认值、全局关闭、allow/block 选择、blocklist 优先级、锚定与非锚定匹配、大小写敏感、无效配置、零匹配模式、延迟注册、重复所有权、dispose、回滚和 HMR 重新注册。具备可执行检查的所有者会把正向与负向行为保留在 companion 源码旁边。
 
 组合测试覆盖标准 spine 转发和生成的 SDK 条目。Loader 测试固定每个伴随命名空间，构建后的纯 Node smoke 覆盖编译子路径 export。scoped event 新鲜度门禁会重新执行语义 Program 分析。
 
@@ -96,10 +96,10 @@ Workspace 约束识别独立的不变式 bundle；包 exports、项目引用、�
 ## 后果
 
 - 产品包拥有并测试自己的关系断言，服务保持与产品无关。
-- 每个包都要承担可执行不变式伴随插件带来的发布、依赖与运行时检查成本。
+- 每个包都承担 companion 的发布与依赖成本；只有具备有意义运行时关系的所有者才增加 listener 或 trace 状态成本。
 - 标准组合无需改变插件树即可关闭全部检查或按包名选择。
 - 显式伴随条目让诊断成本和所有权在 Cordis 配置与包 export 中可见。
-- 每个选中贡献增加一个子 fiber 及其监听器和状态成本；被过滤注册只保留包名占用。
+- 每个选中的可执行贡献增加一个子 fiber 及其 listener/状态成本；选中的空贡献不增加 listener 或 trace 状态成本，被过滤注册则只保留包名占用。
 - 正则表达式源属于部署配置，在服务重载前保持固定。
 - 普通 Vitest 根上下文会安装当前测试包中被选中的伴随插件；一个完整拓扑只支付一次全部子 fiber 成本，用于覆盖整个仓库的注册。
 - 会话存储验证、快照、冻结、provenance 与 surface 接受规则始终启用，不受不变式选择影响。

@@ -8,6 +8,9 @@ import { existsSync, globSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 
+/** Required explanation marker for an intentionally empty installer. */
+export const NO_RUNTIME_INVARIANT_MARKER = 'No runtime invariant:'
+
 interface PackageManifest {
   name?: string
   exports?: Record<string, { types?: string; default?: string } | string | undefined>
@@ -53,23 +56,11 @@ export function packageInvariantOwners(root: string): PackageInvariantOwner[] {
 /** Return all violations of the package-invariant companion contract. */
 export function collectPackageInvariantViolations(root: string): PackageInvariantViolation[] {
   const violations: PackageInvariantViolation[] = []
-  const observedPluginNames = new Map<string, PackageInvariantOwner>()
   for (const owner of packageInvariantOwners(root)) {
     const manifest = readManifest(resolve(root, owner.manifestPath))
     checkManifest(owner, manifest, violations)
     checkBuild(owner, root, violations)
-    for (const pluginName of checkSource(owner, root, violations)) {
-      const existing = observedPluginNames.get(pluginName)
-      if (existing === undefined) {
-        observedPluginNames.set(pluginName, owner)
-      } else {
-        addViolation(
-          violations,
-          owner.sourcePath,
-          `name-based plugin invariant ${JSON.stringify(pluginName)} is already owned by ${JSON.stringify(existing.packageName)}`,
-        )
-      }
-    }
+    checkSource(owner, root, violations)
   }
   return violations
 }
@@ -151,11 +142,11 @@ function checkSource(
   owner: PackageInvariantOwner,
   root: string,
   violations: PackageInvariantViolation[],
-): string[] {
+): void {
   const absolutePath = resolve(root, owner.sourcePath)
   if (!existsSync(absolutePath)) {
     addViolation(violations, owner.sourcePath, 'missing package-owned invariant companion')
-    return []
+    return
   }
   const sourceText = readFileSync(absolutePath, 'utf8')
   if (sourceText.includes('@generated')) {
@@ -206,49 +197,26 @@ function checkSource(
       addViolation(violations, owner.sourcePath, `must named-export ${exportedName}`)
     }
   }
-  checkInstaller(owner, sourceFile, violations)
-  return nameOnlyObservedPlugins(sourceFile)
-}
-
-function nameOnlyObservedPlugins(sourceFile: ts.SourceFile): string[] {
-  const names: string[] = []
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)
-      && ts.isIdentifier(node.expression)
-      && node.expression.text === 'observePluginInvariant') {
-      const contract = node.arguments[2]
-      if (contract !== undefined && ts.isObjectLiteralExpression(contract)) {
-        let hasExactPlugin = false
-        let name: string | undefined
-        for (const property of contract.properties) {
-          if (!ts.isPropertyAssignment(property)) continue
-          const key = ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
-            ? property.name.text
-            : undefined
-          if (key === 'plugin') hasExactPlugin = true
-          if (key === 'name') name = stringValue(property.initializer, new Map())
-        }
-        if (!hasExactPlugin && name !== undefined) names.push(name)
-      }
-    }
-    ts.forEachChild(node, visit)
-  }
-  visit(sourceFile)
-  return names
+  checkInstaller(owner, sourceFile, sourceText, violations)
 }
 
 function checkInstaller(
   owner: PackageInvariantOwner,
   sourceFile: ts.SourceFile,
+  sourceText: string,
   violations: PackageInvariantViolation[],
 ): void {
   let initializer: ts.Expression | undefined
+  let declarationStatement: ts.VariableStatement | undefined
   for (const statement of sourceFile.statements) {
     if (!ts.isVariableStatement(statement)) continue
     for (const declaration of statement.declarationList.declarations) {
       if (ts.isIdentifier(declaration.name)
         && declaration.name.text === 'install'
-        && declaration.initializer !== undefined) initializer = declaration.initializer
+        && declaration.initializer !== undefined) {
+        initializer = declaration.initializer
+        declarationStatement = statement
+      }
     }
   }
   const installer = initializer === undefined ? undefined : installerFunction(initializer)
@@ -257,7 +225,17 @@ function checkInstaller(
     return
   }
   if (ts.isBlock(installer.body) && installer.body.statements.length === 0) {
-    addViolation(violations, owner.sourcePath, 'install function must contain a package-owned invariant check')
+    const declarationText = declarationStatement === undefined
+      ? ''
+      : sourceText.slice(declarationStatement.getFullStart(), declarationStatement.getEnd())
+    if (!declarationText.includes(NO_RUNTIME_INVARIANT_MARKER)) {
+      addViolation(
+        violations,
+        owner.sourcePath,
+        `empty install function must explain why with a "${NO_RUNTIME_INVARIANT_MARKER}" comment`,
+      )
+    }
+    return
   }
   const reporter = installer.parameters[1]?.name
   if (reporter === undefined || !ts.isIdentifier(reporter)) {

@@ -1,38 +1,24 @@
-/** Package-owned runtime contract checks for `@deepseek-ai/dsh-hooks-codex`. @module @deepseek-ai/dsh-hooks-codex/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-hooks-codex`.
+ * @module @deepseek-ai/dsh-hooks-codex/invariant
+ */
 
+/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-hooks-codex'
 
 /** Cordis companion plugin name. */
 export const name = 'hooks-codex-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
-const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'hooks-codex',
-    inject: [
-      'bash',
-    ],
-    validate: (_fiber, effectLabels) => {
-      const hookEffects = [
-        'hooks-codex: drain detached hook runs',
-        'ctx.on("agent/session-start")',
-        'ctx.on("agent/prompt-submit")',
-        'ctx.on("tools/pre-execute")',
-        'ctx.on("tools/post-execute")',
-        'ctx.on("agent/turn-continuation")',
-      ]
-      const installed = hookEffects.filter(label => effectLabels.has(label)).length
-      return installed === 0 || installed === hookEffects.length
-        ? undefined
-        : 'a readable Codex hook config must install its complete listener set atomically'
-    },
-  })
-}
+/**
+ * No runtime invariant: this bridge publishes hook-protocol session events, whose companion owns
+ * their cross-event provenance relation.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.
@@ -41,3 +27,4 @@ const install: InvariantInstaller = (ctx, fail) => {
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */

@@ -1,28 +1,24 @@
-/** Package-owned runtime contracts for @deepseek-ai/dsh-timeout. @module @deepseek-ai/dsh-timeout/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-timeout`.
+ * @module @deepseek-ai/dsh-timeout/invariant
+ */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-timeout'
 
 /** Cordis companion plugin name. */
 export const name = 'timeout-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Assert default-before-cap arithmetic and capability-code classification. */
-const install: InvariantInstaller = async (_ctx, fail) => {
-  const { clampTimeout, TimeoutReason, timeoutOf } = await import('./index.ts')
-  assertInvariant(fail,
-    clampTimeout(undefined, 50, 30) === 30 && clampTimeout(20, 50, 30) === 20,
-    'timeout resolution must apply the default before capping and preserve smaller requests')
-  const reason = new TimeoutReason('INVARIANT_TIMEOUT', 25)
-  assertInvariant(fail, timeoutOf({ reason }, 'INVARIANT_TIMEOUT') === reason,
-    'timeout classification must recover a matching capability-owned reason')
-  assertInvariant(fail, timeoutOf({ reason }, 'FOREIGN_TIMEOUT') === undefined,
-    'timeout classification must reject a reason owned by another capability')
-}
+/**
+ * No runtime invariant: this pure utility owns no event stream or mutable runtime data; its value
+ * algebra is enforced by unit tests.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.

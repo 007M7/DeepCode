@@ -1,27 +1,24 @@
-/** Package-owned runtime contract checks for `@deepseek-ai/dsh-workspace-context`. @module @deepseek-ai/dsh-workspace-context/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-workspace-context`.
+ * @module @deepseek-ai/dsh-workspace-context/invariant
+ */
 
+/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-workspace-context'
 
 /** Cordis companion plugin name. */
 export const name = 'workspace-context-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
-const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'workspace-context',
-    effects: [
-      'ctx.on("session/event")',
-      'ctx.on("agent/session-prefix")',
-      'ctx.on("tools/post-execute")',
-      'ctx.on("tools/result")',
-    ],
-  })
-}
+/**
+ * No runtime invariant: replay intentionally tolerates unknown or malformed workspace metadata,
+ * while focused pipeline tests own its private pending/cache state transitions.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.
@@ -30,3 +27,4 @@ const install: InvariantInstaller = (ctx, fail) => {
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */

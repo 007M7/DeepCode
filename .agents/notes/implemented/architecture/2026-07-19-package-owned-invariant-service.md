@@ -18,7 +18,7 @@ Package ownership must also be exhaustive. Without a mechanical repository rule,
 
 `@deepseek-ai/dsh-invariants` is a product-independent Cordis service plugin that registers `ctx.invariants`. It owns configuration, registration uniqueness, child-fiber lifecycle, and package-attributed failures. It imports no session, agent, scope, or agent-loop package and contains none of their checks.
 
-Every workspace package publishes a `./invariant` companion plugin that registers its exact full npm name and installs an executable package-specific contract. Generated ownership-only installers are forbidden by the follow-up [runtime-contract Agent Note](2026-07-19-package-invariant-runtime-contracts.md). Package root entrypoints do not import or register diagnostics implicitly, so loading a root package does not change runtime checking or require the invariant service.
+Every workspace package publishes a `./invariant` companion plugin that registers its exact full npm name. A companion checks a meaningful event or mutable-data relationship when its owner has one; otherwise it carries an owner-specific explanation for its empty installer. Generated ownership placeholders and synthetic API-shape assertions are forbidden by the follow-up [runtime-contract Agent Note](2026-07-19-package-invariant-runtime-contracts.md). Package root entrypoints do not import or register diagnostics implicitly, so loading a root package does not change runtime checking or require the invariant service.
 
 ### Configuration and selection
 
@@ -55,7 +55,7 @@ Registration setup is transactional. If an installer fails after registering lis
 
 The former functional-plugin entrypoint and one-argument `InvariantError` constructor are not retained as compatibility surfaces. The repository is pre-release and all call sites move to the service and package-attributed error together.
 
-### Stateful companions and exhaustive ownership
+### Initial stateful companions and exhaustive ownership
 
 | Companion entry | Registration name | Owned checks |
 |---|---|---|
@@ -64,9 +64,9 @@ The former functional-plugin entrypoint and one-argument `InvariantError` constr
 | `@deepseek-ai/dsh-scope/invariant` | `@deepseek-ai/dsh-scope` | scoped-event carrier presence and subject consistency |
 | `@deepseek-ai/dsh-agent-loop/invariant` | `@deepseek-ai/dsh-agent-loop` | model-request reconstruction |
 
-These four owners contain stateful checks and focused tests. Other owners check their plugin fibers and effects, structural service implementations, or stable pure-library algebra. Every companion is a separately bundled `./invariant` export with its own declarations and Loader-safe namespace plugin shape; the service package's own companion imports its local service type to avoid a self-dependency.
+These four owners supplied the initial stateful checks. The follow-up runtime-contract decision adds checks for fourteen more owners with real event or mutable-data relationships and records justified empty companions for the rest. Every companion is a separately bundled `./invariant` export with its own declarations and Loader-safe namespace plugin shape; the service package's own companion imports its local service type to avoid a self-dependency.
 
-`verify-package-invariants` discovers every workspace package and rejects missing companion source, generated markers, empty or reporter-free installers, foreign or unresolved registration names, missing `./invariant` exports or published files, missing invariant peer/development dependencies and project references, and bundle overrides that omit the companion entry.
+`verify-package-invariants` discovers every workspace package and rejects missing companion source, generated markers, unexplained empty installers, non-empty installers that omit or ignore the reporter, foreign or unresolved registration names, missing `./invariant` exports or published files, missing invariant peer/development dependencies and project references, and bundle overrides that omit the companion entry.
 
 ### Scoped-event semantic map
 
@@ -80,7 +80,7 @@ Workspace constraints recognize the separate invariant bundle, and package expor
 
 ## Testing
 
-Service tests cover defaults, global disablement, allow/block selection, blocklist precedence, anchoring, unanchored matching, case sensitivity, invalid configuration, zero-match patterns, late registration, duplicate ownership, disposal, rollback, and HMR re-registration. Owner tests keep each invariant's positive and negative behavior beside its source.
+Service tests cover defaults, global disablement, allow/block selection, blocklist precedence, anchoring, unanchored matching, case sensitivity, invalid configuration, zero-match patterns, late registration, duplicate ownership, disposal, rollback, and HMR re-registration. Owners with executable checks keep positive and negative behavior beside the companion source.
 
 Composition tests cover standard-spine forwarding and generated SDK entries. Loader tests preserve each companion namespace, while built plain-Node smokes exercise the compiled subpath exports. The scoped-event freshness gate reruns its semantic Program analysis.
 
@@ -96,10 +96,10 @@ Every Vitest configuration loads a test host that mounts an explicitly enabled s
 ## Consequences
 
 - Product packages own and test their relational assertions while the service stays product-independent.
-- Every package pays the publication, dependency, and runtime-check cost of an executable invariant companion.
+- Every package pays the publication and dependency cost of a companion; only owners with a meaningful runtime relationship add listener or trace-state cost.
 - Standard compositions can disable all checks or select package names without changing their plugin tree.
 - Explicit companion entries make diagnostic cost and ownership visible in Cordis config and package exports.
-- One selected contribution adds one child fiber and its listener/state cost; filtered registrations retain only name ownership.
+- One selected executable contribution adds one child fiber and its listener/state cost; a selected empty contribution has no listener or trace-state cost, while filtered registrations retain only name ownership.
 - Regex sources are deployment configuration and remain fixed until the service reloads.
 - Ordinary Vitest roots install the owning test package's selected companion; one exhaustive topology pays the full child-fiber cost once for repository-wide registration coverage.
 - Session storage validation, snapshotting, freezing, provenance, and surface acceptance remain always on and are not affected by invariant selection.

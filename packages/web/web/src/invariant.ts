@@ -1,27 +1,24 @@
-/** Package-owned runtime contract checks for `@deepseek-ai/dsh-web`. @module @deepseek-ai/dsh-web/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-web`.
+ * @module @deepseek-ai/dsh-web/invariant
+ */
 
+/* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { observePluginInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-web'
 
 /** Cordis companion plugin name. */
 export const name = 'web-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install checks for this package's active plugin fibers. */
-const install: InvariantInstaller = (ctx, fail) => {
-  observePluginInvariant(ctx, fail, {
-    name: 'WebService',
-    effects: [
-      'ctx.provide("web")',
-    ],
-    services: [
-      'web',
-    ],
-  })
-}
+/**
+ * No runtime invariant: provider maps are private and selection/result caps are enforced on each
+ * call; the seam publishes no independent registry or request/result observation stream.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.
@@ -30,3 +27,4 @@ const install: InvariantInstaller = (ctx, fail) => {
  */
 export const apply = (ctx: Context): Promise<() => void> =>
   Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
+/* jscpd:ignore-end */

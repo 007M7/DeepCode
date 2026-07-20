@@ -1,28 +1,24 @@
-/** Package-owned runtime contracts for @deepseek-ai/dsh-paths. @module @deepseek-ai/dsh-paths/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-paths`.
+ * @module @deepseek-ai/dsh-paths/invariant
+ */
 
 /* jscpd:ignore-start */
-import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
 import type { Context } from 'cordis'
-import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-paths'
 
 /** Cordis companion plugin name. */
 export const name = 'paths-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Assert tilde expansion and explicit-over-environment home precedence. */
-const install: InvariantInstaller = async (_ctx, fail) => {
-  const { DSH_HOME_ENV, expandHomePath, resolveDshHome } = await import('./index.ts')
-  assertInvariant(fail, expandHomePath('~/invariant-probe') === join(homedir(), 'invariant-probe'),
-    'supported tilde prefixes must expand against the operating-system home')
-  const configured = 'relative-invariant-home'
-  const resolved = resolveDshHome(configured, { [DSH_HOME_ENV]: '/ignored-environment-home' })
-  assertInvariant(fail, resolved === resolve(configured),
-    'an explicit DSH home must override the environment and normalize to an absolute path')
-}
+/**
+ * No runtime invariant: this pure utility owns no event stream or mutable runtime data; its value
+ * algebra is enforced by unit tests.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.

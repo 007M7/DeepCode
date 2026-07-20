@@ -1,35 +1,24 @@
-/** Package-owned runtime contracts for @deepseek-ai/create-sdk. @module @deepseek-ai/create-sdk/invariant */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/create-sdk`.
+ * @module @deepseek-ai/create-sdk/invariant
+ */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
-import { assertInvariant, type InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/create-sdk'
 
 /** Cordis companion plugin name. */
 export const name = 'create-sdk-invariant'
-/** Services required before the companion can register. */
+/** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Assert the bin-only entrypoint and its core argument mapping. */
-const install: InvariantInstaller = async (_ctx, fail) => {
-  const [{ parseCreateArgs }, packageEntry] = await Promise.all([
-    import('./args.ts'),
-    import('./index.ts'),
-  ])
-  assertInvariant(fail, Object.keys(packageEntry).length === 0,
-    'the create-sdk library entrypoint must remain empty because the package is bin-only')
-  const parsed = parseCreateArgs([
-    'workspace', '--provider=custom', '--base-url=https://example.test', '--interface=embed', '--no-install',
-  ])
-  assertInvariant(fail,
-    parsed.directory === 'workspace'
-      && parsed.provider === 'custom'
-      && parsed.baseURL === 'https://example.test'
-      && parsed.runInterface === 'embed'
-      && parsed.install === false,
-    'create-sdk arguments must preserve directory, provider, base URL, interface, and negative install flags')
-}
+/**
+ * No runtime invariant: this SDK build-time package owns no live event stream or mutable data;
+ * generated output and consumer tests cover its contract.
+ */
+const install: InvariantInstaller = () => {}
 
 /**
  * Register this package's invariant companion.

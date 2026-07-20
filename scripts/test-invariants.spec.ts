@@ -72,10 +72,24 @@ describe('global test invariant host', () => {
   it('limits manual composition to focused invariant topology tests', () => {
     expect(MANUAL_INVARIANT_TESTS).toEqual([
       '/packages/support/invariants/tests/service.spec.ts',
+      '/packages/bash/bash/tests/invariant.spec.ts',
+      '/packages/compact/compact/tests/invariant.spec.ts',
+      '/packages/context/time-context/tests/invariant.spec.ts',
       '/packages/core/session/tests/invariant.spec.ts',
       '/packages/core/agent/tests/invariant.spec.ts',
       '/packages/core/scope/tests/invariant.spec.ts',
       '/packages/core/agent-loop/tests/invariant.spec.ts',
+      '/packages/core/system-prompt/tests/invariant.spec.ts',
+      '/packages/core/tools/tests/invariant.spec.ts',
+      '/packages/fs/fs/tests/invariant.spec.ts',
+      '/packages/hooks/hook-protocol/tests/invariant.spec.ts',
+      '/packages/llm/llm/tests/invariant.spec.ts',
+      '/packages/subagent/subagent/tests/invariant.spec.ts',
+      '/packages/tasks/tasks/tests/invariant.spec.ts',
+      '/packages/todo/tool-todo/tests/invariant.spec.ts',
+      '/packages/ui/permission/tests/invariant.spec.ts',
+      '/packages/ui/user-approval/tests/invariant.spec.ts',
+      '/packages/workflow/workflow/tests/invariant.spec.ts',
       '/packages/examples/agent-spine-demo/tests/agent-core.spec.ts',
     ])
   })
