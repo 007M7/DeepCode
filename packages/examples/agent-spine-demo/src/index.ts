@@ -28,6 +28,7 @@ import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as toolTasks from '@deepseek-ai/dsh-tool-tasks'
 import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agent-loop'
+import * as llmRetry from '@deepseek-ai/dsh-llm-retry'
 import { resolveDshHome } from '@deepseek-ai/dsh-home'
 
 export const name = 'agent-spine-demo'
@@ -60,8 +61,9 @@ export interface GoalConfig {
  * order), the `tools` object to the tool registry (its presentation `mode`),
  * `dshHome` to bash environment and local skill discovery, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
- * workspace-context loader, and `toolBash`/`toolTasks` to the model-facing tool
- * plugins this bundle owns. `goals` opts into and configures the persisted goal
+ * workspace-context loader, `llmRetry` to the bounded request-recovery policy,
+ * and `toolBash`/`toolTasks` to the model-facing tool plugins this bundle owns.
+ * `goals` opts into and configures the persisted goal
  * domain plus its model tool and same-session driver. Owner schemas supply defaults for optional input;
  * workspace context instead requires an explicit byte budget or `false` because
  * it changes model-visible input. Producer opt-in stays producer-local:
@@ -91,6 +93,8 @@ export interface Config {
   toolTasks?: toolTasks.Config | false
   /** Opt-in persisted same-session goal stack; set false or omit to leave it unmounted. */
   goals?: GoalConfig | false
+  /** Bounded transient model-request retry policy. */
+  llmRetry?: llmRetry.Config
 }
 
 /** The skill config schema exported for app packages that forward `skills`. */
@@ -113,6 +117,9 @@ export const GoalConfigSchema: z<GoalConfig> = z.object({
   tool: toolGoal.Config,
 })
 
+/** The bounded LLM retry schema exported for app packages that forward `llmRetry`. */
+export const LlmRetryConfigSchema: z<llmRetry.Config> = llmRetry.Config
+
 /** Intersect the owners' schemas so validation + defaulting stay identical. */
 export const Config = z.intersect([
   AgentLoop.Config,
@@ -125,7 +132,8 @@ export const Config = z.intersect([
     toolBash: ToolBashConfigSchema,
     toolTasks: z.union([z.const(false), ToolTasksConfigSchema]),
     goals: z.union([z.const(false), GoalConfigSchema]),
-  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'goals'>>,
+    llmRetry: LlmRetryConfigSchema,
+  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'goals' | 'llmRetry'>>,
 ]) as unknown as z<Config>
 
 /**
@@ -145,6 +153,7 @@ export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'a
     ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
     ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
     ...config.goals !== undefined ? { goals: config.goals } : {},
+    ...config.llmRetry !== undefined ? { llmRetry: config.llmRetry } : {},
   }
 }
 
@@ -181,6 +190,7 @@ export function apply(ctx: Context, config: Config): void {
     ctx.plugin(SkillLocal, Object.assign({}, config.skills?.local, { dshHome }))
   }
   ctx.plugin(AgentRegistry)
+  ctx.plugin(llmRetry, config.llmRetry ?? {})
   if (config.goals !== undefined && config.goals !== false) {
     ctx.plugin(GoalService, config.goals.domain ?? {})
     ctx.plugin(toolGoal, config.goals.tool ?? {})

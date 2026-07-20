@@ -8,7 +8,8 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-llm'
-import { DeepSeekAdapter } from './adapter.ts'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, DeepSeekAdapter } from './adapter.ts'
 import type { DeepSeekCatalogModel } from './adapter.ts'
 
 export { DeepSeekAdapter } from './adapter.ts'
@@ -41,6 +42,8 @@ export interface Config {
   reasoningEffort?: 'high' | 'max'
   /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
   models?: DeepSeekCatalogModel[]
+  /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
+  streamIdleTimeoutMs?: number
 }
 
 const catalogModel: z<DeepSeekCatalogModel> = z.object({
@@ -55,6 +58,7 @@ export const Config: z<Config> = z.object({
   thinking: z.union(['enabled', 'disabled']),
   reasoningEffort: z.union(['high', 'max']),
   models: z.array(catalogModel).default(DEFAULT_MODELS),
+  streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
 })
 
 /** Public API default; the internal endpoint comes from $DEEPSEEK_BASE_URL. */
@@ -92,5 +96,6 @@ export function apply(ctx: Context, config: Config): void {
       reasoningEffort: config.reasoningEffort,
     },
     models: resolveModels(config.models),
+    streamIdleTimeoutMs: config.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   }))
 }

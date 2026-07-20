@@ -142,7 +142,7 @@ describe('deriveReplayScript', () => {
   it('keeps a finish-error chunk in the derived entry (replays naturally)', () => {
     const errChunks: StreamChunk[] = [
       { type: 'block-start', index: 0, blockType: 'text' },
-      { type: 'finish', reason: { kind: 'error', message: 'boom', code: 'X' } },
+      { type: 'finish', reason: { kind: 'error', failure: { message: 'boom', code: 'X' } } },
     ]
     const events = errChunks.map((c, i) => chunkEvent(i + 1, 1, 1, c))
     expect(deriveReplayScript(events)).toEqual([{ kind: 'chunks', chunks: errChunks }])

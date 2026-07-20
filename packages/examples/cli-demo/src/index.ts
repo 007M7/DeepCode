@@ -47,6 +47,8 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task control-tool config forwarded through agent-spine-demo. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Bounded transient model-request retry policy forwarded through agent-spine-demo. */
+  llmRetry?: NonNullable<agentCore.Config['llmRetry']>
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
 }
@@ -68,6 +70,7 @@ export const Config: z<Config> = z.object({
   tools: ToolRegistry.Config,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
+  llmRetry: agentCore.LlmRetryConfigSchema,
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
 /* jscpd:ignore-end */

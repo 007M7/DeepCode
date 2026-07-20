@@ -46,6 +46,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import type { ContentBlock, LlmCallConfig, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-llm-retry'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -564,7 +565,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     reason: TurnEndReason,
   ): void => {
     if (reason.kind === 'error') {
-      inflight.reject(internalError(`turn failed: ${reason.message}`))
+      inflight.reject(internalError(`turn failed: ${'failure' in reason ? reason.failure.message : reason.message}`))
     } else {
       inflight.resolve(turnEndToStopReason(reason))
     }
@@ -1176,6 +1177,7 @@ function validateMcpServers(params: { mcpServers?: unknown[] }): void {
  * identical update stream from the same event log.
  *
  * - `assistant/chunk` text-delta/reasoning-delta → message/thought chunks
+ * - `llm/retry` and terminal model failure → visible discarded-attempt markers
  * - `user/message` → `user_message_chunk` during load replay only — so a
  *   loaded transcript reconstructs the USER side of each turn without echoing
  *   a live `session/prompt` back to the client
@@ -1223,6 +1225,13 @@ export function streamSessionEventUpdate(
       }
       return
     }
+    case 'llm/retry': {
+      const text = '\n\n[Previous model attempt discarded; retrying '
+        + `${event.data.retry}/${event.data.maxRetries} in ${event.data.delayMs}ms: `
+        + `${event.data.failure.message}]\n\n`
+      notify({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } })
+      return
+    }
     case 'user/message': {
       if (!includeUserMessages) return
       // Replay the user's prompt so a loaded session shows both sides of each
@@ -1254,7 +1263,13 @@ export function streamSessionEventUpdate(
       notify({ sessionId, update: { sessionUpdate: 'plan', ...todosToPlan(event.data.todos) } })
       return
     }
-    // turn/step boundaries, context/message, steering,
+    case 'turn/end': {
+      if (event.data.reason.kind !== 'error' || !('failure' in event.data.reason)) return
+      const text = `\n\n[Model attempt failed; any partial output above is discarded: ${event.data.reason.failure.message}]\n\n`
+      notify({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } })
+      return
+    }
+    // non-error turn/step boundaries, context/message, steering,
     // assistant/message — no direct ACP client update.
     default:
       return

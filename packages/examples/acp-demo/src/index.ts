@@ -64,6 +64,8 @@ export interface Config {
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
   goals?: agentCore.GoalConfig | false
+  /** Bounded transient model-request retry policy forwarded through agent-core. */
+  llmRetry?: NonNullable<agentCore.Config['llmRetry']>
 }
 
 // Each front door owns a complete, directly readable config schema; extracting
@@ -87,6 +89,7 @@ export const Config: z<Config> = z.object({
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
   goals: z.union([z.const(false), agentCore.GoalConfigSchema]),
+  llmRetry: agentCore.LlmRetryConfigSchema,
 })
 /* jscpd:ignore-end */
 

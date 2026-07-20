@@ -6,7 +6,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalView } from '@deepseek-ai/dsh-goal'
-import { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -127,6 +127,10 @@ describe('goal-round outcome policy', () => {
     [{ kind: 'aborted' }, true, { kind: 'pause', reason: 'cancelled' }],
     [{ kind: 'error', step: 1, message: 'slow down', code: 'RATE_LIMIT' }, true,
       { kind: 'blocked', code: 'usage-limited', message: 'slow down' }],
+    [{ kind: 'error', step: 1, failure: { message: 'credits exhausted', code: 'QUOTA' } }, true,
+      { kind: 'blocked', code: 'usage-limited', message: 'credits exhausted' }],
+    [{ kind: 'error', step: 1, failure: { message: 'provider failed', code: 'SERVER' } }, true,
+      { kind: 'blocked', code: 'turn-error', message: 'provider failed' }],
     [{ kind: 'error', step: 1, message: 'broken' }, true,
       { kind: 'blocked', code: 'turn-error', message: 'broken' }],
     [{ kind: 'max-tokens' }, true,
@@ -228,7 +232,7 @@ describe('same-session goal driving', () => {
   })
 
   it.each([
-    ['rate limit', Object.assign(new Error('slow down'), { code: 'RATE_LIMIT' }), 'usage-limited'],
+    ['rate limit', new LlmError('slow down', 'RATE_LIMIT'), 'usage-limited'],
     ['request error', new Error('provider broke'), 'turn-error'],
     ['max tokens', maxTokensResponse('unfinished'), 'max-tokens'],
   ] as const)('stops after a %s without an automatic retry', async (_label, response, code) => {
