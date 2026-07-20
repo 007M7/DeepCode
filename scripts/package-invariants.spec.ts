@@ -101,4 +101,17 @@ export const apply = (ctx: { invariants: { register(name: string, install: () =>
     expect(collectPackageInvariantViolations(root).map(violation => violation.message))
       .toContain('generated baseline is stale; run pnpm run gen-package-invariants')
   })
+
+  it('rejects an unexplained empty package installer', () => {
+    const source = `
+export const name = 'probe-invariant'
+export const inject = ['invariants']
+const PACKAGE_NAME = '@deepseek-ai/dsh-probe'
+const install = () => {}
+export const apply = (ctx: { invariants: { register(name: string, install: () => void): () => void } }) =>
+  ctx.invariants.register(PACKAGE_NAME, install)
+`
+    expect(collectPackageInvariantViolations(fixture({ source })).map(violation => violation.message))
+      .toContain('empty install function must explain why with a "No runtime invariant:" comment')
+  })
 })

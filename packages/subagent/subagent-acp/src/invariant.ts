@@ -17,7 +17,7 @@ export const name = 'subagent-acp-invariant'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 
-/** Reserve this package's invariant ownership until it adds relational checks. */
+/** No runtime invariant: no package-owned event or mutable-data relation has been identified yet. */
 const install: InvariantInstaller = () => {}
 
 /**

@@ -11,6 +11,9 @@ import ts from 'typescript'
 /** Marker identifying baseline companions owned by this generator. */
 export const GENERATED_INVARIANT_MARKER = '@generated scripts/gen-package-invariants.ts'
 
+/** Required explanation marker for an intentionally empty installer. */
+export const NO_RUNTIME_INVARIANT_MARKER = 'No runtime invariant:'
+
 interface PackageManifest {
   name?: string
   exports?: Record<string, { types?: string; default?: string } | string | undefined>
@@ -78,7 +81,7 @@ export const name = '${pluginName}'
 /** Services required before the companion can register. */
 export const inject = ['invariants']
 
-/** Reserve this package's invariant ownership until it adds relational checks. */
+/** No runtime invariant: no package-owned event or mutable-data relation has been identified yet. */
 const install: InvariantInstaller = () => {}
 
 /**
@@ -237,6 +240,51 @@ function checkSource(
       addViolation(violations, owner.sourcePath, `must named-export ${exportedName}`)
     }
   }
+  checkEmptyInstallerReason(owner, sourceFile, sourceText, violations)
+}
+
+function checkEmptyInstallerReason(
+  owner: PackageInvariantOwner,
+  sourceFile: ts.SourceFile,
+  sourceText: string,
+  violations: PackageInvariantViolation[],
+): void {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)
+        || declaration.name.text !== 'install'
+        || declaration.initializer === undefined) continue
+      const installer = installerFunction(declaration.initializer)
+      if (installer === undefined
+        || !ts.isBlock(installer.body)
+        || installer.body.statements.length > 0) return
+      const declarationText = sourceText.slice(statement.getFullStart(), statement.getEnd())
+      if (!declarationText.includes(NO_RUNTIME_INVARIANT_MARKER)) {
+        addViolation(
+          violations,
+          owner.sourcePath,
+          `empty install function must explain why with a "${NO_RUNTIME_INVARIANT_MARKER}" comment`,
+        )
+      }
+      return
+    }
+  }
+}
+
+function installerFunction(
+  initializer: ts.Expression,
+): ts.ArrowFunction | ts.FunctionExpression | undefined {
+  if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) return initializer
+  if (ts.isCallExpression(initializer)
+    && ts.isPropertyAccessExpression(initializer.expression)
+    && ts.isIdentifier(initializer.expression.expression)
+    && initializer.expression.expression.text === 'Object'
+    && initializer.expression.name.text === 'assign') {
+    const target = initializer.arguments[0]
+    if (target !== undefined && (ts.isArrowFunction(target) || ts.isFunctionExpression(target))) return target
+  }
+  return undefined
 }
 
 function topLevelStringConstants(sourceFile: ts.SourceFile): ReadonlyMap<string, string> {

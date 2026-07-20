@@ -18,7 +18,7 @@ Package ownership must also be exhaustive. Without a mechanical repository rule,
 
 `@deepseek-ai/dsh-invariants` is a product-independent Cordis service plugin that registers `ctx.invariants`. It owns configuration, registration uniqueness, child-fiber lifecycle, and package-attributed failures. It imports no session, agent, scope, or agent-loop package and contains none of their checks.
 
-Every workspace package publishes a `./invariant` companion plugin that registers its exact full npm name. A package with no relational check uses a generated ownership-only installer: it reserves the name through the real service boundary but installs no listeners. Package root entrypoints do not import or register diagnostics implicitly, so loading a root package does not change runtime checking or require the invariant service.
+Every workspace package publishes a `./invariant` companion plugin that registers its exact full npm name. Checks protect observable relations in event streams or mutable runtime data; service method presence and plugin wiring are type, load, and repository-gate contracts rather than runtime invariants. A package with no plausible runtime relation uses an empty installer whose `No runtime invariant:` comment explains the absence instead of inventing a synthetic assertion. Package root entrypoints do not import or register diagnostics implicitly, so loading a root package does not change runtime checking or require the invariant service.
 
 ### Configuration and selection
 
@@ -64,9 +64,9 @@ The former functional-plugin entrypoint and one-argument `InvariantError` constr
 | `@deepseek-ai/dsh-scope/invariant` | `@deepseek-ai/dsh-scope` | scoped-event carrier presence and subject consistency |
 | `@deepseek-ai/dsh-agent-loop/invariant` | `@deepseek-ai/dsh-agent-loop` | model-request reconstruction |
 
-These four owners contain stateful checks and focused tests. Every other package carries a generated baseline companion until it gains a relational assertion. Every companion is a separately bundled `./invariant` export with its own declarations and Loader-safe namespace plugin shape; the service package's own companion imports its local service type to avoid a self-dependency.
+These four owners contain stateful checks and focused tests. Every other package carries a generated baseline companion until it gains a relational assertion or records why no runtime relation exists. Every companion is a separately bundled `./invariant` export with its own declarations and Loader-safe namespace plugin shape; the service package's own companion imports its local service type to avoid a self-dependency.
 
-`verify-package-invariants` discovers every workspace package and rejects missing or stale companion source, foreign or unresolved registration names, missing `./invariant` exports or published files, missing invariant peer/development dependencies and project references, and bundle overrides that omit the companion entry. The generator writes only missing or marked ownership baselines, so a package-owned implementation is never replaced.
+`verify-package-invariants` discovers every workspace package and rejects missing or stale companion source, foreign or unresolved registration names, unexplained empty installers, missing `./invariant` exports or published files, missing invariant peer/development dependencies and project references, and bundle overrides that omit the companion entry. The generator writes only missing or marked ownership baselines, so a package-owned implementation is never replaced.
 
 ### Scoped-event semantic map
 
@@ -91,12 +91,13 @@ Every Vitest configuration loads a test host that mounts an explicitly enabled s
 - **Keep all checks in `dsh-invariants`.** Rejected because the registry would continue importing every checked product domain, owner changes would require central edits, and package tests would remain detached from the contracts they protect.
 - **Let root package entrypoints register checks implicitly when `ctx.invariants` happens to exist.** Rejected because root behavior would depend on composition order and optional service presence, diagnostics could not be selected independently, and package loading would hide a registration effect outside an explicit companion.
 - **Discover every `invariant.ts` file automatically at runtime.** Rejected because filesystem/package discovery is not a runtime ownership contract, makes bundled publication ambiguous, and cannot express explicit Cordis load order or dependency installation. Build-time generation, verification, and the test host may enumerate the source tree because they validate repository completeness rather than composing a shipped deployment.
+- **Require a synthetic assertion from every package.** Rejected because checking method presence, plugin names, or fixed examples only turns repository wiring and unit-test facts into startup work. Packages without an observable event or mutable-data relation state that fact locally and keep an empty installer.
 - **Validate allow/block entries against the currently loaded package set.** Rejected because a zero-match pattern can intentionally target a later or HMR-loaded contribution; current load order must not determine config validity.
 
 ## Consequences
 
 - Product packages own and test their relational assertions while the service stays product-independent.
-- Every package pays the small publication and dependency cost of an invariant companion, including packages whose generated baseline currently installs no listeners.
+- Every package pays the small publication and dependency cost of an invariant companion, including packages whose justified empty installer has no listener.
 - Standard compositions can disable all checks or select package names without changing their plugin tree.
 - Explicit companion entries make diagnostic cost and ownership visible in Cordis config and package exports.
 - One selected contribution adds one child fiber and its listener/state cost; filtered registrations retain only name ownership.
