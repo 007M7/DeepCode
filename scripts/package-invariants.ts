@@ -12,7 +12,7 @@ import ts from 'typescript'
 export const GENERATED_INVARIANT_MARKER = '@generated scripts/gen-package-invariants.ts'
 
 /** Required explanation marker for an intentionally empty installer. */
-export const NO_RUNTIME_INVARIANT_MARKER = 'No runtime invariant:'
+const NO_RUNTIME_INVARIANT_MARKER = 'No runtime invariant:'
 
 interface PackageManifest {
   name?: string

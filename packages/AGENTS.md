@@ -15,8 +15,8 @@ These package-specific rules supplement the repo-wide [conventions](../AGENTS.md
 - **Enforce at the operation boundary that owns the decision.** Schema omission, prompt filtering, facades, wrappers, and listener order are not enforcement when direct or alternate callers can bypass them; test denial through the executor.
 - **Publish state only at its commit point.** Emit each notification and update derived state only after the success boundary that makes it true; derive caches, prompts, UI echoes, replay, and query views from one authoritative source.
 - **Apply bounds to the complete result.** Enforce byte, token, item, and time limits where the complete emitted or retained value, including wrappers and metadata, is known; test tiny and exact limits, oversized single chunks, and multibyte byte limits.
-- **Registry contributions prove disposal.** Add the HMR-safety test required by the [testing policy](../docs/testing.md): dispose the contributing fiber and observe removal.
-- **Every package owns an invariant companion.** Publish `./invariant` and register its manifest name. Check observable event or mutable-data relations; when none exists, keep an empty installer with a `No runtime invariant:` comment explaining why instead of inventing a shape or presence assertion. `verify-package-invariants` gates source and publication wiring ([rationale](../.agents/notes/implemented/architecture/2026-07-19-package-owned-invariant-service.md)).
+- **Registry contributions prove disposal** through an HMR test: dispose the contributing fiber and observe removal ([testing policy](../docs/testing.md)).
+- **Every package owns `./invariant`.** Register the manifest name; check an event/data relation or give an empty installer a package-specific `No runtime invariant:` reason. `verify-package-invariants` gates the contract ([rationale](../.agents/notes/implemented/architecture/2026-07-19-package-owned-invariant-service.md)).
 
 Naming notes:
 
