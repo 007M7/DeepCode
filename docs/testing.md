@@ -11,7 +11,7 @@ How this repo tests, tier by tier, and the rules that keep a green suite meaning
 
 ## The with-key policy: inference is cheap here
 
-We are DeepSeek — do not ration real-API tests. A no-key test proves plumbing; only a with-key run proves the agent works against a real model. Write many: file-writing prompts, multi-turn conversations, tool use, cancellation mid-stream. Highest-value are **smoke tests** that boot the real example, send one real prompt, and check the world — they catch the "green unit tests, broken product" class that mocks structurally cannot ([postmortem 0001](postmortem/0001-acp-default-export-drops-inject.md)). The self-skip exists only so secretless CI and keyless contributors aren't blocked; it is not a cost signal. Every example ships a keyless smoke and — unless keyless-by-nature — a with-key smoke ([examples/AGENTS.md](../examples/AGENTS.md)).
+We are DeepSeek — do not ration real-API tests. A no-key test proves plumbing; only a with-key run proves the agent works against a real model. Write many: file-writing prompts, multi-turn conversations, tool use, cancellation mid-stream. Highest-value are **smoke tests** that boot the real example, send one real prompt, and check the world — they catch the "green unit tests, broken product" class that mocks structurally cannot ([postmortem 0001](postmortem/0001-acp-default-export-drops-inject.md)). The self-skip exists only so secretless CI and keyless contributors aren't blocked; it is not a cost signal. Every example ships both a keyless smoke and a with-key smoke ([examples/AGENTS.md](../examples/AGENTS.md)).
 
 ## Prefer the real implementation over a mock
 

@@ -7,93 +7,54 @@
 ## 环境准备
 
 - [Node.js](https://nodejs.org/) ^22.19 或 >= 24
-- [pnpm](https://pnpm.io/) 11（建议通过 Corepack 使用仓库固定的版本）
+- 通过 Corepack 使用 [pnpm](https://pnpm.io/) 11
+- [DeepSeek Platform](https://platform.deepseek.com/) API key
 
 ```sh
-# Check versions
-node -v   # v22.19.x, or v24.x and newer
+node -v
 corepack enable
-pnpm -v   # 11.x
+pnpm -v
 ```
 
-## 第一步：运行 echo-agent
-
-echo-agent 不需要 API key，装好依赖就能跑。
+## 第一步：安装并配置 API key
 
 ```sh
-# Clone the repository
 git clone https://github.com/deepseek-harness/deepseek-harness.git
 cd deepseek-harness
-
-# Install dependencies
 pnpm install
-
-# Start echo-agent
-pnpm run demo:echo
 ```
 
-启动后你会看到：
-
-```
-echo-agent ready. Type a message ("echo <text>" triggers the tool).
->
-```
-
-试着输入：
-
-```
-> echo hello world
-```
-
-你会看到模型发起了一次 tool call（工具调用），echo 工具将文本转为大写并返回：
-
-```
-[tool call] echo({"text":"hello world"})
-[tool result] ECHO: HELLO WORLD
-```
-
-恭喜！环境没问题。
-
-## 第二步：使用真实模型调用
-
-接下来接入真实的 DeepSeek 模型，跑一个完整的命令行 Agent。
-
-### 获取 API Key
-
-前往 [DeepSeek Platform](https://platform.deepseek.com/) 获取你的 API key。
-
-### 配置环境变量
-
-在仓库根目录创建 `.env` 文件（已被 gitignore）：
+在仓库根目录创建已被 Git 忽略的 `.env`：
 
 ```sh
 DEEPSEEK_API_KEY=sk-your-key-here
 ```
 
-### 启动 repl-agent
+## 第二步：运行一个 Headless 任务
+
+运行一个非交互式任务并打印最终回答：
 
 ```sh
-pnpm run demo:repl
+pnpm run demo:headless "summarize the architecture of this workspace"
 ```
 
-```
-agent REPL ready. Give it a coding task.
->
+Headless 运行一个完整的模型/工具轮次，持久化会话，打印结果后退出。需要规范事件流时可使用 `--output-format stream-json`。
+
+## 第三步：使用 TUI
+
+启动交互式 coding agent：
+
+```sh
+pnpm run demo:tui
 ```
 
-这就是一个完整的编程助手，它能读写文件、跑命令、拆分子任务。
-
-试着给它一个任务：
-
-```
-> Create hello.js in the current directory, print "Hello from Harness!", and run it
-```
+这个全屏 Agent 可以读写文件、运行命令、分配子任务和跟踪计划。可以尝试：`Create hello.js in the current directory, print "Hello from Harness!", and run it`。
 
 ## 回头看
 
-echo-agent 和 repl-agent 用的是同一个应用框架(`@deepseek-ai/dsh-stdio-demo`)，区别只在 `cordis.yml`——换了哪些插件、填了什么配置。你以后定制自己的 Agent 也是同样的方式。
+headless-agent 使用 `@deepseek-ai/dsh-cli-demo` app，tui-agent 使用交互式 `@deepseek-ai/dsh-tui-demo` app。二者加载同一个 providerless agent spine，并通过各自的 `cordis.yml` 为对应 surface 选择 DeepSeek 模型和能力插件。
 
 ## 下一步
 
-- [配置文件](./config.md) — 了解 `cordis.yml` 的完整语法
-- [开发插件](../develop/basic/) — 编写你自己的 tool 或后端
+- [配置文件](./config.md) — 了解 `cordis.yml` 的格式
+- [开发插件](../develop/basic/) — 编写自己的 tool 或后端

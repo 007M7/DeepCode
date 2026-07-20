@@ -58,6 +58,8 @@ export interface Config {
   dshHome?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
+  persistenceCompression?: JsonlCompression
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
@@ -71,9 +73,9 @@ export interface Config {
 }
 ```
 
-Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
+Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/acp-demo/src/index.ts:35`](../packages/examples/acp-demo/src/index.ts)
+Source: [`packages/examples/acp-demo/src/index.ts:38`](../packages/examples/acp-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -103,7 +105,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:369`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:360`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
@@ -237,6 +239,8 @@ export interface Config {
   dshHome?: string
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
+  persistenceCompression?: JsonlCompression
   /** Skill registry, local-provider, and model-facing consumer config. */
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-spine-demo. */
@@ -248,9 +252,9 @@ export interface Config {
 }
 ```
 
-Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
+Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/cli-demo/src/index.ts:22`](../packages/examples/cli-demo/src/index.ts)
+Source: [`packages/examples/cli-demo/src/index.ts:25`](../packages/examples/cli-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
@@ -765,10 +769,15 @@ export interface Config {
    * (bash calls, subprocesses). Sessions group under per-cwd subdirectories.
    */
   root: string
+  /** Physical encoding; defaults to checksummed Zstandard frames. */
+  compression?: JsonlCompression
 }
+
+/** Physical encoding selected for JSONL session artifacts. */
+export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:24`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:36`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 
@@ -886,90 +895,6 @@ export interface Config {
 ```
 
 Source: [`packages/spill/spill-policy/src/index.ts:45`](../packages/spill/spill-policy/src/index.ts)
-
-## `@deepseek-ai/dsh-stdio`
-
-Requires: `agents` · `userInteraction`
-
-```ts config-catalog
-/** Serializable plugin configuration (cordis-native, schemastery). */
-export interface Config {
-  /** Banner printed once on start, before the first `> ` prompt. */
-  welcome?: string
-  /** Exact shared agent/session identity stdin drives. Defaults to `'main'`. */
-  sessionId?: string
-}
-```
-
-Source: [`packages/ui/stdio/src/index.ts:33`](../packages/ui/stdio/src/index.ts)
-
-## `@deepseek-ai/dsh-stdio-demo`
-
-```ts config-catalog
-/**
- * App config: the swappable per-demo values, each routed to where the app wires
- * it. `provider`/`model`/`resumeSessionId` configure the pre-created `main` agent (through
- * {@link @deepseek-ai/dsh-agent-spine-demo}'s forwarded `agents` list); `persona` is
- * the deployment persona (forwarded to the system-prompt plugin); `toolOrder`
- * is the explicit model-facing tool order (forwarded to the system-prompt plugin);
- * fresh sessions use `process.cwd()` as their workspace cwd; resumed sessions
- * keep their persisted cwd. `persistenceRoot` is the JSONL backend's directory;
- * `welcome` is the UI banner and `ui` configures terminal mode/presentation.
- */
-export interface Config {
-  /** Provider route for the `main` agent. */
-  provider: string
-  /** Model name for the `main` agent (must have a registered adapter). */
-  model: string
-  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
-  maxParallelToolCalls?: number
-  /** Deployment persona (the system-prompt plugin's `persona` config). */
-  persona?: string
-  /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
-  toolOrder?: string[]
-  /** Tool-registry config — its presentation `mode` (forwarded through agent-spine-demo; see dsh-tools). */
-  tools?: ToolsConfig
-  /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
-  dshHome?: string
-  /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
-  persistenceRoot?: string
-  /** stdin-chat banner printed once on start. Defaults to `'ready.'`. */
-  welcome?: string
-  /** Terminal front-door selection and pi-tui presentation settings. */
-  ui?: UiConfig
-  /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
-  skills?: agentCore.SkillConfig
-  /** Model-facing bash tool config forwarded through agent-core. */
-  toolBash?: NonNullable<agentCore.Config['toolBash']>
-  /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
-  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
-  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and TUI command. */
-  goals?: agentCore.GoalConfig | false
-  /**
-   * If set, the pre-created agent RESUMES this persisted session id instead of
-   * starting fresh. Sourced from an env var in the leaf `cordis.yml`
-   * (`resumeSessionId: !!js process.env.RESUME_SESSION_ID`).
-   */
-  resumeSessionId?: string
-  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
-  workspaceContext: agentCore.Config['workspaceContext']
-}
-
-/** App-level terminal selection with nested TUI presentation settings. */
-export interface UiConfig {
-  /** Select a concrete front door or infer it from the process streams. */
-  mode?: TerminalMode
-  /** Settings forwarded only when the pi-tui front door is selected. */
-  tui?: uiTui.TuiConfig
-}
-
-/** Terminal front door selected by the app bundle. */
-export type TerminalMode = 'auto' | 'readline' | 'tui'
-```
-
-Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`uiTui`](../packages/ui/tui/src/index.ts)
-
-Source: [`packages/examples/stdio-demo/src/index.ts:77`](../packages/examples/stdio-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 
@@ -1385,7 +1310,53 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:101`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:102`](../packages/ui/tui/src/index.ts)
+
+## `@deepseek-ai/dsh-tui-demo`
+
+```ts config-catalog
+/** App config routed to the spine, TUI, configured agent, and JSONL backend. */
+export interface Config {
+  /** Provider route for the `main` agent. */
+  provider: string
+  /** Model name for the `main` agent; a matching adapter must be registered. */
+  model: string
+  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
+  maxParallelToolCalls?: number
+  /** Deployment persona forwarded to the system-prompt plugin. */
+  persona?: string
+  /** Explicit model-facing tool order forwarded to the system-prompt plugin. */
+  toolOrder?: string[]
+  /** Tool-registry presentation config forwarded through agent-spine-demo. */
+  tools?: ToolsConfig
+  /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
+  dshHome?: string
+  /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
+  persistenceRoot?: string
+  /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
+  persistenceCompression?: JsonlCompression
+  /** TUI subtitle rendered on start. Defaults to `ready.`. */
+  welcome?: string
+  /** Full-screen TUI presentation settings. */
+  ui?: uiTui.TuiConfig
+  /** Skill registry, local-provider, and model-facing consumer config. */
+  skills?: agentCore.SkillConfig
+  /** Model-facing bash tool config forwarded through agent-spine-demo. */
+  toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Generic background-task controls forwarded through agent-spine-demo; set false to omit them. */
+  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
+  goals?: agentCore.GoalConfig | false
+  /** Persisted session id to resume instead of creating a fresh session. */
+  resumeSessionId?: string
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
+}
+```
+
+Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`uiTui`](../packages/ui/tui/src/index.ts)
+
+Source: [`packages/examples/tui-demo/src/index.ts:33`](../packages/examples/tui-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 

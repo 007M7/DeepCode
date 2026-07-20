@@ -41,12 +41,14 @@
 # The ACP server app: the agent-spine-demo spine + JSONL persistence + the ACP bridge.
 # Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness sets it
 # (so it can harvest / isolate the log), else ./.sessions for the demo.
+# Snapshot modes use raw JSONL fixtures; ordinary runs keep the compressed default.
 - id: acp-agent
   name: '@deepseek-ai/dsh-acp-demo'
   config:
     provider: deepseek
     model: deepseek-v4-flash
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+    persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
     workspaceContext:
       maxBytes: 65536
     # Keep the persona to identity and behavior; tool plugins own tool guidance.
