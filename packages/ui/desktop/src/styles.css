@@ -2994,3 +2994,97 @@ dd {
   font-size: 12px;
   font-weight: 650;
 }
+
+/* ── Plan checklist card (todo/write in transcripts, plan updates live) ───── */
+
+.plan-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.plan-card header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 8px 12px 4px;
+  font-size: 12px;
+}
+
+.plan-card header span {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-card ul {
+  margin: 0;
+  padding: 2px 12px 10px;
+  list-style: none;
+}
+
+.plan-item {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.plan-item.completed span:last-child {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.plan-item.in_progress {
+  font-weight: 650;
+}
+
+.plan-glyph {
+  width: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.plan-item.completed .plan-glyph {
+  color: var(--green);
+}
+
+.plan-item.in_progress .plan-glyph {
+  color: var(--accent);
+}
+
+.plan-host,
+.plan-activity {
+  display: block;
+  max-width: min(680px, 100%);
+}
+
+.plan-activity.is-selected .plan-card {
+  border-color: rgba(31, 111, 235, 0.32);
+  box-shadow: 0 0 0 2px rgba(31, 111, 235, 0.12);
+}
+
+/* Touched-file chips inside an expanded tool row. */
+.tool-locations {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tool-locations span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tool-locations button {
+  height: var(--control-sm);
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: #fff;
+  color: var(--ink-soft);
+  font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}

@@ -32,6 +32,30 @@ describe('desktop trace graph', () => {
     ])
   })
 
+  it('folds todo/write events into plan targets and chat activities', () => {
+    const graph = buildTraceGraph('s-plan', [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' } } },
+      { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'go' }] } },
+      { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } },
+      { type: 'todo/write', seq: 3, time: 4, data: { turn: 1, step: 1, todos: [
+        { content: 'read the code', status: 'completed' },
+        { content: 'fix the bug', status: 'in_progress' },
+      ] } },
+      { type: 'todo/write', seq: 4, time: 5, data: { turn: 1, step: 1 } },
+      { type: 'step/end', seq: 5, time: 6, data: { turn: 1, step: 1 } },
+      { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'completed' } } },
+    ])
+    const plan = graph.targets.get('plan:3')!
+    expect(plan.kind).toBe('plan')
+    expect(plan.output).toEqual([
+      { content: 'read the code', status: 'completed' },
+      { content: 'fix the bug', status: 'in_progress' },
+    ])
+    expect(graph.targets.get('plan:4')?.output).toEqual([])
+    expect(graph.chatTurns[0]?.activities).toContainEqual({ kind: 'plan', targetId: 'plan:3' })
+    expect(graph.trajectoryRows.filter(row => row.targetId === 'plan:3')).toHaveLength(1)
+  })
+
   it('normalizes incomplete and malformed event tails without inventing duplicate rows', () => {
     expect(buildTraceGraph('empty', []).startTime).toBe(0)
     const graph = buildTraceGraph('edge', [

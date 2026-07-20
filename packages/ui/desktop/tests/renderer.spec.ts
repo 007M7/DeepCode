@@ -256,6 +256,10 @@ describe('desktop renderer chat lifecycle', () => {
       ...turnEvents(3, 'third', 'third answer', 20),
       { type: 'tool/call', seq: 30, time: 31, data: { turn: 3, step: 1, callId: 'wf-1', name: 'workflow', arguments: '{"name":"audit"}' } },
       { type: 'tool/result', seq: 31, time: 32, data: { turn: 3, step: 1, callId: 'wf-1', content: [{ type: 'text', text: 'done' }] } },
+      { type: 'todo/write', seq: 32, time: 33, data: { turn: 3, step: 1, todos: [
+        { content: 'collect findings', status: 'completed' },
+        { content: 'write the report', status: 'in_progress' },
+      ] } },
     ])
     traceRead = turn1Trace
 
@@ -318,8 +322,17 @@ describe('desktop renderer chat lifecycle', () => {
     await vi.waitFor(() => {
       expect(document.querySelector('#liveTurn .user-bubble')?.textContent).toBe('third')
     })
-    // The ACP stream carries a richer tool title than the persisted name.
-    update?.({ sessionId: 's-lag', update: { sessionUpdate: 'tool_call', toolCallId: 'wf-1', title: 'workflow: run audit agents', status: 'in_progress' } })
+    // The ACP stream carries a richer tool title, a kind, and a plan snapshot.
+    update?.({ sessionId: 's-lag', update: { sessionUpdate: 'tool_call', toolCallId: 'wf-1', title: 'workflow: run audit agents', kind: 'execute', status: 'in_progress' } })
+    update?.({ sessionId: 's-lag', update: { sessionUpdate: 'plan', entries: [
+      { content: 'collect findings', priority: 'medium', status: 'in_progress' },
+      { content: 'write the report', priority: 'medium', status: 'pending' },
+    ] } })
+    await vi.waitFor(() => {
+      const livePlan = document.querySelector('[data-live="plan"] .plan-card')
+      expect(livePlan?.textContent).toContain('collect findings')
+      expect(livePlan?.textContent).toContain('0/2')
+    })
 
     // Once the persisted log catches up, the view converges with no user action.
     prompts[2]!.resolve({ response: {}, trace: turn1Trace })
@@ -330,5 +343,10 @@ describe('desktop renderer chat lifecycle', () => {
     }, { timeout: 4000 })
     // The live workflow presentation survives the switch to the persisted view.
     expect(document.querySelector('#conversation')?.textContent).toContain('workflow: run audit agents')
+    // The persisted todo/write renders as a checklist card with the streamed kind verb.
+    const planCard = document.querySelector('#conversation .plan-activity .plan-card')
+    expect(planCard?.textContent).toContain('write the report')
+    expect(planCard?.textContent).toContain('1/2')
+    expect(document.querySelector('#conversation .chat-activity.tool-use .activity-select span')?.textContent).toBe('执行')
   })
 })

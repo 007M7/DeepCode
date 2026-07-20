@@ -74,10 +74,22 @@ interface LiveTurn {
   userText?: string
   thinking: string
   answer: string
+  plan?: readonly PlanItem[]
   tools: LiveTool[]
   expectedCompletedTurns: number
   status: 'sending' | 'streaming' | 'complete' | 'error'
   errorText?: string
+}
+
+interface PlanItem {
+  readonly content: string
+  readonly status: string
+}
+
+interface LiveToolMeta {
+  title?: string
+  kind?: string
+  locations?: readonly { path: string; line?: number }[]
 }
 
 interface LiveTool {
@@ -157,7 +169,7 @@ const state = {
   expandedActivityIds: new Set<string>(),
   traceLoadRevision: 0,
   liveTurnCounter: 0,
-  liveToolTitles: new Map<string, string>(),
+  liveToolMeta: new Map<string, LiveToolMeta>(),
   traceCatchupTimer: undefined as number | undefined,
   traceCatchupAttempts: 0,
 }
@@ -562,9 +574,17 @@ function handleSessionUpdate(payload: SessionUpdatePayload): void {
   } else if (kind === 'agent_thought_chunk') {
     live.thinking += contentText(update.content)
     live.status = 'streaming'
+  } else if (kind === 'plan') {
+    const entries = Array.isArray(update.entries) ? update.entries : []
+    live.plan = entries.map((entry): PlanItem => ({ content: String(asRecord(entry).content ?? ''), status: String(asRecord(entry).status ?? 'pending') }))
+    live.status = 'streaming'
   } else if (kind === 'tool_call' || kind === 'tool_call_update') {
     const callId = String(update.toolCallId ?? `tool-${live.tools.length}`)
-    if (typeof update.title === 'string' && update.title.length > 0) state.liveToolTitles.set(callId, update.title)
+    const meta = state.liveToolMeta.get(callId) ?? {}
+    if (typeof update.title === 'string' && update.title.length > 0) meta.title = update.title
+    if (typeof update.kind === 'string' && update.kind.length > 0) meta.kind = update.kind
+    if (Array.isArray(update.locations)) meta.locations = update.locations.map(location => ({ path: String(asRecord(location).path ?? ''), ...(asRecord(location).line === undefined ? {} : { line: Number(asRecord(location).line) }) }))
+    state.liveToolMeta.set(callId, meta)
     const existing = live.tools.find(tool => tool.callId === callId)
     const title = String(update.title ?? existing?.title ?? t('chat.toolUse'))
     const status = String(update.status ?? existing?.status ?? '')
@@ -616,6 +636,11 @@ function renderLiveTurn(): void {
     if (body !== null) body.textContent = tool.detail
     row.classList.toggle('failed', tool.status === 'failed')
   }
+  const planHost = el.liveTurn.querySelector<HTMLElement>('[data-live="plan"]')
+  if (planHost !== null) {
+    planHost.hidden = live.plan === undefined || live.plan.length === 0
+    planHost.innerHTML = live.plan === undefined ? '' : renderPlanList(live.plan)
+  }
   const answer = el.liveTurn.querySelector<HTMLElement>('[data-live="answer"]')
   if (answer !== null) {
     answer.hidden = live.answer.length === 0
@@ -651,6 +676,7 @@ function ensureLiveSkeleton(live: LiveTurn): void {
       <article class="message assistant live" data-live-key="${live.key}">
         <div class="avatar">A</div>
         <div class="message-card">
+          <div class="plan-host" data-live="plan" hidden></div>
           <div class="activity-list">
             <details class="chat-activity thinking" data-live="thinking" hidden>
               <summary><span>${escapeHtml(t('chat.thinking'))}</span><strong></strong></summary>
@@ -940,6 +966,9 @@ function renderConversationActivity(activity: ChatActivity): string {
   const target = state.graph.targets.get(activity.targetId)
   if (target === undefined) return ''
   if (activity.kind === 'tool') return renderChatToolActivity(target)
+  if (activity.kind === 'plan') {
+    return `<section class="plan-activity ${selectedTargetClass(target.id)}" data-target-id="${escapeHtml(target.id)}">${renderPlanList(planItemsOf(target))}</section>`
+  }
   if (activity.kind === 'text') {
     return `<section class="assistant-prose assistant-segment ${selectedTargetClass(target.id)}" data-target-id="${escapeHtml(target.id)}">${renderMarkdown(assistantText(target.output) || contentText(target.output))}</section>`
   }
@@ -955,9 +984,45 @@ function renderConversationActivity(activity: ChatActivity): string {
   `
 }
 
+/** One checklist card shared by the live turn and the persisted transcript. */
+function renderPlanList(items: readonly PlanItem[]): string {
+  const done = items.filter(item => item.status === 'completed').length
+  const glyph = (status: string): string => status === 'completed' ? '✓' : status === 'in_progress' ? '●' : '○'
+  return `
+    <section class="plan-card">
+      <header><strong>${escapeHtml(t('chat.planList'))}</strong><span>${done}/${items.length}</span></header>
+      <ul>
+        ${items.map(item => `<li class="plan-item ${escapeHtml(item.status)}"><span class="plan-glyph">${glyph(item.status)}</span><span>${escapeHtml(item.content)}</span></li>`).join('')}
+      </ul>
+    </section>
+  `
+}
+
+function planItemsOf(target: TraceTarget): PlanItem[] {
+  return (Array.isArray(target.output) ? target.output : []).map(item => ({ content: String(asRecord(item).content ?? ''), status: String(asRecord(item).status ?? 'pending') }))
+}
+
 /** ACP streams richer tool titles than the persisted name; keep them after the turn. */
+function liveToolMetaOf(target: TraceTarget): LiveToolMeta {
+  return state.liveToolMeta.get(target.id.replace(/^tool:/, '')) ?? {}
+}
+
 function liveToolTitle(target: TraceTarget): string | undefined {
-  return state.liveToolTitles.get(target.id.replace(/^tool:/, ''))
+  return liveToolMetaOf(target).title
+}
+
+/** Verb label for a tool row: the streamed ACP kind beats the generic noun. */
+function toolVerbLabel(target: TraceTarget): string {
+  const kind = liveToolMetaOf(target).kind
+  if (kind === 'read') return t('kind.verb.read')
+  if (kind === 'edit') return t('kind.verb.edit')
+  if (kind === 'delete') return t('kind.verb.delete')
+  if (kind === 'move') return t('kind.verb.move')
+  if (kind === 'search') return t('kind.verb.search')
+  if (kind === 'execute') return t('kind.verb.execute')
+  if (kind === 'fetch') return t('kind.verb.fetch')
+  if (kind === 'think') return t('kind.verb.think')
+  return t('chat.toolUse')
 }
 
 function renderChatToolActivity(target: TraceTarget): string {
@@ -972,10 +1037,10 @@ function renderChatToolActivity(target: TraceTarget): string {
   return `
     <section class="chat-activity tool-use ${failed ? 'failed' : ''} ${selectedTargetClass(target.id)}">
       <div class="activity-row">
-        <button class="activity-select" type="button" data-target-id="${escapeHtml(target.id)}"><span>${escapeHtml(failed ? t('chat.toolFailed') : t('chat.toolUse'))}</span><strong>${escapeHtml(richTitle ?? target.title)}${preview.length > 0 ? `<span class="activity-preview"> · ${escapeHtml(preview)}</span>` : ''}</strong></button>
+        <button class="activity-select" type="button" data-target-id="${escapeHtml(target.id)}"><span>${escapeHtml(failed ? t('chat.toolFailed') : toolVerbLabel(target))}</span><strong>${escapeHtml(richTitle ?? target.title)}${preview.length > 0 ? `<span class="activity-preview"> · ${escapeHtml(preview)}</span>` : ''}</strong></button>
         <button class="activity-toggle" type="button" data-toggle-activity="${escapeHtml(target.id)}" aria-expanded="${expanded}" aria-controls="act-${escapeHtml(target.id)}" aria-label="${escapeHtml(t(expanded ? 'trace.collapseRow' : 'trace.expandRow'))}">${expanded ? '⌃' : '⌄'}</button>
       </div>
-      <div class="activity-body" id="act-${escapeHtml(target.id)}" ${expanded ? '' : 'hidden'} data-target-id="${escapeHtml(target.id)}">${inputHtml}${outputHtml}${spawnedHtml}</div>
+      <div class="activity-body" id="act-${escapeHtml(target.id)}" ${expanded ? '' : 'hidden'} data-target-id="${escapeHtml(target.id)}">${inputHtml}${outputHtml}${toolLocationsHtml(target)}${spawnedHtml}</div>
     </section>
   `
 }
@@ -1004,6 +1069,18 @@ function spawnedSessionsFor(event: SessionEvent): SessionSummary[] {
   const start = (event.time ?? 0) - 2000
   const end = (result?.time ?? (event.time ?? 0) + 600_000) + 2000
   return (state.trace?.children ?? []).filter(session => session.createdAt >= start && session.createdAt <= end)
+}
+
+/** Touched files streamed on the ACP call; each opens in the OS editor. */
+function toolLocationsHtml(target: TraceTarget): string {
+  const locations = liveToolMetaOf(target).locations ?? []
+  if (locations.length === 0) return ''
+  return `
+    <div class="tool-locations">
+      <span>${escapeHtml(t('chat.locations'))}</span>
+      ${locations.map(location => `<button type="button" data-open-path="${escapeHtml(location.path)}">${escapeHtml(shortPath(location.path))}${location.line === undefined ? '' : `:${location.line}`}</button>`).join('')}
+    </div>
+  `
 }
 
 function toolCallPreview(value: unknown): string {
@@ -1088,6 +1165,13 @@ function kindLabel(kind: TraceTarget['kind']): string {
   return t(`kind.${kind}`)
 }
 
+function planRowTitle(target: TraceTarget): string {
+  const items = planItemsOf(target)
+  const done = items.filter(item => item.status === 'completed').length
+  const active = items.find(item => item.status === 'in_progress')
+  return `${done}/${items.length}${active === undefined ? '' : ` · ${truncate(active.content, 80)}`}`
+}
+
 /** Content preview beats the kind name: the chip already says what a row is. */
 function trajectoryRowTitle(target: TraceTarget): string {
   if (target.kind === 'assistant') {
@@ -1098,6 +1182,7 @@ function trajectoryRowTitle(target: TraceTarget): string {
     const preview = truncate(contentText(target.output), 120)
     if (preview.length > 0) return preview
   }
+  if (target.kind === 'plan') return `${t('chat.planList')} · ${planRowTitle(target)}`
   if (target.kind === 'tool') {
     const rich = liveToolTitle(target)
     if (rich !== undefined) return rich

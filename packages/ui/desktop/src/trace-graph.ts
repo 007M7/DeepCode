@@ -11,7 +11,7 @@ export interface TraceEvent {
 }
 
 /** Logical object classes shared by Chat, Trajectory, Waterfall, and Inspector. */
-export type TraceTargetKind = 'session' | 'turn' | 'step' | 'request' | 'user' | 'reasoning' | 'assistant' | 'tool' | 'context' | 'summary'
+export type TraceTargetKind = 'session' | 'turn' | 'step' | 'request' | 'user' | 'reasoning' | 'assistant' | 'tool' | 'context' | 'plan' | 'summary'
 
 /** One selectable logical trace object with its complete inspector payload. */
 export interface TraceTarget {
@@ -32,7 +32,7 @@ export interface TraceTarget {
 
 /** One ordered block in a turn's assistant response. */
 export interface ChatActivity {
-  readonly kind: 'reasoning' | 'tool' | 'text'
+  readonly kind: 'reasoning' | 'tool' | 'text' | 'plan'
   readonly targetId: string
 }
 
@@ -325,6 +325,11 @@ export function buildTraceGraph(sessionId: string, events: readonly TraceEvent[]
       if (text.length > 0) {
         chatTurn.activities.push({ kind: 'text', targetId: id })
       }
+    } else if (event.type === 'todo/write') {
+      const id = `plan:${event.seq ?? currentGroup.rowTargetIds.length}`
+      const todos = Array.isArray(data.todos) ? data.todos : []
+      addTarget({ id, kind: 'plan', title: 'Plan', subtitle: `Turn ${turn}`, status: 'ok', turn, step, startTime: time, endTime: time, eventSeqs: seqs(event), input: '', output: todos, metadata: event })
+      chatTurn.activities.push({ kind: 'plan', targetId: id })
     } else if (event.type === 'context/message' || event.type === 'steering/message') {
       const id = `context:${event.seq ?? currentGroup.rowTargetIds.length}`
       addTarget({ id, kind: 'context', title: event.type, subtitle: `Turn ${turn} · Step ${step}`, status: 'ok', turn, step, startTime: time, endTime: time, eventSeqs: seqs(event), input: '', output: data.content ?? '', metadata: event })
