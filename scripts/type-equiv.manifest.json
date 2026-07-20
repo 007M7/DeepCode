@@ -157,6 +157,8 @@
 
     { "doc": "docs/core-data-structures/compaction.md", "symbol": "CompactionResult", "source": "packages/compact/compact/src/types.ts" },
     { "doc": "docs/core-data-structures/compaction.md", "symbol": "CompactionTrigger", "source": "packages/compact/compact/src/index.ts" },
+    { "doc": "docs/core-data-structures/compaction.md", "symbol": "PrunedEntry", "source": "packages/compact/compact-tool-result-prune/src/types.ts" },
+    { "doc": "docs/core-data-structures/compaction.md", "symbol": "PruneResult", "source": "packages/compact/compact-tool-result-prune/src/types.ts" },
 
     { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentCapabilities", "source": "packages/subagent/subagent/src/types.ts" },
     { "doc": "docs/core-data-structures/subagent.md", "symbol": "SubagentStartRequest", "source": "packages/subagent/subagent/src/types.ts" },

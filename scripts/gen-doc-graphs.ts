@@ -96,6 +96,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns isolated per-session replay folds; pressure consumers share immutable revisioned measurements.',
   },
   {
+    key: 'toolResultPrune',
+    pkg: 'compact-tool-result-prune',
+    title: 'Model-free tool-result pruning',
+    mode: 'core',
+    consumers: ['compact-basic'],
+    note: 'Rewrites oversized current tool results through replayable single-node surface replacements before summary compaction.',
+  },
+  {
     key: 'sessions',
     pkg: 'session',
     title: 'In-memory session store',
@@ -441,7 +449,7 @@ const APP_EXAMPLES = [
     title: 'REPL Agent App Composition',
     label: 'examples/repl-agent',
     config: 'examples/repl-agent/cordis.yml',
-    summary: 'The REPL agent demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.',
+    summary: 'The REPL agent demo adds the real DeepSeek adapter, filesystem tools, todo_write, tool-result pruning, compaction, and both subagent transports on top of the stdio app package.',
   },
   {
     id: 'tui',
@@ -909,7 +917,7 @@ function renderLifecycle(): string {
     '',
     'The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.',
     '',
-    '`dsh-compact-basic` uses `agent/post-step` for pressure after those durable facts and `agent/request-error` only for canonical context overflow. Recovery compacts between the closed failed step and a fresh retry step, and returns retry only when the surface replacement generation advances; otherwise the original request error remains authoritative.',
+    '`dsh-compact-basic` uses `agent/post-step` for pressure after those durable facts and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and a fresh retry step, and returns retry only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.',
     '',
     'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.',
     '',

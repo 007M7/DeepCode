@@ -528,6 +528,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'toolResultPrune',
+    summary: 'Deterministic head/middle/tail pruning for current tool-result surface nodes.',
+    methods: [
+      {
+        signature: 'measureContent(blocks: readonly ContentBlock[]): number',
+        jsDoc: '/**\n * Measure text content in Unicode code points; non-text blocks cost zero.\n * @param blocks - tool-result content to measure.\n * @returns total Unicode code points across text blocks.\n */',
+      },
+      {
+        signature: 'pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null',
+        jsDoc: '/**\n * Replace an over-budget text middle while retaining rich-block order.\n * Text slicing is by Unicode code point, not UTF-16 code unit, so a retained\n * boundary cannot split a surrogate pair. Grapheme clusters may still split.\n * @param blocks - original tool-result content.\n * @returns pruned content, or `null` when the text is within budget.\n */',
+      },
+      {
+        signature: 'pruneSession(session: Session): PruneResult',
+        jsDoc: '/**\n * Prune every over-budget tool result from one stable current-surface snapshot.\n * Each replacement preserves the complete event data except for `content`,\n * and points at the shadowed node for durable provenance and replay.\n * @param session - session whose current surface is rewritten.\n * @returns landed replacements and aggregate Unicode-code-point savings.\n * @throws when the session rejects a replacement; replacements committed\n * earlier in the pass remain durable.\n */',
+      },
+    ],
+  },
+  {
     key: 'tools',
     summary: 'Tool registry and execution pipeline.',
     methods: [
@@ -1220,6 +1238,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PromptSection',
     declaration: 'export interface PromptSection {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n}',
+  },
+  {
+    name: 'PrunedEntry',
+    declaration: 'export interface PrunedEntry {\n    readonly originalSeq: number;\n    readonly replacementSeq: number;\n    readonly callId: CallId;\n    readonly charsBefore: number;\n    readonly charsAfter: number;\n}',
+  },
+  {
+    name: 'PruneResult',
+    declaration: 'export interface PruneResult {\n    readonly pruned: readonly PrunedEntry[];\n    readonly charsRemoved: number;\n}',
   },
   {
     name: 'ReasoningBlock',
