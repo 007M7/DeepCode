@@ -21,6 +21,15 @@ function mutableHeader(header: SessionHeader): MutableSessionHeader {
   return header
 }
 
+/** Rewrite only a stored header while preserving every event byte below it. */
+async function rewriteHeader(path: string, update: (header: Record<string, unknown>) => void): Promise<void> {
+  const lines = (await readFile(path, 'utf8')).split('\n')
+  const header = JSON.parse(lines[0] as string) as Record<string, unknown>
+  update(header)
+  lines[0] = JSON.stringify(header)
+  await writeFile(path, lines.join('\n'))
+}
+
 async function expectParallelFlushError(promise: Promise<unknown>, message: RegExp): Promise<void> {
   try {
     await promise
@@ -393,6 +402,31 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
   })
 
+  it('rejects a mismatched header before repairing either session log', async () => {
+    const a = meta('identity-a', '/same')
+    const b = meta('identity-b', '/same')
+    await ctx.sessionPersistence.create(a)
+    await ctx.sessionPersistence.append(a.id, [{
+      type: 'turn/start',
+      seq: 0,
+      time: 1,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+    }])
+    await ctx.sessionPersistence.create(b)
+    await ctx.sessionPersistence.append(b.id, oneTurnLog())
+
+    const aPath = logPath(root, a.cwd, a.id)
+    const bPath = logPath(root, b.cwd, b.id)
+    await rewriteHeader(aPath, (header) => { header.id = b.id })
+    const beforeA = await readFile(aPath)
+    const beforeB = await readFile(bPath)
+
+    await expect(ctx.sessionPersistence.load(a.id))
+      .rejects.toThrow(/requested id "identity-a" does not match header id "identity-b"/)
+    expect(await readFile(aPath)).toEqual(beforeA)
+    expect(await readFile(bPath)).toEqual(beforeB)
+  })
+
   it('rejects a re-append of an already-stored seq', async () => {
     const m = meta('reappend')
     await ctx.sessionPersistence.create(m)
@@ -599,6 +633,28 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     expect(ids).toContain('big')
   })
 
+  it('list rejects a header whose cwd does not identify its physical log', async () => {
+    const m = meta('misplaced', '/stored')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    await rewriteHeader(logPath(root, m.cwd, m.id), (header) => { header.cwd = '/elsewhere' })
+
+    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/and cwd belong at/)
+  })
+
+  it('load and list reject one id materialized in multiple cwd buckets', async () => {
+    const id = SessionId('duplicate')
+    for (const cwd of ['/a', '/b']) {
+      const m = meta(id, cwd)
+      await mkdir(sessionDir(root, cwd), { recursive: true })
+      const content = [JSON.stringify(toHeaderLine(m)), ...oneTurnLog().map(event => JSON.stringify(event))].join('\n') + '\n'
+      await writeFile(logPath(root, cwd, id), content)
+    }
+
+    await expect(ctx.sessionPersistence.load(id)).rejects.toThrow(/appears in multiple cwd buckets/)
+    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/appears in multiple cwd buckets/)
+  })
+
   it('a DIFFERENT live session object reusing a disposed id gets its own init (no stale cache)', async () => {
     // Session A materializes a log under id "reuse".
     const sessFiberA = await ctx.plugin(Object.assign((inner: Context) => {
@@ -619,18 +675,16 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await expect(ctx.sessions.flush(b)).rejects.toThrow(/already bound to a different live session|already has a persisted log on disk/)
   })
 
-  it('a NO-CWD live session does NOT cross-cwd-adopt a same-id log from a real cwd bucket (loadLive is scope-exact)', async () => {
+  it('a no-cwd live session cannot adopt a same-id log from another cwd', async () => {
     // Backend 1: materialize a log under id "x" in the cwd "/w" bucket, then
     // dispose the WHOLE backend (so backend 2 mounts with an EMPTY states map —
-    // the HMR/reload path where onCreated goes through loadLive, not a tracked
-    // collision).
+    // the HMR/reload path with no tracked collision state).
     await ctx.sessionPersistence.create(meta('x', '/w'))
     await ctx.sessionPersistence.append(SessionId('x'), oneTurnLog())
     await ctx.fiber.dispose()
 
-    // Backend 2 creates a no-cwd session whose id exists only in `/w`. Exact `loadLive(id,
-    // undefined)` must not adopt across buckets; the any-cwd collision check then rejects instead
-    // of grafting no-cwd events onto a log with mismatched cwd.
+    // Backend 2 creates a no-cwd session whose id exists only in `/w`. The
+    // stored cwd check rejects instead of grafting no-cwd events onto that log.
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
     await ctx2.plugin(SessionPersistenceJsonl, { root })
@@ -638,7 +692,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.plugin(Object.assign((inner: Context) => {
       b = inner.sessions.create(SessionId('x')) // no cwd
     }, { inject: ['sessions'] }))
-    await expect(ctx2.sessions.flush(b)).rejects.toThrow(/already has a persisted log on disk/)
+    await expect(ctx2.sessions.flush(b)).rejects.toThrow(/different cwd|id collision/)
 
     // The "/w" log is untouched — no no-cwd events were grafted onto it, and no
     // `_no-cwd` log for "x" was created.
@@ -706,9 +760,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.fiber.dispose()
   })
 
-  it('loadLive surfaces a non-ENOENT lookup error (ENOTDIR) instead of reporting absent', async () => {
-    // A non-ENOENT per-id open error must surface rather than become "not found" and permit false
-    // live adoption. Making the cwd bucket a regular file forces ENOTDIR for its child log path.
+  it('materialization surfaces a cwd-bucket storage fault', async () => {
     const cwd = '/x'
     const ctx2 = new Context()
     await ctx2.plugin(SessionStore)
@@ -717,8 +769,9 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     let s!: Session
     await ctx2.plugin(Object.assign((inner: Context) => {
       s = inner.sessions.create(SessionId('exists-fault'), { meta: { cwd } })
+      appendClosedTurn(s)
     }, { inject: ['sessions'] }))
-    await expect(ctx2.sessions.flush(s)).rejects.toThrow(/ENOTDIR/)
+    await expect(ctx2.sessions.flush(s)).rejects.toThrow(/EEXIST|ENOTDIR/)
     await ctx2.fiber.dispose()
   })
 

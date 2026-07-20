@@ -144,11 +144,6 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return this.readPrefix(id)
   }
 
-  /** Read a stored prefix; `cwd` is ignored (the id is globally unique in SQLite). */
-  loadLive(id: SessionId, _cwd: string | undefined): Promise<StoredPrefix<number> | undefined> {
-    return this.readPrefix(id)
-  }
-
   /**
    * Read a session's row + ordered events into a {@link StoredPrefix}. The
    * torn-tail marker is the seq from which a never-committed tail must be deleted

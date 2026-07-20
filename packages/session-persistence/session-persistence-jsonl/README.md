@@ -11,7 +11,7 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 ```
 
 - The first `.jsonl` line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength? }`; every subsequent line is one `SessionEvent` JSON, **verbatim including `assistant/chunk`** so `seq` stays contiguous (`events[i].seq === i`).
-- Session ids are unvalidated branded strings, so they are percent-encoded to a single safe path segment before use (no traversal, no collision).
+- Session ids are unvalidated branded strings, so they are injectively encoded as one safe path segment before use (no traversal, no collision).
 
 ## Config
 
@@ -23,6 +23,7 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 
 ## Durability and crash semantics
 
+- **Bound storage identity.** Lookup requires one matching encoded filename across the cwd buckets, then verifies that the header id equals the requested id and that the header's id/cwd derive the selected path. Listing applies the same path check and rejects duplicate ids. Identity failures occur before repair or append.
 - **Lazy materialization.** `create(meta)` writes nothing; on the first `append`, the backend writes and `fsync`s a temporary file, publishes it without overwrite via a hard link, then `fsync`s the directory when the host supports it. A created-but-never-appended session leaves nothing on disk and is absent from `list`.
 - **Append-only.** Committed events (at or below a flushed `turn/end`) are never rewritten. Subsequent appends are line appends at EOF + `fsync`.
 - **Crash recovery — preserve valid tail work.** `load` keeps the contiguous valid prefix of an interrupted final turn. It truncates from the first unparsable or sequence-gapped uncommitted record, then appends the synthetic tool, step, and turn closers required by the shared [persistence contract](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md); the same defect at or before the last committed `turn/end` rejects.
@@ -30,7 +31,7 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 
 ## Write path
 
-The plugin buffers frozen session events and drains them on flush or disposal. A per-session cursor prevents resumed sessions from re-appending stored events, and live sessions are seeded when the plugin loads. Operations for one session are serialized; disposal waits for initialization and the final drain so no write lands after teardown.
+The plugin buffers frozen session events and drains them on flush or disposal. A per-session cursor prevents resumed sessions from re-appending stored events, and live sessions are seeded when the plugin loads. The owning backend instance serializes operations for one session; disposal waits for initialization and the final drain so no write lands after teardown.
 
 ## Model Experience
 
@@ -52,6 +53,6 @@ JSONL storage does not mutate live request prefixes. A resumed loop can reuse pr
 
 - **Only the current `SESSION_FORMAT_VERSION` (v0) loads** — the on-disk format is pre-release/unstable: a breaking format change is absorbed at v0 and non-current logs are rejected; there is no migration.
 - **Nothing deletes session files** — logs accumulate under `root` until removed externally (the seam has no deletion surface).
-- **Single-process assumption** — per-session serialization and the write cursor live in this process; two processes appending to the same `root` are not coordinated.
+- **One live writer per session** — append and repair are coordinated only inside the owning backend instance. Another backend instance or process must not write the same session until that owner reaches quiescent disposal; initial same-id publication remains collision-safe through the no-overwrite hard link.
 - **Initial materialization requires hard-link support** — first append uses `link()` so same-id races fail instead of overwriting a committed log; a filesystem that cannot create hard links cannot host this backend.
 - **Windows cannot `fsync` directory handles through Node** — the backend tolerates only Windows `EPERM` from directory `fsync`; file-content `fsync` remains mandatory, but a crash can lose a newly published directory entry on a host without an equivalent directory-sync primitive.

@@ -9,7 +9,7 @@
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { open, mkdir, readFile, readdir, link, rm, truncate } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
   SessionPersistence, PersistenceCoordinator,
@@ -97,28 +97,19 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   /** Read a stored prefix by id across all cwd buckets when cwd is unknown. */
   async loadStored(id: SessionId): Promise<StoredPrefix<number> | undefined> {
-    const file = await this.findLog(id)
-    if (file === undefined) return undefined
-    return this.readPrefix(file.path)
-  }
-
-  /**
-   * Read a stored prefix within one cwd for HMR adoption. `undefined` names the
-   * no-cwd bucket rather than an unknown cwd, so this never scans other buckets.
-   */
-  async loadLive(id: SessionId, cwd: string | undefined): Promise<StoredPrefix<number> | undefined> {
-    const path = logPath(this.root, cwd, id)
-    if (!await this.exists(path)) return undefined
-    return this.readPrefix(path)
+    const path = await this.findLog(id)
+    if (path === undefined) return undefined
+    return this.readPrefix(path, id)
   }
 
   /**
    * Read a stored prefix and convert torn-tail state to the byte offset the
    * coordinator can round-trip without knowing the file format.
    */
-  private async readPrefix(path: string): Promise<StoredPrefix<number>> {
+  private async readPrefix(path: string, expectedId: SessionId): Promise<StoredPrefix<number>> {
     const buffer = await readFile(path)
     const { meta, events, committedBytes } = scanLog(buffer)
+    this.assertStoredIdentity(path, meta, expectedId)
     return {
       meta,
       events,
@@ -145,16 +136,23 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     if (closers.length > 0) await this.appendLines(meta, closers)
   }
 
-  /** List all stored sessions' metadata (header line only — no full-log parse). */
+  /** List valid unique stored sessions' metadata (header line only — no full-log parse). */
   async list(): Promise<SessionHeader[]> {
     const metas: SessionHeader[] = []
+    const ids = new Set<SessionId>()
     for (const dir of await this.listCwdDirs()) {
       for (const name of await this.listJsonl(dir)) {
+        const path = join(dir, name)
         // Read only headers so listing scales with session count, not log size.
-        const first = await this.readFirstLine(`${dir}/${name}`)
+        const first = await this.readFirstLine(path)
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
         if (meta === undefined) continue // not a session header
+        this.assertStoredIdentity(path, meta)
+        if (ids.has(meta.id)) {
+          throw new Error(`duplicate JSONL session id "${meta.id}" appears in multiple cwd buckets`)
+        }
+        ids.add(meta.id)
         metas.push(meta)
       }
     }
@@ -292,28 +290,41 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  /**
-   * Find a session by id across cwd buckets for resume. Cwd-scoped HMR adoption
-   * bypasses this scan so a no-cwd session cannot claim another bucket.
-   */
-  private async findLog(id: SessionId): Promise<{ path: string; cwd: string | undefined } | undefined> {
+  /** Find the unique physical log for an id across every cwd bucket. */
+  private async findLog(id: SessionId): Promise<string | undefined> {
     const target = encodeSegment(id) + '.jsonl'
+    const matches: string[] = []
     for (const dir of await this.listCwdDirs()) {
-      const path = `${dir}/${target}`
-      if (await this.exists(path)) {
-        // Recover the cwd from the header so the caller has the session's bucket.
-        const { meta } = scanLog(await readFile(path))
-        return { path, cwd: meta.cwd }
-      }
+      const path = join(dir, target)
+      if (await this.exists(path)) matches.push(path)
     }
-    return undefined
+    if (matches.length > 1) {
+      throw new Error(`duplicate JSONL session id "${id}" appears in multiple cwd buckets`)
+    }
+    return matches[0]
+  }
+
+  /** Reject metadata that does not identify the selected physical log. */
+  private assertStoredIdentity(path: string, meta: SessionHeader, expectedId?: SessionId): void {
+    if (expectedId !== undefined && meta.id !== expectedId) {
+      throw new Error(`corrupt session log "${path}": requested id "${expectedId}" does not match header id "${meta.id}"`)
+    }
+    let expectedPath: string
+    try {
+      expectedPath = logPath(this.root, meta.cwd, meta.id)
+    } catch (error) {
+      throw new Error(`corrupt session log "${path}": header id cannot name a storage path`, { cause: error })
+    }
+    if (path !== expectedPath) {
+      throw new Error(`corrupt session log "${path}": header id "${meta.id}" and cwd belong at "${expectedPath}"`)
+    }
   }
 
   /** The cwd-bucket directories under the root (absolute paths). */
   private async listCwdDirs(): Promise<string[]> {
     try {
       const entries = await readdir(this.root, { withFileTypes: true })
-      return entries.filter(e => e.isDirectory()).map(e => `${this.root}/${e.name}`)
+      return entries.filter(e => e.isDirectory()).map(e => join(this.root, e.name))
     } catch (error) {
       // Only an absent root means no sessions; rethrow every other I/O failure.
       if (isENOENT(error)) return []
