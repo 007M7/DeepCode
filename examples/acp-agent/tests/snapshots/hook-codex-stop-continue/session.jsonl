@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"eb17be12-ca8c-46c8-b500-0977e8400208","createdAt":1784522152392,"cwd":"/var/folders/4j/54c8wb496zxfrs1ny_21jbb00000gn/T/acp-snap-cwd-ESgqLu"}
+{"type":"session","version":0,"id":"eb17be12-ca8c-46c8-b500-0977e8400208","createdAt":1784522152392,"cwd":"/var/folders/4j/54c8wb496zxfrs1ny_21jbb00000gn/T/acp-snap-cwd-ESgqLu","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1784522152397,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1784522152397,"data":{"content":[{"type":"text","text":"Reply with the single word FIRST and stop."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1784522152399,"data":{"turn":1,"step":1}}

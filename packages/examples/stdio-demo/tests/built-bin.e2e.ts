@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process'
-import { cp, mkdtemp, mkdir, rm, symlink, writeFile, readFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readdir, rm, symlink, writeFile, readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
+import { zstdDecompress } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
@@ -15,6 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 const stdioBin = join(repoRoot, 'packages/examples/stdio-demo/lib/bin.js')
+const decompress = promisify(zstdDecompress)
 
 // Symlink each required workspace package by package name so plain Node resolves its built `main`,
 // matching an installed dependency rather than tsconfig paths.
@@ -153,6 +156,12 @@ describe.skipIf(!existsSync(stdioBin))('dsh-stdio-demo BUILT bin (node lib/bin.j
     expect(stdout).toContain('[tool call] echo')
     expect(stdout).toContain('[tool result] ECHO: HI')
     expect(code).toBe(0)
+    const files = await readdir(join(consumer, '.sessions'), { recursive: true })
+    const log = files.find(file => file.endsWith('.jsonl.zstd'))
+    expect(log).toBeDefined()
+    const compressed = await readFile(join(consumer, '.sessions', log!))
+    expect(compressed.subarray(0, 4).toString('hex')).toBe('28b52ffd')
+    expect(JSON.parse((await decompress(compressed)).toString())).toMatchObject({ type: 'session' })
   }, 30_000)
 
   it('boots cleanly when the config disables an (otherwise unresolvable) entry', async () => {

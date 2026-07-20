@@ -181,6 +181,11 @@ function gatesForMode(selected: Mode): Gate[] {
           'run',
           'packages/workflow/workflow-workerthread/tests/source-worker.compat.spec.ts',
         ], { label: 'source worker smoke' }),
+        pnpmExec('jsonl-zstd-smoke', [
+          'vitest',
+          'run',
+          'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
+        ], { label: 'JSONL Zstandard smoke' }),
       ]
     case 'pre-push':
       return [
@@ -377,7 +382,7 @@ function demoSmokeGate(options: { needs?: string[] } = {}): Gate {
         for (const bucket of buckets) {
           if (!bucket.isDirectory() || !bucket.name.startsWith('cwd-')) continue
           const entries = await readdir(join(sessionsRoot, bucket.name))
-          if (entries.some(entry => /^main-session-.+\.jsonl$/.test(entry))) {
+          if (entries.some(entry => /^main-session-.+\.jsonl\.zstd$/.test(entry))) {
             found = true
             break
           }
