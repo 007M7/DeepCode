@@ -340,6 +340,47 @@ Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResu
 
 Source: [`packages/code-runtime/code-runtime/src/index.ts:30`](../../packages/code-runtime/code-runtime/src/index.ts)
 
+## `ctx.commands` — `CommandService`
+
+Human-command registry. Plain-context definitions are global; definitions registered through a command-injected child of an agent context shadow globals for that agent.
+
+```ts cordis-catalog
+/**
+ * Register a global or calling-agent-scoped command.
+ * @param definition - discovery metadata and direct UI handler.
+ * @returns the exact effect disposer that unregisters this definition.
+ */
+register(definition: CommandDefinition): () => void
+
+/**
+ * List the effective immutable command descriptors for one agent.
+ * @param agent - exact receiving agent and scoped-layer key.
+ * @returns name-sorted descriptors after scoped shadowing.
+ */
+list(agent: Agent): readonly CommandDescriptor[]
+
+/**
+ * Resolve one effective command definition.
+ * @param agent - exact receiving agent and scoped-layer key.
+ * @param name - command name without a slash.
+ * @returns the scoped shadow or global definition.
+ */
+find(agent: Agent, name: string): CommandDefinition | undefined
+
+/**
+ * Parse and execute a known command without sending it to the model.
+ * @param agent - exact receiving agent.
+ * @param line - complete slash-command line.
+ * @param signal - cancellation signal owned by the UI request.
+ * @returns a detached result, or `undefined` when syntax or name does not resolve.
+ */
+async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>
+```
+
+Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md) · [CommandResult](../core-data-structures/commands.md)
+
+Source: [`packages/ui/commands/src/index.ts:207`](../../packages/ui/commands/src/index.ts)
+
 ## `ctx.compact` — `CompactService` (abstract seam)
 
 Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
@@ -484,6 +525,93 @@ abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: 
 Types: [FsDirEntry](../core-data-structures/filesystem.md) · [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsPathInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md) · [SandboxExecutionPolicy](../core-data-structures/sandbox.md)
 
 Source: [`packages/fs/fs/src/index.ts:81`](../../packages/fs/fs/src/index.ts)
+
+## `ctx.goals` — `GoalService`
+
+Goal service (`ctx.goals`) backed exclusively by the owning session log.
+
+```ts cordis-catalog
+/**
+ * Read the current goal for one exact live agent.
+ * @param agent - owning live agent.
+ * @returns a fresh view or `undefined` when no goal is current.
+ * @throws {@link GoalError} when the agent is not the registry's live instance.
+ */
+get(agent: Agent): GoalView | undefined
+
+/**
+ * Remove process-local continuation authority without changing durable goal
+ * phase or revision. Lifecycle owners use this before unloading a driver;
+ * a later human-authorized {@link resume} records the new activation edge.
+ * @param agent - owning live agent.
+ * @returns a fresh disarmed view, or `undefined` when no goal is current.
+ */
+disarm(agent: Agent): GoalView | undefined
+
+/**
+ * Create and arm a goal. A completed goal may be replaced; every other
+ * current phase must be cleared or resumed instead.
+ * @param agent - owning live agent.
+ * @param request - objective and optional round cap.
+ * @returns the created live view.
+ */
+create(agent: Agent, request: CreateGoalRequest): GoalView
+
+/**
+ * Edit objective and/or round cap without changing phase.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @param request - at least one replacement field.
+ * @returns the edited view.
+ */
+edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView
+
+/**
+ * Pause an active goal and disarm automatic continuation.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @returns the paused view.
+ */
+pause(agent: Agent, ref: GoalRef): GoalView
+
+/**
+ * Resume and arm a stopped goal, or rearm an active goal after a
+ * session-start edge, while its round budget still has capacity.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @returns the active view.
+ */
+resume(agent: Agent, ref: GoalRef): GoalView
+
+/**
+ * Mark a current non-complete goal complete and disarm it.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @returns the completed view.
+ */
+complete(agent: Agent, ref: GoalRef): GoalView
+
+/**
+ * Mark an active goal blocked and disarm it.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @param reason - policy-owned stable code and human-readable explanation.
+ * @returns the blocked view with its durable reason.
+ */
+block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView
+
+/**
+ * Clear the current goal while retaining a durable tombstone and history.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @returns the tombstone ref whose revision is one past the cleared snapshot.
+ */
+clear(agent: Agent, ref: GoalRef): GoalRef
+```
+
+Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
+
+Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.llm` — `LlmService`
 

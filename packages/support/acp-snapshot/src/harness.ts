@@ -41,12 +41,15 @@ export type { AgentUnderTest } from './launcher.ts'
  * the client observes the selected update (`agent_message_chunk` by default),
  * then cancels and awaits completion. A named `waitForToolCallUpdate` keeps the
  * step open for a terminal tool update that may follow the prompt response.
+ * `promptAndWaitForAgentMessage` arms an exact text-chunk waiter before sending
+ * the prompt, then keeps the application live until that later update arrives.
  */
 export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
   | { op: 'newSession' }
   | { op: 'newSessionExpectError'; additionalDirectories?: string[] }
   | { op: 'prompt'; text: string }
+  | { op: 'promptAndWaitForAgentMessage'; text: string; waitForText: string }
   | { op: 'promptExpectError'; text: string }
   | {
     op: 'promptAndCancel'
@@ -329,6 +332,15 @@ async function runStep(
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: prompt before newSession')
       await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
+      return
+    }
+    case 'promptAndWaitForAgentMessage': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: promptAndWaitForAgentMessage before newSession')
+      const updateDone = waitForUpdate(update => update.sessionUpdate === 'agent_message_chunk'
+        && update.content.type === 'text' && update.content.text === step.waitForText)
+      await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
+      await updateDone
       return
     }
     case 'promptExpectError': {

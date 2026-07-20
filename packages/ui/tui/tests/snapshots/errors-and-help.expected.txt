@@ -1,7 +1,7 @@
 terminal 92x32 buffer=normal length=32 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=18 bufferRow=18
+cursor hidden column=1 viewportRow=25 bufferRow=25
 buffer
 0| "╭──────────────────────────────────────────────────────────────────────────────────────────╮"
   style 0-91 fg=bright-blue
@@ -29,24 +29,37 @@ buffer
   style 1-75 fg=bright-black
 9| " Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit                  "
   style 1-73 fg=bright-black
-10| " /help /clear /cancel /reasoning /tools /redraw /exit                                       "
-  style 1-52 fg=bright-black
-11| <blank>
-12| " Unknown command: /unknown-advanced-command                                                 "
-  style 1-42 fg=yellow
-13| <blank>
-14| " provider stream failed after partial output                                                "
+10| "                                                                                            "
+11| " /cancel — Cancel the active turn                                                           "
+  style 1-32 fg=bright-black
+12| " /clear — Clear the transcript view (session history is unchanged)                          "
+  style 1-65 fg=bright-black
+13| " /exit — Exit after the active turn reaches idle                                            "
+  style 1-47 fg=bright-black
+14| " /help — Show keyboard shortcuts and commands                                               "
+  style 1-44 fg=bright-black
+15| " /reasoning — Toggle reasoning blocks                                                       "
+  style 1-36 fg=bright-black
+16| " /redraw — Invalidate components and redraw the terminal                                    "
+  style 1-55 fg=bright-black
+17| " /tools — Expand or collapse all tool cards                                                 "
+  style 1-42 fg=bright-black
+18| <blank>
+19| " provider stream failed after partial output                                                "
   style 1-43 fg=red
-15| <blank>
-16| " The previous process ended during this turn.                                               "
+20| <blank>
+21| " The previous process ended during this turn.                                               "
   style 1-44 fg=yellow
-17| "────────────────────────────────────────────────────────────────────────────────────────────"
+22| <blank>
+23| " Unknown command: /unknown-advanced-command                                                 "
+  style 1-42 fg=yellow
+24| "────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-91 dim
-18| "                                                                                            "
+25| "                                                                                            "
   style 1-1 inverse
-19| "────────────────────────────────────────────────────────────────────────────────────────────"
+26| "────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-91 dim
-20| "/workspace/project  ↑0 ↓0                                  idle  reasoning:on  tools:compact"
+27| "/workspace/project  ↑0 ↓0                                  idle  reasoning:on  tools:compact"
   style 0-24 dim
   style 59-91 dim
-21-31| <blank>
+28-31| <blank>

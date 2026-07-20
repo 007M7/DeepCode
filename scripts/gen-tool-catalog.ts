@@ -10,6 +10,8 @@ import { globSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import GoalService from '@deepseek-ai/dsh-goal'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
@@ -30,6 +32,7 @@ import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
@@ -223,6 +226,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-goal',
+    dir: 'tool-goal',
+    source: 'packages/goal/tool-goal/src/index.ts',
+    requires: ['ctx.tools', 'ctx.agents', 'ctx.goals', 'ctx.systemPrompt', 'a calling Agent in an authorized open turn'],
+    writes: ['tool/call', 'context/message goal snapshot for mutations', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(GoalService)
+      await ctx.plugin(ToolGoal)
+    },
+    note:
+      'create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-skill',

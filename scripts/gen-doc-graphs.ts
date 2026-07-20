@@ -58,6 +58,7 @@ const GROUP_ORDER = [
   'util',
   'llm',
   'core',
+  'goal',
   'bash',
   'sandbox',
   'fs',
@@ -153,6 +154,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
   },
   {
+    key: 'commands',
+    pkg: 'commands',
+    title: 'Human command registry',
+    mode: 'core',
+    consumers: ['tui', 'acp'],
+    note: 'Plugins register direct human commands; TUI and ACP consume the same effective per-agent catalog without sending invocations to the model.',
+  },
+  {
     key: 'skills',
     pkg: 'skill',
     title: 'Skill provider registry',
@@ -176,6 +185,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'bundle',
     consumers: ['agent-spine-demo'],
     note: 'The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package.',
+  },
+  {
+    key: 'goals',
+    pkg: 'goal',
+    title: 'Same-session goal domain',
+    mode: 'core',
+    note: 'Folds revisioned objective state from the session log and keeps live continuation activation process-local.',
   },
   {
     key: 'bash',

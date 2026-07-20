@@ -1,7 +1,7 @@
 /**
  * The ACP server app: the default agent spine ({@link @deepseek-ai/dsh-agent-spine-demo}),
- * JSONL session persistence, and the {@link @deepseek-ai/dsh-acp} bridge. It
- * writes nothing to stdout.
+ * human-command registry, JSONL session persistence, and the
+ * {@link @deepseek-ai/dsh-acp} bridge. It writes nothing to stdout.
  * It pre-creates no agents and leaves adapters, executors, and optional tools to
  * the leaf, which must likewise avoid stdout loggers. Named exports are
  * required so Loader retains this plugin's `Config` schema (see
@@ -12,6 +12,7 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
+import CommandService from '@deepseek-ai/dsh-commands'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
@@ -96,6 +97,7 @@ export const Config: z<Config> = z.object({
  * from the provider/model pair. No logger, no `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
+  ctx.plugin(CommandService)
   ctx.plugin(agentCore, agentCore.pickSpineConfig(config))
   ctx.plugin(UserInteractionService)
   ctx.plugin(SessionPersistenceJsonl, {
