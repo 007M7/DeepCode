@@ -15,3 +15,15 @@ FIXME(glossary-completeness): Expand this glossary before the first release so i
 - **restriction / scope-local registration** — a restriction (`tools.restrict`) filters the GLOBAL tool surface for one scope (compose by intersection); scope-local registrations are merged after that filter. A filtered-away global tool is absent from the prompt AND refuses execution, indistinguishably from a nonexistent one.
 - **setup window** — the creation slot where a creator composes an agent's scoped world (`CreateAgentOptions.setup`): after the scope and agent object exist but before the agent or session is published, `agent/session-start` fires, or the first prompt is assembled. Setup registers; it never drives the agent.
 - **lineage** — parent/child facts carried as data (`parentSession`, durable `delegationDepth`, runtime `subagentDepth`); never affects visibility. <a id="lineage"></a>
+
+## goal
+
+- **goal** — one durable completion objective attached to an existing session, with a revisioned `active` / `paused` / `blocked` / `complete` phase and a goal-round cap; `blocked` retains a policy code and explanation. A goal is state, not a scheduler or a separate conversation; the session log remains its source of truth.
+- **goal round** — one continuation cycle admitted for the current goal. The same-session driver materializes a goal round as one goal-sourced [turn](#turn), which can contain multiple steps; unrelated human turns in the same session do not consume the goal-round cap. <a id="goal-round"></a>
+- **goal activation** — process-local permission for a continuation consumer to admit another goal round. Activation is either `armed` or `disarmed`; it is deliberately absent from durable replay, so resume and fork require a later explicit resume mutation before automatic work.
+
+## loop hierarchy
+
+- **turn** — one drain of admitted input in a session, ending after the model and its tools stop or a terminal policy intervenes. <a id="turn"></a>
+- **step** — one model request plus the tool executions caused by its response; a turn contains one or more steps. <a id="step"></a>
+- **round** — an outer policy iteration containing a turn, such as a [goal round](#goal-round). Round counters belong to that policy and do not count every turn in a session. <a id="round"></a>

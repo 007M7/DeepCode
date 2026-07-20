@@ -27,7 +27,7 @@ The central `dsh-invariants` service owns only configuration, registration uniqu
 
 ### Implemented checks
 
-The current 94-package workspace has 19 executable companions and 75 justified empty companions.
+The current 95-package workspace has 20 executable companions and 75 justified empty companions.
 
 | Owner | Runtime relationship |
 |---|---|
@@ -43,6 +43,7 @@ The current 94-package workspace has 19 executable companions and 75 justified e
 | `dsh-hook-protocol` | Hook invocation/result correlation, dialect, identity, and duration constraints. |
 | `dsh-sandbox-policy` | Durable `sandbox/mode` events use the closed sandbox-mode vocabulary. |
 | `dsh-fs` | Filesystem decision/observation events carry usable target and version identities. |
+| `dsh-goal` | Durable goal snapshots preserve source attribution, rendered content, revisions, lifecycle and timestamp relationships, and sequential admitted rounds. |
 | `dsh-subagent` | Provider add/remove and child start/end events preserve identity and pairing. |
 | `dsh-permission` | Durable permission decisions name a preset in the active permission table. |
 | `dsh-user-approval` | Approval asked/decided records pair by call and use valid outcomes and policies. |

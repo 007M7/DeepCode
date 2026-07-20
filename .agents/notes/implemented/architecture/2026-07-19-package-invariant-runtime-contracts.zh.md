@@ -27,7 +27,7 @@ Status: implemented
 
 ### 已实施的检查
 
-当前 94 个包的 workspace 包含 19 个可执行 companion 和 75 个有理由的空 companion。
+当前 95 个包的 workspace 包含 20 个可执行 companion 和 75 个有理由的空 companion。
 
 | 所有者 | 运行时关系 |
 |---|---|
@@ -43,6 +43,7 @@ Status: implemented
 | `dsh-hook-protocol` | hook invocation/result 的关联、dialect、身份和 duration 约束。 |
 | `dsh-sandbox-policy` | 持久化 `sandbox/mode` 事件必须使用封闭的 sandbox-mode 词表。 |
 | `dsh-fs` | 文件系统决策/观测事件必须携带可用的 target 和 version 身份。 |
+| `dsh-goal` | 持久化目标快照保持来源归属、渲染内容、修订号、生命周期和时间戳关系，并保证已准入的目标回合连续编号。 |
 | `dsh-subagent` | provider add/remove 和 child start/end 事件必须保持身份与配对。 |
 | `dsh-permission` | 持久化 permission 决策必须引用当前 permission 表中的 preset。 |
 | `dsh-user-approval` | approval asked/decided 记录按 call 配对，并使用有效 outcome 和 policy。 |
