@@ -27,6 +27,18 @@
     { "doc": "docs/core-data-structures/scope.md", "symbol": "Scoped", "source": "packages/core/scope/src/index.ts" },
     { "doc": "docs/core-data-structures/scope.md", "symbol": "Scope", "source": "packages/core/scope/src/index.ts" },
 
+    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalRef", "source": "packages/goal/goal/src/types.ts" },
+    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalPhase", "source": "packages/goal/goal/src/types.ts" },
+    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalBlockReason", "source": "packages/goal/goal/src/types.ts" },
+    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalSnapshot", "source": "packages/goal/goal/src/types.ts" },
+    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalView", "source": "packages/goal/goal/src/types.ts" },
+    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalSnapshotChangeMeta", "source": "packages/goal/goal/src/types.ts" },
+    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalClearChangeMeta", "source": "packages/goal/goal/src/types.ts" },
+    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalMessageSource", "source": "packages/goal/goal/src/types.ts" },
+    { "doc": "docs/core-data-structures/goal.md", "symbol": "CreateGoalRequest", "source": "packages/goal/goal/src/types.ts" },
+    { "doc": "docs/core-data-structures/goal.md", "symbol": "EditGoalRequest", "source": "packages/goal/goal/src/types.ts" },
+    { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalChanged", "source": "packages/goal/goal/src/types.ts" },
+
     { "doc": "docs/core-data-structures/system-prompt.md", "symbol": "AssembleContext", "source": "packages/core/system-prompt/src/index.ts" },
     { "doc": "docs/core-data-structures/system-prompt.md", "symbol": "PromptSection", "source": "packages/core/system-prompt/src/index.ts" },
     { "doc": "docs/core-data-structures/system-prompt.md", "symbol": "ToolProviderResult", "source": "packages/core/system-prompt/src/index.ts" },
