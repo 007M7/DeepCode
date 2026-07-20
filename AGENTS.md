@@ -112,9 +112,9 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - **Prefer symmetry for parallel values**; unexplained asymmetry usually signals a missed extraction.
 - **Tests describe behavior, not correctness.** Change obsolete behavior with its tests; explain why in the PR.
 - **Every non-trivial change MUST include at least one Agent Note in the same PR.** Update the owning note or add one, validate its premises against code, and exempt only mechanical/local edits ([scope](.agents/notes/README.md#when-to-write-one)).
-- **Testing policy** — [docs/testing.md](docs/testing.md). Transcript changes need snapshots or a PR note. Fixtures must replay on macOS/Linux; fix fixtures, not normalizers.
+- **Testing policy** — [docs/testing.md](docs/testing.md). Every non-trivial model- or human-visible change adds or updates a keyless snapshot through a real runnable example in the same PR; package tests, e2e-only assertions, and mock-only fixtures do not substitute for the assembled application transcript. Fixtures must replay on macOS/Linux; fix fixtures, not normalizers.
 - **A tool's ACP render intent is part of its design**, decided up front (`generic`/`terminal`/`diff`, `locations`); presentation methods are pure functions of `args` ([cookbook](docs/cookbook/adding-a-tool.md)).
-- **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces, and schedule any missing harness support before implementation.
+- **Plan unit, e2e, and snapshot coverage** for new seams, lifecycle shapes, and transcript surfaces; missing snapshot-harness support is part of the implementation, not deferred follow-up.
 - **Keep PRs coherent and merge with merge commits.** Split an independently meaningful feature or design decision into a separate or stacked PR when combining it obscures ownership, intent, or verification. Never squash/rebase or rewrite pushed branches; put a review fix on its introducing PR, then merge down the stack ([guide](docs/cookbook/responding-to-pr-review-on-a-stack.md)).
 - TODO markers: `FIXME`/`TODO`/`XXX` by urgency ([semantics](docs/development.md)).
 - Files end with exactly one trailing newline; `git diff --check` (pre-push) gates it.
