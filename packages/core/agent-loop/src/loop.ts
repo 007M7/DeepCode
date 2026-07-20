@@ -32,7 +32,7 @@ class TerminalModelRequestFailure extends Error {
     readonly requestError: RequestError,
     readonly failure: LlmFailure,
   ) {
-    super(requestError.message, { cause: requestError })
+    super(failure.message, { cause: requestError })
     this.name = 'TerminalModelRequestFailure'
   }
 }
@@ -67,6 +67,12 @@ function finishError(finish: FinishReason): { error: RequestError; failure: LlmF
  */
 function errorData(err: RequestError): { message: string; code?: string } {
   return { message: errorChain(err), ...typeof err.code === 'string' ? { code: err.code } : {} }
+}
+
+/** Preserve cause diagnostics, falling back to adapter-normalized prose for a hostile Error. */
+function durableFailure(err: RequestError, failure: LlmFailure): LlmFailure {
+  const message = errorChain(err)
+  return { ...failure, message: message === '<unrenderable value>' ? failure.message : message }
 }
 
 /** Map a successful max-token finish onto the turn reason; other successful finishes add nothing. */
@@ -231,7 +237,7 @@ async function runTurn(
     errorReported = true
     reason = failure === undefined
       ? { kind: 'error', step, ...errorData(err) }
-      : { kind: 'error', step, failure: { ...failure, message: errorChain(err) } }
+      : { kind: 'error', step, failure: durableFailure(err, failure) }
     try {
       events.emit('agent/error', turn, step, err)
     } catch {

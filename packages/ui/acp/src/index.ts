@@ -1124,11 +1124,8 @@ export function streamSessionEventUpdate(
       return
     }
     case 'turn/end': {
-      if (event.data.reason.kind !== 'error') return
-      const message = 'failure' in event.data.reason
-        ? event.data.reason.failure.message
-        : event.data.reason.message
-      const text = `\n\n[Model attempt failed; any partial output above is discarded: ${message}]\n\n`
+      if (event.data.reason.kind !== 'error' || !('failure' in event.data.reason)) return
+      const text = `\n\n[Model attempt failed; any partial output above is discarded: ${event.data.reason.failure.message}]\n\n`
       notify({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } })
       return
     }

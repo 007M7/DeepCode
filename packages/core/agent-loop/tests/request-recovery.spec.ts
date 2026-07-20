@@ -3,6 +3,7 @@ import { Context } from 'cordis'
 import LlmService, {
   CallId,
   CONTEXT_WINDOW_EXCEEDED_CODE,
+  HarnessError,
   LlmAdapter,
   LlmError,
   ProviderRequestId,
@@ -417,6 +418,31 @@ describe('agent post-step and request-error lifecycle', () => {
     await waitForIdle(ctx, agent)
 
     expect(seen).toBe(original)
+  })
+
+  it('keeps an adapter error with a hostile message accessor on the recovery path', async () => {
+    const original = Object.defineProperty(new HarnessError('provider failed', 'SERVER'), 'message', {
+      get() { throw new Error('SDK message accessor trap') },
+    })
+    const ctx = await harness(new SynchronousDispatchFailureAdapter(original))
+    const agent = ctx.agentLoop.create(SessionId('hostile-message-recovery'), { provider: 'mock', model: 'mock' })
+    let seenError: Error | undefined
+    let seenFailure: LlmFailure | undefined
+    ctx.on('agent/request-error', async (_agent, _turn, _step, error, failure, _history, _signal, next) => {
+      seenError = error
+      seenFailure = failure
+      return next()
+    })
+
+    send(agent)
+    await waitForIdle(ctx, agent)
+
+    expect(seenError).toBe(original)
+    expect(seenFailure).toEqual({ message: 'LLM adapter failed', code: 'SERVER' })
+    expect(agent.session.events.at(-1)).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'error', failure: { message: 'LLM adapter failed', code: 'SERVER' } } },
+    })
   })
 
   it('passes structured facts beside the original Error and records its cause chain on exhaustion', async () => {

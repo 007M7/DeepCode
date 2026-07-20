@@ -65,7 +65,7 @@ describe('streamSessionEventUpdate', () => {
       .toEqual([])
   })
 
-  it('marks retry and terminal failure boundaries in the append-only update stream', () => {
+  it('marks retry and terminal model failure boundaries but not ordinary turn errors', () => {
     expect(updatesFor(evt('llm/retry', {
       turn: 1,
       step: 1,
@@ -90,6 +90,10 @@ describe('streamSessionEventUpdate', () => {
         text: '\n\n[Model attempt failed; any partial output above is discarded: still busy]\n\n',
       },
     }])
+    expect(updatesFor(evt('turn/end', {
+      turn: 1,
+      reason: { kind: 'error', step: 2, message: 'post-step failed' },
+    }))).toEqual([])
   })
 
   it('maps tool/call to an in_progress tool_call with kind other and parsed rawInput (generic fallback, no presenter)', () => {
