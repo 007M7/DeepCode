@@ -18,8 +18,39 @@ export const name = 'time-context-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Validate one plugin-attributed time reading against its durable event timestamp. */
-function validateReading(event: SessionEvent<'context/message'>, fail: InvariantFailure): void {
+/** Derive the pre-step position at which a time-context reading may append. */
+function preparationPosition(session: Session, fail: InvariantFailure): { turn: number; step: number } {
+  const currentTurnEvents: SessionEvent[] = []
+  let openTurn: number | undefined
+  for (const event of session.events.slice().reverse()) {
+    if (event.type === 'turn/end') {
+      fail('time-context reading must be appended inside an open turn')
+    }
+    if (event.type === 'turn/start') {
+      openTurn = event.data.turn
+      break
+    }
+    currentTurnEvents.push(event)
+  }
+  if (openTurn === undefined) fail('time-context reading must be appended inside an open turn')
+
+  for (const event of currentTurnEvents) {
+    if (event.type === 'step/start') {
+      fail(`time-context reading must precede step/start, but step ${event.data.step} is already open`)
+    }
+    if (event.type === 'step/end') {
+      return { turn: openTurn, step: event.data.step + 1 }
+    }
+  }
+  return { turn: openTurn, step: 1 }
+}
+
+/** Validate one plugin-attributed time reading against its session position and timestamp. */
+function validateReading(
+  session: Session,
+  event: SessionEvent<'context/message'>,
+  fail: InvariantFailure,
+): void {
   const [block] = event.data.content
   if (event.data.content.length !== 1 || block?.type !== 'text') {
     fail('time-context messages must contain exactly one text block')
@@ -30,6 +61,10 @@ function validateReading(event: SessionEvent<'context/message'>, fail: Invariant
   const step = Number(match[2])
   if (!Number.isSafeInteger(turn) || turn < 1 || !Number.isSafeInteger(step) || step < 1) {
     fail('time-context turn and step must be positive safe integers')
+  }
+  const expected = preparationPosition(session, fail)
+  if (turn !== expected.turn || step !== expected.step) {
+    fail(`time-context reading names turn ${turn}/step ${step}, expected turn ${expected.turn}/step ${expected.step}`)
   }
   const baseline = match[4]
   if ((step === 1) !== (baseline === 'model-visible message')) {
@@ -49,11 +84,11 @@ function validateReading(event: SessionEvent<'context/message'>, fail: Invariant
 const install: InvariantInstaller = (ctx, fail) => {
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
-    const event = (args as [Session, SessionEvent])[1]
+    const [session, event] = args as [Session, SessionEvent]
     if (event.type !== 'context/message'
       || event.data.source.kind !== 'plugin'
       || event.data.source.plugin !== SOURCE_NAME) return
-    validateReading(event, fail)
+    validateReading(session, event, fail)
   }, { global: true })
 }
 

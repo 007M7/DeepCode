@@ -167,12 +167,18 @@ function checkSource(
   const constants = topLevelStringConstants(sourceFile)
   const registrations: string[] = []
   const unresolved: number[] = []
+  const mismatchedInstallers: number[] = []
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && isInvariantRegistration(node.expression)) {
+      const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
       const argument = node.arguments[0]
       const packageName = argument === undefined ? undefined : stringValue(argument, constants)
-      if (packageName === undefined) unresolved.push(sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1)
+      if (packageName === undefined) unresolved.push(line)
       else registrations.push(packageName)
+      const installer = node.arguments[1]
+      if (installer === undefined || !ts.isIdentifier(installer) || installer.text !== 'install') {
+        mismatchedInstallers.push(line)
+      }
     }
     ts.forEachChild(node, visit)
   }
@@ -183,6 +189,13 @@ function checkSource(
       violations,
       owner.sourcePath,
       `line ${line}: ctx.invariants.register package name must resolve to a local string constant`,
+    )
+  }
+  for (const line of mismatchedInstallers) {
+    addViolation(
+      violations,
+      owner.sourcePath,
+      `line ${line}: ctx.invariants.register must use the checked local install function`,
     )
   }
   if (registrations.length !== 1 || registrations[0] !== owner.packageName) {

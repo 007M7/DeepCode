@@ -35,12 +35,12 @@ The current executable companions protect these relationships:
 | Companion | Checks |
 |---|---|
 | `dsh-session`, `dsh-agent`, `dsh-scope`, `dsh-agent-loop` | Session enclosure and call/result trace, agent-status transitions, scoped subjects, and model-request reconstruction. |
-| `dsh-llm`, `dsh-tools`, `dsh-system-prompt` | Stream grammar, tool-pipeline stages and frozen results, and authoritative prompt-assembly data. |
+| `dsh-llm`, `dsh-llm-retry`, `dsh-tools`, `dsh-system-prompt` | Stream grammar, durable retry position and bounds, tool-pipeline stages and frozen results, and authoritative prompt-assembly data. |
 | `dsh-compact`, `dsh-hook-protocol`, `dsh-sandbox-policy` | Durable compaction and hook pairing, compaction metadata, and sandbox-mode vocabulary. |
 | `dsh-fs`, `dsh-subagent`, `dsh-workflow` | Filesystem event identity, provider/child pairing, and workflow/agent lifecycle identity. |
 | `dsh-permission`, `dsh-user-approval` | Active-preset references and approval asked/decided audit pairing. |
 | `dsh-tasks`, `dsh-tool-todo` | Task snapshot lifecycle/ownership fields and durable whole-list todo structure. |
-| `dsh-time-context` | Durable clock readings agree with their turn, step, elapsed baseline, and event timestamp. |
+| `dsh-time-context` | Durable clock readings agree with the session's open turn and next pre-step position, elapsed baseline, and event timestamp. |
 
 The root entrypoint of each owner remains independent of diagnostics. Loading the service alone installs no product checks, and loading a companion without the service waits on its declared `invariants` injection.
 

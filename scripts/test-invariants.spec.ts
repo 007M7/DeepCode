@@ -83,6 +83,7 @@ describe('global test invariant host', () => {
       '/packages/fs/fs/tests/invariant.spec.ts',
       '/packages/hooks/hook-protocol/tests/invariant.spec.ts',
       '/packages/llm/llm/tests/invariant.spec.ts',
+      '/packages/llm/llm-retry/tests/invariant.spec.ts',
       '/packages/sandbox/sandbox-policy/tests/invariant.spec.ts',
       '/packages/subagent/subagent/tests/invariant.spec.ts',
       '/packages/tasks/tasks/tests/invariant.spec.ts',

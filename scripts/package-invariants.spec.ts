@@ -138,6 +138,20 @@ export const apply = (ctx: { invariants: { register(name: string, install: typeo
       .toContain('install function must use its bound failure reporter')
   })
 
+  it('rejects registering a different installer than the checked local function', () => {
+    const decoy = fixture({
+      source: `
+export const name = 'probe-invariant'
+export const inject = ['invariants']
+const install = (_ctx: unknown, fail: (message: string) => never) => { fail('checked decoy') }
+export const apply = (ctx: { invariants: { register(name: string, install: () => void): () => void } }) =>
+  ctx.invariants.register('@deepseek-ai/dsh-probe', () => {})
+`,
+    })
+    expect(collectPackageInvariantViolations(decoy).map(violation => violation.message))
+      .toContain('line 6: ctx.invariants.register must use the checked local install function')
+  })
+
   it('accepts explained empty installers and rejects unexplained ones', () => {
     const explained = `
 export const name = 'probe-invariant'
