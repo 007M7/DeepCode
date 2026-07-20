@@ -1144,7 +1144,7 @@ export function createTuiChat(
   }
 
   const showHelp = (): void => {
-    const commandLines = ctx.commands.list(agent, 'tui').map((command) => {
+    const commandLines = ctx.commands.list(agent).map((command) => {
       const input = command.input === undefined ? '' : ` ${command.input.hint}`
       return `/${command.name}${input} — ${command.description}`
     })
@@ -1162,7 +1162,7 @@ export function createTuiChat(
 
   const refreshCommandAutocomplete = (): void => {
     editor.setAutocompleteProvider(new CombinedAutocompleteProvider(
-      ctx.commands.list(agent, 'tui').map(command => ({
+      ctx.commands.list(agent).map(command => ({
         name: command.name,
         description: command.description,
       })),
@@ -1179,19 +1179,16 @@ export function createTuiChat(
     commandCtx.commands.register({
       name: 'help',
       description: 'Show keyboard shortcuts and commands',
-      surfaces: ['tui'],
       handler: () => { showHelp(); return { kind: 'success' } },
     })
     commandCtx.commands.register({
       name: 'clear',
       description: 'Clear the transcript view (session history is unchanged)',
-      surfaces: ['tui'],
       handler: () => { chat.clear(); requestRender(); return { kind: 'success' } },
     })
     commandCtx.commands.register({
       name: 'cancel',
       description: 'Cancel the active turn',
-      surfaces: ['tui'],
       handler: () => {
         if (agent.status !== 'running') return { kind: 'error', text: 'The agent is already idle.' }
         agent.cancel('cancelled from terminal')
@@ -1201,25 +1198,21 @@ export function createTuiChat(
     commandCtx.commands.register({
       name: 'reasoning',
       description: 'Toggle reasoning blocks',
-      surfaces: ['tui'],
       handler: () => { toggleReasoning(); return { kind: 'success' } },
     })
     commandCtx.commands.register({
       name: 'tools',
       description: 'Expand or collapse all tool cards',
-      surfaces: ['tui'],
       handler: () => { toggleTools(); return { kind: 'success' } },
     })
     commandCtx.commands.register({
       name: 'redraw',
       description: 'Invalidate components and redraw the terminal',
-      surfaces: ['tui'],
       handler: () => { ui.invalidate(); ui.requestRender(true); return { kind: 'success' } },
     })
     commandCtx.commands.register({
       name: 'exit',
       description: 'Exit after the active turn reaches idle',
-      surfaces: ['tui'],
       handler: () => { requestExit(); return { kind: 'success' } },
     })
   })
@@ -1227,7 +1220,7 @@ export function createTuiChat(
   const runCommand = (text: string): void => {
     const controller = new AbortController()
     commandControllers.add(controller)
-    void ctx.commands.execute(agent, 'tui', text, controller.signal).then(
+    void ctx.commands.execute(agent, text, controller.signal).then(
       (result) => {
         if (disposed) return
         if (result === undefined) {

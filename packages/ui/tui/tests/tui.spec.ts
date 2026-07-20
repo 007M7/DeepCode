@@ -442,13 +442,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
       name: 'plugin-check',
       description: 'Run a plugin command',
       input: { hint: '<value>' },
-      surfaces: ['tui'],
       handler,
     })
     result.ctx.commands.register({
       name: 'plugin-fail',
       description: 'Fail a plugin command',
-      surfaces: ['tui'],
       handler: () => { throw new Error('plugin command exploded') },
     })
 
@@ -459,7 +457,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(handler).toHaveBeenCalledTimes(1)
     const invocation = handler.mock.calls[0]?.[0]
     expect(invocation?.agent).toBe(result.agent)
-    expect(invocation?.surface).toBe('tui')
     // pi-tui's Editor owns terminal-line normalization and removes trailing
     // spaces before onSubmit; the registry preserves the adapter-delivered line.
     expect(invocation?.rawInput).toBe('  value')
@@ -472,10 +469,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('/plugin-check <value> — Run a plugin command')
-    expect(result.ctx.commands.list(result.agent, 'tui').map(command => command.name)).toContain('help')
+    expect(result.ctx.commands.list(result.agent).map(command => command.name)).toContain('help')
 
     await result.controller.dispose()
-    expect(result.ctx.commands.list(result.agent, 'tui').map(command => command.name)).toEqual([
+    expect(result.ctx.commands.list(result.agent).map(command => command.name)).toEqual([
       'plugin-check',
       'plugin-fail',
     ])
@@ -490,7 +487,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.ctx.commands.register({
       name: 'wait-plugin',
       description: 'Wait until disposal',
-      surfaces: ['tui'],
       handler: ({ signal }) => {
         commandSignal = signal
         started()
@@ -518,7 +514,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.ctx.commands.register({
       name: 'late-success',
       description: 'Resolve while the TUI closes',
-      surfaces: ['tui'],
       handler: () => new Promise((resolve) => {
         resolveCommand = resolve
         started()
@@ -1027,7 +1022,7 @@ describe('terminal mounting', () => {
     expect(() => createTuiChat(ctx, { sessionId: 'failed-start-session', color: false }, { terminal, exit: vi.fn() }))
       .toThrow('terminal startup failed')
     await tick()
-    expect(ctx.commands.list(ctx.agents.get(SessionId('failed-start-session'))!, 'tui')).toEqual([])
+    expect(ctx.commands.list(ctx.agents.get(SessionId('failed-start-session'))!)).toEqual([])
     expect(terminal.stopped).toBe(1)
     expect(terminal.progress).toEqual([false, true, false])
     await expect(ctx.userInteraction.ask({ questions: [{ id: 'late', question: 'Late?' }] }))

@@ -55,7 +55,6 @@ describe('ACP plugin commands', () => {
     const dispose = harness.ctx.commands.register({
       name: 'alpha',
       description: 'Alpha command',
-      surfaces: ['acp'],
       handler: () => ({ kind: 'success' }),
     })
     await vi.waitFor(() => {
@@ -126,7 +125,7 @@ describe('ACP plugin commands', () => {
     })
 
     expect(response.stopReason).toBe('end_turn')
-    expect(seen).toHaveBeenCalledWith(expect.objectContaining({ surface: 'acp', rawInput: '  raw args ' }))
+    expect(seen).toHaveBeenCalledWith(expect.objectContaining({ rawInput: '  raw args ' }))
     expect(messageText(harness, sessionId)).toContain('DIRECT RESULT')
     const updatesAfterText = harness.sessionUpdates.length
     await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: '/silent' }] })
@@ -260,7 +259,7 @@ describe('ACP plugin commands', () => {
     if (agentA === undefined) throw new Error('session A has no agent')
     await agentA.ctx.inject(['commands'], (commandCtx) => {
       commandCtx.commands.register({
-        name: 'private', description: 'Only session A', surfaces: ['acp'],
+        name: 'private', description: 'Only session A',
         handler: () => ({ kind: 'success', text: 'A ONLY' }),
       })
     })

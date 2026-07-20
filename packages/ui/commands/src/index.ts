@@ -11,11 +11,6 @@ import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 export const name = 'commands'
 
 const COMMAND_NAME = /^[a-z][a-z0-9_-]*$/u
-const SURFACE_NAME = /^[a-z][a-z0-9-]*$/u
-const DEFAULT_SURFACES = ['tui', 'acp'] as const
-
-/** A UI adapter capable of listing and executing human commands. */
-export type CommandSurface = 'tui' | 'acp' | (string & {})
 
 /** Immutable command input metadata compatible with ACP unstructured input. */
 export interface CommandInputDescriptor {
@@ -27,8 +22,6 @@ export interface CommandInputDescriptor {
 export interface CommandInvocation {
   /** Exact agent whose human-facing surface received the command. */
   readonly agent: Agent
-  /** UI adapter that dispatched the command. */
-  readonly surface: CommandSurface
   /** Exact text following the registered command name, including separator whitespace. */
   readonly rawInput: string
   /** Cancellation signal owned by the dispatching UI request. */
@@ -48,8 +41,6 @@ export interface CommandDefinition {
   readonly description: string
   /** Optional free-form input hint advertised to capable clients. */
   readonly input?: CommandInputDescriptor
-  /** Surfaces exposing this command; omission means both shipped surfaces. */
-  readonly surfaces?: readonly CommandSurface[]
   /** Execute against the receiving agent without sending the command to the model. */
   readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>
 }
@@ -62,8 +53,6 @@ export interface CommandDescriptor {
   readonly description: string
   /** Optional free-form input hint advertised to capable clients. */
   readonly input?: CommandInputDescriptor
-  /** Surfaces on which this definition is visible. */
-  readonly surfaces: readonly CommandSurface[]
 }
 
 /** Syntactically valid slash command before registry resolution. */
@@ -75,7 +64,7 @@ export interface ParsedCommand {
 }
 
 interface RegisteredCommand {
-  readonly definition: CommandDefinition & { readonly surfaces: readonly CommandSurface[] }
+  readonly definition: CommandDefinition
   readonly descriptor: CommandDescriptor
 }
 
@@ -175,33 +164,16 @@ function normalizeDefinition(definition: CommandDefinition): RegisteredCommand {
     }
     input = Object.freeze({ hint: rawInput.hint })
   }
-  const surfaces = [...(definition.surfaces ?? DEFAULT_SURFACES)]
-  if (surfaces.length === 0) {
-    throw new TypeError(`command "${definition.name}" must expose at least one surface`)
-  }
-  const unique = new Set<CommandSurface>()
-  for (const surface of surfaces) {
-    if (!SURFACE_NAME.test(surface)) {
-      throw new TypeError(`command "${definition.name}" surface "${surface}" must match ${String(SURFACE_NAME)}`)
-    }
-    if (unique.has(surface)) {
-      throw new TypeError(`command "${definition.name}" surface "${surface}" is duplicated`)
-    }
-    unique.add(surface)
-  }
-  const frozenSurfaces = Object.freeze(surfaces)
   const normalized = Object.freeze({
     name: definition.name,
     description: definition.description,
     ...input === undefined ? {} : { input },
-    surfaces: frozenSurfaces,
     handler: definition.handler,
   })
   const descriptor = Object.freeze({
     name: normalized.name,
     description: normalized.description,
     ...normalized.input === undefined ? {} : { input: normalized.input },
-    surfaces: normalized.surfaces,
   })
   return { definition: normalized, descriptor }
 }
@@ -242,7 +214,7 @@ export class CommandService extends Service {
 
   /**
    * Register a global or calling-agent-scoped command.
-   * @param definition - discovery metadata, surface mask, and direct UI handler.
+   * @param definition - discovery metadata and direct UI handler.
    * @returns the exact effect disposer that unregisters this definition.
    */
   register(definition: CommandDefinition): () => void {
@@ -268,14 +240,12 @@ export class CommandService extends Service {
   }
 
   /**
-   * List the effective immutable command descriptors for one agent and surface.
+   * List the effective immutable command descriptors for one agent.
    * @param agent - exact receiving agent and scoped-layer key.
-   * @param surface - UI adapter requesting discovery metadata.
-   * @returns name-sorted descriptors after scoped shadowing and surface filtering.
+   * @returns name-sorted descriptors after scoped shadowing.
    */
-  list(agent: Agent, surface: CommandSurface): readonly CommandDescriptor[] {
+  list(agent: Agent): readonly CommandDescriptor[] {
     return Object.freeze([...this.view(agent).values()]
-      .filter(command => command.definition.surfaces.includes(surface))
       .map(command => command.descriptor)
       // Names are unique in the effective view, so equality is impossible.
       .sort((left, right) => left.name < right.name ? -1 : 1))
@@ -284,35 +254,31 @@ export class CommandService extends Service {
   /**
    * Resolve one effective command definition.
    * @param agent - exact receiving agent and scoped-layer key.
-   * @param surface - UI adapter performing the lookup.
    * @param name - command name without a slash.
-   * @returns the scoped shadow or global definition when visible on the surface.
+   * @returns the scoped shadow or global definition.
    */
-  find(agent: Agent, surface: CommandSurface, name: string): CommandDefinition | undefined {
-    const command = this.view(agent).get(name)
-    return command?.definition.surfaces.includes(surface) === true ? command.definition : undefined
+  find(agent: Agent, name: string): CommandDefinition | undefined {
+    return this.view(agent).get(name)?.definition
   }
 
   /**
    * Parse and execute a known command without sending it to the model.
    * @param agent - exact receiving agent.
-   * @param surface - dispatching UI adapter.
    * @param line - complete slash-command line.
    * @param signal - cancellation signal owned by the UI request.
-   * @returns a detached result, or `undefined` when syntax/name/surface does not resolve.
+   * @returns a detached result, or `undefined` when syntax or name does not resolve.
    */
   async execute(
     agent: Agent,
-    surface: CommandSurface,
     line: string,
     signal: AbortSignal,
   ): Promise<CommandResult | undefined> {
     const parsed = parseCommand(line)
     if (parsed === undefined) return undefined
     const command = this.view(agent).get(parsed.name)
-    if (command === undefined || !command.definition.surfaces.includes(surface)) return undefined
+    if (command === undefined) return undefined
     if (signal.aborted) throw abortError(signal)
-    const invocation = Object.freeze({ agent, surface, rawInput: parsed.rawInput, signal })
+    const invocation = Object.freeze({ agent, rawInput: parsed.rawInput, signal })
     const output = command.definition.handler(invocation)
     return normalizeResult(parsed.name, await withAbort(Promise.resolve(output), signal))
   }

@@ -6,14 +6,14 @@
 
 Human-command registry. Plain-context definitions are global; definitions registered through a command-injected child of an agent context shadow globals for that agent.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L235)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L207)
 
 ### ctx.commands.register(definition)
 
 ```ts website-api
 /**
  * Register a global or calling-agent-scoped command.
- * @param definition - discovery metadata, surface mask, and direct UI handler.
+ * @param definition - discovery metadata and direct UI handler.
  * @returns the exact effect disposer that unregisters this definition.
  */
 register(definition: CommandDefinition): () => void
@@ -21,77 +21,71 @@ register(definition: CommandDefinition): () => void
 
 Register a global or calling-agent-scoped command.
 
-- `definition` — discovery metadata, surface mask, and direct UI handler.
+- `definition` — discovery metadata and direct UI handler.
 
 **Returns** the exact effect disposer that unregisters this definition.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L248)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L220)
 
-### ctx.commands.list(agent, surface)
+### ctx.commands.list(agent)
 
 ```ts website-api
 /**
- * List the effective immutable command descriptors for one agent and surface.
+ * List the effective immutable command descriptors for one agent.
  * @param agent - exact receiving agent and scoped-layer key.
- * @param surface - UI adapter requesting discovery metadata.
- * @returns name-sorted descriptors after scoped shadowing and surface filtering.
+ * @returns name-sorted descriptors after scoped shadowing.
  */
-list(agent: Agent, surface: CommandSurface): readonly CommandDescriptor[]
+list(agent: Agent): readonly CommandDescriptor[]
 ```
 
-List the effective immutable command descriptors for one agent and surface.
+List the effective immutable command descriptors for one agent.
 
 - `agent` — exact receiving agent and scoped-layer key.
-- `surface` — UI adapter requesting discovery metadata.
 
-**Returns** name-sorted descriptors after scoped shadowing and surface filtering.
+**Returns** name-sorted descriptors after scoped shadowing.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L276)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L247)
 
-### ctx.commands.find(agent, surface, name)
+### ctx.commands.find(agent, name)
 
 ```ts website-api
 /**
  * Resolve one effective command definition.
  * @param agent - exact receiving agent and scoped-layer key.
- * @param surface - UI adapter performing the lookup.
  * @param name - command name without a slash.
- * @returns the scoped shadow or global definition when visible on the surface.
+ * @returns the scoped shadow or global definition.
  */
-find(agent: Agent, surface: CommandSurface, name: string): CommandDefinition | undefined
+find(agent: Agent, name: string): CommandDefinition | undefined
 ```
 
 Resolve one effective command definition.
 
 - `agent` — exact receiving agent and scoped-layer key.
-- `surface` — UI adapter performing the lookup.
 - `name` — command name without a slash.
 
-**Returns** the scoped shadow or global definition when visible on the surface.
+**Returns** the scoped shadow or global definition.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L291)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L260)
 
-### ctx.commands.execute(agent, surface, line, signal)
+### ctx.commands.execute(agent, line, signal)
 
 ```ts website-api
 /**
  * Parse and execute a known command without sending it to the model.
  * @param agent - exact receiving agent.
- * @param surface - dispatching UI adapter.
  * @param line - complete slash-command line.
  * @param signal - cancellation signal owned by the UI request.
- * @returns a detached result, or `undefined` when syntax/name/surface does not resolve.
+ * @returns a detached result, or `undefined` when syntax or name does not resolve.
  */
-async execute( agent: Agent, surface: CommandSurface, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>
+async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>
 ```
 
 Parse and execute a known command without sending it to the model.
 
 - `agent` — exact receiving agent.
-- `surface` — dispatching UI adapter.
 - `line` — complete slash-command line.
 - `signal` — cancellation signal owned by the UI request.
 
-**Returns** a detached result, or `undefined` when syntax/name/surface does not resolve.
+**Returns** a detached result, or `undefined` when syntax or name does not resolve.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L304)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L271)
