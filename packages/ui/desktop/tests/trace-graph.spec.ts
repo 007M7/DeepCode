@@ -42,6 +42,7 @@ describe('desktop trace graph', () => {
         { content: 'fix the bug', status: 'in_progress' },
       ] } },
       { type: 'todo/write', seq: 4, time: 5, data: { turn: 1, step: 1 } },
+      { type: 'todo/write', data: { turn: 1, step: 1, todos: [{ content: 'seqless snapshot', status: 'pending' }] } },
       { type: 'step/end', seq: 5, time: 6, data: { turn: 1, step: 1 } },
       { type: 'turn/end', seq: 6, time: 7, data: { turn: 1, reason: { kind: 'completed' } } },
     ])
@@ -52,6 +53,8 @@ describe('desktop trace graph', () => {
       { content: 'fix the bug', status: 'in_progress' },
     ])
     expect(graph.targets.get('plan:4')?.output).toEqual([])
+    const seqless = [...graph.targets.values()].find(target => target.kind === 'plan' && !['plan:3', 'plan:4'].includes(target.id))
+    expect(seqless?.output).toEqual([{ content: 'seqless snapshot', status: 'pending' }])
     expect(graph.chatTurns[0]?.activities).toContainEqual({ kind: 'plan', targetId: 'plan:3' })
     expect(graph.trajectoryRows.filter(row => row.targetId === 'plan:3')).toHaveLength(1)
   })
