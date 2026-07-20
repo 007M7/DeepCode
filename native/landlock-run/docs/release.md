@@ -25,13 +25,14 @@ git tag v0.0.2
 pnpm install --frozen-lockfile
 pnpm build:ts
 pnpm typecheck
-pnpm test                        # launcher half needs a Linux host with the binary built
+pnpm test:entry
 ```
 
 On a Linux host, also rehearse the pack path locally:
 
 ```sh
 pnpm build:native
+pnpm test:launcher
 node ./scripts/pack-release.mjs .release/npm --current-platform-only
 node ./scripts/verify-packed-install.mjs .release/npm --current-platform-only
 ```
