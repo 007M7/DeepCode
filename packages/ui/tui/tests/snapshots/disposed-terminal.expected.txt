@@ -25,12 +25,12 @@ buffer
   style 1-18 fg=bright-blue bold
 7| " Enter send • Shift/Alt+Enter newline • Up/Down prompt history                              "
   style 1-61 fg=bright-black
-8| " Esc cancel active turn • Ctrl+O expand tool cards • Ctrl+R toggle reasoning                "
+8| " Esc cancel active turn • Ctrl+O toggle tool cards • Ctrl+R toggle reasoning                "
   style 1-75 fg=bright-black
 9| " Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit                  "
   style 1-73 fg=bright-black
-10| " /help /clear /cancel /reasoning /tools /redraw /exit                                       "
-  style 1-52 fg=bright-black
+10| " /help /model /clear /cancel /reasoning /tools /redraw /exit                                "
+  style 1-59 fg=bright-black
 11| <blank>
 12| " Unknown command: /unknown-advanced-command                                                 "
   style 1-42 fg=yellow
@@ -46,7 +46,7 @@ buffer
   style 1-1 inverse
 19| "────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-91 dim
-20| "/workspace/project  ↑0 ↓0                                  idle  reasoning:on  tools:compact"
+20| "/workspace/project  ↑0 ↓0         0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
   style 0-24 dim
-  style 59-91 dim
+  style 34-91 dim
 21-31| <blank>

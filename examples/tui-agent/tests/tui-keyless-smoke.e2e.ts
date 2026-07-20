@@ -25,7 +25,7 @@ describe.skipIf(process.platform === 'win32')('tui-agent keyless smoke (real Loa
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('streams a response, answers a user-question dialog, completes the tool round-trip, and exits cleanly', async () => {
+  it('switches models, streams a response, answers a user-question dialog, and exits cleanly', async () => {
     const output = await runTuiPtySmoke({
       label: 'tui-agent conversation',
       tempDirPrefix: 'tui-agent-conversation-',
@@ -33,7 +33,9 @@ describe.skipIf(process.platform === 'win32')('tui-agent keyless smoke (real Loa
       configPath: scriptedConfigPath,
       tsconfigPath,
       actions: [
-        { waitFor: 'scripted TUI ready.', send: 'exercise the TUI\r' },
+        { waitFor: 'scripted TUI ready.', send: '/model\r' },
+        { waitFor: 'Select model', send: '\x1b[B\r' },
+        { waitFor: 'Model selected: tui-scripted/tui-scripted-model-pro.', send: 'exercise the TUI\r' },
         { waitFor: 'How should the scripted run proceed?', send: '\r' },
         { waitFor: 'Decision received. Scripted TUI run complete.', send: '/exit\r' },
       ],

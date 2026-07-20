@@ -33,11 +33,12 @@ buffer
 9| "▌ /workspace/project                                                                                "
   style 0-0 fg=green
   style 2-19 dim
-10| "▌ packages/ui/tui 100%                                                                              "
+10| "▌ … +4 lines (Ctrl+O to expand)                                                                     "
   style 0-0 fg=green
-11| "▌ … 4 more lines (Ctrl+O to expand)                                                                 "
+  style 2-30 dim
+11| "▌ [exit 0]                                                                                          "
   style 0-0 fg=green
-  style 2-34 dim
+  style 2-9 dim
 12| "▌ "
   style 0-0 fg=green
 13| <blank>
@@ -53,12 +54,12 @@ buffer
 17| "▌ - old line                                                                                        "
   style 0-0 fg=green
   style 2-11 fg=red
-18| "▌ - keep                                                                                            "
+18| "▌ … +5 lines (Ctrl+O to expand)                                                                     "
   style 0-0 fg=green
-  style 2-7 fg=red
-19| "▌ … 5 more lines (Ctrl+O to expand)                                                                 "
+  style 2-30 dim
+19| "▌ + expect(screen).toMatchSnapshot()                                                                "
   style 0-0 fg=green
-  style 2-34 dim
+  style 2-35 fg=green
 20| "▌ "
   style 0-0 fg=green
 21| <blank>
@@ -102,6 +103,6 @@ buffer
   style 1-1 inverse
 39| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-40| "/workspace/project  ↑0 ↓0                                          idle  reasoning:on  tools:compact"
+40| "/workspace/project  ↑0 ↓0                 0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
   style 0-24 dim
-  style 67-99 dim
+  style 42-99 dim
