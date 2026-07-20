@@ -24,8 +24,18 @@ const root = resolve(import.meta.dirname, '..')
 const listMode = process.argv.includes('--list')
 const writeMode = process.argv.includes('--write')
 
-/** Scope of the bilingual contract: the root README, the docs tree, and the Python SDK tree. */
-const SCOPE_PATTERNS = ['README.md', 'README.zh.md', 'README.i18n.yaml', 'docs/**/*.md', 'docs/**/*.i18n.yaml', 'python/**/*.md', 'python/**/*.i18n.yaml']
+/** Scope of the bilingual contract: root docs, Agent Notes, the docs tree, and the Python SDK tree. */
+const SCOPE_PATTERNS = [
+  'README.md',
+  'README.zh.md',
+  'README.i18n.yaml',
+  '.agents/notes/**/*.md',
+  '.agents/notes/**/*.i18n.yaml',
+  'docs/**/*.md',
+  'docs/**/*.i18n.yaml',
+  'python/**/*.md',
+  'python/**/*.i18n.yaml',
+]
 
 const manifest = parseTranslationPairingManifest(readFileSync(join(root, 'scripts/translation-pairing.manifest.json'), 'utf8'))
 
@@ -121,8 +131,8 @@ for (const req of manifest.required) {
   }
 }
 
-// 2. Date-named documents (RFCs) dated on/after the requiredSince cutoff merge
-// bilingual: a new RFC lands with its pair or not at all. Deterministic from
+// 2. Date-named documents (Agent Notes) dated on/after the requiredSince cutoff merge
+// bilingual: a new Agent Note lands with its pair or not at all. Deterministic from
 // the filename alone — no git history, so it holds on shallow CI checkouts.
 for (const source of sources) {
   if (isExcluded(source)) continue

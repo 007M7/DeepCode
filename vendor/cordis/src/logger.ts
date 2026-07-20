@@ -62,8 +62,11 @@ export const defaultFormatters: Record<string, Formatter> = {
 
 /** Options used when creating a named logger facade. */
 export interface LoggerOptions {
+  /** The logger name shown with each message. */
   name: string
+  /** Message fields merged into every record from this logger. */
   meta?: Partial<Message>
+  /** Default maximum level exported when an exporter has no own threshold. */
   level?: number
 }
 
@@ -220,7 +223,12 @@ export class LoggerService {
     return self
   }
 
-  /** Register an exporter and dispose it with the current fiber. */
+  /**
+   * Register an exporter and dispose it with the current fiber.
+   *
+   * @param exporter — the sink that receives structured log messages.
+   * @returns a disposer that removes the exporter.
+   */
   exporter(exporter: Exporter) {
     return this.ctx.effect(() => {
       this.exporters.set(++this._snExporter, exporter)

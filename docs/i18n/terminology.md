@@ -33,6 +33,7 @@
 | English | 中文 | 首次出现 | 不要译作 | 备注 |
 |---|---|---|---|---|
 | agent | agent | agent（智能体） | | |
+| Agent Note | Agent Note | Agent Note（agent 决策记录） | 智能体注记、智能体笔记 | 本仓库中由 agent 撰写的提案与决策记录 |
 | agent harness | agent harness | agent harness（智能体框架） | | agent 组合词（agent harness/workflow/loop/skill 等）整体保留英文；未括注过 agent 时首现按对应组合词或 agent 行处理 |
 | agent loop | agent loop | agent loop（智能体循环） | | |
 | backlog | backlog | backlog（待翻清单） | | 仅在双语翻译语境里括注`待翻清单` |
@@ -106,6 +107,7 @@
 | event stream | 事件流 | | | |
 | event-sourced | 事件溯源 | | | 沿用 DDD 社区通行译法 |
 | executor | 执行器 | | | |
+| expected output | 预期输出 | | 金标 | 指 snapshot 比较产物；翻译语料的人工校准样例不在此列 |
 | extension | 扩展 | | | |
 | extension point | 扩展点 | | | 注意与 `seam` 区分 |
 | fail-fast | 快速失败 | | | |

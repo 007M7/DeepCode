@@ -21,11 +21,13 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 | `root` | `string` (required) | Root directory for all session files. **No default** — a `process.cwd()` default would scatter files as the process's cwd changes (bash calls, subprocesses). |
 | `packChunks` | `boolean` (default `false`) | Write delta-chunk runs as packed rows (~60% smaller logs measured on a real coding session). Off, the written layout is byte-identical to the pre-packing format; reading packed rows works regardless of this switch. Off by default while the snapshot goldens stay one-event-per-line — recording with packing on rewrites every fixture `session.jsonl`. |
 
+`locate(meta)` returns `{ kind: 'jsonl', path }` using the resolved absolute root and the same cwd-bucket/id encoding as materialization. It performs no filesystem I/O: the target can be returned before the file exists, and an existing file contains only the last flushed prefix.
+
 ## Durability and crash semantics
 
-- **Lazy materialization.** `create(meta)` writes nothing; on the first `append`, the backend writes and `fsync`s a temporary file, publishes it without overwrite via a hard link, then `fsync`s the directory. A created-but-never-appended session leaves nothing on disk and is absent from `list`.
+- **Lazy materialization.** `create(meta)` writes nothing; on the first `append`, the backend writes and `fsync`s a temporary file, publishes it without overwrite via a hard link, then `fsync`s the directory when the host supports it. A created-but-never-appended session leaves nothing on disk and is absent from `list`.
 - **Append-only.** Committed events (at or below a flushed `turn/end`) are never rewritten. Subsequent appends are line appends at EOF + `fsync`.
-- **Crash recovery — preserve valid tail work.** `load` keeps the contiguous valid prefix of an interrupted final turn. It truncates from the first unparsable or sequence-gapped uncommitted record, then appends the synthetic tool, step, and turn closers required by the shared [persistence contract](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md); the same defect at or before the last committed `turn/end` rejects.
+- **Crash recovery — preserve valid tail work.** `load` keeps the contiguous valid prefix of an interrupted final turn. It truncates from the first unparsable or sequence-gapped uncommitted record, then appends the synthetic tool, step, and turn closers required by the shared [persistence contract](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md); the same defect at or before the last committed `turn/end` rejects.
 - **Contiguous-seq.** `append` rejects a batch whose first `seq` does not continue the stored log, and rejects non-JSON-serializable `event.data` naming the offending event type.
 
 ## Write path
@@ -36,9 +38,17 @@ The plugin buffers frozen session events and drains them on flush or disposal. A
 
 ### Resumed conversation history
 
-**What the model sees**: JSONL storage contributes no live prompt or schema. Loading restores stored surface history and preserves prior request headers for reconstruction; the new loop composes its current envelope. Each unanswered call in an interrupted tail is balanced with the exact error text `Tool call interrupted by a crash; no result was recorded.` Raw `assistant/chunk` records do not duplicate messages.
+#### What the model sees
 
-**Token effect**: Zero live-request tokens. A resumed agent pays for retained history and its current envelope, plus the quoted repair result for each interrupted call.
+JSONL storage contributes no live prompt or schema. Loading restores stored surface history and preserves prior request headers for reconstruction; the new loop composes its current envelope. Each unanswered call in an interrupted tail is balanced with the exact error text `Tool call interrupted by a crash; no result was recorded.` Raw `assistant/chunk` records do not duplicate messages.
+
+#### Token effect
+
+Zero live-request tokens. A resumed agent pays for retained history and its current envelope, plus the quoted repair result for each interrupted call.
+
+#### KV Cache effect
+
+JSONL storage does not mutate live request prefixes. A resumed loop can reuse provider cache only when its reconstructed history, current envelope, and model route match; crash-repair results append.
 
 ## Known Limitations and Deferred Work
 
@@ -46,3 +56,4 @@ The plugin buffers frozen session events and drains them on flush or disposal. A
 - **Nothing deletes session files** — logs accumulate under `root` until removed externally (the seam has no deletion surface).
 - **Single-process assumption** — per-session serialization and the write cursor live in this process; two processes appending to the same `root` are not coordinated.
 - **Initial materialization requires hard-link support** — first append uses `link()` so same-id races fail instead of overwriting a committed log; a filesystem that cannot create hard links cannot host this backend.
+- **Windows cannot `fsync` directory handles through Node** — the backend tolerates only Windows `EPERM` from directory `fsync`; file-content `fsync` remains mandatory, but a crash can lose a newly published directory entry on a host without an equivalent directory-sync primitive.

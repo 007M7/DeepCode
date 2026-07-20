@@ -13,12 +13,13 @@ import type {
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
+  FsPathInfo,
   FsTarget,
   FsWriteIntent,
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 
-/** A minimal in-memory fake implementing the seven provider primitives. */
+/** A minimal in-memory fake implementing the eight provider primitives. */
 class FakeFileSystem extends FileSystem {
   files = new Map<string, string>()
 
@@ -27,6 +28,11 @@ class FakeFileSystem extends FileSystem {
   }
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     const content = this.files.get(target.targetKey)
+    if (content === undefined) return undefined
+    return { version: FsVersion('v1'), type: 'file', size: content.length }
+  }
+  override async lstat(path: string): Promise<FsPathInfo | undefined> {
+    const content = this.files.get(path)
     if (content === undefined) return undefined
     return { version: FsVersion('v1'), type: 'file', size: content.length }
   }
@@ -119,6 +125,15 @@ describe('FileSystem provider seam', () => {
     await ctx.plugin(FakeFileSystem)
     const fs = ctx.fs as FakeFileSystem
     expect(await fs.stat(await fs.resolve('missing.txt'))).toBeUndefined()
+  })
+
+  it('lstat returns path metadata before resolving a target', async () => {
+    const ctx = new Context()
+    await ctx.plugin(FakeFileSystem)
+    const fs = ctx.fs as FakeFileSystem
+    fs.files.set('a.txt', 'hi')
+    expect(await fs.lstat('a.txt')).toEqual({ version: 'v1', type: 'file', size: 2 })
+    expect(await fs.lstat('missing.txt')).toBeUndefined()
   })
 })
 

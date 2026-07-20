@@ -4,12 +4,12 @@ Runnable demo: stdin chat with a scripted mock model and an echo tool. The all-m
 
 ## What it shows
 
-This example is just a leaf `cordis.yml`: it loads the [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo) app (which bundles the whole [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) spine, the console logger, JSONL persistence, the readline UI, and a pre-created `main` agent), and swaps in two example-local backends plus `hmr`:
+This example is just a leaf `cordis.yml`: it loads the [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo) app (which bundles the whole [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) spine, JSONL persistence, the TTY-selected `dsh-tui`/`dsh-stdio` front doors, and a pre-created `main` agent), and swaps in two example-local backends plus `hmr`:
 
 - `mock-llm.ts` — a mock `LlmAdapter` that streams scripted responses and calls the `echo` tool when the user types "echo <something>". Registered with `ctx.llm.registerAdapter(['mock-echo'], …)`.
 - `echo-tool.ts` — a tool registered via `ctx.tools.register(defineTool(…))` with typed `execute` args; echoes text back uppercased.
 
-Swapping `mock-llm` for the real `llm-deepseek` adapter is all that separates this from `coding-agent` — the same app, a different backend.
+Swapping `mock-llm` for the real `llm-deepseek` adapter is all that separates this from `repl-agent` — the same app, a different backend.
 
 ## Plugin files
 

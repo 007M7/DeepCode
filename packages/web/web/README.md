@@ -47,9 +47,13 @@ The failure branches throw `WebError`, whose structured code (plus message detai
 
 Indirectly, through `dsh-tool-web`, which retains bounded normalized provider data or the exact configured-provider, unavailable-provider, no-provider, multiple-provider, and `Error: <message>` failures while this registry contributes no prompt or schema itself.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
-- **No observation surface** — no provider-change event and no capability-status query; availability is observed only by executing `search()`/`fetch()` and routing the thrown `WebError` codes, and the no-provider failure is the generic `WEB_PROVIDER_UNAVAILABLE` with no per-provider reason enumeration ([RFC](../../../docs/rfc/implemented/simplification/2026-07-04-drop-unconsumed-web-observation-surface.md)).
-- **`WebSearchRequest` carries only `query` + `maxResults`** — provider-neutral controls (recency, domain filters, regional hints, search depth) are deferred until Exa and Perplexity can both honor them honestly ([seam RFC](../../../docs/rfc/implemented/architecture/2026-06-24-web-capability-seam.md)).
+- **No observation surface** — no provider-change event and no capability-status query; availability is observed only by executing `search()`/`fetch()` and routing the thrown `WebError` codes, and the no-provider failure is the generic `WEB_PROVIDER_UNAVAILABLE` with no per-provider reason enumeration ([Agent Note](../../../.agents/notes/implemented/simplification/2026-07-04-drop-unconsumed-web-observation-surface.md)).
+- **`WebSearchRequest` carries only `query` + `maxResults`** — provider-neutral controls (recency, domain filters, regional hints, search depth) are deferred until Exa and Perplexity can both honor them honestly ([seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md)).
 - **`WebFetchBody` has no `pdf` arm** — text-extractable PDF support is named deferred work; the closed union makes adding it a compile-enforced change across the three web packages.
 - **Provider-backed page extraction is out of scope of `fetch()`** — a Firecrawl/Tavily-style `web_extract` capability is deferred rather than widening the fetch seam.

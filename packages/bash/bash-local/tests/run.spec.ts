@@ -1,11 +1,15 @@
-import { mkdtempSync, readFileSync, statSync } from 'node:fs'
+import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import type { DshEnvironment } from '@deepseek-ai/dsh-bash'
 import { killGroup, OutputCollector, runBash } from '../src/run.ts'
 import type { RunningBash } from '../src/run.ts'
 
-const { failNextClose } = vi.hoisted(() => ({ failNextClose: { value: false } }))
+const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
+  failNextClose: { value: false },
+  failNextUnlink: { value: false },
+}))
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return {
@@ -17,6 +21,13 @@ vi.mock('node:fs', async (importOriginal) => {
       }
       actual.closeSync(fd)
     },
+    unlinkSync(path: Parameters<typeof actual.unlinkSync>[0]): void {
+      if (failNextUnlink.value) {
+        failNextUnlink.value = false
+        throw Object.assign(new Error('simulated EIO on unlink'), { code: 'EIO' })
+      }
+      actual.unlinkSync(path)
+    },
   }
 })
 
@@ -26,7 +37,9 @@ function spec(command: string, overrides: Partial<Parameters<typeof runBash>[0]>
   return {
     command,
     cwd: process.cwd(),
-    maxOutputBytes: 64_000,
+    stdoutMaxBytes: 64_000,
+    stderrMaxBytes: 64_000,
+    maxSpillBytes: 64 * 1024 * 1024,
     graceMs: 3_000,
     ...overrides,
   }
@@ -171,6 +184,22 @@ describe('runBash', () => {
     const result = await running.done
     expect(result.signal).toBe('SIGTERM')
   })
+
+  it('bounds inherited-pipe draining after the shell exits', async () => {
+    const pidFile = join(spillDir, `pipe-holder-${Date.now()}.pid`)
+    const started = Date.now()
+    const running = runBash(spec(`sleep 60 & echo $! > ${pidFile}; echo shell-done`, { graceMs: 100 }))
+    const descendant = await waitForPidFile(pidFile)
+    try {
+      const result = await running.done
+      expect(Date.now() - started).toBeLessThan(1_000)
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout.text).toBe('shell-done\n')
+    } finally {
+      process.kill(descendant, 'SIGKILL')
+      await waitGone(descendant)
+    }
+  })
 })
 
 describe('stdin and extra env (set by in-process plugins)', () => {
@@ -197,19 +226,19 @@ describe('stdin and extra env (set by in-process plugins)', () => {
     expect(piped.stdout.text).toBe('socket\n')
   })
 
-  it('merges extra env entries onto the scrubbed environment', async () => {
-    const result = await runBash(spec('echo "$DSH_EXTRA_ONE/$DSH_EXTRA_TWO"', {
-      env: { DSH_EXTRA_ONE: 'alpha', DSH_EXTRA_TWO: 'beta' },
+  it('merges ordinary extra env entries onto the scrubbed environment', async () => {
+    const result = await runBash(spec('echo "$EXTRA_ONE/$EXTRA_TWO"', {
+      env: { EXTRA_ONE: 'alpha', EXTRA_TWO: 'beta' },
     })).done
     expect(result.stdout.text).toBe('alpha/beta\n')
   })
 
   it('an explicit extra env entry overrides the model-friendly override and the scrub', async () => {
     // TERM is a model-friendly OVERRIDE (dumb); an explicit extra entry wins.
-    // DSH_OVERRIDE_KEY matches the credential scrub pattern, yet an explicit
+    // EXPLICIT_OVERRIDE_KEY matches the credential scrub pattern, yet an explicit
     // entry is still honored — the scrub only drops AMBIENT process.env creds.
-    const result = await runBash(spec('echo "$TERM/$DSH_OVERRIDE_KEY"', {
-      env: { TERM: 'xterm-256color', DSH_OVERRIDE_KEY: 'explicit-wins' },
+    const result = await runBash(spec('echo "$TERM/$EXPLICIT_OVERRIDE_KEY"', {
+      env: { TERM: 'xterm-256color', EXPLICIT_OVERRIDE_KEY: 'explicit-wins' },
     })).done
     expect(result.stdout.text).toBe('xterm-256color/explicit-wins\n')
   })
@@ -224,10 +253,24 @@ describe('stdin and extra env (set by in-process plugins)', () => {
 })
 
 describe('output truncation and spill', () => {
+  it('applies stdout and stderr caps independently', async () => {
+    const result = await runBash(
+      spec('printf "%.0sx" $(seq 1 500); printf "%.0se" $(seq 1 500) >&2', {
+        stdoutMaxBytes: 500,
+        stderrMaxBytes: 100,
+      }),
+      { spillDir },
+    ).done
+    expect(result.stdout.truncated).toBe(false)
+    expect(result.stdout.text).toBe('x'.repeat(500))
+    expect(result.stderr.truncated).toBe(true)
+    expect(result.stderr.text.length).toBeLessThanOrEqual(100)
+  })
+
   it('keeps the tail and spills the full stream to disk', async () => {
     // 200 numbered lines of ~10 bytes; cap at 500 bytes keeps a late tail.
     const result = await runBash(
-      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
     ).done
     expect(result.stdout.truncated).toBe(true)
@@ -242,7 +285,7 @@ describe('output truncation and spill', () => {
 
   it('does not truncate output exactly at the cap', async () => {
     const result = await runBash(
-      spec('printf "%.0sx" $(seq 1 500)', { maxOutputBytes: 500 }),
+      spec('printf "%.0sx" $(seq 1 500)', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
     ).done
     expect(result.stdout.truncated).toBe(false)
@@ -253,7 +296,7 @@ describe('output truncation and spill', () => {
   it('settles with the tail and no spill path when final spill close fails', async () => {
     failNextClose.value = true
     const result = await runBash(
-      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
     ).done
     expect(failNextClose.value).toBe(false)
@@ -266,7 +309,7 @@ describe('output truncation and spill', () => {
 
 describe('OutputCollector', () => {
   it('keeps the tail of a single oversized chunk', () => {
-    const collector = new OutputCollector(10, 'test', spillDir)
+    const collector = new OutputCollector(10, 100, 'test', spillDir)
     collector.push(Buffer.from('0123456789abcdef'))
     const out = collector.finalize()
     expect(out.text).toBe('6789abcdef')
@@ -275,7 +318,7 @@ describe('OutputCollector', () => {
   })
 
   it('readFrom returns increments and flags lossy reads', () => {
-    const collector = new OutputCollector(10, 'test', spillDir)
+    const collector = new OutputCollector(10, 100, 'test', spillDir)
     collector.push(Buffer.from('aaaaa'))
     const first = collector.readFrom(0)
     expect(first.text).toBe('aaaaa')
@@ -296,7 +339,7 @@ describe('OutputCollector', () => {
   })
 
   it('contains close failures and drops the spill path', () => {
-    const collector = new OutputCollector(4, 'closefail', spillDir)
+    const collector = new OutputCollector(4, 100, 'closefail', spillDir)
     collector.push(Buffer.from('aaaa'))
     collector.push(Buffer.from('bbbb'))
     expect(collector.readFrom(0).spillPath).toBeDefined()
@@ -309,6 +352,46 @@ describe('OutputCollector', () => {
     expect(out!.text).toBe('bbbb')
     expect(out!.truncated).toBe(true)
     expect(out!.spillPath).toBeUndefined()
+  })
+
+  it('discards a spill that exceeds its configured cap', () => {
+    const collector = new OutputCollector(4, 8, 'bounded', spillDir)
+    collector.push(Buffer.from('aaaa'))
+    collector.push(Buffer.from('bbbb'))
+    const spillPath = collector.readFrom(0).spillPath!
+    expect(readFileSync(spillPath, 'utf8')).toBe('aaaabbbb')
+
+    collector.push(Buffer.from('c'))
+    collector.push(Buffer.from('dddd'))
+    const out = collector.finalize()
+    expect(out.text).toBe('dddd')
+    expect(out.truncated).toBe(true)
+    expect(out.spillPath).toBeUndefined()
+    expect(() => readFileSync(spillPath)).toThrow()
+  })
+
+  it('does not create a spill when the first overflowing chunk exceeds the cap', () => {
+    const collector = new OutputCollector(4, 4, 'no-spill', spillDir)
+    collector.push(Buffer.from('abcdefgh'))
+    const out = collector.finalize()
+    expect(out.text).toBe('efgh')
+    expect(out.truncated).toBe(true)
+    expect(out.spillPath).toBeUndefined()
+  })
+
+  it('contains cleanup failures while disabling an oversize spill', () => {
+    const collector = new OutputCollector(4, 8, 'cleanup-fail', spillDir)
+    collector.push(Buffer.from('aaaa'))
+    collector.push(Buffer.from('bbbb'))
+    const spillPath = collector.readFrom(0).spillPath!
+
+    failNextClose.value = true
+    failNextUnlink.value = true
+    expect(() => { collector.push(Buffer.from('c')) }).not.toThrow()
+    expect(failNextClose.value).toBe(false)
+    expect(failNextUnlink.value).toBe(false)
+    expect(collector.finalize().spillPath).toBeUndefined()
+    unlinkSync(spillPath)
   })
 })
 
@@ -348,13 +431,13 @@ describe('abort edge cases', () => {
 })
 
 describe('environment and spill-file hardening', () => {
-  it('scrubs credential-shaped env vars from child processes', async () => {
+  it('scrubs credential-shaped and ambient DSH env vars from child processes', async () => {
     process.env.DSH_TEST_API_KEY = 'super-secret'
     process.env.DSH_TEST_TOKEN = 'also-secret'
     process.env.DSH_TEST_PLAIN = 'visible'
     try {
       const result = await runBash(spec('echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${DSH_TEST_PLAIN:-absent}]"')).done
-      expect(result.stdout.text.trim()).toBe('[absent|absent|visible]')
+      expect(result.stdout.text.trim()).toBe('[absent|absent|absent]')
     } finally {
       delete process.env.DSH_TEST_API_KEY
       delete process.env.DSH_TEST_TOKEN
@@ -362,9 +445,32 @@ describe('environment and spill-file hardening', () => {
     }
   })
 
+  it('injects only the current trusted DSH environment after scrubbing ambient values', async () => {
+    process.env.DSH_STALE = 'old-value'
+    try {
+      const result = await runBash(spec('echo "[${DSH_STALE:-absent}|$DSH_SHELL|$DSH_SESSION_ID]"', {
+        dshEnv: { DSH_SHELL: '1', DSH_SESSION_ID: 'current-session' },
+      })).done
+      expect(result.stdout.text.trim()).toBe('[absent|1|current-session]')
+    } finally {
+      delete process.env.DSH_STALE
+    }
+  })
+
+  it('rejects DSH variables on the ordinary env channel', () => {
+    expect(() => runBash(spec('true', { env: { DSH_WRONG_CHANNEL: 'bad' } })))
+      .toThrow(/DSH_WRONG_CHANNEL.*dshEnv/)
+  })
+
+  it('rejects ordinary variables on the managed env channel', () => {
+    const invalid = { PATH: '/wrong-channel' } as unknown as DshEnvironment
+    expect(() => runBash(spec('true', { dshEnv: invalid })))
+      .toThrow(/managed bash env.*PATH.*use env/)
+  })
+
   it('creates spill files with owner-only permissions and random names', async () => {
     const result = await runBash(
-      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
       { spillDir },
     ).done
     const path = result.stdout.spillPath!
@@ -375,7 +481,7 @@ describe('environment and spill-file hardening', () => {
 
   it('defaults spills into a private per-process directory', async () => {
     const result = await runBash(
-      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { maxOutputBytes: 500 }),
+      spec('for i in $(seq 1 200); do printf "line-%04d\\n" $i; done', { stdoutMaxBytes: 500, stderrMaxBytes: 500 }),
     ).done
     const dir = dirname(result.stdout.spillPath!)
     expect(dir).toMatch(/dsh-bash-/)
