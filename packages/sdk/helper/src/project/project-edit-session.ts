@@ -549,7 +549,7 @@ export class ProjectEditSession implements FeatureProjectView {
 
   private finalProfile(): ProjectProfile {
     const runInterface = this.states.get(featureId('app'))?.selection?.options[0]
-    if (runInterface !== 'acp' && runInterface !== 'stdio' && runInterface !== 'embed') return this.profile
+    if (runInterface !== 'acp' && runInterface !== 'tui' && runInterface !== 'embed') return this.profile
     return { ...this.profile, runInterface }
   }
 

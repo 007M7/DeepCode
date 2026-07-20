@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"622d16ce-0a94-476b-97a4-26dad50b1fbf","createdAt":1784086275585,"cwd":"/var/folders/_g/59jgff8x2gqd39f5vy1wnbfc0000gn/T/acp-snap-cwd-Cwf7Bh"}
+{"type":"session","version":0,"id":"622d16ce-0a94-476b-97a4-26dad50b1fbf","createdAt":1784086275585,"cwd":"/var/folders/_g/59jgff8x2gqd39f5vy1wnbfc0000gn/T/acp-snap-cwd-Cwf7Bh","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1784086275588,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1784086275588,"data":{"content":[{"type":"text","text":"Without using tools, reply with exactly FLASH and stop."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1784086275590,"data":{"turn":1,"step":1}}

@@ -146,12 +146,22 @@ describe('toError normalization', () => {
     const errors: Error[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
 
-    send(agent, 'go')
+    send(agent, 'fails before turn start')
+    send(agent, 'survives as the next item')
     await waitForIdle(ctx, agent)
     expect(errors).toHaveLength(1)
     expect(errors[0]).toMatchObject({ message: 'naked string error', code: 'UNKNOWN' })
-    expect(adapter.requests).toEqual([])
-    expect(agent.session.events.some(event => event.type === 'turn/start' || event.type === 'turn/end')).toBe(false)
+    expect(adapter.requests).toHaveLength(1)
+    const starts = agent.session.events.filter(event => event.type === 'turn/start')
+    const ends = agent.session.events.filter(event => event.type === 'turn/end')
+    const messages = agent.session.events.filter(event => event.type === 'user/message')
+    expect(starts).toHaveLength(1)
+    expect(starts[0]?.type === 'turn/start' && starts[0].data.turn).toBe(1)
+    expect(ends).toHaveLength(1)
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.type === 'user/message' && messages[0].data.content).toEqual([
+      { type: 'text', text: 'survives as the next item' },
+    ])
   })
 
   it('normalizes non-Error throws from agent/request waterfall via inline toError in runStep catch', async () => {

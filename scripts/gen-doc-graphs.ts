@@ -96,6 +96,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns isolated per-session replay folds; pressure consumers share immutable revisioned measurements.',
   },
   {
+    key: 'toolResultPrune',
+    pkg: 'compact-tool-result-prune',
+    title: 'Model-free tool-result pruning',
+    mode: 'core',
+    consumers: ['compact-basic'],
+    note: 'Rewrites oversized current tool results through replayable single-node surface replacements before summary compaction.',
+  },
+  {
     key: 'sessions',
     pkg: 'session',
     title: 'In-memory session store',
@@ -140,8 +148,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'user-interaction',
     title: 'Human question/answer seam',
     mode: 'seam',
-    implementations: ['stdio-demo', 'acp'],
-    consumers: ['tool-ask-user', 'stdio-demo', 'acp'],
+    implementations: ['tui', 'acp'],
+    consumers: ['tool-ask-user', 'tui', 'acp'],
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
   },
   {
@@ -158,7 +166,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent',
     title: 'Agent service',
     mode: 'core',
-    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess', 'stdio-demo', 'invariants'],
+    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess', 'tui-demo', 'invariants'],
     note: 'Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation.',
   },
   {
@@ -195,6 +203,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement.',
   },
   {
+    key: 'sandboxPolicy',
+    pkg: 'sandbox-policy',
+    title: 'Sandbox policy home',
+    mode: 'core',
+    implementations: [],
+    consumers: ['bash-sandbox', 'fs-sandbox'],
+    note: 'The one home for the deployment default mode + workspace root; only the sandboxed executor and provider read the service (the tool layers use the pure `sandbox/mode` fold it also exports). Both enforcing families read it so bash and fs cannot confine to different roots.',
+  },
+  {
     key: 'approval',
     pkg: 'approval',
     title: 'Approval seam',
@@ -226,10 +243,10 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'fs',
     title: 'Filesystem provider seam',
     mode: 'seam',
-    implementations: ['fs-local'],
+    implementations: ['fs-local', 'fs-sandbox'],
     consumers: ['tool-fs'],
     companions: ['fs-policy'],
-    note: 'tool-fs executes read/write/edit through ctx.fs; fs-policy contributes observed-state checks through the fs/* event gate.',
+    note: 'tool-fs executes read/write/edit through ctx.fs; fs-sandbox fences mutations by the shared sandbox mode; fs-policy contributes observed-state checks through the fs/* event gate.',
   },
   {
     key: 'compact',
@@ -419,28 +436,12 @@ function stripYamlScalar(value: string): string {
 
 const APP_EXAMPLES = [
   {
-    id: 'echo',
-    rel: 'examples/echo-agent/composition.md',
-    title: 'Echo Agent App Composition',
-    label: 'examples/echo-agent',
-    config: 'examples/echo-agent/cordis.yml',
-    summary: 'The echo demo swaps in a local mock LLM and teaching echo tool, then loads the stdio app package for the shared spine and terminal front door.',
-  },
-  {
-    id: 'repl',
-    rel: 'examples/repl-agent/composition.md',
-    title: 'REPL Agent App Composition',
-    label: 'examples/repl-agent',
-    config: 'examples/repl-agent/cordis.yml',
-    summary: 'The REPL agent demo adds the real DeepSeek adapter, filesystem tools, todo_write, compaction, and both subagent transports on top of the stdio app package.',
-  },
-  {
     id: 'tui',
     rel: 'examples/tui-agent/composition.md',
     title: 'TUI Agent App Composition',
     label: 'examples/tui-agent',
     config: 'examples/tui-agent/cordis.yml',
-    summary: 'The TUI agent reuses the repl-agent backend and tool composition while fixing the shared terminal app to the full-screen dsh-tui front door.',
+    summary: 'The TUI agent combines the real DeepSeek adapter, coding tools, compaction, subagents, and workflows with the full-screen terminal app package.',
   },
   {
     id: 'headless',
@@ -470,18 +471,13 @@ const APP_EXAMPLES = [
 
 type AppExample = typeof APP_EXAMPLES[number]
 
-function renderAppExpansion(lines: string[], appNode: string, pluginName: string, exampleId: string): void {
+function renderAppExpansion(lines: string[], appNode: string, pluginName: string): void {
   const agentCore = nodeId('bundle', 'agent_core')
   const jsonl = nodeId('bundle', 'jsonl')
   lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
-  if (pluginName === '@deepseek-ai/dsh-stdio-demo') {
-    const frontDoor = exampleId === 'tui'
-      ? '@deepseek-ai/dsh-tui<br/>pre-created main agent'
-      : exampleId === 'repl'
-        ? '@deepseek-ai/dsh-stdio<br/>pre-created main agent'
-        : 'dsh-tui (TTY) / dsh-stdio (pipes)<br/>pre-created main agent'
-    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'stdio')}["${frontDoor}"]`)
+  if (pluginName === '@deepseek-ai/dsh-tui-demo') {
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'tui')}["@deepseek-ai/dsh-tui<br/>pre-created main agent"]`)
   } else if (pluginName === '@deepseek-ai/dsh-cli-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]`)
   } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
@@ -510,8 +506,8 @@ function renderAppComposition(example: AppExample): string {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-stdio-demo' || plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
-      renderAppExpansion(lines, pluginNode, plugin.name, example.id)
+    if (plugin.name === '@deepseek-ai/dsh-tui-demo' || plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
+      renderAppExpansion(lines, pluginNode, plugin.name)
     }
   }
   lines.push(
@@ -900,7 +896,7 @@ function renderLifecycle(): string {
     '',
     'The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.',
     '',
-    '`dsh-compact-basic` uses `agent/post-step` for pressure after those durable facts and `agent/request-error` only for canonical context overflow. Recovery compacts between the closed failed step and a fresh retry step, and returns retry only when the surface replacement generation advances; otherwise the original request error remains authoritative.',
+    '`dsh-compact-basic` uses `agent/post-step` for pressure after those durable facts and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and a fresh retry step, and returns retry only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.',
     '',
     'SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.',
     '',
@@ -1009,8 +1005,6 @@ function renderDocs(): GraphDoc[] {
 function renderIndex(docs: GraphDoc[]): string {
   const labels: Record<string, string> = {
     'docs/capability-seams.md': 'capability seams and core services',
-    'examples/echo-agent/composition.md': 'echo-agent app composition',
-    'examples/repl-agent/composition.md': 'repl-agent app composition',
     'examples/headless-agent/composition.md': 'headless-agent app composition',
     'examples/tui-agent/composition.md': 'tui-agent app composition',
     'examples/cordis-agent/composition.md': 'cordis-agent app composition',
@@ -1022,8 +1016,6 @@ function renderIndex(docs: GraphDoc[]): string {
   }
   const modes: Record<string, string> = {
     'docs/capability-seams.md': 'hybrid generated',
-    'examples/echo-agent/composition.md': 'hybrid generated',
-    'examples/repl-agent/composition.md': 'hybrid generated',
     'examples/headless-agent/composition.md': 'hybrid generated',
     'examples/tui-agent/composition.md': 'hybrid generated',
     'examples/cordis-agent/composition.md': 'hybrid generated',

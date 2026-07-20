@@ -90,8 +90,8 @@ Change file: package.json
             },
             {
               "default": true,
-              "label": "Terminal REPL",
-              "value": "stdio",
+              "label": "Terminal TUI",
+              "value": "tui",
             },
             {
               "default": false,

@@ -632,15 +632,20 @@ describe('plugin exceptions are contained', () => {
     expect(agent.status).toBe('idle')
   })
 
-  it('a rejecting session/flush listener is reported but does not kill the agent', async () => {
+  it('a rejecting first-turn flush settles before the queued tail starts', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    let rejectedOnce = false
-    ctx.on('session/flush', async () => {
-      if (!rejectedOnce) {
-        rejectedOnce = true
+    const firstFlush = Promise.withResolvers<undefined>()
+    const releaseFirstFlush = Promise.withResolvers<undefined>()
+    let flushes = 0
+    ctx.on('session/flush', async (session) => {
+      if (session !== agent.session) return
+      flushes += 1
+      if (flushes === 1) {
+        firstFlush.resolve(undefined)
+        await releaseFirstFlush.promise
         throw new Error('disk full')
       }
     })
@@ -648,18 +653,25 @@ describe('plugin exceptions are contained', () => {
     const errors: Error[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
 
+    const idle = waitForIdle(ctx, agent)
     send(agent, 'first')
-    await waitForIdle(ctx, agent)
-    expect(errors.map(e => e.message)).toEqual(['disk full'])
-
     send(agent, 'second')
-    await waitForIdle(ctx, agent)
+
+    await firstFlush.promise
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+
+    releaseFirstFlush.resolve(undefined)
+    await idle
+
+    expect(errors.map(e => e.message)).toEqual(['disk full'])
     expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
   })
 })
 
 describe('disposed status is part of the agent/status contract', () => {
-  it('disposing the fiber emits agent/status(disposed) and ends the turn with reason disposed', async () => {
+  it('disposing the fiber ends the active turn and never starts its queued tail', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
 
@@ -675,11 +687,19 @@ describe('disposed status is part of the agent/status contract', () => {
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
+    send(agent, 'queued tail')
     await fiber.dispose()
     await driverDone(agent)
 
     expect(statuses).toEqual(['running', 'disposed'])
     expect(reasons).toEqual([{ kind: 'disposed' }])
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    const messages = agent.session.events
+      .filter(event => event.type === 'user/message')
+      .flatMap(event => event.data.content)
+      .flatMap(block => block.type === 'text' ? [block.text] : [])
+    expect(messages).toEqual(['go'])
+    expect(adapter.requests).toHaveLength(1)
   })
 
   it('a throwing agent/status listener cannot break disposal or leak the registry entry', async () => {

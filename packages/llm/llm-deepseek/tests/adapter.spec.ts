@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, {
   CONTEXT_WINDOW_EXCEEDED_CODE,
+  errorChain,
   LlmError,
   ProviderRequestId,
   QUOTA_EXCEEDED_CODE,
@@ -323,6 +324,40 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(httpErrorCode(418)).toBe('HTTP_418')
   })
 
+  it('wraps a transport failure in TRANSPORT with the fetch cause chain in the message', async () => {
+    // Port 1 is reserved/unbound: fetch rejects with `TypeError: fetch failed`
+    // whose actionable detail (ECONNREFUSED) lives on `cause`.
+    const ctx = await harness('http://127.0.0.1:1')
+    let caught: unknown
+    try {
+      await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    } catch (error: unknown) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(LlmError)
+    const llmError = caught as LlmError
+    expect(llmError.code).toBe('TRANSPORT')
+    expect(llmError.message).toContain('http://127.0.0.1:1')
+    expect(llmError.cause).toBeInstanceOf(TypeError)
+    // The chain renderer reaches the transport diagnosis through the cause.
+    expect(errorChain(llmError)).toMatch(/ECONNREFUSED|EADDRNOTAVAIL|bad port/)
+  })
+
+  it('classifies an aborted request without losing the transport rejection', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const ctx = await harness('http://127.0.0.1:1')
+    let caught: unknown
+    try {
+      await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], signal: controller.signal })
+    } catch (error: unknown) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(LlmError)
+    expect(caught).toMatchObject({ code: 'ABORTED' })
+    expect((caught as LlmError).cause).toMatchObject({ name: 'AbortError' })
+  })
+
   it('throws EMPTY_RESPONSE when the response has no body', async () => {
     const adapter = new DeepSeekAdapter({ apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
@@ -396,7 +431,7 @@ describe('DeepSeekAdapter against a mock server', () => {
         for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
       }
       await expect(drain()).rejects.toMatchObject({
-        message: 'DeepSeek transport failed: offline',
+        message: 'DeepSeek API request to https://example.invalid failed',
         code: 'TRANSPORT',
         cause: 'offline',
       })

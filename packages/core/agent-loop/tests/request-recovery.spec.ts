@@ -419,8 +419,9 @@ describe('agent post-step and request-error lifecycle', () => {
     expect(seen).toBe(original)
   })
 
-  it('passes structured facts beside the original Error and records them on exhaustion', async () => {
+  it('passes structured facts beside the original Error and records its cause chain on exhaustion', async () => {
     const original = new LlmError('provider busy', 'RATE_LIMIT', {
+      cause: new Error('upstream connection reset'),
       status: 429,
       providerRetryAfterMs: 2_000,
       requestId: ProviderRequestId('req-9'),
@@ -455,7 +456,19 @@ describe('agent post-step and request-error lifecycle', () => {
     expect(Object.isFrozen(seenHistory)).toBe(true)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'error', step: 1, failure: seenFailure } },
+      data: {
+        reason: {
+          kind: 'error',
+          step: 1,
+          failure: {
+            message: 'provider busy: upstream connection reset',
+            code: 'RATE_LIMIT',
+            status: 429,
+            providerRetryAfterMs: 2_000,
+            requestId: ProviderRequestId('req-9'),
+          },
+        },
+      },
     })
   })
 

@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-tui
 
-The interactive terminal front door for DeepSeek Harness agents, built on [`@earendil-works/pi-tui`](https://www.npmjs.com/package/@earendil-works/pi-tui). It requires stdin and stdout TTYs; scripts and Loader pipes should compose [`@deepseek-ai/dsh-stdio`](../stdio/README.md) instead.
+The interactive terminal front door for DeepSeek Harness agents, built on [`@earendil-works/pi-tui`](https://www.npmjs.com/package/@earendil-works/pi-tui). It requires stdin and stdout TTYs; scripts and Loader pipes should use the headless [`@deepseek-ai/dsh-cli-demo`](../../examples/cli-demo/README.md) app instead.
 
 The implemented [TUI feature Agent Note](../../../.agents/notes/implemented/feature/2026-07-17-dedicated-full-screen-tui-front-door.md) owns the front-door decision; the [terminal-state snapshot Agent Note](../../../.agents/notes/implemented/testing/2026-07-18-tui-terminal-state-snapshots.md) owns its verification strategy.
 
@@ -77,4 +77,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 - **One configured session owns the transcript and editor** — questions from other agents can still use the shared overlay provider, but session rendering and prompt input remain bound to `sessionId`.
 - **Tool cards are text terminal presentations** — terminal, diff, and generic cards use tool-owned titles/content, but session content currently has no image block for inline image rendering.
-- **Non-TTY operation is intentionally unsupported** — app bundles that need automation must select `dsh-stdio` before mounting this plugin rather than expecting an internal fallback.
+- **Non-TTY operation is intentionally unsupported** — automation must use the headless app rather than expecting an internal fallback.

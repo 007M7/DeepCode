@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"94cd1ae4-e1d1-4ec8-9d27-50a1f849b6b3","createdAt":1783611771392,"cwd":"/var/folders/2c/psb0_fmx7hbgz558xjt_f0l00000gn/T/acp-snap-cwd-BteTVR"}
+{"type":"session","version":0,"id":"94cd1ae4-e1d1-4ec8-9d27-50a1f849b6b3","createdAt":1783611771392,"cwd":"/var/folders/2c/psb0_fmx7hbgz558xjt_f0l00000gn/T/acp-snap-cwd-BteTVR","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783611771394,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783611771394,"data":{"content":[{"type":"text","text":"Using ONE run_code program: call the bash tool twice — exactly `echo CODE_ONE` then exactly `echo CODE_TWO` — and return the two outputs joined with a plus sign. Then reply with that joined string only and stop."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1783611771396,"data":{"turn":1,"step":1}}
