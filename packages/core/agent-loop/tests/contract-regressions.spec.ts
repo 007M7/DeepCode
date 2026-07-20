@@ -929,7 +929,7 @@ describe('a finish-error stream chunk ends the turn as error, not completed', ()
       message: 'provider 401',
       code: 'AUTH',
       status: 401,
-      retryAfterMs: 2_000,
+      providerRetryAfterMs: 2_000,
       requestId: ProviderRequestId('finish-request-1'),
     }
     const errorStream: StreamChunk[] = [

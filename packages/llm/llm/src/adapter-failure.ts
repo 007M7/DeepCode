@@ -76,18 +76,19 @@ function failureSnapshot(value: unknown): LlmFailure | undefined {
     const message = candidate.message
     const code = candidate.code
     const status = candidate.status
-    const retryAfterMs = candidate.retryAfterMs
+    const providerRetryAfterMs = candidate.providerRetryAfterMs
     const requestId = candidate.requestId
     if (typeof message !== 'string' || message.length === 0
       || typeof code !== 'string' || code.length === 0
       || (status !== undefined && (!Number.isInteger(status) || status < 100 || status > 599))
-      || (retryAfterMs !== undefined && (!Number.isFinite(retryAfterMs) || retryAfterMs <= 0))
+      || (providerRetryAfterMs !== undefined
+        && (!Number.isFinite(providerRetryAfterMs) || providerRetryAfterMs <= 0))
       || (requestId !== undefined && (typeof requestId !== 'string' || requestId.length === 0))) return undefined
     return Object.freeze({
       message,
       code,
       ...status === undefined ? {} : { status },
-      ...retryAfterMs === undefined ? {} : { retryAfterMs },
+      ...providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs },
       ...requestId === undefined ? {} : { requestId },
     })
   } catch (_sdkFailureGetter) {

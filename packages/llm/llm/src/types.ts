@@ -16,7 +16,7 @@ export interface LlmFailure {
   /** HTTP status observed at the provider boundary, when available. */
   readonly status?: number
   /** Provider-requested delay in milliseconds, when valid and available. */
-  readonly retryAfterMs?: number
+  readonly providerRetryAfterMs?: number
   /** Opaque provider-issued request identifier for diagnostics. */
   readonly requestId?: ProviderRequestId
 }

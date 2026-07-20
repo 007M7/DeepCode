@@ -2,7 +2,7 @@
 
 Function plugin that retries selected transient model-request failures on the agent loop's closed-step recovery seam. It does not wrap `ctx.llm.stream()`: every adapter call remains one provider attempt, and every retry opens a fresh numbered step.
 
-The default policy permits two retries for `RATE_LIMIT`, `SERVER`, `TIMEOUT`, and `TRANSPORT`, using bounded exponential backoff from 500 ms to 10 seconds with 10 percent jitter. Delay bounds must fit Node's supported timer range. A valid provider `retryAfterMs` replaces local backoff when it is within the configured cap; an over-cap instruction delegates to the next recovery policy instead.
+The default policy permits two retries for `RATE_LIMIT`, `SERVER`, `TIMEOUT`, and `TRANSPORT`, using bounded exponential backoff from 500 ms to 10 seconds with 10 percent jitter. Delay bounds must fit Node's supported timer range. A valid `providerRetryAfterMs` replaces local backoff when it is within the configured cap; an over-cap instruction delegates to the next recovery policy instead.
 
 Before waiting, the plugin appends a non-surface `llm/retry` event with the failure and scheduled delay. Cancellation and plugin disposal abort the wait; disposal drains the plugin's active backoffs, and a callback captured before disposal fails closed if invoked afterward.
 

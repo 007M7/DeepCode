@@ -191,7 +191,7 @@ describe('LlmService', () => {
   it('keeps structured provider facts beside a frozen third-party Error', async () => {
     const original = new LlmError('provider busy', 'RATE_LIMIT', {
       status: 429,
-      retryAfterMs: 1_500,
+      providerRetryAfterMs: 1_500,
       requestId: ProviderRequestId('req-7'),
     })
     Object.freeze(original)
@@ -212,7 +212,7 @@ describe('LlmService', () => {
       message: 'provider busy',
       code: 'RATE_LIMIT',
       status: 429,
-      retryAfterMs: 1_500,
+      providerRetryAfterMs: 1_500,
       requestId: ProviderRequestId('req-7'),
     })
   })
@@ -747,7 +747,8 @@ describe('LlmService', () => {
 
   it('rejects non-serializable structured failure facts at construction', () => {
     expect(() => new LlmError('busy', 'RATE_LIMIT', { status: 42 })).toThrow(/status/)
-    expect(() => new LlmError('busy', 'RATE_LIMIT', { retryAfterMs: Number.NaN })).toThrow(/retryAfterMs/)
+    expect(() => new LlmError('busy', 'RATE_LIMIT', { providerRetryAfterMs: Number.NaN }))
+      .toThrow(/providerRetryAfterMs/)
     expect(() => new LlmError('busy', 'RATE_LIMIT', { requestId: ProviderRequestId('') })).toThrow(/requestId/)
     expect(() => new LlmError(1 as never, 'RATE_LIMIT')).toThrow(/message/)
     expect(() => new LlmError('busy', 1 as never)).toThrow(/code/)

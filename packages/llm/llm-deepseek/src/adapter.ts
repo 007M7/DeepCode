@@ -42,7 +42,7 @@ export interface DeepSeekAdapterOptions {
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
 
-function retryAfterMs(value: string | null): number | undefined {
+function providerRetryAfterMs(value: string | null): number | undefined {
   if (value === null) return undefined
   if (/^\d+$/.test(value)) {
     const delay = Number(value) * 1_000
@@ -188,11 +188,11 @@ export class DeepSeekAdapter extends LlmAdapter {
         // Only swallow error-body parsing: the HTTP status still identifies the
         // failure, so malformed gateway JSON must not mask it.
       }
-      const delay = retryAfterMs(response.headers.get('retry-after'))
+      const delay = providerRetryAfterMs(response.headers.get('retry-after'))
       const id = requestId(response.headers)
       throw new LlmError(message, httpErrorCode(response.status, providerError), {
         status: response.status,
-        ...delay === undefined ? {} : { retryAfterMs: delay },
+        ...delay === undefined ? {} : { providerRetryAfterMs: delay },
         ...id === undefined ? {} : { requestId: id },
       })
     }

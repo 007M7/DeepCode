@@ -50,7 +50,7 @@ export interface LlmErrorOptions extends ErrorOptions {
   /** Valid HTTP status observed at the provider boundary. */
   status?: number
   /** Positive finite provider-requested delay in milliseconds. */
-  retryAfterMs?: number
+  providerRetryAfterMs?: number
   /** Non-empty opaque provider request id. */
   requestId?: ProviderRequestId
 }
@@ -75,9 +75,9 @@ export class LlmError extends HarnessError {
       && (!Number.isInteger(options.status) || options.status < 100 || options.status > 599)) {
       throw new Error('LlmError status must be an integer from 100 through 599')
     }
-    if (options?.retryAfterMs !== undefined
-      && (!Number.isFinite(options.retryAfterMs) || options.retryAfterMs <= 0)) {
-      throw new Error('LlmError retryAfterMs must be a positive finite number')
+    if (options?.providerRetryAfterMs !== undefined
+      && (!Number.isFinite(options.providerRetryAfterMs) || options.providerRetryAfterMs <= 0)) {
+      throw new Error('LlmError providerRetryAfterMs must be a positive finite number')
     }
     if (options?.requestId !== undefined
       && (typeof options.requestId !== 'string' || options.requestId.length === 0)) {
@@ -89,7 +89,7 @@ export class LlmError extends HarnessError {
       message,
       code,
       ...options?.status === undefined ? {} : { status: options.status },
-      ...options?.retryAfterMs === undefined ? {} : { retryAfterMs: options.retryAfterMs },
+      ...options?.providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs: options.providerRetryAfterMs },
       ...options?.requestId === undefined ? {} : { requestId: options.requestId },
     })
   }

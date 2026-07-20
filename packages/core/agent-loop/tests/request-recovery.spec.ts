@@ -422,7 +422,7 @@ describe('agent post-step and request-error lifecycle', () => {
   it('passes structured facts beside the original Error and records them on exhaustion', async () => {
     const original = new LlmError('provider busy', 'RATE_LIMIT', {
       status: 429,
-      retryAfterMs: 2_000,
+      providerRetryAfterMs: 2_000,
       requestId: ProviderRequestId('req-9'),
     })
     Object.freeze(original)
@@ -448,7 +448,7 @@ describe('agent post-step and request-error lifecycle', () => {
       message: 'provider busy',
       code: 'RATE_LIMIT',
       status: 429,
-      retryAfterMs: 2_000,
+      providerRetryAfterMs: 2_000,
       requestId: ProviderRequestId('req-9'),
     })
     expect(seenHistory).toEqual([])

@@ -232,7 +232,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       message: 'slow down',
       code: 'RATE_LIMIT',
       status: 429,
-      retryAfterMs: 2_000,
+      providerRetryAfterMs: 2_000,
       requestId: ProviderRequestId('req-429'),
     })
   })
@@ -257,7 +257,7 @@ describe('DeepSeekAdapter against a mock server', () => {
             message: 'come back later',
             code: 'SERVER',
             status: 503,
-            retryAfterMs: 3_000,
+            providerRetryAfterMs: 3_000,
             requestId: ProviderRequestId('deepseek-503'),
           },
         })

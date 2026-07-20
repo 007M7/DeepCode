@@ -235,7 +235,7 @@ describe('bounded transient retry policy', () => {
   it('uses a bounded provider Retry-After verbatim and delegates an over-cap instruction', async () => {
     vi.useFakeTimers()
     const accepted = new ScriptedAdapter([
-      new LlmError('wait', 'RATE_LIMIT', { retryAfterMs: 2_000 }),
+      new LlmError('wait', 'RATE_LIMIT', { providerRetryAfterMs: 2_000 }),
       textResponse('done'),
     ])
     ;({ ctx: context } = await harness(accepted, { jitterRatio: 1 }))
@@ -250,7 +250,7 @@ describe('bounded transient retry policy', () => {
 
     await context.fiber.dispose()
     const rejected = new ScriptedAdapter([
-      new LlmError('wait too long', 'RATE_LIMIT', { retryAfterMs: 10_001 }),
+      new LlmError('wait too long', 'RATE_LIMIT', { providerRetryAfterMs: 10_001 }),
     ])
     ;({ ctx: context } = await harness(rejected))
     const rejectedAgent = context.agentLoop.create(SessionId('retry-after-rejected'), { provider: 'mock', model: 'mock' })

@@ -224,23 +224,7 @@ interface GenerateOptions {
 }
 ```
 
-Why a model response stopped is a merge-extensible reason:
-
-```ts type-equiv
-/** Serializable provider-boundary facts; policy decides whether they are retryable. */
-interface LlmFailure {
-  /** Human-readable provider or transport failure. */
-  readonly message: string
-  /** Stable provider-neutral machine-routing code. */
-  readonly code: string
-  /** HTTP status observed at the provider boundary, when available. */
-  readonly status?: number
-  /** Provider-requested delay in milliseconds, when valid and available. */
-  readonly retryAfterMs?: number
-  /** Opaque provider-issued request identifier for diagnostics. */
-  readonly requestId?: ProviderRequestId
-}
-```
+Why a model response stopped is a merge-extensible reason. Terminal provider failures carry the streaming contract's [`LlmFailure`](llm-streaming.md#llmfailure):
 
 ```ts type-equiv
 /**

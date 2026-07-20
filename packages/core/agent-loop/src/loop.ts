@@ -45,7 +45,9 @@ function finishError(finish: FinishReason): { error: RequestError; failure: LlmF
       const facts = finish.failure
       const error = new LlmError(facts.message, facts.code, {
         ...facts.status === undefined ? {} : { status: facts.status },
-        ...facts.retryAfterMs === undefined ? {} : { retryAfterMs: facts.retryAfterMs },
+        ...facts.providerRetryAfterMs === undefined
+          ? {}
+          : { providerRetryAfterMs: facts.providerRetryAfterMs },
         ...facts.requestId === undefined ? {} : { requestId: facts.requestId },
       })
       return { error, failure: error.failure }

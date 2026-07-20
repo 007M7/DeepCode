@@ -190,9 +190,11 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
 
     const retry = priorTransientFailures + 1
     let delayMs: number
-    if (failure.retryAfterMs !== undefined && Number.isFinite(failure.retryAfterMs) && failure.retryAfterMs > 0) {
-      if (failure.retryAfterMs > resolved.maxDelayMs) return next()
-      delayMs = failure.retryAfterMs
+    if (failure.providerRetryAfterMs !== undefined
+      && Number.isFinite(failure.providerRetryAfterMs)
+      && failure.providerRetryAfterMs > 0) {
+      if (failure.providerRetryAfterMs > resolved.maxDelayMs) return next()
+      delayMs = failure.providerRetryAfterMs
     } else {
       delayMs = localDelay(resolved, retry, random)
     }

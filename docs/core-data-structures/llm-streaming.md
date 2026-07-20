@@ -31,7 +31,9 @@ type StreamChunk =
   }
 ```
 
-Every thrown or in-band final-adapter failure normalizes to one serializable provider-neutral payload. `retryAfterMs` is a validated positive delay observed at the provider boundary, not a retry decision; `ProviderRequestId` is an opaque branded string for diagnostics.
+## `LlmFailure`
+
+Every thrown or in-band final-adapter failure normalizes to one serializable provider-neutral payload. `providerRetryAfterMs` is a validated positive delay requested by the provider, not a retry decision; `ProviderRequestId` is an opaque branded string for diagnostics.
 
 ```ts type-equiv
 /** Serializable provider-boundary facts; policy decides whether they are retryable. */
@@ -43,7 +45,7 @@ interface LlmFailure {
   /** HTTP status observed at the provider boundary, when available. */
   readonly status?: number
   /** Provider-requested delay in milliseconds, when valid and available. */
-  readonly retryAfterMs?: number
+  readonly providerRetryAfterMs?: number
   /** Opaque provider-issued request identifier for diagnostics. */
   readonly requestId?: ProviderRequestId
 }
