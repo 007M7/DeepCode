@@ -57,10 +57,6 @@ function requestId(headers: Headers): ReturnType<typeof ProviderRequestId> | und
   return value === null || value.length === 0 ? undefined : ProviderRequestId(value)
 }
 
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : String(value)
-}
-
 /**
  * Map an HTTP status to a stable LlmError code.
  * @param status - status of a non-2xx provider response.
@@ -144,7 +140,7 @@ export class DeepSeekAdapter extends LlmAdapter {
         throw new LlmError('DeepSeek request aborted by caller', 'ABORTED', { cause: error })
       }
       if (error instanceof LlmError) throw error
-      throw new LlmError(`DeepSeek transport failed: ${errorMessage(error)}`, 'TRANSPORT', { cause: error })
+      throw new LlmError(`DeepSeek API stream from ${this.options.baseURL} failed`, 'TRANSPORT', { cause: error })
     } finally {
       consumer.abort('DeepSeek stream consumer stopped')
       if (!exhausted && iterator.return !== undefined) {

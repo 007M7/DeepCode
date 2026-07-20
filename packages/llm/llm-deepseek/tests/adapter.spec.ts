@@ -373,14 +373,20 @@ describe('DeepSeekAdapter against a mock server', () => {
     }
   })
 
-  it('rejects with STREAM_CLOSED when the server drops mid-stream', async () => {
+  it('classifies an abrupt body close as TRANSPORT and retains its cause', async () => {
     const server = await mockServer([{
       kind: 'close-early',
       events: ['{"choices":[{"delta":{"content":"par"}}]}'],
     }])
     const ctx = await harness(server.url)
-    await expect(assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toThrow(/terminated|socket|without \[DONE\]/)
+    let caught: unknown
+    try {
+      await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
+    } catch (error: unknown) {
+      caught = error
+    }
+    expect(caught).toMatchObject({ code: 'TRANSPORT' })
+    expect(errorChain(caught)).toMatch(/terminated|socket|without \[DONE\]/)
   })
 
   it('aborts mid-stream via the request signal', async () => {
