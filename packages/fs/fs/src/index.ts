@@ -7,6 +7,7 @@
  */
 
 import { Context, Service } from 'cordis'
+import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {
   FsDirEntry,
   FsEditOutcome,
@@ -83,6 +84,23 @@ export abstract class FileSystem extends Service {
   }
 
   /**
+  /**
+   * The sandbox mode this backend enforces on mutations BY DEFAULT, or
+   * `undefined` when it does not confine at all — the capability fact the tool
+   * layer reads to advertise the escalation fields honestly (mirrors
+   * `BashExecutor.sandboxMode`). The base class and the bare local backend
+   * report `undefined`; a sandboxing backend (`@deepseek-ai/dsh-fs-sandbox`)
+   * overrides it with the deployment default. A session override may make the
+   * effective mode narrower or wider, so strict escalation widening is checked
+   * per call rather than encoded in this default-relative fact.
+   * @returns the configured default mode of a sandboxing backend; `undefined`
+   *   for a backend that never confines.
+   */
+  get sandboxMode(): SandboxMode | undefined {
+    return undefined
+  }
+
+  /**
    * Resolve a model/plugin-supplied path into a stable {@link FsTarget}. May perform I/O (a
    * remote/sandboxed backend may need a round-trip to map a path to a stable identity), hence
    * async even though the local backend only normalizes + realpaths.
@@ -152,9 +170,18 @@ export abstract class FileSystem extends Service {
    * @param content - the full new file content.
    * @param expected - the write intent guarding the write; omit for unconditional.
    * @param signal - aborts before the atomic rename takes effect.
+   * @param sandboxMode - the per-call sandbox mode this write runs under; a
+   *   sandboxing backend fences the write by it, the bare backend ignores it.
+   *   Omit to leave the backend its own default.
    * @returns the outcome, including the version the write produced.
    */
-  abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
+  abstract writeText(
+    target: FsTarget,
+    content: string,
+    expected?: FsWriteIntent,
+    signal?: AbortSignal,
+    sandboxMode?: SandboxMode,
+  ): Promise<FsWriteOutcome>
 
   /**
    * Atomically edit literal text. When supplied, the version guard is checked
@@ -164,9 +191,18 @@ export abstract class FileSystem extends Service {
    * @param edit - the literal search/replace request.
    * @param expected - the version guard; omit for an unconditional edit.
    * @param signal - aborts before the atomic rename takes effect.
+   * @param sandboxMode - the per-call sandbox mode this edit runs under; a
+   *   sandboxing backend fences the edit by it, the bare backend ignores it.
+   *   Omit to leave the backend its own default.
    * @returns the outcome, including the version the edit produced.
    */
-  abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
+  abstract editText(
+    target: FsTarget,
+    edit: FsEditRequest,
+    expected?: { version: FsVersion },
+    signal?: AbortSignal,
+    sandboxMode?: SandboxMode,
+  ): Promise<FsEditOutcome>
 }
 
 export default FileSystem

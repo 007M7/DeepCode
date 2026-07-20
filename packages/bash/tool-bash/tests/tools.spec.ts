@@ -181,7 +181,7 @@ async function setupSandboxed(withApproval = false) {
 
 function sandboxAgent(mode?: 'read-only' | 'workspace-write' | 'danger-full-access', ctx?: Context): Agent {
   const events: Array<{ type: string; data?: Record<string, unknown> }> = [{ type: 'turn/start' }]
-  if (mode !== undefined) events.push({ type: 'bash/sandbox-mode', data: { mode } })
+  if (mode !== undefined) events.push({ type: 'sandbox/mode', data: { mode } })
   const id = SessionId('sandbox-session')
   return {
     id,
@@ -553,7 +553,7 @@ describe('sandbox escalation through the generic task producer', () => {
 
     const malformed = sandboxAgent()
     ;(malformed.session.events as unknown as Array<{ type: string; data: { mode: string } }>).push({
-      type: 'bash/sandbox-mode',
+      type: 'sandbox/mode',
       data: { mode: 'unknown-mode' },
     })
     expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('not strictly wider')
@@ -610,7 +610,7 @@ describe('sandbox escalation through the generic task producer', () => {
     const { ctx } = await setupSandboxed(true)
     ctx.approval.request = () => Promise.resolve('rogue' as ApprovalOutcome)
     const result = await call(ctx, 'bash', escalate, sandboxAgent())
-    expect(text(result)).toContain('unreachable variant in ApprovalOutcome')
+    expect(text(result)).toContain('unreachable variant in EscalationOutcome')
   })
 })
 
