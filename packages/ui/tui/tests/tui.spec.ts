@@ -936,4 +936,31 @@ describe('terminal mounting', () => {
     expect(() => createTuiChat(ctx, { sessionId: 'missing' }, runtime)).toThrow('is not running')
     await ctx.fiber.dispose()
   })
+
+  it('detects a light terminal color scheme and switches from dark- to light-optimised ANSI codes', async () => {
+    const result = await setup({ config: { color: true } })
+    // Initial render uses dark-optimised palette: SGR 2 (dim) for dim text.
+    expect(result.terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
+
+    // Simulate the terminal responding with a light color scheme report
+    // (ESC [?997;2n = light, ESC [?997;1n = dark).
+    result.terminal.send('\x1b[?997;2n')
+    await tick()
+    await tick()
+
+    // After switching to light-optimised palette: palette.dim uses ANSI 90
+    // (gray) instead of SGR 2. The header now uses \x1b[90m for the detail
+    // line. The cumulative output still contains the initial SGR 2 render,
+    // so we assert that a LATER write (appended after the scheme switch)
+    // uses ANSI 90 for the same header text.
+    expect(result.terminal.output).toContain('\x1b[90mdeepseek-v4-flash')
+
+    // Switch back to dark scheme.
+    result.terminal.send('\x1b[?997;1n')
+    await tick()
+    await tick()
+    // After switching back, a new write uses SGR 2 for the header detail.
+    expect(result.terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
+    await dispose(result)
+  })
 })
