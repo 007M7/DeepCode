@@ -1,6 +1,7 @@
 /**
  * The model-facing filesystem discovery tool suite (`glob`, `grep`) over the
- * bash executor seam (`ctx.bash`). This single plugin registers both tools.
+ * bash executor seam (`ctx.bash`). This single plugin registers both tools
+ * only when the mounted bash executor can find `rg` on its `PATH`.
  *
  * ## Bash-backed, not a `ctx.fs` provider method
  *
@@ -12,9 +13,11 @@
  * parsing, retention, formatted-result spill, and timeout declaration; the
  * bash executor owns request defaulting/capping, subprocess execution,
  * process-group termination, environment scrubbing, raw output capture, and
- * backend substitution. The package injects `tools`, `systemPrompt`, and
- * `bash` — deliberately NOT `fs`, and `ctx.spillStore` is read opportunistically
- * with `ctx.get()` because formatted-result spill is optional.
+ * backend substitution. At load, the package probes `command -v rg` through the
+ * same bash seam; if ripgrep is absent, `glob` / `grep` and their prompt
+ * sections are not registered. The package injects `tools`, `systemPrompt`,
+ * and `bash` — deliberately NOT `fs`, and `ctx.spillStore` is read
+ * opportunistically with `ctx.get()` because formatted-result spill is optional.
  *
  * Returned paths are displayed relative to the resolved bash workdir and are
  * follow-up-readable only in co-located deployments where the bash workdir and
@@ -80,6 +83,9 @@ export const Config: z<Config> = z.object({
 /** The shape after schemastery applied the defaults. */
 type ResolvedConfig = Required<Config>
 
+/** POSIX-shell builtin probe for the ripgrep binary in the bash executor environment. */
+const RG_PROBE_COMMAND = 'command -v rg >/dev/null 2>&1'
+
 /** Every search cap counts items/bytes/milliseconds — a positive integer, or retention and timeout arithmetic misbehaves silently. */
 function assertPositiveInteger(name: string, value: number): void {
   if (!Number.isInteger(value) || value < 1) {
@@ -87,8 +93,38 @@ function assertPositiveInteger(name: string, value: number): void {
   }
 }
 
-/** Register the `glob`/`grep` filesystem discovery tool suite. */
-export function apply(ctx: Context, config: Config): void {
+/**
+ * Check whether the mounted bash executor can find `rg`.
+ *
+ * Nonzero exit means "not available" and disables this optional tool suite.
+ * Infrastructure failures stay loud: a deployment with a broken bash executor
+ * should not silently lose tools in a way that looks like a deliberate skip.
+ *
+ * @param ctx - plugin context whose `bash` service is the executor the tools will use.
+ * @returns true when `command -v rg` exits 0, false when it exits nonzero.
+ */
+async function ripgrepAvailable(ctx: Context): Promise<boolean> {
+  const spec = ctx.bash.resolve({ command: RG_PROBE_COMMAND })
+  let result
+  try {
+    result = await ctx.bash.run(spec)
+  } catch (error: unknown) {
+    throw new Error(`tool-fs-search: ripgrep availability probe could not start: ${String(error)}`, { cause: error })
+  }
+  if (result.aborted || result.timedOut || result.signal !== null || result.exitCode === null) {
+    throw new Error('tool-fs-search: ripgrep availability probe did not complete')
+  }
+  return result.exitCode === 0
+}
+
+/**
+ * Register the `glob`/`grep` filesystem discovery tool suite when `rg` exists.
+ *
+ * @param ctx - plugin context; registrations are effects scoped to this plugin.
+ * @param config - resolved plugin configuration from schemastery.
+ * @returns when ripgrep is unavailable, resolves without registering any tools.
+ */
+export async function apply(ctx: Context, config: Config): Promise<void> {
   // schemastery (Config) has already filled every defaulted field.
   const resolved = config as ResolvedConfig
   assertPositiveInteger('globMaxResults', resolved.globMaxResults)
@@ -96,6 +132,10 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveInteger('grepMaxLineBytes', resolved.grepMaxLineBytes)
   assertPositiveInteger('rawOutputMaxBytes', resolved.rawOutputMaxBytes)
   assertPositiveInteger('timeoutMs', resolved.timeoutMs)
+  if (!await ripgrepAvailable(ctx)) {
+    ctx.logger.warn('tool-fs-search: ripgrep (rg) not found on the bash executor PATH; glob/grep tools not registered')
+    return
+  }
   applyGlobTool(ctx, {
     maxResults: resolved.globMaxResults,
     rawOutputMaxBytes: resolved.rawOutputMaxBytes,
