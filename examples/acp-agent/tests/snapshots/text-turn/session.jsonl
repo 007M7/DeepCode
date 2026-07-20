@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"539aa64c-7f37-40ff-abd8-ed45b717be1b","createdAt":1783600629539,"cwd":"/var/folders/bn/vj1dvck95yd5jh3x4wskflxm0000gn/T/acp-snap-cwd-ka5r8w"}
+{"type":"session","version":0,"id":"539aa64c-7f37-40ff-abd8-ed45b717be1b","createdAt":1783600629539,"cwd":"/var/folders/bn/vj1dvck95yd5jh3x4wskflxm0000gn/T/acp-snap-cwd-ka5r8w","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783600629541,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783600629541,"data":{"content":[{"type":"text","text":"Reply with exactly the word: PONG. Do not use any tools."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1783600629542,"data":{"turn":1,"step":1}}

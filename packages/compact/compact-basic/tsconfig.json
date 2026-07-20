@@ -13,6 +13,7 @@
     { "path": "../../llm/token-meter" },
     { "path": "../../core/session" },
     { "path": "../../core/agent" },
-    { "path": "../compact" }
+    { "path": "../compact" },
+    { "path": "../compact-tool-result-prune" }
   ]
 }

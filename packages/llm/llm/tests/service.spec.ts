@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, {
+  errorChain,
   GenerateOptions,
   HarnessError,
   isContextWindowExceededError,
@@ -78,6 +79,50 @@ describe('LlmService', () => {
     expect(isContextWindowExceededError('invalid input: temperature exceeds maximum allowed value')).toBe(false)
     expect(isContextWindowExceededError('input exceeds maximum allowed value')).toBe(false)
     expect(isContextWindowExceededError('context window size must be positive')).toBe(false)
+  })
+
+  it('errorChain renders the full cause chain of a wrapped transport failure', () => {
+    const chain = new TypeError('fetch failed', { cause: new Error('connect ECONNREFUSED 127.0.0.1:443') })
+    expect(errorChain(chain)).toBe('fetch failed: connect ECONNREFUSED 127.0.0.1:443')
+  })
+
+  it('errorChain renders AggregateError members (Happy Eyeballs multi-address failures)', () => {
+    const aggregate = new AggregateError(
+      [new Error('connect ECONNREFUSED ::1:443'), new Error('connect ECONNREFUSED 127.0.0.1:443')],
+      '',
+    )
+    const wrapped = new TypeError('fetch failed', { cause: aggregate })
+    expect(errorChain(wrapped)).toBe(
+      'fetch failed: AggregateError [connect ECONNREFUSED ::1:443; connect ECONNREFUSED 127.0.0.1:443]',
+    )
+  })
+
+  it('errorChain survives non-Error values, hostile coercion, and circular causes', () => {
+    expect(errorChain('plain string')).toBe('plain string')
+    expect(errorChain({ toString: () => { throw new Error('hostile') } })).toBe('<unrenderable value>')
+    const circular = new Error('outer')
+    circular.cause = circular
+    expect(errorChain(circular)).toBe('outer: <circular cause>')
+    // A hostile accessor collapses only its own node, not the whole chain.
+    const hostileNode = new Error('node')
+    Object.defineProperty(hostileNode, 'message', { get() { throw new Error('hostile getter') } })
+    expect(errorChain(new Error('outer', { cause: hostileNode }))).toBe('outer: <unrenderable value>')
+    // A diamond-shared (non-cyclic) cause renders in full on both paths.
+    const shared = new Error('shared')
+    const diamond = new AggregateError([new Error('a', { cause: shared }), new Error('b', { cause: shared })], 'agg')
+    expect(errorChain(diamond)).toBe('agg [a: shared; b: shared]')
+  })
+
+  it('errorChain falls back to the error name, skips empty aggregates, and stops at null causes', () => {
+    expect(errorChain(new TypeError('', { cause: null }))).toBe('TypeError')
+    expect(errorChain(new AggregateError([], 'all failed'))).toBe('all failed')
+  })
+
+  it('errorChain collapses a cause that repeats the wrapper message verbatim', () => {
+    // The `new HarnessError(String(value), code, { cause: value })` normalization
+    // pattern repeats its cause; rendering it twice would only add noise.
+    const wrapped = new HarnessError('boom', 'UNKNOWN', { cause: 'boom' })
+    expect(errorChain(wrapped)).toBe('boom')
   })
 
   it('routes stream() to the registered adapter', async () => {

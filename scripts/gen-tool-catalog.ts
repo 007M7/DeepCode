@@ -79,11 +79,16 @@ class CatalogSearchBashExecutor extends BashExecutor {
   }
 }
 
-/** Register the descriptor needed to mount schema-producing consumers. */
+/**
+ * Register the descriptor needed to mount schema-producing consumers. Declares
+ * the full capability set of the shipped in-process providers so consumers
+ * mount under their shipped defaults (tool-subagent's default numeric maxDepth
+ * requires `depthLimit`).
+ */
 function registerCatalogSubagentProvider(ctx: Context, name: string): void {
   const provider: SubagentProvider = {
     name,
-    capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+    capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
     inheritsParentContext: false,
     start: () => Promise.reject(new Error('tool-catalog provider cannot start a child')),
   }
@@ -247,7 +252,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolSubagent, { provider: 'mock' })
     },
     note:
-      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/repl-agent/cordis.yml` and `examples/acp-agent/cordis.yml`.',
+      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/tui-agent/cordis.yml` and `examples/acp-agent/cordis.yml`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-tasks',

@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"bcd7e943-7b84-4264-82d0-f64e50d0d7ce","createdAt":1783611774317,"cwd":"/var/folders/2c/psb0_fmx7hbgz558xjt_f0l00000gn/T/acp-snap-cwd-52lrTl"}
+{"type":"session","version":0,"id":"bcd7e943-7b84-4264-82d0-f64e50d0d7ce","createdAt":1783611774317,"cwd":"/var/folders/2c/psb0_fmx7hbgz558xjt_f0l00000gn/T/acp-snap-cwd-52lrTl","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783611774323,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783611774323,"data":{"content":[{"type":"text","text":"Call the run_code tool (NOT the native bash tool directly) with a program that runs exactly `echo BOTH_OK` via tools.bash and returns its output. Then reply with that output only and stop."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1783611774324,"data":{"turn":1,"step":1}}

@@ -2,7 +2,7 @@
 
 Agent Client Protocol bridge over JSON-RPC stdio. Editors can create or resume agents, stream their events, answer questions and approvals, and render tool calls. One connection supports multiple isolated sessions; Zed is the primary compatibility target.
 
-It is a **client-driver / UI plugin**, the structured analogue of the terminal `dsh-tui`/`dsh-stdio` channels — NOT a loop change and NOT a [capability seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md). It consumes the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory, and `dsh-session-persistence`.
+It is a **client-driver / UI plugin**, the structured analogue of the terminal `dsh-tui` channel — NOT a loop change and NOT a [capability seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md). It consumes the existing `agent/*` event taxonomy, the `dsh-agent` create/resume factory, and `dsh-session-persistence`.
 
 ## Service / plugin
 
@@ -114,7 +114,7 @@ When optional consumers are loaded, ACP form answers become the exact JSON shape
 
 #### Token effect
 
-Answer, error, and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens.
+Answer, error, and denial text enters context only through the owning tool result; presentation metadata adds zero model tokens. A replacement `tool/result` still changes the model-facing session surface, but live and replayed ACP feeds ignore it as an execution update so the original terminal or diff completion is not overwritten.
 
 #### KV Cache effect
 
