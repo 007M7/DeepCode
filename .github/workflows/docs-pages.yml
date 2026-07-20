@@ -2,8 +2,7 @@ name: Deploy documentation
 
 on:
   push:
-    # Keep this branch only for the pre-merge deployment validation run.
-    branches: [master, worktree/docs-pages-deploy]
+    branches: [master]
     paths:
       - '.github/workflows/docs-pages.yml'
       - 'docs/**'
