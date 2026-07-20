@@ -18,7 +18,7 @@ Status: implemented
 
 ### 持久记录与回放
 
-每次非清除变更都通过 `Agent.inject()` 追加一条原始且模型可见的 `context/message`，其中包含带版本的完整快照。清除操作追加带修订号的墓碑。上下文来源为 `{ kind: 'goal', goalId, revision, round: 0 }`；元数据必须与渲染后的 `<goal_state>...</goal_state>` 内容完全一致。这个描述性分隔符沿用了仓库已有的 `<workspace_context>` 约定，也符合 [Anthropic 关于用一致且描述明确的 XML 标签组织混合提示词内容的公开指南](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices#structure-prompts-with-xml-tags)。这是公开的模型体验先例，并非对任何提供方专有训练语料的推断。会话日志是唯一的持久事实来源，因此持久化和 fork 会继承目标记录，而无需另设数据库或头字段。
+每次非清除变更都通过 `Agent.inject()` 追加一条模型可见的 `context/message`，其中包含带版本的完整快照；会话会将其内容原样投射给模型。清除操作追加带修订号的墓碑。上下文来源为 `{ kind: 'goal', goalId, revision, round: 0 }`；元数据必须与渲染后的 `<goal_state>...</goal_state>` 内容完全一致。这个描述性分隔符沿用了仓库已有的 `<workspace_context>` 约定，也符合 [Anthropic 关于用一致且描述明确的 XML 标签组织混合提示词内容的公开指南](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices#structure-prompts-with-xml-tags)。这是公开的模型体验先例，并非对任何提供方专有训练语料的推断。会话日志是唯一的持久事实来源，因此持久化和 fork 会继承目标记录，而无需另设数据库或头字段。
 
 回放折叠会校验 JSON 形状、来源归属、渲染内容、新 id、修订连续性、生命周期转换、计数器以及单个目标内单调递增的时间戳。目标回合是当前活跃修订上带正数且连续编号的 `user/message` 来源，且不能超过 `maxGoalRounds`；普通会话轮次不会影响该计数器。当前格式的畸形记录会使回放失败，而不会被忽略或修复。
 

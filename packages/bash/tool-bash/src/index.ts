@@ -15,12 +15,13 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import { assertNever } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { DSH_ENV_PREFIX, effectiveSandboxMode } from '@deepseek-ai/dsh-bash'
+import { ESCALATION_TARGETS, approveEscalation, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
 import type { DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
 import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-home'
 import { processOutcome } from './background.ts'
@@ -226,23 +227,10 @@ function validateBashArgs(args: BashToolArgs): void {
   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
   }
-  if (args.sandbox_permissions !== undefined && args.justification === undefined) {
-    throw new Error('invalid escalation: sandbox_permissions requires a justification')
-  }
-  if (args.justification !== undefined && args.sandbox_permissions === undefined) {
-    throw new Error('invalid escalation: justification is only valid together with sandbox_permissions')
-  }
-  if (args.justification !== undefined && args.justification.trim().length === 0) {
-    throw new Error('invalid justification: expected a non-empty sentence')
-  }
+  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
+  // the shared rule both enforcing families validate identically.
+  validateEscalationArgs(args.sandbox_permissions, args.justification)
 }
-
-const WIDER_MODES: Record<string, readonly SandboxMode[]> = {
-  'read-only': ['workspace-write', 'danger-full-access'],
-  'workspace-write': ['danger-full-access'],
-}
-
-const ESCALATION_TARGETS: readonly SandboxMode[] = ['workspace-write', 'danger-full-access']
 
 function bashDescription(backgroundEnabled: boolean, escalationModes: readonly SandboxMode[]): string {
   const background = backgroundEnabled
@@ -346,35 +334,32 @@ export function apply(ctx: Context, config: Config = {}): void {
   const sessionOverride = (exec: ToolExecution): SandboxMode | undefined =>
     defaultMode === undefined || exec.agent === undefined ? undefined : effectiveSandboxMode(exec.agent.session.events)
 
-  const approveEscalation = async (mode: string, justification: string, exec: ToolExecution): Promise<SandboxMode> => {
+  /**
+   * Resolve a sandbox-escalation request through `ctx.approval` BEFORE
+   * anything executes, delegating the shared fail-closed sequence (strict
+   * widening, channel resolution, outcome mapping) to
+   * {@link approveEscalation}. This tool contributes only the composition
+   * guard (the fields are unadvertised without a sandboxing executor, yet
+   * schema validation checks advertised keys only, so an unadvertised
+   * `sandbox_permissions` still reaches execute) and the approval ingredients
+   * — the seam is consumed opportunistically (`ctx.get`) so a deployment
+   * without it degrades per call.
+   */
+  const approveBashEscalation = (mode: string, justification: string, exec: ToolExecution): Promise<SandboxMode> => {
     if (escalationModes.length === 0) {
       throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
     }
     const effectiveMode = (sessionOverride(exec) ?? defaultMode) as SandboxMode
-    if (!(WIDER_MODES[effectiveMode] ?? []).includes(mode as SandboxMode)) {
-      throw new Error(`sandbox escalation to "${mode}" is not strictly wider than this call's current "${effectiveMode}" mode`)
-    }
-    const approval = ctx.get('approval')
-    if (approval === undefined) {
-      throw new Error(`sandbox escalation to "${mode}" requires approval, but no approval service is composed`)
-    }
-    if (exec.agent === undefined) {
-      throw new Error(`sandbox escalation to "${mode}" requires approval, but the call has no agent to route it through`)
-    }
-    const outcome = await approval.request({
-      agent: exec.agent,
-      toolName: 'bash',
-      callId: exec.callId,
-      reason: `escalate sandbox to ${mode}: ${justification}`,
-      ...exec.signal ? { signal: exec.signal } : {},
-    })
-    switch (outcome) {
-      case 'allowed-once': return mode as SandboxMode
-      case 'rejected': throw new Error(`the user rejected escalating this command to "${mode}"`)
-      case 'cancelled': throw new Error(`approval for escalating to "${mode}" was cancelled`)
-      case 'unavailable': throw new Error(`sandbox escalation to "${mode}" requires approval, but no approval channel is available`)
-      default: return assertNever(outcome, 'ApprovalOutcome')
-    }
+    return approveEscalation(
+      { requestedMode: mode, justification, effectiveMode, subject: 'command' },
+      {
+        approver: ctx.get('approval'),
+        agent: exec.agent,
+        callId: exec.callId,
+        toolName: 'bash',
+        ...exec.signal ? { signal: exec.signal } : {},
+      },
+    )
   }
 
   // Cross-call guidance belongs in the prompt rather than one-call schema prose.
@@ -417,7 +402,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       validateBashArgs(args)
       // Description is display metadata; workdir defaults to the caller's session.
       const sandboxMode = args.sandbox_permissions !== undefined && args.justification !== undefined
-        ? await approveEscalation(args.sandbox_permissions, args.justification, exec)
+        ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec)
         : sessionOverride(exec)
       const workdir = resolveWorkdir(args.workdir, exec)
       const dshEnv = bashEnv.collect(exec)

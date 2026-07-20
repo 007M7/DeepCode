@@ -11,9 +11,9 @@ import { isAbsolute } from 'node:path'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { ContextEnvelope, CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
@@ -80,21 +80,6 @@ declare module 'cordis' {
   }
 }
 
-/**
- * Render injected context as tagged synthetic user-role content, keeping the
- * canonical session vocabulary provider-neutral. Adapter-specific exceptions
- * belong in the adapter.
- */
-function renderTagged(tag: string, content: ContentBlock[], source: MessageSource): ContentBlock[] {
-  const open = `<${tag} source=${JSON.stringify(source.kind)}>`
-  const close = `</${tag}>`
-  return [
-    { type: 'text', text: open },
-    ...content,
-    { type: 'text', text: close },
-  ]
-}
-
 /** Detach, validate, and freeze the creation metadata published by a session. */
 function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHeader {
   const input: unknown = source === undefined
@@ -127,6 +112,10 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
   if (record.seedLength !== undefined
     && (typeof record.seedLength !== 'number' || !Number.isSafeInteger(record.seedLength) || record.seedLength < 0)) {
     throw new Error('session header seedLength must be a non-negative safe integer')
+  }
+  if (record.delegationDepth !== undefined
+    && (typeof record.delegationDepth !== 'number' || !Number.isSafeInteger(record.delegationDepth) || record.delegationDepth < 0)) {
+    throw new Error('session header delegationDepth must be a non-negative safe integer')
   }
   return deepFreeze(record as unknown as SessionHeader)
 }
@@ -227,22 +216,6 @@ interface SessionEntry {
 
 /** Store attachment for the append path; module-private to keep Session store-agnostic publicly. */
 const attachments = new WeakMap<Session, SessionEntry>()
-
-/**
- * Render one context contribution exactly as it will appear in model history.
- * @param content - content blocks supplied by the context producer.
- * @param source - attribution used by the canonical context envelope.
- * @param envelope - canonical tagged framing or caller-owned raw framing.
- * @returns a detached block list ready for the derived model transcript.
- */
-export function renderContextContent(
-  content: ContentBlock[],
-  source: MessageSource,
-  envelope: ContextEnvelope = 'context',
-): ContentBlock[] {
-  const cloned = structuredClone(content)
-  return envelope === 'raw' ? cloned : renderTagged('context', cloned, source)
-}
 
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
@@ -509,7 +482,18 @@ export class Session {
     // trace/replay data.
 
     switch (event.type) {
-      case 'user/message': {
+      // Injected context and mid-turn steering project identically to a user
+      // prompt: content verbatim, in user role. context's `source`/`meta` and
+      // steering's `turn` are log-only and do not reach the model. Do NOT
+      // re-add per-type framing (e.g. `<context>`/`<steering>`) here: framing is
+      // caller-owned — a producer bakes it into `content`, as workspace-context
+      // does with `<system-reminder>` — or, if reintroduced, must be driven by
+      // the event `meta` map and a dedicated renderer, keeping this projection a
+      // verbatim pass-through. See the deferred design note in
+      // ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md
+      case 'user/message':
+      case 'context/message':
+      case 'steering/message': {
         return { role: 'user', content: event.data.content }
       }
       case 'assistant/message': {
@@ -525,14 +509,6 @@ export class Session {
           role: 'user',
           content: [{ type: 'tool-result', toolCallId: callId, content, isError }],
         }
-      }
-      case 'context/message': {
-        const { content, source, envelope } = event.data
-        return { role: 'user', content: renderContextContent(content, source, envelope) }
-      }
-      case 'steering/message': {
-        const { content, source } = event.data
-        return { role: 'user', content: renderTagged('steering', content, source) }
       }
       default:
         // A non-surface event (boundary, chunk, log-only record) projects to
@@ -586,9 +562,9 @@ export class SessionStore extends Service {
    * Create a session owned by the calling fiber: disposing that fiber stops
    * event notification and removes the session from the store. `options.seed`
    * populates the session with a copy of those events (replay/fork);
-   * `options.meta` attaches creation metadata (validated absolute `cwd`,
-   * `parentSession` lineage) as the immutable {@link SessionHeader} (the store
-   * fills `version`/`id`/`createdAt`).
+   * `options.meta` attaches creation metadata (validated absolute `cwd`, seed
+   * and parent lineage, and delegation depth) as the immutable
+   * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).
    *
    * For an agent whose session must be torn down IN ORDER with its loop (so the
    * loop's final flush is captured before the store attachment ends), do NOT use this
@@ -650,6 +626,7 @@ export class SessionStore extends Service {
       ...meta?.cwd === undefined ? {} : { cwd: meta.cwd },
       ...meta?.parentSession === undefined ? {} : { parentSession: meta.parentSession },
       ...meta?.seedLength === undefined ? {} : { seedLength: meta.seedLength },
+      ...meta?.delegationDepth === undefined ? {} : { delegationDepth: meta.delegationDepth },
     }
     return new Session(sessionId, seed, header)
   }

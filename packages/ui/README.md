@@ -5,7 +5,7 @@ Integrations that expose the agent to an external editor or client. These are **
 | Package | Role | ctx key |
 |---|---|---|
 | `acp/` | Agent Client Protocol bridge: serves the agent to an ACP editor (Zed) over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
-| `commands/` | Human-command registry: discovery metadata, scoped shadowing, surface filtering, cancellation, and direct UI dispatch | `ctx.commands` |
+| `commands/` | Human-command registry: shared discovery metadata, scoped shadowing, cancellation, and direct UI dispatch | `ctx.commands` |
 | `user-approval/` | One-shot user-approval mechanism, closed outcome vocabulary, audit events, and per-session approval policy | `ctx.approval` |
 | `permission/` | User-facing permission presets (`workspace-write`/`danger-full-access`): one product-level select bundling the sandbox-mode and approval-policy knobs, written through to their session events | `ctx.permission` |
 | `user-interaction/` | Abstract human question/answer seam used by UI-backed confirmation tools | `ctx.userInteraction` |

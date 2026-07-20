@@ -354,14 +354,24 @@ describe('agent loop', () => {
     expect(flat).toContain('change of plans')
   })
 
-  it('steering while idle behaves like send (starts a turn)', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
+  it('same-tick idle steering inherits one-send-one-turn FIFO behavior', async () => {
+    const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.steer([{ type: 'text', text: 'hello' }])
-    await waitForIdle(ctx, agent)
-    expect(agent.session.events.some(e => e.type === 'user/message')).toBe(true)
+    const idle = waitForIdle(ctx, agent)
+    agent.steer([{ type: 'text', text: 'first idle steer' }])
+    agent.steer([{ type: 'text', text: 'second idle steer' }])
+    await idle
+
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+    expect(agent.session.events
+      .filter(event => event.type === 'user/message')
+      .map(event => event.data.content)).toEqual([
+      [{ type: 'text', text: 'first idle steer' }],
+      [{ type: 'text', text: 'second idle steer' }],
+    ])
+    expect(adapter.requests).toHaveLength(2)
   })
 
   it('inject() while idle wraps context in a one-shot turn, visible to the next request', async () => {
@@ -385,10 +395,10 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
     const flat = JSON.stringify(adapter.requests[0]!.messages)
     expect(flat).toContain('file changed: a.ts')
-    expect(flat).toContain('<context source=\\"plugin\\">')
+    expect(flat).not.toContain('<context source=')
   })
 
-  it('inject() can persist raw structured context without the generic context envelope', async () => {
+  it('inject() persists structured context content verbatim with durable hidden meta', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('raw-context'), { provider: 'mock', model: 'mock' })
@@ -401,14 +411,13 @@ describe('agent loop', () => {
 
     agent.inject([{ type: 'text', text }], {
       source: { kind: 'plugin', plugin: 'workspace-context' },
-      envelope: 'raw',
       meta,
     })
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
     const contextEvent = agent.session.events.find(event => event.type === 'context/message')
-    expect(contextEvent?.type === 'context/message' && contextEvent.data).toMatchObject({ envelope: 'raw', meta })
+    expect(contextEvent?.type === 'context/message' && contextEvent.data).toMatchObject({ meta })
     const requestText = JSON.stringify(adapter.requests[0]!.messages)
     expect(requestText).toContain('Additional instructions from: pkg/AGENTS.md')
     expect(requestText).not.toContain('<context source=')
@@ -432,7 +441,6 @@ describe('agent loop', () => {
         const first = { type: 'text' as const, text: 'mid-turn notice' }
         agent.inject([first], {
           source: { kind: 'plugin', plugin: 'x' },
-          envelope: 'raw',
           meta,
         })
         first.text = 'mutated after inject'
@@ -458,7 +466,6 @@ describe('agent loop', () => {
     expect(contexts).toHaveLength(2)
     expect(result.seq).toBeLessThan(contexts[0]!.seq)
     expect(contexts[0]?.type === 'context/message' && contexts[0].data).toMatchObject({
-      envelope: 'raw',
       meta,
     })
     expect(contexts.flatMap(event => event.type === 'context/message' ? event.data.content : []))
@@ -925,7 +932,149 @@ describe('agent loop', () => {
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('completed')
   })
 
-  it('chains queued messages into consecutive turns', async () => {
+  it('keeps same-tick sends in separate turns and checkpoints before the next starts', async () => {
+    const adapter = new MockAdapter([textResponse('first answer'), textResponse('second answer')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    const firstFlush = Promise.withResolvers<undefined>()
+    const releaseFirstFlush = Promise.withResolvers<undefined>()
+    let flushes = 0
+    ctx.on('session/flush', async (session) => {
+      if (session !== agent.session) return
+      flushes += 1
+      if (flushes === 1) {
+        firstFlush.resolve(undefined)
+        await releaseFirstFlush.promise
+      }
+    })
+
+    const turns: number[] = []
+    ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'turn/start') turns.push(event.data.turn)
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'first message')
+    send(agent, 'second message')
+
+    await firstFlush.promise
+    expect(turns).toEqual([1])
+    expect(adapter.requests).toHaveLength(1)
+
+    releaseFirstFlush.resolve(undefined)
+    await idle
+
+    expect(turns).toEqual([1, 2])
+    expect(flushes).toBe(2)
+    expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('first answer')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('second message')
+  })
+
+  it('holds a turn-end listener send behind the closing turn checkpoint', async () => {
+    const adapter = new MockAdapter([textResponse('first answer'), textResponse('second answer')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    const firstFlush = Promise.withResolvers<undefined>()
+    const releaseFirstFlush = Promise.withResolvers<undefined>()
+    let flushes = 0
+    ctx.on('session/flush', async (session) => {
+      if (session !== agent.session) return
+      flushes += 1
+      if (flushes === 1) {
+        firstFlush.resolve(undefined)
+        await releaseFirstFlush.promise
+      }
+    })
+
+    const turns: number[] = []
+    const statuses: string[] = []
+    ctx.on('agent/status', (subject, status) => {
+      if (subject === agent) statuses.push(status)
+    })
+    ctx.on('session/event', (session, event) => {
+      if (session !== agent.session) return
+      if (event.type === 'turn/start') turns.push(event.data.turn)
+      if (event.type === 'turn/end' && event.data.turn === 1) send(agent, 'turn-end listener message')
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'first message')
+    await firstFlush.promise
+
+    expect(turns).toEqual([1])
+    expect(adapter.requests).toHaveLength(1)
+
+    releaseFirstFlush.resolve(undefined)
+    await idle
+
+    expect(turns).toEqual([1, 2])
+    expect(statuses).toEqual(['running', 'idle'])
+    expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('first answer')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('turn-end listener message')
+  })
+
+  it('keeps a reentrant agent/queued send as the next independent turn', async () => {
+    const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    let nested = false
+    ctx.on('agent/queued', (subject) => {
+      if (subject !== agent || nested) return
+      nested = true
+      send(agent, 'queued listener message')
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'outer message')
+    await idle
+
+    const turns = agent.session.events.filter(event => event.type === 'turn/start')
+    const messages = agent.session.events
+      .filter(event => event.type === 'user/message')
+      .map(event => event.data.content)
+    expect(turns).toHaveLength(2)
+    expect(messages).toEqual([
+      [{ type: 'text', text: 'outer message' }],
+      [{ type: 'text', text: 'queued listener message' }],
+    ])
+  })
+
+  it('preserves independent turn sources across an adjacent microtask send', async () => {
+    const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    const idle = waitForIdle(ctx, agent)
+    agent.send([{ type: 'text', text: 'user message' }])
+    await Promise.resolve()
+    agent.send(
+      [{ type: 'text', text: 'plugin message' }],
+      { source: { kind: 'plugin', plugin: 'test' } },
+    )
+    await idle
+
+    const triggers = agent.session.events
+      .filter(event => event.type === 'turn/start')
+      .map(event => event.data.trigger)
+    const sources = agent.session.events
+      .filter(event => event.type === 'user/message')
+      .map(event => event.data.source)
+    expect(triggers).toEqual([
+      { kind: 'message', source: { kind: 'user' } },
+      { kind: 'message', source: { kind: 'plugin', plugin: 'test' } },
+    ])
+    expect(sources).toEqual([
+      { kind: 'user' },
+      { kind: 'plugin', plugin: 'test' },
+    ])
+  })
+
+  it('keeps a session-listener send after dequeue in the following turn', async () => {
     const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -948,6 +1097,37 @@ describe('agent loop', () => {
 
     expect(turns).toEqual([1, 2])
     expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('first')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('second message')
+  })
+
+  it('keeps a model-adapter callback send in the following turn', async () => {
+    const agentRef: { current?: Agent } = {}
+    const adapter = new MockAdapter([
+      () => {
+        const agent = agentRef.current
+        if (agent === undefined) throw new Error('model callback ran before agent setup')
+        send(agent, 'model callback message')
+        return textResponse('first')
+      },
+      textResponse('second'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agentRef.current = agent
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'outer message')
+    await idle
+
+    const messages = agent.session.events
+      .filter(event => event.type === 'user/message')
+      .map(event => event.data.content)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+    expect(messages).toEqual([
+      [{ type: 'text', text: 'outer message' }],
+      [{ type: 'text', text: 'model callback message' }],
+    ])
   })
 
   it('awaits session/flush at turn end (persistence checkpoint)', async () => {

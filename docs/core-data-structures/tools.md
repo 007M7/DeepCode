@@ -180,8 +180,8 @@ A tool body receives the runtime extension. `deferContext()` is the composite-to
 interface ToolRunContext extends ToolExecution {
   /**
    * Defer one nested-dispatch context until this tool's final result reaches
-   * the agent loop. Contexts retain their individual source, envelope, and
-   * metadata and are emitted in call order.
+   * the agent loop. Contexts retain their individual source and metadata and
+   * are emitted in call order.
    */
   deferContext(context: HookContext): void
 }

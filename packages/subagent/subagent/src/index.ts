@@ -57,6 +57,33 @@ export type {
   SubagentStopReasonMap,
 } from './types.ts'
 
+declare module '@deepseek-ai/dsh-agent' {
+  interface AgentOptions {
+    /** Delegation depth: zero for a top-level agent and parent depth + 1 for a child. */
+    subagentDepth?: number
+  }
+}
+
+/**
+ * Read an agent's delegation depth, treating absence as top-level depth zero.
+ * The persisted session header is authoritative and monotone: runtime
+ * `AgentOptions.subagentDepth` may DEEPEN the count but can never lower it —
+ * a resumed child arrives with fresh options, and counting it from zero would
+ * let it delegate as if it were top-level.
+ * @param agent - the agent whose header and options carry the depth.
+ * @returns its non-negative safe-integer depth.
+ * @throws if the runtime `AgentOptions.subagentDepth` is not a non-negative safe integer.
+ */
+export function delegationDepthOf(agent: Agent): number {
+  const runtime = agent.options.subagentDepth
+  if (runtime !== undefined && (!Number.isSafeInteger(runtime) || runtime < 0 || Object.is(runtime, -0))) {
+    throw new TypeError('agent subagentDepth must be a non-negative safe integer')
+  }
+  // The header value was validated at the session boundary (creation and
+  // persistence load both construct through the store).
+  return Math.max(agent.session.header.delegationDepth ?? 0, runtime ?? 0)
+}
+
 /**
  * Reject a recursion cap that cannot represent an exact delegation depth.
  * @param maxDepth - the optional runtime value to validate.
