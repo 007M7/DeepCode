@@ -40,9 +40,9 @@ export interface InjectOptions extends SendOptions {
 
 /**
  * An agent's lifecycle state, emitted on every transition as `agent/status`:
- * `idle` (parked, waiting for queued work), `running` (a turn is in progress),
- * `disposed` (terminal — no transition leaves it, and `send`/`steer`/`inject`
- * throw).
+ * `idle` (parked, waiting for queued work), `running` (the driver is draining
+ * work and may be closing or checkpointing a turn), `disposed` (terminal — no
+ * transition leaves it, and `send`/`steer`/`inject` throw).
  */
 export type AgentStatus = 'idle' | 'running' | 'disposed'
 
@@ -106,9 +106,12 @@ export interface Agent {
   send(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Steer a running turn: content is injected between steps of the current
-   * turn. Uses the same owned-value and synchronous-validation boundary as
-   * {@link send}; when idle, behaves exactly like that method.
+   * Submit steering while the agent is `running`. An open turn records it at
+   * the next steering checkpoint before a request or continuation decision;
+   * policy may stop before another step. After turn close and its checkpoint,
+   * any remainder is queued for a later turn; terminal `agent/turn-stop`,
+   * cancellation, or disposal may discard it. Uses the same synchronous
+   * snapshot-and-validation boundary as {@link send}; when idle, delegates to it.
    */
   steer(content: ContentBlock[], options?: SendOptions): void
 

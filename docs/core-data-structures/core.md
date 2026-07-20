@@ -370,9 +370,12 @@ interface Agent {
   send(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Steer a running turn: content is injected between steps of the current
-   * turn. Uses the same owned-value and synchronous-validation boundary as
-   * {@link send}; when idle, behaves exactly like that method.
+   * Submit steering while the agent is `running`. An open turn records it at
+   * the next steering checkpoint before a request or continuation decision;
+   * policy may stop before another step. After turn close and its checkpoint,
+   * any remainder is queued for a later turn; terminal `agent/turn-stop`,
+   * cancellation, or disposal may discard it. Uses the same synchronous
+   * snapshot-and-validation boundary as {@link send}; when idle, delegates to it.
    */
   steer(content: ContentBlock[], options?: SendOptions): void
 
@@ -400,7 +403,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running' | 'disposed'`, and `SessionId` is branded. `AgentOptions` is merge-extensible and currently includes `provider?` and `model?`; dispatch requires both after `agent/request`. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
+`AgentStatus` is `'idle' | 'running' | 'disposed'`, and `SessionId` is branded. `running` describes the driver-wide drain interval, which can span turn close, its durability checkpoint, and consecutive queued turns; it does not prove a turn is still open. `AgentOptions` is merge-extensible and currently includes `provider?` and `model?`; dispatch requires both after `agent/request`. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
 
 The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 
