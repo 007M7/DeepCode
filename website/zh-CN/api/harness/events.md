@@ -490,7 +490,7 @@ Ask composed answerers for one decision. Return an outcome to claim the request 
 
 A command was registered or unregistered. This is an unfiltered registry notification because a global or scoped change may affect any UI view. Observer failures are contained and cannot veto the registry mutation.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L94)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/ui/commands/src/index.ts#L83)
 
 ## fs/*
 
@@ -587,7 +587,7 @@ Goal mutation accepted by one live agent. The matching context event is already 
 - `agent` — agent whose session owns the goal.
 - `change` — fresh current projection or clear tombstone.
 
-[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/types.ts#L166)
+[Source](https://github.com/deepseek-harness/deepseek-harness/blob/master/packages/goal/goal/src/types.ts#L167)
 
 ## llm/*
 

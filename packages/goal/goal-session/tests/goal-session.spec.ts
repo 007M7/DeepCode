@@ -126,18 +126,18 @@ describe('goal-round outcome policy', () => {
     [{ kind: 'aborted', reason: 'operator stopped' }, true, { kind: 'pause', reason: 'operator stopped' }],
     [{ kind: 'aborted' }, true, { kind: 'pause', reason: 'cancelled' }],
     [{ kind: 'error', step: 1, message: 'slow down', code: 'RATE_LIMIT' }, true,
-      { kind: 'usage-limited', message: 'slow down' }],
+      { kind: 'blocked', code: 'usage-limited', message: 'slow down' }],
     [{ kind: 'error', step: 1, message: 'broken' }, true,
-      { kind: 'blocked', reason: 'error', detail: 'broken' }],
+      { kind: 'blocked', code: 'turn-error', message: 'broken' }],
     [{ kind: 'max-tokens' }, true,
-      { kind: 'blocked', reason: 'max-tokens', detail: 'model output reached max tokens' }],
+      { kind: 'blocked', code: 'max-tokens', message: 'model output reached max tokens' }],
     [{ kind: 'rejected', reason: 'policy' }, true,
-      { kind: 'blocked', reason: 'rejected', detail: 'policy' }],
+      { kind: 'blocked', code: 'prompt-rejected', message: 'policy' }],
     [{ kind: 'disposed' }, true, { kind: 'disarm', reason: 'disposed' }],
     [{ kind: 'interrupted' }, true, { kind: 'disarm', reason: 'interrupted' }],
     [{ kind: 'completed' }, false, { kind: 'disarm', reason: 'durability-failed' }],
     [{ kind: 'future-outcome' } as unknown as TurnEndReason, true,
-      { kind: 'blocked', reason: 'unknown', detail: 'unknown turn outcome: future-outcome' }],
+      { kind: 'blocked', code: 'unknown-turn-outcome', message: 'unknown turn outcome: future-outcome' }],
   ] as const)('maps %j without abnormal automatic retry', (reason, durable, expected) => {
     expect(goalSession.classifyGoalRound(reason, durable)).toEqual(expected)
   })
@@ -187,9 +187,13 @@ describe('same-session goal driving', () => {
     const test = await harness([textResponse('round one'), textResponse('round two')])
     const created = test.ctx.goals.create(test.agent, { objective: 'finish twice', maxGoalRounds: 2 })
 
-    const final = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'budget-limited')
+    const final = await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
 
     expect(final).toMatchObject({ id: created.id, roundsStarted: 2, activation: 'disarmed' })
+    expect(final?.blockedReason).toEqual({
+      code: 'round-limit',
+      message: 'Goal reached its configured limit of 2 rounds.',
+    })
     expect(test.adapter.requests).toHaveLength(2)
     const rounds: number[] = []
     for (const event of test.agent.session.events) {
@@ -219,21 +223,22 @@ describe('same-session goal driving', () => {
     expect(adapter.requests).toHaveLength(0)
 
     ctx.goals.resume(agent, created)
-    await waitForGoal(ctx, agent, goal => goal?.phase === 'budget-limited')
+    await waitForGoal(ctx, agent, goal => goal?.phase === 'blocked')
     expect(adapter.requests).toHaveLength(1)
   })
 
   it.each([
     ['rate limit', Object.assign(new Error('slow down'), { code: 'RATE_LIMIT' }), 'usage-limited'],
-    ['request error', new Error('provider broke'), 'blocked'],
-    ['max tokens', maxTokensResponse('unfinished'), 'blocked'],
-  ] as const)('stops after a %s without an automatic retry', async (_label, response, phase) => {
+    ['request error', new Error('provider broke'), 'turn-error'],
+    ['max tokens', maxTokensResponse('unfinished'), 'max-tokens'],
+  ] as const)('stops after a %s without an automatic retry', async (_label, response, code) => {
     const test = await harness([response])
     test.ctx.goals.create(test.agent, { objective: 'stop safely', maxGoalRounds: 8 })
 
-    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === phase)
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
 
     expect(goal).toMatchObject({ roundsStarted: 1, activation: 'disarmed' })
+    expect(goal?.blockedReason?.code).toBe(code)
     expect(test.adapter.requests).toHaveLength(1)
   })
 
@@ -247,6 +252,7 @@ describe('same-session goal driving', () => {
     const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
 
     expect(goal?.roundsStarted).toBe(0)
+    expect(goal?.blockedReason).toEqual({ code: 'prompt-rejected', message: 'deployment policy' })
     expect(test.adapter.requests).toHaveLength(0)
     expect(test.agent.session.events.some(event => event.type === 'prompt/blocked'
       && event.data.reason === 'deployment policy')).toBe(true)
@@ -305,7 +311,7 @@ describe('same-session goal driving', () => {
     test.ctx.goals.create(test.agent, { objective: 'continue after the human', maxGoalRounds: 1 })
     test.agent.send([{ type: 'text', text: 'human goes first' }])
 
-    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'budget-limited')
+    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
 
     expect(test.adapter.requests).toHaveLength(2)
     expect(requestText(test.adapter.requests[0]!)).toContain('human goes first')
@@ -323,7 +329,7 @@ describe('same-session goal driving', () => {
     })
     test.ctx.goals.create(test.agent, { objective: 'yield to nested human input', maxGoalRounds: 1 })
 
-    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'budget-limited')
+    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
 
     expect(test.adapter.requests).toHaveLength(2)
     expect(requestText(test.adapter.requests[0]!)).toContain('human joined the pending batch')
@@ -343,7 +349,7 @@ describe('same-session goal driving', () => {
     })
     test.ctx.goals.create(test.agent, { objective: 'old objective', maxGoalRounds: 1 })
 
-    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'budget-limited')
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
 
     expect(goal).toMatchObject({ revision: 3, objective: 'new objective', roundsStarted: 1 })
     const blocked = test.agent.session.events.find(event => event.type === 'prompt/blocked')
@@ -370,7 +376,7 @@ describe('same-session goal driving', () => {
     })
     test.ctx.goals.create(test.agent, { objective: 'edit during admission', maxGoalRounds: 1 })
 
-    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'budget-limited')
+    const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
 
     expect(goal).toMatchObject({ objective: 'edited downstream', roundsStarted: 1 })
     expect(test.adapter.requests).toHaveLength(1)
@@ -442,6 +448,10 @@ describe('same-session goal driving', () => {
     const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
 
     expect(goal).toMatchObject({ roundsStarted: 0, activation: 'disarmed' })
+    expect(goal?.blockedReason).toEqual({
+      code: 'queue-failed',
+      message: 'Could not queue goal round 1: queue rejected',
+    })
     expect(test.adapter.requests).toHaveLength(0)
   })
 
@@ -519,7 +529,7 @@ describe('same-session goal driving', () => {
     })
     test.ctx.goals.create(test.agent, { objective: 'retry stale admission', maxGoalRounds: 1 })
 
-    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'budget-limited')
+    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
 
     expect(test.adapter.requests).toHaveLength(1)
     expect(test.agent.session.events.some(event => event.type === 'prompt/blocked'
@@ -669,7 +679,7 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(0)
 
     test.ctx.goals.resume(test.agent, created)
-    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'budget-limited')
+    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
     expect(test.adapter.requests).toHaveLength(1)
   })
 

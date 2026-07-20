@@ -11,8 +11,6 @@
       "entry": [
         "echo-agent/src/*.ts",
         "echo-agent/tests/fixtures/goal/goal/seed-goal.ts",
-        "echo-agent/tests/fixtures/goal/goal-session/scripted-llm.ts",
-        "echo-agent/tests/fixtures/goal/tool-goal/scripted-llm.ts",
         "headless-agent/tests/fixtures/cli-mock-llm.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "*/tests/**/*.e2e.ts",
@@ -74,11 +72,11 @@
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/goal/goal-session": {
-      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/goal/tool-goal": {
-      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/code-runtime/code-runtime-worker": {

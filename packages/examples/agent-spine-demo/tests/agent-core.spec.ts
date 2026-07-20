@@ -121,14 +121,16 @@ describe('dsh-agent-spine-demo bundle', () => {
   it('opts into the configured persisted-goal domain, tools, and same-session driver', async () => {
     const ctx = await mount({
       workspaceContext: false,
+      agents: [{ id: SessionId('configured-goal'), provider: 'mock', model: 'mock' }],
       goals: {
         domain: { defaultMaxGoalRounds: 17 },
         tool: { blockedAfterConsecutiveRounds: 5 },
       },
     })
-    expect(ctx.goals.resolveCreate({ objective: 'configured' })).toEqual({
-      objective: 'configured',
-      maxGoalRounds: 17,
+    const agent = ctx.agents.list()[0]
+    if (agent === undefined) throw new Error('configured goal test has no live agent')
+    expect(ctx.goals.create(agent, { objective: 'configured' })).toMatchObject({
+      objective: 'configured', maxGoalRounds: 17,
     })
     expect(['create_goal', 'get_goal', 'update_goal'].map(name => ctx.tools.get(name)?.name))
       .toEqual(['create_goal', 'get_goal', 'update_goal'])
@@ -199,11 +201,16 @@ describe('dsh-agent-spine-demo bundle', () => {
 
   it('uses owner defaults for a schema-bypassing empty goal opt-in', async () => {
     const ctx = new Context()
-    agentCore.apply(ctx, { workspaceContext: false, goals: {} })
+    agentCore.apply(ctx, {
+      workspaceContext: false,
+      agents: [{ id: SessionId('defaulted-goal'), provider: 'mock', model: 'mock' }],
+      goals: {},
+    })
     await new Promise(resolve => setTimeout(resolve, 50))
-    expect(ctx.goals.resolveCreate({ objective: 'defaulted' })).toEqual({
-      objective: 'defaulted',
-      maxGoalRounds: 256,
+    const agent = ctx.agents.list()[0]
+    if (agent === undefined) throw new Error('default goal test has no live agent')
+    expect(ctx.goals.create(agent, { objective: 'defaulted' })).toMatchObject({
+      objective: 'defaulted', maxGoalRounds: 256,
     })
     expect(ctx.tools.get('get_goal')).toBeDefined()
     await ctx.fiber.dispose()

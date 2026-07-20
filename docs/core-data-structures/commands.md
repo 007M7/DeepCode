@@ -4,14 +4,9 @@ The human-command seam of [`dsh-commands`](../../packages/ui/commands). TUI and 
 
 Source: [`packages/ui/commands/src/index.ts`](../../packages/ui/commands/src/index.ts)
 
-## Surface and input metadata
+## Input metadata
 
-A definition selects one or more adapter identities. The shipped identities are `tui` and `acp`; the string intersection keeps the registry extensible without widening editor autocomplete to plain `string`. ACP currently exposes one unstructured-input hint.
-
-```ts type-equiv
-/** A UI adapter capable of listing and executing human commands. */
-type CommandSurface = 'tui' | 'acp' | (string & {})
-```
+ACP currently exposes one unstructured-input hint. Command availability follows plugin composition: every adapter consuming the registry sees every effective definition.
 
 ```ts type-equiv
 /** Immutable command input metadata compatible with ACP unstructured input. */
@@ -23,7 +18,7 @@ interface CommandInputDescriptor {
 
 ## Definition
 
-`CommandDefinition` is the plugin-authored registration. Omitted surfaces resolve to both shipped adapters; the registry validates and freezes a detached effective definition.
+`CommandDefinition` is the plugin-authored registration. The registry validates and freezes a detached effective definition.
 
 ```ts type-equiv
 /** Plugin-owned command registration. */
@@ -34,8 +29,6 @@ interface CommandDefinition {
   readonly description: string
   /** Optional free-form input hint advertised to capable clients. */
   readonly input?: CommandInputDescriptor
-  /** Surfaces exposing this command; omission means both shipped surfaces. */
-  readonly surfaces?: readonly CommandSurface[]
   /** Execute against the receiving agent without sending the command to the model. */
   readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>
 }
@@ -50,8 +43,6 @@ The adapter owns cancellation and passes the exact target agent. `rawInput` begi
 interface CommandInvocation {
   /** Exact agent whose human-facing surface received the command. */
   readonly agent: Agent
-  /** UI adapter that dispatched the command. */
-  readonly surface: CommandSurface
   /** Exact text following the registered command name, including separator whitespace. */
   readonly rawInput: string
   /** Cancellation signal owned by the dispatching UI request. */
@@ -68,7 +59,7 @@ type CommandResult =
 
 ## Discovery and parsing views
 
-Adapters receive handler-free immutable descriptors after scope resolution and surface filtering. `parseCommand()` returns `ParsedCommand` before registry resolution; syntax-valid input can still name an unavailable command.
+Adapters receive handler-free immutable descriptors after scope resolution. `parseCommand()` returns `ParsedCommand` before registry resolution; syntax-valid input can still name an unavailable command.
 
 ```ts type-equiv
 /** Handler-free immutable command view returned to UI adapters. */
@@ -79,8 +70,6 @@ interface CommandDescriptor {
   readonly description: string
   /** Optional free-form input hint advertised to capable clients. */
   readonly input?: CommandInputDescriptor
-  /** Surfaces on which this definition is visible. */
-  readonly surfaces: readonly CommandSurface[]
 }
 ```
 
