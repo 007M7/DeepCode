@@ -98,10 +98,14 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config): void {
   ctx.plugin(agentCore, agentCore.pickSpineConfig(config))
   ctx.plugin(UserInteractionService)
+  // Same rationale as the Config schema above: each front door forwards its own
+  // persistence passthroughs rather than sharing a facade with stdio-demo.
+  /* jscpd:ignore-start */
   ctx.plugin(SessionPersistenceJsonl, {
     root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
     ...config.packChunks !== undefined ? { packChunks: config.packChunks } : {},
     ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
   })
+  /* jscpd:ignore-end */
   ctx.plugin(acp, { provider: config.provider, model: config.model })
 }
