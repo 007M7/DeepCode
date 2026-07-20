@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmService, { CONTEXT_WINDOW_EXCEEDED_CODE, errorChain, LlmError, userAgent } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter } from '@deepseek-ai/dsh-llm-deepseek'
@@ -226,6 +226,39 @@ describe('DeepSeekAdapter against a mock server', () => {
 
   it('maps unusual statuses to HTTP_<status>', () => {
     expect(httpErrorCode(418)).toBe('HTTP_418')
+  })
+
+  it('wraps a transport failure in NETWORK with the fetch cause chain in the message', async () => {
+    // Port 1 is reserved/unbound: fetch rejects with `TypeError: fetch failed`
+    // whose actionable detail (ECONNREFUSED) lives on `cause`.
+    const ctx = await harness('http://127.0.0.1:1')
+    let caught: unknown
+    try {
+      await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    } catch (error: unknown) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(LlmError)
+    const llmError = caught as LlmError
+    expect(llmError.code).toBe('NETWORK')
+    expect(llmError.message).toContain('http://127.0.0.1:1')
+    expect(llmError.cause).toBeInstanceOf(TypeError)
+    // The chain renderer reaches the transport diagnosis through the cause.
+    expect(errorChain(llmError)).toMatch(/ECONNREFUSED|EADDRNOTAVAIL|bad port/)
+  })
+
+  it('keeps an abort rejection unwrapped so the loop classifies it as cancellation', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const ctx = await harness('http://127.0.0.1:1')
+    let caught: unknown
+    try {
+      await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], signal: controller.signal })
+    } catch (error: unknown) {
+      caught = error
+    }
+    expect(caught).not.toBeInstanceOf(LlmError)
+    expect((caught as Error).name).toBe('AbortError')
   })
 
   it('throws EMPTY_RESPONSE when the response has no body', async () => {
