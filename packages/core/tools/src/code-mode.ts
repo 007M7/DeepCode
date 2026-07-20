@@ -107,21 +107,8 @@ function renderValue(value: JsonValue): string {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 }
 
-/** The run_code result's `meta` payload (JSON-serializable; `presentResult` narrows it back). */
-interface RunCodeMeta {
-  logs: CodeRunResult['logs']
-}
-
 /** Canonical value returned by the outer Code Mode transport. */
 type RunCodeOutput = { logs: string[]; result?: JsonValue }
-
-/** Soft-narrow a result `meta` back to {@link RunCodeMeta} (replay may carry older shapes; presentation must not throw). */
-function asRunCodeMeta(meta: unknown): RunCodeMeta | undefined {
-  if (typeof meta !== 'object' || meta === null) return undefined
-  const m = meta as Record<string, unknown>
-  if (!Array.isArray(m.logs) || !m.logs.every(log => typeof log === 'string')) return undefined
-  return m as unknown as RunCodeMeta
-}
 
 /**
  * Build the `run_code` {@link ToolDefinition}: one required `code` parameter,
@@ -293,15 +280,8 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
     }),
     // Title omitted on the result: an update replaces only the fields it
     // carries, so the pending card's program title persists through
-    // completion; the captured output rides as body content.
-    presentResult: (_args, result) => {
-      const meta = asRunCodeMeta(result.meta)
-      if (!meta) return undefined
-      const output = meta.logs.join('\n')
-      return {
-        card: 'generic',
-        ...output.length > 0 ? { content: [{ type: 'text' as const, text: output }] } : {},
-      }
-    },
+    // completion. The durable final content already includes logs plus the
+    // return value, failure, or post-policy spill preview.
+    presentResult: (_args, result) => ({ card: 'generic', content: result.content }),
   })
 }

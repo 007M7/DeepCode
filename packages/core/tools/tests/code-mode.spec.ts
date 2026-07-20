@@ -663,7 +663,7 @@ describe('the run_code dispatch bridge', () => {
     expect((result.content[0] as { text: string }).text).toContain('requires a code runtime')
   })
 
-  it('presents the PROGRAM as the execute-card title on both call and result (the one slot execute cards always show)', async () => {
+  it('presents the program as the execute-card title', async () => {
     const { ctx } = await setup({ mode: 'code' })
     const tool = ctx.tools.get(RUN_CODE_NAME)!
     // The program IS the title, mirroring how command tools title their cards
@@ -676,24 +676,28 @@ describe('the run_code dispatch bridge', () => {
       kind: 'execute',
       rawInput: 'return 1',
     })
-    const view = tool.presentResult?.({ code: 'return 1' }, {
-      content: [{ type: 'text', text: 'model-facing' }],
-      isError: false,
-      meta: { logs: ['printed'] },
-    })
+  })
+
+  it.each([
+    ['logs only', 'printed', false],
+    ['result only', 'returned', false],
+    ['logs plus result', 'printed\nreturned', false],
+    ['no output', '(run_code completed with no output)', false],
+    ['failure', 'Error: code run failed (output-limit): outer output exceeded 8 bytes', true],
+    ['spilled result', 'HEAD\n\n(Omitted 100 bytes. Full formatted result stored at: /tmp/run-code.txt.)\n\nTAIL', false],
+  ] as const)('presents %s from the final post-policy content', async (_name, text, isError) => {
+    const { ctx } = await setup({ mode: 'code' })
+    const tool = ctx.tools.get(RUN_CODE_NAME)!
     // The result omits the title — an update replaces only provided fields,
     // so the pending card's program title persists through completion.
-    expect(view).toEqual({
-      card: 'generic',
-      content: [{ type: 'text', text: 'printed' }],
-    })
-    // No captured output → no content either; everything pending persists.
-    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { logs: [] } }))
-      .toEqual({ card: 'generic' })
-    // Replay with an unrecognizable meta falls back to the generic rendering.
-    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { logs: [{ text: 'legacy' }], dispatches: 1 } })).toBeUndefined()
-    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { other: true } })).toBeUndefined()
-    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false })).toBeUndefined()
+    const content = [{ type: 'text' as const, text }]
+    expect(tool.presentResult?.({ code: 'return 1' }, {
+      content,
+      isError,
+      // Stale or unrelated metadata must not replace the authoritative
+      // post-policy content used by the card.
+      meta: { logs: ['stale logs-only projection'] },
+    })).toEqual({ card: 'generic', content })
   })
 
   it('renders non-text sub-result blocks as placeholders and truncates long event summaries', async () => {
