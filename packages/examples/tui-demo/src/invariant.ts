@@ -1,22 +1,22 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-stdio-demo`.
- * @module @deepseek-ai/dsh-stdio-demo/invariant
+ * Package-owned invariant companion for `@deepseek-ai/dsh-tui-demo`.
+ * @module @deepseek-ai/dsh-tui-demo/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-stdio-demo'
+const PACKAGE_NAME = '@deepseek-ai/dsh-tui-demo'
 
 /** Cordis companion plugin name. */
-export const name = 'stdio-demo-invariant'
+export const name = 'tui-demo-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this composition package owns no independent event stream or mutable data;
- * Loader and built-entry tests cover its wiring.
+ * No runtime invariant: this composition-only package delegates mutable state and event streams
+ * to the agent spine, persistence, and TUI packages that own their checks.
  */
 const install: InvariantInstaller = () => {}
 
