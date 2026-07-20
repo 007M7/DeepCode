@@ -69,7 +69,7 @@ Every ordinary Vitest topology mounts an explicitly enabled service and the curr
 
 ## Model Experience
 
-None. The service and companions observe runtime events, mutable snapshots, and requests but never alter prompts, messages, schemas, streams, or tool results.
+None, as the service and companions observe runtime events and mutable snapshots without altering prompts, messages, schemas, streams, or tool results.
 
 #### KV Cache effect
 

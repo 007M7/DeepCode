@@ -57,6 +57,8 @@ function applyHookTransition(pending: Map<string, number>, transition: HookTrans
 }
 
 /** Install hook invoked/result pairing checks. */
+// Event owners keep precommit staging local so their vocabularies never move into a central helper.
+/* jscpd:ignore-start */
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
   const traces = new WeakMap<Session, Map<string, number>>()
   const staged = new WeakMap<SessionEvent, { session: Session; transition: HookTransition }>()
@@ -88,6 +90,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     if (transition !== undefined) staged.set(event, { session, transition })
   }, { global: true })
 }, { inject: ['sessions'] })
+/* jscpd:ignore-end */
 
 /**
  * Register the hook-protocol invariant companion.

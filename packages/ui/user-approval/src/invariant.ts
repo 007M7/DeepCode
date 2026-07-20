@@ -49,6 +49,8 @@ function applyApprovalTransition(pending: Set<ApprovalRequestId>, transition: Ap
 }
 
 /** Install audit pairing and closed-vocabulary checks. */
+// Event owners keep precommit staging local so their vocabularies never move into a central helper.
+/* jscpd:ignore-start */
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
   const traces = new WeakMap<Session, Set<ApprovalRequestId>>()
   const staged = new WeakMap<SessionEvent, { session: Session; transition: ApprovalTransition }>()
@@ -80,6 +82,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     if (transition !== undefined) staged.set(event, { session, transition })
   }, { global: true })
 }, { inject: ['sessions'] })
+/* jscpd:ignore-end */
 
 /**
  * Register the approval invariant companion.

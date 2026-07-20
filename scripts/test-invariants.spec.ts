@@ -72,7 +72,6 @@ describe('global test invariant host', () => {
   it('limits manual composition to focused invariant topology tests', () => {
     expect(MANUAL_INVARIANT_TESTS).toEqual([
       '/packages/support/invariants/tests/service.spec.ts',
-      '/packages/bash/bash/tests/invariant.spec.ts',
       '/packages/compact/compact/tests/invariant.spec.ts',
       '/packages/context/time-context/tests/invariant.spec.ts',
       '/packages/core/session/tests/invariant.spec.ts',
@@ -84,6 +83,7 @@ describe('global test invariant host', () => {
       '/packages/fs/fs/tests/invariant.spec.ts',
       '/packages/hooks/hook-protocol/tests/invariant.spec.ts',
       '/packages/llm/llm/tests/invariant.spec.ts',
+      '/packages/sandbox/sandbox-policy/tests/invariant.spec.ts',
       '/packages/subagent/subagent/tests/invariant.spec.ts',
       '/packages/tasks/tasks/tests/invariant.spec.ts',
       '/packages/todo/tool-todo/tests/invariant.spec.ts',

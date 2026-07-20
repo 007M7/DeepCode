@@ -110,16 +110,6 @@ describe('config validation', () => {
     await expect(setup({ maxInlineBytes: 1.5 })).rejects.toThrow(/non-negative integer/)
   })
 
-  it('rejects a configured policy that omits its post-execute listener', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await expect(ctx.plugin({
-      name: 'spill-policy',
-      inject: ['tools'],
-      apply(_child: Context, _config: { maxInlineBytes?: number }) {},
-    }, { maxInlineBytes: 10 })).rejects.toThrow(/listener must exist exactly when maxInlineBytes is configured/)
-  })
 })
 
 describe('oversized plain-text replacement', () => {

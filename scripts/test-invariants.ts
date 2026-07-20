@@ -31,7 +31,6 @@ export const testInvariantCompanions: Readonly<Record<string, TestInvariantCompa
 /** Tests that exercise selection or companion lifecycle with a deliberately hand-built service tree. */
 export const MANUAL_INVARIANT_TESTS = [
   '/packages/support/invariants/tests/service.spec.ts',
-  '/packages/bash/bash/tests/invariant.spec.ts',
   '/packages/compact/compact/tests/invariant.spec.ts',
   '/packages/context/time-context/tests/invariant.spec.ts',
   '/packages/core/session/tests/invariant.spec.ts',
@@ -43,6 +42,7 @@ export const MANUAL_INVARIANT_TESTS = [
   '/packages/fs/fs/tests/invariant.spec.ts',
   '/packages/hooks/hook-protocol/tests/invariant.spec.ts',
   '/packages/llm/llm/tests/invariant.spec.ts',
+  '/packages/sandbox/sandbox-policy/tests/invariant.spec.ts',
   '/packages/subagent/subagent/tests/invariant.spec.ts',
   '/packages/tasks/tasks/tests/invariant.spec.ts',
   '/packages/todo/tool-todo/tests/invariant.spec.ts',

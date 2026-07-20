@@ -9,7 +9,7 @@ import { dirname, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
 
 /** Required explanation marker for an intentionally empty installer. */
-export const NO_RUNTIME_INVARIANT_MARKER = 'No runtime invariant:'
+const NO_RUNTIME_INVARIANT_MARKER = 'No runtime invariant:'
 
 interface PackageManifest {
   name?: string
