@@ -138,7 +138,7 @@ function visibleInstructionChanges(
   agent: Agent,
   pending: Map<string, PendingInstructionChange>,
 ): Map<string, WorkspaceInstructionChange> {
-  const visibleSeqs = new Set(agent.session.surface.nodes.map(node => node.seq))
+  const visibleSeqs = new Set(agent.session.surface.nodes)
   const visible = new Map<string, WorkspaceInstructionChange>()
   for (const [seq, event] of agent.session.events.entries()) {
     if (event.type !== 'context/message' || !isWorkspaceContextSource(event.data.source)) continue
@@ -255,8 +255,8 @@ function invalidateInstructionVersions(
 /**
  * Settle provisional tool-result state against durable session events.
  * A matching context event confirms the transition. If its owning step closes
- * first, the loop discarded its context buffer, so both duplicate suppression
- * and the metadata fast path must be re-armed for the next successful touch.
+ * first, both duplicate suppression and the metadata fast path are re-armed for
+ * the next successful touch.
  * @param session - session whose append-only log emitted `event`.
  * @param event - newly committed session event.
  * @param pendingBySession - provisional transitions awaiting log confirmation.

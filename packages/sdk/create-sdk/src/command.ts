@@ -7,12 +7,16 @@
 import { readFile } from 'node:fs/promises'
 import {
   ClackPromptPort,
+  HeadlessPromptError,
+  HeadlessPromptPort,
+  NodeCommandRunner,
   PromptCancelledError,
   type PackageManagerVersionProbe,
   type PromptPort,
 } from '@deepseek-ai/dsh-helper'
-import { parseCreateArgs } from './args.ts'
+import { parseCreateArgs, type CreateArgs } from './args.ts'
 import { CreateWizard, type ResolvedCreateRequest } from './create-wizard.ts'
+import { resolveHeadless } from './headless.ts'
 import { scaffoldProject, type ScaffoldResult } from './project-scaffolder.ts'
 import { CREATE_TEMPLATES, packageManagerTemplateModel } from './templates/create-templates.ts'
 
@@ -42,24 +46,29 @@ export async function createProject(
   context: CreateCommandContext,
 ): Promise<ScaffoldResult | undefined> {
   const args = parseCreateArgs(argv)
+  // Under --json, stdout carries only NDJSON events: human-readable progress
+  // and package-manager child output move to stderr.
+  const progress = args.json === true ? context.stderr : context.stdout
   if (args.help) {
     context.stdout.write(CREATE_TEMPLATES.usage.render({}))
     return undefined
   }
-  if (!context.port && (!context.stdin.isTTY || !context.stdout.isTTY)) {
-    throw new Error('create-sdk requires an interactive TTY')
+  const headless = await resolveHeadless(args)
+  if (!headless && !context.port && (!context.stdin.isTTY || !context.stdout.isTTY)) {
+    throw new Error('create-sdk requires an interactive TTY, --config <file>, or --config-json <json>')
   }
   const wizard = new CreateWizard({
-    args,
+    args: headless ? headless.args : args,
     /* v8 ignore next -- production TTY wiring is exercised by the built-bin smoke */
-    port: context.port ?? new ClackPromptPort(context.stdin, context.stdout),
+    port: context.port ?? (headless ? new HeadlessPromptPort() : new ClackPromptPort(context.stdin, context.stdout)),
     cwd: context.cwd,
     releaseVersion: context.releaseVersion ?? await readCreateSdkVersion(),
     ...context.versionProbe ? { versionProbe: context.versionProbe } : {},
+    ...headless?.features ? { features: headless.features } : {},
   })
   const resolved = await wizard.run()
   const result = await scaffoldProject(resolved.directory, resolved.request)
-  context.stdout.write(CREATE_TEMPLATES.created.render({
+  progress.write(CREATE_TEMPLATES.created.render({
     name: resolved.request.name,
     directory: resolved.directory,
   }))
@@ -67,8 +76,9 @@ export async function createProject(
     try {
       if (context.setup) await context.setup(resolved)
       else {
-        await resolved.request.packageManager.install(resolved.directory)
-        await resolved.request.packageManager.build(resolved.directory)
+        const runner = args.json === true ? new NodeCommandRunner(context.stderr) : new NodeCommandRunner()
+        await resolved.request.packageManager.install(resolved.directory, runner)
+        await resolved.request.packageManager.build(resolved.directory, runner)
       }
     } catch (error) {
       context.stderr.write(CREATE_TEMPLATES.setupFailure.render({
@@ -79,12 +89,23 @@ export async function createProject(
       throw error
     }
   }
-  context.stdout.write(CREATE_TEMPLATES.nextSteps.render({
+  progress.write(CREATE_TEMPLATES.nextSteps.render({
     directory: resolved.directory,
     setupRequired: !resolved.install,
     ...packageManagerTemplateModel(resolved.request.packageManager),
   }))
   return result
+}
+
+/** Whether NDJSON lifecycle events were requested, tolerating unparseable argv. */
+function wantsJsonEvents(argv: readonly string[]): boolean {
+  let parsed: CreateArgs
+  try {
+    parsed = parseCreateArgs(argv)
+  } catch {
+    return false
+  }
+  return parsed.json === true
 }
 
 /** Run the create command with process defaults and convert cancellation to a clean exit. */
@@ -97,15 +118,27 @@ export async function runCreateCommand(
     stderr: process.stderr,
   },
 ): Promise<number> {
+  const json = wantsJsonEvents(argv)
+  const emit = (event: Record<string, unknown>): void => {
+    context.stdout.write(`${JSON.stringify(event)}\n`)
+  }
   try {
     await createProject(argv, context)
+    if (json) emit({ type: 'done' })
     return 0
   } catch (error) {
     if (error instanceof PromptCancelledError) {
-      context.stderr.write('create-sdk: cancelled\n')
+      if (json) emit({ type: 'error', reason: 'cancelled' })
+      else context.stderr.write('create-sdk: cancelled\n')
       return 1
     }
-    context.stderr.write(`create-sdk: ${error instanceof Error ? error.message : String(error)}\n`)
+    if (json && error instanceof HeadlessPromptError) {
+      emit({ type: 'action-required', prompt: error.prompt })
+      return 1
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    if (json) emit({ type: 'error', message })
+    else context.stderr.write(`create-sdk: ${message}\n`)
     return 1
   }
 }

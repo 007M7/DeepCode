@@ -1,30 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import { type Agent } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { depthOf, SubagentDepthError, startInProcessRun } from '../src/index.ts'
+import { startInProcessRun } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
 async function setup(script: Script) {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(Invariants)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
-  const parent = ctx.agentLoop.create(AgentId('parent'), { model: 'mock' })
+  const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
   return { ctx, parent }
 }
 
@@ -36,19 +30,6 @@ function text(blocks: readonly { type: string; text?: string }[]): string {
   return blocks.filter(block => block.type === 'text').map(block => block.text).join('')
 }
 
-describe('depthOf', () => {
-  it('reads zero for a top-level agent and an explicit child depth', async () => {
-    const { parent } = await setup([])
-    expect(depthOf(parent)).toBe(0)
-    expect(depthOf({ options: { subagentDepth: 3 } } as unknown as Agent)).toBe(3)
-  })
-
-  it.each([Number.NaN, 1.5, -1, -0, Number.MAX_SAFE_INTEGER + 1])('rejects malformed depth %s', (value) => {
-    expect(() => depthOf({ options: { subagentDepth: value } } as unknown as Agent))
-      .toThrow('non-negative safe integer')
-  })
-})
-
 describe('startInProcessRun', () => {
   it('returns only after publication, drives a fresh child, and disposes it', async () => {
     const { ctx, parent } = await setup([textResponse('driver answer')])
@@ -57,7 +38,7 @@ describe('startInProcessRun', () => {
     const result = await run.result
     expect(result.stopReason).toBe('completed')
     expect(text(result.output)).toBe('driver answer')
-    expect(depthOf(ctx.agents.get(run.id)!)).toBe(1)
+    expect(ctx.agents.get(run.id)!.options.subagentDepth).toBe(1)
     await run.dispose()
     await run.dispose()
     expect(ctx.agents.get(run.id)).toBeUndefined()
@@ -82,7 +63,12 @@ describe('startInProcessRun', () => {
     await expect(startInProcessRun({ ...request(parent), maxDepth: -1 }, {}))
       .rejects.toThrow('non-negative safe integer')
     await expect(startInProcessRun({ ...request(parent), maxDepth: 0 }, {}))
-      .rejects.toBeInstanceOf(SubagentDepthError)
+      .rejects.toMatchObject({ name: 'SubagentDepthError' })
+    for (const value of [Number.NaN, 1.5, -1, -0, Number.MAX_SAFE_INTEGER + 1]) {
+      const malformed = { options: { subagentDepth: value } } as unknown as Agent
+      await expect(startInProcessRun(request(malformed), {}))
+        .rejects.toThrow('agent subagentDepth must be a non-negative safe integer')
+    }
     const maxParent = { options: { subagentDepth: Number.MAX_SAFE_INTEGER } } as unknown as Agent
     await expect(startInProcessRun(request(maxParent), {})).rejects.toBeInstanceOf(RangeError)
   })

@@ -19,6 +19,9 @@ export interface CreateArgs {
   packageManager?: PackageManagerName
   install?: boolean
   linkWorkspace?: boolean
+  config?: string
+  configJson?: string
+  json?: boolean
   help: boolean
 }
 
@@ -32,6 +35,9 @@ interface CommanderCreateOptions {
   pm?: PackageManagerName
   install?: boolean
   linkWorkspace?: boolean
+  config?: string
+  configJson?: string
+  json?: boolean
   help?: boolean
 }
 
@@ -60,6 +66,9 @@ function createProgram(): Command {
     .addOption(new Option('--install').default(undefined))
     .addOption(new Option('--no-install').default(undefined))
     .option('--link-workspace')
+    .option('--config <path>')
+    .option('--config-json <json>')
+    .addOption(new Option('--json').default(undefined))
 }
 
 /** Parse create-sdk positionals/options through Commander into a domain-neutral value. */
@@ -79,6 +88,9 @@ export function parseCreateArgs(argv: readonly string[]): CreateArgs {
     ...options.pm === undefined ? {} : { packageManager: options.pm },
     ...options.install === undefined ? {} : { install: options.install },
     ...options.linkWorkspace ? { linkWorkspace: true } : {},
+    ...options.config === undefined ? {} : { config: options.config },
+    ...options.configJson === undefined ? {} : { configJson: options.configJson },
+    ...options.json === undefined ? {} : { json: options.json },
     help: options.help ?? false,
   }
 }
