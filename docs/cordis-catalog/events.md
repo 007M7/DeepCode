@@ -451,6 +451,29 @@ Types: [FsTarget](../core-data-structures/filesystem.md) · [FsWriteIntent](../c
 
 Source: [`packages/fs/fs/src/index.ts:54`](../../packages/fs/fs/src/index.ts)
 
+## `goal/*`
+
+### `goal/changed` — emit
+
+Goal mutation accepted by one live agent. The matching context event is already appended or queued in that agent's active tool-batch FIFO. Listener failures are contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+
+```ts cordis-catalog
+/**
+ * Goal mutation accepted by one live agent. The matching context event is
+ * already appended or queued in that agent's active tool-batch FIFO.
+ * Listener failures are contained.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @param agent - agent whose session owns the goal.
+ * @param change - fresh current projection or clear tombstone.
+ * @mode emit
+ */
+'goal/changed'(this: import('@deepseek-ai/dsh-scope').Scoped<Agent>, agent: Agent, change: GoalChanged): void
+```
+
+Types: [Agent](../core-data-structures/core.md) · [GoalChanged](../core-data-structures/goal.md) · [Scoped](../core-data-structures/scope.md)
+
+Source: [`packages/goal/goal/src/types.ts:167`](../../packages/goal/goal/src/types.ts)
+
 ## `llm/*`
 
 ### `llm/stream` — waterfall

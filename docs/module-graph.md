@@ -29,6 +29,9 @@ flowchart TD
     pkg_system_prompt["system-prompt"]
     pkg_tools["tools"]
   end
+  subgraph group_goal["packages/goal"]
+    pkg_goal["goal"]
+  end
   subgraph group_bash["packages/bash"]
     pkg_bash["bash"]
     pkg_bash_local["bash-local"]
@@ -204,6 +207,11 @@ flowchart TD
   pkg_llm_retry --> pkg_llm
   pkg_llm_retry --> pkg_session
   pkg_llm_retry --> pkg_timeout
+  pkg_goal --> pkg_agent
+  pkg_goal --> pkg_brand
+  pkg_goal --> pkg_llm
+  pkg_goal --> pkg_scope
+  pkg_goal --> pkg_session
   pkg_bash_local --> pkg_bash
   pkg_bash_local --> pkg_timeout
   pkg_fs_local --> pkg_fs
@@ -509,6 +517,7 @@ flowchart TD
 | [`sandbox-local`](../packages/sandbox/sandbox-local) | `sandbox` | [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
 | [`sandbox-policy`](../packages/sandbox/sandbox-policy) | `sandbox` | [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session) |
 | [`llm-retry`](../packages/llm/llm-retry) | `llm` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
+| [`goal`](../packages/goal/goal) | `goal` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session) |
 | [`bash-local`](../packages/bash/bash-local) | `bash` | [`bash`](../packages/bash/bash), [`timeout`](../packages/util/timeout) |
 | [`fs-local`](../packages/fs/fs-local) | `fs` | [`fs`](../packages/fs/fs) |
 | [`fs-policy`](../packages/fs/fs-policy) | `fs` | [`fs`](../packages/fs/fs) |

@@ -58,6 +58,7 @@ const GROUP_ORDER = [
   'util',
   'llm',
   'core',
+  'goal',
   'bash',
   'sandbox',
   'fs',
@@ -176,6 +177,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'bundle',
     consumers: ['agent-spine-demo'],
     note: 'The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package.',
+  },
+  {
+    key: 'goals',
+    pkg: 'goal',
+    title: 'Same-session goal domain',
+    mode: 'core',
+    note: 'Folds revisioned objective state from the session log and keeps live continuation activation process-local.',
   },
   {
     key: 'bash',

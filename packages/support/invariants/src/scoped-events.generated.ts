@@ -8,6 +8,7 @@
 import type { Events } from 'cordis'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-goal'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -43,6 +44,7 @@ const scopedSubjectResolvers = Object.freeze({
   'agent/turn-continuation': adapt<'agent/turn-continuation'>(args => args[0]),
   'agent/turn-stop': adapt<'agent/turn-stop'>(args => args[0]),
   'approval/request': adapt<'approval/request'>(args => args[0].agent),
+  'goal/changed': adapt<'goal/changed'>(args => args[0]),
   'session/created': null,
   'session/disposed': null,
   'session/event': null,

@@ -936,6 +936,7 @@ describe('scoped-dispatch invariants', () => {
       ['agent/turn-stop', [agent, 1]],
       ['agent/error', [agent, 1, 0, new Error('x')]],
       ['approval/request', [{ agent, toolName: 'echo' }, () => Promise.resolve('unavailable')]],
+      ['goal/changed', [agent, { operation: 'create', ref: { id: 'goal-a', revision: 1 } }]],
       ['tools/pre-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ kind: 'allow' })]],
       ['tools/execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ content: [], isError: false })]],
       ['tools/post-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, { content: [], isError: false }, () => Promise.resolve({ kind: 'accept' })]],

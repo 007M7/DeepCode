@@ -1,10 +1,10 @@
 # DeepSeek Harness Architecture
 
-The **DeepSeek Harness SDK** builds agent harnesses on Cordis. The principle is simple: **everything is a plugin**. The shipped loop is one plugin, not a privileged kernel.
+The **DeepSeek Harness SDK** builds on Cordis: **everything is a plugin**, including the shipped loop.
 
 ## Overview
 
-A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx.llm`, `ctx.tools`, `ctx.sessions`), typed events (`agent/request`, `tools/pre-execute`, `session/event`), and disposable prompt, tool, provider, adapter, and listener registrations.
+Harnesses are [Cordis](cordis-primer.md) contexts. Packages contribute services (`ctx.llm`, `ctx.tools`, `ctx.sessions`), typed events (`agent/request`, `tools/pre-execute`, `session/event`), and disposable prompts, tools, providers, adapters, and listeners.
 
 `packages/core/` groups the default agent flow; surrounding capabilities are equally first-class Cordis plugins.
 
@@ -36,6 +36,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
+| `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred logical-corpus exact reads and relationship traces |
 
@@ -109,7 +110,7 @@ forever:
 
 Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn. `dsh-system-prompt` owns the harness identity and default persona, which an agent scope may shadow. The loop supplies `model` and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Tool-time context—including async `agent.inject()` notices and post-tool `additionalContexts`—settles, then follows recorded results. Steering drains before `agent/post-step`, which observes durable output, results, context, and steering before signal closure. Leftovers become queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through turn close and flush, and discards later steering but preserves queued prompts.
+Tool-time context—including async `agent.inject()` notices and post-tool `additionalContexts`—settles after results. Steering drains; before signal closure, `agent/post-step` observes durable output, results, context, and steering. Leftovers queue. Terminal `agent/turn-stop` runs after continuation and steering folding, remains authoritative through close/flush, and discards later steering while preserving queued prompts.
 
 Pruning precedes summaries; overflow retries require durable progress. Bounded transient retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 
@@ -175,6 +176,7 @@ New behavior should attach to a documented extension point; changing the shipped
 | Add a session-stable request prefix outside history | compose it on `agent/session-prefix`, once per loop instance; logged on the request header |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
+| Manage a same-session objective | use `ctx.goals`; continue through `Agent` and `agent/*` |
 | Fork a live session | use `ctx.sessions.fork(source, boundary?, childSessionId?)` |
 | Scope a tool, prompt section, or listener to ONE agent | register it through that agent's `agent.ctx` (see Agent Scope) |
 

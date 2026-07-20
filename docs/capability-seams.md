@@ -55,6 +55,8 @@ flowchart LR
   pkg_tui_demo["tui-demo"]
   svc_agentLoop["ctx.agentLoop<br/>Concrete loop driver"]
   pkg_agent_spine_demo["agent-spine-demo"]
+  pkg_goal["goal"]
+  svc_goals["ctx.goals<br/>Same-session goal domain"]
   pkg_bash["bash"]
   svc_bash["ctx.bash<br/>Bash executor seam"]
   pkg_bash_local["bash-local"]
@@ -117,6 +119,7 @@ flowchart LR
   pkg_fs --> svc_fs
   pkg_fs_local --> svc_fs
   pkg_fs_sandbox --> svc_fs
+  pkg_goal --> svc_goals
   pkg_llm --> svc_llm
   pkg_llm_deepseek --> svc_llm
   pkg_llm_pi_ai --> svc_llm
@@ -230,6 +233,7 @@ flowchart LR
 | `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-local`](../packages/skill/skill-local) | [`tool-skill`](../packages/skill/tool-skill) | - | Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/ui/acp), [`cli-demo`](../packages/examples/cli-demo), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`tui-demo`](../packages/examples/tui-demo), [`invariants`](../packages/support/invariants) | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |
+| `ctx.goals` | `core` | [`goal`](../packages/goal/goal) | - | - | - | Folds revisioned objective state from the session log and keeps live continuation activation process-local. |
 | `ctx.bash` | `seam` | [`bash`](../packages/bash/bash) | [`bash-local`](../packages/bash/bash-local), [`bash-sandbox`](../packages/bash/bash-sandbox) | [`tool-bash`](../packages/bash/tool-bash), [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex) | - | The model-facing bash tools and hook bridges consume this seam; sandboxed or remote executors replace bash-local without touching them. |
 | `ctx.bashEnv` | `core` | [`tool-bash`](../packages/bash/tool-bash) | - | - | - | Plugins declare effect-scoped DSH_* facts; tool-bash collects one trusted snapshot per execution and the executor rebuilds the namespace. |
 | `ctx.sandbox` | `seam` | [`sandbox`](../packages/sandbox/sandbox) | [`sandbox-local`](../packages/sandbox/sandbox-local) | [`bash-sandbox`](../packages/bash/bash-sandbox) | - | Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement. |

@@ -10,6 +10,7 @@
     "examples": {
       "entry": [
         "headless-agent/tests/fixtures/cli-mock-llm.ts",
+        "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",
         "headless-agent/tests/fixtures/time-context-driver.ts",
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
@@ -74,6 +75,10 @@
       "ignoreDependencies": ["cordis"]
     },
     "packages/core/agent-loop": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/goal/goal": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },

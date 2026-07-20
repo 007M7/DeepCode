@@ -485,6 +485,84 @@ Types: [FsDirEntry](../core-data-structures/filesystem.md) · [FsEditOutcome](..
 
 Source: [`packages/fs/fs/src/index.ts:81`](../../packages/fs/fs/src/index.ts)
 
+## `ctx.goals` — `GoalService`
+
+Goal service (`ctx.goals`) backed exclusively by the owning session log.
+
+```ts cordis-catalog
+/**
+ * Read the current goal for one exact live agent.
+ * @param agent - owning live agent.
+ * @returns a fresh view or `undefined` when no goal is current.
+ * @throws {@link GoalError} when the agent is not the registry's live instance.
+ */
+get(agent: Agent): GoalView | undefined
+
+/**
+ * Create and arm a goal. A completed goal may be replaced; every other
+ * current phase must be cleared or resumed instead.
+ * @param agent - owning live agent.
+ * @param request - objective and optional round cap.
+ * @returns the created live view.
+ */
+create(agent: Agent, request: CreateGoalRequest): GoalView
+
+/**
+ * Edit objective and/or round cap without changing phase.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @param request - at least one replacement field.
+ * @returns the edited view.
+ */
+edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView
+
+/**
+ * Pause an active goal and disarm automatic continuation.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @returns the paused view.
+ */
+pause(agent: Agent, ref: GoalRef): GoalView
+
+/**
+ * Resume and arm a stopped goal, or rearm an active goal after a
+ * session-start edge, while its round budget still has capacity.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @returns the active view.
+ */
+resume(agent: Agent, ref: GoalRef): GoalView
+
+/**
+ * Mark a current non-complete goal complete and disarm it.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @returns the completed view.
+ */
+complete(agent: Agent, ref: GoalRef): GoalView
+
+/**
+ * Mark an active goal blocked and disarm it.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @param reason - policy-owned stable code and human-readable explanation.
+ * @returns the blocked view with its durable reason.
+ */
+block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView
+
+/**
+ * Clear the current goal while retaining a durable tombstone and history.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @returns the tombstone ref whose revision is one past the cleared snapshot.
+ */
+clear(agent: Agent, ref: GoalRef): GoalRef
+```
+
+Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
+
+Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
+
 ## `ctx.llm` — `LlmService`
 
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.

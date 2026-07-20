@@ -359,6 +359,20 @@ Depends on: [`LocalConfig`](#deepseek-aidsh-fs-local)
 
 Source: [`packages/fs/fs-sandbox/src/index.ts:49`](../packages/fs/fs-sandbox/src/index.ts)
 
+## `@deepseek-ai/dsh-goal`
+
+Requires: `agents`
+
+```ts config-catalog
+/** Deployment defaults for goal creation. */
+export interface Config {
+  /** Total rounds used when a create request omits its own cap. */
+  defaultMaxGoalRounds?: number
+}
+```
+
+Source: [`packages/goal/goal/src/index.ts:56`](../packages/goal/goal/src/index.ts)
+
 ## `@deepseek-ai/dsh-hooks-claude`
 
 Requires: `bash`

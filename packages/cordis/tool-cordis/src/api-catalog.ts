@@ -251,6 +251,44 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'goals',
+    summary: 'Goal service (`ctx.goals`) backed exclusively by the owning session log.',
+    methods: [
+      {
+        signature: 'get(agent: Agent): GoalView | undefined',
+        jsDoc: '/**\n * Read the current goal for one exact live agent.\n * @param agent - owning live agent.\n * @returns a fresh view or `undefined` when no goal is current.\n * @throws {@link GoalError} when the agent is not the registry\'s live instance.\n */',
+      },
+      {
+        signature: 'create(agent: Agent, request: CreateGoalRequest): GoalView',
+        jsDoc: '/**\n * Create and arm a goal. A completed goal may be replaced; every other\n * current phase must be cleared or resumed instead.\n * @param agent - owning live agent.\n * @param request - objective and optional round cap.\n * @returns the created live view.\n */',
+      },
+      {
+        signature: 'edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView',
+        jsDoc: '/**\n * Edit objective and/or round cap without changing phase.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @param request - at least one replacement field.\n * @returns the edited view.\n */',
+      },
+      {
+        signature: 'pause(agent: Agent, ref: GoalRef): GoalView',
+        jsDoc: '/**\n * Pause an active goal and disarm automatic continuation.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the paused view.\n */',
+      },
+      {
+        signature: 'resume(agent: Agent, ref: GoalRef): GoalView',
+        jsDoc: '/**\n * Resume and arm a stopped goal, or rearm an active goal after a\n * session-start edge, while its round budget still has capacity.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the active view.\n */',
+      },
+      {
+        signature: 'complete(agent: Agent, ref: GoalRef): GoalView',
+        jsDoc: '/**\n * Mark a current non-complete goal complete and disarm it.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the completed view.\n */',
+      },
+      {
+        signature: 'block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView',
+        jsDoc: '/**\n * Mark an active goal blocked and disarm it.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @param reason - policy-owned stable code and human-readable explanation.\n * @returns the blocked view with its durable reason.\n */',
+      },
+      {
+        signature: 'clear(agent: Agent, ref: GoalRef): GoalRef',
+        jsDoc: '/**\n * Clear the current goal while retaining a durable tombstone and history.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the tombstone ref whose revision is one past the cleared snapshot.\n */',
+      },
+    ],
+  },
+  {
     key: 'llm',
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.',
     methods: [
@@ -770,6 +808,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Single-slot decision for the next FileSystem.writeText.',
   },
   {
+    name: 'goal/changed',
+    mode: 'emit',
+    signature: '\'goal/changed\'(this: import(\'@deepseek-ai/dsh-scope\').Scoped<Agent>, agent: Agent, change: GoalChanged): void',
+    jsDoc: '/**\n * Goal mutation accepted by one live agent. The matching context event is\n * already appended or queued in that agent\'s active tool-batch FIFO.\n * Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - agent whose session owns the goal.\n * @param change - fresh current projection or clear tombstone.\n * @mode emit\n */',
+    summary: 'Goal mutation accepted by one live agent.',
+  },
+  {
     name: 'llm/stream',
     mode: 'waterfall',
     signature: '\'llm/stream\'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>',
@@ -1096,6 +1141,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
   {
+    name: 'CreateGoalRequest',
+    declaration: 'export interface CreateGoalRequest {\n    readonly objective: string;\n    readonly maxGoalRounds?: number;\n}',
+  },
+  {
     name: 'CreateSessionOptions',
     declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n}',
   },
@@ -1114,6 +1163,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DshEnvironmentKey',
     declaration: 'export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`;',
+  },
+  {
+    name: 'EditGoalRequest',
+    declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n}',
   },
   {
     name: 'EpochHeader',
@@ -1186,6 +1239,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'GenericResultView',
     declaration: 'export interface GenericResultView {\n    card: \'generic\';\n    title?: string;\n    content?: ContentBlock[];\n}',
+  },
+  {
+    name: 'GoalActivation',
+    declaration: 'export type GoalActivation = \'armed\' | \'disarmed\';',
+  },
+  {
+    name: 'GoalBlockReason',
+    declaration: 'export interface GoalBlockReason {\n    readonly code: string;\n    readonly message: string;\n}',
+  },
+  {
+    name: 'GoalId',
+    declaration: 'export type GoalId = Branded<\'GoalId\'>;',
+  },
+  {
+    name: 'GoalPhase',
+    declaration: 'export type GoalPhase = \'active\' | \'paused\' | \'blocked\' | \'complete\';',
+  },
+  {
+    name: 'GoalRef',
+    declaration: 'export interface GoalRef {\n    readonly id: GoalId;\n    readonly revision: number;\n}',
+  },
+  {
+    name: 'GoalSnapshot',
+    declaration: 'export interface GoalSnapshot extends GoalRef {\n    readonly objective: string;\n    readonly phase: GoalPhase;\n    readonly blockedReason?: GoalBlockReason;\n    readonly maxGoalRounds: number;\n}',
+  },
+  {
+    name: 'GoalView',
+    declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly roundsStarted: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
   },
   {
     name: 'HookContext',
