@@ -2,7 +2,15 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CONTEXT_WINDOW_EXCEEDED_CODE, errorChain, LlmError, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmService, {
+  CONTEXT_WINDOW_EXCEEDED_CODE,
+  errorChain,
+  LlmError,
+  ProviderRequestId,
+  QUOTA_EXCEEDED_CODE,
+  userAgent,
+} from '@deepseek-ai/dsh-llm'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { DeepSeekAdapter } from '@deepseek-ai/dsh-llm-deepseek'
@@ -12,7 +20,7 @@ import { assemble } from './assemble.ts'
 /** One scripted behavior for the next request the mock server receives. */
 type Behavior =
   | { kind: 'sse'; events: string[]; delayMs?: number }
-  | { kind: 'http-error'; status: number; body: string; contentType?: string }
+  | { kind: 'http-error'; status: number; body: string; contentType?: string; headers?: Record<string, string> }
   | { kind: 'close-early'; events: string[] }
 
 interface MockServer {
@@ -30,6 +38,7 @@ const servers: Server[] = []
 afterEach(async () => {
   await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))))
   vi.unstubAllEnvs()
+  vi.useRealTimers()
 })
 
 /** Local chat-completions stand-in: replays scripted behaviors per request. */
@@ -48,7 +57,10 @@ async function mockServer(script: Behavior[]): Promise<MockServer> {
         return
       }
       if (behavior.kind === 'http-error') {
-        response.writeHead(behavior.status, { 'content-type': behavior.contentType ?? 'application/json' })
+        response.writeHead(behavior.status, {
+          'content-type': behavior.contentType ?? 'application/json',
+          ...behavior.headers,
+        })
         response.end(behavior.body)
         return
       }
@@ -202,12 +214,96 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(code).toBe(CONTEXT_WINDOW_EXCEEDED_CODE)
   })
 
+  it('retains status, Retry-After seconds, and provider request id as structured facts', async () => {
+    const server = await mockServer([{
+      kind: 'http-error',
+      status: 429,
+      body: JSON.stringify({ error: { message: 'slow down' } }),
+      headers: { 'retry-after': '2', 'x-request-id': 'req-429' },
+    }])
+    const ctx = await harness(server.url)
+    let thrown: unknown
+    try {
+      await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    } catch (error: unknown) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(LlmError)
+    expect((thrown as LlmError).failure).toEqual({
+      message: 'slow down',
+      code: 'RATE_LIMIT',
+      status: 429,
+      providerRetryAfterMs: 2_000,
+      requestId: ProviderRequestId('req-429'),
+    })
+  })
+
+  it('parses a future Retry-After HTTP date and the DeepSeek request-id fallback', async () => {
+    const now = 1_800_000_000_000
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(now)
+    try {
+      const server = await mockServer([{
+        kind: 'http-error',
+        status: 503,
+        body: JSON.stringify({ error: { message: 'come back later' } }),
+        headers: {
+          'retry-after': new Date(now + 3_000).toUTCString(),
+          'x-deepseek-request-id': 'deepseek-503',
+        },
+      }])
+      const ctx = await harness(server.url)
+      await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
+        .rejects.toMatchObject({
+          failure: {
+            message: 'come back later',
+            code: 'SERVER',
+            status: 503,
+            providerRetryAfterMs: 3_000,
+            requestId: ProviderRequestId('deepseek-503'),
+          },
+        })
+    } finally {
+      dateNow.mockRestore()
+    }
+  })
+
+  it('omits zero, non-finite, invalid, and past Retry-After values', async () => {
+    const values = [
+      '0',
+      '9'.repeat(400),
+      'not-a-date',
+      new Date(0).toUTCString(),
+    ]
+    for (const value of values) {
+      const server = await mockServer([{
+        kind: 'http-error',
+        status: 429,
+        body: JSON.stringify({ error: { message: 'retry later' } }),
+        headers: { 'retry-after': value },
+      }])
+      const ctx = await harness(server.url)
+      let thrown: LlmError | undefined
+      try {
+        await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+      } catch (error: unknown) {
+        if (error instanceof LlmError) thrown = error
+      }
+      expect(thrown?.failure).toEqual({ message: 'retry later', code: 'RATE_LIMIT', status: 429 })
+    }
+  })
+
   it('classifies only context-capacity HTTP 400 details as context overflow', () => {
     expect(httpErrorCode(400, { message: 'request too large for model context' }))
       .toBe(CONTEXT_WINDOW_EXCEEDED_CODE)
     expect(httpErrorCode(400, { message: 'invalid input: temperature exceeds maximum allowed value' }))
       .toBe('INVALID_REQUEST')
     expect(httpErrorCode(413, { code: 'context_length_exceeded' })).toBe('HTTP_413')
+  })
+
+  it('distinguishes terminal quota exhaustion from transient HTTP 429 throttling', () => {
+    expect(httpErrorCode(429, { code: 'insufficient_quota', message: 'account credits exhausted' }))
+      .toBe(QUOTA_EXCEEDED_CODE)
+    expect(httpErrorCode(429, { message: 'request rate limit exceeded' })).toBe('RATE_LIMIT')
   })
 
   it('keeps the status-line message for JSON error bodies without a message', async () => {
@@ -228,7 +324,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(httpErrorCode(418)).toBe('HTTP_418')
   })
 
-  it('wraps a transport failure in NETWORK with the fetch cause chain in the message', async () => {
+  it('wraps a transport failure in TRANSPORT with the fetch cause chain in the message', async () => {
     // Port 1 is reserved/unbound: fetch rejects with `TypeError: fetch failed`
     // whose actionable detail (ECONNREFUSED) lives on `cause`.
     const ctx = await harness('http://127.0.0.1:1')
@@ -240,14 +336,14 @@ describe('DeepSeekAdapter against a mock server', () => {
     }
     expect(caught).toBeInstanceOf(LlmError)
     const llmError = caught as LlmError
-    expect(llmError.code).toBe('NETWORK')
+    expect(llmError.code).toBe('TRANSPORT')
     expect(llmError.message).toContain('http://127.0.0.1:1')
     expect(llmError.cause).toBeInstanceOf(TypeError)
     // The chain renderer reaches the transport diagnosis through the cause.
     expect(errorChain(llmError)).toMatch(/ECONNREFUSED|EADDRNOTAVAIL|bad port/)
   })
 
-  it('keeps an abort rejection unwrapped so the loop classifies it as cancellation', async () => {
+  it('classifies an aborted request without losing the transport rejection', async () => {
     const controller = new AbortController()
     controller.abort()
     const ctx = await harness('http://127.0.0.1:1')
@@ -257,8 +353,9 @@ describe('DeepSeekAdapter against a mock server', () => {
     } catch (error: unknown) {
       caught = error
     }
-    expect(caught).not.toBeInstanceOf(LlmError)
-    expect((caught as Error).name).toBe('AbortError')
+    expect(caught).toBeInstanceOf(LlmError)
+    expect(caught).toMatchObject({ code: 'ABORTED' })
+    expect((caught as LlmError).cause).toMatchObject({ name: 'AbortError' })
   })
 
   it('throws EMPTY_RESPONSE when the response has no body', async () => {
@@ -276,14 +373,20 @@ describe('DeepSeekAdapter against a mock server', () => {
     }
   })
 
-  it('rejects with STREAM_CLOSED when the server drops mid-stream', async () => {
+  it('classifies an abrupt body close as TRANSPORT and retains its cause', async () => {
     const server = await mockServer([{
       kind: 'close-early',
       events: ['{"choices":[{"delta":{"content":"par"}}]}'],
     }])
     const ctx = await harness(server.url)
-    await expect(assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toThrow(/terminated|socket|without \[DONE\]/)
+    let caught: unknown
+    try {
+      await assemble(ctx,{ model: 'deepseek-v4-flash', messages: [] })
+    } catch (error: unknown) {
+      caught = error
+    }
+    expect(caught).toMatchObject({ code: 'TRANSPORT' })
+    expect(errorChain(caught)).toMatch(/terminated|socket|without \[DONE\]/)
   })
 
   it('aborts mid-stream via the request signal', async () => {
@@ -305,7 +408,76 @@ describe('DeepSeekAdapter against a mock server', () => {
     })()
 
     setTimeout(() => { controller.abort() }, 30)
-    await expect(pending).rejects.toThrow()
+    await expect(pending).rejects.toMatchObject({ code: 'ABORTED' })
+  })
+
+  it('maps connection failures to TRANSPORT without losing the cause', async () => {
+    const cause = new TypeError('connection refused')
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(cause)
+    const adapter = new DeepSeekAdapter({ apiKey: 'k', baseURL: 'https://example.invalid' })
+    try {
+      const drain = async (): Promise<void> => {
+        for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
+      }
+      await expect(drain()).rejects.toMatchObject({ code: 'TRANSPORT', cause })
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('renders a non-Error transport rejection without losing its cause', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      const failed = Promise.withResolvers<Response>()
+      failed.reject('offline')
+      return failed.promise
+    })
+    const adapter = new DeepSeekAdapter({ apiKey: 'k', baseURL: 'https://example.invalid' })
+    try {
+      const drain = async (): Promise<void> => {
+        for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
+      }
+      await expect(drain()).rejects.toMatchObject({
+        message: 'DeepSeek API request to https://example.invalid failed',
+        code: 'TRANSPORT',
+        cause: 'offline',
+      })
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('aborts the underlying body when the stream stays idle past its watchdog', async () => {
+    vi.useFakeTimers()
+    let stopped = false
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      const signal = init?.signal
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          signal?.addEventListener('abort', () => {
+            stopped = true
+            controller.error(signal.reason)
+          }, { once: true })
+        },
+      })
+      return Promise.resolve(new Response(body, { status: 200 }))
+    })
+    const adapter = new DeepSeekAdapter({
+      apiKey: 'k',
+      baseURL: 'https://example.invalid',
+      streamIdleTimeoutMs: 100,
+    })
+    try {
+      const drain = (async () => {
+        for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
+      })()
+      const rejected = expect(drain).rejects.toMatchObject({ code: 'TIMEOUT' })
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(100)
+      await rejected
+      expect(stopped).toBe(true)
+    } finally {
+      fetchSpy.mockRestore()
+    }
   })
 })
 
@@ -451,5 +623,31 @@ describe('plugin registration and config', () => {
     const adapter = new DeepSeekAdapter({ apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
     expect(adapter).toBeInstanceOf(DeepSeekAdapter)
     await expect(adapter.listModels('deepseek')).resolves.toEqual([])
+  })
+
+  it('rejects invalid idle watchdog bounds for direct and plugin composition', async () => {
+    expect(() => new DeepSeekAdapter({
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      streamIdleTimeoutMs: Number.POSITIVE_INFINITY,
+    })).toThrow(/streamIdleTimeoutMs.*positive finite/)
+    expect(() => new DeepSeekAdapter({
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      streamIdleTimeoutMs: MAX_TIMER_DELAY_MS + 1,
+    })).toThrow(/streamIdleTimeoutMs.*no greater/)
+
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await expect(ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      streamIdleTimeoutMs: 0,
+    })).rejects.toThrow(/streamIdleTimeoutMs/)
+    await expect(ctx.plugin(LlmDeepSeek, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      streamIdleTimeoutMs: MAX_TIMER_DELAY_MS + 1,
+    })).rejects.toThrow(/streamIdleTimeoutMs/)
   })
 })

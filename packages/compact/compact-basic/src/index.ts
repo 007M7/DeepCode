@@ -95,9 +95,10 @@ export class BasicCompactService extends CompactService {
       }
     })
 
-    ctx.on('agent/request-error', async (agent, _turn, _step, error, retryAttempt, signal, next) => {
-      if (error.code !== CONTEXT_WINDOW_EXCEEDED_CODE
-        || retryAttempt >= this.config.maxOverflowRetries
+    ctx.on('agent/request-error', async (agent, _turn, _step, _error, failure, priorFailures, signal, next) => {
+      const priorOverflowFailures = priorFailures.filter(item => item.code === CONTEXT_WINDOW_EXCEEDED_CODE).length
+      if (failure.code !== CONTEXT_WINDOW_EXCEEDED_CODE
+        || priorOverflowFailures >= this.config.maxOverflowRetries
         || signal.aborted) return next()
 
       const generation = agent.session.surface.replaceGeneration

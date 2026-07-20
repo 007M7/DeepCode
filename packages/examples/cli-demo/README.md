@@ -18,6 +18,7 @@ The package mounts no console logger, interactive UI, user-interaction service, 
 | `skills` | owner defaults | skill registry, local provider, and model-facing skill tool |
 | `toolBash` | owner defaults | model-facing bash config, including this producer's background opt-in |
 | `toolTasks` | owner defaults | generic `task_output` wait bounds |
+| `llmRetry` | owner defaults | bounded transient model-request retry policy |
 | `persistenceRoot` | `./.sessions` | JSONL session root |
 | `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
 | `workspaceContext` | required | workspace-instruction byte budget, or `false` to disable loading |
@@ -41,7 +42,7 @@ Loader configs with bare package specifiers require `node --expose-internals` or
 ### Output formats
 
 - `text` writes the last assistant message containing text, followed by one newline.
-- `json` writes one DSH-native result record: `{ type: "result", success, sessionId, turn, result, reason, usage? }`. `usage` sums every model step in the task turn.
+- `json` writes one DSH-native result record: `{ type: "result", success, sessionId, turn, result, reason, usage? }`. `usage` sums each model step in the task turn once, including billed failed retry attempts that produced usage without a committed assistant message.
 - `stream-json` writes each canonical event from the top-level session's task turn as `{ type: "session_event", sessionId, event }`, then the same result record. Child-agent activity appears only through the parent tool events and results.
 
 Only `reason.kind === "completed"` exits successfully. Other durable turn endings still emit partial text or a result record, add a stderr diagnostic, and exit nonzero. Argument and boot failures leave stdout empty. SIGINT and SIGTERM cancel active work, await disposal, and exit 130 and 143 respectively.
