@@ -11,9 +11,9 @@ import { isAbsolute } from 'node:path'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { ContextEnvelope, CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
@@ -78,21 +78,6 @@ declare module 'cordis' {
      */
     'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
   }
-}
-
-/**
- * Render injected context as tagged synthetic user-role content, keeping the
- * canonical session vocabulary provider-neutral. Adapter-specific exceptions
- * belong in the adapter.
- */
-function renderTagged(tag: string, content: ContentBlock[], source: MessageSource): ContentBlock[] {
-  const open = `<${tag} source=${JSON.stringify(source.kind)}>`
-  const close = `</${tag}>`
-  return [
-    { type: 'text', text: open },
-    ...content,
-    { type: 'text', text: close },
-  ]
 }
 
 /** Detach, validate, and freeze the creation metadata published by a session. */
@@ -227,22 +212,6 @@ interface SessionEntry {
 
 /** Store attachment for the append path; module-private to keep Session store-agnostic publicly. */
 const attachments = new WeakMap<Session, SessionEntry>()
-
-/**
- * Render one context contribution exactly as it will appear in model history.
- * @param content - content blocks supplied by the context producer.
- * @param source - attribution used by the canonical context envelope.
- * @param envelope - canonical tagged framing or caller-owned raw framing.
- * @returns a detached block list ready for the derived model transcript.
- */
-export function renderContextContent(
-  content: ContentBlock[],
-  source: MessageSource,
-  envelope: ContextEnvelope = 'context',
-): ContentBlock[] {
-  const cloned = structuredClone(content)
-  return envelope === 'raw' ? cloned : renderTagged('context', cloned, source)
-}
 
 /**
  * An event-sourced session: an append-only log of {@link SessionEvent}s.
@@ -509,7 +478,18 @@ export class Session {
     // trace/replay data.
 
     switch (event.type) {
-      case 'user/message': {
+      // Injected context and mid-turn steering project identically to a user
+      // prompt: content verbatim, in user role. context's `source`/`meta` and
+      // steering's `turn` are log-only and do not reach the model. Do NOT
+      // re-add per-type framing (e.g. `<context>`/`<steering>`) here: framing is
+      // caller-owned — a producer bakes it into `content`, as workspace-context
+      // does with `<system-reminder>` — or, if reintroduced, must be driven by
+      // the event `meta` map and a dedicated renderer, keeping this projection a
+      // verbatim pass-through. See the deferred design note in
+      // ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md
+      case 'user/message':
+      case 'context/message':
+      case 'steering/message': {
         return { role: 'user', content: event.data.content }
       }
       case 'assistant/message': {
@@ -525,14 +505,6 @@ export class Session {
           role: 'user',
           content: [{ type: 'tool-result', toolCallId: callId, content, isError }],
         }
-      }
-      case 'context/message': {
-        const { content, source, envelope } = event.data
-        return { role: 'user', content: renderContextContent(content, source, envelope) }
-      }
-      case 'steering/message': {
-        const { content, source } = event.data
-        return { role: 'user', content: renderTagged('steering', content, source) }
       }
       default:
         // A non-surface event (boundary, chunk, log-only record) projects to

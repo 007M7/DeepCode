@@ -32,6 +32,15 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../sandbox/sandbox-policy"
+    },
+    {
+      "path": "../../ui/user-approval"
     }
   ]
 }
