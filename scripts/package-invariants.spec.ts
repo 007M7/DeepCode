@@ -152,6 +152,15 @@ export const apply = (ctx: { invariants: { register(name: string, install: () =>
       .toContain('line 6: ctx.invariants.register must use the checked local install function')
   })
 
+  it.each([
+    'export default { name, inject, apply }',
+    "export * as default from './probe.ts'",
+  ])('rejects a default export that would collapse the Loader namespace', (defaultExport) => {
+    const source = `${handwrittenInvariant('@deepseek-ai/dsh-probe')}\n${defaultExport}\n`
+    expect(collectPackageInvariantViolations(fixture({ source })).map(violation => violation.message))
+      .toContain('must not default-export; Loader must retain the companion namespace')
+  })
+
   it('accepts explained empty installers and rejects unexplained ones', () => {
     const explained = `
 export const name = 'probe-invariant'

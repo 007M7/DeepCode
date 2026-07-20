@@ -7,6 +7,7 @@ import type { Context } from 'cordis'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
+import { isLoopRequest } from './request-marker.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-agent-loop'
 
@@ -20,9 +21,11 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
   // Prepend prevents a short-circuiting replay listener from silencing the
   // check; correctness itself comes from the sequence-bounded reconstruction.
   ctx.on('llm/stream', (options: GenerateOptions, next) => {
-    if (options.sessionId === undefined || !Object.isFrozen(options)) return next()
+    if (!isLoopRequest(options)) return next()
+    if (!Object.isFrozen(options)) fail('a loop-built request must be frozen')
+    if (options.sessionId === undefined) fail('a loop-built request must carry a session id')
     const session = ctx.sessions.get(options.sessionId)
-    if (!session) return next()
+    if (!session) fail(`a loop-built request must carry a live session id, got "${String(options.sessionId)}"`)
     if (!Object.isFrozen(options.messages)) {
       fail('a loop-built request must carry a frozen messages array')
     }

@@ -36,6 +36,10 @@ describe('llm-retry invariants', () => {
       session.append('llm/retry', {
         turn: 1, step: 2, retry: 2, maxRetries: 2, delayMs: 1_000, failure,
       })
+      const zeroDelay = closeStep(ctx, 'retry-invariant-zero-delay')
+      zeroDelay.append('llm/retry', {
+        turn: 1, step: 1, retry: 1, maxRetries: 1, delayMs: 0, failure,
+      })
     }).not.toThrow()
     expect(() => { ctx.emit('tools/change') }).not.toThrow()
   })
@@ -46,7 +50,7 @@ describe('llm-retry invariants', () => {
     [{ retry: 1, maxRetries: 0, delayMs: 1 }, /positive safe maxRetries/],
     [{ retry: 1, maxRetries: 1.5, delayMs: 1 }, /positive safe maxRetries/],
     [{ retry: 3, maxRetries: 2, delayMs: 1 }, /must not exceed/],
-    [{ retry: 1, maxRetries: 2, delayMs: 0 }, /delayMs/],
+    [{ retry: 1, maxRetries: 2, delayMs: -1 }, /delayMs/],
     [{ retry: 1, maxRetries: 2, delayMs: MAX_TIMER_DELAY_MS + 1 }, /delayMs/],
   ])('rejects invalid retry bounds %#', async (data, message) => {
     const ctx = await setup()

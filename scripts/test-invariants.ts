@@ -21,6 +21,7 @@ declare global {
 export interface TestInvariantCompanion {
   readonly name: string
   readonly inject: readonly string[]
+  readonly default?: unknown
   apply(ctx: Context): Promise<() => void>
 }
 
@@ -28,28 +29,9 @@ export interface TestInvariantCompanion {
 export const testInvariantCompanions: Readonly<Record<string, TestInvariantCompanion>> =
   import.meta.glob<TestInvariantCompanion>('../packages/*/*/src/invariant.ts', { eager: true })
 
-/** Tests that exercise selection or companion lifecycle with a deliberately hand-built service tree. */
-export const MANUAL_INVARIANT_TESTS = [
+/** Manual-topology suites whose names cannot follow the focused invariant convention. */
+const MANUAL_INVARIANT_TEST_EXCEPTIONS = [
   '/packages/support/invariants/tests/service.spec.ts',
-  '/packages/compact/compact/tests/invariant.spec.ts',
-  '/packages/context/time-context/tests/invariant.spec.ts',
-  '/packages/core/session/tests/invariant.spec.ts',
-  '/packages/core/agent/tests/invariant.spec.ts',
-  '/packages/core/scope/tests/invariant.spec.ts',
-  '/packages/core/agent-loop/tests/invariant.spec.ts',
-  '/packages/core/system-prompt/tests/invariant.spec.ts',
-  '/packages/core/tools/tests/invariant.spec.ts',
-  '/packages/fs/fs/tests/invariant.spec.ts',
-  '/packages/hooks/hook-protocol/tests/invariant.spec.ts',
-  '/packages/llm/llm/tests/invariant.spec.ts',
-  '/packages/llm/llm-retry/tests/invariant.spec.ts',
-  '/packages/sandbox/sandbox-policy/tests/invariant.spec.ts',
-  '/packages/subagent/subagent/tests/invariant.spec.ts',
-  '/packages/tasks/tasks/tests/invariant.spec.ts',
-  '/packages/todo/tool-todo/tests/invariant.spec.ts',
-  '/packages/ui/permission/tests/invariant.spec.ts',
-  '/packages/ui/user-approval/tests/invariant.spec.ts',
-  '/packages/workflow/workflow/tests/invariant.spec.ts',
   '/packages/examples/agent-spine-demo/tests/agent-core.spec.ts',
 ] as const
 
@@ -66,7 +48,8 @@ const hosts = new WeakMap<Context, InvariantHost>()
 const originalPlugin = RegistryService.prototype.plugin
 
 RegistryService.prototype.plugin = function(plugin: Plugin, config?: unknown, getOuterStack?: () => string[]) {
-  if (usesManualInvariantTree()) return originalPlugin.call(this, plugin, config, getOuterStack)
+  const testPath = expect.getState().testPath ?? ''
+  if (usesManualInvariantTree(testPath)) return originalPlugin.call(this, plugin, config, getOuterStack)
 
   const root = this.ctx.root
   const host = hosts.get(root) ?? startInvariantHost(root)
@@ -83,9 +66,15 @@ RegistryService.prototype.plugin = function(plugin: Plugin, config?: unknown, ge
   return joinInvariantStartup(fiber, host.ready)
 }
 
-function usesManualInvariantTree(): boolean {
-  const testPath = expect.getState().testPath?.replaceAll('\\', '/') ?? ''
-  return MANUAL_INVARIANT_TESTS.some(path => testPath.endsWith(path))
+/**
+ * Detect focused suites that construct service selection or companion lifecycle explicitly.
+ * @param testPath - absolute or repo-relative Vitest file path.
+ * @returns whether the global invariant host must leave the root untouched.
+ */
+export function usesManualInvariantTree(testPath: string): boolean {
+  const normalized = testPath.replaceAll('\\', '/')
+  if (/\/packages\/[^/]+\/[^/]+\/tests\/[^/]*invariant[^/]*\.spec\.ts$/.test(normalized)) return true
+  return MANUAL_INVARIANT_TEST_EXCEPTIONS.some(path => normalized.endsWith(path))
 }
 
 const ALL_COMPANION_TESTS = ['/scripts/test-invariants.spec.ts'] as const

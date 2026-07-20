@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context, Service } from 'cordis'
+import Loader from '@cordisjs/plugin-loader'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { packageInvariantOwners } from './package-invariants.ts'
 import {
-  MANUAL_INVARIANT_TESTS,
   testInvariantCompanionPaths,
   testInvariantCompanions,
+  usesManualInvariantTree,
 } from './test-invariants.ts'
 
 declare module 'cordis' {
@@ -51,9 +52,10 @@ describe('global test invariant host', () => {
       .toEqual(Object.keys(testInvariantCompanions).sort())
   })
 
-  it('executes each companion registration with its owning package name', async () => {
+  it('loads and executes every source companion through the real Loader shape', async () => {
     const owners = new Map(packageInvariantOwners(process.cwd()).map(owner => [owner.sourcePath, owner.packageName]))
     const registrations = new Map<string, string>()
+    const loader = Object.create(Loader.prototype) as Loader
     const register = vi.fn((_packageName: string, installer: InvariantInstaller) => {
       expect(typeof installer).toBe('function')
       return () => {}
@@ -61,7 +63,13 @@ describe('global test invariant host', () => {
     const fakeContext = { invariants: { register } } as unknown as Context
     for (const [rawPath, companion] of Object.entries(testInvariantCompanions)) {
       const path = rawPath.replace(/^\.\.\//, '')
-      await companion.apply(fakeContext)
+      expect(companion.default, path).toBeUndefined()
+      const unwrapped = loader.unwrapExports(companion) as typeof companion
+      expect(unwrapped, path).toBe(companion)
+      expect(typeof unwrapped.name, path).toBe('string')
+      expect(unwrapped.inject, path).toContain('invariants')
+      expect(typeof unwrapped.apply, path).toBe('function')
+      await unwrapped.apply(fakeContext)
       const call = register.mock.calls.at(-1)
       if (call === undefined) throw new Error(`${path}: companion did not register`)
       registrations.set(path, call[0])
@@ -69,29 +77,11 @@ describe('global test invariant host', () => {
     expect(registrations).toEqual(owners)
   })
 
-  it('limits manual composition to focused invariant topology tests', () => {
-    expect(MANUAL_INVARIANT_TESTS).toEqual([
-      '/packages/support/invariants/tests/service.spec.ts',
-      '/packages/compact/compact/tests/invariant.spec.ts',
-      '/packages/context/time-context/tests/invariant.spec.ts',
-      '/packages/core/session/tests/invariant.spec.ts',
-      '/packages/core/agent/tests/invariant.spec.ts',
-      '/packages/core/scope/tests/invariant.spec.ts',
-      '/packages/core/agent-loop/tests/invariant.spec.ts',
-      '/packages/core/system-prompt/tests/invariant.spec.ts',
-      '/packages/core/tools/tests/invariant.spec.ts',
-      '/packages/fs/fs/tests/invariant.spec.ts',
-      '/packages/hooks/hook-protocol/tests/invariant.spec.ts',
-      '/packages/llm/llm/tests/invariant.spec.ts',
-      '/packages/llm/llm-retry/tests/invariant.spec.ts',
-      '/packages/sandbox/sandbox-policy/tests/invariant.spec.ts',
-      '/packages/subagent/subagent/tests/invariant.spec.ts',
-      '/packages/tasks/tasks/tests/invariant.spec.ts',
-      '/packages/todo/tool-todo/tests/invariant.spec.ts',
-      '/packages/ui/permission/tests/invariant.spec.ts',
-      '/packages/ui/user-approval/tests/invariant.spec.ts',
-      '/packages/workflow/workflow/tests/invariant.spec.ts',
-      '/packages/examples/agent-spine-demo/tests/agent-core.spec.ts',
-    ])
+  it('recognizes focused invariant suites without a package inventory', () => {
+    expect(usesManualInvariantTree('/repo/packages/core/session/tests/invariant.spec.ts')).toBe(true)
+    expect(usesManualInvariantTree('/repo/packages/core/session/tests/request-invariant-hmr.spec.ts')).toBe(true)
+    expect(usesManualInvariantTree('C:\\repo\\packages\\support\\invariants\\tests\\service.spec.ts')).toBe(true)
+    expect(usesManualInvariantTree('/repo/packages/examples/agent-spine-demo/tests/agent-core.spec.ts')).toBe(true)
+    expect(usesManualInvariantTree('/repo/packages/core/session/tests/session.spec.ts')).toBe(false)
   })
 })
