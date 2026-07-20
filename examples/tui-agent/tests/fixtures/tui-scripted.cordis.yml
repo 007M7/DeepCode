@@ -12,8 +12,8 @@
   config:
     cwd: !!js process.cwd()
 
-- id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-demo'
+- id: tui-agent
+  name: '@deepseek-ai/dsh-tui-demo'
   config:
     provider: tui-scripted
     model: tui-scripted-model
@@ -22,6 +22,4 @@
       maxBytes: 65536
     welcome: 'scripted TUI ready.'
     ui:
-      mode: tui
-      tui:
-        showReasoning: true
+      showReasoning: true
