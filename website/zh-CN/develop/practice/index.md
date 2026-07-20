@@ -153,4 +153,4 @@ export function apply(ctx: Context) {
 
 ## 下一步
 
-- [LLM 适配器](./llm-adapter) — 实现一个 LLM 后端（最常见的 seam 扩展）
+- [LLM 适配器](llm-adapter) — 实现一个 LLM 后端（最常见的 seam 扩展）

@@ -12,11 +12,10 @@ import { Context } from 'cordis'
 import LlmService, { type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { MockAdapter, textResponse } from './mock-adapter.ts'
+import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 function driverDone(agent: Agent): Promise<void> {
   return (agent as Agent & { done: Promise<void> }).done
@@ -142,6 +141,59 @@ describe('Agent.cancel()', () => {
     await waitForIdle(ctx, agent)
 
     expect(reasons).toEqual([{ kind: 'aborted', reason: 'cancelled' }])
+  })
+
+  it('cancel from an assistant/message observer skips execution but balances replay', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('c1', 'danger', {}),
+      textResponse('recovered after cancellation'),
+    ])
+    const ctx = await harness(adapter)
+    let executions = 0
+    ctx.tools.register(defineTool({
+      name: 'danger',
+      description: 'must not run after cancellation',
+      parameters: {},
+      async execute() {
+        executions += 1
+        return [{ type: 'text', text: 'ran' }]
+      },
+    }))
+    const agent = ctx.agentLoop.create(SessionId('cancel-after-assistant-message'), { provider: 'mock', model: 'mock' })
+    const dispose = ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'assistant/message') {
+        agent.cancel('cancelled after assistant message')
+      }
+    })
+
+    const reasons: TurnEndReason[] = []
+    ctx.on('session/event', (_session, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+    dispose()
+
+    expect(executions).toBe(0)
+    expect(reasons).toEqual([{ kind: 'aborted', reason: 'cancelled after assistant message' }])
+    const call = agent.session.events.find(event => event.type === 'tool/call')
+    const result = agent.session.events.find(event => event.type === 'tool/result')
+    expect(call?.type === 'tool/call' ? call.data.callId : undefined).toBe('c1')
+    expect(result?.type === 'tool/result' ? result.data : undefined).toMatchObject({
+      callId: 'c1',
+      isError: true,
+      error: { name: 'AbortError', code: 'ABORTED' },
+    })
+
+    send(agent, 'continue safely')
+    await waitForIdle(ctx, agent)
+    const replayedResult = adapter.requests[1]!.messages
+      .flatMap(message => message.content)
+      .find(block => block.type === 'tool-result')
+    expect(replayedResult).toMatchObject({ toolCallId: 'c1', isError: true })
+    expect(reasons).toEqual([
+      { kind: 'aborted', reason: 'cancelled after assistant message' },
+      { kind: 'completed' },
+    ])
   })
 
   it('a prompt sent AFTER a cancelled turn settles runs normally (marker reset)', async () => {

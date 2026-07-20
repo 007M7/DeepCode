@@ -577,10 +577,6 @@ describe('agent loop', () => {
   })
 
   it('agent/pre-step fires once per step before the step is opened', async () => {
-    // Two steps (a tool call, then a final text turn) → two model calls → two
-    // pre-step fires, each carrying the assembled full system prompt, BEFORE
-    // the step is opened and its request is derived (the request the adapter
-    // sees reflects any surface state at fire time).
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', {}, 'calling echo'),
       textResponse('done'),
@@ -592,21 +588,19 @@ describe('agent loop', () => {
     }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    const fires: { turn: number; step: number; fullSystemPrompt: string }[] = []
-    ctx.on('agent/pre-step', (subject, turn, step, fullSystemPrompt) => {
-      if (subject === agent) fires.push({ turn, step, fullSystemPrompt })
+    const fires: { turn: number; step: number; signal: AbortSignal }[] = []
+    ctx.on('agent/pre-step', (subject, turn, step, signal) => {
+      if (subject === agent) fires.push({ turn, step, signal })
     })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // One fire per step, in order, each with the assembled system prompt
-    // (here just the loop's own harness-identity section — no persona set).
-    const HARNESS = 'You are an AI agent powered by the DeepSeek Harness SDK.'
-    expect(fires).toEqual([
-      { turn: 1, step: 1, fullSystemPrompt: HARNESS },
-      { turn: 1, step: 2, fullSystemPrompt: HARNESS },
+    expect(fires.map(({ turn, step }) => ({ turn, step }))).toEqual([
+      { turn: 1, step: 1 },
+      { turn: 1, step: 2 },
     ])
+    expect(fires.every(({ signal }) => signal instanceof AbortSignal)).toBe(true)
   })
 
   it('agent/pre-step fires BEFORE the step it precedes opens (events land outside the step)', async () => {

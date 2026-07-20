@@ -31,9 +31,9 @@ A fully configured agent and live session were published. Setup is composition-o
 'agent/created'(this: Scoped<Agent>, agent: Agent): void
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:141`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:147`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -51,9 +51,9 @@ An agent left the registry; AgentLoop emits this after driver quiescence but bef
 'agent/disposed'(this: Scoped<Agent>, agent: Agent): void
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:150`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:156`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -73,35 +73,53 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 'agent/error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: Error): void
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:285`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:311`](../../packages/core/agent/src/types.ts)
 
-### `agent/pre-step` — serial
+### `agent/post-step` — serial
 
-Awaited serial checkpoint for session-surface mutation after prompt assembly and before `step/start`; appends land outside the pending step. The loop derives history once afterward, so compaction records and replacements are included without rewriting an assembled request. The prompt and prefix are the exact pressure inputs for that request, and `signal` cancels listener work. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+Awaited serial checkpoint after the response, real or synthetic tool results, injected context, and steering are durable but before `step/end`. A cancelled tool batch reaches this checkpoint with an aborted signal.
 
 ```ts cordis-catalog
 /**
- * Awaited serial checkpoint for session-surface mutation after prompt
- * assembly and before `step/start`; appends land outside the pending step.
- * The loop derives history once afterward, so compaction records and
- * replacements are included without rewriting an assembled request. The
- * prompt and prefix are the exact pressure inputs for that request, and
+ * Awaited serial checkpoint after the response, real or synthetic tool
+ * results, injected context, and steering are durable but before `step/end`.
+ * A cancelled tool batch reaches this checkpoint with an aborted signal.
+ * @param agent - the agent whose step is settling.
+ * @param turn - the open turn number.
+ * @param step - the open step number.
+ * @param signal - the turn abort signal.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode serial
+ */
+'agent/post-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
+```
+
+Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+
+Source: [`packages/core/agent/src/types.ts:264`](../../packages/core/agent/src/types.ts)
+
+### `agent/pre-step` — serial
+
+Awaited serial checkpoint before `step/start`; appends land outside the pending step and are included when the loop derives request history. `signal` cancels listener work. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+
+```ts cordis-catalog
+/**
+ * Awaited serial checkpoint before `step/start`; appends land outside the
+ * pending step and are included when the loop derives request history.
  * `signal` cancels listener work.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @param agent - the agent opening the step.
  * @param turn - the open turn number.
  * @param step - the pending step number.
- * @param fullSystemPrompt - the assembled prompt.
- * @param sessionPrefix - the frozen request prefix.
  * @param signal - the turn abort signal.
  * @mode serial
  */
-'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void
+'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
 Source: [`packages/core/agent/src/types.ts:204`](../../packages/core/agent/src/types.ts)
 
@@ -122,7 +140,7 @@ Allow, rewrite, or block one drained prompt before it becomes a user message. Ca
 'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md) · [PromptDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
 Source: [`packages/core/agent/src/types.ts:214`](../../packages/core/agent/src/types.ts)
 
@@ -143,9 +161,9 @@ Detached, frozen content entered the agent's inbox. Source defaults have already
 'agent/queued'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:169`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:175`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -166,13 +184,38 @@ Replace the frozen call configuration. Model-visible content must use logged cha
 'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
 Source: [`packages/core/agent/src/types.ts:226`](../../packages/core/agent/src/types.ts)
 
+### `agent/request-error` — waterfall
+
+Recover a model-request failure after its failed step has closed. `retry` opens a new numbered step; `fail` preserves the original request error. Call `next()` to delegate to the next recovery listener or the default.
+
+```ts cordis-catalog
+/**
+ * Recover a model-request failure after its failed step has closed. `retry`
+ * opens a new numbered step; `fail` preserves the original request error.
+ * Call `next()` to delegate to the next recovery listener or the default.
+ * @param agent - the agent whose request failed.
+ * @param turn - the open turn number.
+ * @param step - the failed step number.
+ * @param error - the original model-request failure.
+ * @param retryAttempt - zero-based number of prior recovery retries.
+ * @param signal - the turn abort signal.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode waterfall
+ */
+'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, retryAttempt: number, signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>
+```
+
+Types: [Agent](../core-data-structures/core.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+
+Source: [`packages/core/agent/src/types.ts:278`](../../packages/core/agent/src/types.ts)
+
 ### `agent/session-prefix` — waterfall
 
-Compose request-only messages placed before derived history. The frozen result is computed once per loop instance, logged on its anchoring request header, and reused so the provider prefix remains stable. Interrupted composition is discarded. Composition precedes the first `agent/pre-step` and request boundary, so listener appends join the current request and pressure accounting sees the composed prefix. Changing context belongs in history; contributors should prepend to `await next()` to preserve registration order. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+Compose request-only messages placed before derived history. The frozen result is computed once per loop instance, logged on its anchoring request header, and reused so the provider prefix remains stable. Interrupted composition is discarded. Composition precedes the first `agent/pre-step` and request boundary, so listener appends join the current request. Changing context belongs in history; contributors should prepend to `await next()` to preserve registration order. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
 ```ts cordis-catalog
 /**
@@ -180,9 +223,9 @@ Compose request-only messages placed before derived history. The frozen result i
  * result is computed once per loop instance, logged on its anchoring request
  * header, and reused so the provider prefix remains stable. Interrupted
  * composition is discarded. Composition precedes the first `agent/pre-step`
- * and request boundary, so listener appends join the current request and
- * pressure accounting sees the composed prefix. Changing context belongs in
- * history; contributors should prepend to `await next()` to preserve registration order.
+ * and request boundary, so listener appends join the current request.
+ * Changing context belongs in history; contributors should prepend to
+ * `await next()` to preserve registration order.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @param agent - the agent whose session prefix is being composed.
  * @param prefix - the frozen seed; return an extended replacement.
@@ -192,7 +235,7 @@ Compose request-only messages placed before derived history. The frozen result i
 'agent/session-prefix'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
 Source: [`packages/core/agent/src/types.ts:241`](../../packages/core/agent/src/types.ts)
 
@@ -214,9 +257,9 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 'agent/session-start'(this: Scoped<Agent>, agent: Agent, source: SessionStartSource): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [SessionStartSource](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:182`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:188`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -234,9 +277,9 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does no
 'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [AgentStatus](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:159`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:165`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -256,7 +299,7 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
 'agent/step-result'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
 Source: [`packages/core/agent/src/types.ts:252`](../../packages/core/agent/src/types.ts)
 
@@ -277,9 +320,9 @@ Override whether the turn continues. The default continues after tool calls or s
 'agent/turn-continuation'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [ContinuationDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:262`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:288`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -298,9 +341,9 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded; a
 'agent/turn-stop'(this: Scoped<Agent>, agent: Agent, turn: number): ContinuationStop | undefined
 ```
 
-Types: [Agent](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [ContinuationStop](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:272`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:298`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 
@@ -321,6 +364,8 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 'agent-loop/config-start-failed'(sessionId: SessionId, error: unknown): void
 ```
 
+Types: [SessionId](../core-data-structures/core.md)
+
 Source: [`packages/core/agent-loop/src/index.ts:362`](../../packages/core/agent-loop/src/index.ts)
 
 ## `approval/*`
@@ -340,7 +385,7 @@ Ask composed answerers for one decision. Return an outcome to claim the request 
 'approval/request'(this: Scoped<ApprovalService>, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>
 ```
 
-Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
+Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [ApprovalService](../core-data-structures/approval.md) · [Scoped](../core-data-structures/scope.md)
 
 Source: [`packages/ui/user-approval/src/index.ts:31`](../../packages/ui/user-approval/src/index.ts)
 
@@ -418,7 +463,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
  * adapter's stream, or yield your own chunks to short-circuit.
  * @param options - the full request. A LOOP-built request arrives
  *   deep-frozen (mutation throws): its content is a pure function of the
- *   session log (the reconstructability RFC), so listeners read it, never
+ *   session log (the reconstructability Agent Note), so listeners read it, never
  *   rewrite it. A hand-built one-shot (compaction summarize) is the
  *   caller's own object and stays mutable here.
  * @mode waterfall
@@ -426,9 +471,9 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:40`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:43`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -451,6 +496,8 @@ Creation announcement during session publication. A synchronous throw vetoes and
 'session/created'(this: Scoped<Session>, session: Session): void
 ```
 
+Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
+
 Source: [`packages/core/session/src/index.ts:47`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
@@ -469,6 +516,8 @@ Emitted once when an announced session leaves the store, including publication r
  */
 'session/disposed'(this: Scoped<Session>, session: Session): void
 ```
+
+Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
 Source: [`packages/core/session/src/index.ts:57`](../../packages/core/session/src/index.ts)
 
@@ -491,7 +540,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
 ```
 
-Types: [SessionEvent](../core-data-structures/core.md)
+Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
 Source: [`packages/core/session/src/index.ts:69`](../../packages/core/session/src/index.ts)
 
@@ -511,6 +560,8 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
  */
 'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
 ```
+
+Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
 Source: [`packages/core/session/src/index.ts:79`](../../packages/core/session/src/index.ts)
 
@@ -532,6 +583,8 @@ A ready child settled. Scope-filtered dispatch uses the same delegating parent c
 'subagent/end'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void
 ```
 
+Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
+
 Source: [`packages/subagent/subagent/src/index.ts:112`](../../packages/subagent/subagent/src/index.ts)
 
 ### `subagent/provider-added` — emit
@@ -546,6 +599,8 @@ A provider became resolvable in the registry.
  */
 'subagent/provider-added'(provider: SubagentProvider): void
 ```
+
+Types: [SubagentProvider](../core-data-structures/subagent.md)
 
 Source: [`packages/subagent/subagent/src/index.ts:86`](../../packages/subagent/subagent/src/index.ts)
 
@@ -582,6 +637,8 @@ A provider established a ready child. For in-process providers, `ctx.agents.get(
 'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
 ```
 
+Types: [Scoped](../core-data-structures/scope.md) · [SubagentService](../core-data-structures/subagent.md)
+
 Source: [`packages/subagent/subagent/src/index.ts:103`](../../packages/subagent/subagent/src/index.ts)
 
 ## `system-prompt/*`
@@ -601,6 +658,8 @@ Expert waterfall over the assembled sections, tools, and variables. Scope-filter
  */
 'system-prompt/assemble'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>
 ```
+
+Types: [AssembleContext](../core-data-structures/system-prompt.md) · [Scoped](../core-data-structures/scope.md) · [SystemPrompt](../core-data-structures/system-prompt.md)
 
 Source: [`packages/core/system-prompt/src/index.ts:27`](../../packages/core/system-prompt/src/index.ts)
 
@@ -656,7 +715,7 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
 'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
 ```
 
-Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
+Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:89`](../../packages/core/tools/src/index.ts)
 
@@ -676,7 +735,7 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 'tools/post-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>
 ```
 
-Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
+Types: [PostToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:98`](../../packages/core/tools/src/index.ts)
 
@@ -695,7 +754,7 @@ Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approv
 'tools/pre-execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>
 ```
 
-Types: [ToolExecution](../core-data-structures/tools.md)
+Types: [PreToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:80`](../../packages/core/tools/src/index.ts)
 
@@ -714,7 +773,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 'tools/result'(this: Scoped<ToolRegistry>, exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): undefined
 ```
 
-Types: [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md)
+Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
 Source: [`packages/core/tools/src/index.ts:106`](../../packages/core/tools/src/index.ts)
 
@@ -738,6 +797,8 @@ One `agent()` call settled (clean result, child failure, or run cancellation). P
 'workflow/agent-end'(info: WorkflowRunInfo, agent: WorkflowAgentEndInfo): void
 ```
 
+Types: [WorkflowRunInfo](../core-data-structures/workflow.md)
+
 Source: [`packages/workflow/workflow/src/index.ts:81`](../../packages/workflow/workflow/src/index.ts)
 
 ### `workflow/agent-start` — emit
@@ -756,6 +817,8 @@ One `agent()` call established a ready child run. Paired with Events['workflow/a
  */
 'workflow/agent-start'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void
 ```
+
+Types: [WorkflowRunInfo](../core-data-structures/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:70`](../../packages/workflow/workflow/src/index.ts)
 
@@ -776,6 +839,8 @@ A workflow run settled (any stop reason). Fired when WorkflowRun.result resolves
 'workflow/end'(info: WorkflowRunInfo, result: WorkflowResultInfo): void
 ```
 
+Types: [WorkflowRunInfo](../core-data-structures/workflow.md)
+
 Source: [`packages/workflow/workflow/src/index.ts:91`](../../packages/workflow/workflow/src/index.ts)
 
 ### `workflow/log` — emit
@@ -791,6 +856,8 @@ The script emitted a narration line (a `log(message)` call).
  */
 'workflow/log'(info: WorkflowRunInfo, message: string): void
 ```
+
+Types: [WorkflowRunInfo](../core-data-structures/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:60`](../../packages/workflow/workflow/src/index.ts)
 
@@ -809,6 +876,8 @@ The script entered a phase (a `phase(title)` call) — progress grouping for obs
 'workflow/phase'(info: WorkflowRunInfo, title: string): void
 ```
 
+Types: [WorkflowRunInfo](../core-data-structures/workflow.md)
+
 Source: [`packages/workflow/workflow/src/index.ts:53`](../../packages/workflow/workflow/src/index.ts)
 
 ### `workflow/start` — emit
@@ -824,6 +893,8 @@ A workflow run started — the script's meta block validated, the body about to 
  */
 'workflow/start'(info: WorkflowRunInfo): void
 ```
+
+Types: [WorkflowRunInfo](../core-data-structures/workflow.md)
 
 Source: [`packages/workflow/workflow/src/index.ts:45`](../../packages/workflow/workflow/src/index.ts)
 

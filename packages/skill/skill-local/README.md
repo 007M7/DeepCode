@@ -40,6 +40,10 @@ Skills can be single-level directory bundles (`<name>/SKILL.md`) or flat Markdow
 
 Indirectly, through `dsh-tool-skill`, which renders this provider's invocable names and capped descriptions into the session-prefix catalog and a selected instruction body plus resource-base guidance into retained tool history while paths, provider ranks, and disabled skills remain hidden.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **Discovery is one level deep** — only `<root>/<name>/SKILL.md` and `<root>/<name>.md` are recognized; nested skill trees and package manifests are ignored.

@@ -4,7 +4,7 @@
  * lossy JSON shapes but trusts model-written workflow scripts: getters and proxy traps may
  * run, and the vm is not a security boundary. The worker provides host-loop isolation and
  * forced termination, not hostile-value containment. See
- * docs/rfc/implemented/feature/2026-07-05-dynamic-workflows.md for the isolation rationale.
+ * .agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md for the isolation rationale.
  * @module @deepseek-ai/dsh-workflow-workerthread/realm
  */
 

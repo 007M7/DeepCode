@@ -264,7 +264,7 @@ The model-facing `ToolSchema` is the wire shape; the registered `ToolDefinition`
 
 ### The request envelope: `LlmCallConfig` and the logged header
 
-The loop builds each request from logged state. `EpochHeader` records call config, rendered prompt, authoritative returned tool order (configured by `toolOrder`, or lexicographic when unset), and session prefix through full `request/header` snapshots. Together with derived history, this makes the request reconstructable from the session log. See [session.md](session.md#the-request-header-event-requestheader) and the [reconstructability RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md).
+The loop builds each request from logged state. `EpochHeader` records call config, rendered prompt, authoritative returned tool order (configured by `toolOrder`, or lexicographic when unset), and session prefix through full `request/header` snapshots. Together with derived history, this makes the request reconstructable from the session log. See [session.md](session.md#the-request-header-event-requestheader) and the [reconstructability Agent Note](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
 `agent/request` receives a frozen call-config seed and may return a replacement to switch provider, model, or sampling. `agent/session-prefix` composes request-only prefix messages once per loop instance, and the header records the exact result used. Requests reaching `llm/stream` are deep-frozen, so mutation throws.
 
@@ -403,7 +403,7 @@ The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, che
 
 ## Initiating Agent
 
-The process-local initiator carried by `ctx.agents` is the exact `Agent` above, not a separate frame or copied identity. Ambient presence is neither liveness proof nor authorization; the [initiator-scope decision](../rfc/implemented/architecture/2026-07-15-agent-initiator-scope.md) owns its lifetime and boundary rules.
+The process-local initiator carried by `ctx.agents` is the exact `Agent` above, not a separate frame or copied identity. Ambient presence is neither liveness proof nor authorization; the [initiator-scope decision](../../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md) owns its lifetime and boundary rules.
 
 ## Interception decisions
 
@@ -444,6 +444,22 @@ type ContinuationDecision =
   | { action: 'stop' }
   | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 ```
+
+`agent/request-error` receives the original `RequestError`, whose optional provider-neutral `code` supports stable routing without message parsing:
+
+```ts type-equiv
+/** Model-request failure with an optional machine-routable provider code. */
+type RequestError = Error & { code?: string }
+```
+
+It returns a `RequestErrorDecision`; `retry` opens a new numbered step after the recovery listener's durable mutation, while `fail` preserves that error:
+
+```ts type-equiv
+/** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */
+type RequestErrorDecision = { action: 'fail' } | { action: 'retry' }
+```
+
+`agent/post-step` is awaited after assistant output, real or synthetic tool results, buffered context, and steering are durable but before `step/end`. A cancelled tool batch reaches it with an aborted signal after draining; its signature is `(agent, turn, step, signal)`, and replayable facts remain in the session log rather than a transient payload.
 
 `agent/turn-stop` returns the stop-only `ContinuationStop` subset or `undefined`. The loop calls this serial checkpoint after folding the ordinary decision, its reason, and pending steering; a stop is terminal and discards pending steering.
 

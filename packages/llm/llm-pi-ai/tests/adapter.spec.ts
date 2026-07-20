@@ -2,9 +2,10 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { LlmError, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmService, { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { getModels } from '@earendil-works/pi-ai'
 import { resolveProfiles } from '../src/config.ts'
 import { assemble } from './assemble.ts'
 
@@ -167,6 +168,26 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.paths).toEqual(['/v1/responses'])
   })
 
+  it('uses OpenAI Responses against an Azure project v1 path with its API key header', async () => {
+    const server = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmPiAi, {
+      providers: [{
+        provider: 'openai',
+        apiKey: 'test-key',
+        baseURL: `${server.url}/api/projects/openai/openai/v1`,
+        headers: { 'api-key': 'test-key', Authorization: '' },
+        maxRetries: 0,
+      }],
+    })
+    const result = await assemble(ctx, { provider: 'openai', model: 'gpt-5.5', messages: [] })
+    expect(result.finish.kind).toBe('error')
+    expect(server.paths).toEqual(['/api/projects/openai/openai/v1/responses'])
+    expect(server.headers[0]?.['api-key']).toBe('test-key')
+    expect(server.headers[0]?.authorization).toBe('')
+  })
+
   it.each([
     [401, 'AUTH'],
     [400, 'INVALID_REQUEST'],
@@ -177,6 +198,29 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = await harness(server.url, { maxRetries: 0 })
     const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(result.finish).toMatchObject({ kind: 'error', code })
+  })
+
+  it('uses the resolved catalog context window for usage-based overflow detection', async () => {
+    const model = getModels('deepseek').find(candidate => candidate.id === 'deepseek-v4-flash')
+    if (model === undefined) throw new Error('deepseek-v4-flash missing from pi-ai test catalog')
+    const events = [
+      '{"choices":[{"delta":{"role":"assistant","content":""},"index":0,"finish_reason":null}]}',
+      JSON.stringify({
+        choices: [{ delta: {}, index: 0, finish_reason: 'stop' }],
+        usage: { prompt_tokens: model.contextWindow + 1, completion_tokens: 0 },
+      }),
+      '[DONE]',
+    ]
+    const server = await mockServer([{ events }])
+    const ctx = await harness(server.url)
+
+    const result = await assemble(ctx, { model: model.id, messages: [] })
+
+    expect(result.finish).toEqual({
+      kind: 'error',
+      message: `pi-ai detected context overflow for model "${model.id}"`,
+      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+    })
   })
 })
 

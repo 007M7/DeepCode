@@ -3,10 +3,11 @@ import { Context } from 'cordis'
 import BasicCompactService from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compact-basic/src/region.ts'
+import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
 import { resolveConfig } from '@deepseek-ai/dsh-compact-basic/src/config.ts'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
-import LlmService, { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -34,6 +35,12 @@ function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
     session.append('step/start', { turn, step: 1 })
+    if (turn === 1) {
+      session.append('request/header', {
+        header: { config: { provider: MODEL, model: MODEL } },
+        reason: 'initial',
+      })
+    }
     session.append('assistant/message', {
       provenance: { provider: MODEL, model: MODEL },
       turn,
@@ -60,6 +67,12 @@ function toolConversation(): Session {
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
     session.append('step/start', { turn, step: 1 })
+    if (turn === 1) {
+      session.append('request/header', {
+        header: { config: { provider: MODEL, model: MODEL } },
+        reason: 'initial',
+      })
+    }
     session.append('assistant/message', {
       provenance: { provider: MODEL, model: MODEL },
       turn,
@@ -119,11 +132,10 @@ function service(
 async function compactIfNeeded(
   compact: BasicCompactService,
   session: Session,
+  trigger: 'pressure' | 'context-overflow' = 'pressure',
   model: string | undefined = MODEL,
-  system = '',
-  prefix: readonly Message[] = [],
 ): Promise<CompactionResult | null> {
-  return compact.compactIfNeeded(agent(session, model), system, prefix, SIGNAL)
+  return compact.compactIfNeeded(agent(session, model), trigger, SIGNAL)
 }
 
 describe('compact configuration and defaults', () => {
@@ -138,6 +150,7 @@ describe('compact configuration and defaults', () => {
       summarizationModel: '',
       maxTokens: 8192,
       compactionRetries: 1,
+      maxOverflowRetries: 1,
       auto: true,
     })
     expect(Object.isFrozen(resolved)).toBe(true)
@@ -167,6 +180,7 @@ describe('compact configuration and defaults', () => {
     const bad = [
       [{ maxTokens: 0 }, /maxTokens/],
       [{ compactionRetries: -1 }, /compactionRetries/],
+      [{ maxOverflowRetries: -1 }, /maxOverflowRetries/],
       [{ auto: 'yes' }, /auto must be a boolean/],
       [{ summarizationProvider: 1 }, /summarizationProvider must be a string/],
       [{ summarizationModel: 1 }, /summarizationModel must be a string/],
@@ -193,17 +207,56 @@ describe('pressure measurement and retention', () => {
     retainTokens: 180,
   }
 
-  it('skips the provisional check only when no routed or fallback model exists', async () => {
+  it('skips when no durable routed model exists instead of using AgentOptions fallback', async () => {
     const compact = service(compactConfig)
-    const session = conversation()
-    expect(await compact.compactIfNeeded(agent(session), '', [], SIGNAL)).toBeNull()
+    const session = new Session(SessionId('headerless'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    await expect(compact.compactIfNeeded(agent(session, MODEL), 'pressure', SIGNAL))
+      .resolves.toBeNull()
     expect(compact.calls).toHaveLength(0)
   })
 
   it('meters any routed model without profile resolution', async () => {
     const compact = service(compactConfig)
-    await expect(compactIfNeeded(compact, conversation(), 'unlisted-model'))
+    const session = conversation()
+    session.append('request/header', {
+      header: { config: { provider: 'unlisted-provider', model: 'unlisted-model' } },
+      reason: 'resume',
+    })
+    await expect(compactIfNeeded(compact, session))
       .resolves.not.toBeNull()
+  })
+
+  it('declines forced overflow when the whole surface is one indivisible tool pair', async () => {
+    const compact = service(compactConfig)
+    const session = new Session(SessionId('single-tool-pair'))
+    const callId = CallId('single-call')
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('request/header', {
+      header: { config: { provider: MODEL, model: MODEL } },
+      reason: 'initial',
+    })
+    session.append('assistant/message', {
+      provenance: { provider: MODEL, model: MODEL },
+      turn: 1,
+      step: 1,
+      content: [{ type: 'tool-call', id: callId, name: 'read', arguments: '{}' }],
+    }, { surfaceOp: 'append' })
+    session.append('tool/call', { turn: 1, step: 1, callId, name: 'read', arguments: '{}' })
+    session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      callId,
+      content: [{ type: 'text', text: 'result' }],
+      isError: false,
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    const generation = session.surface.replaceGeneration
+
+    await expect(compactIfNeeded(compact, session, 'context-overflow')).resolves.toBeNull()
+    expect(session.surface.replaceGeneration).toBe(generation)
+    expect(session.events.some(event => event.type === 'compact/start')).toBe(false)
   })
 
   it('does nothing below threshold and compacts a priced head above threshold', async () => {
@@ -217,26 +270,31 @@ describe('pressure measurement and retention', () => {
     expect(session.surface.nodes.length).toBeLessThan(8)
   })
 
-  it('counts the current prompt and request prefix without putting either on the surface', async () => {
+  it('counts the durable routed request envelope without putting its prefix on the surface', async () => {
     const compact = service({
       auto: false,
-      thresholdRatio: 0.7,
+      thresholdRatio: 0.9,
       retainTokens: 50,
     })
-    const session = conversation(2, 'x'.repeat(200))
+    const session = conversation(2, 'x'.repeat(600))
     expect(await compactIfNeeded(compact, session)).toBeNull()
 
-    const prefix: Message[] = [{
-      role: 'user',
-      content: [{ type: 'text', text: 'p'.repeat(1_000) }],
-    }]
-    const result = await compactIfNeeded(compact, session, MODEL, 's'.repeat(1_000), prefix)
+    const prefix = [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'p'.repeat(600) }] }]
+    session.append('request/header', {
+      header: {
+        config: { provider: MODEL, model: MODEL },
+        system: 's'.repeat(600),
+        messagePrefix: prefix,
+      },
+      reason: 'resume',
+    })
+    const result = await compactIfNeeded(compact, session)
     expect(result).not.toBeNull()
     expect(prefix).toHaveLength(1)
     expect(session.events.some(event => event.type === 'context/message')).toBe(false)
   })
 
-  it('uses the latest logged routed model in the provisional request envelope', async () => {
+  it('uses the latest logged request envelope without an AgentOptions override', async () => {
     const ctx = createContext()
     const compact = service({
       auto: false,
@@ -250,19 +308,28 @@ describe('pressure measurement and retention', () => {
     })
     const measure = vi.spyOn(ctx.tokenMeter, 'measure')
 
-    const result = await compactIfNeeded(compact, session, 'fallback')
+    const result = await compactIfNeeded(compact, session, 'pressure', 'fallback')
     expect(result).not.toBeNull()
-    expect(measure.mock.calls[0]?.[1]?.config.provider).toBe('actual')
-    expect(measure.mock.calls[0]?.[1]?.config.model).toBe('actual')
+    expect(session.requestHeader()?.config.model).toBe('actual')
+    expect(measure.mock.calls[0]).toEqual([session])
   })
 
   it('declines when envelope pressure is high but the surface has no compactable range', async () => {
     const compact = service(compactConfig)
     const empty = new Session(SessionId('empty'))
-    expect(await compactIfNeeded(compact, empty, MODEL, 'x'.repeat(100_000))).toBeNull()
+    empty.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    empty.append('request/header', {
+      header: { config: { provider: MODEL, model: MODEL }, system: 'x'.repeat(100_000) },
+      reason: 'initial',
+    })
+    expect(await compactIfNeeded(compact, empty)).toBeNull()
 
     const retained = conversation(1)
-    expect(await compactIfNeeded(compact, retained, MODEL, 'x'.repeat(100_000))).toBeNull()
+    retained.append('request/header', {
+      header: { config: { provider: MODEL, model: MODEL }, system: 'x'.repeat(100_000) },
+      reason: 'resume',
+    })
+    expect(await compactIfNeeded(compact, retained)).toBeNull()
   })
 
   it('uses one unified measurement for each pressure-and-retention decision', async () => {
@@ -544,7 +611,20 @@ describe('compaction region transaction', () => {
 
   it('lets a model-independent custom summarizer compact without a conversation model', async () => {
     const compact = service()
-    const session = conversation(1)
+    const session = new Session(SessionId('model-less-region'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'history '.repeat(100) }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('assistant/message', {
+      provenance: { provider: 'historical', model: 'historical' },
+      turn: 1,
+      step: 1,
+      content: [{ type: 'text', text: 'answer '.repeat(100) }],
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
     const nodes = session.surface.nodes
     await expect(compact.compactRegion(
       nodes[0]!,
@@ -650,6 +730,28 @@ describe('default one-shot summarizer', () => {
     expect(adapter.lastOptions?.model).toBe('routed')
   })
 
+  it('records the model actually dispatched after one-shot stream routing', async () => {
+    const { ctx, compact } = await summarizerHarness([{ type: 'text', text: 'unused' }])
+    const routedAdapter = new ScriptedAdapter([{ type: 'text', text: 'routed summary' }])
+    ctx.llm.registerAdapter(['routed-summary-provider'], routedAdapter)
+    ctx.on('llm/stream', (options, next) => {
+      options.provider = 'routed-summary-provider'
+      options.model = 'routed-summary-model'
+      return next()
+    })
+
+    const session = conversation(3, 'large history '.repeat(500))
+    const nodes = session.surface.nodes
+    await compact.compactRegion(nodes[0]!, nodes[3]!, agent(session, MODEL), SIGNAL)
+    expect(session.events.findLast(event => event.type === 'compact/summary')?.data).toMatchObject({
+      summary: [{ type: 'text', text: 'routed summary' }],
+      provider: 'routed-summary-provider',
+      model: 'routed-summary-model',
+    })
+    expect(routedAdapter.lastOptions?.provider).toBe('routed-summary-provider')
+    expect(routedAdapter.lastOptions?.model).toBe('routed-summary-model')
+  })
+
   it('fails clearly when no complete summarization target can be resolved', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -688,24 +790,55 @@ describe('default one-shot summarizer', () => {
 })
 
 describe('automatic listener and loader composition', () => {
-  function preStep(ctx: Context, owner: Agent): Promise<unknown> {
-    return ctx.serial('agent/pre-step', owner, 1, 1, '', [], SIGNAL)
+  function postStep(ctx: Context, owner: Agent, signal = SIGNAL): Promise<unknown> {
+    return ctx.serial('agent/post-step', owner, 1, 1, signal)
   }
 
-  it('compacts above threshold and remains idle below it', async () => {
+  function recover(
+    ctx: Context,
+    owner: Agent,
+    error: Error & { code?: string },
+    retryAttempt = 0,
+    signal = SIGNAL,
+    next: () => Promise<{ action: 'fail' | 'retry' }> = () => Promise.resolve({ action: 'fail' }),
+  ): Promise<{ action: 'fail' | 'retry' }> {
+    return ctx.waterfall('agent/request-error', owner, 1, 1, error, retryAttempt, signal, next)
+  }
+
+  function overflow(message = 'provider overflow'): Error & { code: string } {
+    return Object.assign(new Error(message), { code: CONTEXT_WINDOW_EXCEEDED_CODE })
+  }
+
+  it('compacts post-step above threshold using the durable routed model and remains idle below it', async () => {
     const ctx = createContext()
     const compact = new TestCompactService(ctx, {
       thresholdRatio: 0.5,
       retainTokens: 180,
     })
     const pressured = conversation(4)
-    await preStep(ctx, agent(pressured, MODEL))
+    await postStep(ctx, agent(pressured, 'unconfigured-agent-fallback'))
     expect(pressured.events.some(event => event.type === 'compact/summary')).toBe(true)
 
     const small = conversation(1)
-    await preStep(ctx, agent(small, MODEL))
+    await postStep(ctx, agent(small, MODEL))
     expect(small.events.some(event => event.type === 'compact/start')).toBe(false)
     expect(compact.calls).toHaveLength(1)
+  })
+
+  it('skips post-step pressure when the step signal is already aborted', async () => {
+    const ctx = createContext()
+    const compact = new TestCompactService(ctx, {
+      thresholdRatio: 0.5,
+      retainTokens: 180,
+    })
+    const pressured = conversation(4)
+    const compactIfNeeded = vi.spyOn(compact, 'compactIfNeeded')
+
+    await expect(postStep(ctx, agent(pressured, MODEL), AbortSignal.abort('step aborted')))
+      .resolves.toBeUndefined()
+
+    expect(compactIfNeeded).not.toHaveBeenCalled()
+    expect(pressured.events.some(event => event.type === 'compact/start')).toBe(false)
   })
 
   it('warns and continues after operational failures, including non-Errors', async () => {
@@ -719,12 +852,187 @@ describe('automatic listener and loader composition', () => {
     compact.error = 'temporary failure'
     const session = conversation(4)
 
-    await expect(preStep(ctx, agent(session, MODEL))).resolves.toBeUndefined()
+    await expect(postStep(ctx, agent(session, MODEL))).resolves.toBeUndefined()
     expect(warnings).toContainEqual(expect.stringContaining('temporary failure'))
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
   })
 
-  it('auto:false installs no listener', async () => {
+  it('force-compacts below normal pressure for canonical overflow and retries only after replacement', async () => {
+    const ctx = createContext(10_000)
+    void new TestCompactService(ctx, {
+      thresholdRatio: 1,
+      retainTokens: 900,
+    })
+    const session = conversation(3)
+    const beforeGeneration = session.surface.replaceGeneration
+    const retainedSeq = session.surface.nodes.at(-1)!
+    const threshold = 10_000
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(threshold)
+    const decision = await recover(ctx, agent(session, 'unconfigured-agent-fallback'), overflow())
+
+    expect(decision).toEqual({ action: 'retry' })
+    expect(session.surface.replaceGeneration).toBe(beforeGeneration + 1)
+    expect(session.events.some(event => event.type === 'compact/summary')).toBe(true)
+    expect(session.surface.nodes).toContain(retainedSeq)
+  })
+
+  it('preserves the newest whole tool-call/result pair during forced overflow compaction', async () => {
+    const ctx = createContext()
+    void new TestCompactService(ctx, {
+      thresholdRatio: 1,
+      retainTokens: 90,
+    })
+    const session = toolConversation()
+    const newestAssistant = session.surface.nodes.at(-2)!
+    const newestResult = session.surface.nodes.at(-1)!
+
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'retry' })
+    const currentAssistant = session.surface.nodes.find(node => node === newestAssistant)
+    const currentResult = session.surface.nodes.find(node => node === newestResult)
+    expect(currentAssistant).toBeDefined()
+    expect(currentResult).toBeDefined()
+    expect(toolPairingBalancedBefore(session, currentAssistant!)).toBe(true)
+    expect(toolPairingBalancedAfter(session, currentResult!)).toBe(true)
+  })
+
+  it('does not retry when a backend reports success without replacing the surface', async () => {
+    const ctx = createContext()
+    const compact = new TestCompactService(ctx)
+    const session = conversation(2)
+    const fakeResult: CompactionResult = {
+      startSeq: 1,
+      summarySeq: 2,
+      endSeq: 3,
+      summary: [{ type: 'text', text: 'fake' }],
+      shadowedRange: { start: 1, end: 2 },
+      shadowedSeqs: [1, 2],
+      shadowedTokenCount: 10,
+    }
+    vi.spyOn(compact, 'compactIfNeeded').mockResolvedValue(fakeResult)
+
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'fail' })
+    expect(session.surface.replaceGeneration).toBe(0)
+  })
+
+  it('delegates downstream exactly once when no replacement is available', async () => {
+    const ctx = createContext()
+    const compact = new TestCompactService(ctx)
+    vi.spyOn(compact, 'compactIfNeeded').mockResolvedValue(null)
+    const downstream = new Error('downstream recovery failed')
+    let calls = 0
+
+    await expect(recover(
+      ctx,
+      agent(conversation(2), MODEL),
+      overflow(),
+      0,
+      SIGNAL,
+      () => {
+        calls += 1
+        return Promise.reject(downstream)
+      },
+    )).rejects.toBe(downstream)
+    expect(calls).toBe(1)
+  })
+
+  it('preserves the original provider error when recovery throws', async () => {
+    const ctx = createContext()
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    const compact = new TestCompactService(ctx)
+    compact.error = new Error('summary unavailable')
+    const original = overflow('original provider overflow')
+
+    expect(await recover(ctx, agent(conversation(3), MODEL), original)).toEqual({ action: 'fail' })
+    expect(original).toMatchObject({
+      message: 'original provider overflow',
+      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+    })
+    expect(warnings).toContainEqual(expect.stringContaining('preserving the original request error'))
+  })
+
+  it('delegates once when overflow recovery throws a non-Error value', async () => {
+    const ctx = createContext()
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    const compact = new TestCompactService(ctx)
+    compact.error = 'non-error recovery failure'
+    const session = conversation(3)
+    const generation = session.surface.replaceGeneration
+    const original = overflow('original provider failure')
+    let delegations = 0
+
+    const decision = await recover(ctx, agent(session, MODEL), original, 0, SIGNAL, () => {
+      delegations += 1
+      return Promise.resolve({ action: 'fail' })
+    })
+
+    expect(decision).toEqual({ action: 'fail' })
+    expect(delegations).toBe(1)
+    expect(session.surface.replaceGeneration).toBe(generation)
+    expect(original).toMatchObject({
+      message: 'original provider failure',
+      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+    })
+    expect(warnings).toContainEqual(expect.stringContaining('non-error recovery failure'))
+  })
+
+  it('recovers an overflow for an unlisted routed model', async () => {
+    const ctx = createContext()
+    void new TestCompactService(ctx)
+    const session = conversation(2)
+    session.append('request/header', {
+      header: { config: { provider: 'unknown-routed-provider', model: 'unknown-routed-model' } },
+      reason: 'resume',
+    })
+    expect(await recover(ctx, agent(session, MODEL), overflow('unlisted-model overflow')))
+      .toEqual({ action: 'retry' })
+  })
+
+  it('honors retry caps, non-context failures, and cancellation', async () => {
+    const ctx = createContext()
+    const compact = new TestCompactService(ctx, { maxOverflowRetries: 1 })
+    const compactSpy = vi.spyOn(compact, 'compactIfNeeded')
+    const owner = agent(conversation(3), MODEL)
+    expect(await recover(ctx, owner, Object.assign(new Error('rate limit'), { code: 'RATE_LIMIT' })))
+      .toEqual({ action: 'fail' })
+    expect(await recover(ctx, owner, overflow(), 1)).toEqual({ action: 'fail' })
+
+    const controller = new AbortController()
+    controller.abort('cancelled')
+    expect(await recover(ctx, owner, overflow(), 0, controller.signal)).toEqual({ action: 'fail' })
+    expect(compactSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not retry when cancellation lands during an awaited compaction', async () => {
+    const ctx = createContext()
+    const compact = new TestCompactService(ctx)
+    const controller = new AbortController()
+    compact.mutateDuringSummary = () => { controller.abort('cancelled during summary') }
+    const session = conversation(3)
+    const generation = session.surface.replaceGeneration
+
+    expect(await recover(ctx, agent(session, MODEL), overflow(), 0, controller.signal))
+      .toEqual({ action: 'fail' })
+    expect(session.surface.replaceGeneration).toBe(generation + 1)
+  })
+
+  it('maxOverflowRetries:0 disables recovery without disabling post-step pressure', async () => {
+    const ctx = createContext()
+    void new TestCompactService(ctx, {
+      maxOverflowRetries: 0,
+      thresholdRatio: 0.5,
+      retainTokens: 180,
+    })
+    const session = conversation(4)
+    await postStep(ctx, agent(session, MODEL))
+    const summaries = session.events.filter(event => event.type === 'compact/summary').length
+    expect(summaries).toBe(1)
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'fail' })
+    expect(session.events.filter(event => event.type === 'compact/summary')).toHaveLength(summaries)
+  })
+
+  it('auto:false installs neither automatic listener', async () => {
     const ctx = createContext()
     void new TestCompactService(ctx, {
       auto: false,
@@ -732,8 +1040,9 @@ describe('automatic listener and loader composition', () => {
       retainTokens: 180,
     })
     const session = conversation(4)
-    await preStep(ctx, agent(session, MODEL))
+    await postStep(ctx, agent(session, MODEL))
     expect(session.events.some(event => event.type === 'compact/start')).toBe(false)
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'fail' })
   })
 
   it('loads and disposes the real zero-config service stack', async () => {
@@ -761,7 +1070,8 @@ describe('automatic listener and loader composition', () => {
     await fiber.dispose()
 
     const session = conversation(4)
-    await preStep(ctx, agent(session, MODEL))
+    await postStep(ctx, agent(session, MODEL))
     expect(session.events.some(event => event.type === 'compact/start')).toBe(false)
+    expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'fail' })
   })
 })

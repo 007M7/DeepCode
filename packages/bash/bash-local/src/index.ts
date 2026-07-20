@@ -10,7 +10,7 @@ import z from 'schemastery'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { clampTimeout, deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
-import { DEFAULT_GRACE_MS, runBash } from './run.ts'
+import { DEFAULT_GRACE_MS, DEFAULT_MAX_SPILL_BYTES, runBash } from './run.ts'
 import type { RunInternals, RunningBash } from './run.ts'
 
 /** Plugin config (all optional — `static Config` supplies the defaults). */
@@ -23,7 +23,9 @@ export interface Config {
   maxTimeoutMs?: number
   /** Per-stream in-memory output cap; overflow spills to a temp file. */
   maxOutputBytes?: number
-  /** Grace period between the SIGTERM and the SIGKILL escalation on a kill. */
+  /** Per-stream spill-file cap; larger streams retain only their in-memory tail. */
+  maxSpillBytes?: number
+  /** Grace period for kill escalation and for inherited pipes after shell exit. */
   graceMs?: number
 }
 
@@ -46,6 +48,7 @@ export class LocalBashExecutor extends BashExecutor {
     timeoutMs: z.number().default(120_000),
     maxTimeoutMs: z.number().default(600_000),
     maxOutputBytes: z.number().default(64_000),
+    maxSpillBytes: z.number().default(DEFAULT_MAX_SPILL_BYTES),
     graceMs: z.number().default(DEFAULT_GRACE_MS),
   })
 
@@ -64,6 +67,7 @@ export class LocalBashExecutor extends BashExecutor {
     assertPositiveFinite('timeoutMs', this.config.timeoutMs)
     assertPositiveFinite('maxTimeoutMs', this.config.maxTimeoutMs)
     assertPositiveFinite('maxOutputBytes', this.config.maxOutputBytes)
+    assertPositiveFinite('maxSpillBytes', this.config.maxSpillBytes)
     assertPositiveFinite('graceMs', this.config.graceMs)
     ctx.effect(() => async () => {
       // Await closure so even a TERM-trapping child cannot outlive the fiber.
@@ -120,6 +124,7 @@ export class LocalBashExecutor extends BashExecutor {
       cwd: spec.workdir,
       stdoutMaxBytes: spec.stdoutMaxBytes,
       stderrMaxBytes: this.config.maxOutputBytes,
+      maxSpillBytes: this.config.maxSpillBytes,
       graceMs: this.config.graceMs,
       signal: d.signal,
       stdin: spec.stdin,
@@ -139,6 +144,7 @@ export class LocalBashExecutor extends BashExecutor {
       cwd: spec.workdir,
       stdoutMaxBytes: this.config.maxOutputBytes,
       stderrMaxBytes: this.config.maxOutputBytes,
+      maxSpillBytes: this.config.maxSpillBytes,
       graceMs: this.config.graceMs,
       signal: spec.signal,
       stdin: spec.stdin,

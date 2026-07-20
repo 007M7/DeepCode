@@ -6,12 +6,12 @@
  * It boots the REAL agent bin subprocess via the cordis Loader (so the
  * export-shape bug class stays guarded — see docs/postmortem/0001), drives it
  * over real ACP JSON-RPC stdio with a deterministic input script, tees raw
- * stdout (for the golden + a purity check) into an SDK `ClientSideConnection`,
+ * stdout (for the expected-output and purity checks) into an SDK `ClientSideConnection`,
  * and — in record mode — harvests the persisted session JSONL after a graceful
  * shutdown flush. The pure normalizers in ./normalize.ts turn the captured
  * stdout frames and the session-log events into stable, snapshot-able text.
  *
- * See docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
+ * See .agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  *
  * @module @deepseek-ai/dsh-acp-snapshot/harness
  */
@@ -37,11 +37,10 @@ export type { AgentUnderTest } from './launcher.ts'
  * (random) session id into a `{{sessionId}}` variable that later steps
  * reference, since a committed file cannot know the id in advance.
  *
- * `promptAndCancel` sends a prompt WITHOUT awaiting its response, waits until
- * the client observes the first streamed `agent_message_chunk` (so the emitted
- * frames deterministically precede the cancellation), then cancels the turn —
- * the only way to exercise a cancel deterministically (a plain `prompt` step
- * awaits the response, which a cancel/hang scenario would block on forever).
+ * `promptAndCancel` starts a prompt without awaiting completion, waits until
+ * the client observes the selected update (`agent_message_chunk` by default),
+ * then cancels and awaits completion. A named `waitForToolCallUpdate` keeps the
+ * step open for a terminal tool update that may follow the prompt response.
  */
 export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
@@ -49,7 +48,12 @@ export type InputStep =
   | { op: 'newSessionExpectError'; additionalDirectories?: string[] }
   | { op: 'prompt'; text: string }
   | { op: 'promptExpectError'; text: string }
-  | { op: 'promptAndCancel'; text: string }
+  | {
+    op: 'promptAndCancel'
+    text: string
+    afterUpdate?: 'agent_message_chunk' | 'tool_call'
+    waitForToolCallUpdate?: string
+  }
   | { op: 'cancel' }
   | { op: 'setConfigOption'; configId: string; value: string }
   | { op: 'setConfigOptionExpectError'; configId: string; value: string }
@@ -158,7 +162,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
   // Fixed path length: spill-policy budgets the preview against the REAL path
-  // before stdout normalization, so tmpdir() length differences churn goldens.
+  // before stdout normalization, so tmpdir() length differences churn expected outputs.
   const spillRoot = '/tmp/dsh-acp-snapshot-spill'
   // Everything past the temp-dir creation is followed by failure-safe cleanup,
   // so a failure in workspace seeding, spawn, or any step never leaks resources.
@@ -167,7 +171,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   let sessionLogs: HarvestedLog[] = []
   const outcome = await (async (): Promise<RunResult> => {
     // Seed the workspace if the scenario ships one (a file the agent reads/edits).
-    // Copied into the temp cwd so the agent's bash tools see it; the goldens
+    // Copied into the temp cwd so the agent's bash tools see it; the expected outputs
     // normalize the cwd, so the seeded paths stay stable across runs.
     if (opts.workspaceDir !== undefined && existsSync(opts.workspaceDir)) {
       await cp(opts.workspaceDir, cwd, { recursive: true })
@@ -342,17 +346,19 @@ async function runStep(
     case 'promptAndCancel': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: promptAndCancel before newSession')
-      // Dispatch the prompt WITHOUT awaiting (a hang fixture never resolves on
-      // its own). To pin frame order deterministically, wait until the client
-      // has OBSERVED the hang's streamed agent_message_chunk before cancelling —
-      // so those update frames always precede the cancelled prompt response in
-      // the transcript (without this, the late chunk and the response race).
-      // Then cancel and await the prompt, which the bridge settles as
-      // `cancelled` once the abort propagates.
+      // Dispatch without awaiting because the fixture does not settle on its
+      // own. Waiting for the selected update pins it before cancellation and
+      // the cancelled prompt response in the transcript.
       const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
-      await waitForUpdate(u => u.sessionUpdate === 'agent_message_chunk')
+      const afterUpdate = step.afterUpdate ?? 'agent_message_chunk'
+      await waitForUpdate(u => u.sessionUpdate === afterUpdate)
+      // Arm this before cancellation so a fast tool drain cannot outrun the waiter.
+      const toolCallUpdateDone = step.waitForToolCallUpdate === undefined
+        ? undefined
+        : waitForUpdate(u => u.sessionUpdate === 'tool_call_update' && u.toolCallId === step.waitForToolCallUpdate)
       await client.cancel({ sessionId })
       await promptDone
+      if (toolCallUpdateDone !== undefined) await toolCallUpdateDone
       return
     }
     case 'cancel': {

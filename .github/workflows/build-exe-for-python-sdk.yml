@@ -1,7 +1,7 @@
 name: Build single-exe
 
 # Native builds for the release targets; see
-# docs/rfc/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md.
+# .agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md.
 # A full target run retains one SDK wheel and three runtime wheels; subset
 # dispatch retains the SDK wheel and selected runtime wheels. Bare executables
 # and source closures are test inputs. Run manually or label a PR

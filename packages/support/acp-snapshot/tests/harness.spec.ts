@@ -334,6 +334,28 @@ describe('runScenario', () => {
     expect(result.rawStdout.indexOf('thinking about it')).toBeLessThan(result.rawStdout.indexOf('cancelled'))
   })
 
+  it('promptAndCancel can bracket cancellation with tool-call updates', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({
+      prompt: 'hang-until-cancel',
+      cancelAtToolCall: true,
+      cancelToolCallUpdate: true,
+    })
+    const result = await runScenario(
+      {
+        steps: [...boot, {
+          op: 'promptAndCancel',
+          text: 'hang',
+          afterUpdate: 'tool_call',
+          waitForToolCallUpdate: 'call_fake_1',
+        }],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.rawStdout).toContain('"sessionUpdate":"tool_call"')
+    expect(result.rawStdout.indexOf('"sessionUpdate":"tool_call"')).toBeLessThan(result.rawStdout.indexOf('cancelled'))
+    expect(result.rawStdout.indexOf('cancelled')).toBeLessThan(result.rawStdout.indexOf('"sessionUpdate":"tool_call_update"'))
+  })
+
   it('promptExpectError swallows a model-error response as the expected outcome', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ prompt: 'error' })
     const result = await runScenario(

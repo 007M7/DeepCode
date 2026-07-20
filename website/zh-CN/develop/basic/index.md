@@ -159,5 +159,5 @@ export function apply(ctx: Context) {
 
 ## 下一步
 
-- [开发一个 Tool](./tool) — 详细了解 tool 定义 DSL
-- [插件配置](./config) — 让插件接受用户配置
+- [开发一个 Tool](tool) — 详细了解 tool 定义 DSL
+- [插件配置](config) — 让插件接受用户配置

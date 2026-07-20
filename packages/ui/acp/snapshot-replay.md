@@ -12,14 +12,14 @@ sequenceDiagram
   participant Workspace
   participant Replay as llm-replay adapter
   participant ACP as acp-agent subprocess
-  participant Golden as stdout golden
+  participant Expected as stdout expected output
   Recorder->>Fixture: session.jsonl + workspace inputs
   Fixture->>Workspace: seed files and hook configs
   Fixture->>Replay: recorded StreamChunk script
   Replay->>ACP: deterministic <code>llm/stream</code> chunks
   ACP->>Workspace: bash, fs, and hook side effects
-  ACP->>Golden: normalized sessionUpdate stream
-  Golden-->>ACP: diff must be empty
+  ACP->>Expected: normalized sessionUpdate stream
+  Expected-->>ACP: diff must be empty
 ```
 
 The fs and hook snapshot matrix is valuable because it proves world state, hook decisions, and failed tool-card rendering, not just that replay returns text.
