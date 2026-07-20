@@ -55,5 +55,5 @@ export const name = 'mock-llm'
 export const inject = ['llm']
 
 export function apply(ctx: Context) {
-  ctx.llm.registerAdapter(['mock-echo'], new MockEchoAdapter())
+  ctx.llm.registerAdapter(['mock'], new MockEchoAdapter())
 }

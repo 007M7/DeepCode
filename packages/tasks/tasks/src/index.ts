@@ -151,9 +151,9 @@ export class TaskService extends Service {
    * @returns fresh snapshots.
    */
   list(caller?: Agent): TaskSnapshot[] {
-    const session = caller?.session.header.id
+    const session = caller?.id
     return [...this.store.values()]
-      .filter(task => task.owner === undefined || task.owner.session.header.id === session)
+      .filter(task => task.owner === undefined || task.owner.id === session)
       .map(task => this.snapshot(task))
   }
 
@@ -317,14 +317,14 @@ export class TaskService extends Service {
    * open, and a no-agent caller can never match an owned one).
    */
   private assertAccess(task: TrackedTask, caller?: Agent): void {
-    if (task.owner !== undefined && task.owner.session.header.id !== caller?.session.header.id) {
+    if (task.owner !== undefined && task.owner.id !== caller?.id) {
       throw new Error(`task ${task.id} belongs to another session`)
     }
   }
 
   /** Project a fresh read-only snapshot from the mutable record. */
   private snapshot(task: TrackedTask): TaskSnapshot {
-    const ownerSession = task.owner?.session.header.id
+    const ownerSession = task.owner?.id
     return {
       id: task.id,
       kind: task.kind,

@@ -12,7 +12,7 @@ Requires `ctx.skills` (`inject: ['skills']`).
 
 | Field | Default | Meaning |
 |---|---|---|
-| `dshHome` | `$DSH_HOME` or `~/.dsh` | DeepSeek Harness config root; scans `skills` under this directory. |
+| `dshHome` | `$DSH_HOME` or `~/.dsh` | DeepSeek Harness config root resolved by [`@deepseek-ai/dsh-home`](../../util/home/README.md); scans `skills` under this directory. |
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills. |
 | `customSkillDirs` | `[]` | Additional local skill roots scanned after project roots and before user roots. |
 
@@ -39,6 +39,10 @@ Skills can be single-level directory bundles (`<name>/SKILL.md`) or flat Markdow
 ## Model Experience
 
 Indirectly, through `dsh-tool-skill`, which renders this provider's invocable names and capped descriptions into the session-prefix catalog and a selected instruction body plus resource-base guidance into retained tool history while paths, provider ranks, and disabled skills remain hidden.
+
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

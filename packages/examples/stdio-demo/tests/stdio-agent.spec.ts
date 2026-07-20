@@ -4,14 +4,15 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as stdioAgent from '../src/index.ts'
 
 /**
- * Unit coverage for app composition and config forwarding: console logger, pre-created main agent,
- * agent-core spine, JSONL backend, and readline UI. HMR is a Loader-only leaf concern covered by the
+ * Unit coverage for app composition and config forwarding: pre-created main agent,
+ * agent-spine-demo spine, JSONL backend, and adaptive terminal UI. HMR is a Loader-only leaf concern covered by the
  * keyless echo smoke; this tier pins the export shape because an inject-less app could otherwise
  * survive namespace collapse while silently losing its schema.
  */
@@ -65,39 +66,129 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
 }
 
 describe('dsh-stdio-demo app', () => {
+  it('selects readline for pipes and dsh-tui for interactive terminal pairs', () => {
+    expect(stdioAgent.resolveTerminalMode(undefined, false)).toBe('readline')
+    expect(stdioAgent.resolveTerminalMode(undefined, true)).toBe('tui')
+    expect(stdioAgent.resolveTerminalMode({ mode: 'readline' }, true)).toBe('readline')
+    expect(stdioAgent.resolveTerminalMode({ mode: 'tui' }, true)).toBe('tui')
+    expect(() => stdioAgent.resolveTerminalMode({ mode: 'tui' }, false)).toThrow('requires both stdin and stdout')
+  })
+
+  it('binds only the selected terminal package to the app-owned exact session identity', () => {
+    const calls: Array<{ name: string; config: unknown }> = []
+    const ctx = {
+      plugin(plugin: { name?: string }, config?: unknown) {
+        calls.push({ name: plugin.name ?? '', config })
+      },
+    } as unknown as Context
+
+    stdioAgent.composeTerminalApp(ctx, {
+      provider: 'mock',
+      model: 'mock',
+      workspaceContext: false,
+      welcome: 'TUI ready',
+      ui: { mode: 'tui', tui: { color: false, maxToolOutputLines: 3 } },
+    }, true)
+    expect(calls.map(call => call.name)).toContain('ui-tui')
+    expect(calls.map(call => call.name)).not.toContain('ui-stdio')
+    expect(calls.map(call => call.name)).not.toContain('ConsoleExporter')
+    const tuiConfig = calls.find(call => call.name === 'ui-tui')?.config as { sessionId: string }
+    expect(tuiConfig).toMatchObject({ welcome: 'TUI ready', color: false, maxToolOutputLines: 3 })
+    expect(tuiConfig.sessionId).toMatch(/^main-session-/)
+    const spineConfig = calls.find(call => call.name === 'agent-spine-demo')?.config as {
+      agents: Array<{ id: string; sessionId?: string; resumeSessionId?: string }>
+    }
+    expect(spineConfig.agents[0]).toMatchObject({ id: 'main', sessionId: tuiConfig.sessionId })
+
+    calls.length = 0
+    stdioAgent.composeTerminalApp(ctx, {
+      provider: 'mock',
+      model: 'mock',
+      resumeSessionId: 'persisted-session',
+      workspaceContext: false,
+      ui: { mode: 'tui' },
+    }, true)
+    expect(calls.find(call => call.name === 'ui-tui')?.config).toMatchObject({
+      sessionId: 'persisted-session', welcome: 'ready.',
+    })
+    expect((calls.find(call => call.name === 'agent-spine-demo')?.config as typeof spineConfig).agents[0])
+      .toMatchObject({ id: 'main', resumeSessionId: 'persisted-session' })
+
+    calls.length = 0
+    stdioAgent.composeTerminalApp(ctx, {
+      provider: 'mock', model: 'mock', workspaceContext: false, ui: { mode: 'readline' },
+    }, false)
+    expect(calls.map(call => call.name)).toContain('ui-stdio')
+    expect(calls.map(call => call.name)).toContain('ConsoleExporter')
+    expect(calls.map(call => call.name)).not.toContain('ui-tui')
+  })
+
   it('composes the spine + front-door cluster and pre-creates the main agent', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-demo-spec', skills: await isolatedSkillsConfig() })
-    // The spine services (brought up by the agent-core bundle) are all present.
+    const ctx = await mount({ provider: 'mock', model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-stdio-demo-spec', skills: await isolatedSkillsConfig(), workspaceContext: false })
+    // The spine services (brought up by the agent-spine-demo bundle) are all present.
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
     expect(ctx.get('userInteraction')).toBeDefined()
     expect(ctx.get('tools')?.get('ask_user_question')).toBeDefined()
-    // The pre-created `main` agent the UI drives.
-    const agent = ctx.get('agents')?.get(AgentId('main'))
+    // The sole pre-created agent the UI drives. `main` is its stable config
+    // label; each fresh process mints a durable combined agent/session id.
+    await expect.poll(() => ctx.get('agents')?.list()).toHaveLength(1)
+    const agent = ctx.get('agents')?.list()[0]
     expect(agent).toBeDefined()
+    expect(agent?.id).toBe(agent?.session.id)
+    expect(agent?.id).toMatch(/^main-session-/)
     expect(agent?.session.header.cwd).toBe(process.cwd())
+    await ctx.fiber.dispose()
+  })
+
+  it('normalizes an empty resume id to a fresh exact app identity', async () => {
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      resumeSessionId: '',
+      persistenceRoot: '/tmp/dsh-stdio-agent-spec-empty-resume',
+      skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
+    })
+    await expect.poll(() => ctx.get('agents')?.list()).toHaveLength(1)
+    const agent = ctx.get('agents')?.list()[0]
+    expect(agent?.id).toMatch(/^main-session-[0-9a-f-]{36}$/)
+    expect(agent?.id).toBe(agent?.session.id)
     await ctx.fiber.dispose()
   })
 
   it('defaults persistenceRoot and welcome when omitted', async () => {
     // Direct apply (NOT via ctx.plugin, which validates+defaults the config
-    // first) so the runtime `?? './.sessions'` / `?? 'ready.'` fallbacks on
+    // first) so the runtime `DEFAULT_PERSISTENCE_ROOT` / `DEFAULT_WELCOME` fallbacks on
     // apply()'s last two lines are the ones that fire — covering a
     // schema-bypassing direct-mount caller.
     const ctx = new Context()
     // No persona: covers the omitted-persona forwarding branch too.
-    stdioAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig() })
-    await new Promise(resolve => setTimeout(resolve, 80))
+    stdioAgent.apply(ctx, { provider: 'mock', model: 'mock', skills: await isolatedSkillsConfig(), workspaceContext: false })
+    await expect.poll(() => ctx.get('agents')?.list()).toHaveLength(1)
     expect(ctx.get('sessionPersistence')).toBeDefined()
-    expect(ctx.get('agents')?.get(AgentId('main'))).toBeDefined()
+    expect(ctx.get('agents')?.list()[0]?.id).toMatch(/^main-session-/)
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards explicit project-instruction controls to the bundled spine', async () => {
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      persona: 'hi',
+      persistenceRoot: '/tmp/dsh-stdio-demo-spec-workspace-context',
+      workspaceContext: false,
+    })
+    await expect.poll(() => ctx.get('agents')?.list()).toHaveLength(1)
+    expect(ctx.get('agents')?.list()[0]?.id).toMatch(/^main-session-/)
     await ctx.fiber.dispose()
   })
 
   it('uses default skill config when apply is called directly without skills', async () => {
     await withIsolatedSkillHomes(async () => {
       const ctx = new Context()
-      stdioAgent.apply(ctx, { model: 'mock' })
+      stdioAgent.apply(ctx, { provider: 'mock', model: 'mock', workspaceContext: false })
       await new Promise(resolve => setTimeout(resolve, 80))
       expect(ctx.skills).toBeDefined()
       expect(await ctx.skills.list()).toEqual([])
@@ -107,29 +198,47 @@ describe('dsh-stdio-demo app', () => {
 
   it('forwards resumeSessionId onto the pre-created agent when set', async () => {
     // A resume id defers agent creation until persistence loads; with no backing
-    // session the resume is contained + logged, so no `main` agent registers —
+    // session the resume is contained + logged, so no agent registers —
     // the branch that maps resumeSessionId through is what this covers.
     const ctx = await mount({
+      provider: 'mock',
       model: 'mock',
       persona: 'hi',
       persistenceRoot: '/tmp/dsh-stdio-demo-spec-resume',
       resumeSessionId: 'no-such-session',
       skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
     })
-    expect(ctx.get('agents')?.get(AgentId('main'))).toBeUndefined()
+    expect(ctx.get('agents')?.list()).toEqual([])
     await ctx.fiber.dispose()
   })
 
-  it('forwards skill config into agent-core', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', skills: await isolatedSkillsConfig(6) })
+  it('forwards skill config and dshHome into agent-spine-demo', async () => {
+    const skills = await isolatedSkillsConfig(6)
+    const ctx = await mount({ provider: 'mock', model: 'mock', persona: 'hi', dshHome: skills.local!.dshHome!, skills, workspaceContext: false })
     ctx.skills.register({ name: 'stdio-skill', description: 'Stdio skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `stdio-skill`: Std...')
     await ctx.fiber.dispose()
   })
 
+  it('forwards maxParallelToolCalls to the bundled agent loop', async () => {
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      maxParallelToolCalls: 3,
+      persistenceRoot: '/tmp/dsh-stdio-demo-spec-parallel',
+      skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
+    })
+    expect(ctx.get('agentLoop')?.config.maxParallelToolCalls).toBe(3)
+    await ctx.fiber.dispose()
+  })
+
   it('forwards bundled tool config into agent-core', async () => {
     const ctx = await mount({
+      provider: 'mock',
       model: 'mock',
+      workspaceContext: false,
       toolBash: { enableRunInBackground: false },
       toolTasks: { waitTimeoutMs: 7, maxWaitTimeoutMs: 11 },
       skills: await isolatedSkillsConfig(),
@@ -145,11 +254,13 @@ describe('dsh-stdio-demo app', () => {
     expect(stdioAgent.Config).toBeDefined()
   })
 
-  it('forwards toolOrder through agent-core to the system-prompt assembly', async () => {
+  it('forwards toolOrder through agent-spine-demo to the system-prompt assembly', async () => {
     const ctx = await mount({
+      provider: 'mock',
       model: 'mock',
       toolOrder: ['zulu', TOOL_ORDER_REST],
       persistenceRoot: '/tmp/dsh-stdio-demo-spec-tool-order',
+      workspaceContext: false,
     })
     // The bundle's own bash tools pend on the absent `ctx.bash` executor in
     // this providerless mount, so register two plain tools to order.

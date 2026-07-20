@@ -1,7 +1,8 @@
 /**
  * The stdio app's readline UI: reads lines from stdin into `agent.send()` or
- * `steer()`, renders the durable event stream to stdout, and exits piped input
- * only after submitted work reaches idle.
+ * `steer()`, renders the durable event stream to stdout, buffers startup input
+ * for one exact agent/session identity, and exits piped input only after
+ * submitted work reaches idle.
  *
  * This package is the independently composable stdio front door. It establishes
  * the terminal channel and drives an agent created or resumed by app or
@@ -13,7 +14,9 @@ import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-agent-loop'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   UserInteractionError,
   type AskUserQuestionAnswer,
@@ -30,13 +33,13 @@ export const inject = ['agents', 'userInteraction']
 export interface Config {
   /** Banner printed once on start, before the first `> ` prompt. */
   welcome?: string
-  /** Id of the agent stdin drives (`send`/`steer`) and whose status gates the EOF exit; rendering is global. Defaults to `'main'`. */
-  agent?: string
+  /** Exact shared agent/session identity stdin drives. Defaults to `'main'`. */
+  sessionId?: string
 }
 
 export const Config: z<Config> = z.object({
   welcome: z.string().default('ready.'),
-  agent: z.string().default('main'),
+  sessionId: z.string().default('main'),
 })
 
 /**
@@ -59,6 +62,15 @@ function isTTYPair(input: Readable, output: Writable): boolean {
   return Boolean((input as { isTTY?: boolean }).isTTY && (output as { isTTY?: boolean }).isTTY)
 }
 
+/** Render an arbitrary failure without allowing hostile coercion to escape the UI boundary. */
+function renderThrown(value: unknown): string {
+  try {
+    return String(value)
+  } catch {
+    return '<unrenderable thrown value>'
+  }
+}
+
 interface PendingQuestion {
   request: AskUserQuestionRequest
   questionIndex: number
@@ -74,10 +86,15 @@ type OptionSelection =
   | { kind: 'invalid' }
 
 /**
- * Register stdio chat against an injectable I/O runtime.
- * @param ctx - agent and event context.
- * @param config - plugin config, defaulted for direct callers.
- * @param runtime - line source, render sink, and exit hook.
+ * The plugin body, parameterized over its I/O runtime. `apply` is the thin
+ * production wrapper that binds the real `process` streams; tests call this
+ * directly with fakes. Returns nothing — all registration is via `ctx.on`/
+ * `ctx.effect`, so fiber disposal tears every listener and the readline
+ * interface down.
+ * @param ctx - the context supplying the `agents` service and the event feeds.
+ * @param config - the plugin config; defaults are re-applied here for direct
+ * callers that bypass Loader validation.
+ * @param runtime - the process-I/O seam (line source, render sink, exit hook).
  */
 export function createStdioChat(ctx: Context, config: Config, runtime: StdioRuntime): void {
   // Default here too (not just via schemastery's `.default()`): this helper is
@@ -85,18 +102,22 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   // Loader validation, so it must be self-contained rather than trusting the
   // cast — `config.welcome as string` would otherwise be `undefined` on `{}`.
   const welcome = config.welcome ?? 'ready.'
-  const agentId = AgentId(config.agent ?? 'main')
+  const sessionId = SessionId(config.sessionId ?? 'main')
   const { input, output, exit } = runtime
 
-  // Session ids need not equal agent ids. Seed existing agents before listening
-  // so a pre-created or HMR-surviving agent still gets its short render label.
-  const labelBySession = new Map<string, string>()
-  for (const agent of ctx.agents.list()) labelBySession.set(agent.session.header.id, agent.id)
-  ctx.on('agent/created', (agent) => { labelBySession.set(agent.session.header.id, agent.id) })
-  ctx.on('agent/disposed', (agent) => { labelBySession.delete(agent.session.header.id) })
+  // Bind only to the exact identity this app passed to its config-created
+  // agent. Session ids are opaque: neither a prefix nor registry order can
+  // identify ownership. The root check rejects a child that somehow preempts
+  // the configured id; later recreation under the same id supports loop HMR.
+  const matchesConfiguredIdentity = (agent: Agent): boolean =>
+    agent.id === sessionId && ctx.agents.roots().includes(agent)
+  let target: Agent | undefined = ctx.agents.roots().find(agent => agent.id === sessionId)
 
-  // Render the canonical append order from session/event so reasoning state is
-  // deterministic across chunks and boundaries; there are no agent/* mirrors.
+  // Transcript rendering off the durable `session/event` feed — the assistant
+  // token stream, turn/step boundaries, tool activity, and todos all come from
+  // the one canonical stream (no agent/* mirrors). A single listener over the
+  // append order keeps `inReasoning` transitions deterministic across chunk and
+  // boundary events.
   let inReasoning = false
   ctx.on('session/event', (session, event) => {
     if (event.type === 'assistant/chunk') {
@@ -112,7 +133,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
         output.write(chunk.text)
       }
     } else if (event.type === 'turn/start') {
-      const label = labelBySession.get(session.header.id) ?? session.header.id
+      const label = target?.session === session ? 'main' : session.id
       output.write(`\n[${label} turn ${event.data.turn}] `)
     } else if (event.type === 'turn/end') {
       if (inReasoning) output.write('\x1B[0m')
@@ -138,10 +159,16 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
   })
 
   ctx.effect(() => {
-    const reader = createInterface({ input, output, terminal: isTTYPair(input, output) })
-    // On piped EOF, exit immediately if no work was submitted. Otherwise wait
-    // for a real running state followed by idle: sends do not synchronously mark
-    // running, and several queued lines may share one turn.
+    // Piped-input exit, once stdin reaches EOF:
+    //  - If no line ever submitted work (empty stdin, blank-only lines), exit
+    //    immediately — no turn will ever start, so there is nothing to wait
+    //    for. (Gating on an observed 'running' here would hang forever.)
+    //  - If work WAS submitted, exit the next time the agent settles to idle
+    //    AFTER having run. Two subtleties this handles: the loop batches
+    //    several queued messages into ONE turn (one idle), so we don't count
+    //    sends; and agent.send() does NOT synchronously flip status to
+    //    'running', so requiring an observed 'running' first (`sawRunning`)
+    //    avoids exiting in the gap before the turn starts and dropping work.
     let stdinClosed = false
     let disposed = false
     let submittedWork = false
@@ -149,6 +176,38 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
     let exitTimer: ReturnType<typeof setTimeout> | undefined
     let activeQuestion: PendingQuestion | undefined
     const questionQueue: PendingQuestion[] = []
+    const queuedInput: string[] = []
+    let targetReady = target !== undefined
+    let hadReadyTarget = targetReady
+    let failedStartup: { error: unknown } | undefined
+
+    const submit = (agent: Agent, text: string): void => {
+      submittedWork = true
+      if (agent.status === 'running') {
+        agent.steer([{ type: 'text', text }])
+      } else {
+        agent.send([{ type: 'text', text }])
+      }
+    }
+
+    const disposeCreatedListener = ctx.on('agent/created', (agent) => {
+      if (!matchesConfiguredIdentity(agent)) return
+      target = agent
+      targetReady = false
+      failedStartup = undefined
+    })
+    const disposeSessionStartListener = ctx.on('agent/session-start', (agent) => {
+      if (agent !== target) return
+      targetReady = true
+      hadReadyTarget = true
+      for (const text of queuedInput.splice(0)) submit(agent, text)
+    })
+    const disposeDisposedListener = ctx.on('agent/disposed', (agent) => {
+      if (target !== agent) return
+      target = undefined
+      targetReady = false
+    })
+    const reader = createInterface({ input, output, terminal: isTTYPair(input, output) })
 
     const maybeExit = (): void => {
       if (disposed || !stdinClosed) return
@@ -156,19 +215,33 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       // Work submitted: wait until a turn has run and the agent is idle.
       if (submittedWork) {
         if (!sawRunning) return
-        const agent = ctx.agents.get(agentId)
+        const agent = target
         if (agent && agent.status !== 'idle') return // a turn is still running
       }
-      // Let final output flush; track the timer so re-entry coalesces and HMR
-      // disposal can cancel it before it exits the replacement process.
+      // Let any final output flush, then exit. The handle is tracked so the
+      // disposer can cancel it — a dispose within the flush window must not let
+      // the process exit out from under HMR. Re-entrant `maybeExit` calls (e.g.
+      // repeated idle signals) coalesce onto the one pending timer.
       if (exitTimer !== undefined) {
         return // exit already scheduled — coalesce re-entrant calls
       }
       exitTimer = setTimeout(() => { exit(0) }, 200)
     }
 
+    const disposeStartupFailedListener = ctx.on('agent-loop/config-start-failed', (failedSessionId, error) => {
+      if (failedSessionId !== sessionId || targetReady) return
+      failedStartup = { error }
+      const dropped = queuedInput.length
+      queuedInput.length = 0
+      submittedWork = sawRunning
+      if (dropped > 0) {
+        ctx.logger.error(`ui-stdio: main agent failed to start; dropped queued stdin (${dropped} line(s)): ${renderThrown(error)}`)
+      }
+      maybeExit()
+    })
+
     const disposeStatusListener = ctx.on('agent/status', (subject, status) => {
-      if (subject.id !== agentId) return
+      if (subject !== target) return
       if (status === 'running') sawRunning = true
       if (status === 'idle') maybeExit()
     })
@@ -321,17 +394,25 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       }
       const text = line.trim()
       if (!text) return
-      const agent = ctx.agents.get(agentId)
-      if (!agent) {
-        ctx.logger.error('ui-stdio: agent "%s" is not running', agentId)
+      if (failedStartup !== undefined) {
+        ctx.logger.error(`ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): ${renderThrown(failedStartup.error)}`)
         return
       }
-      submittedWork = true
-      if (agent.status === 'running') {
-        agent.steer([{ type: 'text', text }])
-      } else {
-        agent.send([{ type: 'text', text }])
+      const agent = target
+      if (agent === undefined || !targetReady) {
+        // Initial exact-id restoration is asynchronous. Preserve input until
+        // session-start, the first supported point for queueing agent work.
+        // After a previously ready target disappears, a line in the HMR gap
+        // still fails loud unless its exact replacement is already publishing.
+        if (!hadReadyTarget || agent !== undefined) {
+          submittedWork = true
+          queuedInput.push(text)
+          return
+        }
+        ctx.logger.error('ui-stdio: main agent is not running')
+        return
       }
+      submit(agent, text)
     })
     reader.on('close', () => {
       // Fires for BOTH stdin EOF and plugin disposal (reader.close() below);
@@ -347,31 +428,25 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       disposePendingQuestions()
       disposeUserInteractionProvider()
       disposeStatusListener()
+      disposeCreatedListener()
+      disposeSessionStartListener()
+      disposeDisposedListener()
+      disposeStartupFailedListener()
       reader.close()
     }
   }, 'ui-stdio')
 }
 
 /**
- * Open the terminal channel once its configured agent exists. Generated stdio
- * projects boot the Cordis tree first and create or resume the agent from
- * developer code immediately afterward, so stdin must remain untouched until
- * the matching `agent/created` notification arrives.
+ * Open the terminal channel for one exact identity. The chat registers before
+ * that agent necessarily exists so it can buffer startup input and observe a
+ * config-start failure instead of leaving piped stdin hanging.
  * @param ctx - the context supplying the agent registry and event stream.
  * @param config - presentation and target-agent configuration.
  * @param runtime - process-I/O seam.
  */
 export function mountStdio(ctx: Context, config: Config, runtime: StdioRuntime): void {
-  const agentId = AgentId(config.agent ?? 'main')
-  if (ctx.agents.get(agentId) !== undefined) {
-    createStdioChat(ctx, config, runtime)
-    return
-  }
-  const dispose = ctx.on('agent/created', (agent) => {
-    if (agent.id !== agentId) return
-    dispose()
-    createStdioChat(ctx, config, runtime)
-  })
+  createStdioChat(ctx, config, runtime)
 }
 
 /**

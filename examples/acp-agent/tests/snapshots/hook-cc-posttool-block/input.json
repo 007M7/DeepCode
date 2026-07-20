@@ -2,6 +2,6 @@
   "steps": [
     { "op": "initialize" },
     { "op": "newSession" },
-    { "op": "prompt", "text": "Use the bash tool to run exactly: echo HELLO. Report the tool result you got back verbatim, then stop." }
+    { "op": "prompt", "text": "Call the bash tool to run exactly: echo HELLO. If the first tool result is rejected, retry that command once. Quote the final tool result verbatim and stop." }
   ]
 }

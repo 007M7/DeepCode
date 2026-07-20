@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   annotateSurface,
+  collectEventEnvelopeTypes,
   collectLogEvents,
   collectSurfaceEventTypes,
   render,
@@ -56,6 +57,7 @@ describe('gen-persistence-catalog collectLogEvents', () => {
       scope: 'fix',
       doc: 'A thing was recorded.',
       payload: '{ turn: number }',
+      declaration: '/** A thing was recorded. */\n\'fix/happened\': { turn: number }',
       source: 'packages/core/fix/src/types.ts:3',
     })
   })
@@ -102,10 +104,13 @@ describe('gen-persistence-catalog collectLogEvents', () => {
   it('collapses a newline-separated multi-line payload to a valid one-line fragment', () => {
     const events = collectLogEvents(make({
       'packages/group/fix/src/types.ts': merge(
-        '    /** Wide payload. */\n    \'fix/wide\': {\n      alpha: string[]\n      range: { start: number; end: number }\n      count: number\n    }',
+        '    /** Wide payload. */\n    \'fix/wide\': {\n      /** Alpha values. */\n      alpha: string[]\n      range: { start: number; end: number }\n      count: number\n    }',
       ),
     }))
     expect(events[0]?.payload).toBe('{ alpha: string[]; range: { start: number; end: number }; count: number }')
+    expect(events[0]?.declaration).toBe(
+      '/** Wide payload. */\n\'fix/wide\': {\n  /** Alpha values. */\n  alpha: string[]\n  range: { start: number; end: number }\n  count: number\n}',
+    )
   })
 
   it('hard-errors on a member with no description prose', () => {
@@ -158,6 +163,59 @@ describe('gen-persistence-catalog collectLogEvents', () => {
   })
 })
 
+describe('gen-persistence-catalog collectEventEnvelopeTypes', () => {
+  const declarations = `/** Event keys. */
+export type SessionEventType = keyof SessionEventMap
+/** Surface-producing event keys. */
+export type SurfaceEventType = 'fix/message'
+/** Surface placement. */
+export type SurfaceOp = 'append'
+/** One persisted event. */
+export type SessionEvent<T extends SessionEventType = SessionEventType> = { type: T }
+`
+
+  it('extracts the envelope declarations with their complete JSDoc in canonical order', () => {
+    const entries = collectEventEnvelopeTypes(make({
+      'packages/core/fix/package.json': OWNER_MANIFEST,
+      'packages/core/fix/src/types.ts': declarations,
+    }))
+    expect(entries.map(entry => entry.name)).toEqual([
+      'SessionEventType',
+      'SurfaceEventType',
+      'SurfaceOp',
+      'SessionEvent',
+    ])
+    expect(entries[3]).toMatchObject({
+      declaration: '/** One persisted event. */\nexport type SessionEvent<T extends SessionEventType = SessionEventType> = { type: T }',
+      source: 'packages/core/fix/src/types.ts:8',
+    })
+  })
+
+  it('hard-errors when an envelope declaration is missing', () => {
+    expect(() => collectEventEnvelopeTypes(make({
+      'packages/core/fix/package.json': OWNER_MANIFEST,
+      'packages/core/fix/src/types.ts': declarations.replace('/** Surface placement. */\nexport type SurfaceOp = \'append\'\n', ''),
+    }))).toThrow(/missing event-envelope declaration\(s\): SurfaceOp/)
+  })
+
+  it('hard-errors on duplicate, unexported, undocumented, or mistagged envelope declarations', () => {
+    const violations = new RegExp([
+      '4 JSDoc completeness violation\\(s\\)',
+      '[\\s\\S]*not exported',
+      '[\\s\\S]*@mode tag',
+      '[\\s\\S]*SurfaceOp.*no description prose',
+      '[\\s\\S]*SessionEvent.*already declared',
+    ].join(''))
+    expect(() => collectEventEnvelopeTypes(make({
+      'packages/core/fix/package.json': OWNER_MANIFEST,
+      'packages/core/fix/src/types.ts': declarations
+        .replace('/** Event keys. */\nexport type SessionEventType', '/** Event keys.\n * @mode emit\n */\ntype SessionEventType')
+        .replace('/** Surface placement. */\n', '')
+        + '/** Duplicate event. */\nexport type SessionEvent = { type: never }\n',
+    }))).toThrow(violations)
+  })
+})
+
 describe('gen-persistence-catalog collectSurfaceEventTypes', () => {
   it('parses the literal union', () => {
     const types = collectSurfaceEventTypes(make({
@@ -192,8 +250,20 @@ describe('gen-persistence-catalog annotateSurface + render', () => {
     scope: name.split('/')[0] ?? name,
     payload: '{ turn: number }',
     doc: `Records ${name}.`,
+    declaration: `/** Records ${name}. */\n'${name}': { turn: number }`,
     source: 'packages/core/fix/src/types.ts:3',
   })
+
+  const envelopeTypes = [
+    'SessionEventType',
+    'SurfaceEventType',
+    'SurfaceOp',
+    'SessionEvent',
+  ].map(name => ({
+    name: name as 'SessionEventType' | 'SurfaceEventType' | 'SurfaceOp' | 'SessionEvent',
+    declaration: `/** ${name}. */\nexport type ${name} = never`,
+    source: 'packages/core/fix/src/types.ts:1',
+  }))
 
   it('badges union members surface and everything else log-only', () => {
     const annotated = annotateSurface([entry('fix/message'), entry('fix/marker')], ['fix/message'])
@@ -205,11 +275,13 @@ describe('gen-persistence-catalog annotateSurface + render', () => {
       .toThrow(/'fix\/ghost' name no declared log event/)
   })
 
-  it('renders badges, payload fences, and the generated-file header', () => {
-    const out = render(annotateSurface([entry('fix/message'), entry('fix/marker')], ['fix/message']))
+  it('renders badges, declaration fences, and the generated-file header', () => {
+    const out = render(annotateSurface([entry('fix/message'), entry('fix/marker')], ['fix/message']), envelopeTypes)
     expect(out).toContain('Generated by scripts/gen-persistence-catalog.ts')
+    expect(out).toContain('# Session Persistence Event Catalog')
+    expect(out).toContain('```ts persistence-catalog\n/** SessionEventType. */\nexport type SessionEventType = never')
     expect(out).toContain('#### `fix/message` — surface')
     expect(out).toContain('#### `fix/marker` — log-only')
-    expect(out).toContain('```ts persistence-catalog\n\'fix/marker\': { turn: number }\n```')
+    expect(out).toContain('```ts persistence-catalog\n/** Records fix/marker. */\n\'fix/marker\': { turn: number }\n```')
   })
 })

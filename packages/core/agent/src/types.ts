@@ -5,25 +5,11 @@
  * @module @deepseek-ai/dsh-agent/types
  */
 
-import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Context } from 'cordis'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, LlmCallConfig, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContextEnvelope, JsonValue, Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-
-/** Identifies one live agent in the registry. */
-export type AgentId = Branded<'AgentId'>
-
-/**
- * Brand a string as an {@link AgentId}.
- * @param id - the raw agent id string.
- * @returns the same string, branded (a compile-time cast — no runtime cost).
- */
-export function AgentId(id: string): AgentId {
-  return id as AgentId
-}
-import type { Session } from '@deepseek-ai/dsh-session'
-
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
     /** Agent for this assembly; absent on diagnostics. When present, `scope` must identify the same agent. */
@@ -33,13 +19,23 @@ declare module '@deepseek-ai/dsh-system-prompt' {
 
 /** Merge-extensible agent creation options. Persona belongs to system-prompt sections. */
 export interface AgentOptions {
-  /** Model name (must have a registered adapter at call time). */
+  /** Provider route (must have a registered adapter at call time). */
+  provider?: string
+  /** Model id interpreted by the selected provider adapter. */
   model?: string
 }
 
 /** Message options; an omitted source resolves to `{ kind: 'user' }`, so plugins must label their own content. */
 export interface SendOptions {
   source?: MessageSource
+}
+
+/** Options specific to durable synthetic context injection. */
+export interface InjectOptions extends SendOptions {
+  /** Keep the canonical context tag, or send caller-owned framing verbatim. */
+  envelope?: ContextEnvelope
+  /** Opaque JSON state retained in the session event but hidden from the model. */
+  meta?: JsonValue
 }
 
 /**
@@ -54,21 +50,31 @@ export type AgentStatus = 'idle' | 'running' | 'disposed'
 export interface HookContext {
   content: ContentBlock[]
   source: MessageSource
+  /** Keep the canonical context tag, or use caller-owned framing verbatim. */
+  envelope?: ContextEnvelope
+  /** Opaque JSON state retained in the session event but hidden from the model. */
+  meta?: JsonValue
 }
 
 /**
- * Prompt interception result. `allow.content` replaces the prompt and
- * `additionalContext` becomes a separate context message. `block` records a
+ * Prompt interception result. `allow.content` replaces the prompt and each
+ * `additionalContexts` entry becomes a separate context message. `block` records a
  * durable `prompt/blocked`; an all-blocked batch ends a zero-step rejected turn.
  */
 export type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
   | { kind: 'block'; reason: string }
 
 /** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
 export type ContinuationDecision =
   | { action: 'stop' }
-  | { action: 'continue'; reason?: HookContext }
+  | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
+
+/** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */
+export type RequestErrorDecision = { action: 'fail' } | { action: 'retry' }
+
+/** Model-request failure with an optional machine-routable provider code. */
+export type RequestError = Error & { code?: string }
 
 /**
  * The terminal subset of {@link ContinuationDecision}. A listener on
@@ -80,9 +86,10 @@ export type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 /** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
-/** Public agent handle; the concrete driver belongs to `@deepseek-ai/dsh-agent-loop`. */
+/** Public agent handle; its concrete implementation is internal to `@deepseek-ai/dsh-agent-loop`. */
 export interface Agent {
-  readonly id: AgentId
+  /** The single identity shared with {@link session}. */
+  readonly id: SessionId
   readonly options: AgentOptions
   readonly session: Session
   readonly status: AgentStatus
@@ -103,12 +110,13 @@ export interface Agent {
   steer(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Append model-facing context without running the model. Idle injection uses
-   * a one-shot turn and durability checkpoint, while injection during an open
-   * turn joins it at the current log position. Disposal awaits idle checkpoints;
-   * flush failures are reported through `agent/error`, not thrown to the caller.
+   * Append detached model-facing context without running the model. An open-turn
+   * injection joins at the current log position unless the current tool batch is
+   * executing; then it waits FIFO until that batch settles and drains before turn
+   * close even when interrupted. Idle injection uses a one-shot turn and durability
+   * checkpoint. Disposal awaits idle checkpoints; flush failures report through `agent/error`.
    */
-  inject(content: ContentBlock[], options?: SendOptions): void
+  inject(content: ContentBlock[], options?: InjectOptions): void
 
   /**
    * Clear queued and steering work, including work waiting to start, and abort
@@ -183,23 +191,17 @@ declare module 'cordis' {
 
     // ---- step/request extension seams (serial + waterfall) ----
     /**
-     * Awaited serial checkpoint for session-surface mutation after prompt
-     * assembly and before `step/start`; appends land outside the pending step.
-     * The loop derives history once afterward, so compaction records and
-     * replacements are included without rewriting an assembled request. The
-     * prompt and prefix are the exact pressure inputs for that request, and
+     * Awaited serial checkpoint before `step/start`; appends land outside the
+     * pending step and are included when the loop derives request history.
      * `signal` cancels listener work.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @param agent - the agent opening the step.
      * @param turn - the open turn number.
      * @param step - the pending step number.
-     * @param fullSystemPrompt - the assembled prompt.
-     * @param sessionPrefix - the frozen request prefix.
      * @param signal - the turn abort signal.
      * @mode serial
      */
-    // TODO: Move prompt-pressure inputs behind a compaction-specific seam if no second consumer appears.
-    'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, fullSystemPrompt: string, sessionPrefix: readonly Message[], signal: AbortSignal): Promise<void> | void
+    'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
     /**
      * Allow, rewrite, or block one drained prompt before it becomes a user
      * message. Call `next()` for the unchanged default.
@@ -227,9 +229,9 @@ declare module 'cordis' {
      * result is computed once per loop instance, logged on its anchoring request
      * header, and reused so the provider prefix remains stable. Interrupted
      * composition is discarded. Composition precedes the first `agent/pre-step`
-     * and request boundary, so listener appends join the current request and
-     * pressure accounting sees the composed prefix. Changing context belongs in
-     * history; contributors should prepend to `await next()` to preserve registration order.
+     * and request boundary, so listener appends join the current request.
+     * Changing context belongs in history; contributors should prepend to
+     * `await next()` to preserve registration order.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @param agent - the agent whose session prefix is being composed.
      * @param prefix - the frozen seed; return an extended replacement.
@@ -248,6 +250,32 @@ declare module 'cordis' {
      * @mode waterfall
      */
     'agent/step-result'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>
+    /**
+     * Awaited serial checkpoint after the response, real or synthetic tool
+     * results, injected context, and steering are durable but before `step/end`.
+     * A cancelled tool batch reaches this checkpoint with an aborted signal.
+     * @param agent - the agent whose step is settling.
+     * @param turn - the open turn number.
+     * @param step - the open step number.
+     * @param signal - the turn abort signal.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode serial
+     */
+    'agent/post-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
+    /**
+     * Recover a model-request failure after its failed step has closed. `retry`
+     * opens a new numbered step; `fail` preserves the original request error.
+     * Call `next()` to delegate to the next recovery listener or the default.
+     * @param agent - the agent whose request failed.
+     * @param turn - the open turn number.
+     * @param step - the failed step number.
+     * @param error - the original model-request failure.
+     * @param retryAttempt - zero-based number of prior recovery retries.
+     * @param signal - the turn abort signal.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode waterfall
+     */
+    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, retryAttempt: number, signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>
     /**
      * Override whether the turn continues. The default continues after tool
      * calls or steering and stops otherwise; a continue reason becomes steering.

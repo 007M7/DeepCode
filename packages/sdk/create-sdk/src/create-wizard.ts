@@ -48,6 +48,7 @@ export class CreateWizard {
   private readonly versionProbe: PackageManagerVersionProbe
   private readonly userAgent: string
   private readonly linkWorkspaceRoot: string | undefined
+  private readonly featurePlan: readonly FeatureSelection[] | undefined
 
   /** Bind parsed args and infrastructure to one wizard run. */
   constructor(options: {
@@ -57,6 +58,7 @@ export class CreateWizard {
     releaseVersion: string
     versionProbe?: PackageManagerVersionProbe
     userAgent?: string
+    features?: readonly FeatureSelection[]
   }) {
     this.args = options.args
     this.port = options.port
@@ -68,6 +70,7 @@ export class CreateWizard {
     this.linkWorkspaceRoot = options.args.linkWorkspace
       ? fileURLToPath(new URL('../../../../', import.meta.url))
       : undefined
+    this.featurePlan = options.features
   }
 
   /** Collect all answers before constructing any project files. */
@@ -129,39 +132,43 @@ export class CreateWizard {
     const configurable = registry.all().filter(feature => feature.id === 'bash'
       || feature.id === 'persistence'
       || (!feature.required && feature.isApplicable(profile)))
-    const selected = [...requireAnswer(await this.port.nestedMultiselect({
-      message: 'Select features',
-      options: configurable.map((feature) => {
-        const nested = feature.mode !== 'single'
-        const defaults = new Set(feature.defaultOptions(profile))
-        return {
-          value: feature.id,
-          label: feature.summary,
-          required: feature.required,
-          default: feature.required || feature.id === 'hmr' || feature.id === 'fs' || feature.id === 'todo'
-            || feature.id === 'skill',
-          ...nested ? {
-            choiceMode: feature.mode === 'multiple' ? 'multiple' as const : 'exclusive' as const,
-            choices: feature.options.map(option => ({
-              value: option.id,
-              label: option.label,
-              default: defaults.has(option.id),
-            })),
-          } : {},
+    const selected = this.featurePlan
+      ? this.featurePlan.map(feature => ({ value: feature.id, choices: feature.options }))
+      : [...requireAnswer(await this.port.nestedMultiselect({
+        message: 'Select features',
+        options: configurable.map((feature) => {
+          const nested = feature.mode !== 'single'
+          const defaults = new Set(feature.defaultOptions(profile))
+          return {
+            value: feature.id,
+            label: feature.summary,
+            required: feature.required,
+            default: feature.required || feature.id === 'hmr' || feature.id === 'fs' || feature.id === 'todo'
+              || feature.id === 'skill',
+            ...nested ? {
+              choiceMode: feature.mode === 'multiple' ? 'multiple' as const : 'exclusive' as const,
+              choices: feature.options.map(option => ({
+                value: option.id,
+                label: option.label,
+                default: defaults.has(option.id),
+              })),
+            } : {},
+          }
+        }),
+      }))]
+    if (!this.featurePlan) {
+      for (const { value: id } of [...selected]) {
+        const feature = registry.get(id)
+        for (const suggestedId of feature.suggests) {
+          if (selected.some(item => item.value === suggestedId)) continue
+          const suggested = registry.get(suggestedId)
+          const add = requireAnswer(await new ConfirmQuestion({
+            id: `${feature.id}.${suggested.id}`,
+            message: `Add the recommended ${suggested.summary.toLowerCase()} for ${feature.summary.toLowerCase()}?`,
+            initialValue: true,
+          }).resolve(this.port))
+          if (add) selected.push({ value: suggested.id, choices: suggested.defaultOptions(profile) })
         }
-      }),
-    }))]
-    for (const { value: id } of [...selected]) {
-      const feature = registry.get(id)
-      for (const suggestedId of feature.suggests) {
-        if (selected.some(item => item.value === suggestedId)) continue
-        const suggested = registry.get(suggestedId)
-        const add = requireAnswer(await new ConfirmQuestion({
-          id: `${feature.id}.${suggested.id}`,
-          message: `Add the recommended ${suggested.summary.toLowerCase()} for ${feature.summary.toLowerCase()}?`,
-          initialValue: true,
-        }).resolve(this.port))
-        if (add) selected.push({ value: suggested.id, choices: suggested.defaultOptions(profile) })
       }
     }
     const fixed = new Set(selections.map(selection => selection.id))
@@ -174,12 +181,16 @@ export class CreateWizard {
     for (const choice of selected) {
       choices.set(choice.value, choice.choices.length > 0 ? choice.choices : undefined)
     }
+    const plannedById = new Map((this.featurePlan ?? []).map(feature => [feature.id, feature]))
     for (const [id, options] of choices) {
+      const planned = plannedById.get(id)
       selections.push(await configurator.configure(
         registry.get(id),
         profile,
         undefined,
         options,
+        planned?.secrets ?? {},
+        planned?.values ?? {},
       ))
     }
     return selections

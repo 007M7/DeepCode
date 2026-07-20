@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import { DONE, mapFinishReason, mapUsage, translate } from '@deepseek-ai/dsh-llm-deepseek'
+import { DONE } from '../src/sse.ts'
+import { mapFinishReason, mapUsage, translate } from '../src/translate.ts'
 
 async function* feed(...payloads: (string | object)[]): AsyncGenerator<string> {
   for (const payload of payloads) {

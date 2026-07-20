@@ -28,6 +28,9 @@
     },
     {
       "path": "../subagent-subprocess"
+    },
+    {
+      "path": "../../support/loader-smoke"
     }
   ]
 }
