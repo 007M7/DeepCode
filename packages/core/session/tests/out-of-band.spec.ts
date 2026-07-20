@@ -11,10 +11,9 @@ declare module '@deepseek-ai/dsh-session' {
     'test/log-only': true
   }
 
-  interface TurnTriggerMap {
-    'test/update': { kind: 'test/update' }
-  }
 }
+
+const updateTrigger = { kind: 'injection', source: { kind: 'plugin', plugin: 'test' } } as const
 
 describe('SessionStore.appendOutOfBand', () => {
   it('joins an open turn without adding a boundary or flushing it', async () => {
@@ -32,7 +31,7 @@ describe('SessionStore.appendOutOfBand', () => {
       session,
       'test/log-only',
       { value: 'inside' },
-      { kind: 'test/update' },
+      updateTrigger,
     )
 
     expect(event).toMatchObject({ type: 'test/log-only', seq: 1, data: { value: 'inside' } })
@@ -53,22 +52,22 @@ describe('SessionStore.appendOutOfBand', () => {
       session,
       'test/log-only',
       { value: 'first' },
-      { kind: 'test/update' },
+      updateTrigger,
     )
     const second = await ctx.sessions.appendOutOfBand(
       session,
       'test/log-only',
       { value: 'second' },
-      { kind: 'test/update' },
+      updateTrigger,
     )
 
     expect(first.seq).toBe(1)
     expect(second.seq).toBe(4)
     expect(session.events).toMatchObject([
-      { type: 'turn/start', seq: 0, data: { turn: 1, trigger: { kind: 'test/update' } } },
+      { type: 'turn/start', seq: 0, data: { turn: 1, trigger: updateTrigger } },
       { type: 'test/log-only', seq: 1, data: { value: 'first' } },
       { type: 'turn/end', seq: 2, data: { turn: 1, reason: { kind: 'completed' } } },
-      { type: 'turn/start', seq: 3, data: { turn: 2, trigger: { kind: 'test/update' } } },
+      { type: 'turn/start', seq: 3, data: { turn: 2, trigger: updateTrigger } },
       { type: 'test/log-only', seq: 4, data: { value: 'second' } },
       { type: 'turn/end', seq: 5, data: { turn: 2, reason: { kind: 'completed' } } },
     ])
@@ -89,7 +88,7 @@ describe('SessionStore.appendOutOfBand', () => {
       session,
       'test/log-only',
       { value: 1n } as never,
-      { kind: 'test/update' },
+      updateTrigger,
     )).rejects.toThrow(/non-JSON-serializable/)
 
     expect(session.events).toMatchObject([
@@ -110,7 +109,7 @@ describe('SessionStore.appendOutOfBand', () => {
       session,
       'test/log-only',
       { value: 'unreachable' },
-      { kind: 'test/update', invalid: 1n } as never,
+      { ...updateTrigger, invalid: 1n } as never,
     )).rejects.toThrow(/non-JSON-serializable/)
 
     expect(session.events).toEqual([])
@@ -127,7 +126,7 @@ describe('SessionStore.appendOutOfBand', () => {
       session,
       'test/log-only',
       { value: 1n } as never,
-      { kind: 'test/update' },
+      updateTrigger,
     )).rejects.toThrow(/non-JSON-serializable/)
 
     expect(session.events.map(event => event.type)).toEqual([
@@ -154,7 +153,7 @@ describe('SessionStore.appendOutOfBand', () => {
       session,
       'test/log-only',
       { value: 'last' },
-      { kind: 'test/update' },
+      updateTrigger,
     )
 
     expect(session.events.map(event => event.type)).toEqual([
@@ -175,7 +174,7 @@ describe('SessionStore.appendOutOfBand', () => {
       session,
       'test/log-only',
       { value: 'nope' },
-      { kind: 'test/update' },
+      updateTrigger,
     )).rejects.toThrow('session "detached" is not live in this store')
     expect(session.events).toEqual([])
   })
@@ -190,7 +189,7 @@ describe('SessionStore.appendOutOfBand', () => {
       session,
       'test/log-only',
       { value: 'accepted' },
-      { kind: 'test/update' },
+      updateTrigger,
     )).rejects.toThrow('disk failed')
     expect(session.events.map(event => event.type)).toEqual([
       'turn/start',
@@ -213,13 +212,13 @@ describe('SessionStore.appendOutOfBand', () => {
       session,
       'test/log-only',
       { value: 'first' },
-      { kind: 'test/update' },
+      updateTrigger,
     )
     await expect(ctx.sessions.appendOutOfBand(
       session,
       'test/log-only',
       { value: 'overlap' },
-      { kind: 'test/update' },
+      updateTrigger,
     )).rejects.toThrow(/out-of-band append in progress/)
     release()
     await expect(first).resolves.toMatchObject({ data: { value: 'first' } })

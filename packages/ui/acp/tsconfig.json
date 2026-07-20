@@ -36,6 +36,9 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../commands"
+    },
+    {
       "path": "../user-interaction"
     },
     {

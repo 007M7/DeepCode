@@ -2,13 +2,13 @@
 
 [English](architecture.md) | 中文
 
-**DeepSeek Harness SDK** 基于 Cordis 构建 agent harness（智能体框架）。设计准则很简单：**一切皆插件**。已交付的循环只是一个插件，并非拥有特权的内核。
+**DeepSeek Harness SDK** 使用 Cordis：**一切皆插件**，循环也不例外。
 
 ## 概览
 
-一个 harness 对应一个 [Cordis](cordis-primer.md) 上下文。各包（package）会添加服务（`ctx.llm`、`ctx.tools`、`ctx.sessions`、`ctx.sessionTitle`）、类型化事件（`agent/request`、`tools/pre-execute`、`session/event`）和可释放的注册项。
+每个 harness 都是一个 [Cordis](cordis-primer.md) 上下文。各包（package）会贡献服务（`ctx.llm`、`ctx.tools`、`ctx.sessions`、`ctx.sessionTitle`）、类型化事件（`agent/request`、`tools/pre-execute`、`session/event`），以及可释放的提示词、工具、提供方、适配器和监听器。
 
-`packages/core/` 汇集默认的 agent 流程；外围功能同样都是一等的 Cordis 插件。
+`packages/core/` 汇集默认的 agent（智能体）流程；其他功能均为一等的 Cordis 插件。
 
 ### 默认服务
 
@@ -38,6 +38,7 @@
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | 具名委托提供方 |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | 后台任务注册表和通用 `task_*` 控制工具 |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | 脚本驱动的多 agent 编排 |
+| `ctx.goals` | [`goal/`](../packages/goal/README.md) | 持久化的同会话目标 |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | 会话日志的持久存储 |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | 实时优先的逻辑语料精确读取和关系追踪 |
 | `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | 基于日志的回退标题和单个可选异步提供方 |
@@ -112,7 +113,7 @@ forever:
 
 每个步骤都会组装有序提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定，循环则提供 `model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-工具执行阶段的上下文会在结果记录后稳定。steering（中途引导）在 `agent/post-step` 前排空；余留内容会成为排队输入。终止型 `agent/turn-stop` 在续跑判断和 steering 折叠后执行，在整个刷写期间保持最终决定权，并丢弃后续 steering，同时保留排队提示词。
+工具执行阶段的上下文，包括异步 `agent.inject()` 通知和工具执行后的 `additionalContexts`，会在结果产生后稳定。steering（中途引导）会排空；在信号关闭前，`agent/post-step` 会观察持久输出、结果、上下文和 steering。余留内容进入队列。终止型 `agent/turn-stop` 在续跑判断和 steering 折叠后运行，在关闭和刷写期间仍具有最终决定权，并丢弃后续 steering，同时保留排队提示词。
 
 裁剪先于摘要；溢出重试必须取得持久进展。有界的瞬态重试在 `agent/request-error` 上组合；取消优先（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)）。
 
@@ -120,7 +121,7 @@ forever:
 
 轮次是故障隔离边界。适配器故障会关闭步骤，并携带准确的故障事实进入 `agent/request-error`。重试会开启一个有编号的步骤；重试耗尽后，故障存入 `turn/end`。失败分片不会提交任何消息或工具。
 
-其他故障使用 `agent/error`。取消和 dispose（资源释放）优先于恢复；尚未分派的模型工具调用会收到合成的 `tool/call` 与 `ABORTED` 结果对，然后才出现 `turn/end`。`cancel()` 会清空队列并中止活跃工作；资源释放会等待系统停稳后再注销。
+其他故障使用 `agent/error`。取消优先于恢复；尚未分派的调用会得到合成的 `ABORTED` 结果。实际生效的 `cancel()` 会在清空队列或中止前发出 `agent/cancel-requested`；观察方不能否决该操作，空闲状态下的调用不发出任何事件。dispose（资源释放）会等待系统停稳。
 
 每个会话事件都包围在轮次内。重新加载会保留中断的日志尾部，并用合成的 `interrupted` 轮次结束事件将其闭合。持久轮次关闭后的故障只通过 `agent/error` 报告，因为此时已没有安全的轮次内位置。每个轮次有一个 `TurnEndReason`；各变体由 [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) 统一定义。
 
@@ -154,35 +155,37 @@ forever:
 
 ### 功能模式
 
-可替换功能通常拆分为**接口／实现／消费方**：接口拥有自己的 `ctx` 键和事件，实现负责注册后端，消费方通过工具或提示词暴露模型行为。Bash 是参考实现；[功能图](capability-seams.md)展示了所有包族。
+可替换功能通常拆分为**接口／实现／消费方**：服务和事件、后端，以及面向模型的工具和提示词。Bash 是参考实现；[功能图](capability-seams.md)映射了每个包族。
 
-有些服务边界会调整这一模板：LLM（大语言模型）合并接口和消费方；文件系统以策略包装提供方；web、skill 和 subagent 拥有注册表。会话标题将内置回退方案与单提供方注册表和共享 LLM 辅助组件配对。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀，或使用 ACP（Agent Client Protocol）子 agent（[subagent.md](core-data-structures/subagent.md)）。
+例外情况会合并不同层次：LLM（大语言模型）合并接口和消费方，文件系统整合策略，web 使用注册表，skill 和 subagent 使用具名提供方。会话标题将内置回退方案与单提供方注册表和共享 LLM 辅助组件配对。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀，或使用 ACP（Agent Client Protocol）子 agent（[subagent.md](core-data-structures/subagent.md)）。
 
 `dsh-workspace-context` 在 `agent/session-prefix` 上组合基线，并在通过 `ctx.fs` 发现嵌套变更后，于 `tools/post-execute` 追加这些变更；其[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)记录了隔离方式。`dsh-paths` 负责共享路径。
 
 ### 组合包与应用
 
-`dsh-agent-spine-demo` 组合默认主干，其中包含仅提供回退行为的会话标题；模型标题提供方保持按需启用（[README](../packages/examples/agent-spine-demo/README.md)）。`dsh-tui-demo` 负责终端；`dsh-cli-demo` 运行一个持久化的无界面轮次；`dsh-acp-demo` 添加保持 stdout 纯净的 ACP（[ui/](../packages/ui/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 仅在没有显式配置时提供默认项，并驱动按行分隔的 JSON-RPC（[Python SDK](../python/README.md)）。部署保持为轻量叶节点，使用可替换后端和可选工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
+`dsh-agent-spine-demo` 组合默认主干，其中包含回退标题和可选的持久化目标；模型标题提供方仍需按需启用（[README](../packages/examples/agent-spine-demo/README.md)）。`dsh-tui-demo` 负责交互式全屏终端，并默认启用目标功能和 `/goal`；`dsh-cli-demo` 运行一个持久化的无界面轮次，并保持 stdout 格式纯净；`dsh-acp-demo` 通过 JSON-RPC 添加 stdout 纯净的 ACP，并启用相同的目标与命令栈（[ui/](../packages/ui/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 仅在没有显式配置通道时提供默认项，并通过按行分隔的 JSON-RPC 驱动 `dsh-jsonrpc`（[Python SDK](../python/README.md)）。部署保持为轻量叶节点，使用可替换后端和可选产品工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
 
 ### 新行为的归属位置
 
-新行为应附加到已有文档记录的扩展点；修改已交付的循环时，必须同步更新本架构图。
+新行为附加到已有文档记录的扩展点；循环发生变更时，本架构图随之更新。
 
 | 目标 | 机制 |
 |---|---|
 | 添加模型提供方 | 在 `ctx.llm` 上注册适配器 |
-| 添加面向模型的功能 | 在 `ctx.tools` 上注册工具；schema 会进入提示词组装流程 |
-| 添加命令执行 | 实现并注册 `ctx.bash` 后端 |
-| 添加长时间运行或后台功能 | 在 `ctx.tasks` 上注册工作；通用 `task_*` 工具负责收集或停止 |
+| 添加面向模型的功能 | 在 `ctx.tools` 上注册；schema 进入提示词组装流程 |
+| 添加 shell 执行 | 实现并注册 `ctx.bash` 后端 |
+| 添加用户命令 | 在 `ctx.commands` 上注册；适配器无需模型轮次即可发现并分派该命令 |
+| 添加后台工作 | 在 `ctx.tasks` 上注册；通用 `task_*` 工具负责收集或停止 |
 | 添加文件系统访问或策略 | 实现 `ctx.fs` 提供方，或监听 `fs/*` 策略事件 |
 | 限制生成的进程 | 使用 `ctx.sandbox` 后端；消费方在生成进程前包装 argv |
-| 拦截提示词、请求、模型完成或失败、工具使用或续跑 | 监听相应的 `agent/*` 或 `tools/*` 事件；使用串行 `agent/turn-stop` 实现单调终止 |
-| 添加历史记录之外的会话稳定请求前缀 | 在 `agent/session-prefix` 上组合，每个循环实例一次；记录在请求头中 |
+| 拦截请求、工具或轮次 | 使用相应的 `agent/*` 或 `tools/*` 事件；`agent/turn-stop` 是串行终止判定点 |
+| 添加历史记录之外的会话稳定前缀 | 组合 `agent/session-prefix`；请求头会记录该前缀 |
 | 添加 UI 或编辑器集成 | 驱动 `ctx.agents` 并从 `session/event` 渲染 |
 | 添加持久会话状态 | 添加一个 `SessionEventMap` 成员，并从日志渲染和回放 |
 | 添加异步会话标题生成 | 在 `ctx.sessionTitle` 上注册唯一提供方 |
+| 管理同会话目标 | 使用 `ctx.goals`；通过 `Agent` 和 `agent/*` 续跑 |
 | fork 活跃会话 | 使用 `ctx.sessions.fork(source, boundary?, childSessionId?)` |
-| 将工具、提示词片段或监听器限定到单个 agent | 通过该 agent 的 `agent.ctx` 注册（参见 Agent 作用域） |
+| 将注册项限定到单个 agent | 使用该 agent 的 `agent.ctx`（参见 Agent 作用域） |
 
 [扩展实操手册（cookbook）](cookbook/extension-cookbook.md)提供插件骨架和功能到服务边界的映射；分步指南涵盖[包](cookbook/adding-a-package.md)、[工具](cookbook/adding-a-tool.md)、[LLM 适配器](cookbook/adding-an-llm-adapter.md)和 [vendored 包](cookbook/adding-a-vendored-package.md)。
 

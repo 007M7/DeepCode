@@ -21,6 +21,7 @@ const GROUP_ORDER = [
   'util',
   'llm',
   'core',
+  'goal',
   'bash',
   'fs',
   'skill',

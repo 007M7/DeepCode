@@ -2,13 +2,13 @@
 
 English | [中文](architecture.zh.md)
 
-The **DeepSeek Harness SDK** builds agent harnesses on Cordis. The principle is simple: **everything is a plugin**. The shipped loop is one plugin, not a privileged kernel.
+**DeepSeek Harness SDK** uses Cordis: **everything is a plugin**, including the loop.
 
 ## Overview
 
-A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx.llm`, `ctx.tools`, `ctx.sessions`, `ctx.sessionTitle`), typed events (`agent/request`, `tools/pre-execute`, `session/event`), and disposable registrations.
+Harnesses are [Cordis](cordis-primer.md) contexts. Packages contribute services (`ctx.llm`, `ctx.tools`, `ctx.sessions`, `ctx.sessionTitle`), typed events (`agent/request`, `tools/pre-execute`, `session/event`), and disposable prompts, tools, providers, adapters, and listeners.
 
-`packages/core/` groups the default agent flow; surrounding capabilities are equally first-class Cordis plugins.
+`packages/core/` groups the default agent flow; other capabilities are first-class Cordis plugins.
 
 ### Default Services
 
@@ -38,6 +38,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
+| `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred logical-corpus exact reads and relationship traces |
 | `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | log-backed fallback titles and one optional asynchronous provider |
@@ -112,7 +113,7 @@ forever:
 
 Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona, while the loop supplies `model` and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Tool-time context settles after recorded results. Steering drains before `agent/post-step`; leftovers become queued input. Terminal `agent/turn-stop` runs after continuation and steering folding, stays authoritative through flush, and discards later steering while preserving queued prompts.
+Tool-time context—including async `agent.inject()` notices and post-tool `additionalContexts`—settles after results. Steering drains; before signal closure, `agent/post-step` observes durable output, results, context, and steering. Leftovers queue. Terminal `agent/turn-stop` runs after continuation and steering folding, remains authoritative through close/flush, and discards later steering while preserving queued prompts.
 
 Pruning precedes summaries; overflow retries require durable progress. Bounded transient retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 
@@ -120,7 +121,7 @@ Pruning precedes summaries; overflow retries require durable progress. Bounded t
 
 The turn is the containment boundary. Adapter failures close the step and enter `agent/request-error` with exact failure facts. Retry opens a numbered step; exhaustion stores the failure on `turn/end`. Failed chunks commit no message or tool.
 
-Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched model tool calls receive synthetic `tool/call` and `ABORTED` result pairs before `turn/end`. `cancel()` clears queues and aborts active work; disposal awaits quiescence before unregistering.
+Other failures use `agent/error`. Cancellation beats recovery; undispatched calls get synthetic `ABORTED` results. Effective `cancel()` emits `agent/cancel-requested` before queue clearing or abort; observers cannot veto it, and idle calls emit nothing. Disposal awaits quiescence.
 
 Every session event is turn-enclosed. Reloading preserves an interrupted tail and closes it with a synthetic `interrupted` turn end. Failures after durable turn close report only through `agent/error` because no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
 
@@ -154,35 +155,37 @@ Streaming uses raw chunks and `BlockAssembler`. One `LlmAdapter.stream()` is one
 
 ### Capability Pattern
 
-A swappable capability usually splits into **interface / implementation / consumer**: the interface owns its `ctx` key and events, an implementation registers a backend, and a consumer exposes model behavior through tools or prompts. Bash is the reference; the [capability graph](capability-seams.md) shows every family.
+A swappable capability usually splits into **interface / implementation / consumer**: service/events, a backend, and model-facing tools/prompts. Bash is the reference; the [capability graph](capability-seams.md) maps each family.
 
-Some seams bend the template: LLM combines interface and consumer; filesystem wraps providers with policy; web, skills, and subagents own registries. Session titles pair a built-in fallback with a single-provider registry and shared LLM helper. Subagents spawn fresh, fork a completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
+Exceptions combine layers: LLM interface/consumer; filesystem policy; web registries; named skill/subagent providers. Session titles pair a built-in fallback with a single-provider registry and shared LLM helper. Subagents spawn fresh, fork a completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
 
 `dsh-workspace-context` composes baselines on `agent/session-prefix` and appends `ctx.fs`-discovered nested changes on `tools/post-execute`; its [decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md) records isolation. `dsh-paths` owns shared paths.
 
 ### Bundles And Apps
 
-`dsh-agent-spine-demo` bundles the default spine, including fallback-only session titles; model title providers remain opt-in ([README](../packages/examples/agent-spine-demo/README.md)). `dsh-tui-demo` owns the terminal; `dsh-cli-demo` runs one persisted headless turn; `dsh-acp-demo` adds stdout-pure ACP ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies a default only without an explicit config and drives line-delimited JSON-RPC ([Python SDK](../python/README.md)). Deployments remain thin leaves with swappable backends and optional tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
+`dsh-agent-spine-demo` bundles the default spine with fallback titles and optional persisted goals; model title providers remain opt-in ([README](../packages/examples/agent-spine-demo/README.md)). `dsh-tui-demo` owns the interactive full-screen terminal and enables goals plus `/goal` by default; `dsh-cli-demo` runs one persisted headless turn with format-pure stdout; `dsh-acp-demo` adds stdout-pure ACP over JSON-RPC and enables the same goal and command stack ([ui/](../packages/ui/README.md)). `dsh-jsonrpc-agent` boots external `cordis.yml`; the Python SDK supplies its default only without an explicit config channel and drives `dsh-jsonrpc` over line-delimited JSON-RPC ([Python SDK](../python/README.md)). Deployments remain thin leaves with swappable backends and optional product tools ([examples/](../examples/AGENTS.md), [runnable wirings](cookbook/extension-cookbook.md#runnable-wirings), [graph atlas](graph-atlas.md)).
 
 ### Where New Behavior Goes
 
-New behavior should attach to a documented extension point; changing the shipped loop requires updating this map.
+New behavior attaches to a documented extension point; a loop change updates this map.
 
 | Goal | Mechanism |
 |---|---|
 | Add a model provider | register an adapter on `ctx.llm` |
-| Add a model-facing capability | register a tool on `ctx.tools`; schemas flow into prompt assembly |
-| Add command execution | implement and register a `ctx.bash` backend |
-| Add a long-running/background capability | register the work on `ctx.tasks`; the generic `task_*` tools collect/stop it |
+| Add a model-facing capability | register on `ctx.tools`; schemas enter prompt assembly |
+| Add shell execution | implement and register a `ctx.bash` backend |
+| Add a human command | register on `ctx.commands`; adapters discover and dispatch it without a model turn |
+| Add background work | register on `ctx.tasks`; generic `task_*` tools collect or stop it |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
 | Confine spawned processes | a `ctx.sandbox` backend; consumers wrap their argv before spawning |
-| Intercept prompts, requests, model completion/failure, tool use, or continuation | listen on the relevant `agent/*` or `tools/*` event; use serial `agent/turn-stop` for a monotonic terminal stop |
-| Add a session-stable request prefix outside history | compose it on `agent/session-prefix`, once per loop instance; logged on the request header |
+| Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stop` is the serial terminal stop |
+| Add a session-stable prefix outside history | compose `agent/session-prefix`; the request header logs it |
 | Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
 | Add asynchronous session-title generation | register the sole provider on `ctx.sessionTitle` |
+| Manage a same-session objective | use `ctx.goals`; continue through `Agent` and `agent/*` |
 | Fork a live session | use `ctx.sessions.fork(source, boundary?, childSessionId?)` |
-| Scope a tool, prompt section, or listener to ONE agent | register it through that agent's `agent.ctx` (see Agent Scope) |
+| Scope a registration to one agent | use that agent's `agent.ctx` (see Agent Scope) |
 
 The [extension cookbook](cookbook/extension-cookbook.md) carries plugin skeletons and the feature-to-seam map; step-by-step guides cover [packages](cookbook/adding-a-package.md), [tools](cookbook/adding-a-tool.md), [LLM adapters](cookbook/adding-an-llm-adapter.md), and [vendored packages](cookbook/adding-a-vendored-package.md).
 
