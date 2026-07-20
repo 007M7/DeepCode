@@ -103,7 +103,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:369`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:360`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
@@ -883,7 +883,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/ui/stdio/src/index.ts:33`](../packages/ui/stdio/src/index.ts)
+Source: [`packages/ui/stdio/src/index.ts:34`](../packages/ui/stdio/src/index.ts)
 
 ## `@deepseek-ai/dsh-stdio-demo`
 
@@ -1333,7 +1333,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:100`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:101`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 

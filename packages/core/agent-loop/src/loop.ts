@@ -8,7 +8,7 @@
 import type { Context } from 'cordis'
 import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, Message } from '@deepseek-ai/dsh-llm'
 import { isDeepStrictEqual } from 'node:util'
-import { BlockAssembler, HarnessError, assertNever, deepFreeze, isLlmAdapterFailure } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, HarnessError, assertNever, deepFreeze, errorChain, isLlmAdapterFailure } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
@@ -56,9 +56,12 @@ function finishError(finish: FinishReason): RequestError | undefined {
 /**
  * Build the `{ message, code? }` part of an error payload, omitting the
  * `code` key entirely when absent (exactOptionalPropertyTypes-correct).
+ * The durable message renders the full cause chain: `turn/end` is the single
+ * durable record of an in-turn failure, so a wrapper message alone (e.g.
+ * `fetch failed`) would lose the diagnosis the session log exists to keep.
  */
 function errorData(err: RequestError): { message: string; code?: string } {
-  return { message: err.message, ...typeof err.code === 'string' ? { code: err.code } : {} }
+  return { message: errorChain(err), ...typeof err.code === 'string' ? { code: err.code } : {} }
 }
 
 /** Map a successful max-token finish onto the turn reason; other successful finishes add nothing. */
@@ -166,7 +169,7 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
     } catch (error: unknown) {
       // Pre-turn failure has no durable boundary to close; report it without appending outside a turn.
       const err = toError(error)
-      ctx.logger.warn(`agent "${agent.id}": turn ${turn} failed before it started: ${err.message}`)
+      ctx.logger.warn(`agent "${agent.id}": turn ${turn} failed before it started: ${errorChain(err)}`)
       try {
         events.emit('agent/error', turn, 0, err)
       } catch { /* contained: a throwing agent/error listener must not kill the driver */ }
@@ -382,7 +385,7 @@ async function runTurn(
           )
         } catch (recoveryError: unknown) {
           ctx.logger.warn(
-            `agent "${agent.id}": request recovery failed at turn ${turn}, step ${step}: ${toError(recoveryError).message}`,
+            `agent "${agent.id}": request recovery failed at turn ${turn}, step ${step}: ${errorChain(recoveryError)}`,
           )
         }
         handle.setAbort(undefined)
@@ -546,7 +549,7 @@ async function runTurn(
   } catch (error: unknown) {
     // The turn is closed, so report the failed flush live rather than append outside a turn.
     const err = toError(error)
-    ctx.logger.warn(`agent "${agent.id}": session/flush failed at turn ${turn}: ${err.message}`)
+    ctx.logger.warn(`agent "${agent.id}": session/flush failed at turn ${turn}: ${errorChain(err)}`)
     try {
       events.emit('agent/error', turn, step, err)
     } catch {
