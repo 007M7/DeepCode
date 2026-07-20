@@ -37,6 +37,7 @@ export interface HeaderLine {
   cwd?: string
   parentSession?: SessionId
   seedLength?: number
+  delegationDepth: number
 }
 
 /**
@@ -53,6 +54,7 @@ export function toHeaderLine(header: SessionHeader): HeaderLine {
     ...header.cwd !== undefined ? { cwd: header.cwd } : {},
     ...header.parentSession !== undefined ? { parentSession: header.parentSession } : {},
     ...header.seedLength !== undefined ? { seedLength: header.seedLength } : {},
+    delegationDepth: header.delegationDepth ?? 0,
   }
 }
 
@@ -69,6 +71,7 @@ export function fromHeaderLine(line: HeaderLine): SessionHeader {
     ...line.cwd !== undefined ? { cwd: line.cwd } : {},
     ...line.parentSession !== undefined ? { parentSession: line.parentSession } : {},
     ...line.seedLength !== undefined ? { seedLength: line.seedLength } : {},
+    delegationDepth: line.delegationDepth,
   }
 }
 
@@ -80,6 +83,10 @@ function isHeaderLine(value: unknown): value is HeaderLine {
     && typeof (value as { version?: unknown }).version === 'number'
     && typeof (value as { id?: unknown }).id === 'string'
     && typeof (value as { createdAt?: unknown }).createdAt === 'number'
+    && typeof (value as { delegationDepth?: unknown }).delegationDepth === 'number'
+    && Number.isSafeInteger((value as { delegationDepth: number }).delegationDepth)
+    && (value as { delegationDepth: number }).delegationDepth >= 0
+    && !Object.is((value as { delegationDepth: number }).delegationDepth, -0)
   )
 }
 

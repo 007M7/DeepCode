@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"df041acb-2f14-4d5f-b6e2-2fb6b9eb6427","createdAt":1783860666204,"cwd":"/var/folders/2g/b32ct0qn1d728l_v6tdkjytr0000gn/T/acp-snap-cwd-4oJKT4"}
+{"type":"session","version":0,"id":"df041acb-2f14-4d5f-b6e2-2fb6b9eb6427","createdAt":1783860666204,"cwd":"/var/folders/2g/b32ct0qn1d728l_v6tdkjytr0000gn/T/acp-snap-cwd-4oJKT4","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783860666206,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"permission/preset","seq":1,"time":1783962244578,"data":{"preset":"workspace-write"}}
 {"type":"sandbox/mode","seq":2,"time":1784518115721,"data":{"mode":"workspace-write"}}

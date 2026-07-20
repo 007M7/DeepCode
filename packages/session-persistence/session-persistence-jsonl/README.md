@@ -11,7 +11,7 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
     <encoded-id>.jsonl           # only with compression: 'none'
 ```
 
-- The first logical line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength? }`; every subsequent line is one `SessionEvent` JSON, **verbatim including `assistant/chunk`** so `seq` stays contiguous (`events[i].seq === i`).
+- The first logical line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength?, delegationDepth }`. `delegationDepth` is required on disk and is `0` for a top-level session; a missing or invalid value rejects the log. Every subsequent line is one `SessionEvent` JSON, **verbatim including `assistant/chunk`** so `seq` stays contiguous (`events[i].seq === i`).
 - Session ids are unvalidated branded strings, so they are injectively escaped to a single safe path segment before use (no traversal, no collision).
 
 ## Config

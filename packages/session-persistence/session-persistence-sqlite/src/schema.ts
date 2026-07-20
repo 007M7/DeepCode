@@ -15,7 +15,7 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 /**
  * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
@@ -31,6 +31,7 @@ export interface SessionRow {
   cwd: string | null
   parent_session: string | null
   seed_length: number | null
+  delegation_depth: number | null
 }
 
 /** An `events` table row: one `SessionEvent` mapped 1:1 (`data` is JSON text). */
@@ -83,9 +84,10 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
       id             TEXT PRIMARY KEY,
       version        INTEGER NOT NULL,
       created_at     INTEGER NOT NULL,
-      cwd            TEXT,
-      parent_session TEXT,
-      seed_length    INTEGER
+      cwd              TEXT,
+      parent_session   TEXT,
+      seed_length      INTEGER,
+      delegation_depth INTEGER
     ) STRICT
   `)
   db.exec(`
@@ -116,6 +118,7 @@ export function rowToMeta(row: SessionRow): SessionHeader {
     ...row.cwd !== null ? { cwd: row.cwd } : {},
     ...row.parent_session !== null ? { parentSession: row.parent_session as SessionId } : {},
     ...row.seed_length !== null ? { seedLength: row.seed_length } : {},
+    ...row.delegation_depth !== null ? { delegationDepth: row.delegation_depth } : {},
   }
 }
 

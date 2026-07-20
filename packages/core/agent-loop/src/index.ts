@@ -620,12 +620,7 @@ export class AgentLoop extends Service implements AgentFactory {
       transaction.assertActive()
       const session = this.runtime.ctx.sessions.prepare(options.resumeSessionId, {
         seed: loaded.events,
-        meta: {
-          createdAt: loaded.meta.createdAt,
-          ...loaded.meta.cwd === undefined ? {} : { cwd: loaded.meta.cwd },
-          ...loaded.meta.parentSession === undefined ? {} : { parentSession: loaded.meta.parentSession },
-          ...loaded.meta.seedLength === undefined ? {} : { seedLength: loaded.meta.seedLength },
-        },
+        meta: loaded.meta,
       })
       const agent = transaction.prepare(agentOptions, session, this.maxParallelToolCalls)
       await transaction.waitFor(options.setup?.(agent.ctx))

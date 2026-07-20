@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"b3292503-2c3d-4677-804d-1ed6802a4bc5","createdAt":1783611702544,"cwd":"/var/folders/2c/psb0_fmx7hbgz558xjt_f0l00000gn/T/acp-snap-cwd-QzoqnB"}
+{"type":"session","version":0,"id":"b3292503-2c3d-4677-804d-1ed6802a4bc5","createdAt":1783611702544,"cwd":"/var/folders/2c/psb0_fmx7hbgz558xjt_f0l00000gn/T/acp-snap-cwd-QzoqnB","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783611702550,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783611702550,"data":{"content":[{"type":"text","text":"Do NOT use the read tool and do NOT use bash or shell commands. Immediately use the edit tool to replace the literal text blue with green in settings.txt in the current directory. Do not read the file first. After the tool result, reply with exactly the single word DONE."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1783611702550,"data":{"turn":1,"step":1}}
