@@ -50,9 +50,9 @@ export function apply(ctx: Context) {
 
 ## 长时间运行的工作
 
-通过 producer 配置控制 `run_in_background`，拒绝已预先中止的调用，然后使用 `ctx.tasks.start({ kind, label, owner: exec.agent, run })` 注册任务。运行时会在 `run()` 启动工作前校验 owner 和控制面是否可用，随后提供 id、会话围栏、通用控制工具、通知和 owner cleanup。
+通过 producer 配置控制 `run_in_background`，拒绝已预先中止的调用，然后使用 `ctx.tasks.start({ kind, label, owner: exec.agent, run })` 注册任务。运行时会在 `run()` 启动工作前校验 owner 和控制面是否可用，随后提供 id、会话围栏、通用控制工具、通知和 owner cleanup。成功的后台分支会返回类型化的规范句柄，如 `{ kind: 'background', taskId }`；其 Native 渲染器可以保留 `started background task bash-1` 这类供人阅读的自然语言，但 Code Mode 绝不能通过解析该文本取得 id。
 
-producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 `done`，以及可选的消费式 `readOutput`（负责有界输出的格式化）。返回 id 后，应使用 task 自有的取消信号，而不是 `exec.signal`。流式 producer 的示例和完整契约见[后台 task 运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)与 `dsh-tool-bash`。
+producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 `done`，以及可选的消费式 `readOutput`（负责有界输出的格式化）。预先中止的调用属于失败，因为此时没有任务，其 id 无法满足成功输出 schema。`ctx.tasks.start()` 发布 id 后，应使用任务自有的取消信号，而不是 `exec.signal`：之后取消外层调用只会停止等待本次调用，不会终止已经发布的工作；该生命周期归 `task_kill`、owner dispose 和服务 teardown 所有。前台工作仍与 `exec.signal` 耦合。流式 producer 的示例和完整契约见[后台 task 运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)与 `dsh-tool-bash`。
 
 ## 执行策略与观测
 
@@ -60,7 +60,9 @@ producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 
 
 ## Code Mode 自动触达你的工具
 
-在 [Code Mode](../../packages/core/tools/README.md) 中，每个可见的已注册工具都可通过 `await tools.<name>(args)` 调用，无需额外集成。SDK 从同一份 JSON Schema 派生参数，调用重新进入正常的执行流水线。请将描述写成面向模型的 API 文档；非文本结果块在程序中变为占位符。
+在 [Code Mode](../../packages/core/tools/README.md) 中，每个可见的已注册工具都可通过 `await tools.<name>(args)` 调用，无需额外集成。生成的 `ToolArgsMap` 和 `ToolOutputMap` 会根据同一组 schema 分别派生精确的参数类型与规范返回类型，调用则重新进入正常的执行流水线。成功调用会解析为策略处理后的最终规范 JSON 值，而不是渲染后的 Native 内容。失败调用会以真正的 `ToolCallError` reject；程序只能检查其 `name`、`toolName` 和可供人阅读的 `message`，无法取得内部错误代码或失败联合。
+
+请把 `output.schema` 设计为实用的程序化 API：直接返回句柄与字段；当标量、数组或 null 确实就是结果时，允许采用相应的根类型；将面向人类的解释放入 `output.render`。中间值只存在于执行期间，不会被持久化或按提示词上限截断，也不设字节上限，因此生产方如实声明的采集边界和进程内存仍然重要。只有外层 `run_code` 日志／结果会受到可配置输出上限和面向模型的输出落盘流水线约束。
 
 ## 工具在编辑器中的渲染方式（ACP 展示）
 

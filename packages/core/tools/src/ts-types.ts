@@ -8,7 +8,13 @@
 
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertSupportedJsonSchema } from './json-schema.ts'
-import type { JsonSchemaScalar } from './json-schema.ts'
+import type { JsonSchemaNode, JsonSchemaScalar } from './json-schema.ts'
+
+/** Internal Code Mode projection: the model-facing schema plus the canonical output schema. */
+export interface ToolSdkSchema extends ToolSchema {
+  /** Validated canonical value returned by the tool binding. */
+  output: JsonSchemaNode
+}
 
 /** Property names that are valid bare TS identifiers; anything else is quoted. */
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/
@@ -107,8 +113,8 @@ const SDK_INSTRUCTIONS = `## Writing code for run_code
 
 Pass \`run_code\` the body of an async TypeScript function (erasable syntax only — no \`enum\` or namespaces; type annotations are advisory, the code runs type-stripped). Inside the program:
 
-- Call tools as \`await tools.name(args)\` — quoted access for exotic names: \`tools["my-tool"](args)\`. Every call resolves to the tool's text output as a string. Tool arguments must be JSON-serializable.
-- A FAILED tool call rejects with an \`Error\` carrying the tool's error text — \`try/catch\` it to handle and continue.
+- Call tools as \`await tools.name(args)\` — quoted access for exotic names: \`tools["my-tool"](args)\`. Every call resolves to the tool's typed canonical JSON value. Tool arguments must be lossless JSON.
+- A FAILED tool call rejects with \`ToolCallError\`, whose \`toolName\` identifies the failed tool and whose \`message\` is human-readable — \`try/catch\` it to handle and continue.
 - Calls execute sequentially, even under \`Promise.all\`.
 - Emit results with \`return\` and/or \`console.log(...)\`. ONLY what you print or return comes back to you — intermediate tool results never enter the conversation, so extract just what you need.
 
@@ -123,16 +129,24 @@ The available tools:`
  *   `run_code` itself).
  * @returns the complete section text.
  */
-export function renderToolsSdk(schemas: ToolSchema[]): string {
+export function renderToolsSdk(schemas: ToolSdkSchema[]): string {
   const sorted = [...schemas].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
-  const members: string[] = []
+  const argsMembers: string[] = []
+  const outputMembers: string[] = []
   for (const schema of sorted) {
-    members.push(...docLines(schema.description, 1))
-    members.push(`${pad(1)}${renderKey(schema.name)}(args: ${jsonSchemaToTs(schema.parameters, 1)}): Promise<string>;`)
+    argsMembers.push(...docLines(schema.description, 1))
+    argsMembers.push(`${pad(1)}${renderKey(schema.name)}: ${jsonSchemaToTs(schema.parameters, 1)};`)
+    outputMembers.push(`${pad(1)}${renderKey(schema.name)}: ${jsonSchemaToTs(schema.output, 1)};`)
   }
-  const declaration = members.length > 0
-    ? `declare const tools: {\n${members.join('\n')}\n}`
-    : 'declare const tools: {}'
+  const argsMap = `interface ToolArgsMap {${argsMembers.length > 0 ? `\n${argsMembers.join('\n')}\n` : ''}}`
+  const outputMap = `interface ToolOutputMap {${outputMembers.length > 0 ? `\n${outputMembers.join('\n')}\n` : ''}}`
+  const declaration = [
+    argsMap,
+    outputMap,
+    'type ToolName = keyof ToolOutputMap',
+    ['declare class ToolCallError extends Error {', '  readonly name: "ToolCallError";', '  readonly toolName: ToolName;', '}'].join('\n'),
+    ['declare const tools: {', '  [K in ToolName]: (args: ToolArgsMap[K]) => Promise<ToolOutputMap[K]>;', '}'].join('\n'),
+  ].join('\n\n')
   const jsonValue = 'type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }'
   return `${SDK_INSTRUCTIONS}\n\n\`\`\`ts\n${jsonValue}\n\n${declaration}\n\`\`\``
 }

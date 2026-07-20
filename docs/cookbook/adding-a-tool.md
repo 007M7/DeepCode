@@ -50,9 +50,9 @@ Registration is effect-based: disposing the plugin fiber unregisters the tool (w
 
 ## Long-running work
 
-Gate `run_in_background` with producer config, reject a pre-aborted call, then register through `ctx.tasks.start({ kind, label, owner: exec.agent, run })`. The runtime validates ownership and control-surface availability before `run()` starts work, then supplies the id, session fence, generic control tools, notices, and owner cleanup.
+Gate `run_in_background` with producer config, reject a pre-aborted call, then register through `ctx.tasks.start({ kind, label, owner: exec.agent, run })`. The runtime validates ownership and control-surface availability before `run()` starts work, then supplies the id, session fence, generic control tools, notices, and owner cleanup. A successful background branch returns a typed canonical handle such as `{ kind: 'background', taskId }`; its Native renderer may keep human prose such as `started background task bash-1`, but Code Mode must never parse that prose to recover the id.
 
-The producer supplies synchronous `cancel`, non-rejecting `done` that settles after resource cleanup, and optional consuming `readOutput` with bounded-output formatting. Once the id is returned, use a task-owned cancellation signal rather than `exec.signal`. See the [background task runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) and `dsh-tool-bash` for a stream producer.
+The producer supplies synchronous `cancel`, non-rejecting `done` that settles after resource cleanup, and optional consuming `readOutput` with bounded-output formatting. A pre-aborted call is a failure because no task exists whose id could satisfy the successful output schema. Once `ctx.tasks.start()` publishes the id, use a task-owned cancellation signal rather than `exec.signal`: later outer-call cancellation stops waiting for the call but does not kill published work; `task_kill`, owner disposal, and service teardown own that lifetime. Foreground work remains coupled to `exec.signal`. See the [background task runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) and `dsh-tool-bash` for a stream producer.
 
 ## Execution policy and observation
 
@@ -60,7 +60,9 @@ Prefer not to build deployment policy into the tool. Use `tools/pre-execute` for
 
 ## Code Mode reaches your tool for free
 
-In [Code Mode](../../packages/core/tools/README.md), every visible registered tool is available as `await tools.<name>(args)` without extra integration. The SDK derives parameters from the same JSON Schema, and calls re-enter the normal execution pipeline. Write descriptions as model-facing API docs; non-text result blocks become placeholders in programs.
+In [Code Mode](../../packages/core/tools/README.md), every visible registered tool is available as `await tools.<name>(args)` without extra integration. The generated `ToolArgsMap` and `ToolOutputMap` derive exact argument and canonical-return types from the same schemas, and calls re-enter the normal execution pipeline. A successful call resolves to the final canonical JSON value after policy, not to rendered Native content. A failed call rejects with the real `ToolCallError`; programs can inspect only its `name`, `toolName`, and human-readable `message`, not internal error codes or a failure union.
+
+Design `output.schema` as a useful programmatic API: return handles and fields directly, allow scalar/array/null roots when they are the honest value, and keep human explanation in `output.render`. Intermediate values are execution-local, are not persisted or prompt-truncated, and have no byte cap, so the producer's truthful acquisition bounds and process memory still matter. Only the outer `run_code` logs/result cross the configurable output cap and model-facing spill pipeline.
 
 ## How your tool renders in an editor (ACP presentation)
 

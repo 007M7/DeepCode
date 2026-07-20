@@ -11,10 +11,8 @@ export interface WorkerBootData {
   code: string
   /** Binding namespaces to materialize: the global name plus the function names (functions themselves stay host-side). */
   namespaces: { global: string; names: string[] }[]
-  /** Shared byte budget for captured log text; exceeding it drops further entries after one in-band marker. */
-  maxLogBytes: number
-  /** Byte cap for the rendered completion value (see the value-preparation contract in bootstrap.ts). */
-  maxValueBytes: number
+  /** Hard cap for the combined serialized outer logs plus completion value or failure diagnostic. */
+  maxOutputBytes: number
 }
 
 /** Worker → host: one bridged binding call. */
@@ -36,6 +34,11 @@ interface LogMessage {
   text: string
 }
 
+/** Worker → host: worker-side capture or completion measurement exceeded the outer cap. */
+interface OutputLimitMessage {
+  type: 'output-limit'
+}
+
 /**
  * Worker → host: the program settled. `error` carries a program exception
  * (the only failure the bootstrap itself can report — budgets, aborts, and
@@ -47,26 +50,13 @@ interface LogMessage {
 export interface DoneMessage {
   type: 'done'
   value?: unknown
-  error?: { message: string }
+  error?: { kind: 'exception' | 'invalid-output' | 'output-limit'; message: string }
 }
 
 /** Every message the worker sends. */
-export type WorkerToHost = CallMessage | LogMessage | DoneMessage
+export type WorkerToHost = CallMessage | LogMessage | OutputLimitMessage | DoneMessage
 
 /** Host → worker: the answer to one {@link CallMessage}. */
 export type ReplyMessage =
   | { type: 'reply'; id: number; ok: true; value: unknown }
   | { type: 'reply'; id: number; ok: false; message: string }
-
-/**
- * The in-band marker entry text announcing that log capture stopped at the
- * byte budget. Shared wire vocabulary: the worker's LogBuffer emits it when
- * ITS budget exhausts, and the host emits the identical text when its own
- * ledger drops an entry first (forged port traffic, stray pipe bytes) — so
- * a truncated run reads the same however the cap was hit.
- * @param maxBytes - the configured `maxLogBytes` the marker names.
- * @returns the marker line.
- */
-export function logTruncationMarker(maxBytes: number): string {
-  return `[dsh-code-runtime-worker] log capture truncated at ${maxBytes} bytes`
-}

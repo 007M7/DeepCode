@@ -23,6 +23,7 @@ import { assertSupportedJsonSchema, validateJsonSchemaValue } from './json-schem
 import type { JsonSchemaNode } from './json-schema.ts'
 import { createRunCodeTool, RUN_CODE_NAME, SDK_SECTION_ORDER } from './code-mode.ts'
 import { renderToolsSdk } from './ts-types.ts'
+import type { ToolSdkSchema } from './ts-types.ts'
 
 export {
   defineTool,
@@ -550,7 +551,7 @@ export class ToolRegistry extends Service {
         // Regenerate from the calling scope's visible tools in stable order.
         text: (context) => {
           this.requireCodeRuntime()
-          return renderToolsSdk(this.schemas(context.scope).filter(schema => schema.name !== RUN_CODE_NAME))
+          return renderToolsSdk(this.sdkSchemas(context.scope))
         },
       })
     }
@@ -813,6 +814,16 @@ export class ToolRegistry extends Service {
    */
   schemas(scope?: ScopeKey): ToolSchema[] {
     return [...this.view(scope).visible.values()].map(definition => this.schemaOf(definition, true))
+  }
+
+  /** Project visible callable tools onto the generated Code Mode SDK contract. */
+  private sdkSchemas(scope?: ScopeKey): ToolSdkSchema[] {
+    return [...this.view(scope).visible.values()]
+      .filter(definition => definition.name !== RUN_CODE_NAME)
+      .map((definition): ToolSdkSchema => ({
+        ...this.schemaOf(definition, true),
+        output: structuredClone(definition.output.schema),
+      }))
   }
 
   /** Project one definition onto the model-facing schema fields. */

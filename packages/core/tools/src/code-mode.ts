@@ -6,10 +6,10 @@
  */
 
 import { parse } from 'node:path'
-import { inspect } from 'node:util'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { CodeBindingFunction, CodeRunResult, CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from './schema.ts'
 import type { ToolDefinition, ToolRegistry } from './index.ts'
@@ -62,10 +62,7 @@ export class CodeRunFailedError extends HarnessError {
  */
 const SUMMARY_MAX_CHARS = 200
 
-/** Bounded inspect for rendering a program's completion value into the model-facing text. */
-const INSPECT_OPTIONS = { depth: 4, maxArrayLength: 100, maxStringLength: 10_000 } as const
-
-/** Join a result's text blocks; a non-text block becomes a placeholder (an MVP limitation, stated in the SDK instructions). */
+/** Join Native content for the bounded durable sub-dispatch summary; non-text blocks become diagnostic placeholders. */
 function textOf(content: ContentBlock[]): string {
   return content
     .map((block) => {
@@ -88,32 +85,26 @@ function summarize(text: string, cwd: string | undefined): string {
 }
 
 /**
- * JSON-normalize one binding call's argument into TWO independent parses of the same canonical
- * text: `dispatched` goes to the tool, `logged` to the `tool/code-dispatch` event — identical
- * by construction (the runtime's structured-clone boundary is wider than JSON; the session log
- * accepts only JSON), and separate objects, so a tool mutating its args can neither desync the
- * log from what was dispatched nor re-poison the append.
+ * Snapshot one binding call's argument as lossless JSON, then clone it into
+ * independent dispatch/log values so a tool mutation cannot desynchronize the
+ * durable event from what was called.
  */
 function jsonNormalizeArgs(value: unknown): { dispatched: unknown; logged: unknown } {
-  if (value === undefined) {
-    throw new Error('tool arguments must be JSON-serializable (call the tool with an arguments object, e.g. `{}`)')
-  }
-  let text: string | undefined
+  let snapshot: JsonValue | undefined
   try {
-    text = JSON.stringify(value)
+    snapshot = snapshotJsonValue(value) as JsonValue | undefined
   } catch (error: unknown) {
-    throw new Error(`tool arguments must be JSON-serializable: ${error instanceof Error ? error.message : String(error)}`)
+    throw new Error(`tool arguments must be lossless JSON: ${error instanceof Error ? error.message : String(error)}`)
   }
-  // JSON.stringify's lib type claims `string`, but a bare function or symbol
-  // root really yields `undefined` at runtime — the guard is live.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  if (text === undefined) throw new Error('tool arguments must be JSON-serializable (got a value JSON cannot represent)')
-  return { dispatched: JSON.parse(text) as unknown, logged: JSON.parse(text) as unknown }
+  if (snapshot === undefined) {
+    throw new Error('tool arguments must be lossless JSON (call the tool with an arguments object, e.g. `{}`)')
+  }
+  return { dispatched: structuredClone(snapshot), logged: structuredClone(snapshot) }
 }
 
 /** Render one present program completion value for the model-facing result text. */
 function renderValue(value: JsonValue): string {
-  return typeof value === 'string' ? value : inspect(value, INSPECT_OPTIONS)
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 }
 
 /** The run_code result's `meta` payload (JSON-serializable; `presentResult` narrows it back). */
@@ -203,7 +194,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       // would be narrowed away by control flow analysis.
       const runOver = (): boolean => runController.signal.aborted
 
-      const binding = (name: string): CodeBindingFunction => async (rawArgs: unknown): Promise<unknown> => {
+      const binding = (name: string): CodeBindingFunction => async (rawArgs: unknown): Promise<JsonValue> => {
         if (runOver()) {
           throw new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} not dispatched`)
         }
@@ -234,7 +225,9 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             isError: result.isError,
             resultSummary: summarize(text, exec.agent.session.header.cwd),
           })
-          return { text, isError: result.isError }
+          return result.isError
+            ? { isError: true as const, message: result.error.message }
+            : { isError: false as const, value: result.value }
         })
         // A budget expiry or outer cancel that lands while this call was in
         // flight already aborted the dispatch; stop the program now rather
@@ -242,11 +235,11 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         if (runOver()) {
           throw new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} result discarded`)
         }
-        // A failed tool call REJECTS — real code signals failure by throwing,
-        // so try/catch and Promise.all short-circuiting behave as models
-        // expect (the error text is the tool's model-facing result text).
-        if (outcome.isError) throw new Error(outcome.text)
-        return outcome.text
+        // The worker turns a binding rejection into ToolCallError and adds
+        // only the binding name. Native content and internal error metadata
+        // stay outside the program-facing failure contract.
+        if (outcome.isError) throw new Error(outcome.message)
+        return outcome.value
       }
 
       // Null-prototype + defineProperty, mirroring the worker-side namespace
@@ -283,12 +276,9 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
           const logsText = result.logs.length > 0 ? `\nCaptured output:\n${result.logs.join('\n')}` : ''
           throw new CodeRunFailedError(`code run failed (${result.error.kind}): ${result.error.message}${logsText}`)
         }
-        // The runtime seam is wider than JSON until PR 3 makes this boundary
-        // lossless. The registry immediately snapshots and rejects any value
-        // that does not satisfy the declared JSON output.
         return {
           logs: result.logs,
-          ...result.value !== undefined ? { result: result.value as JsonValue } : {},
+          ...result.value !== undefined ? { result: result.value } : {},
         }
       } finally {
         exec.signal?.removeEventListener('abort', onOuterAbort)

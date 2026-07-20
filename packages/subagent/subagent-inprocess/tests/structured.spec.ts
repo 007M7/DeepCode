@@ -443,8 +443,10 @@ describe('in-process structured output', () => {
     expect(result.structured).toEqual({ answer: 12 })
     const request = adapter.requests[0]!
     expect(toolNames(request)).toEqual([RUN_CODE_NAME])
-    expect(request.system).toContain('declare const tools:')
-    expect(request.system).toContain('structured_output(args:')
+    expect(request.system).toContain('interface ToolArgsMap')
+    expect(request.system).toContain('interface ToolOutputMap')
+    expect(request.system).toContain('recorded: true;')
+    expect(request.system).toContain('Promise<ToolOutputMap[K]>')
     expect(request.system).toContain(STRUCTURED_OUTPUT_INSTRUCTION)
     await run.dispose()
   })

@@ -10,6 +10,7 @@ import type { CodeRunRequest, CodeRunResult } from './types.ts'
 export type {
   CodeBindingFunction,
   CodeBindingNamespace,
+  CodeJsonValue,
   CodeRunFailure,
   CodeRunRequest,
   CodeRunResult,

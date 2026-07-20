@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { jsonSchemaToTs, renderToolsSdk } from '@deepseek-ai/dsh-tools/src/ts-types.ts'
+import type { ToolSdkSchema } from '@deepseek-ai/dsh-tools/src/ts-types.ts'
 import { parameterSchemaSpecToJsonSchema } from '@deepseek-ai/dsh-tools'
-import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 
 describe('jsonSchemaToTs', () => {
   it('maps every unified schema construct', () => {
@@ -96,31 +96,45 @@ describe('jsonSchemaToTs', () => {
 })
 
 describe('renderToolsSdk', () => {
-  const bash: ToolSchema = {
+  const bash: ToolSdkSchema = {
     name: 'bash',
     description: 'Run a shell command.',
     parameters: parameterSchemaSpecToJsonSchema({ command: { type: 'string', required: true } }) as unknown as Record<string, unknown>,
+    output: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { exitCode: { type: 'integer' } },
+      required: ['exitCode'],
+    },
   }
-  const exotic: ToolSchema = {
+  const exotic: ToolSdkSchema = {
     name: 'my-mcp.tool',
     description: 'Exotic name.',
     parameters: parameterSchemaSpecToJsonSchema({}) as unknown as Record<string, unknown>,
+    output: { type: 'array', items: { type: 'string' } },
   }
 
   it('declares every tool in lexicographic order with quoted keys for exotic names', () => {
     const text = renderToolsSdk([exotic, bash])
+    expect(text).toContain('interface ToolArgsMap {')
+    expect(text).toContain('interface ToolOutputMap {')
+    expect(text).toContain('type ToolName = keyof ToolOutputMap')
+    expect(text).toContain('declare class ToolCallError extends Error')
+    expect(text).toContain('readonly toolName: ToolName;')
     expect(text).toContain('declare const tools: {')
     expect(text).toContain('type JsonValue = null | boolean | number | string')
-    expect(text.indexOf('bash(args:')).toBeGreaterThan(0)
-    expect(text).toContain('"my-mcp.tool"(args:')
-    expect(text.indexOf('bash(args:')).toBeLessThan(text.indexOf('"my-mcp.tool"(args:'))
-    expect(text).toContain('): Promise<string>;')
+    expect(text.indexOf('bash: {')).toBeGreaterThan(0)
+    expect(text).toContain('"my-mcp.tool":')
+    expect(text.indexOf('bash:')).toBeLessThan(text.indexOf('"my-mcp.tool":'))
+    expect(text).toContain('exitCode: number;')
+    expect(text).toContain('"my-mcp.tool": string[];')
+    expect(text).toContain('[K in ToolName]: (args: ToolArgsMap[K]) => Promise<ToolOutputMap[K]>;')
     expect(text).toContain('/** Run a shell command. */')
     // The fixed instruction lines the model relies on.
     expect(text).toContain('erasable syntax only')
-    expect(text).toContain('rejects with an `Error`')
+    expect(text).toContain('rejects with `ToolCallError`')
     expect(text).toContain('sequentially, even under `Promise.all`')
-    expect(text).toContain('JSON-serializable')
+    expect(text).toContain('lossless JSON')
   })
 
   it('is deterministic: same tool set, byte-identical text regardless of input order', () => {
@@ -130,6 +144,8 @@ describe('renderToolsSdk', () => {
   })
 
   it('renders an empty declaration for an empty tool set', () => {
-    expect(renderToolsSdk([])).toContain('declare const tools: {}')
+    const text = renderToolsSdk([])
+    expect(text).toContain('interface ToolArgsMap {}')
+    expect(text).toContain('interface ToolOutputMap {}')
   })
 })

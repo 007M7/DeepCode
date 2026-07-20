@@ -6,8 +6,7 @@
  */
 
 import { inspect } from 'node:util'
-import { serialize } from 'node:v8'
-import { logTruncationMarker } from './protocol.ts'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 
 /** The port surface the bootstrap needs — satisfied by `parentPort` and by the tests' fake. */
@@ -30,9 +29,8 @@ export interface PatchableStream {
  * Ordered text capture under one shared byte budget, delivered to a sink as
  * each item lands (the real sink streams text over the port eagerly, so
  * captured output survives a mid-run termination). Once the budget is
- * exhausted it emits exactly one in-band marker and silently drops everything
- * after. The cap is a blast-radius bound, so "how much was lost" intentionally
- * stays unmeasured.
+ * exhausted it emits the fitting prefix and reports the limit once; the host
+ * turns that condition into an explicit `output-limit` run failure.
  */
 export class LogBuffer {
   private remaining: number
@@ -40,12 +38,12 @@ export class LogBuffer {
   // Explicit fields, not constructor parameter properties: this module loads
   // under Node's native strip-only mode, which rejects non-erasable syntax —
   // and parameter properties are non-erasable.
-  private readonly maxBytes: number
   private readonly sink: (text: string) => void
+  private readonly onLimit: () => void
 
-  constructor(maxBytes: number, sink: (text: string) => void) {
-    this.maxBytes = maxBytes
+  constructor(maxBytes: number, sink: (text: string) => void, onLimit: () => void = () => {}) {
     this.sink = sink
+    this.onLimit = onLimit
     this.remaining = maxBytes
   }
 
@@ -58,7 +56,10 @@ export class LogBuffer {
     const cost = Buffer.byteLength(text, 'utf8')
     if (cost > this.remaining) {
       this.truncated = true
-      this.sink(logTruncationMarker(this.maxBytes))
+      const prefix = truncateUtf8Bytes(text, this.remaining)
+      if (prefix.length > 0) this.sink(prefix)
+      this.remaining = 0
+      this.onLimit()
       return
     }
     this.remaining -= cost
@@ -144,43 +145,47 @@ export function truncateUtf8Bytes(text: string, maxBytes: number): string {
 }
 
 /**
- * Prepare the program's completion value for the done message: a value whose MEASURED
- * cross-boundary size fits `maxValueBytes` crosses raw — exact bytes for a string, the
- * structured-clone wire size (`v8.serialize`) for everything else, so a huge container whose
- * bounded inspect rendering happens to be small cannot smuggle itself past the cap. Oversized
- * or non-cloneable values are replaced by a bounded string rendering with an in-band marker.
+ * Prepare the program's completion value for the done message. Only lossless
+ * JSON crosses, and an individually oversized value reports `output-limit`;
+ * the host revalidates both and accounts for the combined outer envelope.
  *
  * @param value - the program's completion value.
- * @param maxValueBytes - the byte cap for the value.
+ * @param maxOutputBytes - the byte cap for the outer result.
  * @returns the done-message fragment: `{}` for `undefined`, else `{ value }`.
  */
-export function prepareValue(value: unknown, maxValueBytes: number): { value?: unknown } {
+export function prepareCompletion(value: unknown, maxOutputBytes: number): Omit<DoneMessage, 'type'> {
   if (value === undefined) return {}
-  if (typeof value === 'string') {
-    if (Buffer.byteLength(value, 'utf8') <= maxValueBytes) return { value }
-  } else {
-    let size: number | undefined
-    try {
-      size = serialize(value).byteLength
-    } catch {
-      // Only the verdict matters: the value has parts the structured-clone
-      // algorithm rejects (functions, classes, …) and must cross as its
-      // rendering instead.
-      size = undefined
-    }
-    if (size !== undefined && size <= maxValueBytes) return { value }
+  let snapshot: unknown
+  try {
+    snapshot = snapshotJsonValue(value)
+  } catch {
+    snapshot = undefined
   }
-  const rendered = typeof value === 'string' ? value : inspect(value, INSPECT_OPTIONS)
-  const capped = Buffer.byteLength(rendered, 'utf8') > maxValueBytes
-    ? `${truncateUtf8Bytes(rendered, maxValueBytes)}… [truncated]`
-    : rendered
-  return { value: capped }
+  if (snapshot === undefined) {
+    return { error: { kind: 'invalid-output', message: 'program completion must be lossless JSON' } }
+  }
+  const size = Buffer.byteLength(JSON.stringify(snapshot), 'utf8')
+  if (size > maxOutputBytes) {
+    return { error: { kind: 'output-limit', message: `outer output exceeded ${maxOutputBytes} bytes` } }
+  }
+  return { value: snapshot }
 }
 
 /** One awaited binding call's settlement handles, keyed by call id in the pending map. */
 export interface PendingCall {
   resolve(value: unknown): void
   reject(error: Error): void
+}
+
+/** Program-visible typed rejection for a failed member of the `tools` namespace. */
+export class ToolCallError extends Error {
+  override readonly name = 'ToolCallError'
+  readonly toolName: string
+
+  constructor(toolName: string, message: string) {
+    super(message)
+    this.toolName = toolName
+  }
 }
 
 /**
@@ -227,12 +232,18 @@ export function makeNamespaces(
         enumerable: true,
         value: (args: unknown): Promise<unknown> => new Promise((resolve, reject) => {
           const id = nextId.value++
-          pending.set(id, { resolve, reject })
+          pending.set(id, {
+            resolve,
+            reject: (error) => {
+              reject(global === 'tools' ? new ToolCallError(name, error.message) : error)
+            },
+          })
           try {
             port.postMessage({ type: 'call', id, global, name, args })
           } catch (error: unknown) {
             pending.delete(id)
-            reject(new Error(`binding arguments must be structured-cloneable: ${error instanceof Error ? error.message : String(error)}`))
+            const message = `binding arguments must be structured-cloneable: ${error instanceof Error ? error.message : String(error)}`
+            reject(global === 'tools' ? new ToolCallError(name, message) : new Error(message))
           }
         }),
       })
@@ -254,7 +265,11 @@ export async function runWorkerMain(
   data: WorkerBootData,
   streams: { stdout: PatchableStream; stderr: PatchableStream },
 ): Promise<void> {
-  const logs = new LogBuffer(data.maxLogBytes, (text) => { port.postMessage({ type: 'log', text }) })
+  const logs = new LogBuffer(
+    data.maxOutputBytes,
+    (text) => { port.postMessage({ type: 'log', text }) },
+    () => { port.postMessage({ type: 'output-limit' }) },
+  )
   captureStreamWrites(logs, streams.stdout)
   captureStreamWrites(logs, streams.stderr)
 
@@ -271,12 +286,12 @@ export async function runWorkerMain(
     // `AsyncFunction` is not a global. The program body is strict-mode.
     /* v8 ignore next -- the arrow exists only to reach the AsyncFunction constructor; it is never invoked. */
     const AsyncFunction = (async () => {}).constructor as new (...args: string[]) => (...fnArgs: unknown[]) => Promise<unknown>
-    const fn = new AsyncFunction(...data.namespaces.map(namespace => namespace.global), 'console', `'use strict';\n${data.code}`)
-    const value = await fn(...namespaces, consoleShim)
-    done = { type: 'done', ...prepareValue(value, data.maxValueBytes) }
+    const fn = new AsyncFunction(...data.namespaces.map(namespace => namespace.global), 'ToolCallError', 'console', `'use strict';\n${data.code}`)
+    const value = await fn(...namespaces, ToolCallError, consoleShim)
+    done = { type: 'done', ...prepareCompletion(value, data.maxOutputBytes) }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.stack ?? error.message : String(error)
-    done = { type: 'done', error: { message } }
+    done = { type: 'done', error: { kind: 'exception', message } }
   }
   port.postMessage(done)
 }

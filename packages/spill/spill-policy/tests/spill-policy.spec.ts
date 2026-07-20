@@ -20,6 +20,7 @@ import type { ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
+import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
 
 /** A stub spill backend recording its saves; `fail` exercises the best-effort fallback. */
 class StubStore extends SpillStore {
@@ -170,6 +171,42 @@ describe('oversized plain-text replacement', () => {
     const result = await ctx.tools.execute(exec('mixed'))
     expect(spill?.saves).toHaveLength(0)
     expect(result.content).toHaveLength(2)
+  })
+})
+
+describe('outer Code Mode failure capture', () => {
+  it('spills the bounded output-limit diagnostic through the ordinary outer-result policy', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'code' })
+    await ctx.plugin(StubStore)
+    await ctx.plugin(SpillPolicy, { maxInlineBytes: 200 })
+    await ctx.plugin(WorkerCodeRuntime, { maxOutputBytes: 500 })
+    const events: unknown[] = []
+    const agent = {
+      session: {
+        header: { id: SessionId('code-spill'), cwd: '/workspace' },
+        append: (_type: string, data: unknown) => { events.push(data) },
+      },
+    }
+
+    const result = await ctx.tools.execute({
+      callId: CallId('code-output-limit'),
+      name: 'run_code',
+      arguments: {
+        code: 'console.log("HEAD-" + "x".repeat(300)); console.log("TAIL-" + "y".repeat(300)); return "unreachable";',
+      },
+      agent: agent as never,
+    })
+
+    expect(result.isError).toBe(true)
+    const saved = (ctx.spillStore as StubStore).saves
+    expect(saved).toHaveLength(1)
+    expect(saved[0]?.source.toolName).toBe('run_code')
+    expect(saved[0]?.content).toContain('code run failed (output-limit)')
+    expect(saved[0]?.content).toContain('HEAD-')
+    expect(textOf(result.content)).toContain('Full formatted result stored at: /spill/run_code.txt')
+    expect(events).toEqual([])
   })
 })
 
