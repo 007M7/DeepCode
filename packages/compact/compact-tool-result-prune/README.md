@@ -49,7 +49,7 @@ Each rewritten tool result has at most `thresholdChars` text code points. Prunin
 
 #### KV Cache effect
 
-Replacing an earlier result invalidates the reusable request prefix from that result onward; subsequent requests reuse the new pruned prefix until another surface replacement occurs.
+Replacing an earlier result invalidates reuse from the first changed token. The pruned prefix is eligible for reuse while its route, envelope, and preceding history remain identical.
 
 ## Known Limitations and Deferred Work
 
