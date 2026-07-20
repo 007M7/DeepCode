@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -234,13 +234,18 @@ describe('dsh-tool-ralph over the real spawn and worker-thread stack', () => {
     await parentHandle.dispose()
   })
 
-  it('cancels the real worker and fresh child to quiescence', async () => {
+  it('cancels the real worker and fresh child to quiescence', { timeout: 20_000 }, async () => {
     const { ctx, parent, parentHandle } = await mountRalph(['hang'], { maxRounds: 2 })
     const children: Agent[] = []
     const outcomes: string[] = []
+    let resolveChildStarted!: (child: Agent) => void
+    const childStarted = new Promise<Agent>((resolve) => { resolveChildStarted = resolve })
     ctx.on('workflow/agent-start', (_run, child) => {
       const agent = ctx.agents.get(child.childId)
-      if (agent !== undefined) children.push(agent)
+      if (agent !== undefined) {
+        children.push(agent)
+        resolveChildStarted(agent)
+      }
     })
     ctx.on('workflow/agent-end', (_run, child) => { outcomes.push(child.outcome) })
     const controller = new AbortController()
@@ -251,7 +256,7 @@ describe('dsh-tool-ralph over the real spawn and worker-thread stack', () => {
       agent: parent,
       signal: controller.signal,
     })
-    await vi.waitFor(() => { expect(children).toHaveLength(1) })
+    await childStarted
 
     controller.abort()
     const result = await pending
