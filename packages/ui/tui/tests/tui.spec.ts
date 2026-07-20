@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -502,6 +503,108 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(disposedAgent)
   })
 
+  it('discovers and executes plugin commands, then removes TUI-local commands on disposal', async () => {
+    const result = await setup()
+    const handler = vi.fn(({ rawInput }: CommandInvocation) => ({
+      kind: 'success' as const,
+      text: `PLUGIN:${rawInput}`,
+    }))
+    result.ctx.commands.register({
+      name: 'plugin-check',
+      description: 'Run a plugin command',
+      input: { hint: '<value>' },
+      handler,
+    })
+    result.ctx.commands.register({
+      name: 'plugin-fail',
+      description: 'Fail a plugin command',
+      handler: () => { throw new Error('plugin command exploded') },
+    })
+
+    result.terminal.send('/plugin-check  value  ')
+    result.terminal.send('\r')
+    await tick()
+
+    expect(handler).toHaveBeenCalledTimes(1)
+    const invocation = handler.mock.calls[0]?.[0]
+    expect(invocation?.agent).toBe(result.agent)
+    // pi-tui's Editor owns terminal-line normalization and removes trailing
+    // spaces before onSubmit; the registry preserves the adapter-delivered line.
+    expect(invocation?.rawInput).toBe('  value')
+    expect(result.terminal.output).toContain('PLUGIN:  value')
+    result.terminal.send('/plugin-fail')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Command failed: plugin command exploded')
+    result.terminal.send('/help')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('/plugin-check <value> — Run a plugin command')
+    expect(result.ctx.commands.list(result.agent).map(command => command.name)).toContain('help')
+
+    await result.controller.dispose()
+    expect(result.ctx.commands.list(result.agent).map(command => command.name)).toEqual([
+      'plugin-check',
+      'plugin-fail',
+    ])
+    await result.ctx.fiber.dispose()
+  })
+
+  it('aborts an in-flight plugin command during TUI disposal', async () => {
+    const result = await setup()
+    let started!: () => void
+    const ready = new Promise<void>((resolve) => { started = resolve })
+    let commandSignal: AbortSignal | undefined
+    result.ctx.commands.register({
+      name: 'wait-plugin',
+      description: 'Wait until disposal',
+      handler: ({ signal }) => {
+        commandSignal = signal
+        started()
+        return new Promise((resolve) => {
+          signal.addEventListener('abort', () => { resolve({ kind: 'error', text: 'late result' }) }, { once: true })
+        })
+      },
+    })
+
+    result.terminal.send('/wait-plugin')
+    result.terminal.send('\r')
+    await ready
+    await result.controller.dispose()
+
+    expect(commandSignal?.aborted).toBe(true)
+    expect(result.terminal.output).not.toContain('late result')
+    await result.ctx.fiber.dispose()
+  })
+
+  it('suppresses a successful plugin result that settles as TUI disposal starts', async () => {
+    const result = await setup()
+    let started!: () => void
+    const ready = new Promise<void>((resolve) => { started = resolve })
+    let resolveCommand!: (result: { kind: 'success'; text: string }) => void
+    result.ctx.commands.register({
+      name: 'late-success',
+      description: 'Resolve while the TUI closes',
+      handler: () => new Promise((resolve) => {
+        resolveCommand = resolve
+        started()
+      }),
+    })
+
+    result.terminal.send('/late-success')
+    result.terminal.send('\r')
+    await ready
+    resolveCommand({ kind: 'success', text: 'must not render after disposal' })
+    // Let the command boundary accept the result before disposal, but leave the
+    // TUI continuation queued so the success-side disposal guard owns the race.
+    await Promise.resolve()
+    await result.controller.dispose()
+    await tick()
+
+    expect(result.terminal.output).not.toContain('must not render after disposal')
+    await result.ctx.fiber.dispose()
+  })
+
   it('cancels before /exit while running and handles agent errors/disposal', async () => {
     const result = await setup({ status: 'running' })
     result.terminal.send('/exit')
@@ -897,6 +1000,7 @@ describe('terminal mounting', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const session = ctx.sessions.create(SessionId('main'))
@@ -915,6 +1019,7 @@ describe('terminal mounting', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const terminal = new FakeTerminal()
@@ -943,6 +1048,7 @@ describe('terminal mounting', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const terminal = new FakeTerminal()
@@ -970,6 +1076,7 @@ describe('terminal mounting', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const terminal = new FakeTerminal()
@@ -990,6 +1097,7 @@ describe('terminal mounting', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const session = ctx.sessions.create(SessionId('failed-start-session'))
@@ -1004,6 +1112,8 @@ describe('terminal mounting', () => {
 
     expect(() => createTuiChat(ctx, { sessionId: 'failed-start-session', color: false }, { terminal, exit: vi.fn() }))
       .toThrow('terminal startup failed')
+    await tick()
+    expect(ctx.commands.list(ctx.agents.get(SessionId('failed-start-session'))!)).toEqual([])
     expect(terminal.stopped).toBe(1)
     expect(terminal.progress).toEqual([false, true, false])
     await expect(ctx.userInteraction.ask({ questions: [{ id: 'late', question: 'Late?' }] }))
@@ -1021,6 +1131,7 @@ describe('terminal mounting', () => {
   it('throws when createTuiChat is called without the configured agent', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const runtime: TuiRuntime = { terminal: new FakeTerminal(), exit: vi.fn() }

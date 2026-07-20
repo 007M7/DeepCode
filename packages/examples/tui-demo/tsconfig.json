@@ -27,6 +27,12 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../ui/commands"
+    },
+    {
+      "path": "../../goal/command-goal"
+    },
+    {
       "path": "../agent-spine-demo"
     },
     {
