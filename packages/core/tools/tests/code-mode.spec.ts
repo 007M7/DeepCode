@@ -8,13 +8,12 @@ import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Config, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap } from '@deepseek-ai/dsh-session'
 
 /**
- * Code Mode unit tier (per the RFC's plan): provider contribution per mode,
+ * Code Mode unit tier (per the Agent Note's plan): provider contribution per mode,
  * misconfiguration rejections, the run_code dispatch bridge (serialization,
  * abort, JSON normalization, error mapping, events, quiescence), and HMR
  * safety — all against an in-repo fake runtime, exactly the
@@ -59,7 +58,7 @@ async function setup(options: SetupOptions = {}) {
 
 /** Mint one production-shaped agent scope that can register scoped tool policy. */
 async function mintAgentScope(ctx: Context, name = 'scoped'): Promise<{ scope: Scope; agent: Agent }> {
-  const agent = { id: AgentId(name) } as Agent
+  const agent = { id: SessionId(name) } as Agent
   let scope!: Scope
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
     { inject: ['tools', 'systemPrompt'] }))
@@ -488,7 +487,6 @@ describe('the run_code dispatch bridge', () => {
           additionalContexts: [{
             content: [{ type: 'text' as const, text: `context for ${exec.callId}` }],
             source: { kind: 'plugin' as const, plugin: 'test' },
-            envelope: 'raw' as const,
             meta: { callId: exec.callId },
           }],
         })
@@ -506,13 +504,11 @@ describe('the run_code dispatch bridge', () => {
       {
         content: [{ type: 'text', text: 'context for call-1:code:1' }],
         source: { kind: 'plugin', plugin: 'test' },
-        envelope: 'raw',
         meta: { callId: 'call-1:code:1' },
       },
       {
         content: [{ type: 'text', text: 'context for call-1:code:2' }],
         source: { kind: 'plugin', plugin: 'test' },
-        envelope: 'raw',
         meta: { callId: 'call-1:code:2' },
       },
     ])

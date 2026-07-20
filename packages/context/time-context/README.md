@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-time-context
 
-Opt-in durable context with the current zoned time and elapsed time sampled during model-request preparation. `dsh-agent-spine-demo` and shipped examples do not mount it. Decision record: [the durable time-context RFC](../../../docs/rfc/implemented/feature/2026-07-16-durable-per-step-time-context.md).
+Opt-in durable context with the current zoned time and elapsed time sampled during model-request preparation. `dsh-agent-spine-demo` and shipped examples do not mount it. Decision record: [the durable time-context Agent Note](../../../.agents/notes/implemented/feature/2026-07-16-durable-per-step-time-context.md).
 
 ## Config
 
@@ -26,29 +26,37 @@ Step 1 measures from the latest preceding model-visible message, including the p
 
 A time reading records a request-preparation attempt, not a committed step or transmitted request. Because the listener runs first, its append may remain when a later pre-step listener cancels or fails the attempt; the log is append-only and the plugin performs no rollback.
 
-The time reading stays in derived conversation history until a later compaction shadows it. Request headers and header deltas contain no time-context state. Request reconstruction uses the complete durable surface prefix at each `step/start`, so transmitted requests need not map one-to-one to readings: a failed preparation can leave an extra reading, while interval suppression can let a request reuse existing history without adding one.
+The time reading stays in derived conversation history until a later compaction shadows it. Request headers contain no time-context state. Request reconstruction uses the complete durable surface prefix at each `step/start`, so transmitted requests need not map one-to-one to readings: a failed preparation can leave an extra reading, while interval suppression can let a request reuse existing history without adding one.
 
 ## Model Experience
 
 ### Preparation-time temporal context
 
-**What the model sees**: On each preparation attempt that injects, one source-tagged context message containing the two lines below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; durations use compact whole-second units. Positive intervals can leave an attempted step without a new reading.
+#### What the model sees
 
-**Token effect**: Each injected two-line message accumulates until compaction shadows it. A positive interval reduces additions; omission or `0` adds one for every eligible preparation attempt.
+On each preparation attempt that injects, one source-tagged context message containing the two lines below. `<timestamp>` is an ISO-shaped local timestamp with numeric offset and IANA zone; durations use compact whole-second units. Positive intervals can leave an attempted step without a new reading.
 
-#### First step
+##### First step
 
 ```markdown
 Time sampled while preparing turn <turn>, step 1: <timestamp>
 Elapsed since the preceding model-visible message: <duration-or-unavailable>.
 ```
 
-#### Later steps
+##### Later steps
 
 ```markdown
 Time sampled while preparing turn <turn>, step <step>: <timestamp>
 Elapsed since the preceding step context: <duration-or-unavailable>.
 ```
+
+#### Token effect
+
+Each injected two-line message accumulates until compaction shadows it. A positive interval reduces additions; omission or `0` adds one for every eligible preparation attempt.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

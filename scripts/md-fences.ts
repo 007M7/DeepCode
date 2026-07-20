@@ -1,6 +1,6 @@
 /**
  * Shared fenced-code-block extractor for the Markdown doc gates
- * (`doc-typecheck.ts`, `verify-website-yaml.ts`). One scanner, per-gate
+ * (currently `doc-typecheck.ts`; future Markdown gates can share it). One scanner, per-gate
  * classification: each gate maps a fence info string (` ```ts `,
  * ` ```yaml ignore-check `, …) to its own kind tag and receives every
  * classified block with its 1-based opening-fence line.

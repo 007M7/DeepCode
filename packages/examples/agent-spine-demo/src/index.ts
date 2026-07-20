@@ -25,12 +25,15 @@ import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as toolTasks from '@deepseek-ai/dsh-tool-tasks'
 import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agent-loop'
+import * as llmRetry from '@deepseek-ai/dsh-llm-retry'
 import { resolveDshHome } from '@deepseek-ai/dsh-home'
 
 export const name = 'agent-spine-demo'
 
 /** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
 export interface SkillConfig {
+  /** Mount the bundled local skill provider and model-facing skill tool (default true). */
+  enabled?: boolean
   /** Registry-level discovery cache settings. */
   registry?: SkillRegistryConfig
   /** Local filesystem skill provider settings. */
@@ -57,6 +60,8 @@ export interface SkillConfig {
 export interface Config {
   /** The agent-loop `agents` list (see dsh-agent-loop's `Config`). */
   agents?: AgentLoopConfig['agents']
+  /** Agent-loop concurrency cap; `1` is serial. */
+  maxParallelToolCalls?: AgentLoopConfig['maxParallelToolCalls']
   /** The deployment persona (see dsh-system-prompt's `Config`). */
   persona?: SystemPromptConfig['persona']
   /** The explicit model-facing tool order (see dsh-system-prompt's `Config`). */
@@ -71,12 +76,15 @@ export interface Config {
   skills?: SkillConfig
   /** Model-facing bash tool config, including this producer's background opt-in. */
   toolBash?: toolBash.Config
-  /** Generic background-task control-tool wait bounds. */
-  toolTasks?: toolTasks.Config
+  /** Generic background-task controls; set false to keep the task service without model-facing task tools. */
+  toolTasks?: toolTasks.Config | false
+  /** Bounded transient model-request retry policy. */
+  llmRetry?: llmRetry.Config
 }
 
 /** The skill config schema exported for app packages that forward `skills`. */
 export const SkillConfigSchema: z<SkillConfig> = z.object({
+  enabled: z.boolean().default(true),
   registry: SkillService.Config,
   local: SkillLocal.Config,
   tool: toolSkill.Config,
@@ -88,6 +96,9 @@ export const ToolBashConfigSchema: z<toolBash.Config> = toolBash.Config
 /** The task-control-tool config schema exported for app packages that forward `toolTasks`. */
 export const ToolTasksConfigSchema: z<toolTasks.Config> = toolTasks.Config
 
+/** The bounded LLM retry schema exported for app packages that forward `llmRetry`. */
+export const LlmRetryConfigSchema: z<llmRetry.Config> = llmRetry.Config
+
 /** Intersect the owners' schemas so validation + defaulting stay identical. */
 export const Config = z.intersect([
   AgentLoop.Config,
@@ -98,8 +109,9 @@ export const Config = z.intersect([
     skills: SkillConfigSchema,
     workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
     toolBash: ToolBashConfigSchema,
-    toolTasks: ToolTasksConfigSchema,
-  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks'>>,
+    toolTasks: z.union([z.const(false), ToolTasksConfigSchema]),
+    llmRetry: LlmRetryConfigSchema,
+  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'llmRetry'>>,
 ]) as unknown as z<Config>
 
 /**
@@ -109,6 +121,7 @@ export const Config = z.intersect([
  */
 export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'agents'> {
   return {
+    ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
     ...config.tools !== undefined ? { tools: config.tools } : {},
@@ -117,6 +130,7 @@ export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'a
     ...config.skills !== undefined ? { skills: config.skills } : {},
     ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
     ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
+    ...config.llmRetry !== undefined ? { llmRetry: config.llmRetry } : {},
   }
 }
 
@@ -134,7 +148,7 @@ export function apply(ctx: Context, config: Config): void {
   const nestedDshHome = config.skills?.local?.dshHome
   if (config.dshHome !== undefined && nestedDshHome !== undefined
     && resolveDshHome(config.dshHome) !== resolveDshHome(nestedDshHome)) {
-    throw new Error('agent-core: dshHome and skills.local.dshHome must resolve to the same directory')
+    throw new Error('agent-spine-demo: dshHome and skills.local.dshHome must resolve to the same directory')
   }
   const dshHome = resolveDshHome(config.dshHome ?? nestedDshHome)
 
@@ -147,9 +161,13 @@ export function apply(ctx: Context, config: Config): void {
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
   })
   ctx.plugin(ToolRegistry, config.tools ?? {})
-  ctx.plugin(SkillService, config.skills?.registry ?? {})
-  ctx.plugin(SkillLocal, Object.assign({}, config.skills?.local, { dshHome }))
+  const skillsEnabled = config.skills?.enabled ?? true
+  if (skillsEnabled) {
+    ctx.plugin(SkillService, config.skills?.registry ?? {})
+    ctx.plugin(SkillLocal, Object.assign({}, config.skills?.local, { dshHome }))
+  }
   ctx.plugin(AgentRegistry)
+  ctx.plugin(llmRetry, config.llmRetry ?? {})
   ctx.plugin(TaskService)
   ctx.plugin(invariants)
   ctx.plugin(toolBash, Object.assign({}, config.toolBash, { dshHome }))
@@ -158,7 +176,10 @@ export function apply(ctx: Context, config: Config): void {
   }
   // Both plugins prepend session-prefix messages. Registration order is the
   // rendered order, so workspace instructions must precede the skill catalog.
-  ctx.plugin(toolSkill, config.skills?.tool ?? {})
-  ctx.plugin(toolTasks, config.toolTasks ?? {})
-  ctx.plugin(AgentLoop, { agents: config.agents ?? [] })
+  if (skillsEnabled) ctx.plugin(toolSkill, config.skills?.tool ?? {})
+  if (config.toolTasks !== false) ctx.plugin(toolTasks, config.toolTasks ?? {})
+  ctx.plugin(AgentLoop, {
+    agents: config.agents ?? [],
+    ...config.maxParallelToolCalls !== undefined ? { maxParallelToolCalls: config.maxParallelToolCalls } : {},
+  })
 }

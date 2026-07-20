@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { AgentId } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { makeBridgeHarness, textResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
 
 /** The `current_mode_update` notifications, in order. */
@@ -54,7 +54,7 @@ describe('acp bridge — session modes (dsh-mode)', () => {
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     await harness.client.setSessionMode({ sessionId, modeId: 'plan' })
     expect(modeUpdates(harness.updates)).toEqual(['plan'])
-    const agent = harness.ctx.agents.get(AgentId(sessionId))!
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
     expect(harness.ctx.modes.get(agent)).toEqual({ current: 'default', pending: 'plan' })
   })
 
@@ -73,7 +73,7 @@ describe('acp bridge — session modes (dsh-mode)', () => {
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     await harness.client.setSessionMode({ sessionId, modeId: 'plan' })
     await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go plan' }] })
-    const agent = harness.ctx.agents.get(AgentId(sessionId))!
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
     expect(agent.session.events.some(event => event.type === 'mode/set')).toBe(true)
     expect(modeUpdates(harness.updates)).toEqual(['plan'])
   })
@@ -86,7 +86,7 @@ describe('acp bridge — session modes (dsh-mode)', () => {
     await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go plan' }] })
     // A writer other than the picker (exit_plan_mode's execute) appends the
     // flip back; the bridge must re-notify the client off the logged event.
-    const agent = harness.ctx.agents.get(AgentId(sessionId))!
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
     agent.session.append('mode/set', { mode: 'default' })
     // The notification crosses the in-memory JSON-RPC transport asynchronously.
     await new Promise(resolve => setTimeout(resolve, 20))

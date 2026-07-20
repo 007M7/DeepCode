@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import ModesService, { PLAN_MODE, foldMode } from '@deepseek-ai/dsh-mode'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -14,7 +14,7 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
  * Full-loop integration: a scripted mock model drives the REAL mode plugin
  * through the agent loop — the pending-intent flush at the turn boundary, the
  * assembly the soft layer shapes (the exit tool + mode section), and the
- * `request/header`/`request/header-delta` trail every transition leaves.
+ * `request/header` snapshots every transition leaves.
  * Only the model is mocked; the loop, the session log, and the plugin are
  * real.
  */
@@ -39,7 +39,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -69,7 +69,7 @@ describe('plan mode through the agent loop', () => {
       textResponse('Noted in the plan.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-plan-seed'), { model: 'mock', mode: PLAN_MODE })
+    const agent = ctx.agentLoop.create(SessionId('it-plan-seed'), { provider: 'mock', model: 'mock', mode: PLAN_MODE })
 
     agent.send([{ type: 'text', text: 'explore the repo' }])
     await waitForIdle(ctx, agent)
@@ -91,13 +91,13 @@ describe('plan mode through the agent loop', () => {
     expect(log.some(event => event.type === 'context/message')).toBe(false)
   })
 
-  it('a user flip between turns lands at the boundary: one notice and the plan-shaped fallback header', async () => {
+  it('a user flip between turns lands at the boundary: one notice and the changed plan header', async () => {
     const adapter = new MockAdapter([
       textResponse('First turn, default mode.'),
       textResponse('Second turn, plan mode.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-plan-flip'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-plan-flip'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'hello' }])
     await waitForIdle(ctx, agent)
@@ -114,13 +114,10 @@ describe('plan mode through the agent loop', () => {
     expect(findEvent(log, 'context/message').data.content).toEqual([
       { type: 'text', text: 'The user switched this session to plan mode.' },
     ])
-    // The header change is logged as a FULL fallback snapshot, not a delta:
-    // the tools delta can only APPEND additions, while the canonical
-    // (alphabetical) order places exit_plan_mode before read/write — a
-    // non-tail insertion the writer's round-trip guard rejects, so it
-    // falls back.
+    // Entering plan changes both the section and tool catalog, so the next
+    // request logs a complete changed header.
     const second = findEvent(log, 'request/header', 'last')
-    expect(second.data.reason).toBe('fallback')
+    expect(second.data.reason).toBe('change')
     expect(second.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
     expect(second.data.header.system).toContain('plan mode')
   })

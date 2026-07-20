@@ -1,7 +1,8 @@
 /**
- * Verify root-relative `docs/*.md` tokens in repo-authored TypeScript. The
- * textual scan requires the extension, checks matching string literals too,
- * and excludes built declarations and vendored source.
+ * Verify root-relative documentation paths in repo-authored TypeScript. The
+ * textual scan covers `docs/*.md` and `.agents/notes/*.md`, requires the
+ * extension, checks matching string literals too, and excludes built
+ * declarations and vendored source.
  */
 
 import { existsSync } from 'node:fs'
@@ -18,9 +19,9 @@ const isExcluded = (p: string): boolean =>
   p.includes('/lib/') || p.endsWith('.d.ts') || p.startsWith('vendor/')
 
 /** Root-relative Markdown path token, excluding trailing prose. */
-const DOC_REF = /\bdocs\/[A-Za-z0-9._/-]+\.md/g
+const DOC_REF = /(?:\bdocs|\.agents\/notes)\/[A-Za-z0-9._/-]+\.md/g
 
-/** Find every broken `docs/….md` reference in one TypeScript file. */
+/** Find every broken root-relative documentation reference in one TypeScript file. */
 function findViolations(absPath: string): Violation[] {
   return findReferenceViolations(root, absPath, DOC_REF, ref => ref, ref => !existsSync(resolve(root, ref)))
 }
@@ -30,11 +31,11 @@ const all = files.flatMap(file => findViolations(file.abs))
 const checked = files.length
 
 if (all.length === 0) {
-  console.log(`verify-doc-refs: ${checked} file(s) checked, all docs/*.md references resolve.`)
+  console.log(`verify-doc-refs: ${checked} file(s) checked, all documentation references resolve.`)
   process.exit(0)
 }
 
-console.error('verify-doc-refs: broken docs/*.md references found in source comments (target does not exist):')
+console.error('verify-doc-refs: broken documentation references found in source comments (target does not exist):')
 for (const v of all) {
   console.error(`  ${v.file}:${v.line}  ${v.ref}`)
 }

@@ -7,7 +7,7 @@ import Loader from '@cordisjs/plugin-loader'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import LlmService, { CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { AgentId, type Agent, type HookContext } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type HookContext } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -163,7 +163,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
   const session = new Session(id, seed, cwd === undefined ? undefined : { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd })
   return {
     ctx: new Context(),
-    id: AgentId('a1'),
+    id: SessionId('a1'),
     options: {},
     session,
     status: 'idle',
@@ -173,7 +173,6 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
       session.append('context/message', {
         content,
         source: options?.source ?? { kind: 'user' },
-        ...options?.envelope !== undefined ? { envelope: options.envelope } : {},
         ...options?.meta !== undefined ? { meta: options.meta } : {},
       }, { surfaceOp: 'append' })
     },
@@ -202,7 +201,6 @@ function workspaceChangeContext(scope: string, digest: string): HookContext {
   return {
     content: [{ type: 'text', text: `instructions for ${scope}` }],
     source: { kind: 'plugin', plugin: 'workspace-context' },
-    envelope: 'raw',
     meta: {
       kind: 'workspace-instructions',
       version: 1,
@@ -217,7 +215,6 @@ function appendAdditionalContexts(agent: Agent, result: { additionalContexts?: H
     lastSeq = agent.session.append('context/message', {
       content: context.content,
       source: context.source,
-      ...context.envelope !== undefined ? { envelope: context.envelope } : {},
       ...context.meta !== undefined ? { meta: context.meta } : {},
     }, { surfaceOp: 'append' }).seq
   }
@@ -1562,7 +1559,7 @@ describe('workspace context request injection', () => {
 })
 
 describe('dynamic nested workspace context injection', () => {
-  it('re-arms a buffered instruction change when a later tool aborts the step before context append', async () => {
+  it('commits a buffered instruction change before a later tool abort closes the step', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     const ctx = new Context()
@@ -1591,7 +1588,7 @@ describe('dynamic nested workspace context injection', () => {
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       await ctx.plugin(AgentLoop, { agents: [] })
       ctx.llm.registerAdapter(['mock'], adapter)
-      const agent = ctx.agentLoop.create(AgentId('workspace-context-abort'), { model: 'mock' }, { cwd: root })
+      const agent = ctx.agentLoop.create(SessionId('workspace-context-abort'), { provider: 'mock', model: 'mock' }, { cwd: root })
       ctx.tools.register(defineTool({
         name: 'abort_step',
         description: 'Abort the current test step.',
@@ -1604,12 +1601,14 @@ describe('dynamic nested workspace context injection', () => {
 
       agent.send([{ type: 'text', text: 'read and abort' }])
       await agent.whenIdle()
-      expect(agent.session.events.filter(event => event.type === 'context/message')).toHaveLength(0)
+      expect(agent.session.events.filter(event => event.type === 'context/message')).toHaveLength(1)
 
       agent.send([{ type: 'text', text: 'retry the read' }])
       await agent.whenIdle()
 
       const contexts = agent.session.events.filter(event => event.type === 'context/message')
+      // The aborted batch drained its accepted context before step close, so the
+      // retry sees durable history without producing a duplicate instruction.
       expect(contexts).toHaveLength(1)
       expect(adapter.requests).toHaveLength(3)
       expect(adapter.requests[2]?.messages.map(blocks => blocksText(blocks.content)).join('\n'))
@@ -1693,7 +1692,6 @@ describe('dynamic nested workspace context injection', () => {
 
       expect(result.isError).toBe(false)
       expect(workspaceContextOf(result)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
-      expect(workspaceContextOf(result)?.envelope).toBe('raw')
       expect(workspaceContextOf(result)?.meta).toMatchObject({
         kind: 'workspace-instructions',
         version: 1,
@@ -2459,7 +2457,6 @@ describe('dynamic nested workspace context injection', () => {
       expect(blocksText(result.content)).toBe('downstream replacement')
       expect(result.additionalContexts).toHaveLength(2)
       expect(workspaceContextOf(result)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
-      expect(workspaceContextOf(result)?.envelope).toBe('raw')
       expect(workspaceContextOf(result)?.meta).toMatchObject({
         kind: 'workspace-instructions',
         changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md' }],
@@ -2472,7 +2469,8 @@ describe('dynamic nested workspace context injection', () => {
       })
       const agent = stubAgent(root)
       appendAdditionalContexts(agent, result)
-      expect(blocksText(agent.session.deriveMessages()[1]?.content)).toContain('<context source="plugin">\ndownstream context\n</context>')
+      expect(blocksText(agent.session.deriveMessages()[1]?.content)).toContain('downstream context')
+      expect(blocksText(agent.session.deriveMessages()[1]?.content)).not.toContain('<context source=')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -2805,7 +2803,6 @@ describe('workspace context pending state', () => {
     const otherWorkspaceEvent = agent.session.append('context/message', {
       content: otherContext.content,
       source: otherContext.source,
-      ...otherContext.envelope !== undefined ? { envelope: otherContext.envelope } : {},
       ...otherContext.meta !== undefined ? { meta: otherContext.meta } : {},
     }, { surfaceOp: 'append' })
     observeInstructionSessionEvent(agent.session, otherWorkspaceEvent, pending, versions)
@@ -2815,7 +2812,6 @@ describe('workspace context pending state', () => {
     const confirmed = agent.session.append('context/message', {
       content: context.content,
       source: context.source,
-      ...context.envelope !== undefined ? { envelope: context.envelope } : {},
       ...context.meta !== undefined ? { meta: context.meta } : {},
     }, { surfaceOp: 'append' })
     observeInstructionSessionEvent(agent.session, confirmed, pending, versions)

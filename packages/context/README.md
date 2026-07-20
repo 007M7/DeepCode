@@ -7,4 +7,4 @@ Product plugins that add model-visible request context without defining a tool o
 | `time-context/` | Durable per-step current time and elapsed-time context | (none) |
 | `workspace-context/` | `AGENTS.md`/`CLAUDE.md` workspace context loader | (listens on `agent/session-prefix` + `tools/post-execute`) |
 
-The [`workspace-context` decision record](../../docs/rfc/implemented/feature/2026-06-24-workspace-context.md) explains its per-agent/session isolation and lifecycle split.
+The [`workspace-context` decision record](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md) explains its per-agent/session isolation and lifecycle split.

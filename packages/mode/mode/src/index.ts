@@ -27,7 +27,7 @@
  * told the model appends one coalesced `context/message` notice in the same
  * frame.
  *
- * RFC: docs/rfc/implemented/feature/2026-07-07-plan-mode.md
+ * Agent Note: .agents/notes/implemented/feature/2026-07-07-plan-mode.md
  *
  * @module @deepseek-ai/dsh-mode
  */
@@ -200,7 +200,7 @@ function modeAtLastHeader(events: readonly SessionEvent[]): string | undefined {
   let lastHeader = -1
   let index = 0
   for (const event of events) {
-    if (event.type === 'request/header' || event.type === 'request/header-delta') lastHeader = index
+    if (event.type === 'request/header') lastHeader = index
     index++
   }
   if (lastHeader < 0) return undefined

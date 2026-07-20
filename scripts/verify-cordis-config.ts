@@ -1,16 +1,30 @@
 /**
- * Reject JavaScript expressions in Cordis Loader entry metadata.
+ * Validate Cordis Loader entry metadata and example package resolution.
  *
  * The Loader interpolates only a plugin entry's `config`; expression objects in
  * fields such as `disabled` remain truthy data and silently change composition.
+ * Example configs run from built packages, so every named package must resolve
+ * from the examples workspace and every local package must be in the root
+ * TypeScript project graph.
  */
 
 import { globSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
+import ts from 'typescript'
 
 interface JsExpr {
   __jsExpr: string
+}
+
+interface PackageManifest {
+  name?: string
+  dependencies?: Record<string, string>
+}
+
+interface PluginReference {
+  file: string
+  name: string
 }
 
 const root = resolve(import.meta.dirname, '..')
@@ -30,6 +44,7 @@ const files = globSync(['**/*cordis*.yml', '**/*cordis*.yaml'], {
   exclude: ['.claude/**', 'node_modules/**', 'vendor/**'],
 }).sort()
 const errors: string[] = []
+const examplePluginReferences: PluginReference[] = []
 
 for (const file of files) {
   const document: unknown = yaml.load(readFileSync(resolve(root, file), 'utf8'), { schema })
@@ -42,8 +57,10 @@ for (const file of files) {
   }
 }
 
+errors.push(...validateExampleResolution())
+
 if (errors.length > 0) {
-  console.error('verify-cordis-config: Loader entry metadata is static; move !!js under plugin config or select an explicit overlay.')
+  console.error('verify-cordis-config: invalid Loader metadata or example package resolution:')
   for (const error of errors) console.error(`- ${error}`)
   process.exitCode = 1
 } else {
@@ -55,6 +72,7 @@ function validateEntry(value: unknown, file: string, path: string): void {
     errors.push(`${file}${path}: entry must be an object`)
     return
   }
+  recordExamplePlugin(value, file)
   validateMetadata(value, file, path)
   if ((value.group === true || value.name === '@cordisjs/plugin-group') && isUnknownArray(value.config)) {
     for (let index = 0; index < value.config.length; index++) {
@@ -68,12 +86,90 @@ function validateEntry(value: unknown, file: string, path: string): void {
     const patch = config.patches[index]
     const patchPath = `${path}.config.patches[${index}]`
     if (!isRecord(patch)) continue
+    recordExamplePlugin(patch, file)
     validateMetadata(patch, file, patchPath)
     if (!isUnknownArray(patch.insert)) continue
     for (let insertIndex = 0; insertIndex < patch.insert.length; insertIndex++) {
       validateEntry(patch.insert[insertIndex], file, `${patchPath}.insert[${insertIndex}]`)
     }
   }
+}
+
+function recordExamplePlugin(entry: Record<string, unknown>, file: string): void {
+  if (file.startsWith('examples/') && typeof entry.name === 'string') {
+    examplePluginReferences.push({ file, name: entry.name })
+  }
+}
+
+function validateExampleResolution(): string[] {
+  const violations: string[] = []
+  const exampleManifest = readManifest('examples/package.json')
+  const dependencies = exampleManifest.dependencies ?? {}
+  const localPackages = localPackageDirectories()
+  const rootReferences = rootProjectReferences()
+  const requiredPackages = new Map<string, Set<string>>()
+
+  for (const reference of examplePluginReferences) {
+    const packageName = packageNameFromSpecifier(reference.name)
+    if (packageName === undefined) continue
+    const locations = requiredPackages.get(packageName) ?? new Set<string>()
+    locations.add(reference.file)
+    requiredPackages.set(packageName, locations)
+  }
+
+  for (const [packageName, locations] of requiredPackages) {
+    if (!(packageName in dependencies)) {
+      violations.push(`${[...locations].join(', ')}: ${packageName} must be declared in examples/package.json dependencies`)
+    }
+  }
+
+  const localExamplePackages = new Set([
+    ...Object.keys(dependencies),
+    ...requiredPackages.keys(),
+  ])
+  for (const packageName of localExamplePackages) {
+    const packageDirectory = localPackages.get(packageName)
+    if (packageDirectory === undefined || rootReferences.has(packageDirectory)) continue
+    const repoPath = relative(root, packageDirectory).replaceAll('\\', '/')
+    violations.push(`tsconfig.json: missing project reference for ${packageName} (${repoPath})`)
+  }
+
+  return violations
+}
+
+function readManifest(path: string): PackageManifest {
+  return JSON.parse(readFileSync(resolve(root, path), 'utf8')) as PackageManifest
+}
+
+function localPackageDirectories(): Map<string, string> {
+  const manifests = globSync(['packages/*/*/package.json', 'vendor/*/package.json'], { cwd: root })
+  const packages = new Map<string, string>()
+  for (const manifestPath of manifests) {
+    const manifest = readManifest(manifestPath)
+    if (manifest.name !== undefined) packages.set(manifest.name, resolve(root, dirname(manifestPath)))
+  }
+  return packages
+}
+
+function rootProjectReferences(): Set<string> {
+  const config = ts.readConfigFile(resolve(root, 'tsconfig.json'), path => ts.sys.readFile(path))
+  if (config.error !== undefined) {
+    throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'))
+  }
+  const references = (config.config as { references?: Array<{ path?: unknown }> }).references ?? []
+  return new Set(references.flatMap((reference) => {
+    if (typeof reference.path !== 'string') return []
+    return [resolve(root, reference.path)]
+  }))
+}
+
+function packageNameFromSpecifier(specifier: string): string | undefined {
+  if (specifier.startsWith('.') || specifier.startsWith('/') || specifier.startsWith('file:')) return undefined
+  const segments = specifier.split('/')
+  if (specifier.startsWith('@')) {
+    return segments.length >= 2 ? `${segments[0]}/${segments[1]}` : undefined
+  }
+  return segments[0] || undefined
 }
 
 function validateMetadata(entry: Record<string, unknown>, file: string, path: string): void {

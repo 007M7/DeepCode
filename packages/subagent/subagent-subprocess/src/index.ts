@@ -20,13 +20,12 @@ import { join } from 'node:path'
  * the scrub, so an intended `DEEPSEEK_API_KEY` survives while an incidental
  * `AWS_SECRET_ACCESS_KEY` does not.
  */
-export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
+const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
 /**
  * The ambient env minus credential-shaped vars, plus the caller's explicit
  * env. `PATH`, `HOME`, `TMPDIR`, locale, and proxy vars survive the scrub, so
- * a child CLI runs normally; only {@link SENSITIVE_ENV_PATTERN}-shaped names
- * are dropped.
+ * a child CLI runs normally; only credential-shaped names are dropped.
  * @param extra - explicit vars layered on top AFTER the scrub, so a
  * credential-shaped name supplied deliberately still reaches the child.
  * @returns the environment to spawn the child with.
@@ -57,7 +56,7 @@ export function spawnFailure(child: ChildProcess): Promise<Error> {
  * already gone.
  * @param child - the child process to await.
  */
-export function waitForExit(child: ChildProcess): Promise<void> {
+function waitForExit(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
   return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
 }
@@ -72,7 +71,7 @@ export function waitForExit(child: ChildProcess): Promise<void> {
  * @returns `true` if the child exits within `ms` (immediately if it is
  * already gone), `false` on timeout.
  */
-export function exitsWithin(child: ChildProcess, ms: number): Promise<boolean> {
+function exitsWithin(child: ChildProcess, ms: number): Promise<boolean> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true)
   return new Promise<boolean>((resolve) => {
     const onExit = (): void => {

@@ -82,7 +82,7 @@ export function mapPerplexityResponse(response: PerplexityResponse): WebSearchRe
   }
 }
 
-/** The Perplexity-backed search provider. */
+/** The Perplexity-backed search provider; HTTP redirects fail as `WEB_PROVIDER_ERROR`. */
 export class PerplexitySearchProvider implements WebSearchProvider {
   readonly id = PERPLEXITY_PROVIDER_ID
 
@@ -103,6 +103,7 @@ export class PerplexitySearchProvider implements WebSearchProvider {
     try {
       response = await fetch(`${this.options.baseURL}/chat/completions`, {
         method: 'POST',
+        redirect: 'error',
         headers: {
           'authorization': `Bearer ${this.options.apiKey}`,
           'content-type': 'application/json',

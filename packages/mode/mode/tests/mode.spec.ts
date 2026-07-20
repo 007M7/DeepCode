@@ -4,7 +4,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import { AgentId, agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
 import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import ModesService, { DEFAULT_MODE, EXIT_PLAN_MODE, PLAN_MODE, foldMode, resolveConfig } from '../src/index.ts'
@@ -21,7 +21,7 @@ import type { ModeConfig } from '../src/index.ts'
 
 function agentWithSession(id = 'agent-1', options: { mode?: string } = {}): Agent & { session: Session } {
   const session = new Session(SessionId(id))
-  return { id: AgentId(id), session, options } as unknown as Agent & { session: Session }
+  return { id: SessionId(id), session, options } as unknown as Agent & { session: Session }
 }
 
 async function setup(config?: ModeConfig): Promise<Context> {
@@ -51,7 +51,7 @@ async function boundary(ctx: Context, agent: Agent & { session: Session }, type:
 
 /** Append a minimal `request/header` snapshot so the log has a "what the model was told" anchor. */
 function header(session: Session): void {
-  session.append('request/header', { header: { config: { model: 'test-model' } }, reason: 'initial' })
+  session.append('request/header', { header: { config: { provider: 'test', model: 'test-model' } }, reason: 'initial' })
 }
 
 function noticeTexts(session: Session): string[] {

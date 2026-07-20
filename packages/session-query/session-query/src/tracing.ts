@@ -162,7 +162,7 @@ function analyzeEventLog(
       { cause: error },
     )
   }
-  const current = new Set(folded.nodes.map(node => node.seq))
+  const current = new Set(folded.nodes)
   const replacedBy = new Map<number, number>()
   const replacedEventSeqs = new Map<number, number[]>()
   for (const replacement of folded.replacements) {

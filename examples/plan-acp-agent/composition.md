@@ -23,14 +23,18 @@ flowchart LR
   cfg --> plugin_plan-acp_mode
   plugin_plan-acp_sandbox["sandbox<br/>@deepseek-ai/dsh-sandbox-local"]
   cfg --> plugin_plan-acp_sandbox
+  plugin_plan-acp_sandbox_policy["sandbox-policy<br/>@deepseek-ai/dsh-sandbox-policy"]
+  cfg --> plugin_plan-acp_sandbox_policy
   plugin_plan-acp_bash["bash<br/>@deepseek-ai/dsh-bash-sandbox"]
   cfg --> plugin_plan-acp_bash
   plugin_plan-acp_approval["approval<br/>@deepseek-ai/dsh-user-approval"]
   cfg --> plugin_plan-acp_approval
+  plugin_plan-acp_permission["permission<br/>@deepseek-ai/dsh-permission"]
+  cfg --> plugin_plan-acp_permission
   plugin_plan-acp_tool_ask_user["tool-ask-user<br/>@deepseek-ai/dsh-tool-ask-user"]
   cfg --> plugin_plan-acp_tool_ask_user
-  plugin_plan-acp_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
-  cfg --> plugin_plan-acp_fs_local
+  plugin_plan-acp_fs_sandbox["fs-sandbox<br/>@deepseek-ai/dsh-fs-sandbox"]
+  cfg --> plugin_plan-acp_fs_sandbox
   plugin_plan-acp_fs_policy["fs-policy<br/>@deepseek-ai/dsh-fs-policy"]
   cfg --> plugin_plan-acp_fs_policy
   plugin_plan-acp_tool_fs["tool-fs<br/>@deepseek-ai/dsh-tool-fs"]
@@ -45,10 +49,12 @@ flowchart LR
 | `acp-agent` | `@deepseek-ai/dsh-acp-demo` |
 | `mode` | `@deepseek-ai/dsh-mode` |
 | `sandbox` | `@deepseek-ai/dsh-sandbox-local` |
+| `sandbox-policy` | `@deepseek-ai/dsh-sandbox-policy` |
 | `bash` | `@deepseek-ai/dsh-bash-sandbox` |
 | `approval` | `@deepseek-ai/dsh-user-approval` |
+| `permission` | `@deepseek-ai/dsh-permission` |
 | `tool-ask-user` | `@deepseek-ai/dsh-tool-ask-user` |
-| `fs-local` | `@deepseek-ai/dsh-fs-local` |
+| `fs-sandbox` | `@deepseek-ai/dsh-fs-sandbox` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
 | `tool-fs` | `@deepseek-ai/dsh-tool-fs` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |

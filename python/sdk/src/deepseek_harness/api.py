@@ -18,6 +18,7 @@ class DeepSeekHarnessConfig:
     intentionally override or inject variables for a subprocess.
     """
 
+    provider: str = "deepseek"
     model: str = "deepseek-v4-flash"
     cwd: str | None = None
     runtime_cwd: str | None = None
@@ -97,6 +98,7 @@ class DeepSeekHarness:
         self._client.start()
         self._client.initialize(
             cwd=self._cwd,
+            provider=self.config.provider,
             model=self.config.model,
         )
         self._initialized = True

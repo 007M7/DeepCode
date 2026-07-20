@@ -36,14 +36,13 @@ export class BlockAssembler {
   private order: number[] = []
   private _usage: TokenUsage | undefined
   private _finish: FinishReason | undefined
+  private _replayState: unknown = undefined
 
   /**
-   * Feed one chunk. Returns the completed block when the chunk closes one
-   * (an explicit `block-end`), otherwise undefined.
+   * Feed one chunk into the assembly state.
    * @param chunk - the next raw chunk, in stream order.
-   * @returns the authoritative block from the first `block-end` at its index; undefined for every other chunk.
    */
-  push(chunk: StreamChunk): ContentBlock | undefined {
+  push(chunk: StreamChunk): void {
     switch (chunk.type) {
       case 'block-start': {
         if (!this.partials.has(chunk.index)) {
@@ -77,7 +76,7 @@ export class BlockAssembler {
         // and the final assembled block in agreement.
         if (partial.block) return
         partial.block = chunk.block
-        return chunk.block
+        return
       }
       case 'usage': {
         this._usage = chunk.usage
@@ -85,6 +84,7 @@ export class BlockAssembler {
       }
       case 'finish': {
         this._finish = chunk.reason
+        this._replayState = chunk.replayState
         return
       }
       default: return assertNever(chunk, 'BlockAssembler.push')
@@ -140,6 +140,11 @@ export class BlockAssembler {
   /** Finish reason from the `finish` chunk; `{kind: 'stop'}` when the stream ended without one. */
   get finish(): FinishReason {
     return this._finish ?? { kind: 'stop' }
+  }
+
+  /** Adapter-private replay state from the terminal finish chunk, if any. */
+  get replayState(): unknown {
+    return this._replayState
   }
 
   /**

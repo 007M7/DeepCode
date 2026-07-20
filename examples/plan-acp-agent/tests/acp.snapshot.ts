@@ -54,7 +54,7 @@ const SCENARIOS: Scenario[] = [
   // arc: setMode(plan) → the model runs a real `cat` inside plan and
   // presents the plan via exit_plan_mode → the scripted elicitation approves
   // → the very next step already edits for real, mid-turn.
-  { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderDeltas: 1 },
+  { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderChanges: 1 },
   // The keep-planning branch: one presentation, the scripted review answers
   // with free-text feedback (no approval), and the corrective isError carries
   // it back verbatim — the session stays in plan mode, so the log holds one

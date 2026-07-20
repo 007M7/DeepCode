@@ -12,8 +12,8 @@ import * as acpAgent from '../src/index.ts'
 /**
  * In-process unit coverage for the @deepseek-ai/dsh-acp-demo composition:
  * mounting it brings up the agent-spine-demo spine + JSONL persistence + the ACP
- * bridge in one `ctx.plugin`. Unlike the stdio app, this one loads NO
- * Loader-only plugin (no hmr), so it mounts in a plain Context.
+ * bridge in one `ctx.plugin`. It loads no Loader-only plugin (no hmr), so it
+ * mounts in a plain Context.
  *
  * The REAL Loader-path guard (export shape via `unwrapExports`, the headline
  * ACP operations end-to-end) is the keyless bin smoke in `load-path.e2e.ts`;
@@ -70,10 +70,19 @@ async function withIsolatedSkillHomes<T>(run: () => Promise<T>): Promise<T> {
 
 describe('dsh-acp-demo composition', () => {
   it('brings up the spine + persistence + the ACP bridge', async () => {
-    const ctx = await mount({ model: 'mock', persona: 'hi', persistenceRoot: '/tmp/dsh-acp-demo-test', skills: await isolatedSkillsConfig(), workspaceContext: false })
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      persona: 'hi',
+      persistenceRoot: '/tmp/dsh-acp-demo-test',
+      persistenceCompression: 'none',
+      skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
+    })
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
+    expect((ctx.get('sessionPersistence') as unknown as { config: { compression?: string } }).config.compression).toBe('none')
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('userInteraction')).toBeDefined()
     expect(ctx.get('tools')?.get('ask_user_question')).toBeUndefined()
@@ -83,13 +92,13 @@ describe('dsh-acp-demo composition', () => {
   })
 
   it('defaults the persistence root when omitted', async () => {
-    // Exercises the `?? './.sessions'` fallback for a direct-apply caller that
+    // Exercises the `DEFAULT_PERSISTENCE_ROOT` fallback for a direct-apply caller that
     // bypasses the schema's `.default(...)`: call `apply` directly (not via
     // `ctx.plugin`, which validates+defaults the config first) with no
     // persistenceRoot, so the runtime fallback is the one that fires.
     const ctx = new Context()
     // No persona: covers the omitted-persona forwarding branch too.
-    acpAgent.apply(ctx, { model: 'mock', skills: await isolatedSkillsConfig(), workspaceContext: false })
+    acpAgent.apply(ctx, { provider: 'mock', model: 'mock', skills: await isolatedSkillsConfig(), workspaceContext: false })
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(ctx.get('sessionPersistence')).toBeDefined()
     await ctx.fiber.dispose()
@@ -97,6 +106,7 @@ describe('dsh-acp-demo composition', () => {
 
   it('forwards explicit project-instruction controls to the bundled spine', async () => {
     const ctx = await mount({
+      provider: 'mock',
       model: 'mock',
       persona: 'hi',
       persistenceRoot: '/tmp/dsh-acp-demo-workspace-context',
@@ -110,7 +120,7 @@ describe('dsh-acp-demo composition', () => {
   it('uses default skill config when apply is called directly without skills', async () => {
     await withIsolatedSkillHomes(async () => {
       const ctx = new Context()
-      acpAgent.apply(ctx, { model: 'mock', workspaceContext: false })
+      acpAgent.apply(ctx, { provider: 'mock', model: 'mock', workspaceContext: false })
       await new Promise(resolve => setTimeout(resolve, 50))
       expect(ctx.skills).toBeDefined()
       expect(await ctx.skills.list()).toEqual([])
@@ -120,14 +130,28 @@ describe('dsh-acp-demo composition', () => {
 
   it('forwards skill config and dshHome into agent-spine-demo', async () => {
     const skills = await isolatedSkillsConfig(6)
-    const ctx = await mount({ model: 'mock', persona: 'hi', dshHome: skills.local!.dshHome!, skills, workspaceContext: false })
+    const ctx = await mount({ provider: 'mock', model: 'mock', persona: 'hi', dshHome: skills.local!.dshHome!, skills, workspaceContext: false })
     ctx.skills.register({ name: 'acp-skill', description: 'ACP skill', source: 'runtime', content: 'body' })
     expect(JSON.stringify(await composePrefix(ctx))).toContain('- `acp-skill`: ACP...')
     await ctx.fiber.dispose()
   })
 
+  it('forwards maxParallelToolCalls to the bundled agent loop', async () => {
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      maxParallelToolCalls: 3,
+      persistenceRoot: '/tmp/dsh-acp-demo-test-parallel',
+      skills: await isolatedSkillsConfig(),
+      workspaceContext: false,
+    })
+    expect(ctx.get('agentLoop')?.config.maxParallelToolCalls).toBe(3)
+    await ctx.fiber.dispose()
+  })
+
   it('forwards bundled tool config into agent-core', async () => {
     const ctx = await mount({
+      provider: 'mock',
       model: 'mock',
       workspaceContext: false,
       toolBash: { enableRunInBackground: false },
@@ -147,6 +171,7 @@ describe('dsh-acp-demo composition', () => {
 
   it('forwards toolOrder through agent-spine-demo to the system-prompt assembly', async () => {
     const ctx = await mount({
+      provider: 'mock',
       model: 'mock',
       toolOrder: ['zulu', TOOL_ORDER_REST],
       persistenceRoot: '/tmp/dsh-acp-demo-test-tool-order',

@@ -12,8 +12,20 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 
+/** Physical encoding selected for JSONL session artifacts. */
+export type JsonlCompression = 'zstd' | 'none'
+
 /**
- * The first line of a session's `.jsonl` file: the immutable
+ * Return the artifact suffix for one physical encoding.
+ * @param compression - configured JSONL artifact encoding.
+ * @returns `.jsonl.zstd` for Zstandard or `.jsonl` for plaintext.
+ */
+export function logSuffix(compression: JsonlCompression): '.jsonl.zstd' | '.jsonl' {
+  return compression === 'zstd' ? '.jsonl.zstd' : '.jsonl'
+}
+
+/**
+ * The first JSONL record of a session artifact: the immutable
  * {@link SessionHeader} tagged as a `session` record so a reader can tell it
  * apart from an event line.
  */
@@ -25,6 +37,7 @@ export interface HeaderLine {
   cwd?: string
   parentSession?: SessionId
   seedLength?: number
+  delegationDepth: number
 }
 
 /**
@@ -41,6 +54,7 @@ export function toHeaderLine(header: SessionHeader): HeaderLine {
     ...header.cwd !== undefined ? { cwd: header.cwd } : {},
     ...header.parentSession !== undefined ? { parentSession: header.parentSession } : {},
     ...header.seedLength !== undefined ? { seedLength: header.seedLength } : {},
+    delegationDepth: header.delegationDepth ?? 0,
   }
 }
 
@@ -57,6 +71,7 @@ export function fromHeaderLine(line: HeaderLine): SessionHeader {
     ...line.cwd !== undefined ? { cwd: line.cwd } : {},
     ...line.parentSession !== undefined ? { parentSession: line.parentSession } : {},
     ...line.seedLength !== undefined ? { seedLength: line.seedLength } : {},
+    delegationDepth: line.delegationDepth,
   }
 }
 
@@ -68,6 +83,10 @@ function isHeaderLine(value: unknown): value is HeaderLine {
     && typeof (value as { version?: unknown }).version === 'number'
     && typeof (value as { id?: unknown }).id === 'string'
     && typeof (value as { createdAt?: unknown }).createdAt === 'number'
+    && typeof (value as { delegationDepth?: unknown }).delegationDepth === 'number'
+    && Number.isSafeInteger((value as { delegationDepth: number }).delegationDepth)
+    && (value as { delegationDepth: number }).delegationDepth >= 0
+    && !Object.is((value as { delegationDepth: number }).delegationDepth, -0)
   )
 }
 
@@ -119,10 +138,16 @@ export function sessionDir(root: string, cwd: string | undefined): string {
  * @param root - the backend's session root directory.
  * @param cwd - the session's project directory (picks the per-cwd bucket; `undefined` → `_no-cwd`).
  * @param id - the session id, path-encoded via {@link encodeSegment} before filesystem use.
- * @returns the session's `.jsonl` log file path.
+ * @param compression - physical artifact encoding and filename suffix.
+ * @returns the session's configured JSONL artifact path.
  */
-export function logPath(root: string, cwd: string | undefined, id: SessionId): string {
-  return join(sessionDir(root, cwd), `${encodeSegment(id)}.jsonl`)
+export function logPath(
+  root: string,
+  cwd: string | undefined,
+  id: SessionId,
+  compression: JsonlCompression,
+): string {
+  return join(sessionDir(root, cwd), `${encodeSegment(id)}${logSuffix(compression)}`)
 }
 
 /**

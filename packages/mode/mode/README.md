@@ -10,7 +10,7 @@ The `default` mode is the absence of policy: no section, no extra tool. An agent
 
 ## What a mode carries
 
-**The guidance section.** A `system-prompt/assemble` listener renders the mode's `section` text as the `mode:policy` section (order 50) while the mode is in force, and shows the `exit_plan_mode` tool IFF the folded mode is `plan` — on the wire and, under the registry's Code Mode, in the `tools:sdk` section alike. Every transition therefore surfaces as an attributable `request/header` event on the next step (entering plan adds the exit tool at its canonical alphabetical position — a non-tail insertion the append-only tools delta cannot express → the full fallback snapshot; the approved exit removes exactly that tool and the section, a pure removal → one `request/header-delta`).
+**The guidance section.** A `system-prompt/assemble` listener renders the mode's `section` text as the `mode:policy` section (order 50) while the mode is in force, and shows the `exit_plan_mode` tool IFF the folded mode is `plan` — on the wire and, under the registry's Code Mode, in the `tools:sdk` section alike. Every transition therefore surfaces as an attributable complete `request/header` event on the next step; entering or leaving plan changes both the section and the exit-tool catalog.
 
 **Deliberately absent: enforcement.** A mode never gates execution, filters the toolset, or touches the sandbox/approval knobs — those are independent axes the user switches separately (a deployment that wants a hard read-only floor while planning flips the sandbox-mode option beside the mode picker, in either order; neither disturbs the other). A per-mode tool allow/deny list is likewise out: which tools a mode admits is an effects question — a per-tool read-only/mutating classification the harness does not yet have — parked until tool definitions declare their effects (the plan-mode RFC's deferred item). The config vocabulary is exactly `{ section }`, and an unknown key (a `tools` list or an `access` cap included) fails loud at load.
 
@@ -40,28 +40,44 @@ Definitions are validated at load (`resolveConfig`): the built-in `plan` (the sh
 
 ## Model Experience
 
-### System prompt
+### System prompt and mode tool
 
-**What the model sees**: In the default mode, nothing — assemblies are byte-identical to a deployment without this plugin (the always-registered `exit_plan_mode` tool is filtered from the wire and the Code Mode SDK). In a non-default mode, the mode's `section` renders as the `mode:policy` section (order 50) and, in plan mode, the `exit_plan_mode` tool joins the toolset — nothing else changes. A mode flip mid-session appends one coalesced `context/message` notice when the last header disagrees.
+#### What the model sees
 
-**Token effect**: Zero in the default mode. In plan mode, the section text plus one tool schema per request; every mode transition changes the logged header and therefore resets the provider prefix cache.
+In `default`, no `mode:policy` text appears and the registered `exit_plan_mode` tool is filtered from native schemas and the Code Mode SDK, making the request identical to a deployment without this plugin. A configured non-default mode renders its exact section at order 50; `plan` also exposes the [`exit_plan_mode` schema](../../../docs/tool-catalog.md#deepseek-aidsh-mode). A user-driven transition whose prior header described another mode appends one coalesced notice naming the new mode.
 
-#### Plan-mode policy section
+##### Plan-mode policy section
 
 ```markdown
 You are in plan mode: a planning state. Explore, analyze, and design; reading files and running read-only commands is fine, but hold off on changes — edits and other side effects belong in the plan and run after its approval, not in this mode. When a decision or a missing detail blocks the plan, ask the user through the ask_user_question tool where it is available. A finished plan is delivered by calling exit_plan_mode — that call is what puts it in front of the user for review, so prefer it over pasting the plan as a plain reply or asking the user to switch modes themselves. If exit_plan_mode is unavailable or its review fails, ask the user to switch the session out of plan mode instead of pressing on.
 ```
 
+#### Token effect
+
+`default` adds no tokens. Plan mode adds the policy section and one tool schema on each request; each qualifying user transition adds one short conversation notice.
+
+#### KV Cache effect
+
+Within one mode, the section and catalog are stable. Entering or leaving plan changes the system prompt at order 50 and adds or removes the exit-tool schema, so the request takes a different cache path; bytes before the section remain a reusable prefix where the provider supports prefix caching.
+
 ### Exit review
 
-**What the model sees**: The `exit_plan_mode` call carries the full plan markdown as its argument (retained in context as ordinary tool args); its result is one short confirmation or the reviewer's feedback verbatim.
+#### What the model sees
 
-**Token effect**: The plan text is paid once as tool args and stays in the conversation; a keep-planning round adds one feedback-sized result per revision.
+The call carries the complete plan markdown as ordinary tool arguments. Approval returns `Plan approved — plan mode exited; carry out the plan starting with your next step.`; every non-approval returns a corrective error containing the reviewer's feedback when provided.
+
+#### Token effect
+
+The plan is paid once as tool arguments and remains in the conversation. Each rejection adds its feedback result, and a later revision adds another complete plan call.
+
+#### KV Cache effect
+
+The review call and result extend the conversation normally. An approved exit changes the next request's earlier mode section and removes the exit-tool schema, so that request follows the default-mode cache path rather than the plan-mode path.
 
 ## Known Limitations and Deferred Work
 
-- **A mode restrains by guidance only** — nothing gates execution while a mode holds; a user who wants a hard floor pairs the mode with the independent sandbox/approval knobs. The [plan-mode RFC](../../../docs/rfc/implemented/feature/2026-07-07-plan-mode.md) archives the two removed enforcement shapes (the interim allowlist, the `access` sandbox cap) and their restart trigger (effects self-declaration on tool definitions).
+- **A mode restrains by guidance only** — nothing gates execution while a mode holds; a user who wants a hard floor pairs the mode with the independent sandbox/approval knobs. The [plan-mode Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-plan-mode.md) archives the two removed enforcement shapes (the interim allowlist, the `access` sandbox cap) and their restart trigger (effects self-declaration on tool definitions).
 - **A pending flip set while idle dies with the process** — the UI re-applies; the idle-record primitive is the escape hatch if this bites.
 - **Subagent mode inheritance is deferred** — a fork child inherits via the seeded prefix; a spawn child starts default unless its creator seeds `AgentOptions.mode`.
 
-RFC: [plan mode](../../../docs/rfc/implemented/feature/2026-07-07-plan-mode.md).
+Design: [plan-mode Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-plan-mode.md).
