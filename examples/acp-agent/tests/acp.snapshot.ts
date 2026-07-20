@@ -105,7 +105,7 @@ const SCENARIOS: Scenario[] = [
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
   { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true },
-  // Children sit AT the default depth cap (maxDepth 1), so each child's header
+  // Children sit at this example's configured depth cap (`maxDepth: 1`), so each child's header
   // legitimately omits the delegation tool that spawned it (schema hiding).
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true, childToolOmissions: ['subagent'] },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true, childToolOmissions: ['subagent'] },
@@ -125,7 +125,7 @@ const SCENARIOS: Scenario[] = [
     pinsHeader: true,
     headerClass: 'advanced',
     configPath: ADVANCED_CONFIG,
-    // The direct spawn child sits AT the default cap and loses `subagent`;
+    // The direct spawn child sits at the configured cap and loses `subagent`;
     // workflow children bypass tool-subagent and keep the full set.
     childToolOmissions: ['subagent'],
   },

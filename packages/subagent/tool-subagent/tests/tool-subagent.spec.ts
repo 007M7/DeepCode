@@ -912,23 +912,24 @@ describe('depth budget defaults and schema hiding', () => {
     return { ctx, requests }
   }
 
-  it('defaults maxDepth to 1 and forwards it in the start request', async () => {
+  it('defaults maxDepth to 3 and forwards it in the start request', async () => {
     const { ctx, requests } = await captureSetup()
     await callSubagent(ctx, { description: 'd', prompt: 'p' })
-    expect(requests[0]?.maxDepth).toBe(1)
+    expect(requests[0]?.maxDepth).toBe(3)
+    expect(requests[0]?.toolFilter?.deny ?? []).not.toContain('subagent')
   })
 
   it('denies its own toolName to a child at the depth cap', async () => {
     // The child of a depth-0 parent under maxDepth 1 sits AT the cap: any
     // delegation it attempted would be rejected, so the tool must not appear in
     // its schema at all (prompt-face hiding; the service still rejects).
-    const { ctx, requests } = await captureSetup()
+    const { ctx, requests } = await captureSetup({ maxDepth: 1 })
     await callSubagent(ctx, { description: 'd', prompt: 'p' })
     expect(requests[0]?.toolFilter?.deny).toContain('subagent')
   })
 
   it('merges the cap denial into a configured tool filter', async () => {
-    const { ctx, requests } = await captureSetup({ toolFilter: { deny: ['dangerous'] } })
+    const { ctx, requests } = await captureSetup({ toolFilter: { deny: ['dangerous'] }, maxDepth: 1 })
     await callSubagent(ctx, { description: 'd', prompt: 'p' })
     expect(requests[0]?.toolFilter?.deny).toEqual(expect.arrayContaining(['dangerous', 'subagent']))
   })
