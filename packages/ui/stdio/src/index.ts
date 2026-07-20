@@ -15,6 +15,7 @@ import type { Readable, Writable } from 'node:stream'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { errorChain } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-agent-loop'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
@@ -60,15 +61,6 @@ export interface StdioRuntime {
 
 function isTTYPair(input: Readable, output: Writable): boolean {
   return Boolean((input as { isTTY?: boolean }).isTTY && (output as { isTTY?: boolean }).isTTY)
-}
-
-/** Render an arbitrary failure without allowing hostile coercion to escape the UI boundary. */
-function renderThrown(value: unknown): string {
-  try {
-    return String(value)
-  } catch {
-    return '<unrenderable thrown value>'
-  }
 }
 
 interface PendingQuestion {
@@ -138,6 +130,21 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
     } else if (event.type === 'turn/end') {
       if (inReasoning) output.write('\x1B[0m')
       inReasoning = false
+      // Failure reasons must reach the terminal: turn/end is the durable record
+      // of an in-turn failure, and without this line a failed turn renders as
+      // silence. Merge-extensible unknown kinds fall through as ordinary ends.
+      const { reason } = event.data
+      if (reason.kind === 'error') {
+        output.write(`\n[turn failed${reason.code === undefined ? '' : ` ${reason.code}`}] ${reason.message}`)
+      } else if (reason.kind === 'aborted') {
+        output.write(`\n[turn aborted]${reason.reason === undefined ? '' : ` ${reason.reason}`}`)
+      } else if (reason.kind === 'rejected') {
+        output.write(`\n[turn rejected] ${reason.reason}`)
+      } else if (reason.kind === 'max-tokens') {
+        output.write('\n[turn hit the output-token limit]')
+      } else if (reason.kind === 'interrupted') {
+        output.write('\n[turn interrupted by a previous process exit]')
+      }
       output.write('\n> ')
     } else if (event.type === 'tool/call') {
       const { name: toolName, arguments: args } = event.data
@@ -239,7 +246,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       queuedInput.length = 0
       submittedWork = sawRunning
       if (dropped > 0) {
-        ctx.logger.error(`ui-stdio: main agent failed to start; dropped queued stdin (${dropped} line(s)): ${renderThrown(error)}`)
+        ctx.logger.error(`ui-stdio: main agent failed to start; dropped queued stdin (${dropped} line(s)): ${errorChain(error)}`)
       }
       maybeExit()
     })
@@ -399,7 +406,7 @@ export function createStdioChat(ctx: Context, config: Config, runtime: StdioRunt
       const text = line.trim()
       if (!text) return
       if (failedStartup !== undefined) {
-        ctx.logger.error(`ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): ${renderThrown(failedStartup.error)}`)
+        ctx.logger.error(`ui-stdio: main agent failed to start; dropped queued stdin (1 line(s)): ${errorChain(failedStartup.error)}`)
         return
       }
       const agent = target
