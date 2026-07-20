@@ -99,7 +99,6 @@ describe('agent/prompt-submit', () => {
         additionalContexts: [{
           content: [{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }],
           source: { kind: 'plugin', plugin: 'test' },
-          envelope: 'raw',
           meta,
         }],
       }))
@@ -113,7 +112,6 @@ describe('agent/prompt-submit', () => {
     expect(userMsg).toBeDefined()
     expect(ctxMsg?.type === 'context/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }])
     expect(ctxMsg?.type === 'context/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'test' })
-    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.envelope).toBe('raw')
     expect(ctxMsg?.type === 'context/message' && ctxMsg.data.meta).toEqual(meta)
     const sent = JSON.stringify(adapter.requests[0]!.messages)
     expect(sent).toContain('extra ctx')
@@ -556,7 +554,6 @@ describe('tool additionalContexts buffering across a step', () => {
         additionalContexts: [{
           content: [{ type: 'text', text: `ctx-${exec.callId}` }],
           source: { kind: 'plugin', plugin: 'p' },
-          envelope: 'raw',
           meta: { callId: exec.callId },
         }],
       }))
@@ -580,7 +577,6 @@ describe('tool additionalContexts buffering across a step', () => {
       .map(b => (b.type === 'text' ? b.text : ''))
     expect(ctxTexts).toEqual(['ctx-c1', 'ctx-c2'])
     const contextEvents = events(agent).filter(e => e.type === 'context/message')
-    expect(contextEvents.map(e => e.type === 'context/message' && e.data.envelope)).toEqual(['raw', 'raw'])
     expect(contextEvents.map(e => e.type === 'context/message' && e.data.meta)).toEqual([{ callId: 'c1' }, { callId: 'c2' }])
   })
 
@@ -591,7 +587,7 @@ describe('tool additionalContexts buffering across a step', () => {
       name: 'composite', description: 'composite', parameters: {},
       async execute(_args, exec) {
         exec.deferContext({ content: [{ type: 'text', text: 'nested-a' }], source: { kind: 'plugin', plugin: 'a' }, meta: { order: 1 } })
-        exec.deferContext({ content: [{ type: 'text', text: 'nested-b' }], source: { kind: 'plugin', plugin: 'b' }, envelope: 'raw', meta: { order: 2 } })
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-b' }], source: { kind: 'plugin', plugin: 'b' }, meta: { order: 2 } })
         return [{ type: 'text', text: 'outer result' }]
       },
     }))
