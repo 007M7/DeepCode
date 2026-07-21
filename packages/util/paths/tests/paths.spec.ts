@@ -33,6 +33,11 @@ describe('dsh path helpers', () => {
     expect(resolveDshHome(undefined, {})).toBe(defaultDshHome())
   })
 
+  it('treats an empty or whitespace-only DSH_HOME as unset', () => {
+    expect(resolveDshHome(undefined, { DSH_HOME: '' })).toBe(defaultDshHome())
+    expect(resolveDshHome(undefined, { DSH_HOME: '   ' })).toBe(defaultDshHome())
+  })
+
   it('labels a resolved home by whether it is the default root', () => {
     expect(dshHomeDisplay(resolve(defaultDshHome()))).toBe('~/.dsh')
     expect(dshHomeDisplay('/some/other/root')).toBe('$DSH_HOME')

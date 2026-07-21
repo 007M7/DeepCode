@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import { defaultDshHome } from '@deepseek-ai/dsh-paths'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -34,7 +34,9 @@ describe('globalConfigDir', () => {
 
   it('reads process.env by default', () => {
     // No override supplied: the call must not throw and must return an absolute path.
-    expect(globalConfigDir()).toContain('.dsh')
+    // The ambient DSH_HOME is unknown here, so assert only the invariant the
+    // resolver guarantees rather than a specific location.
+    expect(isAbsolute(globalConfigDir())).toBe(true)
   })
 })
 

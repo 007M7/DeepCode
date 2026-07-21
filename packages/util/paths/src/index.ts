@@ -39,13 +39,16 @@ export function expandHomePath(path: string): string {
  * Resolve the single-root DeepSeek Harness home.
  *
  * Precedence, highest first: an explicit configured path, `$DSH_HOME`, then
- * `~/.dsh`. The harness keeps all user data under one root.
+ * `~/.dsh`. The harness keeps all user data under one root. An empty or
+ * whitespace-only `$DSH_HOME` is treated as unset, so a blank override never
+ * resolves the home to the current working directory.
  * @param configured - explicit harness-home override, which has highest precedence.
  * @param env - environment mapping used to read `DSH_HOME`.
  * @returns the normalized absolute harness home path.
  */
 export function resolveDshHome(configured?: string, env: Record<string, string | undefined> = process.env): string {
-  const selected = configured ?? env[DSH_HOME_ENV] ?? defaultDshHome()
+  const fromEnv = env[DSH_HOME_ENV]
+  const selected = configured ?? (fromEnv !== undefined && fromEnv.trim().length > 0 ? fromEnv : defaultDshHome())
   return resolve(expandHomePath(selected))
 }
 
