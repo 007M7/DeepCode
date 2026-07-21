@@ -55,6 +55,9 @@ function cloneJson(value: unknown, path: string, seen = new Set<object>()): unkn
       return output
     }
     if (!isPlainRecord(value)) throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
+    if (Reflect.ownKeys(value).some(key => typeof key !== 'string' || !Object.prototype.propertyIsEnumerable.call(value, key))) {
+      throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
+    }
     const output: Record<string, unknown> = {}
     for (const [key, entry] of Object.entries(value)) {
       Object.defineProperty(output, key, {

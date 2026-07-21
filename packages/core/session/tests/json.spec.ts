@@ -92,6 +92,12 @@ describe('snapshotJsonValue', () => {
     Object.defineProperty(decorated, 'extra', { value: true })
     const symbolDecorated = [1]
     Object.defineProperty(symbolDecorated, Symbol('extra'), { value: true })
+    const hiddenObject = Object.defineProperty({}, 'hidden', { value: true })
+    const symbolObject = { [Symbol('extra')]: true }
+    const forgedPrototype: unknown[] = []
+    Object.setPrototypeOf(forgedPrototype, null)
+    const forgedArray = [1]
+    Object.setPrototypeOf(forgedArray, forgedPrototype)
     const cyclic: Record<string, unknown> = {}
     cyclic.self = cyclic
     const foreignExotics = runInNewContext(`(() => {
@@ -109,6 +115,9 @@ describe('snapshotJsonValue', () => {
     expect(snapshotJsonValue(compensatedSparse)).toBeUndefined()
     expect(snapshotJsonValue(decorated)).toBeUndefined()
     expect(snapshotJsonValue(symbolDecorated)).toBeUndefined()
+    expect(snapshotJsonValue(hiddenObject)).toBeUndefined()
+    expect(snapshotJsonValue(symbolObject)).toBeUndefined()
+    expect(snapshotJsonValue(forgedArray)).toBeUndefined()
     expect(snapshotJsonValue(cyclic)).toBeUndefined()
     expect(snapshotJsonValue([undefined])).toBeUndefined()
     expect(snapshotJsonValue({ value: undefined })).toBeUndefined()
@@ -177,6 +186,12 @@ describe('isJsonValue', () => {
     const decorated = Object.assign([1], { extra: true })
     const symbolDecorated = [1]
     Object.defineProperty(symbolDecorated, Symbol('extra'), { value: true })
+    const hiddenObject = Object.defineProperty({}, 'hidden', { value: true })
+    const symbolObject = { [Symbol('extra')]: true }
+    const forgedPrototype: unknown[] = []
+    Object.setPrototypeOf(forgedPrototype, null)
+    const forgedArray = [1]
+    Object.setPrototypeOf(forgedArray, forgedPrototype)
     const cyclic: Record<string, unknown> = {}
     cyclic.self = cyclic
 
@@ -184,6 +199,9 @@ describe('isJsonValue', () => {
     expect(isJsonValue(compensatedSparse)).toBe(false)
     expect(isJsonValue(decorated)).toBe(false)
     expect(isJsonValue(symbolDecorated)).toBe(false)
+    expect(isJsonValue(hiddenObject)).toBe(false)
+    expect(isJsonValue(symbolObject)).toBe(false)
+    expect(isJsonValue(forgedArray)).toBe(false)
     expect(isJsonValue(new ExoticArray(1))).toBe(false)
     expect(isJsonValue([undefined])).toBe(false)
     expect(isJsonValue({ value: undefined })).toBe(false)
