@@ -27,6 +27,10 @@ export function selectLintShard(name?: string): LintSelection {
       return { eslintTargets: ['packages/[n-s]*/*/src/**/*.ts'], includeDuplication: false }
     case 'package-sources-t-z':
       return { eslintTargets: ['packages/[t-z]*/*/src/**/*.ts'], includeDuplication: false }
+    case 'package-sources-a-m':
+      return { eslintTargets: ['packages/[a-m]*/*/src/**/*.ts'], includeDuplication: false }
+    case 'package-sources-n-z':
+      return { eslintTargets: ['packages/[n-z]*/*/src/**/*.ts'], includeDuplication: false }
     case 'package-tests-a-c':
       return { eslintTargets: ['packages/[a-c]*/*/tests/**/*.ts'], includeDuplication: false }
     case 'package-tests-d-m':
@@ -35,6 +39,10 @@ export function selectLintShard(name?: string): LintSelection {
       return { eslintTargets: ['packages/[n-s]*/*/tests/**/*.ts'], includeDuplication: false }
     case 'package-tests-t-z':
       return { eslintTargets: ['packages/[t-z]*/*/tests/**/*.ts'], includeDuplication: false }
+    case 'package-tests-a-m':
+      return { eslintTargets: ['packages/[a-m]*/*/tests/**/*.ts'], includeDuplication: false }
+    case 'package-tests-n-z':
+      return { eslintTargets: ['packages/[n-z]*/*/tests/**/*.ts'], includeDuplication: false }
     case 'repository':
       return {
         eslintTargets: [
