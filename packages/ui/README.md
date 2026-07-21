@@ -4,13 +4,13 @@ Integrations that expose the agent to an external editor or client. These are **
 
 | Package | Role | ctx key |
 |---|---|---|
-| `acp/` | Agent Client Protocol bridge: serves the agent to an ACP editor (Zed) over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
+| `acp/` | Agent Client Protocol bridge: serves agents, commands, and live/replayed title updates to an ACP editor over JSON-RPC stdio | (drives `ctx.agents`/`ctx.sessions`) |
 | `commands/` | Human-command registry: shared discovery metadata, scoped shadowing, cancellation, and direct UI dispatch | `ctx.commands` |
 | `user-approval/` | One-shot user-approval mechanism, closed outcome vocabulary, audit events, and per-session approval policy | `ctx.approval` |
 | `permission/` | User-facing permission presets (`workspace-write`/`danger-full-access`): one product-level select bundling the sandbox-mode and approval-policy knobs, written through to their session events | `ctx.permission` |
 | `user-interaction/` | Abstract human question/answer seam used by UI-backed confirmation tools | `ctx.userInteraction` |
 | `tool-ask-user/` | Model-facing `ask_user_question` tool over `ctx.userInteraction` | (registers on `ctx.tools`) |
-| `tui/` | Interactive pi-tui terminal channel for TTY sessions; renders `session/event`, tool presentation intents, and answers `ctx.userInteraction` | (drives `ctx.agents`) |
+| `tui/` | Interactive pi-tui terminal channel; renders session titles/events and tool intents, and answers `ctx.userInteraction` | (drives `ctx.agents`) |
 | `jsonrpc/` | Stdio JSON-RPC server for out-of-process SDK clients | (drives `ctx.agents`) |
 | `app-boot/` | Shared boot glue for the app bins: `.env` loading, fail-loud Loader guards, snapshot-aware config resolution, the settle-the-tree boot sequence | (library for the bins) |
 

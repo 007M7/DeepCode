@@ -41,6 +41,11 @@ const LINK_MAP: Record<string, string> = {
   TodoItem: 'session.md',
   TurnTrigger: 'session.md',
   TurnEndReason: 'session.md',
+  SessionTitleEventData: 'session-title.md',
+  SessionTitleLlmRequestEventData: 'session-title.md',
+  SessionTitleModelProvenance: 'session-title.md',
+  SessionTitleProviderId: 'session-title.md',
+  SessionTitleSource: 'session-title.md',
 }
 
 /** One log event, extracted from a `SessionEventMap` declaration. */

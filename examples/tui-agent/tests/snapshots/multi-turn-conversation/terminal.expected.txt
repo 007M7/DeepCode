@@ -1,6 +1,6 @@
 terminal 100x36 buffer=normal length=36 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
-title "DSH TUI snapshot"
+title "Reply with exactly the word: — DSH TUI snapshot"
 cursor hidden column=1 viewportRow=28 bufferRow=28
 buffer
 0| "╭──────────────────────────────────────────────────────────────────────────────────────────────────╮"
@@ -10,9 +10,9 @@ buffer
   style 2-9 fg=bright-blue bold
   style 11-17 bold
   style 99-99 fg=bright-blue
-2| "│ Recorded replay: multi-turn-conversation                                                         │"
+2| "│ Reply with exactly the word:                                                                     │"
   style 0-0 fg=bright-blue
-  style 2-41 fg=bright-black
+  style 2-29 fg=bright-black
   style 99-99 fg=bright-blue
 3| "│ deepseek-v4-flash  •  main-session                                                               │"
   style 0-0 fg=bright-blue

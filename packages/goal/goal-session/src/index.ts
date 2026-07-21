@@ -345,11 +345,17 @@ export function apply(ctx: Context): void {
       switch (event.type) {
         case 'turn/start':
           state.openTurn = event.data.turn
-          if (state.attempt !== undefined && isGoalRoundSource(event.data.trigger.source)
-          && sameRound(event.data.trigger.source, state.attempt)) {
-            state.attempt.turn = event.data.turn
+          switch (event.data.trigger.kind) {
+            case 'message':
+              if (state.attempt !== undefined && isGoalRoundSource(event.data.trigger.source)
+              && sameRound(event.data.trigger.source, state.attempt)) {
+                state.attempt.turn = event.data.turn
+              }
+              return
+            default:
+              // Injection and merge-extensible plugin triggers cannot admit a queued goal message.
+              return
           }
-          return
         case 'user/message':
           if (state.attempt !== undefined && isGoalRoundSource(event.data.source)
           && sameRound(event.data.source, state.attempt)) {
