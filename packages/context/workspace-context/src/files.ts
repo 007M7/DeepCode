@@ -9,7 +9,7 @@ import { lstat, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type { FileSystem, FsInfo, FsPathInfo, FsTarget, FsVersion } from '@deepseek-ai/dsh-fs'
 import { assertNever } from '@deepseek-ai/dsh-llm'
-import { DEFAULT_DSH_HOME_DISPLAY, defaultDshHome } from '@deepseek-ai/dsh-paths'
+import { dshHomeDisplay } from '@deepseek-ai/dsh-paths'
 import { resolveConfig, resolveDiscoveryConfig, type ResolvedConfig } from './config.ts'
 import { renderWorkspaceContext, type RenderedWorkspaceContext } from './render.ts'
 
@@ -469,5 +469,5 @@ export async function readScopeInstruction(
 }
 
 function userGlobalDisplayPath(dshHome: string): string {
-  return dshHome === resolve(defaultDshHome()) ? `${DEFAULT_DSH_HOME_DISPLAY}/AGENTS.md` : '$DSH_HOME/AGENTS.md'
+  return `${dshHomeDisplay(dshHome)}/AGENTS.md`
 }

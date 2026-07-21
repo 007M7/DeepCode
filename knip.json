@@ -50,11 +50,6 @@
       "project": ["src/**/*.ts"],
       "ignoreDependencies": ["cordis"]
     },
-    "packages/util/home": {
-      "entry": ["tests/**/*.spec.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"],
-      "ignoreDependencies": ["cordis"]
-    },
     "packages/util/timeout": {
       "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"],
