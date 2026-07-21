@@ -31,6 +31,7 @@ const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../workspace-context.cor
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
+const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
   switch (value) {
@@ -68,6 +69,7 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
+  { name: 'lsp-definition', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'lsp', configPath: LSP_CONFIG },
   { name: 'workspace-edit', hasModelTurn: true, recorded: true },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },
