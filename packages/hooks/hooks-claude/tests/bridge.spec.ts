@@ -10,7 +10,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
-import { SubagentRunId } from '@deepseek-ai/dsh-subagent'
+import { scopeTarget } from '@deepseek-ai/dsh-scope'
+import SubagentService, { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -24,6 +25,10 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
 
 const dirs: string[] = []
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }) })
+
+function subagentCarrier(ctx: Context) {
+  return scopeTarget(ctx as unknown as SubagentService, undefined)
+}
 
 /** Write a hooks.json + named executable scripts into a fresh temp dir. */
 function writeConfig(hooks: unknown, scripts: Record<string, string> = {}): string {
@@ -290,8 +295,8 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     // Drive the observe-only lifecycle events directly (no real child needed — the
     // bridge just listens). No child agent is registered, so SubagentStart's
     // child lookup yields undefined and it simply runs the hook.
-    ctx.emit('subagent/start', { runId: SubagentRunId('run-1'), provider: 'inproc', id: SessionId('child-1'), local: false })
-    ctx.emit('subagent/end', { runId: SubagentRunId('run-1'), provider: 'inproc', id: SessionId('child-1'), local: false, stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'done' }] })
+    ctx.emit(subagentCarrier(ctx), 'subagent/start', { runId: SubagentRunId('run-1'), provider: 'inproc', id: SessionId('child-1'), local: false })
+    ctx.emit(subagentCarrier(ctx), 'subagent/end', { runId: SubagentRunId('run-1'), provider: 'inproc', id: SessionId('child-1'), local: false, stopReason: 'completed', lastAssistantMessage: [{ type: 'text', text: 'done' }] })
 
     // Both hooks run async (detached .then); poll for their marker files rather
     // than a fixed sleep that flakes under load.
@@ -326,7 +331,7 @@ describe('hooks-claude bridge — SubagentStart / SubagentStop (observe)', () =>
     const { ctx, hooks } = await harnessWithFiber(dir, new MockAdapter([]))
     const warn = vi.fn()
     ctx.logger.warn = warn as never
-    ctx.emit('subagent/start', { runId: SubagentRunId('run-1'), provider: 'inproc', id: SessionId('child-1'), local: false })
+    ctx.emit(subagentCarrier(ctx), 'subagent/start', { runId: SubagentRunId('run-1'), provider: 'inproc', id: SessionId('child-1'), local: false })
     await waitFor(() => existsSync(marker))
     const pid = Number(readFileSync(pidFile, 'utf8').trim())
     await hooks.dispose()

@@ -193,6 +193,16 @@ interface LlmModelInfo {
 }
 ```
 
+Correctness-sensitive model capacity is queried separately from the advisory catalog and is owned by the adapter serving the exact route.
+
+```ts type-equiv
+/** Provider-owned context capacity for one exact provider/model route. */
+interface LlmModelContext {
+  /** Maximum combined request and response context in tokens. */
+  contextWindow: number
+}
+```
+
 ```ts type-equiv
 /** A single model request, fully assembled. */
 interface GenerateOptions {

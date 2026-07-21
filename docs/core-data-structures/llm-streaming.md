@@ -154,7 +154,7 @@ declare class BlockAssembler {
 
 ## The seam
 
-`LlmAdapter` is the provider seam: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `providerInfo()` and asynchronous `listModels()` methods feed `LlmService.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § Content blocks and streaming](../architecture.md#content-blocks-and-streaming-dsh-llm).
+`LlmAdapter` is the provider seam: subclass, implement `stream()`, and register one adapter instance with `ctx.llm.registerAdapter(providers, adapter)`. `GenerateOptions.provider` selects the registered adapter; `GenerateOptions.model` is passed to that adapter and need not be registered at lifecycle start. Duplicate provider routes fail atomically. Optional `providerInfo()` and asynchronous `listModels()` methods feed `LlmService.listProviders()` / `listModels()` with detached selector metadata. That catalog is advisory rather than a request whitelist: the adapter remains authoritative and may accept unlisted model ids. The separate `resolveModelContext()` query exposes correctness-sensitive capacity for an exact route without making catalog membership authoritative; absence means unknown metadata, not invalid routing. Adapter lookup happens at the terminal continuation of the `llm/stream` waterfall, so a listener may short-circuit the call or route a mutable one-shot request before lookup. The `block-start` / `block-end` `index` correlation and the assembler together mean an adapter only has to emit well-formed chunks — block reassembly is not each adapter's problem. The consumer surface (`ctx.llm.stream()`) and the `llm/stream` waterfall are described in [architecture.md § Content blocks and streaming](../architecture.md#content-blocks-and-streaming-dsh-llm).
 
 ```ts public-api
 /**
@@ -178,6 +178,17 @@ declare abstract class LlmAdapter {
    * @returns discoverable models in adapter-preferred order.
    */
   listModels(_provider: string): Promise<readonly LlmModelInfo[]>;
+  /**
+   * Resolve context capacity for one model accepted by this adapter. Absence
+   * means the adapter does not know the capacity, not that routing is invalid.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _model - exact model id passed to {@link GenerateOptions.model}.
+   * @returns provider-owned context metadata, or `undefined` when unavailable.
+   */
+  resolveModelContext(
+    _provider: string,
+    _model: string,
+  ): Promise<LlmModelContext | undefined>;
   /**
    * Stream one model call as raw chunks. The only required method.
    * @param options - the fully-assembled request; implementations must honor `options.signal`.

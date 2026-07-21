@@ -4,9 +4,9 @@ The **DeepSeek Harness SDK** builds on Cordis: **everything is a plugin**, inclu
 
 ## Overview
 
-Harnesses are [Cordis](cordis-primer.md) contexts. Packages contribute services (`ctx.llm`, `ctx.tools`, `ctx.sessions`), typed events (`agent/request`, `tools/pre-execute`, `session/event`), and disposable prompts, tools, providers, adapters, and listeners.
+Harnesses are [Cordis](cordis-primer.md) contexts whose packages contribute disposable services, events, and registrations.
 
-`packages/core/` groups the default agent flow; surrounding capabilities are equally first-class Cordis plugins.
+`packages/core/` groups the default agent flow.
 
 ### Default Services
 
@@ -40,6 +40,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts. Packages contribute services 
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred logical-corpus exact reads and relationship traces |
+| `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | registry and package-name selection for package-owned runtime checks |
 
 ## Event
 
@@ -112,7 +113,7 @@ forever:
 
 Each step assembles ordered prompt sections, tool schemas, and `{{name}}` variables; unknown or valueless references fail the turn. `dsh-system-prompt` owns the harness identity and default persona, which an agent scope may shadow. The loop supplies `model` and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Canonical tool JSON stays execution-local; post-policy replaces value or presentation, or blocks; the loop persists projections ([contract](../.agents/notes/implemented/architecture/2026-07-20-canonical-tool-output-contract.md)). Tool-time context—including async `agent.inject()` notices and post-tool `additionalContexts`—settles after results. Steering drains; before signal closure, `agent/post-step` observes durable output, results, context, and steering. Leftovers queue. Terminal `agent/turn-stop` runs after continuation and steering folding, remains authoritative through close/flush, and discards later steering while preserving queued prompts.
+Canonical JSON stays execution-local; post-policy replaces value or presentation, or blocks; the loop persists projections ([contract](../.agents/notes/implemented/architecture/2026-07-20-canonical-tool-output-contract.md)). Tool-time context—including async `agent.inject()` notices and post-tool `additionalContexts`—settles after results. Steering drains; before signal closure, `agent/post-step` observes durable output, results, context, and steering. Leftovers queue. Terminal `agent/turn-stop` runs after continuation and steering folding, remains authoritative through close/flush, and discards later steering while preserving queued prompts.
 
 Pruning precedes summaries; overflow retries require durable progress. Bounded transient retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 
@@ -138,7 +139,7 @@ Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, re
 
 The session log is the source of truth. `deriveMessages()` projects session events into the `Message[]` sent to the model; raw `assistant/chunk` events stay in the log for replay and UI fidelity. Replay, fork, resume, transcript rendering, telemetry, and persistence all derive from the same event stream.
 
-**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, headers by folding `request/header` — and dev invariants assert this ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, and headers by folding `request/header` — and the package-owned `dsh-agent-loop/invariant` can assert it through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
 Durability is a plugin concern. Backends buffer synchronous `session/event` notifications; the loop awaits a turn-end checkpoint. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, with SQLite under one contract.
 

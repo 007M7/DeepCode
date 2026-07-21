@@ -9,6 +9,11 @@
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
+    models:
+      - id: deepseek-v4-flash
+        contextWindow: 256000
+      - id: deepseek-v4-pro
+        contextWindow: 256000
 
 # The default composition confines bash AND the filesystem tools to the
 # workspace and asks before a wider retry. Snapshot runs select
@@ -58,20 +63,17 @@
 
       Verify your work by running the code or tests. Keep answers brief and factual.
 
-# Replay-aware request pressure with one service-wide context window.
+# Replay-aware request pressure; the routed adapter supplies model capacity.
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
-  config:
-    # FIXME: Resolve compaction config per model; this capacity assumes a 256k context window.
-    contextWindow: 256000
 
 # Summarize an older range after measured pressure or a canonical provider overflow.
-# Service-wide policy provides pressure, retention, and one overflow-retry default.
+# Ratios scale against the routed model's context window.
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
   config:
     thresholdRatio: 0.8
-    retainTokens: 20480
+    retainRatio: 0.08
     maxTokens: 8192
     compactionRetries: 1
 

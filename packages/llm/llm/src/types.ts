@@ -155,6 +155,12 @@ export interface LlmModelInfo {
   description?: string
 }
 
+/** Provider-owned context capacity for one exact provider/model route. */
+export interface LlmModelContext {
+  /** Maximum combined request and response context in tokens. */
+  contextWindow: number
+}
+
 /**
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the
