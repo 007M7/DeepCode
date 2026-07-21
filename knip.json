@@ -14,6 +14,8 @@
         "headless-agent/tests/fixtures/time-context-driver.ts",
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"
       ],
