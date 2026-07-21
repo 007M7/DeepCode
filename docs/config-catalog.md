@@ -122,8 +122,9 @@ Source: [`packages/core/agent-loop/src/index.ts:360`](../packages/core/agent-loo
  * skill registry/local provider/tool consumer, `workspaceContext` to the
  * workspace-context loader, `llmRetry` to the bounded request-recovery policy,
  * and `toolBash`/`toolTasks` to the model-facing tool plugins this bundle owns.
- * `goals` opts into and configures the persisted goal
- * domain plus its model tool and same-session driver. Owner schemas supply defaults for optional input;
+ * `goals` opts into and configures the persisted goal domain plus its model tool
+ * and same-session driver; `invariants` configures global and package-filtered
+ * relational checks. Owner schemas supply defaults for optional input;
  * workspace context instead requires an explicit byte budget or `false` because
  * it changes model-visible input. Producer opt-in stays producer-local:
  * `toolBash` configures bash only; independently composed producers keep their
@@ -150,6 +151,8 @@ export interface Config {
   toolBash?: toolBash.Config
   /** Generic background-task controls; set false to keep the task service without model-facing task tools. */
   toolTasks?: toolTasks.Config | false
+  /** Global enablement and package-name filters for invariant companions. */
+  invariants?: InvariantConfig
   /** Opt-in persisted same-session goal stack; set false or omit to leave it unmounted. */
   goals?: GoalConfig | false
   /** Bounded transient model-request retry policy. */
@@ -177,9 +180,9 @@ export interface GoalConfig {
 }
 ```
 
-Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`GoalDomainConfig`](#deepseek-aidsh-goal) · [`llmRetry`](../packages/llm/llm-retry/src/index.ts) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`toolGoal`](../packages/goal/tool-goal/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
+Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`GoalDomainConfig`](#deepseek-aidsh-goal) · [`InvariantConfig`](#deepseek-aidsh-invariants) · [`llmRetry`](../packages/llm/llm-retry/src/index.ts) · [`SkillLocal`](../packages/skill/skill-local/src/index.ts) · [`SkillRegistryConfig`](#deepseek-aidsh-skill) · [`SystemPromptConfig`](#deepseek-aidsh-system-prompt) · [`toolBash`](../packages/bash/tool-bash/src/index.ts) · [`toolGoal`](../packages/goal/tool-goal/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`toolSkill`](../packages/skill/tool-skill/src/index.ts) · [`toolTasks`](../packages/tasks/tool-tasks/src/index.ts) · [`workspaceContext`](../packages/context/workspace-context/src/index.ts)
 
-Source: [`packages/examples/agent-spine-demo/src/index.ts:73`](../packages/examples/agent-spine-demo/src/index.ts)
+Source: [`packages/examples/agent-spine-demo/src/index.ts:78`](../packages/examples/agent-spine-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 
@@ -304,15 +307,25 @@ Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:21`](../package
 Requires: `llm` · `tokenMeter`
 
 ```ts config-catalog
-/** Basic compaction configuration; every common field has a deployment default. */
-export interface BasicCompactConfig {
-  /** Compact at this fraction of the token meter's context window. Defaults to `0.8`. */
+/** Basic compaction configuration with an optional exact-target policy table. */
+export interface BasicCompactConfig extends CompactPolicyConfig {
+  /** Exact provider/model overrides; duplicate targets fail plugin load. */
+  modelPolicies?: ModelCompactPolicyConfig[]
+  /** Enable automatic post-step pressure and overflow-recovery listeners. Defaults to `true`. */
+  auto?: boolean
+}
+
+/** Policy fields shared by the default policy and exact model overrides. */
+export interface CompactPolicyConfig {
+  /** Compact at this fraction of the model's context window. Defaults to `0.8`. */
   thresholdRatio?: number
-  /** Recent surface tokens retained verbatim. Defaults to `floor(contextWindow * 0.16)`. */
+  /** Recent context retained as a fraction of the model's window. Defaults to `0.16`. */
+  retainRatio?: number
+  /** Absolute recent-context budget; mutually exclusive with `retainRatio`. */
   retainTokens?: number
-  /** Summary provider; `''` resolves the latest routed pair, then the agent pair. Defaults to `''`. */
+  /** Summary provider; set together with `summarizationModel`, or inherit the conversation target. */
   summarizationProvider?: string
-  /** Summary model; `''` resolves the latest routed pair, then the agent pair. Defaults to `''`. */
+  /** Summary model; set together with `summarizationProvider`, or inherit the conversation target. */
   summarizationModel?: string
   /** Provider generation cap for summarization. Defaults to `8192`. */
   maxTokens?: number
@@ -320,12 +333,18 @@ export interface BasicCompactConfig {
   compactionRetries?: number
   /** Maximum retries after canonical context overflow; `0` disables recovery. Defaults to `1`. */
   maxOverflowRetries?: number
-  /** Enable automatic post-step pressure and overflow-recovery listeners. Defaults to `true`. */
-  auto?: boolean
+}
+
+/** Exact provider/model override merged over the default compaction policy. */
+export interface ModelCompactPolicyConfig extends CompactPolicyConfig {
+  /** Registered provider route to match. */
+  provider: string
+  /** Exact routed model id to match within `provider`. */
+  model: string
 }
 ```
 
-Source: [`packages/compact/compact-basic/src/types.ts:8`](../packages/compact/compact-basic/src/types.ts)
+Source: [`packages/compact/compact-basic/src/types.ts:38`](../packages/compact/compact-basic/src/types.ts)
 
 ## `@deepseek-ai/dsh-compact-tool-result-prune`
 
@@ -448,6 +467,22 @@ export interface Config {
 
 Source: [`packages/hooks/hooks-codex/src/index.ts:42`](../packages/hooks/hooks-codex/src/index.ts)
 
+## `@deepseek-ai/dsh-invariants`
+
+```ts config-catalog
+/** Runtime invariant selection configured on the service plugin. */
+export interface Config {
+  /** Global switch; defaults to `true`. */
+  readonly enabled?: boolean
+  /** Case-sensitive JavaScript regex sources that admit package names; empty admits all. */
+  readonly package_allowlist?: string[]
+  /** Case-sensitive JavaScript regex sources that exclude package names after allowlist matching. */
+  readonly package_blocklist?: string[]
+}
+```
+
+Source: [`packages/support/invariants/src/index.ts:15`](../packages/support/invariants/src/index.ts)
+
 ## `@deepseek-ai/dsh-jsonrpc`
 
 Requires: `agents`
@@ -504,6 +539,8 @@ export interface DeepSeekCatalogModel {
   name?: string
   /** Optional selector detail for deployments with similar model variants. */
   description?: string
+  /** Known combined request/response context capacity; omitted when deployment metadata is unavailable. */
+  contextWindow?: number
 }
 ```
 
@@ -590,10 +627,12 @@ export interface ReplayModelConfig {
   name?: string
   /** Optional selector description. */
   description?: string
+  /** Optional positive integer context capacity published by the replay adapter. */
+  contextWindow?: number
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:375`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:385`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 
@@ -1083,11 +1122,8 @@ Source: [`packages/context/time-context/src/index.ts:19`](../packages/context/ti
 ## `@deepseek-ai/dsh-token-meter`
 
 ```ts config-catalog
-/** Token-meter plugin configuration. */
-export interface TokenMeterConfig {
-  /** Service-wide context-window capacity in tokens. Defaults to `128000`. */
-  contextWindow?: number
-}
+/** Token-meter plugin configuration; the fixed estimator has no settings. */
+export type TokenMeterConfig = Record<string, never>
 ```
 
 Source: [`packages/llm/token-meter/src/types.ts:10`](../packages/llm/token-meter/src/types.ts)
@@ -1653,7 +1689,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-commands` ([`packages/ui/commands/src/index.ts`](../packages/ui/commands/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
 - `@deepseek-ai/dsh-goal-session` — requires `agents` · `goals` · `sessions` ([`packages/goal/goal-session/src/index.ts`](../packages/goal/goal-session/src/index.ts))
-- `@deepseek-ai/dsh-invariants` — requires `sessions` ([`packages/support/invariants/src/index.ts`](../packages/support/invariants/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))

@@ -8,7 +8,12 @@ import type { Context } from 'cordis'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, FinishReason, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ResolvedConfig } from './types.ts'
+
+interface SummaryConfig {
+  readonly summarizationProvider: string
+  readonly summarizationModel: string
+  readonly maxTokens: number
+}
 
 /** Tags wrapping the structured summary inside the landed checkpoint node. */
 const SUMMARY_OPEN_TAG = '<compacted-summary>'
@@ -74,7 +79,7 @@ export interface SummaryResult {
  */
 export async function summarizeWithLlm(
   ctx: Context,
-  config: ResolvedConfig,
+  config: SummaryConfig,
   text: string,
   agent: Agent,
   signal?: AbortSignal,

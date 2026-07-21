@@ -15,6 +15,7 @@ import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
 import type { TransmissionLog } from './request-log.ts'
+import { markLoopRequest } from './request-marker.ts'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -619,7 +620,7 @@ async function runStep(
   recordRequestHeader(session, transmission, header)
 
   // Freeze the logged header plus boundary snapshot; the prefix precedes derived history.
-  const request: GenerateOptions = deepFreeze({
+  const request: GenerateOptions = deepFreeze(markLoopRequest({
     provider: header.config.provider,
     model: header.config.model,
     messages: [...header.messagePrefix ?? [], ...boundaryMessages],
@@ -630,7 +631,7 @@ async function runStep(
     ...header.config.stop !== undefined ? { stop: header.config.stop } : {},
     sessionId: session.id,
     signal,
-  })
+  }))
 
   // --- Model call (streaming-first; raw chunks are the replay record) ---
   const assembler = new BlockAssembler()

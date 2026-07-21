@@ -737,7 +737,7 @@ class FooterComponent implements Component {
     private readonly showReasoning: () => boolean,
     private readonly tokens: () => { input: number; output: number },
     private readonly currentModel: () => string | undefined,
-    private readonly contextPercent: () => number,
+    private readonly contextPercent: () => number | undefined,
     private readonly runningSeconds: () => number,
   ) {}
 
@@ -755,7 +755,8 @@ class FooterComponent implements Component {
     const counters = `↑${formatTokens(input)} ↓${formatTokens(output)}`
     const model = displayText(this.currentModel() ?? 'model unset')
     const modelState = `${model}(reasoning:${this.showReasoning() ? 'on' : 'off'})`
-    const context = `${this.contextPercent()}% context`
+    const contextPercent = this.contextPercent()
+    const context = contextPercent === undefined ? 'context unknown' : `${contextPercent}% context`
     const fullRight = `${context}  tools:${this.toolsExpanded() ? 'expanded' : 'compact'}  ${modelState}`
     const compactRight = `${context}  ${modelState}`
     if (visibleWidth(counters) + visibleWidth(compactRight) + 1 > width) {
@@ -1058,6 +1059,11 @@ export function createTuiChat(
   let activeQuestion: PendingQuestion | undefined
   let modelOverlay: OverlayHandle | undefined
   const target: AgentLlmTargetRef = { current: initialTarget(agent), assembled: undefined }
+  let contextWindow: number | undefined
+  let contextResolution: Promise<
+    | { readonly kind: 'resolved'; readonly contextWindow: number | undefined }
+    | { readonly kind: 'error'; readonly error: unknown }
+  > | undefined
   let modelCommands = Promise.resolve()
   const now = (): number => runtime.now?.() ?? Date.now()
 
@@ -1070,7 +1076,9 @@ export function createTuiChat(
     () => showReasoning,
     () => tokens,
     () => target.current?.model,
-    () => Math.min(100, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens / ctx.tokenMeter.contextWindow * 100)),
+    () => contextWindow === undefined
+      ? undefined
+      : Math.min(100, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens / contextWindow * 100)),
     () => runningStartedAt === undefined ? 0 : Math.max(0, Math.floor((now() - runningStartedAt) / 1_000)),
   )
   ui.addChild(header)
@@ -1096,12 +1104,34 @@ export function createTuiChat(
 
   const disposeTargetListeners = installAgentLlmTarget(agent.ctx, target)
 
+  const resolveContextWindow = (selected: AgentLlmTarget | undefined): void => {
+    contextWindow = undefined
+    const resolution = selected === undefined
+      ? Promise.resolve({ kind: 'resolved', contextWindow: undefined } as const)
+      : ctx.llm.resolveModelContext(selected.provider, selected.model).then(
+        context => ({ kind: 'resolved', contextWindow: context?.contextWindow } as const),
+        (error: unknown) => ({ kind: 'error', error } as const),
+      )
+    contextResolution = resolution
+    void resolution.then((result) => {
+      if (contextResolution !== resolution) return
+      if (result.kind === 'error') {
+        appendNotice(`Could not resolve model context: ${errorChain(result.error)}`, 'error')
+        return
+      }
+      contextWindow = result.contextWindow
+      requestRender()
+    })
+  }
+  resolveContextWindow(target.current)
+
   const selectModel = (selected: ModelChoice): void => {
     if (target.current?.provider === selected.provider && target.current.model === selected.model) {
       appendNotice(`Model is already ${targetLabel(selected)}.`)
       return
     }
     target.current = { provider: selected.provider, model: selected.model }
+    resolveContextWindow(target.current)
     appendNotice(`Model selected: ${targetLabel(selected)}. New steps will use it.`)
   }
 
@@ -1432,6 +1462,7 @@ export function createTuiChat(
   const shutdown = (exitProcess: boolean): Promise<void> => {
     shuttingDown ??= (async () => {
       disposed = true
+      contextResolution = undefined
       clearStatus()
       modelOverlay?.hide()
       modelOverlay = undefined
