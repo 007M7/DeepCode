@@ -10,6 +10,8 @@ import * as RepeatToolGuard from '@deepseek-ai/dsh-repeat-tool-guard'
 import type { Config } from '@deepseek-ai/dsh-repeat-tool-guard'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
+const testToolSignal = new AbortController().signal
+
 /**
  * Behavior suite for the repeat-tool-call guard: chain semantics (identical /
  * different-tracked / untracked-transparent / per-agent / resets), threshold
@@ -284,7 +286,7 @@ describe('chain semantics', () => {
 
   it('ignores direct executes with no agent (they neither crash nor advance any chain)', async () => {
     const ctx = await harness({ thresholds: [2] })
-    const direct = await ctx.tools.execute({ callId: CallId('d1'), name: 'probe', arguments: { q: 1 } })
+    const direct = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('d1'), name: 'probe', arguments: { q: 1 } })
     expect(direct.isError).toBe(false)
 
     ctx.llm.registerAdapter(['mock'], new MockAdapter([

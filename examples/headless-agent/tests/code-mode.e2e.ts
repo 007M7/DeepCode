@@ -78,14 +78,15 @@ async function workspaceCodeModeHarness(): Promise<Context> {
 }
 
 let keylessCall = 0
+const testToolSignal = new AbortController().signal
 
 /** Execute one outer Code Mode call through the real registry and worker. */
-function runCode(harness: Context, code: string, signal?: AbortSignal): Promise<ToolExecutionResult> {
+function runCode(harness: Context, code: string, signal: AbortSignal = testToolSignal): Promise<ToolExecutionResult> {
   return harness.tools.execute({
     callId: CallId(`keyless-code-${++keylessCall}`),
     name: RUN_CODE_NAME,
     arguments: { code },
-    ...signal !== undefined ? { signal } : {},
+    signal,
   })
 }
 

@@ -60,7 +60,7 @@ describe('agent/turn-stop', () => {
     agent.ctx.on('agent/turn-stop', (): ContinuationStop => ({ action: 'stop' }))
 
     let steered = false
-    ctx.on('agent/turn-continuation', async (subject, _turn, _default, next) => {
+    ctx.on('agent/turn-continuation', async (subject, _turn, _default, _signal, next) => {
       const downstream = await next()
       if (subject === agent && !steered) {
         steered = true

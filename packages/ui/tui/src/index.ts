@@ -1337,7 +1337,7 @@ export function createTuiChat(
             : event.data.reason.message
           if (!liveErrors.delete(key)) appendNotice(message, 'error')
         } else if (event.data.reason.kind === 'aborted') {
-          appendNotice(event.data.reason.reason ?? 'Turn cancelled.', 'warning')
+          appendNotice('Turn cancelled.', 'warning')
         } else if (event.data.reason.kind === 'max-tokens') {
           appendNotice('The model reached its output-token limit.', 'warning')
         } else if (event.data.reason.kind === 'rejected') {
@@ -1484,7 +1484,7 @@ export function createTuiChat(
 
   const requestExit = (): void => {
     if (agent.status === 'running') {
-      agent.cancel('terminal exit requested')
+      agent.cancel({ kind: 'user' })
       appendNotice('Cancelling the active turn before exit…', 'warning')
       void agent.whenIdle().then(() => shutdown(true))
       return
@@ -1567,7 +1567,7 @@ export function createTuiChat(
       description: 'Cancel the active turn',
       handler: () => {
         if (agent.status !== 'running') return { kind: 'error', text: 'The agent is already idle.' }
-        agent.cancel('cancelled from terminal')
+        agent.cancel({ kind: 'user' })
         return { kind: 'success', text: 'Cancellation requested.' }
       },
     })
@@ -1647,12 +1647,12 @@ export function createTuiChat(
       return { consume: true }
     }
     if (matchesKey(data, Key.escape) && agent.status === 'running') {
-      agent.cancel('cancelled from terminal')
+      agent.cancel({ kind: 'user' })
       return { consume: true }
     }
     if (matchesKey(data, Key.ctrl('c'))) {
       if (agent.status === 'running') {
-        agent.cancel('cancelled from terminal')
+        agent.cancel({ kind: 'user' })
       } else if (editor.getText() !== '') {
         editor.setText('')
       } else {

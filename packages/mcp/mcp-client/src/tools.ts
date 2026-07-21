@@ -71,7 +71,7 @@ function callToolUncached(
     { method: 'tools/call', params: { name: rawName, arguments: args } },
     RawCallToolResultSchema,
     {
-      ...exec.signal ? { signal: exec.signal } : {},
+      signal: exec.signal,
       timeout: opts.toolCallTimeoutMs,
     },
   )

@@ -39,9 +39,11 @@ async function mount(
 }
 
 let seq = 0
+const testToolSignal = new AbortController().signal
 /** `cwd: null` means "no agent" (tests LSP_WORKSPACE_REQUIRED); a string is the session cwd. */
 function call(ctx: Context, args: unknown, cwd: string | null = '/ws') {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: `c-${++seq}` as never,
     name: 'lsp',
     arguments: args,

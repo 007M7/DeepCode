@@ -13,6 +13,7 @@ import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '
 import * as toolRalph from '../src/index.ts'
 
 type MockScript = ConstructorParameters<typeof MockAdapter>[0]
+const testToolSignal = new AbortController().signal
 
 /** Mount the shipped Ralph execution stack around one keyless model script. */
 async function mountRalph(script: MockScript, config: toolRalph.Config) {
@@ -81,6 +82,7 @@ describe('dsh-tool-ralph over the real spawn and worker-thread stack', () => {
       children.push(agent!)
     })
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ralph-integration'),
       name: 'ralph',
       arguments: { objective: 'Complete both migration slices.', maxRounds: 2 },
@@ -132,6 +134,7 @@ describe('dsh-tool-ralph over the real spawn and worker-thread stack', () => {
     })
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ralph-child-failure'),
       name: 'ralph',
       arguments: { objective: 'Complete both migration slices.', maxRounds: 2 },
@@ -220,6 +223,7 @@ describe('dsh-tool-ralph over the real spawn and worker-thread stack', () => {
     ], config)
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ralph-script-enforcement'),
       name: 'ralph',
       arguments: { objective: 'Complete the scoped work.', maxRounds: config.maxRounds },

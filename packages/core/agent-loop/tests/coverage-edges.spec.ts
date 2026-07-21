@@ -170,7 +170,7 @@ describe('toError normalization', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _options, _next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, _options, _signal, _next) => {
       if (!threwOnce) {
         threwOnce = true
         throw { code: 500 } // non-Error throw, goes through runStep catch
@@ -200,7 +200,7 @@ describe('coded error data emission', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _options, next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, _options, _signal, next) => {
       if (!threwOnce) {
         threwOnce = true
         throw new LlmError('server overloaded', 'RATE_LIMIT')
