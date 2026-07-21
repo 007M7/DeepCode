@@ -21,9 +21,10 @@ export const staticShards = [
       'knip',
     ],
   },
+  { name: 'doc-types', gateIds: ['build', 'doc-typecheck'] },
   {
     name: 'api-contracts',
-    gateIds: ['build', 'doc-typecheck', 'cordis-api', 'export-jsdoc', 'scoped-events', 'type-equivalence'],
+    gateIds: ['cordis-api', 'export-jsdoc', 'scoped-events', 'type-equivalence'],
   },
   {
     name: 'catalogs',
@@ -54,8 +55,8 @@ export const staticShards = [
  * Validate the complete gate partition and optionally select one lane.
  *
  * @param gates Complete static gate inventory.
- * @param name Optional stable shard name.
- * @returns All gates when no shard is requested, otherwise the selected lane.
+ * @param name Optional comma-separated stable shard names.
+ * @returns All gates when no shard is requested, otherwise the selected lanes in inventory order.
  */
 export function selectStaticGates<T extends { id: string }>(gates: readonly T[], name?: string): T[] {
   const gateIds = gates.map(gate => gate.id)
@@ -71,8 +72,15 @@ export function selectStaticGates<T extends { id: string }>(gates: readonly T[],
   }
   if (name === undefined || name === '') return [...gates]
 
-  const shard = staticShards.find(candidate => candidate.name === name)
-  if (shard === undefined) throw new Error(`run-gates: unknown DSH_STATIC_SHARD ${JSON.stringify(name)}.`)
-  const selectedIds = new Set<string>(shard.gateIds)
+  const shardNames = name.split(',')
+  if (shardNames.some(shardName => shardName === '') || new Set(shardNames).size !== shardNames.length) {
+    throw new Error(`run-gates: DSH_STATIC_SHARD names must be nonempty and unique, got ${JSON.stringify(name)}.`)
+  }
+  const selectedShards = shardNames.map((shardName) => {
+    const shard = staticShards.find(candidate => candidate.name === shardName)
+    if (shard === undefined) throw new Error(`run-gates: unknown DSH_STATIC_SHARD ${JSON.stringify(shardName)}.`)
+    return shard
+  })
+  const selectedIds = new Set<string>(selectedShards.flatMap(shard => shard.gateIds))
   return gates.filter(gate => selectedIds.has(gate.id))
 }

@@ -40,6 +40,10 @@ jobs:
             command: pnpm run check:ci:static
             gate_concurrency: '4'
             static_shard: foundation
+          - lane: static-doc-types
+            command: pnpm run check:ci:static
+            gate_concurrency: '1'
+            static_shard: doc-types
           - lane: static-api-contracts
             command: pnpm run check:ci:static
             gate_concurrency: '4'
@@ -337,36 +341,40 @@ jobs:
       DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
       DSH_PUBLINT_CONCURRENCY: ${{ matrix.publint_concurrency }}
       DSH_ARTIFACT_SHARD: ${{ matrix.artifact_shard }}
+      DSH_LINT_SHARD: ${{ matrix.lint_shard }}
       DSH_STATIC_SHARD: ${{ matrix.static_shard }}
       DSH_ESLINT_CACHE: ${{ matrix.eslint_cache }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - lane: static-foundation
+          - lane: static-general
             command: pnpm run check:ci:static
             gate_concurrency: '4'
-            static_shard: foundation
+            static_shard: 'foundation,catalogs,prose'
+          - lane: static-doc-types
+            command: pnpm run check:ci:static
+            gate_concurrency: '1'
+            static_shard: doc-types
           - lane: static-api-contracts
             command: pnpm run check:ci:static
             gate_concurrency: '4'
             static_shard: api-contracts
-          - lane: static-catalogs
-            command: pnpm run check:ci:static
-            gate_concurrency: '4'
-            static_shard: catalogs
-          - lane: static-prose
-            command: pnpm run check:ci:static
-            gate_concurrency: '4'
-            static_shard: prose
-          - lane: static-site-projection
-            command: pnpm run check:ci:static
-            gate_concurrency: '1'
-            static_shard: site-projection
-          - lane: lint
+          - lane: lint-package-sources
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
+            lint_shard: package-sources
+          - lane: lint-package-tests
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests
+          - lane: lint-repository
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: repository
           - lane: artifacts-metadata
             command: pnpm run check:ci:artifacts
             gate_concurrency: '3'
@@ -410,7 +418,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - uses: actions/cache@v4
-        if: matrix.lane == 'lint'
+        if: startsWith(matrix.lane, 'lint-')
         with:
           path: .cache/eslint
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
