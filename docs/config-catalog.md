@@ -608,10 +608,12 @@ export interface ReplayModelConfig {
   name?: string
   /** Optional selector description. */
   description?: string
+  /** Optional positive integer context capacity published by the replay adapter. */
+  contextWindow?: number
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:375`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:385`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 
