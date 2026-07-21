@@ -37,7 +37,7 @@ interface PtyBackend {
 ```ts type-equiv
 /** Backend-owned live session retained by {@link PtyService}. */
 interface PtyBackendSession {
-  /** Initial bounded terminal output returned from `pty_spawn`. */
+  /** Initial bounded terminal output returned from `terminal_open`. */
   readonly motd: string
   /** Top-level process id when one exists. */
   readonly pid?: number

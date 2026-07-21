@@ -343,4 +343,25 @@ describe('PtyService ownership and lifecycle', () => {
     await disposePtyService(ctx)
     await expect(service.spawn(owner, { type: 'stub' })).rejects.toMatchObject({ code: 'SERVICE_DISPOSING' })
   })
+
+  it('clears registries and runs owner cleanups even when a session close fails', async () => {
+    const ctx = await harness()
+    const service = ctx.pty
+    const b = backend()
+    service.registerBackend(b.provider)
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    await service.spawn(owner, { type: 'stub' })
+    b.sessions[0]!.rejectClose = true
+    const internal = service as unknown as {
+      disposeAll(): Promise<void>
+      backends: Map<string, unknown>
+      ownerCleanups: Map<Agent, unknown>
+    }
+    // Teardown surfaces the close failure, but its finally still clears the
+    // backend and owner-cleanup registries instead of orphaning them.
+    await expect(internal.disposeAll()).rejects.toThrow('failed to close 1 PTY session')
+    expect(internal.backends.size).toBe(0)
+    expect(internal.ownerCleanups.size).toBe(0)
+  })
 })

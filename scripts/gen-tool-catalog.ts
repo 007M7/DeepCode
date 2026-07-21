@@ -232,7 +232,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolPty)
     },
     note:
-      'The six PTY tools are opt-in and complement one-shot bash/filesystem tools. `pty_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema.',
+      'The six terminal tools are opt-in and complement one-shot bash/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-skill',

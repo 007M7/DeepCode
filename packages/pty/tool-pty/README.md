@@ -1,8 +1,8 @@
 # @deepseek-ai/dsh-tool-pty
 
-Six model-facing tools over `ctx.pty`: `pty_spawn`, `pty_send`, `pty_read`, `pty_signal`, `pty_kill`, and `pty_list`. Every operation requires the exact initiating `Agent`, so a model cannot address another agent's terminal even if it learns the id.
+Six model-facing tools over `ctx.pty`: `terminal_open`, `terminal_send`, `terminal_read`, `terminal_signal`, `terminal_close`, and `terminal_list`. Every operation requires the exact initiating `Agent`, so a model cannot address another agent's terminal even if it learns the id.
 
-`pty_send(run_in_background: true)` reuses `ctx.tasks`; task preflight occurs before any terminal write, completion is collected with `task_output`, and `task_kill` requests `Ctrl-C`. Foreground sends use terminal ACP cards; lifecycle, history, signal, and list calls use generic cards.
+`terminal_send(run_in_background: true)` reuses `ctx.tasks`; task preflight occurs before any terminal write, completion is collected with `task_output`, and `task_kill` requests `Ctrl-C`. Foreground sends use terminal ACP cards; lifecycle, history, signal, and list calls use generic cards.
 
 ## Model Experience
 
@@ -12,10 +12,10 @@ Six model-facing tools over `ctx.pty`: `pty_spawn`, `pty_send`, `pty_read`, `pty
 
 The plugin contributes this fixed guidance section:
 
-##### PTY guidance
+##### Terminal guidance
 
 ```markdown
-Use PTY only when work needs persistent terminal state or interactive stdin; prefer bash/read/write/edit for bounded one-shot operations. Track every PTY session id and kill sessions that no longer matter. An inferred_idle or timeout result does not prove the foreground command exited.
+Use a terminal session only when work needs persistent terminal state or interactive stdin; prefer bash/read/write/edit for bounded one-shot operations. Track every terminal session id and close sessions that no longer matter. An inferred_idle or timeout result does not prove the foreground command exited.
 ```
 
 #### Token effect

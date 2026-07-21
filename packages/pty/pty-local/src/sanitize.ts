@@ -1,5 +1,7 @@
 /** Streaming terminal-control sanitizer for the line-oriented first release. */
 
+import { Buffer } from 'node:buffer'
+
 /** OSC marker emitted by the controlled bash before each prompt. */
 export const PROMPT_MARKER_PREFIX = '133;D;'
 
@@ -16,6 +18,10 @@ export interface SanitizedChunk {
  */
 export class TerminalSanitizer {
   private pending = ''
+  private discardMode: 'osc' | 'csi' | undefined
+  private discardOscEscape = false
+
+  constructor(private readonly maxPendingBytes: number) {}
 
   /**
    * Consume one decoded `node-pty` data chunk.
@@ -23,7 +29,7 @@ export class TerminalSanitizer {
    * @returns Printable text and whether the private prompt marker completed.
    */
   push(chunk: string): SanitizedChunk {
-    this.pending += chunk
+    this.pending += this.discardPrefix(chunk)
     let text = ''
     let prompt = false
     let index = 0
@@ -75,6 +81,7 @@ export class TerminalSanitizer {
       index = escape + 2
     }
     this.pending = this.pending.slice(index)
+    this.enforcePendingBound()
     return { text: normalizeTerminalText(text), prompt }
   }
 
@@ -85,7 +92,53 @@ export class TerminalSanitizer {
   flush(): string {
     const text = this.pending.startsWith('\x1b') ? '' : this.pending
     this.pending = ''
+    this.discardMode = undefined
+    this.discardOscEscape = false
     return normalizeTerminalText(text)
+  }
+
+  private enforcePendingBound(): void {
+    if (Buffer.byteLength(this.pending) <= this.maxPendingBytes) return
+    this.discardMode = this.pending[1] === ']' ? 'osc' : 'csi'
+    this.pending = ''
+  }
+
+  private discardPrefix(chunk: string): string {
+    if (this.discardMode === undefined) return chunk
+    if (this.discardMode === 'csi') {
+      for (let index = 0; index < chunk.length; index += 1) {
+        const code = chunk.charCodeAt(index)
+        if (code >= 0x40 && code <= 0x7e) {
+          this.discardMode = undefined
+          return chunk.slice(index + 1)
+        }
+      }
+      return ''
+    }
+
+    let index = 0
+    if (this.discardOscEscape) {
+      this.discardOscEscape = false
+      if (chunk.startsWith('\\')) {
+        this.discardMode = undefined
+        return chunk.slice(1)
+      }
+    }
+    while (index < chunk.length) {
+      if (chunk[index] === '\x07') {
+        this.discardMode = undefined
+        return chunk.slice(index + 1)
+      }
+      if (chunk[index] === '\x1b') {
+        if (chunk[index + 1] === '\\') {
+          this.discardMode = undefined
+          return chunk.slice(index + 2)
+        }
+        if (index + 1 === chunk.length) this.discardOscEscape = true
+      }
+      index += 1
+    }
+    return ''
   }
 }
 

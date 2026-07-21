@@ -331,12 +331,18 @@ export class PtyService extends Service {
   private async disposeAll(): Promise<void> {
     this.disposing = true
     const records = [...this.sessions.values()]
-    await this.closeRecords(records, 'PTY service disposed')
-    this.backends.clear()
-    this.reservedNames.clear()
-    const cleanups = [...this.ownerCleanups.values()]
-    this.ownerCleanups.clear()
-    await Promise.all(cleanups.map(cleanup => Promise.resolve(cleanup())))
+    // Teardown is best-effort: a close failure still clears registries and runs
+    // owner cleanups before the aggregated error propagates, so one stuck
+    // session cannot orphan backends, reservations, or owner detachers.
+    try {
+      await this.closeRecords(records, 'PTY service disposed')
+    } finally {
+      this.backends.clear()
+      this.reservedNames.clear()
+      const cleanups = [...this.ownerCleanups.values()]
+      this.ownerCleanups.clear()
+      await Promise.all(cleanups.map(cleanup => Promise.resolve(cleanup())))
+    }
   }
 
   private async closeRecords(records: SessionRecord[], reason: string): Promise<void> {

@@ -124,9 +124,9 @@ describe('LocalPtySession readiness and output', () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
-    inspector.pgid = undefined
     const session = new LocalPtySession(terminal.asPty(), inspector, config())
     await initialize(session, terminal)
+    inspector.pgid = undefined
 
     const inferred = session.startSend({ text: 'sleep', submit: false })
     terminal.emitData('working')
@@ -238,6 +238,27 @@ describe('LocalPtySession readiness and output', () => {
     await vi.advanceTimersByTimeAsync(100)
     await timedOut
   })
+
+  it('trusts prompt markers only while the startup shell owns the foreground group', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    await initialize(session, terminal)
+
+    const operation = session.startSend({ text: 'run', submit: true })
+    let settled = false
+    void operation.done.then(() => { settled = true })
+    inspector.pgid = 789
+    terminal.emitData('\x1b]133;D;0\x07spoofed')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(settled).toBe(false)
+
+    inspector.pgid = 456
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect((await operation.done).waitReason).toBe('stdin_read')
+  })
 })
 
 describe('LocalPtySession bounds, signals, and teardown', () => {
@@ -278,7 +299,7 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     const session = new LocalPtySession(terminal.asPty(), inspector, config())
     expect(await session.signal('SIGINT')).toEqual({ delivered: true, targetPgid: 456 })
     inspector.pgid = terminal.pid
-    await expect(session.signal('SIGKILL')).rejects.toThrow('use pty_kill')
+    await expect(session.signal('SIGKILL')).rejects.toThrow('use terminal_close')
     inspector.pgid = undefined
     await expect(session.signal('SIGTERM')).rejects.toThrow('cannot resolve')
   })
@@ -295,6 +316,23 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     expect(session.close('other')).toBe(closing)
     await expect(closing).rejects.toThrow('surviving pids: 123')
     expect(() => session.startSend({ text: '', submit: false })).toThrow('closing')
+  })
+
+  it('settles an active send as session_exit when closed mid-operation', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal.asPty(), new FakeInspector(), config({ disposeGraceMs: 50 }))
+    await initialize(session, terminal)
+    const operation = session.startSend({ text: 'run', submit: true })
+    // The shell returns to its prompt while the send is active; a running
+    // readiness poll would otherwise mis-settle this as stdin_read once close
+    // begins, so teardown must stop polling before its grace period.
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    terminal.throwKill = true
+    const closing = session.close('mid-send')
+    await vi.advanceTimersByTimeAsync(60)
+    expect((await operation.done).waitReason).toBe('session_exit')
+    await closing
   })
 
   it('waits for SIGKILL recipients to leave the process table after the shell exits', async () => {

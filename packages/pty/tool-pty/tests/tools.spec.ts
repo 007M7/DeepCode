@@ -119,41 +119,41 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 describe('tool-pty foreground surface', () => {
   it('registers exactly six schemas and drives the full owner-scoped lifecycle', async () => {
     const { ctx, agent } = await setup(false)
-    expect(['pty_spawn', 'pty_send', 'pty_read', 'pty_signal', 'pty_kill', 'pty_list'].every(name => ctx.tools.get(name) !== undefined)).toBe(true)
+    expect(['terminal_open', 'terminal_send', 'terminal_read', 'terminal_signal', 'terminal_close', 'terminal_list'].every(name => ctx.tools.get(name) !== undefined)).toBe(true)
 
-    const spawned = await call(ctx, 'pty_spawn', { type: 'stub', name: 'main' }, agent)
-    expect(text(spawned)).toContain('started PTY session pty-1 (main)')
-    expect(text(await call(ctx, 'pty_list', {}, agent))).toContain('pty-1 (main) [stub] running pid=42')
-    expect(text(await call(ctx, 'pty_read', { sessionId: 'pty-1' }, agent))).toContain('history\n[lines: 0-1 of 1]')
-    expect(text(await call(ctx, 'pty_signal', { sessionId: 'pty-1', signal: 'SIGINT' }, agent))).toBe('delivered SIGINT to foreground process group 10')
-    const sent = await call(ctx, 'pty_send', { sessionId: 'pty-1', text: 'echo hi' }, agent)
+    const spawned = await call(ctx, 'terminal_open', { type: 'stub', name: 'main' }, agent)
+    expect(text(spawned)).toContain('started terminal session pty-1 (main)')
+    expect(text(await call(ctx, 'terminal_list', {}, agent))).toContain('pty-1 (main) [stub] running pid=42')
+    expect(text(await call(ctx, 'terminal_read', { sessionId: 'pty-1' }, agent))).toContain('history\n[lines: 0-1 of 1]')
+    expect(text(await call(ctx, 'terminal_signal', { sessionId: 'pty-1', signal: 'SIGINT' }, agent))).toBe('delivered SIGINT to foreground process group 10')
+    const sent = await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'echo hi' }, agent)
     expect(text(sent)).toContain('command output\n[wait: stdin_read]\n[session: running]')
-    expect(text(await call(ctx, 'pty_kill', { sessionId: 'pty-1' }, agent))).toBe('killed PTY session pty-1')
-    expect(text(await call(ctx, 'pty_list', {}, agent))).toBe('(no PTY sessions)')
+    expect(text(await call(ctx, 'terminal_close', { sessionId: 'pty-1' }, agent))).toBe('closed terminal session pty-1')
+    expect(text(await call(ctx, 'terminal_list', {}, agent))).toBe('(no terminal sessions)')
   })
 
   it('fails without an initiating agent and rejects background before writing', async () => {
     const { ctx, agent, stub } = await setup(false)
-    expect((await call(ctx, 'pty_spawn', { type: 'stub' })).isError).toBe(true)
-    await call(ctx, 'pty_spawn', { type: 'stub' }, agent)
-    const result = await call(ctx, 'pty_send', { sessionId: 'pty-1', text: 'sleep 1', run_in_background: true }, agent)
+    expect((await call(ctx, 'terminal_open', { type: 'stub' })).isError).toBe(true)
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
+    const result = await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'sleep 1', run_in_background: true }, agent)
     expect(result.isError).toBe(true)
     expect(stub.sessions[0]?.operation).toBeUndefined()
   })
 
   it('validates required values and forwards optional spawn/read arguments', async () => {
     const { ctx, agent } = await setup(false)
-    expect((await call(ctx, 'pty_spawn', { type: '' }, agent)).isError).toBe(true)
-    expect((await call(ctx, 'pty_send', { sessionId: '', text: 'x' }, agent)).isError).toBe(true)
-    expect((await call(ctx, 'pty_send', { sessionId: 1, text: 'x' }, agent)).isError).toBe(true)
-    expect((await call(ctx, 'pty_send', { sessionId: 'pty-1', text: 1 }, agent)).isError).toBe(true)
-    await call(ctx, 'pty_spawn', { type: 'stub', name: 'named', cwd: '/tmp' }, agent)
-    expect(text(await call(ctx, 'pty_read', { sessionId: 'pty-1', offset: 2, count: 3 }, agent))).toContain('history')
+    expect((await call(ctx, 'terminal_open', { type: '' }, agent)).isError).toBe(true)
+    expect((await call(ctx, 'terminal_send', { sessionId: '', text: 'x' }, agent)).isError).toBe(true)
+    expect((await call(ctx, 'terminal_send', { sessionId: 1, text: 'x' }, agent)).isError).toBe(true)
+    expect((await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 1 }, agent)).isError).toBe(true)
+    await call(ctx, 'terminal_open', { type: 'stub', name: 'named', cwd: '/tmp' }, agent)
+    expect(text(await call(ctx, 'terminal_read', { sessionId: 'pty-1', offset: 2, count: 3 }, agent))).toContain('history')
   })
 
   it('declares terminal presentation only for foreground sends', async () => {
     const { ctx } = await setup(false)
-    const definition = ctx.tools.get('pty_send')
+    const definition = ctx.tools.get('terminal_send')
     expect(definition?.presentCall?.({ sessionId: 'pty-1', text: 'python3' })).toMatchObject({ card: 'terminal', title: 'python3' })
     expect(definition?.presentCall?.({ sessionId: 'pty-1', text: 'make', run_in_background: true })).toMatchObject({ card: 'generic' })
     expect(definition?.presentCall?.({ sessionId: 'pty-1', text: '' })).toMatchObject({ card: 'terminal', title: '(send input)' })
@@ -164,20 +164,20 @@ describe('tool-pty foreground surface', () => {
     expect(definition?.presentResult?.({ sessionId: 'pty-1', text: 'x' }, { content: [undefined as never], isError: false })).toBeUndefined()
     expect(definition?.presentResult?.({ sessionId: 'pty-1', text: 'x' }, { content: [{ type: 'text', text: 'ok' }], isError: false })).toEqual({ card: 'terminal', output: 'ok' })
 
-    expect(ctx.tools.get('pty_spawn')?.presentCall?.({ type: 'stub' })).toMatchObject({ card: 'generic', title: 'Start PTY stub' })
-    expect(ctx.tools.get('pty_spawn')?.presentCall?.({ type: 'stub', name: 'main' })).toMatchObject({ card: 'generic', title: 'Start PTY main' })
-    expect(ctx.tools.get('pty_read')?.presentCall?.({ sessionId: 'pty-1' })).toMatchObject({ card: 'generic', title: 'Read PTY pty-1' })
-    expect(ctx.tools.get('pty_signal')?.presentCall?.({ sessionId: 'pty-1', signal: 'SIGINT' })).toMatchObject({ card: 'generic', title: 'Signal PTY pty-1' })
-    expect(ctx.tools.get('pty_kill')?.presentCall?.({ sessionId: 'pty-1' })).toMatchObject({ card: 'generic', title: 'Kill PTY pty-1' })
-    expect(ctx.tools.get('pty_list')?.presentCall?.({})).toMatchObject({ card: 'generic', title: 'List PTY sessions' })
+    expect(ctx.tools.get('terminal_open')?.presentCall?.({ type: 'stub' })).toMatchObject({ card: 'generic', title: 'Open terminal stub' })
+    expect(ctx.tools.get('terminal_open')?.presentCall?.({ type: 'stub', name: 'main' })).toMatchObject({ card: 'generic', title: 'Open terminal main' })
+    expect(ctx.tools.get('terminal_read')?.presentCall?.({ sessionId: 'pty-1' })).toMatchObject({ card: 'generic', title: 'Read terminal pty-1' })
+    expect(ctx.tools.get('terminal_signal')?.presentCall?.({ sessionId: 'pty-1', signal: 'SIGINT' })).toMatchObject({ card: 'generic', title: 'Signal terminal pty-1' })
+    expect(ctx.tools.get('terminal_close')?.presentCall?.({ sessionId: 'pty-1' })).toMatchObject({ card: 'generic', title: 'Close terminal pty-1' })
+    expect(ctx.tools.get('terminal_list')?.presentCall?.({})).toMatchObject({ card: 'generic', title: 'List terminal sessions' })
   })
 })
 
 describe('tool-pty task integration', () => {
   it('registers a generic task and exposes incremental output', async () => {
     const { ctx, agent } = await setup(true)
-    await call(ctx, 'pty_spawn', { type: 'stub' }, agent)
-    expect(text(await call(ctx, 'pty_send', { sessionId: 'pty-1', text: 'build', run_in_background: true }, agent))).toBe('started background task pty-send-1')
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
+    expect(text(await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'build', run_in_background: true }, agent))).toBe('started background task pty-send-1')
     const output = await call(ctx, 'task_output', { task_id: 'pty-send-1', wait: true }, agent)
     expect(text(output)).toContain('live output')
     expect(text(output)).toContain('[status: completed, wait: stdin_read]')
@@ -185,30 +185,30 @@ describe('tool-pty task integration', () => {
 
   it('rejects pre-aborted background calls, maps task cancellation, and contains operation failure', async () => {
     const { ctx, agent, stub } = await setup(true)
-    await call(ctx, 'pty_spawn', { type: 'stub' }, agent)
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
     const controller = new AbortController()
     controller.abort()
-    expect((await callWithSignal(ctx, 'pty_send', { sessionId: 'pty-1', text: 'x', run_in_background: true }, agent, controller.signal)).isError).toBe(true)
+    expect((await callWithSignal(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'x', run_in_background: true }, agent, controller.signal)).isError).toBe(true)
 
     stub.sessions[0]!.autoSettle = false
-    expect(text(await call(ctx, 'pty_send', { sessionId: 'pty-1', text: '', run_in_background: true }, agent))).toContain('pty-send-1')
+    expect(text(await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: '', run_in_background: true }, agent))).toContain('pty-send-1')
     expect(text(await call(ctx, 'task_kill', { task_id: 'pty-send-1' }, agent))).toContain('requested cancellation')
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(text(await call(ctx, 'task_output', { task_id: 'pty-send-1' }, agent))).toContain('[status: killed')
 
     stub.sessions[0]!.rejectOperation = true
     stub.sessions[0]!.autoSettle = false
-    expect(text(await call(ctx, 'pty_send', { sessionId: 'pty-1', text: 'bad', run_in_background: true }, agent))).toContain('pty-send-2')
+    expect(text(await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'bad', run_in_background: true }, agent))).toContain('pty-send-2')
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(text(await call(ctx, 'task_output', { task_id: 'pty-send-2' }, agent))).toContain('[status: failed')
   })
 
-  it('reports foreground cancellation after the PTY operation settles', async () => {
+  it('reports foreground cancellation after the terminal operation settles', async () => {
     const { ctx, agent, stub } = await setup(false)
-    await call(ctx, 'pty_spawn', { type: 'stub' }, agent)
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
     stub.sessions[0]!.autoSettle = false
     const controller = new AbortController()
-    const pending = callWithSignal(ctx, 'pty_send', { sessionId: 'pty-1', text: 'sleep' }, agent, controller.signal)
+    const pending = callWithSignal(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'sleep' }, agent, controller.signal)
     await Promise.resolve()
     controller.abort()
     stub.sessions[0]!.operation?.cancel()
@@ -217,20 +217,20 @@ describe('tool-pty task integration', () => {
 
   it('renders the already-closing kill result', async () => {
     const { ctx, agent, stub } = await setup(false)
-    await call(ctx, 'pty_spawn', { type: 'stub' }, agent)
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
     stub.sessions[0]!.closeGate = Promise.withResolvers<undefined>()
     const first = ctx.pty.kill(agent, PtySessionId('pty-1'))
-    const second = call(ctx, 'pty_kill', { sessionId: 'pty-1' }, agent)
+    const second = call(ctx, 'terminal_close', { sessionId: 'pty-1' }, agent)
     stub.sessions[0]!.closeGate?.resolve(undefined)
     await first
-    expect(text(await second)).toBe('PTY session pty-1 was already closing')
+    expect(text(await second)).toBe('terminal session pty-1 was already closing')
   })
 
   it('renders an exited session detail for background completion', async () => {
     const { ctx, agent, stub } = await setup(true)
-    await call(ctx, 'pty_spawn', { type: 'stub' }, agent)
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
     stub.sessions[0]!.statusValue = { kind: 'exited', exitCode: null, signal: null }
-    await call(ctx, 'pty_send', { sessionId: 'pty-1', text: 'exit', run_in_background: true }, agent)
+    await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'exit', run_in_background: true }, agent)
     const output = await call(ctx, 'task_output', { task_id: 'pty-send-1', wait: true }, agent)
     expect(text(output)).toContain('session exited: unknown')
   })

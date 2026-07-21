@@ -1,4 +1,4 @@
-/** Model and ACP rendering for persistent PTY tool results. */
+/** Model and ACP rendering for persistent terminal tool results. */
 
 import type { PtyReadResult, PtySendRead, PtySendResult, PtySessionSnapshot, PtySpawnResult } from '@deepseek-ai/dsh-pty'
 
@@ -9,7 +9,7 @@ import type { PtyReadResult, PtySendRead, PtySendResult, PtySessionSnapshot, Pty
  */
 export function renderSpawn(result: PtySpawnResult): string {
   const label = result.name === undefined ? result.sessionId : `${result.sessionId} (${result.name})`
-  return `started PTY session ${label} [type: ${result.type}]\n${result.motd || '(no startup output)'}`
+  return `started terminal session ${label} [type: ${result.type}]\n${result.motd || '(no startup output)'}`
 }
 
 /**
@@ -50,7 +50,7 @@ export function renderRead(result: PtyReadResult): string {
  * @returns One line per session or the empty marker.
  */
 export function renderList(sessions: PtySessionSnapshot[]): string {
-  if (sessions.length === 0) return '(no PTY sessions)'
+  if (sessions.length === 0) return '(no terminal sessions)'
   return sessions.map((session) => {
     const name = session.name === undefined ? '' : ` (${session.name})`
     const pid = session.pid === undefined ? '' : ` pid=${session.pid}`

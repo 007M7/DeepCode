@@ -127,7 +127,7 @@ export interface PtySessionSnapshot {
 
 /** Backend-owned live session retained by {@link PtyService}. */
 export interface PtyBackendSession {
-  /** Initial bounded terminal output returned from `pty_spawn`. */
+  /** Initial bounded terminal output returned from `terminal_open`. */
   readonly motd: string
   /** Top-level process id when one exists. */
   readonly pid?: number

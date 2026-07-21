@@ -138,7 +138,7 @@ function signalName(number: number | undefined): NodeJS.Signals | null {
 export class LocalPtySession implements PtyBackendSession {
   motd = ''
   readonly pid: number
-  private readonly sanitizer = new TerminalSanitizer()
+  private readonly sanitizer: TerminalSanitizer
   private readonly scrollback: BoundedTextBuffer
   private readonly exitPromise: PromiseWithResolvers<void> = Promise.withResolvers<void>()
   private readonly dataDisposable: IDisposable
@@ -148,6 +148,7 @@ export class LocalPtySession implements PtyBackendSession {
   private activeTimer: NodeJS.Timeout | undefined
   private activeAbort: (() => void) | undefined
   private promptSeen = false
+  private shellPgid: number | undefined
   private initializing = false
   private lastOutputAt = Date.now()
   private closePromise: Promise<void> | undefined
@@ -158,6 +159,7 @@ export class LocalPtySession implements PtyBackendSession {
     private readonly config: ResolvedConfig,
   ) {
     this.pid = terminal.pid
+    this.sanitizer = new TerminalSanitizer(config.maxReadBytes)
     this.scrollback = new BoundedTextBuffer(config.scrollbackMaxBytes, config.scrollbackLines)
     this.dataDisposable = terminal.onData((data) => { this.onData(data) })
     this.exitDisposable = terminal.onExit(({ exitCode, signal }) => {
@@ -253,7 +255,7 @@ export class LocalPtySession implements PtyBackendSession {
       const pgid = this.inspector.foregroundPgid(this.pid)
       if (pgid === undefined) throw new Error(`cannot resolve foreground process group for PTY ${this.pid}`)
       if (signal === 'SIGKILL' && pgid === this.pid) {
-        throw new Error('refusing to SIGKILL the PTY shell; use pty_kill')
+        throw new Error('refusing to SIGKILL the PTY shell; use terminal_close')
       }
       this.inspector.signalGroup(pgid, signal)
       return { delivered: true, targetPgid: pgid }
@@ -273,8 +275,12 @@ export class LocalPtySession implements PtyBackendSession {
     const sanitized = this.sanitizer.push(data)
     this.appendOutput(sanitized.text)
     if (sanitized.prompt) {
-      this.promptSeen = true
-      this.lastOutputAt = Date.now()
+      const foregroundPgid = this.inspector.foregroundPgid(this.pid)
+      if (this.shellPgid === undefined) this.shellPgid = foregroundPgid
+      if (foregroundPgid !== undefined && foregroundPgid === this.shellPgid) {
+        this.promptSeen = true
+        this.lastOutputAt = Date.now()
+      }
     }
   }
 
@@ -319,9 +325,13 @@ export class LocalPtySession implements PtyBackendSession {
     operation.settle(waitReason, this.statusValue, scrollbackTruncated)
   }
 
-  private clearActive(): void {
+  private stopPolling(): void {
     if (this.activeTimer !== undefined) clearInterval(this.activeTimer)
     this.activeTimer = undefined
+  }
+
+  private clearActive(): void {
+    this.stopPolling()
     this.activeAbort?.()
     this.activeAbort = undefined
     this.active = undefined
@@ -329,6 +339,10 @@ export class LocalPtySession implements PtyBackendSession {
 
   private async closeOnce(reason: string): Promise<void> {
     this.dataDisposable.dispose()
+    // Stop readiness polling but retain the active operation: teardown settles
+    // it as session_exit below, so an in-flight send is never mis-settled as
+    // stdin_read/inferred_idle/timeout during the grace period.
+    this.stopPolling()
     const members = this.inspector.processTree(this.pid)
     for (const member of members) {
       try {

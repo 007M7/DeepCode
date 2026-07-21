@@ -5,7 +5,7 @@ import { renderList, renderRead, renderSend, renderSendRead, renderSpawn } from 
 describe('tool-pty rendering', () => {
   it('renders spawn with and without names or MOTD', () => {
     expect(renderSpawn({ sessionId: PtySessionId('pty-1'), type: 'shell', status: { kind: 'running' }, motd: '' }))
-      .toBe('started PTY session pty-1 [type: shell]\n(no startup output)')
+      .toBe('started terminal session pty-1 [type: shell]\n(no startup output)')
     expect(renderSpawn({ sessionId: PtySessionId('pty-2'), name: 'main', type: 'shell', pid: 2, status: { kind: 'running' }, motd: 'ready' }))
       .toContain('pty-2 (main)')
   })
@@ -28,7 +28,7 @@ describe('tool-pty rendering', () => {
   it('renders history and every list status shape', () => {
     expect(renderRead({ text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: true }))
       .toBe('(no retained output)\n[lines: 0-0 of 0]\n[output truncated]')
-    expect(renderList([])).toBe('(no PTY sessions)')
+    expect(renderList([])).toBe('(no terminal sessions)')
     expect(renderList([
       { sessionId: PtySessionId('pty-1'), type: 'shell', status: { kind: 'running' } },
       { sessionId: PtySessionId('pty-2'), name: 'done', type: 'shell', pid: 9, status: { kind: 'exited', exitCode: 2, signal: null } },

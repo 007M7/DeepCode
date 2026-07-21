@@ -13,7 +13,7 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 Check the [exit code: N] marker on every bash result; investigate failures before moving on.
 
-Use PTY only when work needs persistent terminal state or interactive stdin; prefer bash/read/write/edit for bounded one-shot operations. Track every PTY session id and kill sessions that no longer matter. An inferred_idle or timeout result does not prove the foreground command exited.
+Use a terminal session only when work needs persistent terminal state or interactive stdin; prefer bash/read/write/edit for bounded one-shot operations. Track every terminal session id and close sessions that no longer matter. An inferred_idle or timeout result does not prove the foreground command exited.
 
 Track every background task id you start. You are notified in-session when a task finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running task's work. Before giving a final answer, collect every still-relevant task with task_output (set wait: true only when you are genuinely blocked on it), and task_kill tasks that stopped mattering.
 

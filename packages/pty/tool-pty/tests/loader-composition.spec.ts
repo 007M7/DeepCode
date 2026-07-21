@@ -52,7 +52,7 @@ function resultText(result: { content: { type: string; text?: string }[] }): str
 
 const suite = process.platform === 'linux' || process.platform === 'darwin' ? describe : describe.skip
 
-suite('PTY real Loader composition through cordis.yml', () => {
+suite('terminal real Loader composition through cordis.yml', () => {
   it('boots cordis.yml and preserves shell state across real tool calls', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-pty-loader-'))
     const configPath = join(root, 'cordis.yml')
@@ -103,15 +103,15 @@ suite('PTY real Loader composition through cordis.yml', () => {
 
     const owner = agent(context)
     const spawn = await context.tools.execute({
-      callId: CallId('spawn'), name: 'pty_spawn', arguments: { type: 'shell', name: 'main', cwd: root }, agent: owner,
+      callId: CallId('spawn'), name: 'terminal_open', arguments: { type: 'shell', name: 'main', cwd: root }, agent: owner,
     })
-    expect(resultText(spawn)).toContain('started PTY session pty-1 (main)')
+    expect(resultText(spawn)).toContain('started terminal session pty-1 (main)')
 
     await context.tools.execute({
-      callId: CallId('state'), name: 'pty_send', arguments: { sessionId: 'pty-1', text: 'export KEEP=loader; cd /' }, agent: owner,
+      callId: CallId('state'), name: 'terminal_send', arguments: { sessionId: 'pty-1', text: 'export KEEP=loader; cd /' }, agent: owner,
     })
     const read = await context.tools.execute({
-      callId: CallId('read'), name: 'pty_send', arguments: { sessionId: 'pty-1', text: 'printf "cwd=%s keep=%s\\n" "$PWD" "$KEEP"' }, agent: owner,
+      callId: CallId('read'), name: 'terminal_send', arguments: { sessionId: 'pty-1', text: 'printf "cwd=%s keep=%s\\n" "$PWD" "$KEEP"' }, agent: owner,
     })
     expect(resultText(read)).toContain('cwd=/ keep=loader')
     expect(context.pty.list(owner)).toHaveLength(1)

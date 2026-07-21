@@ -6,7 +6,7 @@ Local `node-pty` backend for `ctx.pty`. It starts an interactive shell under the
 
 The plugin injects `pty`, `sandbox`, and `sandboxPolicy`, then registers the configured backend type (`shell`). `danger-full-access` starts the shell directly; confined modes wrap the exact shell argv through `ctx.sandbox`. The current session-level sandbox override is resolved at spawn and remains fixed for the PTY lifetime.
 
-Linux readiness combines a private bash prompt marker, foreground-process-group syscall inspection, silence fallback, and absolute timeout. macOS uses the prompt marker plus silence/timeout because it has no `/proc` syscall surface. Unrecognized or unreadable process state is never a positive exact-idle signal. During unpublished startup, a fallback requires observed output; zero-output silence cannot publish an empty session, and timeout rejects the spawn.
+Linux readiness combines a foreground-verified private bash prompt marker, foreground-process-group syscall inspection, silence fallback, and absolute timeout. macOS uses the verified prompt marker plus silence/timeout because it has no `/proc` syscall surface. Unrecognized or unreadable process state is never a positive exact-idle signal. During unpublished startup, a fallback requires observed output; zero-output silence cannot publish an empty session, and timeout rejects the spawn. Incomplete terminal-control sequences are bounded by `maxReadBytes` and discarded through their terminator after crossing that limit.
 
 ## Model Experience
 
