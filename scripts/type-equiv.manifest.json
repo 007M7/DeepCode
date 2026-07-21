@@ -28,6 +28,7 @@
     { "doc": "docs/core-data-structures/scope.md", "symbol": "ScopeKey", "source": "packages/core/scope/src/index.ts" },
     { "doc": "docs/core-data-structures/scope.md", "symbol": "Scoped", "source": "packages/core/scope/src/index.ts" },
     { "doc": "docs/core-data-structures/scope.md", "symbol": "Scope", "source": "packages/core/scope/src/index.ts" },
+    { "doc": "docs/core-data-structures/scope.md", "symbol": "ScopeLayer", "source": "packages/core/scope/src/store.ts" },
 
     { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalRef", "source": "packages/goal/goal/src/types.ts" },
     { "doc": "docs/core-data-structures/goal.md", "symbol": "GoalPhase", "source": "packages/goal/goal/src/types.ts" },

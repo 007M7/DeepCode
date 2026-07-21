@@ -1,14 +1,14 @@
 # Agent Note: 共享作用域分层存储
 
-Status: proposed
+Status: implemented
 
 [English](2026-07-12-scoped-layers-store.md) | 中文
 
 ## 问题
 
-agent（智能体）作用域机制（[决策](../../implemented/architecture/2026-07-08-agent-scope-contexts.md)、[运行时设计](../../implemented/architecture/2026-07-12-agent-scope-runtime-design.md)）让支持作用域的注册表反复呈现同一种形态：一个全局注册层，加上一个与具体 agent 精确对应的层。七个注册门面各自独立实现这一形态：`tools.register`、`tools.restrict` 和 `tools.guard`（位于 `dsh-tools`）；`SystemPrompt.section`、`SystemPrompt.tools` 和 `SystemPrompt.variable`（位于 `dsh-system-prompt`）；以及 `CommandService.register`（位于 `dsh-commands`）。
+agent（智能体）作用域机制（[决策](2026-07-08-agent-scope-contexts.md)、[运行时设计](2026-07-12-agent-scope-runtime-design.md)）让支持作用域的注册表反复呈现同一种形态：一个全局注册层，加上一个与具体 agent 精确对应的层。七个注册门面都采用这一形态：`tools.register`、`tools.restrict` 和 `tools.guard`（位于 `dsh-tools`）；`SystemPrompt.section`、`SystemPrompt.tools` 和 `SystemPrompt.variable`（位于 `dsh-system-prompt`）；以及 `CommandService.register`（位于 `dsh-commands`）。
 
-每个门面都围绕自己的领域状态重复相同的生命周期编排：从调用方上下文导出可见性，按需创建专属容器，把属主绑定到同一个 Cordis fiber，先装入 undo 再通知观察者，原样返回 Cordis 的 disposer，并回收空的专属状态。各份实现采用不同的映射与集合类型，因此服务内没有一个对象能表示某个 scope 的完整贡献，而且每张表都必须重复清理逻辑。
+如果没有共享原语，每个门面都要围绕自己的领域状态重复相同的生命周期编排：从调用方上下文导出可见性，按需创建专属容器，把属主绑定到同一个 Cordis fiber，先装入 undo 再通知观察者，原样返回 Cordis 的 disposer，并回收空的专属状态。各自分离的映射与集合类型也会让服务缺少一个表示某个 scope 完整贡献的对象。
 
 重复代码承载着三项不明显的要求：
 
@@ -18,9 +18,9 @@ agent（智能体）作用域机制（[决策](../../implemented/architecture/20
 
 共享的是生命周期与保持插入顺序的存储，而不是注册表策略。工具限制、保留传输处理、提示词求值时机、命令规范化、精确诊断和回调异常隔离，仍分别属于不同的领域契约。
 
-## 提案
+## 决策
 
-`@deepseek-ai/dsh-scope` 新增与键类型无关的 `store.ts` 实现模块。该包（package）继续将 Cordis 和 `@deepseek-ai/dsh-invariants` 列为对等依赖（peer dependency），其不变量配套模块保持不变。包根导出四个存储符号：`ScopeLayer`、`ScopedLayers`、`NamedEntries` 和 `AnonymousEntries`。`EntryValues` 仍是内部接口，`store.ts` 不是包子路径。
+`@deepseek-ai/dsh-scope` 提供与键类型无关的 `store.ts` 实现模块。该包（package）继续将 Cordis 和 `@deepseek-ai/dsh-invariants` 列为对等依赖（peer dependency），其不变量配套模块保持不变。包根导出四个存储符号：`ScopeLayer`、`ScopedLayers`、`NamedEntries` 和 `AnonymousEntries`。`EntryValues` 仍是内部接口，`store.ts` 不是包子路径。
 
 `ScopeLayer` 保留显式的聚合概念，同时只要求判断整个层是否为空。服务定义一个具体层，使其表结构与领域 helper 适合该服务；`ScopedLayers` 负责构造、选择、生命周期挂接、通知和聚合回收。
 
@@ -108,16 +108,19 @@ export class AnonymousEntries<V> {
 
 **通过 mapped-type 表描述生成层。** 三表与单表具体层都很短、易于检查，并可自由持有领域 helper。类生成器会增加第二种构造模型和生成式运行时形状，收益却很小。
 
-## 验收标准
+## 后果
 
-- `dsh-scope` 从包根恰好导出拟议的四个存储符号，并覆盖全局构造、专属层延迟构造、非创建式读取、命名遮蔽、聚合回收、失败清理、通知顺序、原始 disposer 身份、调用方拥有的重名错误、相同匿名值的独立登记和活迭代器。
-- `dsh-tools`、`dsh-system-prompt` 与 `dsh-commands` 迁移全部七个注册门面，同时保留校验顺序、精确诊断、视图、通知策略、重入行为和 HMR 清理。
-- `dsh-scope` README 与作用域核心数据文档描述公开契约；架构和运行时设计引用标识共享 store，但不重复其内容。各消费方 README 继续聚焦其未改变的公开行为。
-- 实现 PR 将本组文件移入 `implemented/architecture`，把 `Proposal` 改为以现在时书写的 `Decision`，并记录已落地的后果与验证。现有无密钥快照保持逐字节一致。
+- 支持作用域的注册表各自通过一个聚合层表达状态，并复用相同的构造、属主、回滚、通知和回收编排。各注册表仍各自保有领域特有的校验、诊断、过滤、求值和观察者策略。
+- 公开读取接口保持狭窄：直接遍历条目表可保留显式的活语义，`merge()` 是唯一共享的物化遮蔽操作。异构的 `ScopeLayer` 不具备整层 `values()` 契约。
+- helper 刻意保持同步。未来的登记若需要异步 setup 或多份分别拥有属主的 undo，必须先明确属主与 settlement 边界，再拓宽这项契约。
+- action 必须在保留贡献前抛错，或者为自己保留的一切返回 undo；helper 无法修复超出这项契约的变更。提供的条目操作是原子的，迁移后的注册表会在插入前执行可能失败的校验。
+- 专属层会一直保持已分配状态，直到其聚合内的所有表都为空。因此，销毁一个门面不会丢弃同一 scope 拥有的其他贡献。
+- 四个公开符号构成一项可复用的包契约。将 `EntryValues` 保持为内部接口，并把消费方策略留在 helper 之外，可以限制兼容性范围。
+- 迁移不改变任何公开注册表行为，也不改变模型、人类、协议、持久化、配置或依赖图层面的任何输出。
 
-## 风险
+## 验证
 
-- 未来的登记可能需要异步 setup 或多份分别拥有属主的 undo。该消费方必须先明确其属主与 settlement 边界，再拓宽这个刻意保持同步的接口。
-- 抛错的 action 若在返回的 undo 契约之外产生变更，通用 helper 无法修复。条目操作是原子的；迁移会在插入前执行可能失败的校验；测试会钉住工厂失败和保留贡献前的 action 失败清理。
-- 聚合回收会让专属层一直存活到所有表都清空。这是有意行为，并且只能通过内部存储生命周期观察到；测试会钉住销毁一张表时不会丢弃同层的其他贡献。
-- 公开类新增了一项可复用的包契约。保持读取接口狭窄并把领域策略留在消费方，可以减少未来代码必须维持的契约范围。
+- `dsh-scope` 单元测试覆盖全局构造、专属层延迟构造、非创建式读取、命名合并顺序与遮蔽、聚合回收、工厂与 action 失败清理、通知顺序与回滚、`notify: false`、effect 标签、原始 disposer 身份、幂等拆除、调用方提供的重名错误、相同匿名值的独立登记和活迭代器。
+- 工具、系统提示词和命令专项测试套件覆盖 restriction、保留传输处理、已知名称与可限制名称的一致性、guard 重入、校验顺序、精确诊断、section 先遮蔽再求值、提供方快照成员关系、variable 重入、隔离失败的命令观察者、冻结且有序的视图、直接执行和生命周期销毁。
+- 作用域核心数据的类型等价性检查将 `ScopeLayer` 文档与其源声明绑定。仓库级的文档、模块图、构建、hygiene、覆盖率与构建产物门禁会覆盖包根导出与包边界。
+- 现有 ACP（Agent Client Protocol）、headless 和 TUI 无密钥快照继续作为工具 schema、提示词组装和人类命令的回归边界。实现不会更新任何预期 transcript（文本记录）。
