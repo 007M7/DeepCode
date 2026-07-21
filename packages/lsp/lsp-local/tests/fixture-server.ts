@@ -12,6 +12,9 @@
  * - LSP_FAKE_CRASH_ON_OPEN: "1" exits the process when a didOpen arrives (crash test).
  * - LSP_FAKE_EXIT_AFTER_REPLY: "1" exits the process right after answering a textDocument/* request,
  *   simulating a server that dies while idle so the pool holds a dead instance (eviction test).
+ * - LSP_FAKE_REPLY_DELAY_MS: delays each textDocument/* response by this many milliseconds.
+ * - LSP_FAKE_OPEN_MARKER: appends each didOpen document text as one JSON line to this path.
+ * - LSP_FAKE_CLOSE_STDIN_AFTER_REPLY: "1" closes fd 0 before sending the first query response.
  * - LSP_FAKE_EXIT_DELAY_MS / LSP_FAKE_EXIT_MARKER: delay protocol exit and record exit/termination.
  * - LSP_FAKE_NO_SHUTDOWN: "1" ignores the shutdown request (forces kill escalation).
  * - LSP_FAKE_ON_OPEN: server→client request to emit when a didOpen arrives, one of
@@ -19,10 +22,10 @@
  * - LSP_FAKE_ERROR: "1" answers textDocument/* requests with a JSON-RPC error response.
  * - LSP_FAKE_GARBAGE: "1" emits an unframed garbage byte before the initialize reply.
  *
- * Run: node --import tsx fixture-server.ts
+ * Run: node fixture-server.ts (Node's erasable TypeScript syntax support).
  */
 
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, closeSync } from 'node:fs'
 
 const enc = process.env.LSP_FAKE_ENCODING ?? 'utf-16'
 const sync: unknown = process.env.LSP_FAKE_SYNC !== undefined ? JSON.parse(process.env.LSP_FAKE_SYNC) : 1
@@ -30,6 +33,9 @@ const extraCaps: unknown = process.env.LSP_FAKE_CAPS !== undefined ? JSON.parse(
 const hang = process.env.LSP_FAKE_HANG === '1'
 const crashOnOpen = process.env.LSP_FAKE_CRASH_ON_OPEN === '1'
 const exitAfterReply = process.env.LSP_FAKE_EXIT_AFTER_REPLY === '1'
+const replyDelayMs = Number(process.env.LSP_FAKE_REPLY_DELAY_MS ?? 0)
+const openMarker = process.env.LSP_FAKE_OPEN_MARKER
+const closeStdinAfterReply = process.env.LSP_FAKE_CLOSE_STDIN_AFTER_REPLY === '1'
 const exitDelayMs = Number(process.env.LSP_FAKE_EXIT_DELAY_MS ?? 0)
 const exitMarker = process.env.LSP_FAKE_EXIT_MARKER
 const noShutdown = process.env.LSP_FAKE_NO_SHUTDOWN === '1'
@@ -124,17 +130,29 @@ function handle(message: { id?: number; method?: string; params?: unknown; resul
   }
   if (method === 'textDocument/didOpen') {
     if (crashOnOpen) process.exit(1)
+    if (openMarker !== undefined) {
+      const params = message.params as { textDocument?: { text?: unknown } } | undefined
+      appendFileSync(openMarker, `${JSON.stringify(params?.textDocument?.text)}\n`)
+    }
     if (onOpen !== undefined) emitServerRequest(onOpen)
     return
   }
   if (method === 'textDocument/didClose' || method === 'initialized') return
   if (method?.startsWith('textDocument/')) {
     if (hang) return
-    if (errorReply) { send({ id, error: { code: -32000, message: 'server refused the request' } }); return }
-    send({ id, result: resultFor(method) })
-    // Simulate an idle death: answer this request, then exit before the next one arrives so the pool
-    // is left holding a dead instance.
-    if (exitAfterReply) setTimeout(() => process.exit(0), 20)
+    const reply = (): void => {
+      if (closeStdinAfterReply) closeSync(0)
+      if (errorReply) {
+        send({ id, error: { code: -32000, message: 'server refused the request' } })
+      } else {
+        send({ id, result: resultFor(method) })
+      }
+      // Simulate an idle death: answer this request, then exit before the next one arrives so the
+      // pool is left holding a dead instance.
+      if (exitAfterReply) setTimeout(() => process.exit(0), 20)
+    }
+    if (replyDelayMs > 0) setTimeout(reply, replyDelayMs)
+    else reply()
     return
   }
   // Unknown request with an id: answer null so the client never stalls.
@@ -172,3 +190,4 @@ function send(message: Record<string, unknown>): void {
 
 // Keep the event loop alive.
 process.stdin.resume()
+if (closeStdinAfterReply) setInterval(() => {}, 1000)

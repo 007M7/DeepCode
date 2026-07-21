@@ -1,8 +1,8 @@
 /**
  * Pure formatting and coordinate conversion for the `lsp` tool: one-based↔zero-based UTF-16 cursor
- * conversion, workspace-grouped location rendering with `file:`-URI resolution, hover capping, and
- * ACP presentation. No I/O — a UI may call the presenter on live streaming and on replay, so it
- * depends only on the tool arguments.
+ * conversion, workspace-grouped location rendering with `file:`-URI resolution, complete-result
+ * capping, and ACP presentation. No I/O — a UI may call the presenter on live streaming and on
+ * replay, so it depends only on the tool arguments.
  * @module @deepseek-ai/dsh-tool-lsp/render
  */
 
@@ -12,13 +12,13 @@ import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { LspHover, LspLocation, LspOperation, LspPosition } from '@deepseek-ai/dsh-lsp'
 
 /** The four operations the tool exposes, as a runtime tuple for schema enum + validation. */
-export const LSP_OPERATIONS: readonly LspOperation[] = ['definition', 'references', 'implementation', 'hover']
+export const LSP_OPERATIONS: readonly LspOperation[] = ['goToDefinition', 'findReferences', 'goToImplementation', 'hover']
 
 /** Default cap on rendered locations before an omission marker is appended. */
 export const DEFAULT_MAX_LOCATIONS = 100
 
-/** Default cap on hover characters (applied after normalization) before truncation is marked. */
-export const DEFAULT_MAX_HOVER_CHARS = 16_000
+/** Default cap on the complete rendered tool result, including truncation metadata. */
+export const DEFAULT_MAX_RESULT_CHARS = 16_000
 
 /** Validated `lsp` arguments after coordinate checks. */
 export interface LspToolInput {
@@ -75,18 +75,20 @@ function oneBased(value: number, name: string): number {
  * Render a locations result grouped by file, converting each zero-based location back to a one-based
  * `path:line:character` entry. A `file:` URI inside the workspace becomes a workspace-relative path;
  * outside it, an absolute path; a non-`file:` URI is kept verbatim. Applies `maxLocations` and
- * appends an omission marker when it truncates.
+ * appends an omission marker when it truncates by count, then applies the complete result cap.
  * @param locations - the seam's locations (possibly empty).
  * @param workspaceRoot - the canonical workspace root for relativizing `file:` paths.
  * @param maxLocations - the cap before truncation.
+ * @param maxResultChars - the complete rendered-text cap, including truncation metadata.
  * @returns the rendered text; a distinct no-result line when there are none.
  */
 export function formatLocations(
   locations: readonly LspLocation[],
   workspaceRoot: string,
   maxLocations: number,
+  maxResultChars: number,
 ): string {
-  if (locations.length === 0) return 'No results.'
+  if (locations.length === 0) return boundResult('No results.', maxResultChars, 'locations')
   const shown = locations.slice(0, maxLocations)
   const omitted = locations.length - shown.length
   const grouped = new Map<string, string[]>()
@@ -103,20 +105,26 @@ export function formatLocations(
   if (omitted > 0) {
     lines.push(`… ${omitted} more location${omitted === 1 ? '' : 's'} omitted (limit ${maxLocations}).`)
   }
-  return lines.join('\n')
+  return boundResult(lines.join('\n'), maxResultChars, 'locations')
 }
 
 /**
- * Render a hover result, applying `maxHoverChars` last and marking truncation.
+ * Render a hover result, applying `maxResultChars` last and keeping its marker within the cap.
  * @param hover - the normalized hover, or `null` for no hover.
- * @param maxHoverChars - the cap applied after normalization.
+ * @param maxResultChars - the complete rendered-text cap, including truncation metadata.
  * @returns the rendered hover text; a distinct no-result line for `null`.
  */
-export function formatHover(hover: LspHover | null, maxHoverChars: number): string {
-  if (hover === null) return 'No hover information.'
-  const contents = hover.contents
-  if (contents.length <= maxHoverChars) return contents
-  return `${contents.slice(0, maxHoverChars)}\n… hover truncated (limit ${maxHoverChars} characters).`
+export function formatHover(hover: LspHover | null, maxResultChars: number): string {
+  const text = hover === null ? 'No hover information.' : hover.contents
+  return boundResult(text, maxResultChars, 'hover')
+}
+
+/** Bound a complete rendered result, including the truncation notice itself. */
+function boundResult(text: string, maxChars: number, label: string): string {
+  if (text.length <= maxChars) return text
+  const notice = `\n… ${label} truncated (limit ${maxChars} characters).`
+  if (notice.length >= maxChars) return notice.slice(0, maxChars)
+  return `${text.slice(0, maxChars - notice.length)}${notice}`
 }
 
 /**

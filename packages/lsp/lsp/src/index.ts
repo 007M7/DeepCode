@@ -1,6 +1,7 @@
 /**
  * The LSP capability seam (`ctx.lsp`): a language-server provider registry and per-query,
- * order-independent selection over normalized definition/references/implementation/hover queries.
+ * order-independent selection over normalized goToDefinition/findReferences/goToImplementation/
+ * hover queries.
  *
  * A provider reserves a branded id and an exclusive set of file extensions atomically:
  * {@link Lsp.registerProvider} validates and conflict-checks everything before mutating, so an
@@ -42,8 +43,9 @@ declare module 'cordis' {
 
 /**
  * Structured LSP failure. Extends {@link HarnessError} with a stable `code`
- * (`LSP_INVALID_PROVIDER`, `LSP_CONFLICT`, `LSP_UNAVAILABLE`, `LSP_UNSUPPORTED_OPERATION`, …) that
- * callers route on instead of parsing `message`.
+ * (`LSP_INVALID_PROVIDER`, `LSP_CONFLICT`, `LSP_UNAVAILABLE`, `LSP_DISPOSED`,
+ * `LSP_UNSUPPORTED_OPERATION`, `LSP_MALFORMED_RESPONSE`, …) that callers route on instead of
+ * parsing `message`.
  */
 export class LspError extends HarnessError {}
 

@@ -1,9 +1,10 @@
 /**
  * Model-facing `lsp` tool over `ctx.lsp`. One read-only tool with four operations
- * (`definition`/`references`/`implementation`/`hover`); it converts one-based UTF-16 cursor
- * coordinates to the seam's zero-based positions, requires the session workspace with no fallback,
- * caps and renders results, and attaches a configurable timeout budget for `dsh-timeout-policy` to
- * enforce. It runtime-injects only `tools`, `lsp`, and `systemPrompt` and imports no provider.
+ * (`goToDefinition`/`findReferences`/`goToImplementation`/`hover`); it converts one-based UTF-16
+ * cursor coordinates to the seam's zero-based positions, requires the session workspace with no
+ * fallback, caps and renders results, and attaches a configurable timeout budget for
+ * `dsh-timeout-policy` to enforce. It runtime-injects only `tools`, `lsp`, and `systemPrompt` and
+ * imports no provider.
  *
  * Namespace plugin (named exports, no default export).
  * @module @deepseek-ai/dsh-tool-lsp
@@ -12,13 +13,14 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { assertNever, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { LspError } from '@deepseek-ai/dsh-lsp'
 import type {} from '@deepseek-ai/dsh-lsp'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
-  DEFAULT_MAX_HOVER_CHARS,
   DEFAULT_MAX_LOCATIONS,
+  DEFAULT_MAX_RESULT_CHARS,
   formatHover,
   formatLocations,
   LSP_OPERATIONS,
@@ -28,8 +30,8 @@ import {
 import { sessionCwd } from './session-cwd.ts'
 
 export {
-  DEFAULT_MAX_HOVER_CHARS,
   DEFAULT_MAX_LOCATIONS,
+  DEFAULT_MAX_RESULT_CHARS,
   formatHover,
   formatLocations,
   LSP_OPERATIONS,
@@ -50,22 +52,22 @@ export const DEFAULT_LSP_TOOL_TIMEOUT_MS = 60_000
 
 /** The stable system-prompt guidance positioning LSP as a precision aid. */
 export const LSP_PROMPT_TEXT =
-  'Use search/read for ordinary navigation. Use lsp when textual matches are ambiguous or before a change requires precise definitions, implementations, or references. Positions are one-based line and character (UTF-16) at the cursor; an off-symbol position may return no results. references always includes the declaration.'
+  'Use search/read for ordinary navigation. Use lsp when textual matches are ambiguous or before a change requires precise definitions, implementations, or references. Positions are one-based line and character (UTF-16) at the cursor; an off-symbol position may return no results. findReferences always includes the declaration.'
 
 /** Plugin configuration: result caps and the timeout budget. */
 export interface Config {
   /** Largest number of rendered locations before an omission marker (default 100). */
   maxLocations?: number
-  /** Largest hover length in characters after normalization (default 16000). */
-  maxHoverChars?: number
+  /** Largest complete rendered result in characters, including truncation metadata (default 16000). */
+  maxResultChars?: number
   /** Tool-call timeout budget in ms (default 60000). */
   timeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
   maxLocations: z.number().default(DEFAULT_MAX_LOCATIONS),
-  maxHoverChars: z.number().default(DEFAULT_MAX_HOVER_CHARS),
-  timeoutMs: z.number().default(DEFAULT_LSP_TOOL_TIMEOUT_MS),
+  maxResultChars: z.number().default(DEFAULT_MAX_RESULT_CHARS),
+  timeoutMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_LSP_TOOL_TIMEOUT_MS),
 })
 
 type ResolvedConfig = Required<Config>
@@ -78,21 +80,21 @@ type ResolvedConfig = Required<Config>
 export function apply(ctx: Context, config: Config): void {
   const resolved = config as ResolvedConfig
   assertPositiveInteger('maxLocations', resolved.maxLocations)
-  assertPositiveInteger('maxHoverChars', resolved.maxHoverChars)
-  assertPositiveInteger('timeoutMs', resolved.timeoutMs)
+  assertPositiveInteger('maxResultChars', resolved.maxResultChars)
+  assertTimer('timeoutMs', resolved.timeoutMs)
 
   ctx.systemPrompt.section({ name: 'tool:lsp', order: 112, text: LSP_PROMPT_TEXT })
 
   ctx.tools.register(defineTool({
     name: 'lsp',
     description:
-      'Query a language server for precise code navigation. operation is one of definition, references, implementation, hover. line and character are one-based UTF-16 cursor coordinates. references includes the declaration.',
+      'Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration.',
     parameters: {
       operation: {
         type: 'string',
         required: true,
         enum: [...LSP_OPERATIONS],
-        description: 'definition, references, implementation, or hover.',
+        description: 'goToDefinition, findReferences, goToImplementation, or hover.',
       },
       file_path: { type: 'string', required: true, description: 'The source file to query, relative to the workspace or absolute.' },
       line: { type: 'number', required: true, description: 'One-based line of the cursor.' },
@@ -116,9 +118,12 @@ export function apply(ctx: Context, config: Config): void {
           // Relativize against the provider's canonical workspace root (which its file: URIs are
           // relative to), not the session cwd: a symlinked cwd would otherwise misclassify every
           // in-workspace location as external and render it as an absolute path.
-          return [{ type: 'text', text: formatLocations(result.locations, result.resolvedWorkspaceRoot, resolved.maxLocations) }]
+          return [{ type: 'text', text: formatLocations(result.locations, result.resolvedWorkspaceRoot, resolved.maxLocations, resolved.maxResultChars) }]
         case 'hover':
-          return [{ type: 'text', text: formatHover(result.hover, resolved.maxHoverChars) }]
+          return [{ type: 'text', text: formatHover(result.hover, resolved.maxResultChars) }]
+        /* v8 ignore next -- exhaustive over the closed LspQueryResult union; unreachable. */
+        default:
+          return assertNever(result, 'tool-lsp result')
       }
     },
     presentCall: presentLspCall,
@@ -129,5 +134,12 @@ export function apply(ctx: Context, config: Config): void {
 function assertPositiveInteger(name: string, value: number): void {
   if (!Number.isInteger(value) || value < 1) {
     throw new Error(`tool-lsp: ${name} must be a positive integer`)
+  }
+}
+
+/** Reject a timer value Node would clamp instead of scheduling as configured. */
+function assertTimer(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1 || value > MAX_TIMER_DELAY_MS) {
+    throw new Error(`tool-lsp: ${name} must be a positive integer no greater than ${MAX_TIMER_DELAY_MS}`)
   }
 }

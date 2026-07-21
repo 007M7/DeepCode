@@ -5,6 +5,7 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import Lsp, { LspProviderId, type LspProvider, type LspProviderQuery, type LspQueryResult } from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import { DEFAULT_LSP_TOOL_TIMEOUT_MS, LSP_PROMPT_TEXT } from '@deepseek-ai/dsh-tool-lsp'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 
 /** A scripted provider recording queries; `respond` yields the result or throws. */
 function stubProvider(
@@ -76,7 +77,7 @@ describe('tool-lsp registration', () => {
   it('exposes exactly the four operations in the schema enum', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations))
     const schema = ctx.tools.get('lsp')?.parameters as { properties: { operation: { enum: string[] } } }
-    expect(schema.properties.operation.enum).toEqual(['definition', 'references', 'implementation', 'hover'])
+    expect(schema.properties.operation.enum).toEqual(['goToDefinition', 'findReferences', 'goToImplementation', 'hover'])
   })
 
   it('has no default export (namespace plugin shape)', () => {
@@ -86,16 +87,28 @@ describe('tool-lsp registration', () => {
   it('rejects a non-positive config value at load', async () => {
     await expect(mount(stubProvider(() => okLocations), { maxLocations: 0 })).rejects.toThrow(/maxLocations/)
   })
+
+  it('rejects a timeout above Node timer range at load', async () => {
+    await expect(mount(stubProvider(() => okLocations), { timeoutMs: MAX_TIMER_DELAY_MS + 1 }))
+      .rejects.toThrow(/timeoutMs/)
+    expect(() => {
+      ToolLsp.apply(new Context(), {
+        maxLocations: 100,
+        maxResultChars: 16_000,
+        timeoutMs: MAX_TIMER_DELAY_MS + 1,
+      })
+    }).toThrow(/timeoutMs/)
+  })
 })
 
 describe('tool-lsp execution', () => {
   it('converts one-based coordinates and passes the session cwd as workspaceRoot', async () => {
     const provider = stubProvider(() => okLocations)
     const { ctx } = await mount(provider)
-    const result = await call(ctx, { operation: 'definition', file_path: 'a.ts', line: 3, character: 5 }, '/ws')
+    const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 3, character: 5 }, '/ws')
     expect(result.isError).toBe(false)
     expect(provider.seen[0]).toMatchObject({
-      operation: 'definition',
+      operation: 'goToDefinition',
       filePath: 'a.ts',
       position: { line: 2, character: 4 },
       workspaceRoot: '/ws',
@@ -104,7 +117,7 @@ describe('tool-lsp execution', () => {
 
   it('renders locations relative to the workspace', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations))
-    const result = await call(ctx, { operation: 'references', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
+    const result = await call(ctx, { operation: 'findReferences', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
     expect(result.content[0]).toEqual({ type: 'text', text: 'a.ts:1:1' })
   })
 
@@ -118,7 +131,7 @@ describe('tool-lsp execution', () => {
       resolvedWorkspaceRoot: '/real/ws',
     }))
     const { ctx } = await mount(provider)
-    const result = await call(ctx, { operation: 'definition', file_path: 'a.ts', line: 1, character: 1 }, '/alias')
+    const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, '/alias')
     expect(provider.seen[0]).toMatchObject({ workspaceRoot: '/alias' })
     expect(result.content[0]).toEqual({ type: 'text', text: 'a.ts:1:1' })
   })
@@ -131,14 +144,14 @@ describe('tool-lsp execution', () => {
 
   it('fails LSP_WORKSPACE_REQUIRED without a session cwd', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations))
-    const result = await call(ctx, { operation: 'definition', file_path: 'a.ts', line: 1, character: 1 }, null)
+    const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, null)
     expect(result.isError).toBe(true)
     expect(result.error?.code).toBe('LSP_WORKSPACE_REQUIRED')
   })
 
   it('surfaces a structured LSP_UNAVAILABLE when no provider handles the file', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations, { '.py': 'python' }))
-    const result = await call(ctx, { operation: 'definition', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
+    const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
     expect(result.isError).toBe(true)
     expect(result.error?.code).toBe('LSP_UNAVAILABLE')
   })
@@ -161,7 +174,7 @@ describe('tool-lsp execution', () => {
       },
     }
     const { ctx } = await mount(provider)
-    await call(ctx, { operation: 'definition', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
+    await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
     // The timeout policy is not mounted here, so the signal is whatever the registry passes (may be
     // undefined); the point is the tool threads it through without throwing.
     expect(seen).toHaveLength(1)

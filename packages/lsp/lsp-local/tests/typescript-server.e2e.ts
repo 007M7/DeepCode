@@ -81,7 +81,7 @@ function locations(result: LspQueryResult): readonly { uri: string }[] {
 describe('real typescript-language-server', () => {
   it('resolves the definition of a call site to its declaration', async () => {
     // `export const text = describe(c)` (line 15): `describe` begins at column 21.
-    const result = await ctx.lsp.query(at('definition', 15, 22))
+    const result = await ctx.lsp.query(at('goToDefinition', 15, 22))
     const locs = locations(result)
     expect(locs.length).toBeGreaterThanOrEqual(1)
     expect(locs.some(l => l.uri.endsWith('shapes.ts'))).toBe(true)
@@ -89,7 +89,7 @@ describe('real typescript-language-server', () => {
 
   it('finds references to a symbol including its declaration', async () => {
     // References to `describe` from its declaration (line 10, col 17).
-    const result = await ctx.lsp.query(at('references', 10, 17))
+    const result = await ctx.lsp.query(at('findReferences', 10, 17))
     const locs = locations(result)
     // At least the declaration plus the call site.
     expect(locs.length).toBeGreaterThanOrEqual(2)
@@ -97,7 +97,7 @@ describe('real typescript-language-server', () => {
 
   it('resolves implementations of an interface', async () => {
     // Implementations of `Shape` (line 1, col 18) → Circle.
-    const result = await ctx.lsp.query(at('implementation', 1, 18))
+    const result = await ctx.lsp.query(at('goToImplementation', 1, 18))
     const locs = locations(result)
     expect(locs.length).toBeGreaterThanOrEqual(1)
   }, 60_000)

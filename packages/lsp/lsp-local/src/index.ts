@@ -15,14 +15,16 @@ import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, isAbsolute, join } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { LspProviderId } from '@deepseek-ai/dsh-lsp'
+import { LspError, LspProviderId } from '@deepseek-ai/dsh-lsp'
 import type {
   LspProvider,
   LspProviderQuery,
   LspQueryResult,
 } from '@deepseek-ai/dsh-lsp'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { abortable, abortError } from './abort.ts'
 import { canonicalizeWorkspace, readHostSource } from './host.ts'
-import { abortError, LspInstance } from './instance.ts'
+import { LspInstance } from './instance.ts'
 import type { InstanceSpec } from './instance.ts'
 
 export { canonicalizeWorkspace, readHostSource } from './host.ts'
@@ -75,7 +77,7 @@ export interface LspLocalServerConfig {
   maxDocumentBytes?: number
   /** Graceful `shutdown`/`exit` budget before escalation (ms). Default 5000. */
   shutdownTimeoutMs?: number
-  /** SIGTERM→SIGKILL grace after graceful shutdown fails (ms). Default 2000. */
+  /** Request-cancel and SIGTERM→SIGKILL grace (ms). Default 2000. */
   killGraceMs?: number
 }
 
@@ -98,8 +100,8 @@ const LspLocalServerConfig: z<LspLocalServerConfig> = z.object({
   maxMessageBytes: z.number().default(DEFAULT_MAX_MESSAGE_BYTES),
   maxStderrBytes: z.number().default(DEFAULT_MAX_STDERR_BYTES),
   maxDocumentBytes: z.number().default(DEFAULT_MAX_DOCUMENT_BYTES),
-  shutdownTimeoutMs: z.number().default(DEFAULT_SHUTDOWN_TIMEOUT_MS),
-  killGraceMs: z.number().default(DEFAULT_KILL_GRACE_MS),
+  shutdownTimeoutMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_SHUTDOWN_TIMEOUT_MS),
+  killGraceMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_KILL_GRACE_MS),
 })
 
 export const Config: z<Config> = z.object({
@@ -148,14 +150,21 @@ export function apply(ctx: Context, config: Config): void {
 function validateServerConfig(providerId: string, resolved: ResolvedServerConfig): void {
   // Teardown budgets feed `deadline()`, whose `<= 0` is the internal no-timeout sentinel; a
   // nonpositive value would let a server that ignores shutdown hang disposal forever. Fail at load.
-  assertPositiveInteger(providerId, 'shutdownTimeoutMs', resolved.shutdownTimeoutMs)
-  assertPositiveInteger(providerId, 'killGraceMs', resolved.killGraceMs)
+  assertTimer(providerId, 'shutdownTimeoutMs', resolved.shutdownTimeoutMs)
+  assertTimer(providerId, 'killGraceMs', resolved.killGraceMs)
   // Byte caps must be positive: a nonpositive stderr cap defeats the retained-tail bound
   // (`slice(-0)` keeps everything), `maxMessageBytes: 0` makes every response fatal, and a bad
   // document cap fails later in the read path instead of at load.
   assertPositiveInteger(providerId, 'maxStderrBytes', resolved.maxStderrBytes)
   assertPositiveInteger(providerId, 'maxMessageBytes', resolved.maxMessageBytes)
   assertPositiveInteger(providerId, 'maxDocumentBytes', resolved.maxDocumentBytes)
+}
+
+/** Reject a timer value Node would clamp instead of scheduling as configured. */
+function assertTimer(providerId: string, name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1 || value > MAX_TIMER_DELAY_MS) {
+    throw new Error(`lsp-local: servers.${providerId}.${name} must be a positive integer no greater than ${MAX_TIMER_DELAY_MS}`)
+  }
 }
 
 /** Reject a nonpositive or non-integer config value at load, so misconfiguration fails loud. */
@@ -171,6 +180,8 @@ class LocalLspProvider implements LspProvider {
   readonly extensionToLanguage: Readonly<Record<string, string>>
   /** One live instance per canonical workspace realpath. */
   private readonly instances = new Map<string, LspInstance>()
+  /** One complete source-read→open→query→close serialization tail per canonical workspace. */
+  private readonly queues = new Map<string, Promise<void>>()
   private disposed = false
 
   constructor(
@@ -192,35 +203,49 @@ class LocalLspProvider implements LspProvider {
   private assertActive(signal?: AbortSignal): void {
     /* v8 ignore next -- the seam unregisters this provider before disposal; direct in-flight calls
        exercise the post-await check instead. */
-    if (this.isDisposed()) throw new Error('lsp-local provider is disposed')
+    if (this.isDisposed()) throw new LspError('lsp-local provider is disposed', 'LSP_DISPOSED')
     if (signal?.aborted) throw abortError(signal)
   }
 
   async query(request: LspProviderQuery, signal?: AbortSignal): Promise<LspQueryResult> {
     // Honor an already-aborted signal before host I/O so a canceled request never starts a server.
     this.assertActive(signal)
-    const workspace = await canonicalizeWorkspace(request.workspaceRoot)
-    // Validate and read the source BEFORE spawning a server: a missing/external/non-regular/oversized
-    // source must fail without leaving an idle process pooled (the pre-start rejection contract), and
-    // the single-handle read preserves the containment/size checks against a mid-read swap.
-    const source = await readHostSource(request.filePath, workspace, this.config.maxDocumentBytes)
-    // Re-check disposal after the awaits: disposeAll() may have snapshotted the instance map while we
-    // were canonicalizing/reading, so creating a server now would leave it unowned by teardown.
+    const workspace = await canonicalizeWorkspace(request.workspaceRoot, signal)
     this.assertActive(signal)
-    let instance = this.instanceFor(workspace)
-    // Eviction and replacement are synchronous so disposal cannot snapshot the pool between them and
-    // miss a newly spawned process.
-    if (instance.dead) {
-      this.evictIfCurrent(workspace, instance)
-      instance = this.instanceFor(workspace)
-    }
-    try {
-      return await instance.query(request, source, signal)
-    } finally {
-      // A crashed/closed process must not be reused: drop its slot so the next query starts fresh,
-      // but only if the slot still holds THIS instance (a concurrent replacement must survive).
-      if (instance.dead) this.evictIfCurrent(workspace, instance)
-    }
+    return this.enqueue(workspace, signal, async () => {
+      this.assertActive(signal)
+      // Read inside the workspace queue but before spawning: a queued query sees current bytes when
+      // its turn starts, while an invalid source still cannot leave an idle process pooled.
+      const source = await readHostSource(request.filePath, workspace, this.config.maxDocumentBytes, signal)
+      // Disposal may have snapshotted the instance map while host I/O was pending. Re-check before a
+      // synchronous get-or-create so every spawned process remains owned by teardown.
+      this.assertActive(signal)
+      let instance = this.instanceFor(workspace)
+      if (instance.dead) {
+        this.evictIfCurrent(workspace, instance)
+        instance = this.instanceFor(workspace)
+      }
+      try {
+        return await instance.query(request, source, signal)
+      } finally {
+        // Drop a crashed slot only when it still owns this instance; a replacement must survive.
+        if (instance.dead) this.evictIfCurrent(workspace, instance)
+      }
+    })
+  }
+
+  /** Serialize one complete query lifecycle for a canonical workspace. */
+  private enqueue<T>(workspace: string, signal: AbortSignal | undefined, run: () => Promise<T>): Promise<T> {
+    const previous = this.queues.get(workspace) ?? Promise.resolve()
+    const result = abortable(previous, signal).then(run)
+    // The tail follows the actual prior work even when this caller aborts its wait. It never rejects,
+    // so later callers serialize without inheriting an earlier query's outcome.
+    const tail = previous.then(() => result).then(() => undefined, () => undefined)
+    this.queues.set(workspace, tail)
+    void tail.then(() => {
+      if (this.queues.get(workspace) === tail) this.queues.delete(workspace)
+    })
+    return result
   }
 
   /** Return or synchronously publish the one instance for a canonical workspace. */
@@ -259,8 +284,13 @@ class LocalLspProvider implements LspProvider {
   async disposeAll(): Promise<void> {
     this.disposed = true
     const live = [...this.instances.values()]
+    const draining = [...this.queues.values()]
     this.instances.clear()
-    await Promise.all(live.map(instance => instance.dispose()))
+    await Promise.all([
+      ...live.map(instance => instance.dispose()),
+      ...draining,
+    ])
+    this.queues.clear()
   }
 }
 

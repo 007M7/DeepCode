@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,9 +10,7 @@ import { deadline } from '@deepseek-ai/dsh-timeout'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
 import type { LspLocalServerConfig } from '@deepseek-ai/dsh-lsp-local'
 
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
-const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
 let root: string
 let ws: string
@@ -32,8 +30,8 @@ afterEach(async () => {
 function fakeServer(fakeEnv: Record<string, string> = {}, overrides: Partial<LspLocalServerConfig> = {}): LspLocalServerConfig {
   return {
     command: process.execPath,
-    args: ['--import', tsxLoader, fixtureServer],
-    env: { TSX_TSCONFIG_PATH: repoTsconfig, ...fakeEnv },
+    args: [fixtureServer],
+    env: { ...fakeEnv },
     extensionToLanguage: { '.ts': 'typescript' },
     ...overrides,
   }
@@ -79,7 +77,7 @@ describe('lsp-local end to end over a fake server', () => {
 
   it('resolves definition to normalized locations', async () => {
     const ctx = await mount({ LSP_FAKE_DEF: JSON.stringify(locationJson(0)) })
-    const result = await ctx.lsp.query(query('definition'))
+    const result = await ctx.lsp.query(query('goToDefinition'))
     expect(result).toEqual<LspQueryResult>({
       kind: 'locations',
       locations: [{ uri: pathToFileURL(join(ws, 'a.ts')).href, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } } }],
@@ -91,14 +89,14 @@ describe('lsp-local end to end over a fake server', () => {
   it('maps a LocationLink for implementation', async () => {
     const link = { targetUri: pathToFileURL(join(ws, 'a.ts')).href, targetSelectionRange: { start: { line: 1, character: 0 }, end: { line: 1, character: 2 } } }
     const ctx = await mount({ LSP_FAKE_IMPL: JSON.stringify([link]) })
-    const result = await ctx.lsp.query(query('implementation'))
+    const result = await ctx.lsp.query(query('goToImplementation'))
     expect(result).toMatchObject({ kind: 'locations', locations: [{ range: { start: { line: 1, character: 0 } } }] })
     await ctx.fiber.dispose()
   })
 
   it('returns references (server includes the declaration)', async () => {
     const ctx = await mount({ LSP_FAKE_REFS: JSON.stringify([locationJson(0), locationJson(1)]) })
-    const result = await ctx.lsp.query(query('references'))
+    const result = await ctx.lsp.query(query('findReferences'))
     expect(result).toMatchObject({ kind: 'locations' })
     if (result.kind !== 'locations') throw new Error('expected locations')
     expect(result.locations).toHaveLength(2)
@@ -114,7 +112,7 @@ describe('lsp-local end to end over a fake server', () => {
 
   it('returns an empty locations result for a null definition', async () => {
     const ctx = await mount({ LSP_FAKE_DEF: 'null' })
-    expect(await ctx.lsp.query(query('definition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
     await ctx.fiber.dispose()
   })
 
@@ -126,7 +124,7 @@ describe('lsp-local end to end over a fake server', () => {
 
   it('rejects a non-utf-16 position encoding at initialize', async () => {
     const ctx = await mount({ LSP_FAKE_ENCODING: 'utf-8', LSP_FAKE_DEF: 'null' })
-    await expect(ctx.lsp.query(query('definition'))).rejects.toThrow(/unsupported position encoding/)
+    await expect(ctx.lsp.query(query('goToDefinition'))).rejects.toThrow(/unsupported position encoding/)
     await ctx.fiber.dispose()
   })
 
@@ -134,21 +132,21 @@ describe('lsp-local end to end over a fake server', () => {
     // A utf-8 server makes `initialize` reject; the instance must be torn down (not left with a
     // permanently-rejecting `ready`) so a later query starts a fresh process rather than reusing it.
     const ctx = await mount({ LSP_FAKE_ENCODING: 'utf-8', LSP_FAKE_DEF: 'null' })
-    await expect(ctx.lsp.query(query('definition'))).rejects.toThrow(/unsupported position encoding/)
+    await expect(ctx.lsp.query(query('goToDefinition'))).rejects.toThrow(/unsupported position encoding/)
     // A second query must also fail the same way (fresh instance), and must NOT hang on a poisoned one.
-    await expect(ctx.lsp.query(query('definition'))).rejects.toThrow(/unsupported position encoding/)
+    await expect(ctx.lsp.query(query('goToDefinition'))).rejects.toThrow(/unsupported position encoding/)
     await ctx.fiber.dispose()
   })
 
   it('rejects a server without transient-open sync (None)', async () => {
     const ctx = await mount({ LSP_FAKE_SYNC: '0', LSP_FAKE_DEF: 'null' })
-    await expect(ctx.lsp.query(query('definition'))).rejects.toThrow(/transient textDocument\/didOpen/)
+    await expect(ctx.lsp.query(query('goToDefinition'))).rejects.toThrow(/transient textDocument\/didOpen/)
     await ctx.fiber.dispose()
   })
 
   it('accepts openClose options sync', async () => {
     const ctx = await mount({ LSP_FAKE_SYNC: JSON.stringify({ openClose: true, change: 2 }), LSP_FAKE_DEF: 'null' })
-    expect(await ctx.lsp.query(query('definition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
     await ctx.fiber.dispose()
   })
 
@@ -162,25 +160,44 @@ describe('lsp-local end to end over a fake server', () => {
     const outside = join(root, 'out.ts')
     await writeFile(outside, 'x')
     const ctx = await mount({ LSP_FAKE_DEF: 'null' })
-    await expect(ctx.lsp.query({ ...query('definition'), filePath: outside })).rejects.toThrow(/outside the workspace/)
+    await expect(ctx.lsp.query({ ...query('goToDefinition'), filePath: outside })).rejects.toThrow(/outside the workspace/)
     await ctx.fiber.dispose()
   })
 
   it('serializes queries through one instance and runs them in order', async () => {
     const ctx = await mount({ LSP_FAKE_DEF: JSON.stringify(locationJson(0)) })
     const results = await Promise.all([
-      ctx.lsp.query(query('definition')),
-      ctx.lsp.query(query('definition')),
-      ctx.lsp.query(query('definition')),
+      ctx.lsp.query(query('goToDefinition')),
+      ctx.lsp.query(query('goToDefinition')),
+      ctx.lsp.query(query('goToDefinition')),
     ])
     for (const result of results) expect(result).toMatchObject({ kind: 'locations' })
+    await ctx.fiber.dispose()
+  })
+
+  it('reads a queued query source only when its lifecycle starts', async () => {
+    const marker = join(root, 'opened.jsonl')
+    const ctx = await mount({
+      LSP_FAKE_DEF: 'null',
+      LSP_FAKE_REPLY_DELAY_MS: '300',
+      LSP_FAKE_OPEN_MARKER: marker,
+    })
+    const first = ctx.lsp.query(query('goToDefinition'))
+    await waitFor(async () => (await markerLines(marker)).length === 1)
+    const second = ctx.lsp.query(query('goToDefinition'))
+    await writeFile(join(ws, 'a.ts'), 'const changed = 2\n')
+    await Promise.all([first, second])
+    expect(await markerLines(marker)).toEqual([
+      'const x = 1\nconst y = x\n',
+      'const changed = 2\n',
+    ])
     await ctx.fiber.dispose()
   })
 
   it('aborts an in-flight query when the signal fires', async () => {
     const ctx = await mount({ LSP_FAKE_HANG: '1' })
     const controller = new AbortController()
-    const pending = ctx.lsp.query(query('definition'), controller.signal)
+    const pending = ctx.lsp.query(query('goToDefinition'), controller.signal)
     controller.abort(new Error('caller cancelled'))
     await expect(pending).rejects.toThrow(/cancelled/)
     await ctx.fiber.dispose()
@@ -190,7 +207,7 @@ describe('lsp-local end to end over a fake server', () => {
     const ctx = await mount({ LSP_FAKE_DEF: 'null' })
     const controller = new AbortController()
     controller.abort(new Error('pre-aborted'))
-    await expect(ctx.lsp.query(query('definition'), controller.signal)).rejects.toThrow(/pre-aborted/)
+    await expect(ctx.lsp.query(query('goToDefinition'), controller.signal)).rejects.toThrow(/pre-aborted/)
     await ctx.fiber.dispose()
   })
 
@@ -201,22 +218,22 @@ describe('lsp-local end to end over a fake server', () => {
       command: process.execPath,
       args: ['-e', 'process.stderr.write("FATAL: boom\\n"); setTimeout(()=>process.exit(1), 50)'],
     })
-    await expect(ctx.lsp.query(query('definition'))).rejects.toThrow(/FATAL: boom/)
+    await expect(ctx.lsp.query(query('goToDefinition'))).rejects.toThrow(/FATAL: boom/)
     await ctx.fiber.dispose()
   })
 
   it('classifies a timeout deadline as the abort reason', async () => {
     const ctx = await mount({ LSP_FAKE_HANG: '1' })
     using d = deadline(undefined, 50, 'TEST_TIMEOUT')
-    await expect(ctx.lsp.query(query('definition'), d.signal)).rejects.toThrow(/TEST_TIMEOUT/)
+    await expect(ctx.lsp.query(query('goToDefinition'), d.signal)).rejects.toThrow(/TEST_TIMEOUT/)
     await ctx.fiber.dispose()
   })
 
   it('fails the active query when the server crashes on open, and replaces it next query', async () => {
     const ctx = await mount({ LSP_FAKE_CRASH_ON_OPEN: '1', LSP_FAKE_DEF: 'null' }, { shutdownTimeoutMs: 100, killGraceMs: 100 })
-    await expect(ctx.lsp.query(query('definition'))).rejects.toThrow()
+    await expect(ctx.lsp.query(query('goToDefinition'))).rejects.toThrow()
     // A later query starts a fresh process; still crashes, but proves the slot was replaced (no hang).
-    await expect(ctx.lsp.query(query('definition'))).rejects.toThrow()
+    await expect(ctx.lsp.query(query('goToDefinition'))).rejects.toThrow()
     await ctx.fiber.dispose()
   })
 
@@ -225,10 +242,10 @@ describe('lsp-local end to end over a fake server', () => {
     // instance in the pool. The next query must evict-and-replace it and still succeed, rather than
     // failing once on the closed connection first.
     const ctx = await mount({ LSP_FAKE_EXIT_AFTER_REPLY: '1', LSP_FAKE_DEF: JSON.stringify(locationJson(0)) })
-    expect(await ctx.lsp.query(query('definition'))).toMatchObject({ kind: 'locations' })
+    expect(await ctx.lsp.query(query('goToDefinition'))).toMatchObject({ kind: 'locations' })
     // Wait past the fixture's post-reply exit so the pooled instance is observably dead.
     await new Promise(resolve => setTimeout(resolve, 60))
-    expect(await ctx.lsp.query(query('definition'))).toMatchObject({ kind: 'locations' })
+    expect(await ctx.lsp.query(query('goToDefinition'))).toMatchObject({ kind: 'locations' })
     await ctx.fiber.dispose()
   })
 
@@ -237,11 +254,11 @@ describe('lsp-local end to end over a fake server', () => {
     // are awaited, so the pre-spawn recheck must reject without ever creating a pooled instance.
     const ctx = await mount({ LSP_FAKE_DEF: 'null' })
     const controller = new AbortController()
-    const pending = ctx.lsp.query(query('definition'), controller.signal)
+    const pending = ctx.lsp.query(query('goToDefinition'), controller.signal)
     controller.abort(new Error('mid-read cancel'))
     await expect(pending).rejects.toThrow(/mid-read cancel/)
     // A subsequent live query still works, proving no half-created instance poisoned the pool.
-    expect(await ctx.lsp.query(query('definition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
+    expect(await ctx.lsp.query(query('goToDefinition'))).toEqual({ kind: 'locations', locations: [], resolvedWorkspaceRoot: ws })
     await ctx.fiber.dispose()
   })
 
@@ -251,8 +268,8 @@ describe('lsp-local end to end over a fake server', () => {
     await writeFile(join(ws2, 'a.ts'), 'const z = 2\n')
     const ctx = await mount({ LSP_FAKE_DEF: JSON.stringify(locationJson(0)) })
     const [r1, r2] = await Promise.all([
-      ctx.lsp.query({ ...query('definition'), workspaceRoot: ws }),
-      ctx.lsp.query({ ...query('definition'), workspaceRoot: ws2 }),
+      ctx.lsp.query({ ...query('goToDefinition'), workspaceRoot: ws }),
+      ctx.lsp.query({ ...query('goToDefinition'), workspaceRoot: ws2 }),
     ])
     expect(r1).toMatchObject({ kind: 'locations' })
     expect(r2).toMatchObject({ kind: 'locations' })
@@ -261,7 +278,7 @@ describe('lsp-local end to end over a fake server', () => {
 
   it('disposes cleanly, terminating a server that ignores shutdown', async () => {
     const ctx = await mount({ LSP_FAKE_NO_SHUTDOWN: '1', LSP_FAKE_DEF: 'null' }, { killGraceMs: 100, shutdownTimeoutMs: 100 })
-    await ctx.lsp.query(query('definition'))
+    await ctx.lsp.query(query('goToDefinition'))
     await expect(ctx.fiber.dispose()).resolves.toBeUndefined()
   })
 
@@ -280,3 +297,23 @@ describe('lsp-local end to end over a fake server', () => {
     await ctx.fiber.dispose()
   })
 })
+
+/** Read the fixture's JSON-lines didOpen marker, returning no entries before it exists. */
+async function markerLines(path: string): Promise<string[]> {
+  try {
+    const text = await readFile(path, 'utf8')
+    return text.trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as string)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+}
+
+/** Poll an asynchronous condition until it succeeds or the test-local deadline expires. */
+async function waitFor(condition: () => Promise<boolean>, timeoutMs = 3000): Promise<void> {
+  const started = Date.now()
+  while (!await condition()) {
+    if (Date.now() - started > timeoutMs) throw new Error('waitFor timed out')
+    await new Promise<void>(resolve => setTimeout(resolve, 10))
+  }
+}

@@ -3,7 +3,12 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpath } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { deadline } from '@deepseek-ai/dsh-timeout'
 import { canonicalizeWorkspace, readHostSource } from '@deepseek-ai/dsh-lsp-local'
+
+const execFileAsync = promisify(execFile)
 
 let root: string
 let ws: string
@@ -85,6 +90,19 @@ describe('readHostSource', () => {
   it('rejects a non-regular source (directory)', async () => {
     await mkdir(join(ws, 'dir'))
     await expect(readHostSource('dir', ws, BIG)).rejects.toThrow(/not a regular file/)
+  })
+
+  it('rejects a FIFO with no writer without blocking in open', async () => {
+    const fifo = join(ws, 'pipe.ts')
+    await execFileAsync('mkfifo', [fifo])
+    using d = deadline(undefined, 1000, 'FIFO_READ_TIMEOUT')
+    await expect(readHostSource('pipe.ts', ws, BIG, d.signal)).rejects.toThrow(/not a regular file/)
+  })
+
+  it('honors a pre-aborted source read before filesystem work', async () => {
+    const controller = new AbortController()
+    controller.abort(new Error('source read cancelled'))
+    await expect(readHostSource('missing.ts', ws, BIG, controller.signal)).rejects.toThrow(/source read cancelled/)
   })
 
   it('treats the workspace root itself as inside, then rejects it as non-regular', async () => {

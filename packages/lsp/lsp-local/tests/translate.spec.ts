@@ -13,9 +13,9 @@ const RANGE = { start: { line: 1, character: 2 }, end: { line: 1, character: 5 }
 
 describe('requestMethod', () => {
   it('maps each operation to its textDocument request', () => {
-    expect(requestMethod('definition')).toBe('textDocument/definition')
-    expect(requestMethod('references')).toBe('textDocument/references')
-    expect(requestMethod('implementation')).toBe('textDocument/implementation')
+    expect(requestMethod('goToDefinition')).toBe('textDocument/definition')
+    expect(requestMethod('findReferences')).toBe('textDocument/references')
+    expect(requestMethod('goToImplementation')).toBe('textDocument/implementation')
     expect(requestMethod('hover')).toBe('textDocument/hover')
   })
 })
@@ -27,9 +27,9 @@ describe('supportsOperation', () => {
       referencesProvider: { workDoneProgress: true },
       implementationProvider: false,
     }
-    expect(supportsOperation(caps, 'definition')).toBe(true)
-    expect(supportsOperation(caps, 'references')).toBe(true)
-    expect(supportsOperation(caps, 'implementation')).toBe(false)
+    expect(supportsOperation(caps, 'goToDefinition')).toBe(true)
+    expect(supportsOperation(caps, 'findReferences')).toBe(true)
+    expect(supportsOperation(caps, 'goToImplementation')).toBe(false)
     expect(supportsOperation(caps, 'hover')).toBe(false)
   })
 })
@@ -66,9 +66,9 @@ describe('negotiatePositionEncoding', () => {
 })
 
 describe('normalizeLocations', () => {
-  it('returns empty for null and undefined', () => {
+  it('returns empty only for the protocol no-result value null', () => {
     expect(normalizeLocations(null)).toEqual([])
-    expect(normalizeLocations(undefined)).toEqual([])
+    expect(() => normalizeLocations(undefined)).toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
   })
 
   it('maps a single Location', () => {
@@ -100,11 +100,22 @@ describe('normalizeLocations', () => {
   it('rejects a Location whose range positions are malformed', () => {
     expect(() => normalizeLocations([{ uri: 'file:///a', range: { start: null, end: null } }])).toThrow(/neither a Location/)
   })
+
+  it('rejects negative and fractional position coordinates', () => {
+    expect(() => normalizeLocations([{ uri: 'file:///a', range: { start: { line: -1, character: 0 }, end: RANGE.end } }]))
+      .toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
+    expect(() => normalizeLocations([{ uri: 'file:///a', range: { start: RANGE.start, end: { line: 1.5, character: 5 } } }]))
+      .toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
+  })
 })
 
 describe('normalizeHover', () => {
   it('returns null for null', () => {
     expect(normalizeHover(null)).toBeNull()
+  })
+
+  it('rejects a missing hover result', () => {
+    expect(() => normalizeHover(undefined)).toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
   })
 
   it('reads MarkupContent value and keeps a range', () => {
@@ -130,8 +141,9 @@ describe('normalizeHover', () => {
     expect(normalizeHover({ contents: { kind: 'plaintext', value: '' } })).toBeNull()
   })
 
-  it('treats a MarkupContent with a non-string value as empty (null)', () => {
-    expect(normalizeHover({ contents: { kind: 'markdown', value: 42 } })).toBeNull()
+  it('rejects a MarkupContent with a non-string value', () => {
+    expect(() => normalizeHover({ contents: { kind: 'markdown', value: 42 } }))
+      .toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
   })
 
   it('rejects a non-object payload', () => {
@@ -143,11 +155,19 @@ describe('normalizeHover', () => {
     expect(() => normalizeHover({ contents: 42 })).toThrow(/were not MarkupContent/)
   })
 
+  it('rejects a malformed MarkedString array member', () => {
+    expect(() => normalizeHover({ contents: ['ok', { language: 'ts', value: 42 }] }))
+      .toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
+    expect(() => normalizeHover({ contents: [null] }))
+      .toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
+  })
+
   it('rejects a hover with no contents field', () => {
     expect(() => normalizeHover({ range: RANGE })).toThrow(/no contents/)
   })
 
-  it('ignores a malformed range and keeps the contents', () => {
-    expect(normalizeHover({ contents: 'x', range: { start: { line: 1 } } })).toEqual({ contents: 'x' })
+  it('rejects a malformed range instead of silently dropping it', () => {
+    expect(() => normalizeHover({ contents: 'x', range: { start: { line: 1 } } }))
+      .toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
   })
 })

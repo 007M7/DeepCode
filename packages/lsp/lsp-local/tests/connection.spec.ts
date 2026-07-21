@@ -2,9 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { LspConnection } from '@deepseek-ai/dsh-lsp-local'
 
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
-const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
 /** A recorded server→client request the test's handler saw. */
 interface SeenRequest { method: string; params: unknown }
@@ -27,9 +25,9 @@ function connect(
 ): LspConnection {
   const conn = new LspConnection({
     command: process.execPath,
-    args: ['--import', tsxLoader, fixtureServer],
+    args: [fixtureServer],
     cwd: process.cwd(),
-    env: { ...process.env as Record<string, string>, TSX_TSCONFIG_PATH: repoTsconfig, ...env },
+    env: { ...process.env as Record<string, string>, ...env },
     maxMessageBytes: 16_000_000,
     maxStderrBytes: 100_000,
     configuration: { setting: 42 },
@@ -69,7 +67,7 @@ describe('LspConnection', () => {
       seen,
     )
     await conn.request('initialize', { capabilities: {} })
-    conn.notify('textDocument/didOpen', { textDocument: { uri: 'file:///x', languageId: 'ts', version: 1, text: '' } })
+    await conn.notify('textDocument/didOpen', { textDocument: { uri: 'file:///x', languageId: 'ts', version: 1, text: '' } })
     await waitFor(() => seen.some(s => s.method === 'workspace/configuration'))
     expect(seen[0]?.method).toBe('workspace/configuration')
   })
@@ -77,7 +75,7 @@ describe('LspConnection', () => {
   it('drops a server→client notification without replying', async () => {
     const conn = connect({ LSP_FAKE_ON_OPEN: 'notification' })
     await conn.request('initialize', { capabilities: {} })
-    conn.notify('textDocument/didOpen', { textDocument: { uri: 'file:///x', languageId: 'ts', version: 1, text: '' } })
+    await conn.notify('textDocument/didOpen', { textDocument: { uri: 'file:///x', languageId: 'ts', version: 1, text: '' } })
     // No throw and the connection stays usable.
     await expect(conn.request('textDocument/hover', {})).resolves.toBeDefined()
   })
@@ -90,7 +88,7 @@ describe('LspConnection', () => {
       seen,
     )
     await conn.request('initialize', { capabilities: {} })
-    conn.notify('textDocument/didOpen', { textDocument: { uri: 'file:///x', languageId: 'ts', version: 1, text: '' } })
+    await conn.notify('textDocument/didOpen', { textDocument: { uri: 'file:///x', languageId: 'ts', version: 1, text: '' } })
     await waitFor(() => seen.some(s => s.method === 'workspace/applyEdit'))
     // The connection remains healthy after emitting the error response.
     await expect(conn.request('textDocument/hover', {})).resolves.toBeDefined()
@@ -209,6 +207,15 @@ describe('LspConnection edge behavior', () => {
     // Never responds, then exits shortly: the pending request must reject on close.
     const conn = connectScript('setTimeout(()=>process.exit(0), 100)')
     await expect(conn.request('initialize', {})).rejects.toThrow(/exited|closed/)
+  })
+
+  it('rejects a pending request when child stdin closes but the process stays alive', async () => {
+    const conn = connectScript('require("node:fs").closeSync(0); setInterval(()=>{}, 1000)')
+    await new Promise<void>(resolve => setTimeout(resolve, 100))
+    const timeout = new Promise<never>((_resolve, reject) => {
+      setTimeout(() => { reject(new Error('request timed out')) }, 1000)
+    })
+    await expect(Promise.race([conn.request('initialize', {}), timeout])).rejects.not.toThrow(/timed out/)
   })
 
   it('ignores a frame that is neither a valid request nor a numeric-id response', async () => {

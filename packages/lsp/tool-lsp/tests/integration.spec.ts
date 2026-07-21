@@ -78,7 +78,7 @@ function call(ctx: Context, args: unknown) {
 describe('tool-lsp integration', () => {
   it('round-trips a definition query through the real provider and renders a location', async () => {
     const ctx = await mount(false)
-    const result = await call(ctx, { operation: 'definition', file_path: 'a.ts', line: 1, character: 7 })
+    const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 7 })
     expect(result.isError).toBe(false)
     expect(result.content[0]).toEqual({ type: 'text', text: 'a.ts:1:1' })
     await ctx.fiber.dispose()
@@ -86,7 +86,7 @@ describe('tool-lsp integration', () => {
 
   it('enforces the TOOL_TIMEOUT budget when the server hangs', async () => {
     const ctx = await mount(true, 300)
-    const result = await call(ctx, { operation: 'definition', file_path: 'a.ts', line: 1, character: 7 })
+    const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 7 })
     expect(result.isError).toBe(true)
     expect(result.error?.code).toBe('TOOL_TIMEOUT')
     await ctx.fiber.dispose()

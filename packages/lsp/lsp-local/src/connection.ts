@@ -75,10 +75,10 @@ export class LspConnection {
       })
     })
     this.child.on('error', (error) => { this.fail(error) })
-    // A write to the child's stdin after it exits emits an async 'error'; swallow it so an EPIPE
-    // during teardown does not crash the process. Pending requests fail via the 'close' handler.
-    /* v8 ignore next -- the handler only fires on an async stdin write error during teardown. */
-    this.child.stdin.on('error', () => { /* swallow */ })
+    // Child stdin can fail while the process itself remains alive (for example, a server closes fd
+    // 0). Treat that as a fatal connection error so pending requests reject immediately instead of
+    // waiting for a process-close event that may never arrive.
+    this.child.stdin.on('error', (error) => { this.fail(error) })
     this.child.stdout.on('data', (chunk: Buffer) => { this.onStdout(chunk) })
     this.child.stderr.on('data', (chunk: Buffer) => { this.onStderr(chunk) })
   }
@@ -108,15 +108,9 @@ export class LspConnection {
         return
       }
       this.pending.set(id, { resolve, reject })
-      try {
-        this.write({ jsonrpc: '2.0', id, method, params })
-      } catch (error) {
-        /* v8 ignore start -- a stdin write failure surfaces asynchronously via the swallowed
-           'error' listener, so this synchronous catch is a defensive guard. */
-        this.pending.delete(id)
-        reject(asError(error))
-        /* v8 ignore stop */
-      }
+      // `write()` records either synchronous or callback-delivered failures on the connection and
+      // rejects every pending request. This handler only consumes the write promise itself.
+      void this.write({ jsonrpc: '2.0', id, method, params }).catch(() => {})
     })
     // A caller that stops awaiting (e.g. an aborted query) can leave this promise to reject later
     // when the process closes; a benign no-op handler keeps that from surfacing as an unhandled
@@ -129,9 +123,10 @@ export class LspConnection {
    * Send a notification (no id, no response).
    * @param method - the JSON-RPC method.
    * @param params - the notification params.
+   * @returns a promise that settles when the framed notification has been written.
    */
-  notify(method: string, params: unknown): void {
-    this.write({ jsonrpc: '2.0', method, params })
+  notify(method: string, params: unknown): Promise<void> {
+    return this.write({ jsonrpc: '2.0', method, params })
   }
 
   /**
@@ -139,11 +134,9 @@ export class LspConnection {
    * @param requestId - the numeric id of the request to cancel.
    */
   cancel(requestId: number): void {
-    try {
-      this.write({ jsonrpc: '2.0', method: '$/cancelRequest', params: { id: requestId } })
-    } catch {
-      // The server is already gone or unwritable; the pending request will fail on close.
-    }
+    // The server is already gone or unwritable when this rejects; `write()` has recorded the fatal
+    // connection failure and rejected the pending request, so cancellation remains best-effort.
+    void this.write({ jsonrpc: '2.0', method: '$/cancelRequest', params: { id: requestId } }).catch(() => {})
   }
 
   /**
@@ -253,7 +246,10 @@ export class LspConnection {
     const id = frame.id
     const method = frame.method
     if (typeof method === 'string' && (typeof id === 'number' || typeof id === 'string')) {
-      void this.handleServerRequest(id, method, frame.params)
+      // A response-write failure has already invalidated the connection in `write()`.
+      /* v8 ignore next -- protocol tests exercise response writes; only a simultaneous connection
+         failure makes this consumption handler run. */
+      void this.handleServerRequest(id, method, frame.params).catch(() => {})
       return
     }
     if (typeof method === 'string') {
@@ -266,9 +262,9 @@ export class LspConnection {
   private async handleServerRequest(id: number | string, method: string, params: unknown): Promise<void> {
     try {
       const result = await this.onServerRequest(method, params)
-      this.write({ jsonrpc: '2.0', id, result })
+      await this.write({ jsonrpc: '2.0', id, result })
     } catch (error) {
-      this.write({ jsonrpc: '2.0', id, error: { code: -32601, message: asError(error).message } })
+      await this.write({ jsonrpc: '2.0', id, error: { code: -32601, message: asError(error).message } })
     }
   }
 
@@ -285,8 +281,28 @@ export class LspConnection {
     pending.resolve(frame.result)
   }
 
-  private write(message: unknown): void {
-    this.child.stdin.write(encodeMessage(message))
+  private write(message: unknown): Promise<void> {
+    if (this.closeReason !== undefined) return Promise.reject(this.closeReason)
+    return new Promise<void>((resolve, reject) => {
+      const done = (error?: Error | null): void => {
+        if (error === undefined || error === null) {
+          resolve()
+          return
+        }
+        this.fail(error)
+        reject(error)
+      }
+      try {
+        this.child.stdin.write(encodeMessage(message), done)
+      /* v8 ignore start -- Node stream write failures are callback-delivered; this guards a
+         nonconforming Writable implementation throwing synchronously. */
+      } catch (error) {
+        const failure = asError(error)
+        this.fail(failure)
+        reject(failure)
+      }
+      /* v8 ignore stop */
+    })
   }
 
   /** The exit-close error message, appending the retained stderr tail when the server wrote any. */

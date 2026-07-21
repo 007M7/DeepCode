@@ -13,6 +13,7 @@ import { constants } from 'node:fs'
 import { open, realpath, stat } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { isAbsolute, resolve as resolvePath, sep } from 'node:path'
+import { throwIfAborted } from './abort.ts'
 
 /** A validated source: its canonical absolute path and current UTF-8 text. */
 export interface HostSource {
@@ -27,17 +28,21 @@ export interface HostSource {
  * process cwd, `rootUri`, the sole `workspaceFolders` entry, and pool identity, so symlinked roots
  * collapse to one instance.
  * @param workspaceRoot - the caller's workspace root (absolute).
+ * @param signal - optional cancellation observed around each filesystem operation.
  * @returns the canonical directory path.
  * @throws Error when the path is missing or not a directory.
  */
-export async function canonicalizeWorkspace(workspaceRoot: string): Promise<string> {
+export async function canonicalizeWorkspace(workspaceRoot: string, signal?: AbortSignal): Promise<string> {
+  throwIfAborted(signal)
   let canonical: string
   try {
     canonical = await realpath(workspaceRoot)
   } catch (error) {
     throw new Error(`workspace root "${workspaceRoot}" cannot be resolved: ${messageOf(error)}`)
   }
+  throwIfAborted(signal)
   const info = await stat(canonical)
+  throwIfAborted(signal)
   if (!info.isDirectory()) {
     throw new Error(`workspace root "${workspaceRoot}" is not a directory`)
   }
@@ -52,6 +57,7 @@ export async function canonicalizeWorkspace(workspaceRoot: string): Promise<stri
  * @param filePath - the model-supplied source path (relative or absolute).
  * @param canonicalWorkspace - the already-canonicalized workspace root.
  * @param maxDocumentBytes - the largest source this host will open.
+ * @param signal - optional cancellation observed throughout resolution, validation, and reading.
  * @returns the canonical path and current UTF-8 text.
  * @throws Error when the source is missing, non-regular, oversized, non-UTF-8, or out of workspace.
  */
@@ -59,7 +65,9 @@ export async function readHostSource(
   filePath: string,
   canonicalWorkspace: string,
   maxDocumentBytes: number,
+  signal?: AbortSignal,
 ): Promise<HostSource> {
+  throwIfAborted(signal)
   const requested = isAbsolute(filePath) ? filePath : resolvePath(canonicalWorkspace, filePath)
   let canonicalPath: string
   try {
@@ -67,6 +75,7 @@ export async function readHostSource(
   } catch (error) {
     throw new Error(`source "${filePath}" cannot be resolved: ${messageOf(error)}`)
   }
+  throwIfAborted(signal)
   if (!isInside(canonicalWorkspace, canonicalPath)) {
     throw new Error(`source "${filePath}" resolves outside the workspace`)
   }
@@ -74,9 +83,12 @@ export async function readHostSource(
   // realpath and read cannot swap the target, so the regular-file and size checks bind the bytes we
   // actually read (no path-based TOCTOU). O_NOFOLLOW rejects the final component being swapped for a
   // symlink between realpath and open (which would otherwise escape the workspace).
-  const handle = await open(canonicalPath, constants.O_RDONLY | constants.O_NOFOLLOW)
+  // O_NONBLOCK prevents a FIFO with no writer from hanging before fstat can reject it as nonregular.
+  const handle = await open(canonicalPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
+    throwIfAborted(signal)
     const info = await handle.stat()
+    throwIfAborted(signal)
     if (!info.isFile()) {
       throw new Error(`source "${filePath}" is not a regular file`)
     }
@@ -85,8 +97,9 @@ export async function readHostSource(
     }
     // Bound the read to the cap even if the file grew after stat: read one extra byte and reject on
     // overflow, so a concurrent grow cannot defeat the memory bound.
-    const buffer = await readCapped(handle, maxDocumentBytes, filePath)
+    const buffer = await readCapped(handle, maxDocumentBytes, filePath, signal)
     const text = decodeUtf8Strict(buffer, filePath)
+    throwIfAborted(signal)
     return { canonicalPath, text }
   } finally {
     await handle.close()
@@ -94,12 +107,19 @@ export async function readHostSource(
 }
 
 /** Read at most `maxBytes` from the handle, rejecting when the source overflows the cap. */
-async function readCapped(handle: FileHandle, maxBytes: number, filePath: string): Promise<Buffer> {
+async function readCapped(
+  handle: FileHandle,
+  maxBytes: number,
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<Buffer> {
   const limit = maxBytes + 1
   const chunk = Buffer.allocUnsafe(limit)
   let total = 0
   for (;;) {
+    throwIfAborted(signal)
     const { bytesRead } = await handle.read(chunk, total, limit - total, total)
+    throwIfAborted(signal)
     if (bytesRead === 0) break
     total += bytesRead
     /* v8 ignore next 3 -- overflow requires the file to grow past the cap between stat and read (a concurrent mutation); defensive. */

@@ -14,7 +14,7 @@ The seam and model expose exactly four semantic queries; the union is closed, so
  * compile-enforced change across the seam, providers, and the tool. Symbols and call hierarchy are
  * deliberately deferred (they need different schemas).
  */
-type LspOperation = 'definition' | 'references' | 'implementation' | 'hover'
+type LspOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
 ```
 
 ```ts type-equiv
@@ -71,7 +71,7 @@ interface LspProviderQuery extends LspQueryRequest {
 
 ## Result
 
-A CLOSED discriminated union: navigation operations normalize to `locations`, `hover` to content or `null`. Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled. `references` always includes declarations — the provider enforces this internally, so callers get no flag. The `locations` variant carries `resolvedWorkspaceRoot`: the provider's canonical form of the request's `workspaceRoot` and the root its `file:` URIs are relative to, so a caller relativizing display paths uses it rather than the possibly-symlinked request root.
+A CLOSED discriminated union: navigation operations normalize to `locations`, `hover` to content or `null`. Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled. `findReferences` always includes declarations — the provider enforces this internally, so callers get no flag. The `locations` variant carries `resolvedWorkspaceRoot`: the provider's canonical form of the request's `workspaceRoot` and the root its `file:` URIs are relative to, so a caller relativizing display paths uses it rather than the possibly-symlinked request root.
 
 ```ts type-equiv
 /** One resolved location: a document URI and the range within it. */
@@ -95,9 +95,9 @@ interface LspHover {
 
 ```ts type-equiv
 /**
- * The closed result union. Navigation operations (`definition`, `references`, `implementation`)
- * normalize to `locations`; `hover` normalizes to content or `null`. Consumers `switch` on `kind`
- * to exhaustiveness so a new arm breaks compilation until handled.
+ * The closed result union. Navigation operations (`goToDefinition`, `findReferences`,
+ * `goToImplementation`) normalize to `locations`; `hover` normalizes to content or `null`.
+ * Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled.
  *
  * The `locations` variant carries `resolvedWorkspaceRoot`: the provider's canonical form of the
  * request's `workspaceRoot`, and the root its `file:` location URIs are relative to. A caller that
@@ -116,8 +116,9 @@ A provider owns a stable branded `id` and an exclusive lowercase leading-dot ext
 ```ts type-equiv
 /**
  * A language-server backend registered on `ctx.lsp`. Each provider owns a stable {@link
- * LspProviderId} and an extension-to-language-id map (lowercase, leading-dot keys). `references`
- * always includes declarations — the provider enforces this internally; callers get no flag.
+ * LspProviderId} and an extension-to-language-id map (lowercase, leading-dot keys).
+ * `findReferences` always includes declarations — the provider enforces this internally; callers
+ * get no flag.
  */
 interface LspProvider {
   /** Stable provider identity, reserved atomically with the extension mappings. */
@@ -159,4 +160,4 @@ interface LspService {
 }
 ```
 
-`LspProviderId` is the seam's branded id (`Branded<'LspProviderId'>` from [dsh-brand](../../packages/util/brand)); `LspError` extends `HarnessError` with a stable `code` (`LSP_INVALID_PROVIDER`, `LSP_CONFLICT`, `LSP_UNAVAILABLE`, `LSP_UNSUPPORTED_OPERATION`) callers route on instead of parsing `message`.
+`LspProviderId` is the seam's branded id (`Branded<'LspProviderId'>` from [dsh-brand](../../packages/util/brand)); `LspError` extends `HarnessError` with stable codes such as `LSP_INVALID_PROVIDER`, `LSP_CONFLICT`, `LSP_UNAVAILABLE`, `LSP_DISPOSED`, `LSP_UNSUPPORTED_OPERATION`, and `LSP_MALFORMED_RESPONSE`, which callers route on instead of parsing `message`.

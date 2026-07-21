@@ -1,7 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "exclude": ["duplicates"],
-  "ignore": ["examples/*/tests/snapshots/*/workspace/**/*"],
   "ignoreBinaries": ["bwrap", "python3", "sandbox-exec"],
   "ignoreWorkspaces": ["vendor/*", "python/sdk-runtime"],
   "workspaces": {
@@ -14,6 +13,7 @@
         "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",
         "headless-agent/tests/fixtures/time-context-driver.ts",
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
+        "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"

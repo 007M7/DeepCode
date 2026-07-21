@@ -6,6 +6,7 @@ import { Context } from 'cordis'
 import Lsp, { type LspQueryRequest } from '@deepseek-ai/dsh-lsp'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
 import type { Config, LspLocalServerConfig } from '@deepseek-ai/dsh-lsp-local'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 
 let root: string
 let ws: string
@@ -22,7 +23,7 @@ afterEach(async () => {
 })
 
 function query(): LspQueryRequest {
-  return { operation: 'definition', filePath: 'a.ts', position: { line: 0, character: 0 }, workspaceRoot: ws }
+  return { operation: 'goToDefinition', filePath: 'a.ts', position: { line: 0, character: 0 }, workspaceRoot: ws }
 }
 
 /** Wrap one server entry in the plugin's named server table. */
@@ -88,6 +89,30 @@ describe('lsp-local provider resolution', () => {
       extensionToLanguage: { '.ts': 'typescript' },
       killGraceMs: 0,
     }))).rejects.toThrow(/servers\.bad-budget\.killGraceMs must be a positive integer/)
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a nonpositive byte cap at load', async () => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await expect(ctx.plugin(LspLocal, config('bad-cap', {
+      command: process.execPath,
+      args: ['-e', ''],
+      extensionToLanguage: { '.ts': 'typescript' },
+      maxDocumentBytes: 0,
+    }))).rejects.toThrow(/servers\.bad-cap\.maxDocumentBytes must be a positive integer/)
+    await ctx.fiber.dispose()
+  })
+
+  it.each(['shutdownTimeoutMs', 'killGraceMs'] as const)('rejects %s above Node timer range at load', async (name) => {
+    const ctx = new Context()
+    await ctx.plugin(Lsp)
+    await expect(ctx.plugin(LspLocal, config('bad-timer', {
+      command: process.execPath,
+      args: ['-e', ''],
+      extensionToLanguage: { '.ts': 'typescript' },
+      [name]: MAX_TIMER_DELAY_MS + 1,
+    }))).rejects.toThrow(new RegExp(`servers\\.bad-timer\\.${name}`))
     await ctx.fiber.dispose()
   })
 
