@@ -777,10 +777,7 @@ class FooterComponent implements Component {
       return [`${' '.repeat(Math.max(0, width - visibleWidth(compact)))}${this.palette.dim(compact)}`]
     }
     const rightAvailable = width - visibleWidth(counters) - 1
-    const fullWidth = visibleWidth(formattedCwd) + visibleWidth(counters) + visibleWidth(fullRight) + 3
-    const right = this.cwdFormatter === undefined
-      ? (visibleWidth(fullRight) <= rightAvailable ? fullRight : compactRight)
-      : (fullWidth <= width ? fullRight : compactRight)
+    const right = visibleWidth(fullRight) <= rightAvailable ? fullRight : compactRight
     const rightClipped = truncateToWidth(right, rightAvailable, '')
     const cwdAvailable = Math.max(0, width - visibleWidth(counters) - visibleWidth(rightClipped) - 3)
     const cwd = truncateToWidth(formattedCwd, cwdAvailable, '')

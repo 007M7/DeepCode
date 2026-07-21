@@ -511,10 +511,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(outsideResult)
 
     const logicalResult = await setup({
-      cwd: '/host/worktree',
+      cwd: '/w',
       formatCwd: cwd => `logical:${cwd}\x1b`,
     })
-    expect(logicalResult.terminal.output).toContain('logical:/host/worktree\\x1b')
+    expect(logicalResult.terminal.output).toContain('logical:/w\\x1b')
     await dispose(logicalResult)
   })
 
