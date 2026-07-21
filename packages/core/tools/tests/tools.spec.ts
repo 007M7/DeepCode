@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
-import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
+import { CallId, HarnessError, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
@@ -215,6 +215,35 @@ describe('ToolRegistry', () => {
       .toContain(projector === 'render' ? 'renderer exploded' : 'metadata exploded')
     expect(result.error?.info).toEqual({ name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' })
     expect('value' in result).toBe(false)
+  })
+
+  it.each(['render', 'presentationMeta'] as const)('contains a throwing output.%s snapshot as one failed call', async (projector) => {
+    const ctx = await setup()
+    const hostile = Object.defineProperty({}, 'value', {
+      enumerable: true,
+      get: () => { throw new Error('snapshot getter exploded') },
+    })
+    ctx.tools.register(defineTool({
+      name: `hostile-${projector}`,
+      description: projector,
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: () => projector === 'render'
+          ? hostile as unknown as ContentBlock[]
+          : [{ type: 'text', text: 'ok' }],
+        presentationMeta: () => projector === 'presentationMeta'
+          ? hostile as unknown as JsonValue
+          : null,
+      },
+      execute: async () => 'ok',
+    }))
+
+    const result = await ctx.tools.execute({
+      callId: CallId(`hostile-${projector}`), name: `hostile-${projector}`, arguments: {},
+    })
+    expect(result.error?.message).toContain('snapshot getter exploded')
+    expect(result.error?.info).toEqual({ name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' })
   })
 
   it('keeps value/meta through content replacement and recomputes both projections after value replacement', async () => {

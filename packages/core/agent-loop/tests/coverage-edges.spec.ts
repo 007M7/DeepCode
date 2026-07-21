@@ -274,6 +274,6 @@ describe('structured tool error propagation (the runtime-validation Agent Note, 
     const toolResult = agent.session.events.find(e => e.type === 'tool/result')
     expect(toolResult?.type === 'tool/result' && toolResult.data.isError).toBe(true)
     expect(toolResult?.type === 'tool/result' && toolResult.data.error)
-      .toEqual({ message: 'exploded', info: { name: 'HarnessError', code: 'BOOM' } })
+      .toEqual({ name: 'HarnessError', code: 'BOOM' })
   })
 })

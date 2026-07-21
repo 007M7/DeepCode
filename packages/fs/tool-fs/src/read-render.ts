@@ -77,7 +77,6 @@ function lineByteSize(line: string, currentLineCount: number): number {
 
 function consumeLine(acc: WindowAccumulator, rawLine: string, request: ReadWindow): void {
   acc.totalLines += 1
-  if (acc.done) return
   if (acc.totalLines < request.offset || acc.lines.length >= request.limit) return
 
   const text = truncateLine(rawLine, request.maxLineLength)

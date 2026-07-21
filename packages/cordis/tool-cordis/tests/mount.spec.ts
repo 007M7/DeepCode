@@ -433,6 +433,7 @@ describe('cordis_mount', () => {
                 ['__proto__']: { type: 'string', required: true },
                 value: { type: 'json', default: { ['__proto__']: { safe: true } } },
               },
+              ${CONTENT_OUTPUT_CODE}
               async execute() { return [] },
             }))
           },
