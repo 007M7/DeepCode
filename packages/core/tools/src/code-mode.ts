@@ -146,7 +146,6 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         const parts = [value.logs.join('\n'), rendered].filter(part => part.length > 0)
         return [{ type: 'text', text: parts.length > 0 ? parts.join('\n') : '(run_code completed with no output)' }]
       },
-      presentationMeta: (_args, value) => ({ logs: value.logs }),
     },
     async execute(args, exec): Promise<RunCodeOutput> {
       const runtime = requireRuntime()

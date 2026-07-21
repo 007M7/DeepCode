@@ -346,7 +346,7 @@ describe('the run_code dispatch bridge', () => {
       { parentCallId: 'call-1', subCallId: 'call-1:code:1', name: 'echo', arguments: { value: 'one' }, isError: false, resultSummary: 'echo:one' },
       { parentCallId: 'call-1', subCallId: 'call-1:code:2', name: 'echo', arguments: { value: 'two' }, isError: false, resultSummary: 'echo:two' },
     ])
-    expect(result.meta).toEqual({ logs: ['saw echo:one'] })
+    expect(result.meta).toBeUndefined()
   })
 
   it('exposes only an opaque parent token to nested result observers', async () => {
@@ -683,7 +683,6 @@ describe('the run_code dispatch bridge', () => {
     ['result only', 'returned', false],
     ['logs plus result', 'printed\nreturned', false],
     ['no output', '(run_code completed with no output)', false],
-    ['failure', 'Error: code run failed (output-limit): outer output exceeded 8 bytes', true],
     ['spilled result', 'HEAD\n\n(Omitted 100 bytes. Full formatted result stored at: /tmp/run-code.txt.)\n\nTAIL', false],
   ] as const)('presents %s from the final post-policy content', async (_name, text, isError) => {
     const { ctx } = await setup({ mode: 'code' })
@@ -698,6 +697,27 @@ describe('the run_code dispatch bridge', () => {
       // post-policy content used by the card.
       meta: { logs: ['stale logs-only projection'] },
     })).toEqual({ card: 'generic', content })
+  })
+
+  it('presents failure content produced by the canonical execution pipeline', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    runtime.behavior = () => Promise.resolve({
+      logs: ['captured before failure'],
+      error: { kind: 'output-limit', message: 'outer output exceeded 8 bytes' },
+    })
+
+    const result = await runCode(ctx, 'return 1')
+    const tool = ctx.tools.get(RUN_CODE_NAME)!
+
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{
+      type: 'text',
+      text: 'Error: code run failed (output-limit): outer output exceeded 8 bytes\nCaptured output:\ncaptured before failure',
+    }])
+    expect(tool.presentResult?.({ code: 'return 1' }, result)).toEqual({
+      card: 'generic',
+      content: result.content,
+    })
   })
 
   it('renders non-text sub-result blocks as placeholders and truncates long event summaries', async () => {
