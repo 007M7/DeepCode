@@ -27,10 +27,10 @@ jobs:
       DSH_COVERAGE_MAX_WORKERS: ${{ matrix.coverage_max_workers }}
       DSH_COVERAGE_SHARD: ${{ matrix.coverage_shard }}
       DSH_LINT_SHARD: ${{ matrix.lint_shard }}
+      DSH_SNAPSHOT_LANE: ${{ matrix.snapshot_lane }}
       DSH_STATIC_SHARD: ${{ matrix.static_shard }}
       DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ matrix.snapshot_max_concurrency }}
       DSH_SNAPSHOT_PREBUILT: ${{ matrix.snapshot_prebuilt }}
-      DSH_SNAPSHOT_SHARD: ${{ matrix.snapshot_shard }}
       DSH_ESLINT_CACHE: ${{ matrix.eslint_cache }}
     strategy:
       fail-fast: false
@@ -52,10 +52,16 @@ jobs:
             command: pnpm run check:ci:static
             gate_concurrency: '4'
             static_shard: prose
-          - lane: static-site
+          - lane: static-site-projection
             command: pnpm run check:ci:static
             gate_concurrency: '1'
-            static_shard: site
+            static_shard: site-projection
+          - lane: static-site-build
+            command: pnpm run check:ci:static
+            gate_concurrency: '1'
+            static_shard: site-build
+          - lane: typecheck
+            command: pnpm run typecheck
           - lane: lint-package-sources
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
@@ -151,30 +157,48 @@ jobs:
             gate_concurrency: '1'
             coverage_max_workers: '4'
             coverage_shard: capabilities
-          - lane: snapshot-1
+          - lane: snapshot-support
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
+            snapshot_lane: support
             snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
-            snapshot_shard: '1/4'
-          - lane: snapshot-2
+          - lane: snapshot-demos
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
+            snapshot_lane: demos
             snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
-            snapshot_shard: '2/4'
-          - lane: snapshot-3
+          - lane: snapshot-agents
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
+            snapshot_lane: agents
             snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
-            snapshot_shard: '3/4'
-          - lane: snapshot-4
+          - lane: snapshot-acp-1
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
+            snapshot_lane: acp-1
             snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
-            snapshot_shard: '4/4'
+          - lane: snapshot-acp-2
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_lane: acp-2
+            snapshot_max_concurrency: '5'
+            snapshot_prebuilt: '1'
+          - lane: snapshot-acp-3
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_lane: acp-3
+            snapshot_max_concurrency: '5'
+            snapshot_prebuilt: '1'
+          - lane: snapshot-acp-4
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_lane: acp-4
+            snapshot_max_concurrency: '5'
+            snapshot_prebuilt: '1'
           - lane: artifacts-metadata
             command: pnpm run check:ci:artifacts
             gate_concurrency: '3'
@@ -261,7 +285,7 @@ jobs:
           - node: '22.19'
             skip_typecheck: '1'
           - node: 24
-            skip_typecheck: ''
+            skip_typecheck: '1'
           - node: 26
             skip_typecheck: '1'
     steps:
@@ -368,10 +392,14 @@ jobs:
             command: pnpm run check:ci:static
             gate_concurrency: '4'
             static_shard: prose
-          - lane: static-site
+          - lane: static-site-projection
             command: pnpm run check:ci:static
             gate_concurrency: '1'
-            static_shard: site
+            static_shard: site-projection
+          - lane: static-site-build
+            command: pnpm run check:ci:static
+            gate_concurrency: '1'
+            static_shard: site-build
           - lane: lint
             command: pnpm run check:ci:lint
             gate_concurrency: '1'

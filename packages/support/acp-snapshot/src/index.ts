@@ -44,3 +44,4 @@ export {
   type Scenario,
   type SnapshotSuiteOptions,
 } from './suite.ts'
+export type { SnapshotScenarioShard } from './scenario-shard.ts'

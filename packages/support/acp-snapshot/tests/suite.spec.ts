@@ -105,6 +105,16 @@ describe('defineAcpSnapshotSuite: replay mode', () => {
   defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: REPLAY_DIR, scenarios: REPLAY_SCENARIOS, mode: 'replay' })
 })
 
+describe('defineAcpSnapshotSuite: sharded replay mode', () => {
+  defineAcpSnapshotSuite({
+    agent: AGENT,
+    snapshotsDir: REPLAY_DIR,
+    scenarios: REPLAY_SCENARIOS,
+    mode: 'replay',
+    scenarioShard: { index: 2, total: 2 },
+  })
+})
+
 // The record suite's tests run in registration order: rec-pin re-records the
 // pinned fixture FIRST, so rec-child's uniformity guard reads the fresh pin.
 describe('defineAcpSnapshotSuite: record mode', () => {
@@ -154,6 +164,18 @@ describe('defineAcpSnapshotSuite: record inventory write-back', () => {
 })
 
 describe('defineAcpSnapshotSuite: registration contract', () => {
+  it('rejects scenario sharding in a fixture-writing mode', () => {
+    expect(() => {
+      defineAcpSnapshotSuite({
+        agent: AGENT,
+        snapshotsDir: REPLAY_DIR,
+        scenarios: REPLAY_SCENARIOS,
+        mode: 'refresh',
+        scenarioShard: { index: 1, total: 2 },
+      })
+    }).toThrow('supported only in replay mode')
+  })
+
   it("throws when a scenario's header class has no pinning scenario", () => {
     expect(() => {
       defineAcpSnapshotSuite({

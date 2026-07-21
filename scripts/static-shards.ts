@@ -46,7 +46,8 @@ export const staticShards = [
       'package-readme-limitations',
     ],
   },
-  { name: 'site', gateIds: ['docs-site'] },
+  { name: 'site-projection', gateIds: ['docs-site-projection'] },
+  { name: 'site-build', gateIds: ['docs-site-build'] },
 ] as const satisfies readonly StaticShard[]
 
 /**

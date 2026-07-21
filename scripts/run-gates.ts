@@ -10,6 +10,7 @@ import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { coverageArgs } from './coverage-shards.ts'
 import { selectLintShard } from './lint-shards.ts'
+import { selectSnapshotLane } from './snapshot-shards.ts'
 import { selectStaticGates } from './static-shards.ts'
 
 type Mode =
@@ -307,19 +308,19 @@ function coverageGate(): Gate {
 // plugins via real exports) — CI and pre-push already build, so they exercise what ships rather
 // than the tsx/source path dev uses. It therefore waits on `build`.
 function snapshotGate(needs: string[] = ['build']): Gate {
-  const shard = process.env.DSH_SNAPSHOT_SHARD
-  if (shard !== undefined && shard !== '' && !/^\d+\/\d+$/.test(shard)) {
-    throw new Error(`run-gates: DSH_SNAPSHOT_SHARD must be INDEX/TOTAL, got ${JSON.stringify(shard)}.`)
-  }
+  const lane = selectSnapshotLane(process.env.DSH_SNAPSHOT_LANE)
   return pnpmExec('snapshot', [
     'vitest',
     'run',
     '--config',
     'vitest.snapshot.config.ts',
-    ...(shard === undefined || shard === '' ? [] : [`--shard=${shard}`]),
+    ...lane.files,
   ], {
     label: 'test:snapshot',
-    env: { DSH_EXAMPLE_MODE: 'lib' },
+    env: {
+      DSH_EXAMPLE_MODE: 'lib',
+      ...lane.scenarioShard === undefined ? {} : { DSH_SNAPSHOT_SCENARIO_SHARD: lane.scenarioShard },
+    },
     ...needs.length === 0 ? {} : { needs },
   })
 }
@@ -392,8 +393,11 @@ function docSyncLeafGates(options: {
     pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt' }),
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
     pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets' }),
-    // Keep the VitePress build in this single gate because projection rewrites website/.generated.
-    pnpmScript('docs-site', 'docs:check', { label: 'documentation site' }),
+    pnpmExec('docs-site-projection', ['vitest', 'run', 'scripts/project-doc-site.spec.ts'], {
+      label: 'documentation projection',
+    }),
+    // Keep the VitePress build itself in one gate because projection rewrites website/.generated.
+    pnpmScript('docs-site-build', 'docs:build', { label: 'documentation build' }),
     pnpmScript('package-readme-limitations', 'verify-package-readme-limitations', { label: 'package README limitations' }),
   ]
 }

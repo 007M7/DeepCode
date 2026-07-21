@@ -28,6 +28,7 @@ import {
   scrubSystemPrompts,
   scrubToolSchemas,
 } from './normalize.ts'
+import { selectSnapshotScenarios, type SnapshotScenarioShard } from './scenario-shard.ts'
 
 /** The readable system-prompt snapshot beside each header-pinning fixture. */
 const SYSTEM_PROMPT_SNAPSHOT = 'system-prompt.expected.md'
@@ -110,6 +111,11 @@ export interface SnapshotSuiteOptions {
   snapshotsDir: string
   /** The scenario table; exactly one entry per header class must set `pinsHeader`. */
   scenarios: Scenario[]
+  /**
+   * Optional replay-only scenario partition. Fixture guards still validate the
+   * complete table in every lane; only subprocess-backed scenario tests split.
+   */
+  scenarioShard?: SnapshotScenarioShard
   /**
    * `replay` (keyless, the default tier), `record` (live API; re-records the
    * `recorded` scenarios' fixtures and refreshes the Vitest expected outputs under
@@ -439,7 +445,11 @@ export function stabilizeRefreshLog(fresh: string, existing: string, replacement
  * @param options The agent, snapshots directory, scenario table, and mode.
  */
 export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
-  const { agent, snapshotsDir, scenarios, mode } = options
+  const { agent, snapshotsDir, scenarios, mode, scenarioShard } = options
+  if (scenarioShard !== undefined && mode !== 'replay') {
+    throw new Error('acp-snapshot: scenario sharding is supported only in replay mode')
+  }
+  const selectedScenarios = selectSnapshotScenarios(scenarios, scenarioShard)
   const RECORDING = mode === 'record'
   const REFRESHING = mode === 'refresh'
   const childMode: 'replay' | 'record' = RECORDING ? 'record' : 'replay'
@@ -464,7 +474,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
   }
 
   scenarioSuite('snapshot scenarios', () => {
-    for (const scenario of scenarios) {
+    for (const scenario of selectedScenarios) {
       // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the `authored` ones
       // (sidecar-driven errors/cancel) are never re-recorded.
       it.skipIf(RECORDING && !scenario.recorded)(`snapshot: ${scenario.name} matches the expected outputs`, async ({ expect }) => {
