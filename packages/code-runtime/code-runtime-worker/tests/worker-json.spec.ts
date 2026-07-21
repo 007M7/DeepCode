@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import { snapshotCodeJsonValue } from '../src/worker-json.ts'
@@ -22,6 +23,16 @@ describe('snapshotCodeJsonValue', () => {
     expect(snapshot).not.toBe(source)
     expect((snapshot.list as unknown[])[0]).not.toBe(nullPrototype)
     expect(snapshot.alias).not.toBe(shared)
+  })
+
+  it('accepts intrinsic plain containers from another JavaScript realm', () => {
+    const foreign = runInNewContext('({ object: { nested: [1] }, array: [2, { ok: true }] })') as {
+      object: unknown
+      array: unknown
+    }
+
+    expect(snapshotCodeJsonValue(foreign.object)).toEqual({ nested: [1] })
+    expect(snapshotCodeJsonValue(foreign.array)).toEqual([2, { ok: true }])
   })
 
   it('reads each accepted slot once and preserves a literal __proto__ key', () => {
@@ -66,6 +77,12 @@ describe('snapshotCodeJsonValue', () => {
     Object.defineProperty(compensatedSparse, 'extra', { value: true })
     const symbolDecorated = [1]
     Object.defineProperty(symbolDecorated, Symbol('extra'), { value: true })
+    const hiddenObject = Object.defineProperty({}, 'hidden', { value: true })
+    const symbolObject = { [Symbol('extra')]: true }
+    const forgedPrototype: unknown[] = []
+    Object.setPrototypeOf(forgedPrototype, null)
+    const forgedArray = [1]
+    Object.setPrototypeOf(forgedArray, forgedPrototype)
 
     for (const value of [
       new ExoticObject(),
@@ -75,12 +92,28 @@ describe('snapshotCodeJsonValue', () => {
       decorated,
       compensatedSparse,
       symbolDecorated,
+      hiddenObject,
+      symbolObject,
+      forgedArray,
       cyclic,
       [undefined],
       { value: undefined },
     ]) {
       expect(snapshotCodeJsonValue(value)).toBeUndefined()
     }
+  })
+
+  it('rejects an array whose getter mutates the validated length', () => {
+    const array = [0, 2]
+    Object.defineProperty(array, 0, {
+      enumerable: true,
+      get: () => {
+        array.length = 1
+        return 1
+      },
+    })
+
+    expect(snapshotCodeJsonValue(array)).toBeUndefined()
   })
 
   it('propagates a throwing getter and releases its recursion guard', () => {
