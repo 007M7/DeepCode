@@ -520,6 +520,7 @@ describe('workspace context instruction discovery', () => {
 
       vi.resetModules()
       vi.doMock('node:os', () => ({ homedir: () => home }))
+      vi.stubEnv('DSH_HOME', undefined)
       const isolated = await import('@deepseek-ai/dsh-workspace-context')
       const files = await isolated.discoverBaselineInstructionFiles({ cwd: root })
 
@@ -527,6 +528,7 @@ describe('workspace context instruction discovery', () => {
     } finally {
       vi.doUnmock('node:os')
       vi.resetModules()
+      vi.unstubAllEnvs()
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }
