@@ -34,8 +34,12 @@ export const coverageShards = [
     ],
   },
   {
-    name: 'models-integrations',
-    packageRoots: ['llm', 'compact', 'hooks/hook-protocol', 'lsp', 'mcp', 'hooks/hooks-claude'],
+    name: 'models',
+    packageRoots: ['llm', 'compact'],
+  },
+  {
+    name: 'integrations',
+    packageRoots: ['hooks/hook-protocol', 'lsp', 'mcp', 'hooks/hooks-claude'],
   },
   {
     name: 'sdk-capabilities',

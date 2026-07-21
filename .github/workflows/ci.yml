@@ -92,11 +92,16 @@ jobs:
             gate_concurrency: '1'
             coverage_max_workers: '4'
             coverage_shard: state-session
-          - lane: coverage-models-integrations
+          - lane: coverage-models
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
             coverage_max_workers: '4'
-            coverage_shard: models-integrations
+            coverage_shard: models
+          - lane: coverage-integrations
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: integrations
           - lane: coverage-sdk-capabilities
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
