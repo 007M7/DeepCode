@@ -517,17 +517,16 @@ describe('pi-tui chat lifecycle and transcript', () => {
     })
 
     result.terminal.send('@no-cwd')
-    await tick()
-    expect(result.terminal.output).toContain('Session · no-cwd')
+    await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · no-cwd') })
     expect(result.terminal.output).toContain('(no cwd)')
     result.terminal.send('\x03')
 
     result.terminal.send('@source-session')
-    await tick()
+    await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · source-session') })
     result.terminal.send('\t')
     await tick()
     result.terminal.send('\r')
-    await tick()
+    await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
     expect(result.agent.sent).toEqual([[{ type: 'text', text: '@source-session' }]])
     expect(result.agent.sentOptions[0]?.contexts).toHaveLength(1)
 
@@ -540,7 +539,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.agent.status = 'running'
     result.terminal.send(`steer ${mention}`)
     result.terminal.send('\r')
-    await tick()
+    await vi.waitFor(() => { expect(result.agent.steered).toHaveLength(1) })
     expect(result.agent.steered).toEqual([[{ type: 'text', text: 'steer @Source chat' }]])
     expect(result.agent.steeredOptions[0]?.contexts).toHaveLength(1)
     await dispose(result)
