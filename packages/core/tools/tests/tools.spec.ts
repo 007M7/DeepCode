@@ -1420,6 +1420,21 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
 })
 
 describe('defineTool presentation (presentCall / presentResult)', () => {
+  it('preserves inline enum and const literals in inferred arguments', () => {
+    defineTool({
+      name: 'literal-args',
+      description: 'literal arguments',
+      parameters: {
+        mode: { type: 'string', enum: ['read', 'write'], required: true },
+        attempt: { type: 'integer', const: 1 },
+      },
+      async execute(args) {
+        expectTypeOf(args).toEqualTypeOf<{ mode: 'read' | 'write'; attempt?: 1 }>()
+        return []
+      },
+    })
+  })
+
   it('threads presentCall/presentResult onto the ToolDefinition with typed args', () => {
     const tool = defineTool({
       name: 'demo',

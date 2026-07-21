@@ -1,5 +1,6 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
-import { isJsonValue, snapshotJsonValue } from '@deepseek-ai/dsh-session'
+import { isJsonValue, snapshotJsonValue, type JsonValue } from '@deepseek-ai/dsh-session'
 
 describe('snapshotJsonValue', () => {
   it('copies the complete JSON scalar vocabulary and rejects unsupported scalars', () => {
@@ -34,6 +35,22 @@ describe('snapshotJsonValue', () => {
     expect(snapshot.alias).not.toBe(shared)
     expect(snapshot.list[0]).not.toBe(nullPrototype)
     expect(Object.getPrototypeOf(snapshot.list[0])).toBe(Object.prototype)
+  })
+
+  it('accepts intrinsic plain containers from another JavaScript realm', () => {
+    const foreign = runInNewContext('({ object: { nested: [1] }, array: [2, { ok: true }] })') as {
+      object: { nested: number[] }
+      array: JsonValue[]
+    }
+
+    expect(isJsonValue(foreign.object)).toBe(true)
+    expect(isJsonValue(foreign.array)).toBe(true)
+    const objectSnapshot = snapshotJsonValue(foreign.object)!
+    const arraySnapshot = snapshotJsonValue(foreign.array)!
+    expect(objectSnapshot).toEqual({ nested: [1] })
+    expect(arraySnapshot).toEqual([2, { ok: true }])
+    expect(Object.getPrototypeOf(objectSnapshot)).toBe(Object.prototype)
+    expect(Object.getPrototypeOf(arraySnapshot)).toBe(Array.prototype)
   })
 
   it('reads each object value and array slot once while materializing', () => {
@@ -77,10 +94,17 @@ describe('snapshotJsonValue', () => {
     Object.defineProperty(symbolDecorated, Symbol('extra'), { value: true })
     const cyclic: Record<string, unknown> = {}
     cyclic.self = cyclic
+    const foreignExotics = runInNewContext(`(() => {
+      class Box { constructor() { this.value = 1 } }
+      class List extends Array {}
+      return [new Box(), new List(1)]
+    })()`) as [object, unknown[]]
 
     expect(snapshotJsonValue(new ExoticObject())).toBeUndefined()
     expect(snapshotJsonValue(new Map([['value', 1]]))).toBeUndefined()
     expect(snapshotJsonValue(new ExoticArray(1))).toBeUndefined()
+    expect(snapshotJsonValue(foreignExotics[0])).toBeUndefined()
+    expect(snapshotJsonValue(foreignExotics[1])).toBeUndefined()
     expect(snapshotJsonValue(sparse)).toBeUndefined()
     expect(snapshotJsonValue(compensatedSparse)).toBeUndefined()
     expect(snapshotJsonValue(decorated)).toBeUndefined()

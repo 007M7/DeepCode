@@ -378,7 +378,7 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec> {
  * @param options - typed definition and optional presenters.
  * @returns A registry-ready definition.
  */
-export function defineTool<S extends ParameterSchemaSpec>(options: DefineToolOptions<S>): ToolDefinition {
+export function defineTool<const S extends ParameterSchemaSpec>(options: DefineToolOptions<S>): ToolDefinition {
   // Object-literal methods do not use `this`; retaining references is safe.
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userExecute = options.execute
