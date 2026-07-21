@@ -11,21 +11,37 @@ describe('lint gate shards', () => {
     expect(selectLintShard('')).toEqual({ eslintTargets: ['.'], includeDuplication: true })
   })
 
-  it('partitions package sources and tests into alphabetic halves plus their repository complement', () => {
-    expect(selectLintShard('package-sources-a-m')).toEqual({
-      eslintTargets: ['packages/[a-m]*/*/src/**/*.ts'],
+  it('partitions package sources and tests into alphabetic ranges plus their repository complement', () => {
+    expect(selectLintShard('package-sources-a-c')).toEqual({
+      eslintTargets: ['packages/[a-c]*/*/src/**/*.ts'],
       includeDuplication: false,
     })
-    expect(selectLintShard('package-sources-n-z')).toEqual({
-      eslintTargets: ['packages/[n-z]*/*/src/**/*.ts'],
+    expect(selectLintShard('package-sources-d-m')).toEqual({
+      eslintTargets: ['packages/[d-m]*/*/src/**/*.ts'],
       includeDuplication: false,
     })
-    expect(selectLintShard('package-tests-a-m')).toEqual({
-      eslintTargets: ['packages/[a-m]*/*/tests/**/*.ts'],
+    expect(selectLintShard('package-sources-n-s')).toEqual({
+      eslintTargets: ['packages/[n-s]*/*/src/**/*.ts'],
       includeDuplication: false,
     })
-    expect(selectLintShard('package-tests-n-z')).toEqual({
-      eslintTargets: ['packages/[n-z]*/*/tests/**/*.ts'],
+    expect(selectLintShard('package-sources-t-z')).toEqual({
+      eslintTargets: ['packages/[t-z]*/*/src/**/*.ts'],
+      includeDuplication: false,
+    })
+    expect(selectLintShard('package-tests-a-c')).toEqual({
+      eslintTargets: ['packages/[a-c]*/*/tests/**/*.ts'],
+      includeDuplication: false,
+    })
+    expect(selectLintShard('package-tests-d-m')).toEqual({
+      eslintTargets: ['packages/[d-m]*/*/tests/**/*.ts'],
+      includeDuplication: false,
+    })
+    expect(selectLintShard('package-tests-n-s')).toEqual({
+      eslintTargets: ['packages/[n-s]*/*/tests/**/*.ts'],
+      includeDuplication: false,
+    })
+    expect(selectLintShard('package-tests-t-z')).toEqual({
+      eslintTargets: ['packages/[t-z]*/*/tests/**/*.ts'],
       includeDuplication: false,
     })
     expect(selectLintShard('repository')).toEqual({
@@ -40,15 +56,15 @@ describe('lint gate shards', () => {
     })
   })
 
-  it('assigns every package group to one alphabetic half', () => {
+  it('assigns every package group to one alphabetic range', () => {
     const groups = readdirSync(packagesRoot, { withFileTypes: true })
       .filter(entry => entry.isDirectory())
       .map(entry => entry.name)
       .sort()
-    const firstHalf = groups.filter(group => /^[a-m]/u.test(group))
-    const secondHalf = groups.filter(group => /^[n-z]/u.test(group))
+    const ranges = [/^[a-c]/u, /^[d-m]/u, /^[n-s]/u, /^[t-z]/u]
+    const assignments = ranges.flatMap(range => groups.filter(group => range.test(group))).sort()
 
-    expect([...firstHalf, ...secondHalf].sort()).toEqual(groups)
+    expect(assignments).toEqual(groups)
   })
 
   it('rejects an unknown lane', () => {

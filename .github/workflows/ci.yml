@@ -67,26 +67,46 @@ jobs:
             static_shard: site-build
           - lane: typecheck
             command: pnpm run typecheck
-          - lane: lint-package-sources-a-m
+          - lane: lint-package-sources-a-c
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-sources-a-m
-          - lane: lint-package-sources-n-z
+            lint_shard: package-sources-a-c
+          - lane: lint-package-sources-d-m
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-sources-n-z
-          - lane: lint-package-tests-a-m
+            lint_shard: package-sources-d-m
+          - lane: lint-package-sources-n-s
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-tests-a-m
-          - lane: lint-package-tests-n-z
+            lint_shard: package-sources-n-s
+          - lane: lint-package-sources-t-z
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-tests-n-z
+            lint_shard: package-sources-t-z
+          - lane: lint-package-tests-a-c
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests-a-c
+          - lane: lint-package-tests-d-m
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests-d-m
+          - lane: lint-package-tests-n-s
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests-n-s
+          - lane: lint-package-tests-t-z
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests-t-z
           - lane: lint-repository
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
@@ -422,26 +442,46 @@ jobs:
             command: pnpm run check:ci:static
             gate_concurrency: '4'
             static_shard: 'doc-types,api-contracts'
-          - lane: lint-package-sources-a-m
+          - lane: lint-package-sources-a-c
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-sources-a-m
-          - lane: lint-package-sources-n-z
+            lint_shard: package-sources-a-c
+          - lane: lint-package-sources-d-m
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-sources-n-z
-          - lane: lint-package-tests-a-m
+            lint_shard: package-sources-d-m
+          - lane: lint-package-sources-n-s
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-tests-a-m
-          - lane: lint-package-tests-n-z
+            lint_shard: package-sources-n-s
+          - lane: lint-package-sources-t-z
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-tests-n-z
+            lint_shard: package-sources-t-z
+          - lane: lint-package-tests-a-c
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests-a-c
+          - lane: lint-package-tests-d-m
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests-d-m
+          - lane: lint-package-tests-n-s
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests-n-s
+          - lane: lint-package-tests-t-z
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests-t-z
           - lane: lint-repository
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
