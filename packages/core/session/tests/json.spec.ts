@@ -80,6 +80,19 @@ describe('snapshotJsonValue', () => {
     expect(arrayReads).toBe(1)
   })
 
+  it('accepts deeply nested valid JSON without using the JavaScript call stack', () => {
+    let value: JsonValue = 'leaf'
+    for (let depth = 0; depth < 5_000; depth++) value = [value]
+
+    expect(isJsonValue(value)).toBe(true)
+    let cursor: JsonValue | undefined = snapshotJsonValue(value)
+    for (let depth = 0; depth < 5_000; depth++) {
+      expect(Array.isArray(cursor)).toBe(true)
+      cursor = Array.isArray(cursor) ? cursor[0] : undefined
+    }
+    expect(cursor).toBe('leaf')
+  })
+
   it('rejects exotic containers, sparse or decorated arrays, cycles, and invalid children', () => {
     class ExoticObject {
       readonly value = 1
