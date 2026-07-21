@@ -141,10 +141,16 @@ jobs:
             gate_concurrency: '1'
             coverage_max_workers: '4'
             coverage_shard: capabilities
-          - lane: snapshot-ordinary
+          - lane: snapshot-support
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
-            snapshot_lane: ordinary
+            snapshot_lane: support
+            snapshot_max_concurrency: '5'
+            snapshot_prebuilt: '1'
+          - lane: snapshot-agents
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_lane: agents
             snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
           - lane: snapshot-acp-1
@@ -352,14 +358,10 @@ jobs:
             command: pnpm run check:ci:static
             gate_concurrency: '4'
             static_shard: 'foundation,catalogs,prose'
-          - lane: static-doc-types
-            command: pnpm run check:ci:static
-            gate_concurrency: '1'
-            static_shard: doc-types
-          - lane: static-api-contracts
+          - lane: static-contracts
             command: pnpm run check:ci:static
             gate_concurrency: '4'
-            static_shard: api-contracts
+            static_shard: 'doc-types,api-contracts'
           - lane: lint-package-sources
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
