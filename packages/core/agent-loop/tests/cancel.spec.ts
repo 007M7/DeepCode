@@ -779,30 +779,43 @@ describe('Agent.cancel()', () => {
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
   })
 
-  it('rejects invalid causes synchronously while idle and running', async () => {
-    class Cause {
-      readonly kind = 'user'
-    }
-    const adapter = new MockAdapter(['hang'])
+  it('retires turn cancellation before terminal publication and a blocked durability flush', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('invalid-cause'), { provider: 'mock', model: 'mock' })
-    const controller = new AbortController()
-    const invalid: unknown[] = [
-      'user',
-      { kind: 'timeout' },
-      { kind: 'user', detail: 'extra' },
-      new Error('cancelled'),
-      controller.signal,
-      new Cause(),
-    ]
-    for (const value of invalid) expect(() => { agent.cancel(value as never) }).toThrow(TypeError)
+    const agent = ctx.agentLoop.create(SessionId('terminal-cancellation-authority'), { provider: 'mock', model: 'mock' })
+    const flushStarted = Promise.withResolvers<undefined>()
+    const releaseFlush = Promise.withResolvers<undefined>()
+    let abortedDuringTurnEnd: boolean | undefined
 
-    send(agent, 'go')
-    await expect.poll(() => adapter.requests.length).toBe(1)
-    for (const value of invalid) expect(() => { agent.cancel(value as never) }).toThrow(TypeError)
-    expect(agent.status).toBe('running')
-    agent.cancel()
-    await waitForIdle(ctx, agent)
+    ctx.on('session/event', (session, event) => {
+      if (session !== agent.session || event.type !== 'turn/end') return
+      const signal = adapter.requests[0]?.signal
+      if (signal === undefined) throw new Error('model request omitted its turn signal')
+      agent.cancel({ kind: 'user' })
+      abortedDuringTurnEnd = signal.aborted
+    })
+    ctx.on('session/flush', async (session) => {
+      if (session !== agent.session) return
+      flushStarted.resolve(undefined)
+      await releaseFlush.promise
+    })
+
+    send(agent, 'finish before persistence drains')
+    await flushStarted.promise
+    const signal = adapter.requests[0]?.signal
+    if (signal === undefined) throw new Error('model request omitted its turn signal')
+    const idle = agent.whenIdle()
+    agent.cancel({ kind: 'user' })
+
+    expect(abortedDuringTurnEnd).toBe(false)
+    expect(signal.aborted).toBe(false)
+    expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
+      data: { reason: { kind: 'completed' } },
+    })
+
+    releaseFlush.resolve(undefined)
+    await idle
+    expect(agent.status).toBe('idle')
   })
 
   it('records disposed when lifecycle teardown races an already-requested cancel', async () => {

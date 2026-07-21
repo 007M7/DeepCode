@@ -117,7 +117,7 @@ Pruning precedes summaries; overflow retries require durable progress. Bounded t
 
 The turn contains failures. Adapter failures close the step before `agent/request-error`, which receives exact `Error`, `LlmFailure`, and history. Retry opens another step; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit no message/tool.
 
-Others use `agent/error`. Cancellation/disposal beat recovery; undispatched calls get synthetic `tool/call` plus `ABORTED_BEFORE_DISPATCH` results before `turn/end`. One turn-wide `AbortSignal` covers stages. `cancel()` validates `user | parent`, clears queues, and aborts it; durability records `aborted`. Disposal quiesces before unregistering ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
+Others use `agent/error`. Cancellation/disposal beat recovery; undispatched calls get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. The signal spans stages until retirement before `turn/end`; typed `cancel()` clears queues and aborts it with `user | parent`. Durability records `aborted`; disposal quiesces before unregistering ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
 Every session event is turn-enclosed. Reloading preserves an interrupted tail and closes it with a synthetic `interrupted` turn end. Failures after durable turn close report only through `agent/error` because no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
 

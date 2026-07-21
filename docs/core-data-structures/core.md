@@ -397,8 +397,8 @@ interface Agent {
    * Clear all queued and steering work, including items waiting to start, and
    * abort the active turn. The first cause wins for that turn, and `whenIdle()`
    * resolves after cancellation reaches quiescence. Omission means
-   * `{ kind: 'user' }`; invalid causes throw synchronously even while idle.
-   * Idle cancellation is a no-op after validation and does not arm a later cancel.
+   * `{ kind: 'user' }`. Idle cancellation is a no-op and does not arm a later
+   * cancel. The active turn snapshots and freezes the typed cause.
    * @param cause - the stable caller intent carried by the current turn signal.
    */
   cancel(cause?: AgentCancelCause): void
@@ -411,7 +411,7 @@ interface Agent {
 
 `AgentStatus` is `'idle' | 'running' | 'disposed'`, and `SessionId` is branded. `running` describes the driver-wide drain interval, which can span turn close, its durability checkpoint, and consecutive queued turns; it does not prove a turn is still open. `AgentOptions` is merge-extensible and currently includes `provider?` and `model?`; dispatch requires both after `agent/request`. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
 
-The cause is runtime-only and becomes `AbortSignal.reason` on the turn's explicit signal. `agentInterruptReasonOf(signal)` recognizes `user`, `parent`, and lifecycle-only `disposed` without consulting ambient initiator state. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
+The cause is a TypeScript-enforced same-process input. An active holder copies its discriminant into the runtime-only `AbortSignal.reason`; it is retired before `turn/end` publication. `agentInterruptReasonOf(signal)` recognizes `user`, `parent`, and lifecycle-only `disposed` without consulting ambient initiator state. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
 
 The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 

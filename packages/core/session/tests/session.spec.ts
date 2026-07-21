@@ -58,6 +58,22 @@ describe('Session', () => {
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
   })
 
+  it('rejects legacy reason-bearing aborted outcomes at the seed/load boundary', () => {
+    const legacy = [
+      {
+        type: 'turn/start', seq: 0, time: 1,
+        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      },
+      {
+        type: 'turn/end', seq: 1, time: 2,
+        data: { turn: 1, reason: { kind: 'aborted', reason: 'legacy cancellation detail' } },
+      },
+    ] as unknown as SessionEvent[]
+
+    expect(() => new Session(SessionId('legacy-aborted'), legacy))
+      .toThrow('seed turn/end at index 1 uses unsupported reason-bearing aborted format')
+  })
+
   it('renders context and steering messages as plain user content', () => {
     const session = new Session(SessionId('s2'))
     session.append('context/message', {

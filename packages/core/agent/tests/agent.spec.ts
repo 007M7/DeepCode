@@ -5,10 +5,9 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
   agentEvents,
   agentInterruptReasonOf,
-  normalizeAgentCancelCause,
 } from '@deepseek-ai/dsh-agent'
 
-import type { Agent, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentCancelCause, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 
 function stubAgent(rawId: string): Agent {
   const id = SessionId(rawId)
@@ -187,41 +186,21 @@ describe('agentEvents()', () => {
 })
 
 describe('explicit cancellation helpers', () => {
-  it('normalizes exact causes into detached frozen values', () => {
-    const user = { kind: 'user' as const }
-    const parent = Object.assign(Object.create(null) as object, { kind: 'parent' })
-
-    const normalizedUser = normalizeAgentCancelCause(user)
-    const normalizedParent = normalizeAgentCancelCause(parent)
-
-    expect(normalizedUser).toEqual({ kind: 'user' })
-    expect(normalizedUser).not.toBe(user)
-    expect(Object.isFrozen(normalizedUser)).toBe(true)
-    expect(normalizedParent).toEqual({ kind: 'parent' })
-    expect(Object.getPrototypeOf(normalizedParent)).toBe(Object.prototype)
-    expect(Object.isFrozen(normalizedParent)).toBe(true)
-  })
-
-  it.each([
-    undefined,
-    null,
-    'user',
-    [],
-    new Error('user'),
-    { kind: 'user', detail: true },
-    Object.assign({ kind: 'user' }, { [Symbol('extra')]: true }),
-    { kind: 'timeout' },
-  ])('rejects unsupported cancellation cause %#', (cause) => {
-    expect(() => normalizeAgentCancelCause(cause)).toThrow(TypeError)
+  it('exposes the closed typed cancellation cause at the Agent seam', () => {
+    expectTypeOf<Parameters<Agent['cancel']>[0]>().toEqualTypeOf<AgentCancelCause | undefined>()
   })
 
   it('reads only supported reasons from an explicit signal', () => {
+    const read = (reason: unknown) => {
+      const controller = new AbortController()
+      controller.abort(reason)
+      return agentInterruptReasonOf(controller.signal)
+    }
     const live = new AbortController()
     expect(agentInterruptReasonOf(live.signal)).toBeUndefined()
 
-    const user = new AbortController()
-    user.abort({ kind: 'user' })
-    expect(agentInterruptReasonOf(user.signal)).toEqual({ kind: 'user' })
+    expect(read({ kind: 'user' })).toEqual({ kind: 'user' })
+    expect(read({ kind: 'parent' })).toEqual({ kind: 'parent' })
 
     const disposed = new AbortController()
     disposed.abort(Object.assign(Object.create(null) as object, { kind: 'disposed' }))
@@ -229,29 +208,13 @@ describe('explicit cancellation helpers', () => {
     expect(disposedReason).toEqual({ kind: 'disposed' })
     expect(Object.isFrozen(disposedReason)).toBe(true)
 
-    const unsupported = new AbortController()
-    unsupported.abort(new Error('private runtime reason'))
-    expect(agentInterruptReasonOf(unsupported.signal)).toBeUndefined()
-
-    const primitive = new AbortController()
-    primitive.abort('private runtime reason')
-    expect(agentInterruptReasonOf(primitive.signal)).toBeUndefined()
-  })
-
-  it('does not swallow non-validation failures while reading a cause', () => {
-    let reads = 0
-    const reason = Object.defineProperty({}, 'kind', {
-      enumerable: true,
-      get() {
-        reads += 1
-        if (reads === 1) return 'user'
-        throw new Error('kind getter failed')
-      },
-    })
-    const controller = new AbortController()
-    controller.abort(reason)
-
-    expect(() => agentInterruptReasonOf(controller.signal)).toThrow('kind getter failed')
+    expect(read(null)).toBeUndefined()
+    expect(read([])).toBeUndefined()
+    expect(read('private runtime reason')).toBeUndefined()
+    expect(read(new Error('private runtime reason'))).toBeUndefined()
+    expect(read({ kind: 'user', detail: true })).toBeUndefined()
+    expect(read({ other: 'user' })).toBeUndefined()
+    expect(read({ kind: 'timeout' })).toBeUndefined()
   })
 })
 

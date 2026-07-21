@@ -7,7 +7,7 @@
  */
 
 import type { Context } from 'cordis'
-import { agentEvents, normalizeAgentCancelCause } from '@deepseek-ai/dsh-agent'
+import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { AgentCancelCause, AgentOptions, AgentStatus, HookContext, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { deepFreeze, errorChain } from '@deepseek-ai/dsh-llm'
@@ -325,7 +325,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   cancel(cause?: AgentCancelCause): void {
-    const normalized = normalizeAgentCancelCause(cause ?? { kind: 'user' })
+    const reason = cause ?? { kind: 'user' }
     const cancellation = this.turnCancellation
     const preRun = cancellation === undefined && (this.#inbox.hasQueued || this.#inbox.hasSteering)
     if (preRun) {
@@ -334,7 +334,7 @@ export class ReactLoopAgent implements Agent {
     // Clear work already present before abort observers run. A replacement
     // synchronously enqueued by an observer belongs to the next turn.
     this.#inbox.clear()
-    cancellation?.request(normalized)
+    cancellation?.request(reason)
   }
 
   /**

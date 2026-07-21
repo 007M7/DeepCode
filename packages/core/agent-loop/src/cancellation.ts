@@ -20,12 +20,12 @@ export class TurnCancellation {
 
   /**
    * Abort the turn once.
-   * @param reason - a validated caller cause or lifecycle disposal marker.
+   * @param reason - a typed caller cause or lifecycle disposal marker.
    * @returns whether this request established the signal reason.
    */
   request(reason: AgentCancelCause | typeof DISPOSED_INTERRUPT_REASON): boolean {
     if (this.signal.aborted) return false
-    this.#controller.abort(reason)
+    this.#controller.abort(Object.freeze({ kind: reason.kind }))
     return true
   }
 }

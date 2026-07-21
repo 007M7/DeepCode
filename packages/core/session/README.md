@@ -80,7 +80,7 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 ### Extension points
 
 - Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`, `session.header`) is what such a backend stores beside the log.
-- Replay/fork: `create(id, { seed })` validates and freezes a contiguous current-format log and rebuilds its surface; request headers require provider/model and assistant messages require provider/model provenance. `fork(source, boundary?, childSessionId?)` selects a completed-turn prefix and records lineage.
+- Replay/fork: `create(id, { seed })` validates and freezes a contiguous current-format log and rebuilds its surface; request headers require provider/model, assistant messages require provider/model provenance, and a coarse aborted outcome must contain only `{ kind: 'aborted' }` (legacy reason-bearing records are rejected). `fork(source, boundary?, childSessionId?)` selects a completed-turn prefix and records lineage.
 - Compaction: `dsh-compact-basic` appends a `user/message` replacement for summary checkpoints, while `dsh-compact-tool-result-prune` appends a content-only `tool/result` replacement. Tool-pairing boundary policy and its cache belong to the [`dsh-compact` seam](../../compact/compact/README.md), while this package owns ordered surface membership, replacement validation, and `replaceGeneration`.
 
 ## Model Experience

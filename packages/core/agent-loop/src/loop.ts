@@ -124,7 +124,7 @@ export interface LoopHandle {
   setStatus(status: 'idle' | 'running'): void
   /** Install a fresh active-turn owner before the running notification. */
   installTurnCancellation(): TurnCancellation
-  /** Clear only the exact owner whose turn and durability flush settled. */
+  /** Clear only the exact owner whose turn reached its terminal event boundary. */
   clearTurnCancellation(cancellation: TurnCancellation): void
   /** Resolves when the agent is disposed — unblocks the idle wait. */
   disposed: Promise<void>
@@ -209,7 +209,7 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
     const turn = lastTurnNumber(session) + 1
     let terminalStopped = false
     try {
-      terminalStopped = await runTurn(ctx, events, handle, turn, transmission, cancellation.signal)
+      terminalStopped = await runTurn(ctx, events, handle, turn, transmission, cancellation)
     } catch (error: unknown) {
       // Pre-turn failure has no durable boundary to close; report it without appending outside a turn.
       const err = toError(error)
@@ -232,10 +232,11 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
 
 async function runTurn(
   ctx: Context, events: AgentEventDispatch, handle: LoopHandle, turn: number, transmission: TransmissionLog,
-  signal: AbortSignal,
+  cancellation: TurnCancellation,
 ): Promise<boolean> {
   const agent = ctx.agents.requireInitiator()
   const { session } = agent
+  const { signal } = cancellation
   const drainSteering = (): boolean => {
     const messages = handle.inbox.drainSteering()
     for (const message of messages) {
@@ -279,8 +280,11 @@ async function runTurn(
     }
   }
 
-  // Pre-commit validation failure escapes rather than masquerading as a committed boundary.
+  // Retire cancellation authority before publishing the terminal event. The
+  // following durability flush is quiescent turn work, but no longer part of
+  // the cancellable turn lifetime.
   const closeTurn = (): void => {
+    handle.clearTurnCancellation(cancellation)
     session.append('turn/end', { turn, reason })
   }
 

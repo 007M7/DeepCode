@@ -132,8 +132,8 @@ export interface Agent {
    * Clear all queued and steering work, including items waiting to start, and
    * abort the active turn. The first cause wins for that turn, and `whenIdle()`
    * resolves after cancellation reaches quiescence. Omission means
-   * `{ kind: 'user' }`; invalid causes throw synchronously even while idle.
-   * Idle cancellation is a no-op after validation and does not arm a later cancel.
+   * `{ kind: 'user' }`. Idle cancellation is a no-op and does not arm a later
+   * cancel. The active turn snapshots and freezes the typed cause.
    * @param cause - the stable caller intent carried by the current turn signal.
    */
   cancel(cause?: AgentCancelCause): void
