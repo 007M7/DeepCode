@@ -22,6 +22,9 @@
     },
     {
       "path": "../code-runtime"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

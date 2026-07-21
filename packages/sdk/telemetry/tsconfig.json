@@ -8,6 +8,7 @@
     "src"
   ],
   "references": [
-    { "path": "../../util/brand" }
+    { "path": "../../util/brand" },
+    { "path": "../../support/invariants" }
   ]
 }

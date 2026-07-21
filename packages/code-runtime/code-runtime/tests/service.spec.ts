@@ -84,4 +84,5 @@ describe('CodeRuntime service seam', () => {
     const { ctx } = await setup()
     await expect(ctx.plugin(StubRuntime)).rejects.toThrow(/registered/)
   })
+
 })

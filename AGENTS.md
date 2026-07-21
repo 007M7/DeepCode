@@ -99,6 +99,7 @@ Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`, 
 - Every npm package is `@deepseek-ai/dsh-<name>`; vendored packages keep upstream names and are `private: true`. `cordis` is a peerDependency (+ dev) of every harness package.
 - ESM everywhere (`"type": "module"`). Cross-package imports use package names; in-package relative imports include `.ts`. CI subprocesses that boot examples or Cordis configs run built `lib/` under plain Node; only explicit source-path regressions use tsx ([testing policy](docs/testing.md#test-subprocess-launch-modes)).
 - **Registrations are effects**: every contribution goes through `ctx.effect()` / `ctx.on()`; a registry's `register()` returns the disposer.
+- **Runtime invariants assert owned relationships.** Check authoritative event streams or mutable data, not service or method presence, plugin metadata or effects, or fixed pure examples. If a package has no plausible relationship, an explained empty companion is correct ([package contract](packages/AGENTS.md)).
 - **Typed events use declaration merging** and merge-extensible maps. Event JSDoc needs `@mode` and payload `@param`; scoped keys absent from payloads need `@dshScopeScan unsupported`. Public service methods document parameters and non-void returns.
 - **Switch on discriminant tags.** Closed unions end in `assertNever`; merge-extensible unions fall through a documented default.
 - **Waterfall listeners MUST call `next()`** to delegate; returning without it is the veto ([semantics](docs/cordis-primer.md#cordis-waterfall-semantics)).

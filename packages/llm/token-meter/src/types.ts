@@ -6,11 +6,8 @@
 
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 
-/** Token-meter plugin configuration. */
-export interface TokenMeterConfig {
-  /** Service-wide context-window capacity in tokens. Defaults to `128000`. */
-  contextWindow?: number
-}
+/** Token-meter plugin configuration; the fixed estimator has no settings. */
+export type TokenMeterConfig = Record<string, never>
 
 /** The baseline from which a signed surface delta produces current pressure. */
 export type TokenMeasurementBaseline =
