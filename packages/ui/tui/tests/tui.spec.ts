@@ -5,9 +5,11 @@ import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type JsonValue } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import SessionQueryService from '@deepseek-ai/dsh-session-query'
+import SessionReferenceService, { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   createTuiChat,
@@ -498,6 +500,241 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(disposedAgent.terminal.output).toContain('is disposed')
     await dispose(disposedAgent)
+  })
+
+  it('combines session autocomplete with files and prepares send/steer references asynchronously', async () => {
+    let sourceId = SessionId('uninitialized')
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+        const source = ctx.sessions.create(SessionId('source-session'), { meta: { cwd: process.cwd(), createdAt: 1 } })
+        sourceId = source.id
+        appendUser(source, 'source background')
+        ctx.sessions.create(SessionId('no-cwd'), { meta: { createdAt: 2 } })
+      },
+    })
+
+    result.terminal.send('@no-cwd')
+    await tick()
+    expect(result.terminal.output).toContain('Session · no-cwd')
+    expect(result.terminal.output).toContain('(no cwd)')
+    result.terminal.send('\x03')
+
+    result.terminal.send('@source-session')
+    await tick()
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('\r')
+    await tick()
+    expect(result.agent.sent).toEqual([[{ type: 'text', text: '@source-session' }]])
+    expect(result.agent.sentOptions[0]?.contexts).toHaveLength(1)
+
+    const mention = formatSessionReferenceMention({ sessionId: sourceId, label: 'Source chat' })
+    expect(result.agent.sentOptions[0]?.contexts).toMatchObject([{
+      source: { kind: 'plugin', plugin: 'session-reference' },
+      meta: { kind: 'session-reference', references: [{ sessionId: 'source-session' }] },
+    }])
+
+    result.agent.status = 'running'
+    result.terminal.send(`steer ${mention}`)
+    result.terminal.send('\r')
+    await tick()
+    expect(result.agent.steered).toEqual([[{ type: 'text', text: 'steer @Source chat' }]])
+    expect(result.agent.steeredOptions[0]?.contexts).toHaveLength(1)
+    await dispose(result)
+  })
+
+  it('falls back cleanly for non-session, empty, failed, and superseded autocomplete requests', async () => {
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+      },
+    })
+    const originalListCandidates = result.ctx.sessionReferences.listCandidates.bind(result.ctx.sessionReferences)
+    const listCandidates = vi.spyOn(result.ctx.sessionReferences, 'listCandidates')
+
+    result.terminal.send('plain')
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('\x03')
+
+    result.terminal.send('/he')
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('\x03')
+
+    listCandidates.mockRejectedValueOnce(new Error('candidate lookup failed'))
+    result.terminal.send('@failed')
+    await vi.waitFor(() => { expect(listCandidates).toHaveBeenCalled() })
+    result.terminal.send('\x03')
+
+    result.terminal.send('@empty')
+    await tick()
+    result.terminal.send('\x03')
+
+    let releaseFirst: (() => void) | undefined
+    let delayed = true
+    listCandidates.mockImplementation(async (...args) => {
+      if (!delayed) return originalListCandidates(...args)
+      delayed = false
+      await new Promise<void>((resolve) => { releaseFirst = resolve })
+      return []
+    })
+    result.terminal.send('@slow')
+    await vi.waitFor(() => { expect(releaseFirst).toBeTypeOf('function') })
+    result.terminal.send('x')
+    releaseFirst?.()
+    await tick()
+    await dispose(result)
+  })
+
+  it('keeps failed mention input and renders durable reference contexts as compact cards', async () => {
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+      },
+    })
+    const missing = formatSessionReferenceMention({ sessionId: SessionId('missing'), label: 'Missing chat' })
+    result.terminal.send(`keep ${missing}`)
+    result.terminal.send('\r')
+    await tick()
+    expect(result.agent.sent).toHaveLength(0)
+    expect(result.terminal.output).toContain('Session reference failed')
+    expect(result.terminal.output).toContain('keep @[')
+
+    result.session.append('context/message', {
+      content: [{ type: 'text', text: 'secret full snapshot payload' }],
+      source: { kind: 'plugin', plugin: 'session-reference' },
+      meta: {
+        kind: 'session-reference',
+        version: 1,
+        references: [{ sessionId: 'source', label: 'Source', capturedThroughSeq: 2 }],
+      },
+    }, { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('Referenced sessions · Source (source)')
+    expect(result.terminal.output).not.toContain('secret full snapshot payload')
+
+    const invalidCards: [JsonValue, string][] = [
+      [{ kind: 'other' }, 'invalid-kind'],
+      [{ kind: 'session-reference', references: [null] }, 'invalid-entry'],
+      [{ kind: 'session-reference', references: [{}] }, 'invalid-fields'],
+    ]
+    for (const [meta, text] of invalidCards) {
+      result.session.append('context/message', {
+        content: [{ type: 'text', text }],
+        source: { kind: 'plugin', plugin: 'session-reference' },
+        meta,
+      }, { surfaceOp: 'append' })
+    }
+    result.session.append('context/message', {
+      content: [{ type: 'text', text: 'same-label snapshot' }],
+      source: { kind: 'plugin', plugin: 'session-reference' },
+      meta: { kind: 'session-reference', references: [{ sessionId: 'same', label: 'same' }] },
+    }, { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('Referenced sessions · same')
+    await dispose(result)
+  })
+
+  it('reports malformed and unavailable references without enqueueing', async () => {
+    const malformed = await setup()
+    malformed.terminal.send('use dsh-session:IiJ')
+    malformed.terminal.send('\r')
+    await tick()
+    expect(malformed.agent.sent).toHaveLength(0)
+    expect(malformed.terminal.output).toContain('Invalid session reference')
+    await dispose(malformed)
+
+    const unavailable = await setup()
+    const mention = formatSessionReferenceMention({ sessionId: SessionId('source') })
+    unavailable.terminal.send(`use ${mention}`)
+    unavailable.terminal.send('\r')
+    await tick()
+    expect(unavailable.agent.sent).toHaveLength(0)
+    expect(unavailable.terminal.output).toContain('Session reference capability unavailable')
+    await dispose(unavailable)
+  })
+
+  it('clears a retyped successful mention and aborts pending preparation on disposal', async () => {
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+        ctx.sessions.create(SessionId('source'))
+      },
+    })
+    const mention = formatSessionReferenceMention({ sessionId: SessionId('source') })
+    const value = `use ${mention}`
+    let release: (() => void) | undefined
+    const prepare = vi.spyOn(result.ctx.sessionReferences, 'prepare').mockImplementation(
+      (_agent, content) => new Promise((resolve) => {
+        release = () => { resolve({ content, contexts: [] }) }
+      }),
+    )
+    result.terminal.send(value)
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(prepare).toHaveBeenCalledOnce() })
+    result.terminal.send(value)
+    release?.()
+    await tick()
+    expect(result.agent.sent).toEqual([[{ type: 'text', text: 'use @source' }]])
+
+    let rejectPreparation: (() => void) | undefined
+    prepare.mockImplementation(() => new Promise((_resolve, reject) => {
+      rejectPreparation = () => { reject(new Error('delayed failure')) }
+    }))
+    result.terminal.send(value)
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(rejectPreparation).toBeTypeOf('function') })
+    result.terminal.send('new draft')
+    rejectPreparation?.()
+    await tick()
+    expect(result.terminal.output).toContain('delayed failure')
+    result.terminal.send('\x03')
+
+    let pendingSignal: AbortSignal | undefined
+    prepare.mockImplementation((_agent, _content, _references, signal) => new Promise((_resolve, reject) => {
+      pendingSignal = signal
+      signal?.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
+    }))
+    result.terminal.send(value)
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(pendingSignal).toBeDefined() })
+    await result.controller.dispose()
+    expect(pendingSignal?.aborted).toBe(true)
+    await tick()
+    await result.ctx.fiber.dispose()
+
+    const lateSuccess = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+        ctx.sessions.create(SessionId('source'))
+      },
+    })
+    let resolveAfterDispose: (() => void) | undefined
+    const latePrepare = vi.spyOn(lateSuccess.ctx.sessionReferences, 'prepare').mockImplementation(
+      (_agent, content) => new Promise((resolve) => {
+        resolveAfterDispose = () => { resolve({ content, contexts: [] }) }
+      }),
+    )
+    lateSuccess.terminal.send(value)
+    lateSuccess.terminal.send('\r')
+    await vi.waitFor(() => { expect(latePrepare).toHaveBeenCalledOnce() })
+    await lateSuccess.controller.dispose()
+    resolveAfterDispose?.()
+    await tick()
+    expect(lateSuccess.agent.sent).toHaveLength(0)
+    await lateSuccess.ctx.fiber.dispose()
   })
 
   it('discovers and executes plugin commands, then removes TUI-local commands on disposal', async () => {

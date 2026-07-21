@@ -24,6 +24,9 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
   type Component,
+  type AutocompleteItem,
+  type AutocompleteProvider,
+  type AutocompleteSuggestions,
   type EditorTheme,
   type Focusable,
   type MarkdownTheme,
@@ -33,13 +36,18 @@ import {
 } from '@earendil-works/pi-tui'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus, HookContext } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
 import type {} from '@deepseek-ai/dsh-commands'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
+import {
+  formatSessionReferenceMention,
+  parseSessionReferenceText,
+  type SessionReferenceService,
+} from '@deepseek-ai/dsh-session-reference'
 import type {
   FileDiff,
   TerminalCallView,
@@ -797,6 +805,58 @@ interface PendingQuestion {
   overlay: OverlayHandle | undefined
 }
 
+/** Add metadata-only session candidates to pi-tui's existing command/file provider. */
+class SessionAutocompleteProvider implements AutocompleteProvider {
+  constructor(
+    private readonly base: CombinedAutocompleteProvider,
+    private readonly sessions: SessionReferenceService,
+    private readonly agent: Agent,
+  ) {}
+
+  async getSuggestions(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    options: { signal: AbortSignal; force?: boolean },
+  ): Promise<AutocompleteSuggestions | null> {
+    const basePromise = this.base.getSuggestions(lines, cursorLine, cursorCol, options)
+    const currentLine = lines[cursorLine]
+    /* v8 ignore next -- Editor always supplies its current state line. */
+    if (currentLine === undefined) return basePromise
+    const token = /(?:^|\s)(@[^\s]*)$/u.exec(currentLine.slice(0, cursorCol))?.[1]
+    if (token === undefined) return basePromise
+    let candidates
+    try {
+      candidates = await this.sessions.listCandidates(this.agent, token.slice(1))
+    } catch {
+      return basePromise
+    }
+    const base = await basePromise
+    if (options.signal.aborted) return base
+    const items: AutocompleteItem[] = candidates.map(candidate => ({
+      value: formatSessionReferenceMention({ sessionId: candidate.sessionId, label: candidate.label }),
+      label: `Session · ${candidate.sessionId}`,
+      description: `${candidate.cwd ?? '(no cwd)'} · ${new Date(candidate.createdAt).toISOString()}`,
+    }))
+    if (items.length === 0) return base
+    return { items: [...items, ...(base?.items ?? [])], prefix: token }
+  }
+
+  applyCompletion(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    item: AutocompleteItem,
+    prefix: string,
+  ): { lines: string[]; cursorLine: number; cursorCol: number } {
+    return this.base.applyCompletion(lines, cursorLine, cursorCol, item, prefix)
+  }
+
+  shouldTriggerFileCompletion(lines: string[], cursorLine: number, cursorCol: number): boolean {
+    return this.base.shouldTriggerFileCompletion(lines, cursorLine, cursorCol)
+  }
+}
+
 /** Lifecycle handle for a mounted interactive terminal channel. */
 export interface TuiController {
   /** Stop rendering, restore the terminal, and reject pending questions. */
@@ -805,6 +865,23 @@ export interface TuiController {
 
 function activeSurfaceSeqs(session: Session): Set<number> {
   return new Set(session.surface.nodes)
+}
+
+function sessionReferenceCard(meta: unknown): string[] | undefined {
+  if (typeof meta !== 'object' || meta === null) return undefined
+  const record = meta as Record<string, unknown>
+  if (record['kind'] !== 'session-reference' || !Array.isArray(record['references'])) return undefined
+  const references = record['references'] as unknown[]
+  const labels: string[] = []
+  for (const reference of references) {
+    if (typeof reference !== 'object' || reference === null) return undefined
+    const entry = reference as Record<string, unknown>
+    const sessionId = entry['sessionId']
+    const label = entry['label']
+    if (typeof sessionId !== 'string' || typeof label !== 'string') return undefined
+    labels.push(label === sessionId ? sessionId : `${label} (${sessionId})`)
+  }
+  return labels
 }
 
 function activeToolCallIds(session: Session, active: ReadonlySet<number>): Set<string> {
@@ -857,6 +934,7 @@ export function createTuiChat(
   const liveErrors = new Set<string>()
   const questionQueue: PendingQuestion[] = []
   const commandControllers = new Set<AbortController>()
+  const referenceControllers = new Set<AbortController>()
   let activeQuestion: PendingQuestion | undefined
 
   const welcome = config.welcome ?? 'ready.'
@@ -945,6 +1023,12 @@ export function createTuiChat(
         break
       }
       case 'context/message': {
+        const references = sessionReferenceCard(event.data.meta)
+        if (references !== undefined) {
+          chat.addChild(new Spacer(1))
+          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
+          break
+        }
         const text = displayText(contentText(event.data.content).trim())
         if (text) {
           const source = event.data.source.kind === 'plugin' ? event.data.source.plugin : event.data.source.kind
@@ -1133,6 +1217,8 @@ export function createTuiChat(
       clearStatus()
       for (const controller of commandControllers) controller.abort(new Error('TUI disposed'))
       commandControllers.clear()
+      for (const controller of referenceControllers) controller.abort(new Error('TUI disposed'))
+      referenceControllers.clear()
       if (activeQuestion !== undefined) {
         const pending = activeQuestion
         activeQuestion = undefined
@@ -1193,13 +1279,17 @@ export function createTuiChat(
   }
 
   const refreshCommandAutocomplete = (): void => {
-    editor.setAutocompleteProvider(new CombinedAutocompleteProvider(
+    const base = new CombinedAutocompleteProvider(
       ctx.commands.list(agent).map(command => ({
         name: command.name,
         description: command.description,
       })),
       agent.session.header.cwd ?? process.cwd(),
-    ))
+    )
+    const sessionReferences = ctx.get('sessionReferences')
+    editor.setAutocompleteProvider(sessionReferences === undefined
+      ? base
+      : new SessionAutocompleteProvider(base, sessionReferences, agent))
   }
   const disposeCommandChanges = ctx.on('commands/change', refreshCommandAutocomplete)
   refreshCommandAutocomplete()
@@ -1269,22 +1359,71 @@ export function createTuiChat(
     ).finally(() => { commandControllers.delete(controller) })
   }
 
-  editor.onSubmit = (value: string) => {
-    const text = value.trim()
-    if (text === '') return
-    editor.addToHistory(text)
-    editor.setText('')
-    if (value.startsWith('/')) {
-      runCommand(value)
-      return
-    }
+  const dispatchMessage = (content: ContentBlock[], contexts: HookContext[]): void => {
     if (agent.status === 'disposed') {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
     } else if (agent.status === 'running') {
-      agent.steer([{ type: 'text', text }])
+      agent.steer(content, { contexts })
     } else {
-      agent.send([{ type: 'text', text }])
+      agent.send(content, { contexts })
     }
+  }
+
+  editor.onSubmit = (value: string) => {
+    const text = value.trim()
+    if (text === '') return
+    const restoreSubmittedInput = (): void => {
+      if (editor.getText() === '') editor.setText(value)
+    }
+    if (value.startsWith('/')) {
+      editor.addToHistory(text)
+      editor.setText('')
+      runCommand(value)
+      return
+    }
+    let parsed: ReturnType<typeof parseSessionReferenceText>
+    try {
+      parsed = parseSessionReferenceText(text)
+    } catch (error: unknown) {
+      restoreSubmittedInput()
+      appendNotice(`Invalid session reference: ${errorChain(error)}`, 'error')
+      return
+    }
+    if (parsed.references.length === 0) {
+      editor.addToHistory(text)
+      editor.setText('')
+      dispatchMessage([{ type: 'text', text: parsed.text }], [])
+      return
+    }
+    const sessionReferences = ctx.get('sessionReferences')
+    if (sessionReferences === undefined) {
+      restoreSubmittedInput()
+      appendNotice('Session reference capability unavailable.', 'error')
+      return
+    }
+    const controller = new AbortController()
+    referenceControllers.add(controller)
+    editor.disableSubmit = true
+    void sessionReferences.prepare(
+      agent,
+      [{ type: 'text', text: parsed.text }],
+      parsed.references,
+      controller.signal,
+    ).then((prepared) => {
+      if (disposed) return
+      editor.addToHistory(text)
+      if (editor.getText() === value) editor.setText('')
+      dispatchMessage(prepared.content, prepared.contexts)
+    }, (error: unknown) => {
+      if (!disposed && !controller.signal.aborted) {
+        restoreSubmittedInput()
+        appendNotice(`Session reference failed: ${errorChain(error)}`, 'error')
+      }
+    }).finally(() => {
+      referenceControllers.delete(controller)
+      editor.disableSubmit = false
+      requestRender()
+    })
   }
 
   const removeInputListener = ui.addInputListener((data) => {

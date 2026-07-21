@@ -28,7 +28,7 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 | `initialize` | static | negotiate `protocolVersion`; advertise baseline prompt capabilities (`text`, plus `resource_link` rendered as text) and `loadSession: true` |
 | `session/new` | `ctx.agents.create({ sessionId, meta:{cwd} })` | creates a new session/agent; N concurrent sessions are allowed, keyed by id; advertises the effective command snapshot; `cwd` must be absolute (it becomes the session's workspace — see Per-session cwd); non-empty `additionalDirectories` and `mcpServers` rejected |
 | `session/load` | `ctx.agents.resume(...)` | reserves the id, verifies the persisted cwd, resumes, replays user, assistant, and tool events, and re-advertises commands |
-| `session/prompt` | `ctx.commands.execute()` or `agent.send()` | a flattened prompt beginning with `/` stays in the direct command plane; ordinary prompts support ACP `text` and `resource_link`; unsupported content and empty prompts are rejected; one request is in flight per session and settles on the owning turn's end, with an error turn rejecting the RPC |
+| `session/prompt` | `ctx.commands.execute()` or `agent.send()` | a flattened prompt beginning with `/` stays in the direct command plane; ordinary prompts support ACP `text` and `resource_link`; `dsh-session:` links and inline mentions are snapshotted through optional `ctx.sessionReferences` before enqueue; unsupported content, unavailable reference capability, failed snapshots, and empty prompts are rejected; one request is in flight per session and settles on the owning turn's end, with an error turn rejecting the RPC |
 | `session/cancel` | command `AbortSignal` or `agent.cancel()` | aborts the exact direct command, or applies the queue-aware agent cancel and settles its prompt `cancelled`; one session never cancels another |
 | `session/update` | `session/event` | streams user replay, assistant text/reasoning, retry/failure attempt markers, and tool render intents |
 | `elicitation/create` | `ctx.userInteraction.ask()` | maps `ask_user_question` questions to ACP form elicitations; option descriptions are shown in enum titles, `multi_select` uses ACP array enums, optionless requests use a required `custom` field, and a non-empty custom answer overrides any selected choice |
@@ -37,7 +37,7 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 
 ## Multi-session
 
-One id-keyed record map plus exact agent-object checks route every event, prompt, cancel, and approval to one session. Each session permits one in-flight prompt; teardown drains all sessions in parallel. See the [multi-session Agent Note](../../../.agents/notes/implemented/feature/2026-06-14-acp-multi-session.md).
+One id-keyed record map plus exact agent-object checks route every event, prompt, cancel, and approval to one session. Each session permits one in-flight prompt or reference-preparation operation; `session/cancel` aborts preparation before it can enqueue. Teardown drains all sessions in parallel. See the [multi-session Agent Note](../../../.agents/notes/implemented/feature/2026-06-14-acp-multi-session.md).
 
 ## Human commands
 
@@ -104,7 +104,7 @@ The JSON-RPC frames go on stdout, so this plugin MUST run in an example that loa
 
 #### What the model sees
 
-Each ACP `session/prompt` becomes an agent user message: text passes through verbatim and each `resource_link` becomes exactly a leading newline, `[resource_link name=<JSON-string> uri=<JSON-string>]`, and a trailing newline. Unsupported image, audio, and embedded-resource blocks are rejected rather than silently omitted.
+Each ACP `session/prompt` becomes an agent user message: text passes through verbatim and each ordinary `resource_link` becomes exactly a leading newline, `[resource_link name=<JSON-string> uri=<JSON-string>]`, and a trailing newline. When `ctx.sessionReferences` is mounted, a `resource_link` whose URI uses `dsh-session:` or an inline canonical mention becomes readable `@label` text plus one durable untrusted snapshot context; without the capability it is rejected. Unsupported image, audio, and embedded-resource blocks are rejected rather than silently omitted.
 
 #### Token effect
 
@@ -188,6 +188,7 @@ Loading does not rewrite the stored log, but the next request is reconstructed u
 
 - **`additionalDirectories`** — rejected. A session operates in its single `cwd` (see Per-session cwd); widening the tool/filesystem scope to extra roots is a separate sandbox concern, not yet implemented.
 - **Prompt content is `text` + `resource_link` only** — image, audio, and embedded-resource blocks are rejected, as is a non-empty `mcpServers` list at `session/new`.
+- **Session picker UI is client-owned** — the server accepts canonical resource links and inline mentions, but does not add a picker to ACP clients; title/full-text discovery remains future metadata or FTS work.
 - **Terminal cards render completed output** — live incremental streaming and command classification are named follow-ups of [the terminal-rendering Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md).
 - **Permission answers are one-shot only** — the bridge offers `allow_once` / `reject_once`; durable `allow_always` grants and their storage/revocation policy remain deferred to the approval seam.
 - **Command output is live-only** — discovery is refreshed after load, but direct command results are not persisted or replayed into a reconnected editor.

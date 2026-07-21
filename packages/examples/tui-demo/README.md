@@ -12,6 +12,7 @@ Use [`@deepseek-ai/dsh-cli-demo`](../cli-demo/README.md) for pipes, scripts, and
 | `@deepseek-ai/dsh-commands` | Human-only discovery and dispatch consumed by the TUI and command plugins |
 | `@deepseek-ai/dsh-command-goal` | Direct `/goal` status and mutation over the spine's persisted-goal stack |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | Durable session log under `persistenceRoot` |
+| `@deepseek-ai/dsh-session-query` + `@deepseek-ai/dsh-session-reference` | Exact current-surface reads and bounded `@session` snapshots consumed by the TUI |
 | `@deepseek-ai/dsh-user-interaction` | Provider-neutral human question service |
 | `@deepseek-ai/dsh-tui` | Full-screen transcript, editor, tool cards, plan, and question overlays |
 | `@deepseek-ai/dsh-tool-ask-user` | Model-facing `ask_user_question` tool |

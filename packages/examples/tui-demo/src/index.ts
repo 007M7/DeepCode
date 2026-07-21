@@ -22,6 +22,8 @@ import SessionPersistenceJsonl, {
   type JsonlCompression,
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import SessionQueryService from '@deepseek-ai/dsh-session-query'
+import SessionReferenceService from '@deepseek-ai/dsh-session-reference'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as uiTui from '@deepseek-ai/dsh-tui'
 
@@ -109,6 +111,8 @@ export function composeTuiApp(ctx: Context, config: Config): void {
     root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
     ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
   })
+  ctx.plugin(SessionQueryService)
+  ctx.plugin(SessionReferenceService)
   ctx.plugin(UserInteractionService)
   ctx.plugin(uiTui, {
     ...config.ui,

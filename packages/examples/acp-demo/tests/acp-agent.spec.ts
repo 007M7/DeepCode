@@ -82,6 +82,8 @@ describe('dsh-acp-demo composition', () => {
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
+    expect(ctx.get('sessionQuery')).toBeDefined()
+    expect(ctx.get('sessionReferences')).toBeDefined()
     expect((ctx.get('sessionPersistence') as unknown as { config: { compression?: string } }).config.compression).toBe('none')
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('userInteraction')).toBeDefined()

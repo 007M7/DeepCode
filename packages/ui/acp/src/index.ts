@@ -49,6 +49,7 @@ import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-session-reference'
 import { SessionId } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
 import type {} from '@deepseek-ai/dsh-permission'
@@ -72,7 +73,7 @@ import {
   type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
 import {
-  acpPromptToText,
+  acpPromptToReferencedPrompt,
   harnessBlockToAcpContent,
   promptHasUnsupportedContent,
   turnEndToStopReason,
@@ -302,6 +303,8 @@ interface SessionRecord {
   } | undefined
   /** Abort owner for a direct slash-command request, mutually exclusive with `inflight`. */
   commandAbort: AbortController | undefined
+  /** Abort owner while referenced sessions are snapshotted before enqueue. */
+  promptPreparation: AbortController | undefined
   /** Last idle switch per knob, anchored before the next prompt assembles. */
   pendingSwitches: { preset?: string }
 }
@@ -765,6 +768,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           target,
           inflight: undefined,
           commandAbort: undefined,
+          promptPreparation: undefined,
           pendingSwitches: {},
         }
         sessions.set(sessionId, record)
@@ -850,6 +854,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             target,
             inflight: undefined,
             commandAbort: undefined,
+            promptPreparation: undefined,
             pendingSwitches: {},
           }
           sessions.set(sessionId, record)
@@ -885,13 +890,19 @@ export function apply(ctx: Context, config: AcpConfig): void {
       async prompt(params: PromptRequest): Promise<PromptResponse> {
         assertOpen()
         const rec = requireSession(SessionId(params.sessionId))
-        if (rec.inflight !== undefined || rec.commandAbort !== undefined) {
+        if (rec.inflight !== undefined || rec.commandAbort !== undefined || rec.promptPreparation !== undefined) {
           throw invalidParams('a prompt is already in flight for this session')
         }
         if (promptHasUnsupportedContent(params.prompt)) {
           throw invalidParams('only text and resource_link prompt content is supported; image/audio/embedded resource blocks are rejected rather than silently dropped')
         }
-        const text = acpPromptToText(params.prompt)
+        let referencedPrompt: ReturnType<typeof acpPromptToReferencedPrompt>
+        try {
+          referencedPrompt = acpPromptToReferencedPrompt(params.prompt)
+        } catch (error: unknown) {
+          throw invalidParams(`invalid session reference: ${renderThrown(error)}`)
+        }
+        const { text } = referencedPrompt
         if (text.trim().length === 0) {
           // Reject up front rather than calling send(): an empty prompt would
           // queue no work, no turn would start, and the RPC would hang forever
@@ -944,6 +955,32 @@ export function apply(ctx: Context, config: AcpConfig): void {
             rec.commandAbort = undefined
           }
         }
+        let preparedContent: ContentBlock[] = [{ type: 'text', text }]
+        let preparedContexts: NonNullable<Parameters<Agent['send']>[1]>['contexts'] = []
+        if (referencedPrompt.references.length > 0) {
+          const sessionReferences = ctx.get('sessionReferences')
+          if (sessionReferences === undefined) {
+            throw invalidParams('session reference capability unavailable')
+          }
+          const controller = new AbortController()
+          rec.promptPreparation = controller
+          try {
+            const prepared = await sessionReferences.prepare(
+              rec.agent,
+              preparedContent,
+              referencedPrompt.references,
+              controller.signal,
+            )
+            preparedContent = prepared.content
+            preparedContexts = prepared.contexts
+          } catch (error: unknown) {
+            if (controller.signal.aborted) return { stopReason: 'cancelled' }
+            throw invalidParams(`session reference preparation failed: ${renderThrown(error)}`)
+          } finally {
+            rec.promptPreparation = undefined
+          }
+          assertOpen()
+        }
         // Install the in-flight slot BEFORE send() (send does not synchronously
         // flip status to running; the session/event listener records the turn
         // number and settle/rejects it). Capture the log length now as the
@@ -951,7 +988,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // produces an error stop reason).
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
           rec.inflight = { resolve, reject, turn: undefined }
-          rec.agent.send([{ type: 'text', text }])
+          rec.agent.send(preparedContent, { contexts: preparedContexts })
         })
         return { stopReason }
       },
@@ -971,7 +1008,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // settle it, because cancel() may drop the turn before any turn/end is
         // emitted, and removing this direct settle would move the RPC's
         // resolution onto a later observer path, changing its timing.
-        if (rec.commandAbort !== undefined) {
+        if (rec.promptPreparation !== undefined) {
+          rec.promptPreparation.abort(new Error('session/cancel'))
+        } else if (rec.commandAbort !== undefined) {
           rec.commandAbort.abort(new Error('session/cancel'))
         } else {
           rec.agent.cancel('session/cancel')
@@ -1092,6 +1131,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       await Promise.all(recs.map(async (rec) => {
         settlePrompt(rec, 'cancelled')
         rec.commandAbort?.abort(new Error('ACP connection closed'))
+        rec.promptPreparation?.abort(new Error('ACP connection closed'))
         // Per-agent dispose (the AgentHandle disposer): unregister this agent,
         // stop its loop (sets disposed + aborts the in-flight step), await
         // quiescence (the loop exit + final flush), and remove its session — so

@@ -25,6 +25,20 @@ interface SessionRecord {
 }
 ```
 
+`SessionSurfaceSnapshot` is one exact-read observation rather than a retained subscription. Its raw-log boundary and folded events come from the same live-preferred load.
+
+```ts type-equiv
+/** One atomic live-preferred observation of a session's current model surface. */
+interface SessionSurfaceSnapshot {
+  /** Cloned session header selected from the same corpus observation as `events`. */
+  session: SessionHeader
+  /** Highest raw-log seq included in the observation, or `null` for an empty log. */
+  capturedThroughSeq: number | null
+  /** Cloned current surface events in model-history order. */
+  events: SurfaceEvent[]
+}
+```
+
 ```ts type-equiv
 /** Lightweight metadata for one event within a logical session. */
 interface SessionEventRecord {

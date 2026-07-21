@@ -7,11 +7,13 @@
  */
 
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { HookContext } from '@deepseek-ai/dsh-agent'
 
 /** One message waiting in an agent's inbox. */
 export interface InboxMessage {
   content: ContentBlock[]
   source: MessageSource
+  contexts: HookContext[]
 }
 
 /**

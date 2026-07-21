@@ -1,6 +1,6 @@
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type AgentStatus, type SendOptions } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
@@ -11,7 +11,9 @@ import { createTuiChat, type Config } from '../src/index.ts'
 interface FakeAgent extends Agent {
   status: AgentStatus
   sent: ContentBlock[][]
+  sentOptions: (SendOptions | undefined)[]
   steered: ContentBlock[][]
+  steeredOptions: (SendOptions | undefined)[]
   cancelled: string[]
 }
 
@@ -68,6 +70,8 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
   const steered: ContentBlock[][] = []
+  const sentOptions: (SendOptions | undefined)[] = []
+  const steeredOptions: (SendOptions | undefined)[] = []
   const cancelled: string[] = []
   const agent: FakeAgent = {
     id: sessionId,
@@ -76,13 +80,17 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     status: options.status ?? 'idle',
     ctx,
     sent,
+    sentOptions,
     steered,
+    steeredOptions,
     cancelled,
-    send(content) {
+    send(content, options) {
       sent.push(content)
+      sentOptions.push(options)
     },
-    steer(content) {
+    steer(content, options) {
       steered.push(content)
+      steeredOptions.push(options)
     },
     inject() {},
     cancel(reason) {

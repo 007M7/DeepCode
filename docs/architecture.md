@@ -74,11 +74,11 @@ forever:
   emit agent/status(running)
   TURN:
     'turn/start'
-    claimed message -> agent/prompt-submit
-      allowed prompt -> 'user/message' plus injected context
+    claimed message + attached contexts -> agent/prompt-submit
+      allowed prompt -> 'user/message' plus default/listener context
       blocked prompt -> 'prompt/blocked' -> 'turn/end'(rejected)
     STEP loop:
-      drain steering
+      drain steering without prompt-submit, appending each message before its attached contexts
       assemble system prompt and tool schemas
       agent/session-prefix (first step)
       agent/pre-step

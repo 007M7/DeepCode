@@ -5,6 +5,7 @@
  */
 
 import {
+  COMPACT_CHECKPOINT_SOURCE,
   renderTranscript,
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
@@ -151,7 +152,7 @@ export async function compactSurfaceRegion(
     })
     session.append('user/message', {
       content: framedSummary,
-      source: { kind: 'plugin', plugin: 'compact' },
+      source: COMPACT_CHECKPOINT_SOURCE,
     }, {
       surfaceOp: { op: 'replace', start, end },
       sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],

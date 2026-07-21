@@ -27,6 +27,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../context/session-reference"
+    },
+    {
       "path": "../../core/agent"
     },
     {

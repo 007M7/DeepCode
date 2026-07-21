@@ -207,6 +207,9 @@ async function runTurn(
     const messages = handle.inbox.drainSteering()
     for (const message of messages) {
       session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
+      for (const context of message.contexts) {
+        session.append('context/message', context, { surfaceOp: 'append' })
+      }
     }
     return messages.length > 0
   }
@@ -263,7 +266,10 @@ async function runTurn(
     // throws) is caught below and the turn still closes.
     const promptDecision = await events.waterfall(
       'agent/prompt-submit', message.content, message.source,
-      () => Promise.resolve<PromptDecision>({ kind: 'allow' }),
+      () => Promise.resolve<PromptDecision>({
+        kind: 'allow',
+        ...message.contexts.length === 0 ? {} : { additionalContexts: message.contexts },
+      }),
     )
     if (promptDecision.kind === 'block') {
       session.append('prompt/blocked', { content: message.content, source: message.source, reason: promptDecision.reason })
@@ -502,7 +508,7 @@ async function runTurn(
 
       // A continuation reason becomes next-step steering.
       if (decision.action === 'continue' && decision.reason) {
-        handle.inbox.steer({ content: decision.reason.content, source: decision.reason.source })
+        handle.inbox.steer({ content: decision.reason.content, source: decision.reason.source, contexts: [] })
       }
       let shouldContinue = decision.action === 'continue'
 

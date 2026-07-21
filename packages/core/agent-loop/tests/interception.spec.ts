@@ -154,7 +154,9 @@ describe('agent/prompt-submit', () => {
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
-    send(agent, 'do something')
+    agent.send([{ type: 'text', text: 'do something' }], {
+      contexts: [{ content: [{ type: 'text', text: 'must be dropped' }], source: { kind: 'plugin', plugin: 'test' } }],
+    })
     await waitForIdle(ctx, agent)
 
     // the model was never called
@@ -164,6 +166,7 @@ describe('agent/prompt-submit', () => {
     expect(log.some(e => e.type === 'turn/start')).toBe(true)
     expect(log.some(e => e.type === 'turn/end')).toBe(true)
     expect(log.some(e => e.type === 'user/message')).toBe(false)
+    expect(log.some(e => e.type === 'context/message')).toBe(false)
     expect(log.some(e => e.type === 'step/start')).toBe(false)
     // the veto is recorded durably as a prompt/blocked in the open turn
     const blocked = log.find(e => e.type === 'prompt/blocked')

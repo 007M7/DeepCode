@@ -340,6 +340,22 @@ The fourteen event variants (`turn/start`, `turn/end`, `step/start`, `step/end`,
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
+```ts type-equiv
+/**
+ * Message options. An omitted source attests direct human input as `{ kind: 'user' }`
+ * and may authorize policy consumers, so non-human producers must label their content.
+ */
+interface SendOptions {
+  source?: MessageSource
+  /**
+   * Model-facing contexts captured with this inbox item. A queued prompt exposes
+   * them through the default `agent/prompt-submit` allow decision, while steering
+   * records them directly at its next checkpoint.
+   */
+  contexts?: HookContext[]
+}
+```
+
 `InjectOptions` extends ordinary message attribution with durable model-hidden JSON metadata:
 
 ```ts type-equiv
@@ -365,7 +381,8 @@ interface Agent {
    * Queue one detached, frozen lossless-JSON item. If claimed, it is the sole
    * ordinary message in its FIFO-ordered turn; the next claimed item waits for
    * that turn's checkpoint.
-   * Invalid input throws synchronously before notification or enqueue.
+   * Attached contexts share the same snapshot and ownership boundary. Invalid
+   * input throws synchronously before notification or enqueue.
    */
   send(content: ContentBlock[], options?: SendOptions): void
 
@@ -418,7 +435,7 @@ Each `agent/*` interception waterfall returns a small, seam-specific typed union
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
 ```ts type-equiv
-/** Model-facing context injected by a listener; `source` prevents plugin text from being labeled as user input. */
+/** Model-facing context injected by a listener or atomically attached to one inbox message. */
 interface HookContext {
   content: ContentBlock[]
   source: MessageSource
@@ -434,7 +451,9 @@ interface HookContext {
  * Prompt interception result. `allow.content` replaces the prompt and each
  * `additionalContexts` entry becomes a separate context message. `block`
  * records a durable `prompt/blocked` and ends the claimed prompt's zero-step
- * turn as rejected.
+ * turn as rejected. An `allow` returned by a listener is authoritative: a
+ * listener wrapping `next()` preserves downstream `content` and
+ * `additionalContexts` unless it intentionally replaces them.
  */
 type PromptDecision =
   | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }

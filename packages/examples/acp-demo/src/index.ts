@@ -22,6 +22,8 @@ import SessionPersistenceJsonl, {
   type JsonlCompression,
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import SessionQueryService from '@deepseek-ai/dsh-session-query'
+import SessionReferenceService from '@deepseek-ai/dsh-session-reference'
 
 export const name = 'acp-demo'
 const DEFAULT_PERSISTENCE_ROOT = './.sessions'
@@ -110,5 +112,7 @@ export function apply(ctx: Context, config: Config): void {
     root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
     ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
   })
+  ctx.plugin(SessionQueryService)
+  ctx.plugin(SessionReferenceService)
   ctx.plugin(acp, { provider: config.provider, model: config.model })
 }

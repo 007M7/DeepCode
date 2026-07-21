@@ -12,7 +12,7 @@ The TUI rebuilds resumed history from the active session surface, renders Markdo
 
 Before model output, session events, tool presenters, questions, configuration, or diagnostics reach pi-tui's ANSI-aware renderers or the terminal title, the TUI renders C0 and C1 controls other than line feeds as visible `\xNN` text. Those sources cannot add terminal control sequences; the TUI and pi-tui retain ownership of terminal rendering and styling.
 
-While the agent is running, ordinary editor submissions call `agent.steer()`; otherwise they call `agent.send()`. A slash at the start of the submitted line enters `ctx.commands` instead: known commands execute directly, unknown commands produce a warning, and neither path reaches the model. The TUI registers `/help`, `/clear`, `/cancel`, `/reasoning`, `/tools`, `/redraw`, and `/exit` as agent-scoped definitions; every other effective command joins autocomplete and `/help` dynamically. Ctrl+C or Escape cancels a running turn. Ctrl+O expands tool cards, Ctrl+R toggles reasoning, Ctrl+L redraws, and Ctrl+D exits while idle.
+While the agent is running, ordinary editor submissions call `agent.steer()`; otherwise they call `agent.send()`. That choice uses the status after optional asynchronous preparation: `send()` dispatches `agent/prompt-submit`, while in-turn `steer()` joins at a steering checkpoint without that hook. When optional `ctx.sessionReferences` is mounted, the existing `@` file menu also offers metadata-only session candidates, inserts `@[label](dsh-session:<payload>)`, and prepares its snapshot before dispatch. Preparation disables duplicate submit; failure restores the editor input. A slash at the start of the submitted line enters `ctx.commands` instead: known commands execute directly, unknown commands produce a warning, and neither path reaches the model. The TUI registers `/help`, `/clear`, `/cancel`, `/reasoning`, `/tools`, `/redraw`, and `/exit` as agent-scoped definitions; every other effective command joins autocomplete and `/help` dynamically. Ctrl+C or Escape cancels a running turn. Ctrl+O expands tool cards, Ctrl+R toggles reasoning, Ctrl+L redraws, and Ctrl+D exits while idle.
 
 ## Config
 
@@ -51,7 +51,7 @@ The palette uses the standard 16-color ANSI foregrounds and SGR attributes, whic
 
 #### What the model sees
 
-Each non-empty ordinary editor submission becomes one text block, sent with `agent.send()` while the target agent is idle and `agent.steer()` while it is running. Slash commands and keybindings are TUI-only; command results remain terminal notices.
+Each non-empty ordinary editor submission becomes one text block, sent with `agent.send()` while the target agent is idle and `agent.steer()` while it is running. A session mention becomes readable `@label` text plus the durable untrusted context defined by [`dsh-session-reference`](../../context/session-reference/README.md); its full JSON is hidden behind a compact reference card. Slash commands and keybindings are TUI-only; command results remain terminal notices.
 
 #### Token effect
 
