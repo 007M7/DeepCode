@@ -58,7 +58,7 @@ type ToolExecutionResult =
 | `structured_output` | `{ recorded: true }` |
 | `run_code` | `{ logs: string[], result?: JsonValue }` |
 
-提供方和执行器的采集上限仍会实际限制规范值。仅用于格式化的限制归 `render` 所有；例如，`glob` 和 `grep` 会在 `value` 中保留所有已采集项，而其 Native 投影仍只保留配置指定的第一页，并尽力将完整展示内容写入落盘文件。文件系统变更工具根据 `args` 和规范的变更前／后值推导可回放的 diff 元数据，不再由工具主体返回 UI 状态。
+提供方和执行器的采集上限仍会实际限制规范值。仅用于格式化的限制归 `render` 所有；例如，`glob` 和 `grep` 会在 `value` 中保留所有已采集项，而其 Native 投影仍只保留配置指定的第一页，并尽力将完整展示内容写入落盘文件。通用落盘机制会前置注册其 post-execute 监听器，并让该监听器先向后委托，因此无论插件加载顺序如何，普通工具自有的异步投影都会在通用字节数上限处理之前完成。文件系统变更工具根据 `args` 和规范的变更前／后值推导可回放的 diff 元数据，不再由工具主体返回 UI 状态。
 
 MCP 桥接层通过 `McpResult<{...}> = { content: JsonValue[]; structuredContent? }` 保留协议内容块。当公布的 `outputSchema` 属于受支持的原始子集时，系统会强制校验；不受支持的 schema 则回退为 `JsonValue`，而不会假装已完成校验。Native 渲染仍使用现有的 MCP 到 `ContentBlock` 投影，MCP `isError` 则会变为失败的工具结果。
 
