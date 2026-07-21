@@ -64,6 +64,7 @@ class CatalogAdapter extends ScriptedAdapter {
 const SCRIPT: StreamChunk[] = [
   { type: 'block-start', index: 0, blockType: 'text' },
   { type: 'text-delta', index: 0, text: 'hi' },
+  { type: 'block-end', index: 0, block: { type: 'text', text: 'hi' } },
   { type: 'finish', reason: { kind: 'stop' } },
 ]
 
@@ -694,13 +695,14 @@ describe('LlmService', () => {
       const inner = next()
       return (async function * () {
         yield { type: 'block-start', index: 99, blockType: 'text' } satisfies StreamChunk
+        yield { type: 'block-end', index: 99, block: { type: 'text', text: '' } } satisfies StreamChunk
         yield * inner
       })()
     })
 
     const chunks: StreamChunk[] = []
     for await (const chunk of ctx.llm.stream({ provider: 'test-model', model: 'dynamic-model', messages: [] })) chunks.push(chunk)
-    expect(chunks).toHaveLength(4)
+    expect(chunks).toHaveLength(6)
     expect(chunks[0]).toMatchObject({ index: 99 })
   })
 

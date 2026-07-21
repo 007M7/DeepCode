@@ -98,6 +98,11 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     sessionId,
     options.cwd === null ? undefined : { meta: { cwd: options.cwd ?? '/workspace' } },
   )
+  session.append('turn/start', {
+    turn: 1,
+    trigger: { kind: 'message', source: { kind: 'user' } },
+  })
+  session.append('step/start', { turn: 1, step: 1 })
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
   const steered: ContentBlock[][] = []
@@ -155,11 +160,10 @@ export function appendAssistant(
   session: Session,
   content: ContentBlock[],
   usage?: { inputTokens: number; outputTokens: number },
-  position: { turn: number; step: number } = { turn: 1, step: 0 },
+  position: { turn: number; step: number } = { turn: 1, step: 1 },
 ): void {
   session.append('assistant/message', {
-    turn: position.turn,
-    step: position.step,
+    ...position,
     provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
     content,
     ...usage === undefined ? {} : { usage },

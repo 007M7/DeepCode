@@ -208,7 +208,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
 
     result.agent.status = 'running'
-    result.ctx.emit('agent/status', result.agent, 'running')
+    agentEvents(result.ctx, result.agent).emit('agent/status', 'running')
     now = 8_000
     result.session.append('user/message', { content: [{ type: 'text', text: '   ' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     result.session.append('steering/message', { turn: 2, content: [{ type: 'text', text: 'steering note' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -217,62 +217,65 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.session.append('context/message', { content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     result.session.append('prompt/blocked', { content: [{ type: 'text', text: 'blocked' }], source: { kind: 'user' }, reason: 'test policy' })
     appendAssistant(result.session, [])
-    result.session.append('turn/end', { turn: 9, reason: { kind: 'aborted' } })
-    result.session.append('turn/end', { turn: 10, reason: { kind: 'completed' } })
-    result.session.append('step/start', { turn: 11, step: 0 })
+    result.session.append('step/end', { turn: 1, step: 1 })
+    result.session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
+    result.session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    result.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    result.session.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
+    result.session.append('step/start', { turn: 3, step: 1 })
     result.session.append('assistant/chunk', {
-      turn: 2,
-      step: 0,
+      turn: 3,
+      step: 1,
       chunk: { type: 'block-start', index: 0, blockType: 'reasoning' },
     })
     result.session.append('assistant/chunk', {
-      turn: 2,
-      step: 0,
+      turn: 3,
+      step: 1,
       chunk: { type: 'reasoning-delta', index: 0, text: 'live thought' },
     })
     result.session.append('assistant/chunk', {
-      turn: 2,
-      step: 0,
+      turn: 3,
+      step: 1,
       chunk: { type: 'reasoning-delta', index: 9, text: 'unannounced thought' },
     })
     result.session.append('assistant/chunk', {
-      turn: 2,
-      step: 0,
+      turn: 3,
+      step: 1,
       chunk: { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'live thought complete' } },
     })
     result.session.append('assistant/chunk', {
-      turn: 2,
-      step: 0,
+      turn: 3,
+      step: 1,
       chunk: { type: 'block-start', index: 1, blockType: 'text' },
     })
     result.session.append('assistant/chunk', {
-      turn: 2,
-      step: 0,
+      turn: 3,
+      step: 1,
       chunk: { type: 'text-delta', index: 1, text: 'live answer' },
     })
     result.session.append('assistant/chunk', {
-      turn: 2,
-      step: 0,
+      turn: 3,
+      step: 1,
       chunk: { type: 'block-end', index: 1, block: { type: 'text', text: 'live answer done' } },
     })
     result.session.append('assistant/chunk', {
-      turn: 2,
-      step: 0,
+      turn: 3,
+      step: 1,
       chunk: { type: 'block-start', index: 2, blockType: 'tool-call' },
     })
     result.session.append('assistant/chunk', {
-      turn: 2,
-      step: 0,
+      turn: 3,
+      step: 1,
       chunk: { type: 'block-end', index: 2, block: { type: 'tool-call', id: 'stream-tool' as never, name: 'tool', arguments: '{}' } },
     })
     result.session.append('assistant/chunk', {
-      turn: 2,
-      step: 0,
+      turn: 3,
+      step: 1,
       chunk: { type: 'tool-call-delta', index: 2, id: 'stream-tool' as never, argumentsDelta: '{}' },
     })
     result.session.append('assistant/chunk', {
-      turn: 2,
-      step: 0,
+      turn: 3,
+      step: 1,
       chunk: { type: 'usage', usage: { inputTokens: 1, outputTokens: 2 } },
     })
     await tick()
@@ -283,7 +286,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       result.session,
       [{ type: 'text', text: 'final live answer' }],
       { inputTokens: 500, outputTokens: 8 },
-      { turn: 2, step: 0 },
+      { turn: 3, step: 1 },
     )
     await tick()
 
@@ -298,17 +301,17 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     result.session.append('assistant/chunk', {
       turn: 3,
-      step: 0,
+      step: 1,
       chunk: { type: 'text-delta', index: 0, text: 'cleared stream' },
     })
     result.terminal.send('/clear')
     result.terminal.send('\r')
-    appendAssistant(result.session, [{ type: 'text', text: 'answer after clear' }])
+    appendAssistant(result.session, [{ type: 'text', text: 'answer after clear' }], undefined, { turn: 3, step: 1 })
     await tick()
     expect(result.terminal.output).toContain('answer after clear')
 
     result.agent.status = 'idle'
-    result.ctx.emit('agent/status', result.agent, 'idle')
+    agentEvents(result.ctx, result.agent).emit('agent/status', 'idle')
     await tick()
     expect(result.terminal.output).toContain('↑1.8k ↓50')
     expect(result.terminal.output).toContain('deepseek-v4-flash(reasoning:off)')
@@ -428,8 +431,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
         appendUser(session, 'first prompt')
         appendUser(session, 'second prompt')
         session.append('assistant/chunk', {
-          turn: 2,
-          step: 0,
+          turn: 1,
+          step: 1,
           chunk: { type: 'text-delta', index: 0, text: 'stale partial response' },
         })
       },
@@ -805,22 +808,30 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const events = await setup()
     const unrelatedSession = events.ctx.sessions.create(SessionId('unrelated-session'))
     const unrelatedAgent = { ...events.agent, id: unrelatedSession.id, session: unrelatedSession }
+    unrelatedSession.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     unrelatedSession.append('todo/write', { todos: [{ content: 'hidden', status: 'pending' }] })
-    events.ctx.emit('agent/status', unrelatedAgent, 'running')
-    events.ctx.emit('agent/error', unrelatedAgent, 1, 1, new Error('hidden error'))
-    events.ctx.emit('agent/disposed', unrelatedAgent)
-    events.ctx.emit('agent/error', events.agent, 3, 2, new Error('live failure'))
-    events.session.append('turn/end', { turn: 3, reason: { kind: 'error', step: 2, message: 'live failure' } })
-    events.session.append('turn/end', { turn: 4, reason: { kind: 'error', step: 1, message: 'durable failure' } })
-    events.session.append('turn/end', { turn: 5, reason: { kind: 'aborted', reason: 'stopped' } })
-    events.session.append('turn/end', { turn: 6, reason: { kind: 'max-tokens' } })
-    events.session.append('turn/end', { turn: 7, reason: { kind: 'rejected', reason: 'policy' } })
-    events.session.append('turn/end', { turn: 8, reason: { kind: 'interrupted' } })
+    agentEvents(events.ctx, unrelatedAgent).emit('agent/status', 'running')
+    agentEvents(events.ctx, unrelatedAgent).emit('agent/error', 1, 1, new Error('hidden error'))
+    agentEvents(events.ctx, unrelatedAgent).emit('agent/disposed')
+    agentEvents(events.ctx, events.agent).emit('agent/error', 1, 1, new Error('live failure'))
+    events.session.append('step/end', { turn: 1, step: 1 })
+    events.session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'live failure' } })
+    events.session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/end', { turn: 2, reason: { kind: 'error', step: 1, message: 'durable failure' } })
+    events.session.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/end', { turn: 3, reason: { kind: 'aborted', reason: 'stopped' } })
+    events.session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/end', { turn: 4, reason: { kind: 'max-tokens' } })
+    events.session.append('turn/start', { turn: 5, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/end', { turn: 5, reason: { kind: 'rejected', reason: 'policy' } })
+    events.session.append('turn/start', { turn: 6, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/end', { turn: 6, reason: { kind: 'interrupted' } })
+    events.session.append('turn/start', { turn: 7, trigger: { kind: 'message', source: { kind: 'user' } } })
     events.session.append('turn/end', {
-      turn: 9,
+      turn: 7,
       reason: { kind: 'error', step: 1, failure: { message: 'structured provider failure', code: 'SERVER' } },
     })
-    events.ctx.emit('agent/disposed', events.agent)
+    agentEvents(events.ctx, events.agent).emit('agent/disposed')
     await tick()
     expect(events.terminal.output).toContain('live failure')
     expect(events.terminal.output).toContain('durable failure')
@@ -914,7 +925,7 @@ describe('tool cards and surface replay', () => {
       })),
     ])
     for (const [id, name, args] of calls) {
-      result.session.append('tool/call', { turn: 1, step: 0, callId: id as never, name, arguments: args })
+      result.session.append('tool/call', { turn: 1, step: 1, callId: id as never, name, arguments: args })
     }
     await tick()
     expect(result.terminal.output).toContain('$ raw command')
@@ -924,23 +935,23 @@ describe('tool cards and surface replay', () => {
     expect(result.terminal.output).toContain('call presenter boom')
     expect(result.terminal.output).toContain('Symbol(input)')
     result.session.append('tool/result', {
-      turn: 1, step: 0, callId: 'c1' as never, content: [{ type: 'text', text: 'raw bash' }], isError: false,
+      turn: 1, step: 1, callId: 'c1' as never, content: [{ type: 'text', text: 'raw bash' }], isError: false,
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 0, callId: 'c2' as never, content: [{ type: 'text', text: 'stopped' }], isError: true,
+      turn: 1, step: 1, callId: 'c2' as never, content: [{ type: 'text', text: 'stopped' }], isError: true,
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 0, callId: 'c3' as never, content: [{ type: 'text', text: 'done' }], isError: false,
+      turn: 1, step: 1, callId: 'c3' as never, content: [{ type: 'text', text: 'done' }], isError: false,
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 0, callId: 'c4' as never, content: [{ type: 'text', text: 'raw generic' }], isError: false,
+      turn: 1, step: 1, callId: 'c4' as never, content: [{ type: 'text', text: 'raw generic' }], isError: false,
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 0, callId: 'c5' as never, content: [{ type: 'text', text: 'raw throwing' }], isError: false,
+      turn: 1, step: 1, callId: 'c5' as never, content: [{ type: 'text', text: 'raw throwing' }], isError: false,
       meta: { value: 1 },
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 0, callId: 'c7' as never,
+      turn: 1, step: 1, callId: 'c7' as never,
       content: [
         { type: 'tool-call', id: 'inner' as never, name: 'inner', arguments: '{}' },
         { type: 'tool-result', toolCallId: 'inner' as never, content: [{ type: 'text', text: 'nested output' }] },
@@ -949,13 +960,18 @@ describe('tool cards and surface replay', () => {
       isError: false,
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 0, callId: 'c8' as never, content: [{ type: 'text', text: '\nundefined presenter output\n\nkept tail\n' }], isError: false,
+      turn: 1, step: 1, callId: 'c8' as never, content: [{ type: 'text', text: '\nundefined presenter output\n\nkept tail\n' }], isError: false,
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 0, callId: 'c11' as never, content: [{ type: 'text', text: '\nconverted terminal\n\nfinished\n' }], isError: false,
+      turn: 1, step: 1, callId: 'c11' as never, content: [{ type: 'text', text: '\nconverted terminal\n\nfinished\n' }], isError: false,
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 0, callId: 'orphan' as never, content: [{ type: 'text', text: 'orphan result' }], isError: false,
+      turn: 1,
+      step: 1,
+      callId: 'orphan' as never,
+      content: [{ type: 'text', text: 'orphan result' }],
+      isError: true,
+      error: { name: 'InterruptedError', code: 'interrupted' },
     }, { surfaceOp: 'append' })
     await tick()
 
@@ -996,15 +1012,15 @@ describe('tool cards and surface replay', () => {
     appendUser(result.session, 'old prompt')
     const assistant = result.session.append('assistant/message', {
       turn: 1,
-      step: 0,
+      step: 1,
       provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
       content: [{ type: 'tool-call', id: 'old-call' as never, name: 'bash', arguments: '{}' }],
     }, { surfaceOp: 'append' })
     result.session.append('tool/call', {
-      turn: 1, step: 0, callId: 'old-call' as never, name: 'bash', arguments: '{}',
+      turn: 1, step: 1, callId: 'old-call' as never, name: 'bash', arguments: '{}',
     })
     const toolResult = result.session.append('tool/result', {
-      turn: 1, step: 0, callId: 'old-call' as never, content: [{ type: 'text', text: 'old output' }], isError: false,
+      turn: 1, step: 1, callId: 'old-call' as never, content: [{ type: 'text', text: 'old output' }], isError: false,
     }, { surfaceOp: 'append' })
     const start = result.session.surface.nodes[0] as number
     result.session.append('context/message', {
@@ -1290,6 +1306,8 @@ describe('terminal mounting', () => {
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const session = ctx.sessions.create(SessionId('failed-start-session'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'running', ctx,
       send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
@@ -1307,7 +1325,7 @@ describe('terminal mounting', () => {
       .rejects.toMatchObject({ code: 'NO_PROVIDER' })
     session.append('assistant/chunk', {
       turn: 1,
-      step: 0,
+      step: 1,
       chunk: { type: 'text-delta', index: 0, text: 'must not render' },
     })
     await tick()

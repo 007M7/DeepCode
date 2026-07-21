@@ -168,6 +168,8 @@ const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   BashEnvVariableInfo: 'service-local metadata type is owned by packages/bash/tool-bash/src/index.ts',
   CompactAgentContext: 'compaction service input is owned by packages/compact/compact/src/index.ts',
   CreateAgentOptions: 'agent creation contract is owned by packages/core/agent/README.md',
+  InvariantInstaller: 'service-local contribution contract is owned by packages/support/invariants/README.md',
+  InvariantRegistration: 'service-local lifecycle handle is owned by packages/support/invariants/README.md',
   PresetOption: 'deployment menu metadata is owned by packages/ui/permission/README.md',
   PresetSpec: 'deployment preset composition is owned by packages/ui/permission/README.md',
   PromptAssembly: 'assembly result is owned by packages/core/system-prompt/README.md',

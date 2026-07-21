@@ -22,6 +22,9 @@
     },
     {
       "path": "../../core/scope"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

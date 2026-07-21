@@ -11,6 +11,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from 'cordis'
+import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { meta, oneTurnLog, appendLog } from './contract.ts'
@@ -76,7 +77,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       try {
         const session = ctx.sessions.create(SessionId('live'), { meta: { cwd: WORK } })
         send(session, oneTurnLog())
-        await ctx.parallel('session/flush', session)
+        await ctx.sessions.flush(session)
 
         const loaded = await ctx.sessionPersistence.load(SessionId('live'))
         expect(loaded.events).toHaveLength(6)
@@ -96,7 +97,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       try {
         const session = ctx.sessions.create(SessionId('forked-child'), { meta: { cwd: WORK, seedLength: 3 } })
         send(session, oneTurnLog())
-        await ctx.parallel('session/flush', session)
+        await ctx.sessions.flush(session)
 
         const loaded = await ctx.sessionPersistence.load(SessionId('forked-child'))
         expect(loaded.meta.seedLength).toBe(3)
@@ -132,17 +133,17 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const { ctx, fiber } = await freshCtx(fix)
       try {
         const session = ctx.sessions.create(SessionId('mutate'), { meta: { cwd: WORK } })
+        session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         const ev = session.append('user/message', { content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
         expect(() => {
           ;(ev.data as { content: { type: 'text'; text: string }[] }).content[0]!.text = 'HACKED'
         }).toThrow(TypeError)
-        session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-        await ctx.parallel('session/flush', session)
+        await ctx.sessions.flush(session)
 
         const loaded = await ctx.sessionPersistence.load(SessionId('mutate'))
-        const first = loaded.events[0]
-        expect(first?.type === 'user/message' && (first.data.content[0] as { text: string }).text).toBe('original')
+        const message = loaded.events.find(event => event.type === 'user/message')
+        expect(message?.type === 'user/message' && (message.data.content[0] as { text: string }).text).toBe('original')
       } finally {
         await fiber.dispose()
         await fix.cleanup()
@@ -187,7 +188,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         const loaded = await ctx.sessionPersistence.load(SessionId('forked'))
         expect(loaded.events).toEqual(seed)
         // A flush with no NEW events must not double-write.
-        await ctx.parallel('session/flush', forked)
+        await ctx.sessions.flush(forked)
         const reloaded = await ctx.sessionPersistence.load(SessionId('forked'))
         expect(reloaded.events).toEqual(seed)
       } finally {
@@ -203,7 +204,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       try {
         const s1 = first.ctx.sessions.create(SessionId('resumed'), { meta: { cwd: WORK } })
         send(s1, oneTurnLog())
-        await first.ctx.parallel('session/flush', s1)
+        await first.ctx.sessions.flush(s1)
       } finally {
         await first.fiber.dispose()
       }
@@ -215,7 +216,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         await second.ctx.sessions.flush(s2) // let onCreated adopt
         s2.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
         s2.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
-        await second.ctx.parallel('session/flush', s2)
+        await second.ctx.sessions.flush(s2)
 
         const reloaded = await second.ctx.sessionPersistence.load(SessionId('resumed'))
         expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
@@ -233,13 +234,14 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       await ctx.plugin(SessionStore)
       // A session exists BEFORE the persistence plugin is applied.
       const session = ctx.sessions.create(SessionId('pre-existing'), { meta: { cwd: WORK } })
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
       session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
       const fiber = await fix.mount(ctx)
       try {
         // The plugin seeded it on apply; a subsequent flush persists its events.
-        await ctx.parallel('session/flush', session)
+        await ctx.sessions.flush(session)
         const loaded = await ctx.sessionPersistence.load(SessionId('pre-existing'))
         expect(loaded.events.length).toBeGreaterThanOrEqual(2)
       } finally {
@@ -254,6 +256,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       await ctx.plugin(SessionStore)
       const fiber = await fix.mount(ctx)
       const session = await liveSessionInFiber(ctx, 'drain', WORK)
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
       session.append('user/message', { content: [{ type: 'text', text: 'buffered' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       // No explicit flush — dispose must drain.
@@ -282,7 +285,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
         session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-        await ctx.parallel('session/flush', session)
+        await ctx.sessions.flush(session)
 
         // Hot-reload: dispose instance 1, mount instance 2 over the same storage while the
         // session stays live. The new instance has no coordinator state but must adopt the
@@ -292,7 +295,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('user/message', { content: [{ type: 'text', text: 'again' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
         session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
-        await expect(ctx.parallel('session/flush', session)).resolves.not.toThrow()
+        await expect(ctx.sessions.flush(session)).resolves.not.toThrow()
 
         const loaded = await ctx.sessionPersistence.load(SessionId('hmr-adopt'))
         expect(loaded.events.filter(e => e.type === 'turn/start')).toHaveLength(2)
@@ -312,7 +315,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         const backend1 = await fix.mount(ctx)
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-        await ctx.parallel('session/flush', session)
+        await ctx.sessions.flush(session)
 
         // Append turn 2 to the LIVE session, then dispose instance 1 WITHOUT
         // flushing turn 2: it is now ONLY in the live session's events; the new
@@ -324,7 +327,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         // Instance 2 adopts the stored prefix (turn 1) and MUST also persist the
         // live suffix (turn 2) carried in the session's events.
         await fix.mount(ctx)
-        await ctx.parallel('session/flush', session)
+        await ctx.sessions.flush(session)
         const loaded = await ctx.sessionPersistence.load(SessionId('hmr-suffix'))
         expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3])
         expect(loaded.events.filter(e => e.type === 'turn/start')).toHaveLength(2)
@@ -343,7 +346,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         const first = await fix.mount(ctx)
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('step/start', { turn: 1, step: 1 })
-        await ctx.parallel('session/flush', session)
+        await ctx.sessions.flush(session)
 
         // Crash-tail a torn fragment past the (open) committed turn, then reload.
         await first.dispose()
@@ -353,7 +356,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         // end. Adoption must truncate the torn tail but NOT synthesize closers.
         session.append('step/end', { turn: 1, step: 1 })
         session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-        await ctx.parallel('session/flush', session)
+        await ctx.sessions.flush(session)
 
         const loaded = await ctx.sessionPersistence.load(SessionId('hmr-open'))
         expect(loaded.events.map(e => e.type)).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
@@ -373,7 +376,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       try {
         const s1 = first.ctx.sessions.create(SessionId('collide'), { meta: { cwd: WORK } })
         send(s1, oneTurnLog())
-        await first.ctx.parallel('session/flush', s1)
+        await first.ctx.sessions.flush(s1)
       } finally {
         await first.fiber.dispose()
       }
@@ -413,7 +416,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         await expect(ctx.sessions.flush(reuse)).resolves.toBeUndefined()
         reuse.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         reuse.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-        await ctx.parallel('session/flush', reuse)
+        await ctx.sessions.flush(reuse)
         const loaded = await ctx.sessionPersistence.load(SessionId('abandoned'))
         expect(loaded.events.map(e => e.seq)).toEqual([0, 1])
       } finally {
@@ -459,14 +462,15 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const { ctx, fiber } = await freshCtx(fix)
       try {
         const session = ctx.sessions.create(SessionId('idem'), { meta: { cwd: WORK } })
+        session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
         session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-        await ctx.parallel('session/flush', session)
+        await ctx.sessions.flush(session)
         // Re-emit session/created for the SAME live session (idempotent initFor).
-        ctx.emit('session/created', session)
-        await ctx.parallel('session/flush', session)
+        ctx.emit(scopeTarget(session, undefined), 'session/created', session)
+        await ctx.sessions.flush(session)
         const loaded = await ctx.sessionPersistence.load(SessionId('idem'))
-        expect(loaded.events).toHaveLength(2) // not doubled
+        expect(loaded.events).toHaveLength(3) // not doubled
       } finally {
         await fiber.dispose()
         await fix.cleanup()
@@ -711,11 +715,12 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         // async onCreated init has necessarily set state (exercises the
         // state-undefined cursor path).
         const session = ctx.sessions.create(SessionId('flush-nostate'), { meta: { cwd: WORK } })
+        session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
         session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-        await ctx.parallel('session/flush', session)
+        await ctx.sessions.flush(session)
         const loaded = await ctx.sessionPersistence.load(SessionId('flush-nostate'))
-        expect(loaded.events).toHaveLength(2)
+        expect(loaded.events).toHaveLength(3)
       } finally {
         await fiber.dispose()
         await fix.cleanup()
