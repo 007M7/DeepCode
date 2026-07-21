@@ -1,14 +1,14 @@
 # Agent Note: Shared scoped-layer storage
 
-Status: proposed
+Status: implemented
 
 English | [中文](2026-07-12-scoped-layers-store.zh.md)
 
 ## Problem
 
-Agent scoping ([decision](../../implemented/architecture/2026-07-08-agent-scope-contexts.md), [runtime design](../../implemented/architecture/2026-07-12-agent-scope-runtime-design.md)) gives scope-aware registries the same recurring shape: one global registration layer plus one exact agent layer. Seven registration facades implement that shape independently: `tools.register`, `tools.restrict`, and `tools.guard` in `dsh-tools`; `SystemPrompt.section`, `SystemPrompt.tools`, and `SystemPrompt.variable` in `dsh-system-prompt`; and `CommandService.register` in `dsh-commands`.
+Agent scoping ([decision](2026-07-08-agent-scope-contexts.md), [runtime design](2026-07-12-agent-scope-runtime-design.md)) gives scope-aware registries the same recurring shape: one global registration layer plus one exact agent layer. Seven registration facades use that shape: `tools.register`, `tools.restrict`, and `tools.guard` in `dsh-tools`; `SystemPrompt.section`, `SystemPrompt.tools`, and `SystemPrompt.variable` in `dsh-system-prompt`; and `CommandService.register` in `dsh-commands`.
 
-Each facade repeats the lifecycle choreography around its domain state: derive visibility from the calling context, create a scoped container on demand, attach ownership to the same Cordis fiber, install undo before notifying observers, return Cordis's exact disposer, and reclaim empty scoped state. The copies use separate maps and collection types, so a service has no object representing one scope's complete contribution and must reproduce cleanup for every table.
+Without a shared primitive, each facade repeats the lifecycle choreography around its domain state: derive visibility from the calling context, create a scoped container on demand, attach ownership to the same Cordis fiber, install undo before notifying observers, return Cordis's exact disposer, and reclaim empty scoped state. Separate maps and collection types also leave a service without one object representing a scope's complete contribution.
 
 The duplicated code carries three non-obvious requirements:
 
@@ -18,9 +18,9 @@ The duplicated code carries three non-obvious requirements:
 
 The shared part is lifecycle and insertion-ordered storage, not registry policy. Tool restrictions, reserved transport handling, prompt evaluation timing, command normalization, exact diagnostics, and callback containment remain different domain contracts.
 
-## Proposal
+## Decision
 
-`@deepseek-ai/dsh-scope` gains a key-agnostic `store.ts` implementation module. The package continues to peer on Cordis and `@deepseek-ai/dsh-invariants`, and its invariant companion remains unchanged. The package root exports four storage symbols: `ScopeLayer`, `ScopedLayers`, `NamedEntries`, and `AnonymousEntries`. `EntryValues` remains internal, and `store.ts` is not a package subpath.
+`@deepseek-ai/dsh-scope` provides a key-agnostic `store.ts` implementation module. The package continues to peer on Cordis and `@deepseek-ai/dsh-invariants`, and its invariant companion remains unchanged. The package root exports four storage symbols: `ScopeLayer`, `ScopedLayers`, `NamedEntries`, and `AnonymousEntries`. `EntryValues` remains internal, and `store.ts` is not a package subpath.
 
 `ScopeLayer` keeps the aggregate concept explicit while requiring only whole-layer emptiness. A service defines one concrete layer whose tables and domain helpers fit that service; `ScopedLayers` owns construction, selection, lifecycle attachment, notification, and aggregate reclamation.
 
@@ -108,16 +108,19 @@ All seven facades keep validation and diagnostics in their owning registry and c
 
 **Generate layers from a mapped-type table description.** Three-table and one-table concrete layers are short, inspectable, and free to hold domain helpers. A class generator would add a second construction model and generated runtime shape for little leverage.
 
-## Acceptance criteria
+## Consequences
 
-- `dsh-scope` exports exactly the four proposed storage symbols from its root and covers global construction, lazy scoped construction, non-creating reads, named shadowing, aggregate reclamation, failure cleanup, notification ordering, exact disposer identity, caller-owned duplicate errors, independent anonymous duplicates, and live iterators.
-- `dsh-tools`, `dsh-system-prompt`, and `dsh-commands` migrate all seven registration facades while preserving validation order, exact diagnostics, views, notification policy, re-entrancy, and HMR disposal.
-- The `dsh-scope` README and scoped core-data documentation describe the public contract; architecture and runtime-design references identify the shared store without duplicating it. Consumer READMEs remain focused on their unchanged public behavior.
-- This pair moves to `implemented/architecture` in the implementation PR, changes `Proposal` to present-tense `Decision`, and records shipped consequences and verification. Existing keyless snapshots remain byte-identical.
+- Scope-aware registries express one aggregate layer and reuse the same construction, ownership, rollback, notification, and reclamation choreography. Domain-specific validation, diagnostics, filtering, evaluation, and observer policy remain in each registry.
+- The public read surface stays narrow: direct table iteration preserves explicitly live behavior, while `merge()` is the one shared materialized shadowing operation. A heterogeneous `ScopeLayer` has no layer-wide `values()` contract.
+- The helper is deliberately synchronous. A future registration that needs asynchronous setup or several independently owned undos must identify its ownership and settlement boundaries before widening this contract.
+- An action must throw before retaining a contribution or return an undo for everything it retained; the helper cannot repair mutation outside that contract. The provided entry operations are atomic, and migrated registries perform fallible validation before insertion.
+- A scoped layer remains allocated until every table in its aggregate is empty. Disposing one facade therefore cannot discard sibling contributions owned by the same scope.
+- The four public symbols become a reusable package contract. Keeping `EntryValues` internal and consumer policy outside the helper limits the compatibility surface.
+- The migration changes no public registry behavior and no model-, human-, wire-, persistence-, configuration-, or dependency-graph output.
 
-## Risks
+## Verification
 
-- A future registration may need asynchronous setup or several independently owned undos. That consumer must identify its ownership and settlement boundary before widening this deliberately synchronous interface.
-- A throwing action that mutates outside the returned undo contract cannot be repaired generically. Entry operations are atomic, migrations perform fallible validation before insertion, and tests pin cleanup for factory and pre-retention action failures.
-- Aggregate reclamation keeps a scoped layer alive until every table empties. This is intentional and observable only as internal storage lifetime; tests pin that one table's disposal does not discard sibling contributions.
-- The public classes add a reusable package contract. Keeping reads narrow and domain policy in consumers limits how much future code must preserve.
+- `dsh-scope` unit tests cover global construction, lazy scoped construction, non-creating reads, named merge order and shadowing, aggregate reclamation, factory and action failure cleanup, notification ordering and rollback, `notify: false`, effect labels, exact disposer identity, idempotent teardown, caller-owned duplicate errors, independent anonymous duplicates, and live iterators.
+- Focused tool, system-prompt, and command suites cover restrictions, reserved transport handling, known/restrictable-name agreement, guard re-entrancy, validation order, exact diagnostics, section shadow-before-evaluate, provider snapshot membership, variable re-entrancy, contained command observers, frozen and sorted views, direct execution, and lifecycle disposal.
+- The scoped core-data type-equivalence check ties `ScopeLayer` documentation to its source declaration. Repository documentation, module-graph, build, hygiene, coverage, and built-artifact gates exercise the root export and package boundary.
+- Existing ACP, headless, and TUI keyless snapshots remain the regression boundary for tool schemas, prompt assembly, and human commands. The implementation does not update any expected transcript.
