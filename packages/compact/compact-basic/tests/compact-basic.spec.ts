@@ -4,10 +4,20 @@ import BasicCompactService from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compact-basic/src/region.ts'
 import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
-import { resolveConfig } from '@deepseek-ai/dsh-compact-basic/src/config.ts'
+import {
+  resolveCompactSpec,
+  resolveConfig,
+  resolveTargetPolicy,
+} from '@deepseek-ai/dsh-compact-basic/src/config.ts'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import LlmService, { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmAdapter } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type {
+  ContentBlock,
+  GenerateOptions,
+  LlmFailure,
+  LlmModelContext,
+  StreamChunk,
+} from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
@@ -16,9 +26,40 @@ import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 const SIGNAL = new AbortController().signal
 const MODEL = 'test-model'
 
+class ContextAdapter extends LlmAdapter {
+  constructor(private readonly contextWindow: number) {
+    super()
+  }
+
+  override resolveModelContext(): Promise<LlmModelContext> {
+    return Promise.resolve({ contextWindow: this.contextWindow })
+  }
+
+  override async * stream(): AsyncIterable<StreamChunk> {
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
+
+class RoutedContextAdapter extends LlmAdapter {
+  constructor(private readonly windows: Readonly<Record<string, number>>) {
+    super()
+  }
+
+  override resolveModelContext(provider: string): Promise<LlmModelContext | undefined> {
+    const contextWindow = this.windows[provider]
+    return Promise.resolve(contextWindow === undefined ? undefined : { contextWindow })
+  }
+
+  override async * stream(): AsyncIterable<StreamChunk> {
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
+
 function createContext(contextWindow = 1_000): Context {
   const ctx = new Context()
-  void new TokenMeterService(ctx, { contextWindow })
+  void new LlmService(ctx)
+  void new TokenMeterService(ctx)
+  ctx.llm.registerAdapter([MODEL, 'actual', 'unlisted-provider'], new ContextAdapter(contextWindow))
   return ctx
 }
 
@@ -178,43 +219,131 @@ async function compactIfNeeded(
 
 describe('compact configuration and defaults', () => {
   it('uses low-friction service-wide defaults', () => {
-    const ctx = createContext()
-    const resolved = resolveConfig({}, ctx.tokenMeter)
+    const resolved = resolveConfig({})
 
     expect(resolved).toEqual({
       thresholdRatio: 0.8,
-      retainTokens: 160,
+      retainRatio: 0.16,
       summarizationProvider: '',
       summarizationModel: '',
       maxTokens: 8192,
       compactionRetries: 1,
       maxOverflowRetries: 1,
+      modelPolicies: [],
       auto: true,
     })
     expect(Object.isFrozen(resolved)).toBe(true)
   })
 
   it('resolves threshold and retention overrides independently', () => {
-    const ctx = createContext()
     const thresholdOnly = resolveConfig({
       thresholdRatio: 0.5,
-    }, ctx.tokenMeter)
+    })
     expect(thresholdOnly).toMatchObject({
       thresholdRatio: 0.5,
-      retainTokens: 160,
+      retainRatio: 0.16,
     })
 
     const retentionOnly = resolveConfig({
       retainTokens: 70,
-    }, ctx.tokenMeter)
+    })
     expect(retentionOnly).toMatchObject({
       thresholdRatio: 0.8,
       retainTokens: 70,
     })
+    expect(retentionOnly).not.toHaveProperty('retainRatio')
+  })
+
+  it('merges exact provider/model policy overrides and scales ratios per model', () => {
+    const config = resolveConfig({
+      thresholdRatio: 0.8,
+      retainRatio: 0.1,
+      modelPolicies: [{
+        provider: 'small-provider',
+        model: 'shared-id',
+        thresholdRatio: 0.5,
+        retainTokens: 120,
+      }],
+    })
+    const small = resolveTargetPolicy(config, {
+      provider: 'small-provider',
+      model: 'shared-id',
+    })
+    const otherProvider = resolveTargetPolicy(config, {
+      provider: 'large-provider',
+      model: 'shared-id',
+    })
+
+    expect(resolveCompactSpec(small, 1_000)).toMatchObject({
+      thresholdTokens: 500,
+      retainTokens: 120,
+    })
+    expect(resolveCompactSpec(otherProvider, 2_000)).toMatchObject({
+      thresholdTokens: 1_600,
+      retainTokens: 200,
+    })
+
+    const ratioOverride = resolveTargetPolicy(resolveConfig({
+      retainTokens: 200,
+      modelPolicies: [{
+        provider: 'ratio-provider',
+        model: 'ratio-model',
+        thresholdRatio: 0.6,
+        retainRatio: 0.2,
+        summarizationProvider: 'summary-provider',
+        summarizationModel: 'summary-model',
+        maxTokens: 512,
+        compactionRetries: 2,
+        maxOverflowRetries: 3,
+      }],
+    }), { provider: 'ratio-provider', model: 'ratio-model' })
+    expect(resolveCompactSpec(ratioOverride, 2_000)).toMatchObject({
+      thresholdTokens: 1_200,
+      retainTokens: 400,
+      summarizationProvider: 'summary-provider',
+      summarizationModel: 'summary-model',
+      maxTokens: 512,
+      compactionRetries: 2,
+      maxOverflowRetries: 3,
+    })
+  })
+
+  it('inherits, clears, and replaces the summarization target as a pair', () => {
+    const config = resolveConfig({
+      summarizationProvider: 'default-provider',
+      summarizationModel: 'default-model',
+      modelPolicies: [
+        { provider: 'inherit-provider', model: MODEL },
+        {
+          provider: 'clear-provider',
+          model: MODEL,
+          summarizationProvider: '',
+          summarizationModel: '',
+        },
+        {
+          provider: 'replace-provider',
+          model: MODEL,
+          summarizationProvider: 'replacement-provider',
+          summarizationModel: 'replacement-model',
+        },
+      ],
+    })
+
+    expect(resolveTargetPolicy(config, { provider: 'inherit-provider', model: MODEL }))
+      .toMatchObject({
+        summarizationProvider: 'default-provider',
+        summarizationModel: 'default-model',
+      })
+    expect(resolveTargetPolicy(config, { provider: 'clear-provider', model: MODEL }))
+      .toMatchObject({ summarizationProvider: '', summarizationModel: '' })
+    expect(resolveTargetPolicy(config, { provider: 'replace-provider', model: MODEL }))
+      .toMatchObject({
+        summarizationProvider: 'replacement-provider',
+        summarizationModel: 'replacement-model',
+      })
   })
 
   it('validates common values and pressure-policy invariants', () => {
-    const ctx = createContext()
     const bad = [
       [{ maxTokens: 0 }, /maxTokens/],
       [{ compactionRetries: -1 }, /compactionRetries/],
@@ -222,19 +351,60 @@ describe('compact configuration and defaults', () => {
       [{ auto: 'yes' }, /auto must be a boolean/],
       [{ summarizationProvider: 1 }, /summarizationProvider must be a string/],
       [{ summarizationModel: 1 }, /summarizationModel must be a string/],
-      [{ summarizationProvider: MODEL }, /must both be set or both be empty/],
-      [{ summarizationModel: MODEL }, /must both be set or both be empty/],
+      [{ summarizationProvider: MODEL }, /must be set together/],
+      [{ summarizationModel: MODEL }, /must be set together/],
+      [{ summarizationProvider: '' }, /must be set together/],
+      [{ summarizationModel: '' }, /must be set together/],
       [{ thresholdRatio: 0 }, /number in \(0, 1\]/],
       [{ thresholdRatio: 1.1 }, /number in \(0, 1\]/],
+      [{ retainRatio: 0.9 }, /retainRatio \(0.9\) must be less than the resolved thresholdRatio \(0.8\)/],
+      [{ thresholdRatio: 0.1 }, /retainRatio \(0.16\) must be less than the resolved thresholdRatio \(0.1\)/],
       [{ retainTokens: -1 }, /non-negative integer/],
-      [{ thresholdRatio: 0.5, retainTokens: 500 }, /less than threshold/],
+      [{ retainRatio: 0.2, retainTokens: 100 }, /mutually exclusive/],
+      [{ modelPolicies: {} }, /modelPolicies must be an array/],
+      [{ modelPolicies: [1] }, /modelPolicies\[0\] must be an object/],
+      [{ modelPolicies: [null] }, /modelPolicies\[0\] must be an object/],
+      [{ modelPolicies: [[]] }, /modelPolicies\[0\] must be an object/],
+      [{ modelPolicies: [{ provider: 1, model: MODEL }] }, /provider must be a non-empty string/],
+      [{ modelPolicies: [{ provider: '', model: MODEL }] }, /provider must be a non-empty string/],
+      [{ modelPolicies: [{ provider: MODEL, model: 1 }] }, /model must be a non-empty string/],
+      [{ modelPolicies: [{ provider: MODEL, model: '' }] }, /model must be a non-empty string/],
+      [{ modelPolicies: [{ provider: MODEL, model: MODEL, summarizationProvider: 1 }] }, /summarizationProvider must be a string/],
+      [{
+        summarizationProvider: 'default-provider',
+        summarizationModel: 'default-model',
+        modelPolicies: [{ provider: MODEL, model: MODEL, summarizationModel: '' }],
+      }, /modelPolicies\[0\].*must be set together/],
+      [{
+        summarizationProvider: 'default-provider',
+        summarizationModel: 'default-model',
+        modelPolicies: [{ provider: MODEL, model: MODEL, summarizationProvider: '' }],
+      }, /modelPolicies\[0\].*must be set together/],
+      [{ modelPolicies: [{ provider: MODEL, model: MODEL, retainRatio: 0.2, retainTokens: 100 }] }, /mutually exclusive/],
+      [
+        { modelPolicies: [{ provider: MODEL, model: MODEL, thresholdRatio: 0.1 }] },
+        /modelPolicies\[0\]: retainRatio \(0.16\).*thresholdRatio \(0.1\)/,
+      ],
+      [
+        { modelPolicies: [{ provider: MODEL, model: MODEL, retainRatio: 0.9 }] },
+        /modelPolicies\[0\]: retainRatio \(0.9\).*thresholdRatio \(0.8\)/,
+      ],
+      [{ modelPolicies: [{ provider: MODEL, model: MODEL }, { provider: MODEL, model: MODEL }] }, /duplicate model policy/],
       [{ models: { [MODEL]: { retainTokens: 10 } } }, /BasicCompactConfig: unknown key "models"/],
       [{ thresholdRato: 0.5 }, /BasicCompactConfig: unknown key "thresholdRato"/],
     ] as Array<[unknown, RegExp]>
 
     for (const [config, pattern] of bad) {
-      expect(() => resolveConfig(config as BasicCompactConfig, ctx.tokenMeter)).toThrow(pattern)
+      expect(() => resolveConfig(config as BasicCompactConfig)).toThrow(pattern)
     }
+
+    const invalidPressure = resolveTargetPolicy(resolveConfig({
+      thresholdRatio: 0.5,
+      retainTokens: 500,
+    }), { provider: MODEL, model: MODEL })
+    expect(() => resolveCompactSpec(invalidPressure, 1_000)).toThrow(/less than threshold/)
+    expect(() => resolveCompactSpec(invalidPressure, 1.5)).toThrow(/positive integer/)
+    expect(() => resolveCompactSpec(invalidPressure, 0)).toThrow(/positive integer/)
   })
 
 })
@@ -255,7 +425,7 @@ describe('pressure measurement and retention', () => {
     expect(compact.calls).toHaveLength(0)
   })
 
-  it('meters any routed model without profile resolution', async () => {
+  it('meters an unlisted model when its provider adapter supplies context metadata', async () => {
     const compact = service(compactConfig)
     const session = conversation()
     session.append('request/header', {
@@ -263,6 +433,52 @@ describe('pressure measurement and retention', () => {
       reason: 'resume',
     })
     await expect(compactIfNeeded(compact, session))
+      .resolves.not.toBeNull()
+  })
+
+  it('re-resolves capacity after a same-model-id provider switch in one session', async () => {
+    const ctx = new Context()
+    void new LlmService(ctx)
+    void new TokenMeterService(ctx)
+    ctx.llm.registerAdapter(['large', 'small'], new RoutedContextAdapter({
+      large: 10_000,
+      small: 1_000,
+    }))
+    const compact = service({
+      auto: false,
+      thresholdRatio: 0.5,
+      retainRatio: 0.1,
+    }, ctx)
+    const session = conversation(4)
+    session.append('request/header', {
+      header: { config: { provider: 'large', model: 'shared-id' } },
+      reason: 'resume',
+    })
+    await expect(compactIfNeeded(compact, session)).resolves.toBeNull()
+
+    session.append('request/header', {
+      header: { config: { provider: 'small', model: 'shared-id' } },
+      reason: 'change',
+    })
+    await expect(compactIfNeeded(compact, session)).resolves.not.toBeNull()
+  })
+
+  it('requires capacity only for proactive pressure, not provider-confirmed overflow', async () => {
+    const ctx = new Context()
+    void new LlmService(ctx)
+    void new TokenMeterService(ctx)
+    ctx.llm.registerAdapter(['unknown-context'], new ContextAdapter(1_000))
+    vi.spyOn(ctx.llm, 'resolveModelContext').mockResolvedValue(undefined)
+    const compact = service(compactConfig, ctx)
+    const session = conversation(4)
+    session.append('request/header', {
+      header: { config: { provider: 'unknown-context', model: 'model' } },
+      reason: 'resume',
+    })
+
+    await expect(compactIfNeeded(compact, session, 'pressure'))
+      .rejects.toThrow(/no context capacity for unknown-context\/model/)
+    await expect(compactIfNeeded(compact, session, 'context-overflow'))
       .resolves.not.toBeNull()
   })
 
@@ -789,7 +1005,7 @@ async function summarizerHarness(
 ): Promise<{ ctx: Context; adapter: ScriptedAdapter; compact: ExposedCompactService }> {
   const ctx = new Context()
   await ctx.plugin(LlmService)
-  void new TokenMeterService(ctx, { contextWindow: 1_000 })
+  void new TokenMeterService(ctx)
   const adapter = new ScriptedAdapter(blocks, finish)
   ctx.llm.registerAdapter([model], adapter)
   const compact = new ExposedCompactService(ctx, config)
@@ -869,6 +1085,31 @@ describe('default one-shot summarizer', () => {
     void new TokenMeterService(ctx)
     const compact = new ExposedCompactService(ctx, { auto: false })
     await expect(compact.runSummarize('history', agent(new Session(SessionId('model-less')))))
+      .rejects.toThrow(/no provider\/model available for summarization/)
+  })
+
+  it('uses a complete AgentOptions target when no durable route exists', async () => {
+    const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }])
+    const session = new Session(SessionId('headerless-summary'))
+
+    await expect(compact.runSummarize('history', agent(session, MODEL))).resolves.toMatchObject({
+      provider: MODEL,
+      model: MODEL,
+    })
+    expect(adapter.lastOptions).toMatchObject({ provider: MODEL, model: MODEL })
+  })
+
+  it.each([
+    { provider: '', model: MODEL },
+    { provider: MODEL },
+    { provider: MODEL, model: '' },
+  ])('rejects incomplete AgentOptions target %#', async (options) => {
+    const { compact } = await summarizerHarness([{ type: 'text', text: 'unused' }])
+    const owner = {
+      session: new Session(SessionId(`incomplete-${String(options.model)}`)),
+      options,
+    } as Agent
+    await expect(compact.runSummarize('history', owner))
       .rejects.toThrow(/no provider\/model available for summarization/)
   })
 
@@ -970,6 +1211,43 @@ describe('automatic listener and loader composition', () => {
     await expect(postStep(ctx, agent(session, MODEL))).resolves.toBeUndefined()
     expect(warnings).toContainEqual(expect.stringContaining('temporary failure'))
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
+  })
+
+  it('warns once per routed target when proactive pressure has no context metadata', async () => {
+    const ctx = createContext()
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    vi.spyOn(ctx.llm, 'resolveModelContext').mockResolvedValue(undefined)
+    void new TestCompactService(ctx, {
+      thresholdRatio: 0.5,
+      retainTokens: 180,
+    })
+    const session = conversation(4)
+
+    await postStep(ctx, agent(session, MODEL))
+    await postStep(ctx, agent(session, MODEL))
+
+    expect(warnings).toEqual([
+      expect.stringContaining(`no context capacity for ${MODEL}/${MODEL}`),
+    ])
+  })
+
+  it('warns once per routed target when absolute retention exceeds its resolved threshold', async () => {
+    const ctx = createContext()
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    void new TestCompactService(ctx, {
+      thresholdRatio: 0.5,
+      retainTokens: 500,
+    })
+    const session = conversation(4)
+
+    await postStep(ctx, agent(session, MODEL))
+    await postStep(ctx, agent(session, MODEL))
+
+    expect(warnings).toEqual([
+      expect.stringContaining('retainTokens (500) must be less than threshold tokens 500'),
+    ])
   })
 
   it('force-compacts below normal pressure for canonical overflow and retries only after replacement', async () => {
@@ -1187,6 +1465,18 @@ describe('automatic listener and loader composition', () => {
       .toEqual({ action: 'retry' })
   })
 
+  it('delegates canonical overflow when no durable routed target exists', async () => {
+    const ctx = createContext()
+    void new TestCompactService(ctx)
+    const session = new Session(SessionId('headerless-overflow'))
+    session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+
+    await expect(recover(ctx, agent(session, MODEL), overflow())).resolves.toEqual({ action: 'fail' })
+  })
+
   it('honors retry caps, non-context failures, and cancellation', async () => {
     const ctx = createContext()
     const compact = new TestCompactService(ctx, { maxOverflowRetries: 1 })
@@ -1199,6 +1489,23 @@ describe('automatic listener and loader composition', () => {
     const controller = new AbortController()
     controller.abort('cancelled')
     expect(await recover(ctx, owner, overflow(), 0, controller.signal)).toEqual({ action: 'fail' })
+    expect(compactSpy).not.toHaveBeenCalled()
+  })
+
+  it('applies the routed model override to the overflow retry cap', async () => {
+    const ctx = createContext()
+    const compact = new TestCompactService(ctx, {
+      maxOverflowRetries: 2,
+      modelPolicies: [{
+        provider: MODEL,
+        model: MODEL,
+        maxOverflowRetries: 1,
+      }],
+    })
+    const compactSpy = vi.spyOn(compact, 'compactIfNeeded')
+
+    expect(await recover(ctx, agent(conversation(3), MODEL), overflow(), 1))
+      .toEqual({ action: 'fail' })
     expect(compactSpy).not.toHaveBeenCalled()
   })
 
@@ -1249,7 +1556,6 @@ describe('automatic listener and loader composition', () => {
     const meterFiber = await ctx.plugin(TokenMeterService)
     const compactFiber = await ctx.plugin(BasicCompactService, { auto: false })
 
-    expect(ctx.tokenMeter.contextWindow).toBe(128_000)
     expect(ctx.get('compact')).toBeInstanceOf(BasicCompactService)
     await compactFiber.dispose()
     expect(ctx.get('compact')).toBeUndefined()
@@ -1260,7 +1566,7 @@ describe('automatic listener and loader composition', () => {
   it('removes its automatic listener with the plugin fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    await ctx.plugin(TokenMeterService, { contextWindow: 1_000 })
+    await ctx.plugin(TokenMeterService)
     const fiber = await ctx.plugin(TestCompactService, {
       thresholdRatio: 0.5,
       retainTokens: 180,

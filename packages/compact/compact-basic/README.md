@@ -9,31 +9,38 @@ This is the implementation tier of the compaction capability — see the [interf
 This backend owns the compaction policy:
 
 - **Measurement** — the singleton `ctx.tokenMeter` prices the latest canonical logged envelope and current surface at one consumed-log revision. Post-step pressure therefore includes the actual system prompt, tools, prefix, routing, assistant completion, tool results, buffered context, and steering.
+- **Routed policy** — proactive pressure resolves capacity from the adapter that owns the latest durable provider/model route, then scales the default policy plus an optional exact-target override into concrete token budgets. Model discovery remains advisory and is not consulted.
 - **Model-free pruning** — after pressure or canonical overflow qualifies, the optional [`ctx.toolResultPrune`](../compact-tool-result-prune/README.md) service rewrites oversized tool results before range selection. Compact-basic remeasures through `ctx.tokenMeter`, skips summarization when pressure becomes safe, and otherwise summarizes the pruned surface. Below-pressure post-step checks never prune.
 - **Retention** — compact the oldest whole surface units while preserving a recent tail and balanced tool-call/result cuts through the [`dsh-compact` boundary helpers](../compact/README.md#tool-pairing-boundaries). Turn boundaries do not protect old steps inside a runaway turn. An open indivisible tail declines until it closes. The optional pruner can repair an oversized closed tool unit when its text-bearing result is the removable bulk; indivisible non-tool units and non-prunable tool remainders remain out of scope.
 - **Convergence** — retry head-checkpoint compaction up to `compactionRetries`; reject a summary that does not shrink its source, and throw if retries cannot return below threshold.
 - **Summarization** — a direct `llm/stream` call uses the configured provider/model pair and cap, falling back to the latest logged request target and then the agent target, without running the loop-only `agent/request` seam. The input transcript preserves non-text blocks as tagged placeholders; only returned text enters the checkpoint, excluding reasoning and tool calls that would leak private reasoning or create an orphaned call.
 - **Framing** — the replacement user message marks established checkpoint context with `<compacted-summary>` tags. The raw summary remains on the provenance event, and later automatic cycles merge the prior checkpoint.
 - **Lifecycle** — `compactRegion()` mutates `agent.session` and records its start, summary, replacement, and end. The serial `agent/post-step` listener checks pressure after successful output and tool work are durable but before `step/end`. Canonical provider overflow is handled through `agent/request-error` after the failed step closes.
-- **Overflow recovery** — below-threshold overflow bypasses normal retention, prunes, then attempts one maximal balanced head reduction while leaving the newest indivisible unit. Retry is authorized whenever `surface.replaceGeneration` advances, including when pruning lands before later summary work throws. No replacement, an exhausted cap, cancellation, or an unknown/noncanonical error preserves the original provider failure.
+- **Overflow recovery** — provider-confirmed overflow needs no capacity metadata: it bypasses normal pressure and retention, prunes, then attempts one maximal balanced head reduction while leaving the newest indivisible unit. Retry is authorized whenever `surface.replaceGeneration` advances, including when pruning lands before later summary work throws. No replacement, an exhausted target-specific cap, cancellation, or an unknown/noncanonical error preserves the original provider failure.
 - **Failure handling** — an unmatched `compact/start` is an inert crash marker because no summary replacement landed. A region failure records an error end; the surface remains unchanged unless pruning already landed. Operational post-step failures warn and continue, while overflow-recovery failure preserves the original provider error only when no earlier replacement advanced the surface. Cancellation remains authoritative after any progress.
 
 The protected `summarize()` method is the sole subclass hook. A template- or remote-summarizer subclass can override it while pressure, retention, provenance, shrink validation, and shadowed-token accounting stay on `ctx.tokenMeter`. The hook returns the summary blocks together with the call envelope it used (`{ summary, provider, model, maxTokens? }`), which is logged on `compact/summary`.
 
 ## Config (`BasicCompactConfig`)
 
-Every setting is optional. The pressure and retention policy applies to the token meter's single context window. Unrecognized top-level keys are rejected.
+Every setting is optional. Top-level policy fields are defaults for every routed model; `modelPolicies` applies partial overrides to exact provider/model pairs. At pressure time, compact-basic asks the owning LLM adapter for that route's context capacity and resolves absolute budgets. Unrecognized keys, duplicate targets, mutually exclusive retention forms, and a merged `retainRatio` that is not below `thresholdRatio` fail plugin load. An absolute `retainTokens` budget that is not below its scaled threshold fails on the first resolvable target because that comparison requires model capacity.
 
 | Key | Required | Meaning |
 |---|---|---|
-| `thresholdRatio` | no (default `0.8`) | Compact at `floor(contextWindow × ratio)`. |
-| `retainTokens` | no (default `floor(contextWindow × 0.16)`) | Recent surface budget kept verbatim; must be below the threshold. |
+| `thresholdRatio` | no (default `0.8`) | Compact at `floor(routedContextWindow × ratio)`. |
+| `retainRatio` | no (default `0.16`) | Recent surface budget kept verbatim as a fraction of the routed context window; mutually exclusive with `retainTokens`. |
+| `retainTokens` | no | Absolute recent surface budget kept verbatim; mutually exclusive with `retainRatio` and must be below the resolved threshold. |
 | `summarizationProvider` | no (default `''`) | Set together with `summarizationModel`; an empty pair resolves the latest logged request target, then the `AgentOptions` pair. |
 | `summarizationModel` | no (default `''`) | Set together with `summarizationProvider`; an empty pair resolves the latest logged request target, then the `AgentOptions` pair. |
 | `maxTokens` | no (default `8192`) | Provider generation cap for the summarization call; may include reasoning tokens. |
 | `compactionRetries` | no (default `1`) | Extra attempts after the first when pressure remains above threshold. |
 | `maxOverflowRetries` | no (default `1`) | Maximum retries after canonical context-window overflow; `0` disables recovery only. |
+| `modelPolicies` | no (default `[]`) | Exact `{ provider, model, ...partialPolicy }` overrides; matching uses both fields and does not depend on `listModels()`. |
 | `auto` | no (default `true`) | Register post-step pressure and overflow-recovery listeners. Set `false` for manual-only. |
+
+Every `modelPolicies` entry accepts the policy fields above except `auto` and `modelPolicies` itself. If an entry supplies either retention field, it replaces the default policy's retention choice; otherwise retention is inherited. Summarization provider/model remain a pair inside each entry.
+
+An adapter may return no capacity for a valid dynamic route, and resolved capacity may expose an invalid absolute retention budget. Manual pressure checks then throw a target-specific configuration error; the automatic listener warns once for that exact target and continues with full history. Unrelated operational failures remain independently visible. Canonical provider overflow still attempts recovery because the provider has already established that compaction is necessary.
 
 ## Usage
 
@@ -52,6 +59,20 @@ export function apply(ctx: Context): void {
 ```
 
 Loading the plugin registers `ctx.compact`. Add [`dsh-compact-tool-result-prune`](../compact-tool-result-prune/README.md) as a sibling before this plugin to enable the optional model-free pass. With `auto: true` (the default) it compacts automatically under token pressure; a consumer (a future `/compact` tool) can also call `ctx.compact.compactIfNeeded(...)` or `ctx.compact.compactRegion(...)` directly.
+
+For example, the same compact plugin can safely serve models with different capacities and one target-specific policy:
+
+```yaml
+- name: '@deepseek-ai/dsh-compact-basic'
+  config:
+    thresholdRatio: 0.8
+    retainRatio: 0.16
+    modelPolicies:
+      - provider: local
+        model: small-context
+        thresholdRatio: 0.7
+        retainTokens: 2048
+```
 
 ## Model Experience
 

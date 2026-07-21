@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
@@ -87,29 +87,18 @@ function expectSurfaceTotal(measurement: TokenMeasurement): void {
 }
 
 describe('TokenMeterService configuration and registration', () => {
-  it('provides one zero-config context window', () => {
-    const service = meter()
-    expect(service.contextWindow).toBe(128_000)
+  it('exposes an empty public configuration type', () => {
+    expectTypeOf<{}>().toExtend<TokenMeterConfig>()
+    expectTypeOf<{ contextWindow: number }>().not.toExtend<TokenMeterConfig>()
   })
 
-  it('accepts one service-wide context-window override', () => {
-    expect(meter({ contextWindow: 32_000 }).contextWindow).toBe(32_000)
-  })
-
-  it.each(['models', 'contextWidow'])('rejects unknown top-level config key %s', (key) => {
-    expect(() => meter({ [key]: {} }))
-      .toThrow(`TokenMeterConfig: unknown key "${key}"`)
-  })
-
-  it.each([
-    { contextWindow: 0 },
-    { contextWindow: -1 },
-    { contextWindow: 1.5 },
-    { contextWindow: Number.NaN },
-    { contextWindow: null },
-  ] as unknown as TokenMeterConfig[])('rejects invalid context capacity %#', (config) => {
-    expect(() => meter(config)).toThrow(/contextWindow .* positive integer/)
-  })
+  it.each(['models', 'contextWindow', 'contextWidow'])(
+    'rejects stale or unknown top-level config key %s',
+    (key) => {
+      expect(() => meter({ [key]: {} } as unknown as TokenMeterConfig))
+        .toThrow(`TokenMeterConfig: unknown key "${key}"`)
+    },
+  )
 
   it('registers and unregisters ctx.tokenMeter with its plugin fiber', async () => {
     const ctx = new Context()
@@ -123,7 +112,7 @@ describe('TokenMeterService configuration and registration', () => {
 
 describe('TokenMeterService pricing', () => {
   it('prices every built-in content shape and merge-extended blocks with one fixed heuristic', () => {
-    const service = meter({ contextWindow: 100 })
+    const service = meter()
     const blocks: ContentBlock[] = [
       { type: 'text', text: 'abcd' },
       { type: 'reasoning', text: 'ab' },
@@ -331,7 +320,7 @@ describe('replay anchors and surface folds', () => {
   })
 
   it('keeps only the latest successful request anchor across model switches', () => {
-    const service = meter({ contextWindow: 1_000 })
+    const service = meter()
     const session = new Session(SessionId('switch'))
     const alphaHeader = header('alpha', { system: 'same envelope' })
     appendSuccessfulCall(session, alphaHeader, { usage: USAGE, providerText: 'alpha' })

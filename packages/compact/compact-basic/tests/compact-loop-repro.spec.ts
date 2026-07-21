@@ -41,6 +41,10 @@ class StepwiseToolAdapter extends LlmAdapter {
     super()
   }
 
+  override resolveModelContext(): Promise<{ contextWindow: number }> {
+    return Promise.resolve({ contextWindow: 400 })
+  }
+
   async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
     const n = this.calls
     this.calls += 1
@@ -70,6 +74,10 @@ class OverflowRecoveryAdapter extends LlmAdapter {
     private readonly transientAfterOverflow = false,
   ) {
     super()
+  }
+
+  override resolveModelContext(): Promise<{ contextWindow: number }> {
+    return Promise.resolve({ contextWindow: 128 })
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -119,7 +127,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
   await mountAgentLoopTestDependencies(ctx)
   await mountInvariants(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(TokenMeterService, { contextWindow: 400 })
+  await ctx.plugin(TokenMeterService)
   ctx.llm.registerAdapter(['mock'], new StepwiseToolAdapter(toolSteps))
   ctx.tools.register(defineTool({
     name: 'work',
@@ -135,7 +143,6 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
     auto: true,
     thresholdRatio: 0.5,
     retainTokens: 50,
-    summarizationModel: '',
     maxTokens: 8192,
     compactionRetries: 1,
   })
@@ -267,7 +274,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
       await mountAgentLoopTestDependencies(ctx)
       await mountInvariants(ctx)
       await ctx.plugin(AgentLoop, { agents: [] })
-      await ctx.plugin(TokenMeterService, { contextWindow: 128 })
+      await ctx.plugin(TokenMeterService)
       ctx.llm.registerAdapter(['mock'], adapter)
       ctx.on('agent/request', async (_agent, _turn, _step, config) => ({ ...config, provider: 'mock', model: 'mock' }))
       await ctx.plugin(BasicCompactService, {
@@ -335,7 +342,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
       jitterRatio: 0,
     })
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(TokenMeterService, { contextWindow: 128 })
+    await ctx.plugin(TokenMeterService)
     ctx.llm.registerAdapter(['mock'], adapter)
     await ctx.plugin(BasicCompactService, {
       thresholdRatio: 1,

@@ -307,15 +307,25 @@ Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:21`](../package
 Requires: `llm` · `tokenMeter`
 
 ```ts config-catalog
-/** Basic compaction configuration; every common field has a deployment default. */
-export interface BasicCompactConfig {
-  /** Compact at this fraction of the token meter's context window. Defaults to `0.8`. */
+/** Basic compaction configuration with an optional exact-target policy table. */
+export interface BasicCompactConfig extends CompactPolicyConfig {
+  /** Exact provider/model overrides; duplicate targets fail plugin load. */
+  modelPolicies?: ModelCompactPolicyConfig[]
+  /** Enable automatic post-step pressure and overflow-recovery listeners. Defaults to `true`. */
+  auto?: boolean
+}
+
+/** Policy fields shared by the default policy and exact model overrides. */
+export interface CompactPolicyConfig {
+  /** Compact at this fraction of the model's context window. Defaults to `0.8`. */
   thresholdRatio?: number
-  /** Recent surface tokens retained verbatim. Defaults to `floor(contextWindow * 0.16)`. */
+  /** Recent context retained as a fraction of the model's window. Defaults to `0.16`. */
+  retainRatio?: number
+  /** Absolute recent-context budget; mutually exclusive with `retainRatio`. */
   retainTokens?: number
-  /** Summary provider; `''` resolves the latest routed pair, then the agent pair. Defaults to `''`. */
+  /** Summary provider; set together with `summarizationModel`, or inherit the conversation target. */
   summarizationProvider?: string
-  /** Summary model; `''` resolves the latest routed pair, then the agent pair. Defaults to `''`. */
+  /** Summary model; set together with `summarizationProvider`, or inherit the conversation target. */
   summarizationModel?: string
   /** Provider generation cap for summarization. Defaults to `8192`. */
   maxTokens?: number
@@ -323,12 +333,18 @@ export interface BasicCompactConfig {
   compactionRetries?: number
   /** Maximum retries after canonical context overflow; `0` disables recovery. Defaults to `1`. */
   maxOverflowRetries?: number
-  /** Enable automatic post-step pressure and overflow-recovery listeners. Defaults to `true`. */
-  auto?: boolean
+}
+
+/** Exact provider/model override merged over the default compaction policy. */
+export interface ModelCompactPolicyConfig extends CompactPolicyConfig {
+  /** Registered provider route to match. */
+  provider: string
+  /** Exact routed model id to match within `provider`. */
+  model: string
 }
 ```
 
-Source: [`packages/compact/compact-basic/src/types.ts:8`](../packages/compact/compact-basic/src/types.ts)
+Source: [`packages/compact/compact-basic/src/types.ts:38`](../packages/compact/compact-basic/src/types.ts)
 
 ## `@deepseek-ai/dsh-compact-tool-result-prune`
 
@@ -523,6 +539,8 @@ export interface DeepSeekCatalogModel {
   name?: string
   /** Optional selector detail for deployments with similar model variants. */
   description?: string
+  /** Known combined request/response context capacity; omitted when deployment metadata is unavailable. */
+  contextWindow?: number
 }
 ```
 
@@ -609,10 +627,12 @@ export interface ReplayModelConfig {
   name?: string
   /** Optional selector description. */
   description?: string
+  /** Optional positive integer context capacity published by the replay adapter. */
+  contextWindow?: number
 }
 ```
 
-Source: [`packages/support/llm-replay/src/index.ts:375`](../packages/support/llm-replay/src/index.ts)
+Source: [`packages/support/llm-replay/src/index.ts:385`](../packages/support/llm-replay/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-retry`
 
@@ -1102,11 +1122,8 @@ Source: [`packages/context/time-context/src/index.ts:19`](../packages/context/ti
 ## `@deepseek-ai/dsh-token-meter`
 
 ```ts config-catalog
-/** Token-meter plugin configuration. */
-export interface TokenMeterConfig {
-  /** Service-wide context-window capacity in tokens. Defaults to `128000`. */
-  contextWindow?: number
-}
+/** Token-meter plugin configuration; the fixed estimator has no settings. */
+export type TokenMeterConfig = Record<string, never>
 ```
 
 Source: [`packages/llm/token-meter/src/types.ts:10`](../packages/llm/token-meter/src/types.ts)

@@ -13,7 +13,7 @@ import LlmService, {
   ProviderRequestId,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
+import type { LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 
 class ScriptedAdapter extends LlmAdapter {
   constructor(private script: StreamChunk[]) {
@@ -48,6 +48,7 @@ class CatalogAdapter extends ScriptedAdapter {
   constructor(
     private readonly provider: LlmProviderInfo,
     private readonly models: readonly LlmModelInfo[],
+    private readonly contexts: Readonly<Record<string, LlmModelContext>> = {},
   ) {
     super(SCRIPT)
   }
@@ -58,6 +59,13 @@ class CatalogAdapter extends ScriptedAdapter {
 
   override listModels(_provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve(this.models)
+  }
+
+  override resolveModelContext(
+    _provider: string,
+    model: string,
+  ): Promise<LlmModelContext | undefined> {
+    return Promise.resolve(this.contexts[model])
   }
 }
 
@@ -645,7 +653,41 @@ describe('LlmService', () => {
     expect(ctx.llm.listProviders()).toEqual([{ id: 'plain', name: 'plain' }])
     await expect(ctx.llm.listModels('plain')).resolves.toEqual([])
     await expect(ctx.llm.listModels('missing')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
+    await expect(ctx.llm.resolveModelContext('plain', 'unlisted')).resolves.toBeUndefined()
+    await expect(ctx.llm.resolveModelContext('missing', 'm')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
   })
+
+  it('resolves detached model context independently of advisory catalog membership', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const source = { contextWindow: 32_000 }
+    ctx.llm.registerAdapter(['route'], new CatalogAdapter(
+      { id: 'route', name: 'Route' },
+      [],
+      { unlisted: source },
+    ))
+
+    const resolved = await ctx.llm.resolveModelContext('route', 'unlisted')
+    expect(resolved).toEqual({ contextWindow: 32_000 })
+    source.contextWindow = 64_000
+    expect(resolved).toEqual({ contextWindow: 32_000 })
+    await expect(ctx.llm.resolveModelContext('route', 'other')).resolves.toBeUndefined()
+  })
+
+  it.each([0, -1, 1.5, Number.NaN])(
+    'rejects invalid adapter model context %s',
+    async (contextWindow) => {
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      ctx.llm.registerAdapter(['route'], new CatalogAdapter(
+        { id: 'route', name: 'Route' },
+        [],
+        { model: { contextWindow } },
+      ))
+      await expect(ctx.llm.resolveModelContext('route', 'model'))
+        .rejects.toMatchObject({ code: 'INVALID_MODEL_CONTEXT' })
+    },
+  )
 
   it.each([
     [{ id: 1, name: 'Name' }, 'non-string id'],
