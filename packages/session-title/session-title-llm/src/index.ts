@@ -58,7 +58,7 @@ export interface SessionTitleLlmConfig {
   readonly targetWords: number
   /** Target character count for Chinese, Japanese, or Korean titles. */
   readonly targetCjkCharacters: number
-  /** Maximum total UTF-8 bytes across selected source-message text. */
+  /** Maximum UTF-8 bytes in the final JSON-framed user prompt. */
   readonly maxInputBytes: number
   /** Auxiliary generation output-token cap. */
   readonly maxOutputTokens: number
@@ -242,14 +242,15 @@ export async function generateSessionTitleWithLlm(
   if (selectedMessages.length === 0) {
     throw new Error('session-title-llm: at least one source message is required')
   }
-  const inputBytes = selectedMessages.reduce((total, message) => total + Buffer.byteLength(message.text, 'utf8'), 0)
+  const framedInput = frameMessages(selectedMessages)
+  const inputBytes = Buffer.byteLength(framedInput, 'utf8')
   if (inputBytes > config.maxInputBytes) {
     throw new Error(`session-title-llm: input is ${inputBytes} bytes, exceeding maxInputBytes ${config.maxInputBytes}`)
   }
   const route = resolveRoute(config, request)
   const messages: Message[] = [{
     role: 'user',
-    content: [{ type: 'text', text: frameMessages(selectedMessages) }],
+    content: [{ type: 'text', text: framedInput }],
   }]
   const system = systemPrompt(config)
   using callDeadline = deadline(request.signal, config.timeoutMs, SESSION_TITLE_TIMEOUT_CODE)
@@ -272,7 +273,11 @@ export async function generateSessionTitleWithLlm(
   }, callDeadline.signal)
   callDeadline.signal.throwIfAborted()
   const assembler = new BlockAssembler()
-  for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)
+  for await (const chunk of ctx.llm.stream(options)) {
+    callDeadline.signal.throwIfAborted()
+    assembler.push(chunk)
+  }
+  callDeadline.signal.throwIfAborted()
   const terminalError = finishError(assembler.finish)
   if (terminalError !== undefined) throw terminalError
   const blocks = assembler.message().content

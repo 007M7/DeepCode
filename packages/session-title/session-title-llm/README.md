@@ -6,7 +6,7 @@ This package is a library, not a Cordis plugin. The provider plugins call `regis
 
 ## Route and failure contract
 
-`provider` and `model` overrides are optional but must be supplied together as non-empty strings. Without that pair, the helper uses the exact provider/model route captured from the current session's logged `request/header`; an explicit refresh before any route exists therefore needs overrides. Input exceeding `maxInputBytes` rejects instead of being truncated. Timeout, cancellation, malformed or empty output, tool calls, and non-stop finish reasons also reject; the session-title service decides whether that rejection is an automatic warning or an explicit caller failure.
+`provider` and `model` overrides are optional but must be supplied together as non-empty strings. Without that pair, the helper uses the exact provider/model route captured from the current session's logged `request/header`; an explicit refresh before any route exists therefore needs overrides. The helper measures the final JSON-framed user prompt, including seq fields, wrappers, and JSON escaping, against `maxInputBytes` before logging or dispatch instead of truncating it. Timeout and caller cancellation are rechecked while consuming the stream and after it completes, so a late successful result cannot be accepted even if an interceptor or adapter ignores abort. Malformed or empty output, tool calls, and non-stop finish reasons also reject; the session-title service decides whether that rejection is an automatic warning or an explicit caller failure.
 
 After route and input validation, the helper appends a log-only `session/title-llm-request` event before model dispatch. It contains the title-provider id, exact source seqs, route, system prompt, message list, and output-token cap used by the call. The append shares the title capability's per-session settlement queue, so a superseding request cannot collide with an earlier fallback, request record, or accepted-title flush. The dispatched envelope is deep-frozen to keep interceptors aligned with that record but deliberately lacks dsh-agent-loop's process-local request identity, so loop-only reconstruction observers do not compare it with the conversation header. A later model failure leaves that request record intact; validation failures that never become dispatchable requests do not create one. The event stays outside derived model history.
 
@@ -18,7 +18,7 @@ Every field is required except the paired route override; there are no library d
 |---|---|
 | `targetWords` | Positive target word count for non-CJK titles. |
 | `targetCjkCharacters` | Positive target character count for Chinese, Japanese, or Korean titles. |
-| `maxInputBytes` | Positive aggregate UTF-8 byte ceiling across selected messages. |
+| `maxInputBytes` | Positive UTF-8 byte ceiling for the final JSON-framed user prompt. |
 | `maxOutputTokens` | Positive auxiliary generation token cap. |
 | `timeoutMs` | Positive end-to-end deadline within the runtime timer limit. |
 | `provider`, `model` | Optional explicit route; both or neither. |
@@ -42,4 +42,4 @@ No main-request invalidation. Auxiliary cache reuse is provider-specific; the fi
 ## Known Limitations and Deferred Work
 
 - The helper accepts text output only and rejects tool calls; structured-output adapters and provider-specific prompt variants are not exposed.
-- It enforces a byte ceiling for the whole selected input rather than clipping individual messages or applying a retention policy.
+- It enforces a byte ceiling for the whole framed user prompt rather than clipping individual messages or applying a retention policy.

@@ -48,6 +48,17 @@ class CooperativeAdapter extends LlmAdapter {
   }
 }
 
+class DelayedSuccessAdapter extends LlmAdapter {
+  constructor(private readonly delayMs: number) {
+    super()
+  }
+
+  override async * stream(): AsyncIterable<StreamChunk> {
+    await new Promise<void>(resolve => setTimeout(resolve, this.delayMs))
+    yield * SCRIPT
+  }
+}
+
 const SCRIPT: StreamChunk[] = [
   { type: 'block-start', index: 0, blockType: 'text' },
   { type: 'text-delta', index: 0, text: '  五个字标题  ' },
@@ -162,21 +173,24 @@ describe('generateSessionTitleWithLlm', () => {
       })
   })
 
-  it('uses paired explicit overrides and rejects an oversized input without calling the model', async () => {
+  it('uses paired explicit overrides and bounds the final framed input before model dispatch', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(LlmService)
     const adapter = new RecordingAdapter(SCRIPT)
     ctx.llm.registerAdapter(['explicit-route'], adapter)
+    const oversized = request(ctx)
+    const [selected] = oversized.messages
+    if (selected === undefined) throw new Error('expected one selected message')
+    const rawInputBytes = Buffer.byteLength(selected.text, 'utf8')
     const config = resolveSessionTitleLlmConfig({
       ...CONFIG,
       provider: 'explicit-route',
       model: 'explicit-model',
-      maxInputBytes: 4,
+      maxInputBytes: rawInputBytes,
     })
 
-    const oversized = request(ctx)
-    await expect(generateSessionTitleWithLlm(ctx, config, oversized, oversized.messages, TITLE_PROVIDER))
+    await expect(generateSessionTitleWithLlm(ctx, config, oversized, [selected], TITLE_PROVIDER))
       .rejects.toThrow(/input.*bytes.*maxInputBytes/i)
     expect(adapter.requests).toEqual([])
     expect(oversized.session.events.some(event => event.type === 'session/title-llm-request')).toBe(false)
@@ -317,6 +331,32 @@ describe('generateSessionTitleWithLlm', () => {
         timeoutMs: 10,
       })
       await vi.advanceTimersByTimeAsync(10)
+      await rejected
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects a successful stream that completes after the configured deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      const ctx = new Context()
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(LlmService)
+      ctx.llm.registerAdapter(['current-route'], new DelayedSuccessAdapter(20))
+      const providerRequest = request(ctx)
+      const pending = generateSessionTitleWithLlm(
+        ctx,
+        resolveSessionTitleLlmConfig({ ...CONFIG, timeoutMs: 10 }),
+        providerRequest,
+        providerRequest.messages,
+        TITLE_PROVIDER,
+      )
+      const rejected = expect(pending).rejects.toMatchObject({
+        code: SESSION_TITLE_TIMEOUT_CODE,
+        timeoutMs: 10,
+      })
+      await vi.advanceTimersByTimeAsync(20)
       await rejected
     } finally {
       vi.useRealTimers()
