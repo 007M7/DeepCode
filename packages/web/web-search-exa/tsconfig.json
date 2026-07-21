@@ -19,6 +19,9 @@
     },
     {
       "path": "../web"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

@@ -24,7 +24,7 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('streams a response, answers a user-question dialog, completes the tool round-trip, and exits cleanly', async () => {
+  it('switches models, streams a response, answers a user-question dialog, and exits cleanly', async () => {
     const output = await runTuiPtySmoke({
       label: 'tui-agent conversation',
       tempDirPrefix: 'tui-agent-conversation-',
@@ -32,11 +32,13 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
       configPath: scriptedConfigPath,
       tsconfigPath,
       actions: [
-        { waitFor: 'scripted TUI ready.', send: 'exercise the TUI\r' },
+        { waitFor: 'scripted TUI ready.', send: '/model\r' },
+        { waitFor: 'Select model', send: '\x1b[B\r' },
+        { waitFor: 'Model selected: tui-scripted/tui-scripted-model-pro.', send: 'exercise the TUI\r' },
         // The question text first appears in the streamed tool-call card. Wait
         // for the dialog's input legend so Enter cannot arrive before it owns
         // terminal input when pre-dispatch policy yields.
-        { waitFor: '↑↓ navigate • Enter select', send: '\r' },
+        { waitFor: 'Tab custom answer • ↑/↓ navigate • Enter submit • Esc interrupt', send: '\r' },
         { waitFor: 'Decision received. Scripted TUI run complete.', send: '/exit\r' },
       ],
     })

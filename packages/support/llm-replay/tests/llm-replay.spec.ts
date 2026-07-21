@@ -228,7 +228,7 @@ describe('installLlmReplay (through the real LlmService)', () => {
           id: 'deepseek',
           name: 'DeepSeek',
           models: [
-            { id: 'flash' },
+            { id: 'flash', contextWindow: 128_000 },
             { id: 'pro', name: 'Pro', description: 'Larger model' },
           ],
         },
@@ -245,6 +245,10 @@ describe('installLlmReplay (through the real LlmService)', () => {
       { provider: 'deepseek', id: 'pro', name: 'Pro', description: 'Larger model' },
     ])
     await expect(ctx.llm.listModels('empty')).resolves.toEqual([])
+    await expect(ctx.llm.resolveModelContext('deepseek', 'flash')).resolves.toEqual({ contextWindow: 128_000 })
+    await expect(ctx.llm.resolveModelContext('deepseek', 'pro')).resolves.toBeUndefined()
+    await expect(ctx.llm.resolveModelContext('deepseek', 'unlisted')).resolves.toBeUndefined()
+    await expect(ctx.llm.resolveModelContext('empty', 'unlisted')).resolves.toBeUndefined()
     expect(await drain(ctx.llm.stream({ provider: 'deepseek', model: 'pro', messages: [] }))).toEqual(TEXT_CHUNKS)
 
     dispose()

@@ -26,6 +26,8 @@ Step 1 measures from the latest preceding model-visible message, including the p
 
 A time reading records a request-preparation attempt, not a committed step or transmitted request. Because the listener runs first, its append may remain when a later pre-step listener cancels or fails the attempt; the log is append-only and the plugin performs no rollback.
 
+The separately published `./invariant` companion checks each plugin-attributed reading against the open turn, next pre-step position, elapsed baseline, and durable event time. Its rendered timestamp must parse and cannot postdate the event; process suspension between sampling and append does not invalidate the reading.
+
 The time reading stays in derived conversation history until a later compaction shadows it. Request headers contain no time-context state. Request reconstruction uses the complete durable surface prefix at each `step/start`, so transmitted requests need not map one-to-one to readings: a failed preparation can leave an extra reading, while interval suppression can let a request reuse existing history without adding one.
 
 ## Model Experience

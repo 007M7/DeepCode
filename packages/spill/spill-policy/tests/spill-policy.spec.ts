@@ -109,6 +109,7 @@ describe('config validation', () => {
   it('rejects a fractional maxInlineBytes at load', async () => {
     await expect(setup({ maxInlineBytes: 1.5 })).rejects.toThrow(/non-negative integer/)
   })
+
 })
 
 describe('oversized plain-text replacement', () => {
