@@ -1142,7 +1142,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/tool-bash/src/index.ts:40`](../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:41`](../packages/bash/tool-bash/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 

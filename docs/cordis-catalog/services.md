@@ -317,7 +317,7 @@ list(): BashEnvVariableInfo[]
 
 Types: [DshEnvironment](../core-data-structures/bash.md) · [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/bash/tool-bash/src/index.ts:103`](../../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:104`](../../packages/bash/tool-bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
