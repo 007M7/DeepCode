@@ -47,7 +47,7 @@ The surface mutation (step 4) sits **inside** the lock bracket: `compact/end` is
 
 ## Blocking
 
-Compaction is serialized via a log-recorded lock: `compactRegion` refuses to start if the last `compact/start` has no matching `compact/end` after it. The lock is the log (not an in-memory mutex), so it survives replay and a persistence backend can detect an orphaned `compact/start` on reload. The lock brackets the **whole** operation — summarization, the `compact/summary` provenance record, *and* the `user/message` surface replacement all happen before `compact/end` — so a `session/event` listener firing on `compact/end` never observes the lock free while the surface mutation is still pending. `compact/end` is appended even when summarization throws, so a failure can never wedge the lock.
+Compaction is serialized via a log-recorded lock: `compactRegion` refuses to start if the last `compact/start` has no matching `compact/end` after it. The lock is the log (not an in-memory mutex), so it survives replay and a persistence backend can detect an orphaned `compact/start` on reload. The lock brackets the **whole** operation — summarization, the `compact/summary` provenance record, *and* the `user/message` surface replacement all happen before `compact/end` — so a `session/event` listener firing on `compact/end` never observes the lock free while the surface mutation is still pending. The basic backend revalidates the selected surface after summarization: a surface change rejects, while an unrelated log-only append does not invalidate the replacement. `compact/end` is appended even when summarization throws, so a failure can never wedge the lock.
 
 ## Events
 
