@@ -2,6 +2,7 @@ import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, {
   type Agent,
+  type AgentCancelCause,
   type AgentOptions,
   type AgentStatus,
   type SendOptions,
@@ -20,7 +21,7 @@ interface FakeAgent extends Agent {
   sentOptions: (SendOptions | undefined)[]
   steered: ContentBlock[][]
   steeredOptions: (SendOptions | undefined)[]
-  cancelled: string[]
+  cancelled: AgentCancelCause[]
 }
 
 export interface TuiHarnessOptions {
@@ -119,7 +120,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   const steered: ContentBlock[][] = []
   const sentOptions: (SendOptions | undefined)[] = []
   const steeredOptions: (SendOptions | undefined)[] = []
-  const cancelled: string[] = []
+  const cancelled: AgentCancelCause[] = []
   const agent: FakeAgent = {
     id: sessionId,
     options: options.agentOptions ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
@@ -140,8 +141,8 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       steeredOptions.push(options)
     },
     inject() {},
-    cancel(reason) {
-      cancelled.push(reason ?? '')
+    cancel(cause = { kind: 'user' }) {
+      cancelled.push(cause)
     },
     whenIdle() {
       return Promise.resolve()

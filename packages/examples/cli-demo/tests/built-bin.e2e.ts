@@ -179,7 +179,7 @@ describe.skipIf(!existsSync(cliBin))('dsh-cli-demo BUILT bin', () => {
       )
       expect(result, JSON.stringify(result)).toMatchObject({ code, signal: null })
       expect(result.stdout).toContain('"kind":"aborted"')
-      expect(result.stderr).toContain(`received ${signal}`)
+      expect(result.stderr).toContain('turn 1 was aborted')
     }, 30_000)
   })
 })
