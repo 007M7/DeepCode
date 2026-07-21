@@ -56,7 +56,7 @@ jobs:
             command: pnpm run check:ci:static
             gate_concurrency: '1'
             static_shard: site-projection
-          - lane: static-site-build
+          - lane: static-site-mpa
             command: pnpm run check:ci:static
             gate_concurrency: '1'
             static_shard: site-build
@@ -137,16 +137,10 @@ jobs:
             gate_concurrency: '1'
             coverage_max_workers: '4'
             coverage_shard: capabilities
-          - lane: snapshot-support
+          - lane: snapshot-ordinary
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
-            snapshot_lane: support
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: snapshot-agents
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: agents
+            snapshot_lane: ordinary
             snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
           - lane: snapshot-acp-1
@@ -159,6 +153,18 @@ jobs:
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
             snapshot_lane: acp-2
+            snapshot_max_concurrency: '5'
+            snapshot_prebuilt: '1'
+          - lane: snapshot-acp-3
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_lane: acp-3
+            snapshot_max_concurrency: '5'
+            snapshot_prebuilt: '1'
+          - lane: snapshot-acp-4
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_lane: acp-4
             snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
           - lane: artifacts-metadata
@@ -314,6 +320,9 @@ jobs:
       - name: Build (tsc -b + tsdown)
         run: pnpm run build
 
+      - name: Build documentation site (production SPA)
+        run: pnpm run docs:build
+
   # Observational, non-blocking Windows static, lint, and artifact lanes. Coverage
   # and snapshot stay Linux-only until their platform-specific runtime failures
   # have dedicated support. Run the gates from native PowerShell: an MSYS parent
@@ -354,10 +363,6 @@ jobs:
             command: pnpm run check:ci:static
             gate_concurrency: '1'
             static_shard: site-projection
-          - lane: static-site-build
-            command: pnpm run check:ci:static
-            gate_concurrency: '1'
-            static_shard: site-build
           - lane: lint
             command: pnpm run check:ci:lint
             gate_concurrency: '1'

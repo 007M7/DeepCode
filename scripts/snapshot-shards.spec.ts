@@ -26,10 +26,10 @@ describe('snapshot lanes', () => {
 
     expect(new Set(ordinary).size).toBe(ordinary.length)
     expect(acp.map(lane => lane.files)).toEqual(Array.from(
-      { length: 2 },
+      { length: 4 },
       () => ['examples/acp-agent/tests/acp.snapshot.ts'],
     ))
-    expect(acp.map(lane => lane.scenarioShard)).toEqual(['1/2', '2/2'])
+    expect(acp.map(lane => lane.scenarioShard)).toEqual(['1/4', '2/4', '3/4', '4/4'])
     expect([...ordinary, 'examples/acp-agent/tests/acp.snapshot.ts'].sort()).toEqual(discovered)
   })
 

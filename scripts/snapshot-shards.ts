@@ -13,25 +13,20 @@ export interface SnapshotLane {
 /** Exhaustive file ownership plus scenario partitions for the large ACP suite. */
 export const snapshotLanes: readonly SnapshotLane[] = [
   {
-    name: 'support',
+    name: 'ordinary',
     files: [
       'packages/sdk/scripts/tests/config.snapshot.ts',
       'packages/sdk/create-sdk/tests/create.snapshot.ts',
       'packages/ui/tui/tests/tui.snapshot.ts',
-    ],
-  },
-  {
-    name: 'agents',
-    files: [
       'examples/tui-agent/tests/tui.snapshot.ts',
       'examples/acp-agent/tests/goal.snapshot.ts',
       'examples/headless-agent/tests/headless.snapshot.ts',
     ],
   },
-  ...Array.from({ length: 2 }, (_, offset) => ({
+  ...Array.from({ length: 4 }, (_, offset) => ({
     name: `acp-${offset + 1}`,
     files: ['examples/acp-agent/tests/acp.snapshot.ts'],
-    scenarioShard: `${offset + 1}/2`,
+    scenarioShard: `${offset + 1}/4`,
   })),
 ]
 

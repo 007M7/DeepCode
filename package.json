@@ -52,6 +52,7 @@
     "verify-doc-budgets": "tsx scripts/verify-doc-budgets.ts",
     "docs:dev": "pnpm --filter @deepseek-ai/website run dev",
     "docs:build": "pnpm --filter @deepseek-ai/website run build",
+    "docs:build:mpa": "pnpm --filter @deepseek-ai/website exec vitepress build . --mpa",
     "docs:preview": "pnpm --filter @deepseek-ai/website run preview",
     "docs:check": "pnpm exec vitest run scripts/project-doc-site.spec.ts && pnpm run docs:build",
     "website:dev": "pnpm run docs:dev",

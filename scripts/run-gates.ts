@@ -244,7 +244,12 @@ function ciStaticGates(): Gate[] {
     pnpmScript('constraints', 'constraints'),
     pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
-    ...docSyncLeafGates(),
+    pnpmScript('build', 'build'),
+    ...docSyncLeafGates({
+      docTypecheckNeeds: ['build'],
+      docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+      docsBuildScript: 'docs:build:mpa',
+    }),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
   ]
@@ -366,6 +371,7 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
 function docSyncLeafGates(options: {
   docTypecheckNeeds?: string[]
   docTypecheckEnv?: Record<string, string | undefined>
+  docsBuildScript?: 'docs:build' | 'docs:build:mpa'
 } = {}): Gate[] {
   const docTypecheckOptions: Partial<Gate> = {}
   if (options.docTypecheckNeeds !== undefined) docTypecheckOptions.needs = options.docTypecheckNeeds
@@ -396,7 +402,7 @@ function docSyncLeafGates(options: {
       label: 'documentation projection',
     }),
     // Keep the VitePress build itself in one gate because projection rewrites website/.generated.
-    pnpmScript('docs-site-build', 'docs:build', { label: 'documentation build' }),
+    pnpmScript('docs-site-build', options.docsBuildScript ?? 'docs:build', { label: 'documentation build' }),
     pnpmScript('package-readme-limitations', 'verify-package-readme-limitations', { label: 'package README limitations' }),
   ]
 }

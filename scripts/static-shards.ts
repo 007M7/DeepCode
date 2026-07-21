@@ -23,7 +23,7 @@ export const staticShards = [
   },
   {
     name: 'api-contracts',
-    gateIds: ['doc-typecheck', 'cordis-api', 'export-jsdoc', 'scoped-events', 'type-equivalence'],
+    gateIds: ['build', 'doc-typecheck', 'cordis-api', 'export-jsdoc', 'scoped-events', 'type-equivalence'],
   },
   {
     name: 'catalogs',
