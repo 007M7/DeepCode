@@ -6,9 +6,9 @@
 
 ## 概览
 
-每个 harness 都是一个 [Cordis](cordis-primer.md) 上下文。各包（package）会贡献服务（`ctx.llm`、`ctx.tools`、`ctx.sessions`、`ctx.sessionTitle`）、类型化事件（`agent/request`、`tools/pre-execute`、`session/event`），以及可释放的提示词、工具、提供方、适配器和监听器。
+每个 harness 都是一个 [Cordis](cordis-primer.md) 上下文，由各包（package）贡献服务、类型化事件和可释放的注册项。
 
-`packages/core/` 汇集默认的 agent（智能体）流程；其他功能均为一等的 Cordis 插件。
+`packages/core/` 汇集默认的 agent（智能体）流程；各项功能仍以插件形式存在。
 
 ### 默认服务
 
@@ -63,9 +63,9 @@ waterfall（瀑布式事件）的行为类似环绕中间件：监听器调用 `
 
 已交付的循环通过插件可见的服务和事件，持续处理从提示词到检查点的工作。
 
-**会话**是仅追加日志。每个普通**轮次**领取一项已排队的 `send()` 输入；注入不领取输入。后续轮次会等待上一项已领取轮次的检查点，但可以与其共用同一个 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）。模型和插件停止轮次时，该轮次结束。一个**步骤**包含一次模型请求及其工具。下文（[时序配套文档](agent-lifecycle.md)）用引号标记持久事件。
+**会话**采用仅追加方式。每个普通**轮次**领取一项已排队的 `send()` 输入；注入不领取输入。后续轮次会等待前一个已领取轮次的检查点，但可以与其共用同一个 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）。模型和插件停止轮次时，该轮次结束；一个**步骤**包含一次模型请求及其工具。在[下文时序](agent-lifecycle.md)中，引号标记持久事件。
 
-未提供 id 时会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建会话，而 `resumeSessionId` 要求已有历史。恢复流程在发布前还原沿袭关系和委托深度。设置失败会发出 `agent-loop/config-start-failed`；拆卸过程保持静默。
+未提供 id 时，创建流程会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建会话，而 `resumeSessionId` 要求已有历史。恢复流程在发布前还原沿袭关系和委托深度。初始化失败会发出 `agent-loop/config-start-failed`；拆卸过程保持静默。
 
 ### 轮次流程
 
@@ -115,15 +115,15 @@ forever:
 
 每个步骤都会组装有序提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定，循环则提供 `model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-工具执行阶段的上下文，包括异步 `agent.inject()` 通知和工具执行后的 `additionalContexts`，会在结果产生后稳定。steering（中途引导）会排空；在信号关闭前，`agent/post-step` 会观察持久输出、结果、上下文和 steering。余留内容进入队列。终止型 `agent/turn-stop` 在续跑判断和 steering 折叠后运行，在关闭和刷写期间仍具有最终决定权，并丢弃后续 steering，同时保留排队提示词。
+工具执行阶段的上下文，包括异步 `inject()` 和工具执行后的 `additionalContexts`，会在结果产生后稳定。steering（中途引导）会在 `agent/post-step` 前排空；该事件会观察持久输出、结果、上下文和 steering。余留内容进入队列。终止型 `agent/turn-stop` 在关闭和刷写期间始终具有最终决定权；后续 steering 会被丢弃，排队提示词仍予保留。
 
 裁剪先于摘要；溢出重试必须取得持久进展。有界的瞬态重试在 `agent/request-error` 上组合；取消优先（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)）。
 
 ### 失败边界
 
-轮次是故障隔离边界。适配器故障会关闭步骤，并携带准确的故障事实进入 `agent/request-error`。重试会开启一个有编号的步骤；重试耗尽后，故障存入 `turn/end`。失败分片不会提交任何消息或工具。
+轮次负责隔离故障。适配器故障会先关闭步骤，再进入 `agent/request-error`；该事件会收到准确的 `Error`、`LlmFailure` 和历史记录。重试会开启另一个步骤；成功会清除历史记录；重试耗尽后，故障存入 `turn/end`。失败分片不会提交消息或工具。
 
-其他故障使用 `agent/error`。取消优先于恢复；尚未分派的调用会得到合成的 `ABORTED` 结果。实际生效的 `cancel()` 会在清空队列或中止前发出 `agent/cancel-requested`；观察方不能否决该操作，空闲状态下的调用不发出任何事件。dispose（资源释放）会等待系统停稳。
+其他故障使用 `agent/error`。取消和资源释放均优先于恢复；尚未分派的工具调用会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。轮次信号会在 `turn/end` 前失效。实际生效的 `cancel()` 会在清空队列和中止前发出类型化原因；观察方不能否决该操作，空闲状态下的调用不发出任何事件，持久化会记录 `aborted`。dispose（资源释放）会等待系统停稳（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
 每个会话事件都包围在轮次内。重新加载会保留中断的日志尾部，并用合成的 `interrupted` 轮次结束事件将其闭合。持久轮次关闭后的故障只通过 `agent/error` 报告，因为此时已没有安全的轮次内位置。每个轮次有一个 `TurnEndReason`；各变体由 [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) 统一定义。
 
@@ -133,25 +133,25 @@ forever:
 
 ### Agent 作用域
 
-每个活跃 agent 都拥有一个作用域化的 `agent.ctx`。注册项会遮蔽全局项，只接收发往该 agent 的分派，并随 agent 一同撤销；系统会等待异步清理。`CreateAgentOptions.setup(agentCtx)` 在发布前完成组合。类型化解析器从合并后的 `Events` 签名和 `scopeTarget` 推导载体检查（[语义门禁](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)）。参见 [agent 作用域](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md)和 [subagent 组合](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)。`AgentLoop` 会传播其发起方；私有编排会派生 `agent.session`，其他身份则保持显式（[决策](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)）。
+每个 agent 都拥有一个作用域化的 `agent.ctx`；注册项会遮蔽全局项、过滤分派，并在撤销时等待清理完成。`CreateAgentOptions.setup(agentCtx)` 在发布前完成组合。类型化解析器从合并后的 `Events` 和 `scopeTarget` 推导载体检查（[语义门禁](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)）。参见 [agent 作用域](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md)和 [subagent 组合](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)。`AgentLoop` 在 `ctx.agents.withInitiator()` 内运行；私有编排会派生 `agent.session`，而轮次、步骤、信号、cwd 和权限仍保持显式（[决策](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)）。
 
 ## 状态
 
 ### 会话日志
 
-会话日志是真源。`deriveMessages()` 将会话事件投影为发送给模型的 `Message[]`；原始 `assistant/chunk` 事件留在日志中，以保证回放和 UI 保真。回放、fork、恢复、transcript（文本记录）渲染、遥测和持久化均派生自同一个事件流。
+会话日志是权威依据。`deriveMessages()` 投影出模型历史；原始 `assistant/chunk` 事件留在日志中，以保证回放和 UI 保真。fork、恢复、transcript（文本记录）渲染、遥测和持久化均派生自同一个事件流。
 
 **模型可见 ⟺ 已记录**：日志可以重建每个请求，包括由请求头会话前缀置于开头的 `step/start` 时消息，以及通过折叠 `request/header` 得到的请求头；开发期不变量会断言这一点（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
 
 持久性由插件负责。后端会缓冲同步的 `session/event` 通知；循环等待轮次结束检查点。`SessionPersistence` 直接存储 `SessionEvent`，并将元数据存入 `SessionHeader`；JSONL 默认采用带校验和的 Zstandard，SQLite 则遵循同一契约。
 
-插件所属的纯日志事件可选择使用 `ctx.sessions.appendOutOfBand()`：事件会加入开放轮次，或获得一个平衡且已刷写的零步骤轮次。`session/title` 采用该路径并以后写覆盖方式折叠，同时记录源消息 seq 和来源信息。其首消息回退标题会立即产生；至多一个可选提供方可以异步替换该标题，而不会延迟 agent 响应。fork 会原样继承已记录的标题（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
+`ctx.sessions.appendOutOfBand()` 会把插件所属的纯日志事件加入开放轮次，或创建一个平衡且已刷写的零步骤轮次。`session/title` 按后写覆盖方式折叠，并携带源 seq 和来源信息；其即时回退标题和唯一可选异步提供方都不会延迟 agent 响应。fork 会继承标题（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 
 ### 模型内容
 
-消息包含类型化块（`text`、`reasoning`、`tool-call`、`tool-result`），这些块从可合并扩展的 `ContentBlockMap` 派生；`MessageSource`、`FinishReason`、`TurnTrigger` 和 `TurnEndReason` 也采用同一模式定义类型。新增块类型会将适配器、UI 桥接、压缩计价、token 计量和持久化协调成一项全仓库契约；回放计量类型见 [token-meter.md](core-data-structures/token-meter.md)。
+消息使用从可合并扩展的 `ContentBlockMap` 派生的类型化块；`MessageSource`、`FinishReason`、`TurnTrigger` 和 `TurnEndReason` 也采用同一模式定义类型。新增块会协调适配器、UI、压缩、token 计量和持久化；回放计量见 [token-meter.md](core-data-structures/token-meter.md)。
 
-流式输出使用原始分片和 `BlockAssembler`。一次 `LlmAdapter.stream()` 调用代表一次提供方尝试；适配器报告事实，恢复逻辑则位于 `agent/request-error`。循环会记录分片及成功结果的来源信息和回放状态。远程适配器使用逐次读取空闲看门狗。只有当路由共用同一个适配器实例时，回放状态才会到达目标（[契约](core-data-structures/llm-streaming.md)）。
+流式输出使用原始分片和 `BlockAssembler`。每次 `LlmAdapter.stream()` 调用代表一次提供方尝试；适配器报告事实，`agent/request-error` 负责恢复。循环会记录分片及成功结果的来源信息和回放状态。远程适配器使用逐次读取空闲看门狗。只有当路由共用同一个适配器实例时，回放状态才会跨路由传递（[契约](core-data-structures/llm-streaming.md)）。
 
 ## 扩展与组合
 
@@ -159,13 +159,13 @@ forever:
 
 可替换功能通常拆分为**接口／实现／消费方**：服务和事件、后端，以及面向模型的工具和提示词。Bash 是参考实现；[功能图](capability-seams.md)映射了每个包族。
 
-例外情况会合并不同层次：LLM（大语言模型）合并接口和消费方，文件系统整合策略，web 使用注册表，skill 和 subagent 使用具名提供方。会话标题将内置回退方案与单提供方注册表和共享 LLM 辅助组件配对。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀，或使用 ACP（Agent Client Protocol）子 agent（[subagent.md](core-data-structures/subagent.md)）。
+例外情况会合并不同层次：LLM（大语言模型）合并接口和消费方，文件系统整合策略，web 使用注册表，skill 和 subagent 使用具名提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀，或使用 ACP（Agent Client Protocol）子 agent（[subagent.md](core-data-structures/subagent.md)）。
 
 `dsh-workspace-context` 在 `agent/session-prefix` 上组合基线，并在通过 `ctx.fs` 发现嵌套变更后，于 `tools/post-execute` 追加这些变更；其[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)记录了隔离方式。`dsh-paths` 负责共享路径。
 
 ### 组合包与应用
 
-`dsh-agent-spine-demo` 组合默认主干，其中包含回退标题和可选的持久化目标；模型标题提供方仍需按需启用（[README](../packages/examples/agent-spine-demo/README.md)）。`dsh-tui-demo` 负责交互式全屏终端，并默认启用目标功能和 `/goal`；`dsh-cli-demo` 运行一个持久化的无界面轮次，并保持 stdout 格式纯净；`dsh-acp-demo` 通过 JSON-RPC 添加 stdout 纯净的 ACP，并启用相同的目标与命令栈（[ui/](../packages/ui/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 仅在没有显式配置通道时提供默认项，并通过按行分隔的 JSON-RPC 驱动 `dsh-jsonrpc`（[Python SDK](../python/README.md)）。部署保持为轻量叶节点，使用可替换后端和可选产品工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
+`dsh-agent-spine-demo` 组合一套主干和可选目标。应用包负责 TUI、单次运行的 CLI（命令行界面）以及 ACP/JSON-RPC 入口（[README](../packages/examples/agent-spine-demo/README.md)、[ui/](../packages/ui/README.md)）。`dsh-jsonrpc-agent` 启动外部 `cordis.yml`；Python SDK 仅在没有显式配置时提供默认项（[Python SDK](../python/README.md)）。轻量部署使用可替换后端和可选工具（[examples/](../examples/AGENTS.md)、[可运行接线](cookbook/extension-cookbook.md#runnable-wirings)、[图谱](graph-atlas.md)）。
 
 ### 新行为的归属位置
 
@@ -194,7 +194,6 @@ forever:
 ## 快速参考
 - [术语表](glossary.md)中的领域术语
 - [core-data-structures/](core-data-structures/core.md) 中的类型定义
-- [事件](cordis-catalog/events.md)中的准确事件与服务签名
-- [服务](cordis-catalog/services.md)目录
+- [事件](cordis-catalog/events.md)和[服务](cordis-catalog/services.md)目录中的准确签名
 - [包索引](../packages/README.md)中的包契约
 - [Agent Note（agent 决策记录）](../.agents/notes/README.md)
