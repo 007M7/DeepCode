@@ -12,7 +12,15 @@ describe('dsh-tui plugin export shape', () => {
     const unwrapped = loader.unwrapExports(tui) as Record<string, unknown>
     expect(unwrapped).toBe(tui)
     expect(unwrapped.name).toBe('ui-tui')
-    expect(unwrapped.inject).toEqual(['agents', 'commands', 'userInteraction', 'tools'])
+    expect(unwrapped.inject).toEqual([
+      'agents',
+      'commands',
+      'userInteraction',
+      'tools',
+      'llm',
+      'systemPrompt',
+      'tokenMeter',
+    ])
     expect(unwrapped.Config).toBeDefined()
     expect(typeof unwrapped.apply).toBe('function')
   })

@@ -48,6 +48,9 @@
       "path": "../../sandbox/sandbox"
     },
     {
+      "path": "../../support/invariants"
+    },
+    {
       "path": "../../sandbox/sandbox-policy"
     }
   ]

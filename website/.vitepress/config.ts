@@ -108,6 +108,7 @@ const sharedTheme: Pick<DefaultTheme.Config, 'search' | 'socialLinks' | 'editLin
 export default withMermaid({
   title: 'DeepSeek Harness',
   description: '用于构建 Agent Harness 的插件化 SDK',
+  base: process.env.DOCS_BASE ?? '/',
   cleanUrls: true,
   srcDir: '.generated',
   cacheDir: '.cache',

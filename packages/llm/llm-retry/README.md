@@ -6,6 +6,8 @@ The default policy permits two retries for `RATE_LIMIT`, `SERVER`, `TIMEOUT`, an
 
 Before waiting, the plugin appends a non-surface `llm/retry` event with the failure and scheduled delay. Cancellation and plugin disposal abort the wait; disposal drains the plugin's active backoffs, and a callback captured before disposal fails closed if invoked afterward.
 
+The separately published `./invariant` companion checks that every retry record names the current open turn and its latest closed step, has a unique step record and increasing retry number, and carries a positive bounded retry budget and non-negative bounded timer delay. Full jitter may schedule zero milliseconds at its lower boundary.
+
 ```yaml
 - name: '@deepseek-ai/dsh-llm-retry'
   config:

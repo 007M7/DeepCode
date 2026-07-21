@@ -8,6 +8,11 @@
     "src"
   ],
   "references": [
-    { "path": "../loader-smoke" }
+    {
+      "path": "../loader-smoke"
+    },
+    {
+      "path": "../../support/invariants"
+    }
   ]
 }
