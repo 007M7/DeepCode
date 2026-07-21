@@ -351,7 +351,7 @@ function checkValueUnchecked(node: JsonSchemaNode, value: unknown, path: string)
       return safelyIsJsonValue(value) ? [] : [`"${diagnosticPath(path)}" must be a lossless JSON object`]
     }
     case 'array': {
-      if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return [`"${diagnosticPath(path)}" must be an array`]
+      if (!Array.isArray(value)) return [`"${diagnosticPath(path)}" must be an array`]
       const items = node.items
       const violations = items === undefined
         ? []

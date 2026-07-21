@@ -186,6 +186,10 @@ describe('the enforced raw JSON Schema subset', () => {
     })
     expect(violationsOf({ examples: explosive }))
       .toEqual(['schema.examples annotation must be lossless JSON data'])
+    expect(violationsOf({ default: Object.defineProperty({}, 'hidden', { value: true }) }))
+      .toEqual(['schema.default annotation must be lossless JSON data'])
+    expect(violationsOf({ default: { [Symbol('hidden')]: true } }))
+      .toEqual(['schema.default annotation must be lossless JSON data'])
   })
 
   it('accepts lossless annotation containers from another JavaScript realm', () => {
@@ -298,6 +302,7 @@ describe('validateJsonSchemaValue', () => {
   it('validates dense arrays per index and rejects lossy arrays', () => {
     const schema = asserted({ type: 'array', items: { type: 'integer' } })
     expect(validateJsonSchemaValue(schema, [1, 2])).toEqual([])
+    expect(validateJsonSchemaValue(schema, runInNewContext('[1, 2]'))).toEqual([])
     expect(validateJsonSchemaValue(schema, [1, 1.5])).toEqual(['"value[1]" must be an integer'])
     expect(validateJsonSchemaValue(schema, 'x')).toEqual(['"value" must be an array'])
     const sparse: number[] = []

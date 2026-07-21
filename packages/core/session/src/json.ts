@@ -15,13 +15,24 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 /** Whether an array uses one realm's intrinsic `Array.prototype`, not a subclass or forged prototype. */
 function hasPlainArrayPrototype(value: unknown[]): boolean {
   const prototype: unknown = Object.getPrototypeOf(value)
-  return Array.isArray(prototype) && Object.getPrototypeOf(Object.getPrototypeOf(prototype)) === null
+  if (!Array.isArray(prototype)) return false
+  const objectPrototype: unknown = Object.getPrototypeOf(prototype)
+  return objectPrototype !== null
+    && !Array.isArray(objectPrototype)
+    && Object.getPrototypeOf(objectPrototype) === null
 }
 
 /** Whether an object is a plain or null-prototype record from any JavaScript realm. */
 function hasPlainObjectPrototype(value: object): boolean {
   const prototype: unknown = Object.getPrototypeOf(value)
   return prototype === null || Object.getPrototypeOf(prototype) === null
+}
+
+/** Return every JSON-visible object key, or reject own data JSON would discard. */
+function enumerableStringKeys(value: object): string[] | undefined {
+  const keys = Reflect.ownKeys(value)
+  if (keys.some(key => typeof key !== 'string' || !Object.prototype.propertyIsEnumerable.call(value, key))) return undefined
+  return keys as string[]
 }
 
 /**
@@ -75,8 +86,10 @@ export function snapshotJsonValue<T>(value: T): T | undefined {
       }
 
       if (!hasPlainObjectPrototype(current)) return undefined
+      const keys = enumerableStringKeys(current)
+      if (keys === undefined) return undefined
       const snapshot: { [key: string]: JsonValue } = {}
-      for (const key of Object.keys(current)) {
+      for (const key of keys) {
         const item = visit((current as Record<string, unknown>)[key])
         if (item === undefined) return undefined
         // Define the key as data so a JSON field literally named "__proto__"
@@ -139,7 +152,8 @@ export function isJsonValue(value: unknown, seen: Set<object> = new Set()): bool
     }
     // Plain object only (reject Map/Set/Date/class instances).
     if (!hasPlainObjectPrototype(value)) return false
-    return Object.values(value).every(v => isJsonValue(v, seen))
+    const keys = enumerableStringKeys(value)
+    return keys !== undefined && keys.every(key => isJsonValue((value as Record<string, unknown>)[key], seen))
   } finally {
     seen.delete(value)
   }
