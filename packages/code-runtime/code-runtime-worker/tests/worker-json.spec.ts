@@ -64,6 +64,18 @@ describe('snapshotCodeJsonValue', () => {
     expect(snapshot[0]?.['__proto__']).toEqual({ safe: true })
   })
 
+  it('accepts deeply nested valid JSON without using the JavaScript call stack', () => {
+    let value: unknown = 'leaf'
+    for (let depth = 0; depth < 5_000; depth++) value = [value]
+
+    let cursor = snapshotCodeJsonValue(value)
+    for (let depth = 0; depth < 5_000; depth++) {
+      expect(Array.isArray(cursor)).toBe(true)
+      cursor = Array.isArray(cursor) ? cursor[0] : undefined
+    }
+    expect(cursor).toBe('leaf')
+  })
+
   it('rejects exotic containers, sparse arrays, cycles, and invalid children', () => {
     class ExoticObject {
       readonly value = 1
