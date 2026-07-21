@@ -7,8 +7,9 @@ import Loader from '@cordisjs/plugin-loader'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import LlmService, { CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { type Agent, type HookContext } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent, type HookContext } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsDirEntry,
@@ -23,7 +24,12 @@ import type {
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
+import type {
+  PostToolDecision,
+  ToolExecution,
+  ToolExecutionResult,
+  ToolExecutionToken,
+} from '@deepseek-ai/dsh-tools'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import {
   discoverBaselineInstructionFiles,
@@ -227,12 +233,29 @@ const composedPrefixes = new WeakMap<object, Message[]>()
 
 async function composeBaselinePrefix(ctx: Context, agent: Agent): Promise<Message[]> {
   const empty: Message[] = []
-  const prefix = await ctx.waterfall(
-    'agent/session-prefix', agent, empty, AbortSignal.timeout(1000),
+  const prefix = await agentEvents(ctx, agent).waterfall(
+    'agent/session-prefix', empty, AbortSignal.timeout(1000),
     () => Promise.resolve(empty),
   )
   composedPrefixes.set(agent, prefix)
   return prefix
+}
+
+function toolEventCarrier(ctx: Context, exec: ToolExecution) {
+  return scopeTarget(ctx.get('tools') ?? ctx as unknown as ToolRegistry, exec.agent)
+}
+
+function postExecute(
+  ctx: Context,
+  exec: ToolExecution,
+  result: Readonly<ToolExecutionResult>,
+  next: () => Promise<PostToolDecision>,
+): Promise<PostToolDecision> {
+  return ctx.waterfall(toolEventCarrier(ctx, exec), 'tools/post-execute', exec, result, next)
+}
+
+function emitToolResult(ctx: Context, exec: ToolExecution, result: Readonly<ToolExecutionResult>): void {
+  ctx.emit(toolEventCarrier(ctx, exec), 'tools/result', exec, result)
 }
 
 function derivedText(agent: Agent): string {
@@ -522,6 +545,7 @@ describe('workspace context instruction discovery', () => {
 
       vi.resetModules()
       vi.doMock('node:os', () => ({ homedir: () => home }))
+      vi.stubEnv('DSH_HOME', undefined)
       const isolated = await import('@deepseek-ai/dsh-workspace-context')
       const files = await isolated.discoverBaselineInstructionFiles({ cwd: root })
 
@@ -529,6 +553,7 @@ describe('workspace context instruction discovery', () => {
     } finally {
       vi.doUnmock('node:os')
       vi.resetModules()
+      vi.unstubAllEnvs()
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }
@@ -795,7 +820,7 @@ describe('workspace context request injection', () => {
     try {
       await ctx.plugin(workspaceContext, { maxBytes: 65536 })
 
-      const decision = await ctx.waterfall('tools/post-execute', stubToolExecution({
+      const decision = await postExecute(ctx, stubToolExecution({
         signal: testToolSignal,
         callId: CallId('no-fs-post-execute'),
         name: 'read',
@@ -844,7 +869,7 @@ describe('workspace context request injection', () => {
       }
 
       // A later PostToolUse-style policy blocks this otherwise-successful read.
-      const blocked = await ctx.waterfall('tools/post-execute', exec, result, async () => ({
+      const blocked = await postExecute(ctx, exec, result, async () => ({
         kind: 'block' as const,
         feedback: [{ type: 'text' as const, text: 'blocked by policy' }],
       }))
@@ -858,7 +883,7 @@ describe('workspace context request injection', () => {
       // The same read, when the downstream accepts, DOES surface the nested
       // instructions — proving the block branch above is what suppressed them,
       // and that the block did not consume the pending nested change.
-      const accepted = await ctx.waterfall('tools/post-execute', exec, result, async () => ({
+      const accepted = await postExecute(ctx, exec, result, async () => ({
         kind: 'accept' as const,
       }))
       expect(accepted.kind).toBe('accept')
@@ -1192,8 +1217,9 @@ describe('workspace context request injection', () => {
       const controller = new AbortController()
       const reason = new Error('cancel prefix')
       const empty: Message[] = []
-      const pending = ctx.waterfall(
-        'agent/session-prefix', stubAgent(root), empty, controller.signal,
+      const agent = stubAgent(root)
+      const pending = agentEvents(ctx, agent).waterfall(
+        'agent/session-prefix', empty, controller.signal,
         () => Promise.resolve(empty),
       )
 
@@ -1683,7 +1709,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: controller.signal,
       })
 
-      const pending = ctx.waterfall('tools/post-execute', exec, {
+      const pending = postExecute(ctx, exec, {
         content: [{ type: 'text', text: 'ok' }],
         isError: false,
       }, () => Promise.resolve({ kind: 'accept' as const }))
@@ -2445,13 +2471,13 @@ describe('dynamic nested workspace context injection', () => {
         isError: false,
       }
 
-      const failedStat = await ctx.waterfall('tools/post-execute', stubToolExecution({
+      const failedStat = await postExecute(ctx, stubToolExecution({
         signal: testToolSignal,
         callId: CallId('provider-stat-failure'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       }), result, async () => ({ kind: 'accept' as const }))
       fs.throwOnStat.clear()
       fs.entries.set(join(root, 'pkg/AGENTS.md'), { type: 'directory' })
-      const mismatchedStat = await ctx.waterfall('tools/post-execute', stubToolExecution({
+      const mismatchedStat = await postExecute(ctx, stubToolExecution({
         signal: testToolSignal,
         callId: CallId('provider-stat-mismatch'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
       }), result, async () => ({ kind: 'accept' as const }))
@@ -2693,23 +2719,23 @@ describe('dynamic nested workspace context injection', () => {
       const parent = Symbol('parent') as ToolExecutionToken
       const plainResult = { callId: CallId('plain'), content: [], isError: false }
 
-      ctx.emit('tools/result', stubToolExecution({
+      emitToolResult(ctx, stubToolExecution({
         signal: testToolSignal,
         callId: CallId('agentless-child'), name: 'read', arguments: {}, parent,
       }), plainResult)
-      ctx.emit('tools/result', stubToolExecution({
+      emitToolResult(ctx, stubToolExecution({
         signal: testToolSignal,
         callId: CallId('contextless-child'), name: 'read', arguments: {}, agent, parent,
       }), { ...plainResult, additionalContexts: [{ content: [], source: { kind: 'plugin', plugin: 'workspace-context' } }] })
-      ctx.emit('tools/result', stubToolExecution({
+      emitToolResult(ctx, stubToolExecution({
         signal: testToolSignal,
         callId: CallId('first-child'), name: 'read', arguments: {}, agent, parent,
       }), { ...plainResult, additionalContexts: [workspaceChangeContext('first', 'one')] })
-      ctx.emit('tools/result', stubToolExecution({
+      emitToolResult(ctx, stubToolExecution({
         signal: testToolSignal,
         callId: CallId('second-child'), name: 'read', arguments: {}, agent, parent,
       }), { ...plainResult, additionalContexts: [workspaceChangeContext('second', 'two')] })
-      ctx.emit('tools/result', {
+      emitToolResult(ctx, {
         ...stubToolExecution({ signal: testToolSignal, callId: CallId('agentless-parent'), name: 'composite', arguments: {} }),
         token: parent,
       }, plainResult)
@@ -2745,7 +2771,7 @@ describe('dynamic nested workspace context injection', () => {
       ]
 
       for (const item of cases) {
-        const decision = await ctx.waterfall('tools/post-execute', stubToolExecution({
+        const decision = await postExecute(ctx, stubToolExecution({
           signal: testToolSignal,
           callId: CallId(`manual-${item.name}-${cases.indexOf(item)}`),
           name: item.name,

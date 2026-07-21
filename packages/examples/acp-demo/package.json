@@ -14,6 +14,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./invariant": {
+      "types": "./lib/types/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
     "./bin": {
       "types": "./lib/types/bin.d.ts",
       "default": "./lib/bin.js"
@@ -23,6 +27,7 @@
   },
   "files": [
     "lib/index.js",
+    "lib/invariant.js",
     "lib/bin.js",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
@@ -32,32 +37,34 @@
   "peerDependencies": {
     "@cordisjs/plugin-include": "^1.0.4",
     "@cordisjs/plugin-loader": "^1.0.0-rc.5",
-    "@deepseek-ai/dsh-app-boot": "^0.0.1",
     "@deepseek-ai/dsh-acp": "^0.0.1",
     "@deepseek-ai/dsh-commands": "^0.0.1",
     "@deepseek-ai/dsh-command-goal": "^0.0.1",
     "@deepseek-ai/dsh-agent-spine-demo": "^0.0.1",
-    "@deepseek-ai/dsh-workspace-context": "^0.0.1",
+    "@deepseek-ai/dsh-app-boot": "^0.0.1",
+    "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-session-persistence-jsonl": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
     "@deepseek-ai/dsh-user-interaction": "^0.0.1",
+    "@deepseek-ai/dsh-workspace-context": "^0.0.1",
     "cordis": "^4.0.0-rc.7",
     "schemastery": "^3.17.0"
   },
   "devDependencies": {
     "@cordisjs/plugin-include": "workspace:^",
     "@cordisjs/plugin-loader": "workspace:^",
-    "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-acp": "workspace:^",
     "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-command-goal": "workspace:^",
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-agent-spine-demo": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^",
-    "@deepseek-ai/dsh-system-prompt": "workspace:^",
-    "@deepseek-ai/dsh-workspace-context": "workspace:^",
+    "@deepseek-ai/dsh-app-boot": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",
+    "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
     "@deepseek-ai/dsh-user-interaction": "workspace:^",
+    "@deepseek-ai/dsh-workspace-context": "workspace:^",
     "cordis": "^4.0.0-rc.7",
     "schemastery": "^3.17.0"
   }

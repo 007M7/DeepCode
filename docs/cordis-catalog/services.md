@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:224`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:225`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -422,7 +422,7 @@ abstract compactRegion( start: number, end: number, agent: CompactAgentContext, 
 
 Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionTrigger](../core-data-structures/compaction.md)
 
-Source: [`packages/compact/compact/src/index.ts:40`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:39`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -613,6 +613,24 @@ Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-d
 
 Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
 
+## `ctx.invariants` — `InvariantService`
+
+Package-owned invariant registry with global and regex-based selection.
+
+```ts cordis-catalog
+/**
+ * Register one package's invariant installer. The package name is reserved
+ * even when filtering disables its checks. Enabled installers run in a child
+ * fiber; failure disposes that fiber and releases the reservation.
+ * @param packageName - full npm package name that owns the contribution.
+ * @param installer - listener or startup-check installer for the child context.
+ * @returns an effect-scoped disposer for the registration.
+ */
+register(packageName: string, installer: InvariantInstaller): () => void
+```
+
+Source: [`packages/support/invariants/src/index.ts:94`](../../packages/support/invariants/src/index.ts)
+
 ## `ctx.llm` — `LlmService`
 
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
@@ -643,6 +661,16 @@ listProviders(): LlmProviderInfo[]
 async listModels(provider: string): Promise<LlmModelInfo[]>
 
 /**
+ * Resolve context capacity from the adapter that owns one exact route.
+ * This query is independent of the advisory model catalog: an unlisted model
+ * may return metadata, while `undefined` never rejects later routing.
+ * @param provider - registered provider route to inspect.
+ * @param model - exact model id passed to the adapter.
+ * @returns detached context metadata, or `undefined` when the adapter has none.
+ */
+async resolveModelContext( provider: string, model: string, ): Promise<LlmModelContext | undefined>
+
+/**
  * Stream one model call as raw chunks (token-level deltas). Throws
  * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
  * `options.provider`. Replay state is retained only when the same adapter
@@ -657,9 +685,9 @@ async listModels(provider: string): Promise<LlmModelInfo[]>
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelContext](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:137`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:159`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -1246,7 +1274,7 @@ estimateMessage(message: Message): number
 
 Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
-Source: [`packages/llm/token-meter/src/index.ts:106`](../../packages/llm/token-meter/src/index.ts)
+Source: [`packages/llm/token-meter/src/index.ts:82`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.toolResultPrune` — `ToolResultPruneService`
 

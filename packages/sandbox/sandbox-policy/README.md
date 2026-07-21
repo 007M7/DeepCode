@@ -18,6 +18,8 @@ Two families enforce the same mode vocabulary: the sandboxed bash executor (`@de
 - `setSandboxMode(session, mode)` — THE write path for a per-session override: appends exactly one `sandbox/mode` event. The switch IS its event; nothing mutates the mode out of band.
 - `SANDBOX_MODES` — every mode, for option advertisement and runtime validation.
 
+The optional `./invariant` companion rejects a forged durable `sandbox/mode` event whose value falls outside that closed vocabulary; Session and its companion own the surrounding storage and turn-enclosure rules.
+
 ## The per-session store
 
 A runtime switch (an ACP `session/set_config_option`, a test scenario) is one log-only `sandbox/mode` event on the session it applies to. `effective = fold(events) ?? the deployment default`, so an override survives restart by replay, two sessions never see each other's state, and there is no external config store. The event is log-only (the `approval/*` precedent): the model learns the mode from the enforcing tools' denial markers, never from the event. Execution honors the fold in each tool layer, weakest-precedence beneath an escalation grant.

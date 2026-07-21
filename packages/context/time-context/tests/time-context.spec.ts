@@ -4,8 +4,7 @@ import Loader from '@cordisjs/plugin-loader'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -83,7 +82,7 @@ async function fire(
   step: number,
   signal: AbortSignal = SIGNAL,
 ): Promise<void> {
-  await ctx.serial('agent/pre-step', agent, turn, step, signal)
+  await agentEvents(ctx, agent).serial('agent/pre-step', turn, step, signal)
 }
 
 function textResponse(text: string): StreamChunk[] {

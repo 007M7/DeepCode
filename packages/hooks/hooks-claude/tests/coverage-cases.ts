@@ -10,7 +10,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
-import { SubagentRunId } from '@deepseek-ai/dsh-subagent'
+import { scopeTarget } from '@deepseek-ai/dsh-scope'
+import SubagentService, { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
@@ -21,6 +22,10 @@ const testToolSignal = new AbortController().signal
 
 const dirs: string[] = []
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }) })
+
+function subagentCarrier(ctx: Context) {
+  return scopeTarget(ctx as unknown as SubagentService, undefined)
+}
 
 function dir(): string { const d = mkdtempSync(join(tmpdir(), 'dsh-hc-cov-')); dirs.push(d); return d }
 function sh(d: string, name: string, body: string): string {
@@ -235,7 +240,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const injected: string[] = []
       const child = { id: SessionId('child-x'), inject: (content: { type: string; text?: string }[]) => { injected.push(content.map(b => b.text ?? '').join('')) }, session: { id: SessionId('child-x'), header: { id: 'child-x' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
       ctx.agents.register(child)
-      ctx.emit('subagent/start', { runId: SubagentRunId('run-x'), provider: 'p', id: SessionId('child-x'), local: true })
+      ctx.emit(subagentCarrier(ctx), 'subagent/start', { runId: SubagentRunId('run-x'), provider: 'p', id: SessionId('child-x'), local: true })
       await waitFor(() => injected.includes('child guidance'))
       expect(injected).toContain('child guidance')
     })
@@ -251,7 +256,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const warn = vi.fn(); ctx.logger.warn = warn as never
       const child = { id: SessionId('child-y'), inject: () => { throw new Error('inject boom') }, session: { id: SessionId('child-y'), header: { id: 'child-y' } } } as unknown as Parameters<typeof ctx.agents.register>[0]
       ctx.agents.register(child)
-      ctx.emit('subagent/start', { runId: SubagentRunId('run-y'), provider: 'p', id: SessionId('child-y'), local: true })
+      ctx.emit(subagentCarrier(ctx), 'subagent/start', { runId: SubagentRunId('run-y'), provider: 'p', id: SessionId('child-y'), local: true })
       await waitFor(() => warn.mock.calls.some(c => String(c[0]).includes('SubagentStart hook failed')))
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('SubagentStart hook failed'))
     })
@@ -295,7 +300,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const s = sh(d, 'stop.sh', `#!/usr/bin/env bash\ntouch "${marker}"\n`)
       const path = hooks(d, { SubagentStop: [{ hooks: [{ type: 'command', command: s }] }] })
       const ctx = await harness(path, new MockAdapter([]))
-      ctx.emit('subagent/end', { runId: SubagentRunId('run-z'), provider: 'p', id: SessionId('child-z'), local: false, stopReason: 'completed' })
+      ctx.emit(subagentCarrier(ctx), 'subagent/end', { runId: SubagentRunId('run-z'), provider: 'p', id: SessionId('child-z'), local: false, stopReason: 'completed' })
       await waitFor(() => existsSync(marker))
       expect(existsSync(marker)).toBe(true)
     })
@@ -691,7 +696,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // Register a live child on its own session cwd; emit subagent/end with its id.
       const { SessionId } = await import('@deepseek-ai/dsh-session')
       const childHandle = await ctx.agents.create({ sessionId: SessionId('child-stop-session'), meta: { cwd: childDir }, agentOptions: { provider: 'mock', model: 'mock' } })
-      ctx.emit('subagent/end', { runId: SubagentRunId('run-stop'), provider: 'inproc', id: childHandle.agent.id, local: true, stopReason: 'completed' })
+      ctx.emit(subagentCarrier(ctx), 'subagent/end', { runId: SubagentRunId('run-stop'), provider: 'inproc', id: childHandle.agent.id, local: true, stopReason: 'completed' })
 
       await waitFor(() => existsSync(marker))
       expect(existsSync(marker)).toBe(true) // the marker landed in the CHILD dir

@@ -89,6 +89,8 @@ function expectCode(code: SessionQueryErrorCode): Error {
 }
 
 function appendTraceEvents(session: Session): void {
+  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('step/start', { turn: 1, step: 1 })
   session.append('assistant/chunk', {
     turn: 1,
     step: 1,
@@ -97,22 +99,24 @@ function appendTraceEvents(session: Session): void {
   session.append(
     'user/message',
     { content: [{ type: 'text', text: 'original' }], source: { kind: 'user' } },
-    { surfaceOp: 'append', sourceEventSeqs: [0] },
+    { surfaceOp: 'append', sourceEventSeqs: [2] },
   )
   session.append(
     'assistant/message',
     { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'summary one' }] },
-    { surfaceOp: { op: 'replace', start: 1, end: 1 }, sourceEventSeqs: [1, 0] },
+    { surfaceOp: { op: 'replace', start: 3, end: 3 }, sourceEventSeqs: [3, 2] },
   )
   session.append(
     'context/message',
     { content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } },
     { surfaceOp: 'append' },
   )
+  session.append('step/end', { turn: 1, step: 1 })
+  session.append('step/start', { turn: 1, step: 2 })
   session.append(
     'assistant/message',
     { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 2, content: [{ type: 'text', text: 'summary two' }] },
-    { surfaceOp: { op: 'replace', start: 2, end: 2 }, sourceEventSeqs: [0, 2] },
+    { surfaceOp: { op: 'replace', start: 4, end: 4 }, sourceEventSeqs: [2, 4] },
   )
 }
 
@@ -235,40 +239,40 @@ describe('session event tracing', () => {
     const session = ctx.sessions.create(SessionId('trace'))
     appendTraceEvents(session)
 
-    const original = await ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: 1 })
+    const original = await ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: 3 })
     expect(original.target).toMatchObject({
       sessionId: session.id,
-      seq: 1,
+      seq: 3,
       type: 'user/message',
       surface: 'shadowed',
     })
     expect(original).toMatchObject({
-      replacedBy: 2,
-      replacementChain: [2, 4],
+      replacedBy: 4,
+      replacementChain: [4, 8],
       replacedEventSeqs: [],
-      sourceEventSeqs: [0],
-      derivedEventSeqs: [2],
+      sourceEventSeqs: [2],
+      derivedEventSeqs: [4],
     })
-    await expect(ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: 2 }))
+    await expect(ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: 4 }))
       .resolves.toMatchObject({
-        replacedBy: 4,
-        replacementChain: [4],
-        replacedEventSeqs: [1],
-        sourceEventSeqs: [1, 0],
-        derivedEventSeqs: [4],
+        replacedBy: 8,
+        replacementChain: [8],
+        replacedEventSeqs: [3],
+        sourceEventSeqs: [3, 2],
+        derivedEventSeqs: [8],
       })
-    await expect(ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: 0 }))
+    await expect(ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: 2 }))
       .resolves.toMatchObject({
         target: { surface: 'log-only' },
         replacementChain: [],
         sourceEventSeqs: [],
-        derivedEventSeqs: [1, 2, 4],
+        derivedEventSeqs: [3, 4, 8],
       })
-    await expect(ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: 4 }))
+    await expect(ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: 8 }))
       .resolves.toMatchObject({
         replacementChain: [],
-        replacedEventSeqs: [2],
-        sourceEventSeqs: [0, 2],
+        replacedEventSeqs: [4],
+        sourceEventSeqs: [2, 4],
         derivedEventSeqs: [],
       })
   })
@@ -278,18 +282,18 @@ describe('session event tracing', () => {
     const session = ctx.sessions.create(SessionId('detached'))
     appendTraceEvents(session)
 
-    const first = await ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: 2 })
+    const first = await ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: 4 })
     first.target.time = -1
     first.replacementChain.push(99)
     first.replacedEventSeqs.push(99)
     first.sourceEventSeqs.push(99)
     first.derivedEventSeqs.push(99)
-    const repeated = await ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: 2 })
+    const repeated = await ctx.sessionQuery.traceEvent({ sessionId: session.id, seq: 4 })
     expect(repeated.target.time).not.toBe(-1)
-    expect(repeated.replacementChain).toEqual([4])
-    expect(repeated.replacedEventSeqs).toEqual([1])
-    expect(repeated.sourceEventSeqs).toEqual([1, 0])
-    expect(repeated.derivedEventSeqs).toEqual([4])
+    expect(repeated.replacementChain).toEqual([8])
+    expect(repeated.replacedEventSeqs).toEqual([3])
+    expect(repeated.sourceEventSeqs).toEqual([3, 2])
+    expect(repeated.derivedEventSeqs).toEqual([8])
   })
 
   it('loads persisted logs once, prefers live logs, and preserves failures and conflicts', async () => {
@@ -303,6 +307,7 @@ describe('session event tracing', () => {
     expect([TracePersistence.listCalls, TracePersistence.loadCalls]).toEqual([1, 1])
 
     const live = ctx.sessions.create(durable.id, { meta: { createdAt: 1, cwd: '/same' } })
+    live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     live.append(
       'context/message',
       { content: [{ type: 'text', text: 'live' }], source: { kind: 'plugin', plugin: 'test' } },
@@ -310,7 +315,7 @@ describe('session event tracing', () => {
     )
     TracePersistence.listFailure = new Error('list unavailable')
     TracePersistence.loadFailure = new Error('load unavailable')
-    await expect(ctx.sessionQuery.traceEvent({ sessionId: durable.id, seq: 0 }))
+    await expect(ctx.sessionQuery.traceEvent({ sessionId: durable.id, seq: 1 }))
       .resolves.toMatchObject({ target: { type: 'context/message' } })
     expect([TracePersistence.listCalls, TracePersistence.loadCalls]).toEqual([1, 1])
 
