@@ -8,27 +8,24 @@
  * Plan/Default collaboration presets from its sandbox and approval settings.
  * There is likewise NO per-mode tool allow/deny list: which tools a mode
  * admits is an effects question, parked until tool definitions can declare
- * their effects (the plan-mode RFC's deferred item). The mode IN FORCE for an
+ * their effects (the plan-mode Agent Note's deferred item). The mode IN FORCE for an
  * agent is session state, folded from its log (`mode/set`, last one wins), so
  * resume and fork restore it for free.
  *
- * The default mode is the absence of policy: no section, no extra tool. An
- * agent that never sees a `mode/set` behaves byte-identically to a deployment
- * that never loads this plugin, so it is safe to compose unconditionally. The
- * exit tool's per-agent visibility rides the tool registry's scoped
- * restriction layer, so wire schemas, the Code Mode SDK section, and dispatch
- * all resolve it through the one registry view.
+ * The default mode is the absence of mode guidance. The `exit_plan_mode` tool
+ * remains registered in every mode so request tool schemas never change at a
+ * mode boundary; its execute path rejects calls outside plan mode.
  *
  * User flips go through {@link ModesService.set}: every session event is
  * turn-enclosed and an idle agent has no open turn, so `set()` records a
- * pending intent and the service flushes it on the loop's interception seams
- * — `agent/prompt-submit` (inside the just-opened turn, before its first
- * assembly) and `agent/turn-continuation` (after each step closed, before the
- * next assembly) — both outside the step's tool-execution window and outside
- * any log emit (post-commit `session/event` observers are observe-only and
- * cannot append). A flush that changes what the last logged request header
- * told the model appends one coalesced `context/message` notice in the same
- * frame.
+ * pending intent and the service flushes it on the loop's interception seams:
+ * `agent/prompt-submit` before the first assembly, `agent/turn-continuation`
+ * before a normal successor step, and the post-composed
+ * `agent/request-error` retry decision before a recovery step. These seams are
+ * outside tool execution and log publication (post-commit `session/event`
+ * observers cannot append). A flush that changes what the last logged request
+ * header told the model appends one coalesced `context/message` notice in the
+ * same frame.
  *
  * Agent Note: .agents/notes/implemented/feature/2026-07-07-plan-mode.md
  *
@@ -69,14 +66,12 @@ declare module 'cordis' {
  */
 export const DEFAULT_MODE = 'default'
 
-/** The one shipped mode definition's name. */
+/** The required plan definition's name. */
 export const PLAN_MODE = 'plan'
 
 /**
- * The model-facing exit tool's name. The assemble filter shows the tool IFF the
- * folded mode is {@link PLAN_MODE}, which keeps a default-mode assembly
- * byte-identical to a deployment without this plugin even though the tool is
- * always registered.
+ * The model-facing exit tool's name. It stays registered in every mode so the
+ * request tool catalog is stable; execution outside {@link PLAN_MODE} rejects.
  */
 export const EXIT_PLAN_MODE = 'exit_plan_mode'
 
@@ -92,32 +87,21 @@ export interface ModeDefinition {
 }
 
 /**
- * Plugin config: mode definitions by name. The built-in {@link PLAN_MODE}
- * definition is merged in unless overridden; {@link DEFAULT_MODE} is rejected
- * as a key ({@link resolveConfig} throws at load).
+ * Plugin config: mode definitions by name. The deployment must define
+ * {@link PLAN_MODE}, including its complete model instructions;
+ * {@link DEFAULT_MODE} is rejected as a key ({@link resolveConfig} throws at
+ * load).
  */
 export interface ModeConfig {
-  /** Mode definitions by name, overriding or extending the built-in `plan`. */
-  modes?: Record<string, ModeDefinition>
+  /** Mode definitions by name; `plan` is required and owns its full prompt text. */
+  modes: Record<string, ModeDefinition>
 }
 
-/** Validated mode definitions: the built-in `plan` merged with (or replaced by) the configured ones. */
+/** Validated deployment-owned mode definitions, including `plan`. */
 export interface ResolvedModes {
   /** Definitions by mode name; never contains {@link DEFAULT_MODE}. */
   definitions: ReadonlyMap<string, ModeDefinition>
 }
-
-const PLAN_SECTION
-  = 'You are in plan mode: a planning state. Explore, analyze, and design; reading '
-  + 'files and running read-only commands is fine, but hold off on changes — edits '
-  + 'and other side effects belong in the plan and run after its approval, not in '
-  + 'this mode. When a decision or a missing detail blocks the plan, ask the '
-  + 'user through the ask_user_question tool where it is available. A finished plan '
-  + 'is delivered by calling exit_plan_mode — that call is what puts it in front of '
-  + 'the user for review, so prefer it over pasting the plan as a plain reply or '
-  + 'asking the user to switch modes themselves. If exit_plan_mode is unavailable or '
-  + 'its review fails, ask the user to switch the session out of plan mode instead '
-  + 'of pressing on.'
 
 /** The review question's approve option label — the answer item is matched by it. */
 const APPROVE_LABEL = 'Approve'
@@ -126,7 +110,7 @@ const APPROVE_LABEL = 'Approve'
 const KEEP_PLANNING_LABEL = 'Keep planning'
 
 const EXIT_DESCRIPTION
-  = 'Present your plan for the user\'s review and, on approval, leave plan mode. '
+  = 'Use only in plan mode. Present your plan for the user\'s review and, on approval, leave plan mode. '
   + 'Send the COMPLETE plan as markdown, starting with a # heading that names it. '
   + 'The user may approve (carry out the plan from your next step) or keep '
   + 'planning — their feedback comes back in the tool result; revise and present again.'
@@ -141,22 +125,28 @@ function firstHeading(plan: string): string | undefined {
 }
 
 /**
- * Validate the config and merge the built-in `plan` definition (explicit
- * resolve step — the `dsh-bash` request/spec template). Fail-loud: a
- * {@link DEFAULT_MODE} key or a malformed definition throws at load.
+ * Validate the deployment-owned mode definitions (explicit resolve step — the
+ * `dsh-bash` request/spec template). Fail-loud: a missing {@link PLAN_MODE}, a
+ * {@link DEFAULT_MODE} key, or a malformed definition throws at load.
  *
  * @param config Raw plugin config.
- * @returns The validated definitions, `plan` included unless overridden.
+ * @returns The validated definitions, including deployment-configured `plan`.
  */
 export function resolveConfig(config: ModeConfig): ResolvedModes {
   const definitions = new Map<string, ModeDefinition>()
-  definitions.set(PLAN_MODE, { section: PLAN_SECTION })
-  for (const [name, definition] of Object.entries(config.modes ?? {})) {
+  // Cordis can invoke the constructor with omitted runtime config even though
+  // the public TypeScript contract requires `modes`; keep that invalid shape
+  // inside validation so it gets the actionable missing-plan error below.
+  const modes = (config as Partial<ModeConfig>).modes ?? {}
+  for (const [name, definition] of Object.entries(modes)) {
     if (name === DEFAULT_MODE) {
       throw new Error(`ModeConfig: "${DEFAULT_MODE}" is reserved (the absence of policy) and cannot be defined`)
     }
     if (typeof definition.section !== 'string') {
       throw new Error(`ModeConfig: mode "${name}" needs a string \`section\``)
+    }
+    if (definition.section.trim() === '') {
+      throw new Error(`ModeConfig: mode "${name}" needs a non-empty \`section\``)
     }
     // Unknown keys fail loud rather than silently shaping nothing — the
     // definition vocabulary is exactly { section }: a tool allow/deny list
@@ -166,6 +156,9 @@ export function resolveConfig(config: ModeConfig): ResolvedModes {
       throw new Error(`ModeConfig: mode "${name}" has unknown key(s) ${unknown.join(', ')} — a definition is { section }`)
     }
     definitions.set(name, { section: definition.section })
+  }
+  if (!definitions.has(PLAN_MODE)) {
+    throw new Error(`ModeConfig: mode "${PLAN_MODE}" is required; put its model instructions in modes.${PLAN_MODE}.section`)
   }
   return { definitions }
 }
@@ -205,13 +198,13 @@ function modeAtLastHeader(events: readonly SessionEvent[]): string | undefined {
 /**
  * `ctx.modes`: the session-mode service. Owns the `mode/set` vocabulary, the
  * pending-intent flush, the boundary narration, the `mode:policy` section,
- * and the exit tool's visibility rule. UIs read mode flips off
- * `session/event`; there is no live mirror.
+ * and the stable exit tool. UIs read mode flips off `session/event`; there is
+ * no live mirror.
  */
 export class ModesService extends Service {
   static inject = ['tools', 'systemPrompt']
 
-  /** Validated definitions (built-in `plan` merged unless overridden). */
+  /** Validated deployment-owned definitions, including `plan`. */
   readonly resolved: ResolvedModes
 
   /**
@@ -222,30 +215,22 @@ export class ModesService extends Service {
    */
   private readonly pendingIntents = new WeakMap<Session, { mode: string; narrate: boolean }>()
 
-  /**
-   * Per-agent deny-restriction disposer over the exit tool, present exactly
-   * while the agent's folded mode is NOT plan. The restriction lives on
-   * `agent.ctx` (the registry's scoped layer), so it fences wire schemas, the
-   * Code Mode SDK section, AND dispatch through the one registry view, and it
-   * unwinds with the agent. Entries die with their agents (WeakMap).
-   */
-  private readonly exitToolDenials = new WeakMap<Agent, () => void>()
-
-  constructor(ctx: Context, config: ModeConfig = {}) {
+  constructor(ctx: Context, config: ModeConfig = { modes: {} }) {
     super(ctx, 'modes')
     this.resolved = resolveConfig(config)
+    let disposed = false
 
     // Boundary flushes ride the loop's interception seams, NOT the
     // `session/event` feed: post-commit session observers are observe-only
     // (an append from one would re-enter the publishing append and be
-    // contained away), while these two waterfalls fire OUTSIDE any log emit
-    // and bracket exactly the boundaries the flush wants — prompt-submit
-    // inside the just-opened turn before its first assembly, and
-    // turn-continuation after each step closed before the next assembly (or
-    // the turn's end), so a flushed mode always lands before the prompt that
-    // should reflect it. Contained: a policy plugin must never block a
-    // prompt or a turn; the only throw path in onBoundary is session.append
-    // rejecting mid-teardown.
+    // contained away). Prompt-submit runs before the first assembly;
+    // turn-continuation runs after an ordinary step and before its successor.
+    // Request retries bypass turn-continuation, so the prepended request-error
+    // wrapper delegates through recovery (including async backoff), then
+    // flushes a retry decision before that waterfall returns to the loop. A
+    // flushed mode therefore lands before the prompt that should reflect it.
+    // Contained: policy must never block a prompt or turn; onBoundary can throw
+    // only when session.append rejects during teardown.
     ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
       try {
         this.onBoundary(agent)
@@ -262,14 +247,29 @@ export class ModesService extends Service {
       }
       return next()
     })
-
-    // Seed the visibility restriction at creation: a fresh or resumed agent
-    // outside plan must not advertise (or dispatch) the exit tool. A throw
-    // here is a structural bug in this plugin, not a policy outcome, so it
-    // stays loud (it vetoes the creation, matching fail-loud misconfiguration).
-    ctx.on('agent/created', (agent) => {
-      this.syncExitToolVisibility(agent)
-    })
+    ctx.on('agent/request-error', async (
+      agent,
+      _turn,
+      _step,
+      _error,
+      _failure,
+      _priorFailures,
+      _signal,
+      next,
+    ) => {
+      const decision = await next()
+      // A waterfall can capture this wrapper before Cordis unregisters it.
+      // Do not let that stale continuation mutate the session after its
+      // owning plugin fiber has been disposed.
+      if (disposed || decision.action !== 'retry') return decision
+      try {
+        this.onBoundary(agent)
+      } catch (error) {
+        ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
+      }
+      return decision
+    }, { prepend: true })
+    ctx.effect(() => () => { disposed = true }, 'dsh-mode: close boundary lifetime')
 
     ctx.systemPrompt.section({
       name: 'mode:policy',
@@ -310,11 +310,14 @@ export class ModesService extends Service {
       parameters: {
         plan: { type: 'string', required: true, description: 'The complete plan, as markdown, starting with a # heading that names it.' },
       },
-      execute: async (_args, exec) => {
+      execute: async (args, exec) => {
         const agent = exec.agent
         if (agent === undefined) throw new Error(`${EXIT_PLAN_MODE} requires a calling agent (no session to switch)`)
         if (this.activeDefinition(agent.session)?.name !== PLAN_MODE) {
           throw new Error(`${EXIT_PLAN_MODE} is only available in plan mode`)
+        }
+        if (!/^#\s+\S/.test(args.plan.trim())) {
+          throw new Error(`${EXIT_PLAN_MODE} requires a non-empty markdown plan starting with a # heading`)
         }
         const interaction = ctx.get('userInteraction')
         if (interaction === undefined) {
@@ -325,6 +328,7 @@ export class ModesService extends Service {
             id: 'plan-review',
             header: 'Plan review',
             question: 'Approve this plan and leave plan mode?',
+            detail: args.plan,
             options: [
               { label: APPROVE_LABEL, description: 'Leave plan mode; the plan is carried out from the next step.' },
               { label: KEEP_PLANNING_LABEL, description: 'Stay in plan mode; feedback goes back to the model.' },
@@ -333,8 +337,9 @@ export class ModesService extends Service {
           agent,
           ...exec.signal ? { signal: exec.signal } : {},
         })
-        const item = answer.answers.find(entry => entry.id === 'plan-review')
-        if (!item?.selected.includes(APPROVE_LABEL)) {
+        const reviewItems = answer.answers.filter(entry => entry.id === 'plan-review')
+        const item = reviewItems.length === 1 ? reviewItems[0] : undefined
+        if (item?.selected.length !== 1 || item.selected[0] !== APPROVE_LABEL || item.custom !== undefined) {
           // A custom-text-only answer is feedback, not consent — approval is
           // exactly the approve option (an unknown selection never exits).
           const feedback = item?.custom ?? ''
@@ -345,13 +350,12 @@ export class ModesService extends Service {
         // A boundary-applied switch, NOT a direct append: the loop may still
         // execute further tool calls from the SAME assistant response after
         // this one, and they were requested under the plan-shaped header — so
-        // the plan surface (the section, the exit tool's visibility) keeps
-        // holding for that whole batch. The flush at this step's end appends
+        // the plan guidance keeps holding for that whole batch. The flush at
+        // this step's end appends
         // the mode/set (still in-turn), so the next step's assembly reflects
         // the exit; narrate: false — this result IS the narration.
         this.pendingIntents.set(agent.session, { mode: DEFAULT_MODE, narrate: false })
-        const note = item.custom === undefined || item.custom === '' ? '' : ` User note: ${item.custom}`
-        return [{ type: 'text', text: `Plan approved — plan mode exited; carry out the plan starting with your next step.${note}` }]
+        return [{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }]
       },
       presentCall: args => ({
         card: 'generic',
@@ -420,66 +424,34 @@ export class ModesService extends Service {
   }
 
   /**
-   * One boundary pass: flush the pending intent — append the `mode/set`
-   * (skipped when the fold already matches: a net-zero flip sequence) and the
-   * one coalesced notice when the flushed mode differs from what the last
-   * logged request header told the model — then reconcile the exit tool's
-   * visibility with the (possibly changed) fold. Idempotent per boundary, so
-   * the per-message prompt-submit dispatches of one batch flush once.
+   * One boundary pass for prompt submission, a normal successor, or a recovery
+   * retry: append a changed pending `mode/set` and one coalesced notice when the
+   * flushed mode differs from what the last logged request header told the
+   * model. Idempotent per boundary, so repeated dispatches flush once.
    */
   private onBoundary(agent: Agent): void {
     const session = agent.session
-    try {
-      const pending = this.pendingIntents.get(session)
-      if (pending === undefined) return
-      const target = pending.mode
-      if (target === foldMode(session.events)) {
-        this.pendingIntents.delete(session)
-        return
-      }
-      session.append('mode/set', { mode: target })
-      // Clear the intent only AFTER the append landed: if a backend rejects the
-      // write, the intent stays parked and the next boundary retries — the UI's
-      // optimistic picker state and the log re-converge instead of diverging
-      // forever on a swallowed one-shot.
+    const pending = this.pendingIntents.get(session)
+    if (pending === undefined) return
+    const target = pending.mode
+    if (target === foldMode(session.events)) {
       this.pendingIntents.delete(session)
-      if (!pending.narrate) return
-      const told = modeAtLastHeader(session.events)
-      if (told === undefined || told === target) return
-      const text = target === DEFAULT_MODE
-        ? 'The user switched this session back to the default mode.'
-        : `The user switched this session to ${target} mode.`
-      session.append('context/message', {
-        content: [{ type: 'text', text }],
-        source: { kind: 'plugin', plugin: 'mode' },
-      }, { surfaceOp: 'append' })
-    } finally {
-      // Reconcile even when the flush threw or nothing was pending: a foreign
-      // writer (a test, a future plugin) may have appended `mode/set` directly,
-      // and the fold — not the intent — is what visibility must track.
-      this.syncExitToolVisibility(agent)
-    }
-  }
-
-  /**
-   * Make the exit tool's registry visibility match the agent's folded mode:
-   * outside plan a scoped deny restriction on `agent.ctx` hides it from wire
-   * schemas, the Code Mode SDK section, and dispatch (an invisible tool
-   * reports `UNKNOWN_TOOL`), which keeps a default-mode agent byte-identical
-   * to a no-dsh-mode deployment; entering plan disposes the restriction.
-   * Idempotent — boundaries that change nothing install or dispose nothing.
-   */
-  private syncExitToolVisibility(agent: Agent): void {
-    const inPlan = this.activeDefinition(agent.session)?.name === PLAN_MODE
-    const denial = this.exitToolDenials.get(agent)
-    if (inPlan) {
-      if (denial === undefined) return
-      this.exitToolDenials.delete(agent)
-      denial()
       return
     }
-    if (denial !== undefined) return
-    this.exitToolDenials.set(agent, agent.ctx.tools.restrict({ deny: [EXIT_PLAN_MODE] }))
+    session.append('mode/set', { mode: target })
+    // Clear the intent only after the append lands; a failed write remains
+    // pending so a later boundary can retry it.
+    this.pendingIntents.delete(session)
+    if (!pending.narrate) return
+    const told = modeAtLastHeader(session.events)
+    if (told === undefined || told === target) return
+    const text = target === DEFAULT_MODE
+      ? 'The user switched this session back to the default mode.'
+      : `The user switched this session to ${target} mode.`
+    session.append('context/message', {
+      content: [{ type: 'text', text }],
+      source: { kind: 'plugin', plugin: 'mode' },
+    }, { surfaceOp: 'append' })
   }
 }
 

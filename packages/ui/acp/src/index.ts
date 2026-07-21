@@ -185,11 +185,14 @@ function elicitationForQuestion(
   options: AskUserQuestionOption[],
 ): CreateElicitationRequest {
   const title = question.header ?? 'Question'
+  const message = question.detail === undefined
+    ? question.question
+    : `${question.question}\n\n${question.detail}`
   if (options.length === 0) {
     return {
       sessionId,
       mode: 'form',
-      message: question.question,
+      message,
       requestedSchema: {
         type: 'object',
         title,
@@ -223,7 +226,7 @@ function elicitationForQuestion(
   return {
     sessionId,
     mode: 'form',
-    message: question.question,
+    message,
     requestedSchema: {
       type: 'object',
       title,
@@ -587,7 +590,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
   // --- Stream the harness event taxonomy to ACP session/update --------------
 
   // --- Session modes (dsh-mode, opportunistic) ------------------------------
-  // The mode PICKER is dsh-mode's ACP surface (the plan-mode RFC): advertised
+  // The mode PICKER is dsh-mode's ACP surface (the plan-mode Agent Note): advertised
   // as `modes` on session/new + session/load, switched via session/set_mode —
   // optimistic `current_mode_update` (the pending mode IS the user's
   // selection; the logged `mode/set` follows at the turn boundary) — and

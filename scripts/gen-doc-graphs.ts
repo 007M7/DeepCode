@@ -159,8 +159,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'mode',
     title: 'Session-mode state',
     mode: 'core',
-    consumers: ['stdio-agent', 'acp'],
-    note: 'Folds the logged per-agent mode (mode/set), flushes user flips at turn boundaries, and renders mode guidance plus the reviewed exit.',
+    consumers: ['acp'],
+    note: 'Folds logged per-agent mode/set state, flushes user flips at turn boundaries, renders deployment-owned guidance, and keeps the plan-exit schema stable across modes.',
   },
   {
     key: 'commands',

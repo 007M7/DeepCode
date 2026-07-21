@@ -24,7 +24,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`web/`](web/README.md) | Web capability family: the abstract seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
 | [`spill/`](spill/README.md) | Spill capability family: the storage seam, a local impl, and the tool-result spill policy | Product — stable surface |
 | [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool | Product — stable surface |
-| [`mode/`](mode/README.md) | Session-mode policy family: plan mode as logged per-agent state with soft/hard enforcement | Product — stable surface |
+| [`mode/`](mode/README.md) | Session modes: plan mode as logged per-agent guidance with a user-reviewed exit | Product — stable surface |
 | [`timeout/`](timeout/README.md) | Tool-call timeout policy: the `tools/execute` deadline enforcer | Product — stable surface |
 | [`guard/`](guard/README.md) | Loop-hygiene guards: advisory repeat-call reminders | Product — stable surface |
 | [`cordis/`](cordis/README.md) | Self-referential runtime toolset: inspect the live runtime's plugins and services, mount/unmount model-written plugins ([design](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)) | Product — stable surface |

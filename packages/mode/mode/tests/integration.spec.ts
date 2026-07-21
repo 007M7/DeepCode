@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import LlmService, { type StreamChunk } from '@deepseek-ai/dsh-llm'
+import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import ModesService, { PLAN_MODE, foldMode } from '@deepseek-ai/dsh-mode'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+
+const PLAN_CONFIG = { modes: { plan: { section: 'Test plan mode instructions.' } } }
 
 /**
  * Full-loop integration: a scripted mock model drives the REAL mode plugin
@@ -26,7 +27,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(ModesService)
+  await ctx.plugin(ModesService, PLAN_CONFIG)
   ctx.llm.registerAdapter(['mock'], adapter)
   for (const name of ['read', 'write']) {
     ctx.tools.register(defineTool({
@@ -94,7 +95,7 @@ describe('plan mode through the agent loop', () => {
     expect(log.some(event => event.type === 'context/message')).toBe(false)
   })
 
-  it('a user flip between turns lands at the boundary: one notice and the changed plan header', async () => {
+  it('a user flip between turns lands at the boundary: one notice and a changed header with stable tool schemas', async () => {
     const adapter = new MockAdapter([
       textResponse('First turn, default mode.'),
       textResponse('Second turn, plan mode.'),
@@ -105,6 +106,8 @@ describe('plan mode through the agent loop', () => {
     agent.send([{ type: 'text', text: 'hello' }])
     await waitForIdle(ctx, agent)
     expect(foldMode(agent.session.events)).toBe('default')
+    const first = findEvent(agent.session.events, 'request/header')
+    expect(first.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
 
     ctx.modes.set(agent, PLAN_MODE)
     agent.send([{ type: 'text', text: 'now plan' }])
@@ -117,11 +120,51 @@ describe('plan mode through the agent loop', () => {
     expect(findEvent(log, 'context/message').data.content).toEqual([
       { type: 'text', text: 'The user switched this session to plan mode.' },
     ])
-    // Entering plan changes both the section and tool catalog, so the next
-    // request logs a complete changed header.
+    // The changed request is logged as a complete snapshot.
     const second = findEvent(log, 'request/header', 'last')
     expect(second.data.reason).toBe('change')
     expect(second.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
+    expect(second.data.header.tools).toEqual(first.data.header.tools)
     expect(second.data.header.system).toContain('plan mode')
+  })
+
+  it('a mode flip during request recovery shapes the retry before its assembly', async () => {
+    const failedRequest = [{
+      type: 'finish',
+      reason: { kind: 'error', failure: { message: 'temporarily unavailable', code: 'SERVER', status: 503 } },
+    }] satisfies StreamChunk[]
+    const adapter = new MockAdapter([failedRequest, textResponse('Recovered in plan mode.')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('it-plan-retry-flip'), { provider: 'mock', model: 'mock' })
+    const recoveryEntered = Promise.withResolvers<true>()
+    const releaseRecovery = Promise.withResolvers<true>()
+    ctx.on('agent/request-error', async (subject, _turn, _step, _error, _failure, _history, _signal, next) => {
+      if (subject !== agent) return next()
+      recoveryEntered.resolve(true)
+      await releaseRecovery.promise
+      return { action: 'retry' }
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    agent.send([{ type: 'text', text: 'plan after the transient failure' }])
+    await recoveryEntered.promise
+    ctx.modes.set(agent, PLAN_MODE)
+    releaseRecovery.resolve(true)
+    await idle
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(adapter.requests[0]?.system).not.toContain(PLAN_CONFIG.modes.plan.section)
+    expect(adapter.requests[1]?.system).toContain(PLAN_CONFIG.modes.plan.section)
+    expect(adapter.requests[1]?.tools).toEqual(adapter.requests[0]?.tools)
+    const log = agent.session.events
+    const modeSet = findEvent(log, 'mode/set')
+    const firstEnd = log.find(event => event.type === 'step/end' && event.data.step === 1)
+    const retryStart = log.find(event => event.type === 'step/start' && event.data.step === 2)
+    expect(firstEnd?.seq).toBeLessThan(modeSet.seq)
+    expect(modeSet.seq).toBeLessThan(retryStart?.seq ?? 0)
+    expect(findEvent(log, 'request/header', 'last').data.header.system).toContain(PLAN_CONFIG.modes.plan.section)
+    expect(findEvent(log, 'context/message').data.content).toEqual([
+      { type: 'text', text: 'The user switched this session to plan mode.' },
+    ])
   })
 })

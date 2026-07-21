@@ -1503,7 +1503,7 @@ importers:
         specifier: workspace:^
         version: link:../../ui/user-interaction
       cordis:
-        specifier: ^4.0.0-rc.6
+        specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
 
   packages/sandbox/sandbox:

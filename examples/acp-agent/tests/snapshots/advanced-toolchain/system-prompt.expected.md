@@ -114,6 +114,11 @@ declare const tools: {
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. */
     justification?: string;
   }): Promise<string>;
+  /** Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. Send the COMPLETE plan as markdown, starting with a # heading that names it. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again. */
+  exit_plan_mode(args: {
+    /** The complete plan, as markdown, starting with a # heading that names it. */
+    plan: string;
+  }): Promise<string>;
   /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal. */
   get_goal(args: Record<string, unknown>): Promise<string>;
   /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools. */

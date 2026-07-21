@@ -229,7 +229,7 @@
 {"type":"step/end","seq":227,"time":1784525378329,"data":{"turn":1,"step":2}}
 {"type":"mode/set","seq":228,"time":1784525378329,"data":{"mode":"default"}}
 {"type":"step/start","seq":229,"time":1784525378330,"data":{"turn":1,"step":3}}
-{"type":"request/header","seq":230,"time":1784560735611,"data":{"header":{"config":{"provider":"deepseek","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"change"}}
+{"type":"request/header","seq":230,"time":1784553020470,"data":{"header":{"config":{"provider":"deepseek","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"change"}}
 {"type":"assistant/chunk","seq":231,"time":1784525378723,"data":{"turn":1,"step":3,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}
 {"type":"assistant/chunk","seq":232,"time":1784525378723,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":"The"}}}
 {"type":"assistant/chunk","seq":233,"time":1784525378807,"data":{"turn":1,"step":3,"chunk":{"type":"reasoning-delta","index":0,"text":" plan"}}}

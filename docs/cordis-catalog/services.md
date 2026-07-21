@@ -663,7 +663,7 @@ Source: [`packages/llm/llm/src/index.ts:137`](../../packages/llm/llm/src/index.t
 
 ## `ctx.modes` — `ModesService`
 
-`ctx.modes`: the session-mode service. Owns the `mode/set` vocabulary, the pending-intent flush, the boundary narration, the `mode:policy` section, and the exit tool's visibility rule. UIs read mode flips off `session/event`; there is no live mirror.
+`ctx.modes`: the session-mode service. Owns the `mode/set` vocabulary, the pending-intent flush, the boundary narration, the `mode:policy` section, and the stable exit tool. UIs read mode flips off `session/event`; there is no live mirror.
 
 ```ts cordis-catalog
 /**
@@ -698,7 +698,7 @@ set(agent: Agent, mode: string): void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/mode/mode/src/index.ts:211`](../../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:204`](../../packages/mode/mode/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -1426,7 +1426,7 @@ async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 
 Types: [AskUserQuestionAnswer](../core-data-structures/user-interaction.md) · [AskUserQuestionRequest](../core-data-structures/user-interaction.md) · [UserInteractionProvider](../core-data-structures/user-interaction.md)
 
-Source: [`packages/ui/user-interaction/src/index.ts:82`](../../packages/ui/user-interaction/src/index.ts)
+Source: [`packages/ui/user-interaction/src/index.ts:84`](../../packages/ui/user-interaction/src/index.ts)
 
 ## `ctx.web` — `WebService`
 
