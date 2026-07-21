@@ -313,7 +313,7 @@ export function apply(ctx: Context): void {
       state.competingQueued = true
       if (attempt?.phase === 'queued') attempt.stale = true
     })
-    ctx.on('agent/cancel-requested', (agent, reason) => {
+    ctx.on('agent/cancel-requested', (agent, cause) => {
       const state = stateFor(agent)
       const attempt = state.attempt
       state.attempt = undefined
@@ -325,7 +325,7 @@ export function apply(ctx: Context): void {
           return
         }
         try {
-          applyOutcome(state, goal, { kind: 'pause', reason })
+          applyOutcome(state, goal, { kind: 'pause', reason: cause.kind })
         } catch (error: unknown) {
           ctx.logger.warn(`goal-session: could not pause cancelled goal for agent "${agent.id}": ${renderThrown(error)}`)
           disarm(state)
@@ -393,7 +393,7 @@ export function apply(ctx: Context): void {
       && source.round === goal.roundsStarted + 1
     }
 
-    ctx.on('agent/prompt-submit', async (agent, content, source, next): Promise<PromptDecision> => {
+    ctx.on('agent/prompt-submit', async (agent, content, source, _signal, next): Promise<PromptDecision> => {
       if (!isGoalRoundSource(source)) return next()
       const state = stateFor(agent)
       let valid = false
@@ -443,7 +443,7 @@ export function apply(ctx: Context): void {
         if (attempt !== undefined) {
           attempt.stale = true
           if (attempt.phase === 'admitted' && state.agent.status === 'running') {
-            state.agent.cancel('goal-session driver disposed')
+            state.agent.cancel({ kind: 'parent' })
           }
           waits.push(state.agent.whenIdle())
         }

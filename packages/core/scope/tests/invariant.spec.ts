@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
+import type { Events } from 'cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import * as ScopeInvariant from '@deepseek-ai/dsh-scope/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -18,6 +20,9 @@ function emit(ctx: Context, receiver: object | undefined, event: string, args: u
 }
 
 describe('scoped-dispatch invariants', () => {
+  type AgentEventName = Extract<keyof Events, `agent/${string}`>
+  type EventArgs<K extends keyof Events> = Events[K] extends (...args: infer Args) => unknown ? Args : never
+
   it('ignores ordinary events and rejects a scoped dispatch without a carrier', async () => {
     const ctx = await setup()
     expect(() => { emit(ctx, undefined, 'ordinary/event', []) }).not.toThrow()
@@ -28,24 +33,31 @@ describe('scoped-dispatch invariants', () => {
 
   it('checks every generated subject resolver against the carrier key', async () => {
     const ctx = await setup()
-    const agent = { id: 'a1' }
-    const other = { id: 'a2' }
+    const agent = { id: 'a1' } as unknown as Agent
+    const other = { id: 'a2' } as unknown as Agent
+    const signal = new AbortController().signal
+    const config = { provider: 'p', model: 'm' }
+    const message = { role: 'assistant' as const, content: [] }
+    const agentRows = {
+      'agent/created': [agent],
+      'agent/disposed': [agent],
+      'agent/status': [agent, 'idle'],
+      'agent/queued': [agent, [], { source: { kind: 'user' }, steering: false }],
+      'agent/cancel-requested': [agent, { kind: 'user' }],
+      'agent/session-start': [agent, 'startup'],
+      'agent/pre-step': [agent, 1, 1, signal],
+      'agent/post-step': [agent, 1, 1, signal],
+      'agent/prompt-submit': [agent, [], { kind: 'user' }, signal, () => Promise.resolve({ kind: 'allow' })],
+      'agent/request': [agent, 1, 1, config, signal, () => Promise.resolve(config)],
+      'agent/request-error': [agent, 1, 1, new Error('request failed'), { message: 'request failed', code: 'UNKNOWN' }, [], signal, () => Promise.resolve({ action: 'fail' })],
+      'agent/session-prefix': [agent, [], signal, () => Promise.resolve([])],
+      'agent/step-result': [agent, 1, 1, message, signal, () => Promise.resolve(message)],
+      'agent/turn-continuation': [agent, 1, { action: 'stop' }, signal, () => Promise.resolve({ action: 'stop' })],
+      'agent/turn-stop': [agent, 1, signal],
+      'agent/error': [agent, 1, 0, new Error('x')],
+    } satisfies { [K in AgentEventName]: EventArgs<K> }
     const rows: Array<[string, unknown[]]> = [
-      ['agent/created', [agent]],
-      ['agent/disposed', [agent]],
-      ['agent/error', [agent, 1, 0, new Error('x')]],
-      ['agent/post-step', [agent, 1, 1]],
-      ['agent/pre-step', [agent, 1, 1, new AbortController().signal]],
-      ['agent/prompt-submit', [agent, [], { kind: 'user' }, () => Promise.resolve({ kind: 'allow' })]],
-      ['agent/queued', [agent, [], { source: { kind: 'user' }, steering: false }]],
-      ['agent/request', [agent, 1, 1, { model: 'm' }, () => Promise.resolve({ model: 'm' })]],
-      ['agent/request-error', [agent, 1, 1, new Error('x')]],
-      ['agent/session-prefix', [agent, [], new AbortController().signal, () => Promise.resolve([])]],
-      ['agent/session-start', [agent, 'startup']],
-      ['agent/status', [agent, 'idle']],
-      ['agent/step-result', [agent, 1, 1, { role: 'assistant', content: [] }, () => Promise.resolve({ role: 'assistant', content: [] })]],
-      ['agent/turn-continuation', [agent, 1, { action: 'stop' }, () => Promise.resolve({ action: 'stop' })]],
-      ['agent/turn-stop', [agent, 1]],
+      ...Object.entries(agentRows),
       ['approval/request', [{ agent, toolName: 'echo' }, () => Promise.resolve('unavailable')]],
       ['goal/changed', [agent, { operation: 'create', ref: { id: 'goal-a', revision: 1 } }]],
       ['system-prompt/assemble', [[], { scope: agent }]],

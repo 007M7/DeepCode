@@ -33,7 +33,7 @@ import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as toolTasks from '@deepseek-ai/dsh-tool-tasks'
 import AgentLoop, { type Config as AgentLoopConfig } from '@deepseek-ai/dsh-agent-loop'
 import * as llmRetry from '@deepseek-ai/dsh-llm-retry'
-import { resolveDshHome } from '@deepseek-ai/dsh-home'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 
 export const name = 'agent-spine-demo'
 

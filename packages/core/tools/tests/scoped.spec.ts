@@ -11,6 +11,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 
+const testToolSignal = new AbortController().signal
+
 /** Mount the registry (with its systemPrompt dependency) on a fresh context. */
 async function mount(): Promise<Context> {
   const ctx = new Context()
@@ -46,6 +48,7 @@ function tool(name: string, reply = `ran:${name}`): ToolDefinition {
 
 async function run(ctx: Context, name: string, agent?: Agent): Promise<string> {
   const result = await ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId('c1'),
     name,
     arguments: {},
@@ -308,6 +311,7 @@ describe('scoped execution dispatch', () => {
     expect(await run(ctx, 'danger', key)).toBe('Error: danger denied')
     const callerArguments = { source: true }
     const safeResult = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('safe-call'),
       name: 'safe',
       arguments: callerArguments,
@@ -351,7 +355,7 @@ describe('scoped execution dispatch', () => {
       if (exec.name === 'parent') parent = exec.token
       return next()
     })
-    await ctx.tools.execute({ callId: CallId('parent'), name: 'parent', arguments: {} })
+    await ctx.tools.execute({ signal: testToolSignal, callId: CallId('parent'), name: 'parent', arguments: {} })
     stopCapture()
     policyCalls = 0
     const signal = new AbortController().signal
@@ -375,6 +379,7 @@ describe('scoped execution dispatch', () => {
       signal,
     })
     const subjectlessResult = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('non-cloneable-subjectless'),
       name: 't',
       arguments: { invalid: () => undefined },
@@ -417,6 +422,7 @@ describe('scoped execution dispatch', () => {
       callId: CallId('stateful-parent'),
       name: 't',
       arguments: {},
+      signal: testToolSignal,
       get parent(): ToolExecutionToken | undefined {
         parentReads += 1
         return parentReads === 1 ? undefined : forged
@@ -441,7 +447,7 @@ describe('scoped execution dispatch', () => {
       if (exec.name === 'parent') parent = exec.token
       return next()
     })
-    await ctx.tools.execute({ callId: CallId('parent'), name: 'parent', arguments: {} })
+    await ctx.tools.execute({ signal: testToolSignal, callId: CallId('parent'), name: 'parent', arguments: {} })
     stopCapture()
     const acceptedSignal = new AbortController().signal
     const driftSignal = new AbortController().signal
@@ -488,6 +494,7 @@ describe('scoped execution dispatch', () => {
     const input = {
       callId: CallId('throwing-arguments'),
       name: 't',
+      signal: testToolSignal,
       get arguments(): unknown {
         argumentReads += 1
         throw new Error('getter exploded')
@@ -528,6 +535,7 @@ describe('scoped execution dispatch', () => {
     })
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('bad-arguments'), name: 't', arguments: argumentsValue,
     })
 
@@ -548,6 +556,7 @@ describe('scoped execution dispatch', () => {
     })
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('unstable-arguments'), name: 't', arguments: argumentsValue,
     })
 
@@ -590,7 +599,7 @@ describe('scoped execution dispatch', () => {
     ctx.on('tools/result', () => Promise.reject(new Error('async observer failure')) as never)
     ctx.on('tools/result', (_exec, result) => { seen.push(result.isError) })
 
-    const result = await ctx.tools.execute({ callId: CallId('final'), name: 't', arguments: {}, agent: key })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('final'), name: 't', arguments: {}, agent: key })
     await Promise.resolve()
     expect(result).toMatchObject({ isError: true, content: [{ type: 'text', text: 'outer failure' }] })
     expect(seen).toEqual([true, true])

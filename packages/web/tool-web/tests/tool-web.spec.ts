@@ -18,6 +18,8 @@ import {
   WEB_SEARCH_MAX_RESULTS,
 } from '@deepseek-ai/dsh-tool-web'
 
+const testToolSignal = new AbortController().signal
+
 const available = true
 
 function searchProvider(result: WebSearchResult, isAvailable = available): WebSearchProvider {
@@ -39,7 +41,7 @@ async function mountTools(opts: {
   if (opts.fetchProvider) ctx.web.registerFetchProvider(opts.fetchProvider)
   const fiber = await ctx.plugin(ToolWeb, opts.config ?? {})
   let counter = 0
-  const call = (name: string, args: unknown) => ctx.tools.execute({ callId: CallId(`call-${++counter}`), name, arguments: args })
+  const call = (name: string, args: unknown) => ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++counter}`), name, arguments: args })
   return { ctx, fiber, call }
 }
 
@@ -166,9 +168,9 @@ describe('tool-web registration', () => {
     const names = ctx.tools.schemas().map(s => s.name)
     expect(names).toContain('web_search')
     expect(names).toContain('web_fetch')
-    expect(ctx.tools.executionMode({ callId: CallId('search-safe'), name: 'web_search', arguments: { query: 'q' } }))
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('search-safe'), name: 'web_search', arguments: { query: 'q' } }))
       .toEqual({ kind: 'parallel' })
-    expect(ctx.tools.executionMode({ callId: CallId('fetch-safe'), name: 'web_fetch', arguments: { url: 'https://a.test' } }))
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('fetch-safe'), name: 'web_fetch', arguments: { url: 'https://a.test' } }))
       .toEqual({ kind: 'parallel' })
     await fiber.dispose()
     expect(ctx.tools.schemas().map(s => s.name)).not.toContain('web_search')
@@ -281,7 +283,7 @@ describe('tool-web execution through the real registry', () => {
     await fiber.dispose()
   })
 
-  it('executes web_fetch with no caller signal (forwards undefined to the seam)', async () => {
+  it('forwards the required caller signal to web_fetch', async () => {
     const seen: { signal?: AbortSignal | undefined; passedSignal?: boolean } = {}
     const fetchProvider = {
       id: 'stub-fetch',
@@ -293,8 +295,7 @@ describe('tool-web execution through the real registry', () => {
       },
     }
     const { ctx, fiber } = await mountTools({ webConfig: { fetchProvider: 'stub-fetch' }, fetchProvider })
-    // No signal on the execution: the tool passes `undefined`.
-    const out = await ctx.tools.execute({ callId: CallId('fetch-2'), name: 'web_fetch', arguments: { url: 'https://a.test' } })
+    const out = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('fetch-2'), name: 'web_fetch', arguments: { url: 'https://a.test' } })
     expect(out.isError).toBe(false)
     expect(out.value).toEqual({
       url: 'https://a.test',
@@ -302,8 +303,8 @@ describe('tool-web execution through the real registry', () => {
       body: { kind: 'text', content: 'ok' },
       truncated: false,
     })
-    expect(seen.passedSignal).toBe(false)
-    expect(seen.signal).toBeUndefined()
+    expect(seen.passedSignal).toBe(true)
+    expect(seen.signal).toBe(testToolSignal)
     await fiber.dispose()
   })
 

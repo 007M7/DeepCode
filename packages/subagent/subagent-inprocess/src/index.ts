@@ -135,7 +135,7 @@ export async function startInProcessRun(
 
   const onAbort = (): void => {
     flags.cancelled = true
-    child.cancel('subagent request aborted')
+    child.cancel({ kind: 'parent' })
   }
   request.signal.addEventListener('abort', onAbort, { once: true })
 

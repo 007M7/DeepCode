@@ -11,6 +11,8 @@ import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { statusLine } from '@deepseek-ai/dsh-tool-tasks'
 
+const testToolSignal = new AbortController().signal
+
 const agentRegistryDisposers = new WeakMap<Agent, () => void>()
 
 async function setup(config: ToolTasks.Config = {}) {
@@ -62,7 +64,7 @@ function producer(overrides: Partial<Omit<TaskStart, 'run'> & TaskHooks> = {}) {
 
 let callCounter = 0
 function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
-  return ctx.tools.execute({ callId: CallId(`call-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
+  return ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
 }
 
 function text(result: { content: { type: string; text?: string }[] }): string {

@@ -66,8 +66,10 @@ async function mount(hang: boolean, timeoutMs?: number): Promise<Context> {
 }
 
 let seq = 0
+const testToolSignal = new AbortController().signal
 function call(ctx: Context, args: unknown) {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: `int-${++seq}` as never,
     name: 'lsp',
     arguments: args,
