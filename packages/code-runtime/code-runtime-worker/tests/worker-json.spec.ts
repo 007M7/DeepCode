@@ -79,6 +79,8 @@ describe('snapshotCodeJsonValue', () => {
     Object.defineProperty(symbolDecorated, Symbol('extra'), { value: true })
     const hiddenObject = Object.defineProperty({}, 'hidden', { value: true })
     const symbolObject = { [Symbol('extra')]: true }
+    const customPrototype = Object.create(null) as Record<string, unknown>
+    const customPrototypeObject = Object.assign(Object.create(customPrototype) as Record<string, unknown>, { value: 1 })
     const forgedPrototype: unknown[] = []
     Object.setPrototypeOf(forgedPrototype, null)
     const forgedArray = [1]
@@ -94,6 +96,7 @@ describe('snapshotCodeJsonValue', () => {
       symbolDecorated,
       hiddenObject,
       symbolObject,
+      customPrototypeObject,
       forgedArray,
       cyclic,
       [undefined],

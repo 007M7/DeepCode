@@ -38,42 +38,60 @@ export function jsonStringBytesUpTo(text: string, maxBytes: number): number | un
  * @returns Exact serialized bytes, or `undefined` as soon as the cap is crossed.
  */
 export function jsonValueBytesUpTo(value: CodeJsonValue, maxBytes: number): number | undefined {
-  if (value === null) return maxBytes >= 4 ? 4 : undefined
-  if (typeof value === 'string') return jsonStringBytesUpTo(value, maxBytes)
-  if (typeof value === 'number') {
-    const bytes = Buffer.byteLength(String(value), 'utf8')
-    return bytes <= maxBytes ? bytes : undefined
-  }
-  if (typeof value === 'boolean') {
-    const bytes = value ? 4 : 5
-    return bytes <= maxBytes ? bytes : undefined
-  }
+  type Task =
+    | { kind: 'value'; value: CodeJsonValue }
+    | { kind: 'array'; value: CodeJsonValue[]; index: number }
+    | { kind: 'object'; value: Record<string, CodeJsonValue>; keys: string[]; index: number }
 
-  let bytes = 2
-  if (bytes > maxBytes) return undefined
-  if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index++) {
-      if (index > 0 && ++bytes > maxBytes) return undefined
-      const item = value[index]
-      if (item === undefined) return undefined
-      const itemBytes = jsonValueBytesUpTo(item, maxBytes - bytes)
-      if (itemBytes === undefined) return undefined
-      bytes += itemBytes
+  let bytes = 0
+  const add = (cost: number): boolean => {
+    bytes += cost
+    return bytes <= maxBytes
+  }
+  const tasks: Task[] = [{ kind: 'value', value }]
+  for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
+    if (task.kind === 'value') {
+      const current = task.value
+      if (current === null) {
+        if (!add(4)) return undefined
+      } else if (typeof current === 'string') {
+        const stringBytes = jsonStringBytesUpTo(current, maxBytes - bytes)
+        if (stringBytes === undefined) return undefined
+        bytes += stringBytes
+      } else if (typeof current === 'number') {
+        if (!add(Buffer.byteLength(String(current), 'utf8'))) return undefined
+      } else if (typeof current === 'boolean') {
+        if (!add(current ? 4 : 5)) return undefined
+      } else if (Array.isArray(current)) {
+        if (!add(2)) return undefined
+        if (current.length > 0) tasks.push({ kind: 'array', value: current, index: 0 })
+      } else {
+        if (!add(2)) return undefined
+        const keys = Object.keys(current)
+        if (keys.length > 0) tasks.push({ kind: 'object', value: current, keys, index: 0 })
+      }
+      continue
     }
-    return bytes
-  }
 
-  let entries = 0
-  for (const [key, item] of Object.entries(value)) {
-    if (entries > 0 && ++bytes > maxBytes) return undefined
+    if (task.index > 0 && !add(1)) return undefined
+    if (task.kind === 'array') {
+      const item = task.value[task.index]
+      if (item === undefined) return undefined
+      if (task.index + 1 < task.value.length) tasks.push({ ...task, index: task.index + 1 })
+      tasks.push({ kind: 'value', value: item })
+      continue
+    }
+
+    const key = task.keys[task.index]
+    /* v8 ignore next -- an object frame is created and advanced only for an existing Object.keys entry. */
+    if (key === undefined) return undefined
     const keyBytes = jsonStringBytesUpTo(key, maxBytes - bytes)
     if (keyBytes === undefined) return undefined
-    bytes += keyBytes + 1
-    if (bytes > maxBytes) return undefined
-    const itemBytes = jsonValueBytesUpTo(item, maxBytes - bytes)
-    if (itemBytes === undefined) return undefined
-    bytes += itemBytes
-    entries += 1
+    if (!add(keyBytes + 1)) return undefined
+    const item = task.value[key]
+    if (item === undefined) return undefined
+    if (task.index + 1 < task.keys.length) tasks.push({ ...task, index: task.index + 1 })
+    tasks.push({ kind: 'value', value: item })
   }
   return bytes
 }
