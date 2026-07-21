@@ -34,8 +34,8 @@ buffer
 11| " Retrying model request (1/2) in 1000ms: temporary transport failure                            "
   style 1-67 fg=yellow
 12| <blank>
-13| " cancelled during retry delay                                                                   "
-  style 1-28 fg=yellow
+13| " Turn cancelled.                                                                                "
+  style 1-15 fg=yellow
 14| "────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-95 dim
 15| "                                                                                                "

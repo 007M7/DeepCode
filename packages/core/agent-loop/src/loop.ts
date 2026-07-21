@@ -9,7 +9,7 @@ import type { Context } from 'cordis'
 import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, LlmFailure, Message } from '@deepseek-ai/dsh-llm'
 import { isDeepStrictEqual } from 'node:util'
 import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorChain, llmFailureOf } from '@deepseek-ai/dsh-llm'
-import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
+import { agentEvents, agentInterruptReasonOf, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
@@ -21,6 +21,7 @@ import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
 import type { Inbox } from './inbox.ts'
+import type { TurnCancellation } from './cancellation.ts'
 
 /** Normalize thrown values while preserving an existing error code. */
 function toError(error: unknown): RequestError {
@@ -89,6 +90,32 @@ function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
   }
 }
 
+/** Internal control-flow sentinel; durable classification comes only from the turn signal. */
+const TURN_INTERRUPTED = new Error('turn interrupted')
+
+/** Stop at an explicit cooperative boundary without stringifying the runtime reason. */
+function interruptionCheckpoint(signal: AbortSignal): void {
+  if (signal.aborted) throw TURN_INTERRUPTED
+}
+
+/** Classify a supported turn interruption, with lifecycle disposal taking precedence. */
+function interruptionTurnEndReason(handle: LoopHandle, signal: AbortSignal): TurnEndReason | undefined {
+  if (handle.isDisposed()) return { kind: 'disposed' }
+  const reason = agentInterruptReasonOf(signal)
+  if (reason === undefined) return undefined
+  switch (reason.kind) {
+    case 'user':
+    case 'parent':
+      return { kind: 'aborted' }
+    /* v8 ignore next 2 -- the private holder requests disposed only after lifecycle state flips, which returns above. */
+    case 'disposed':
+      return { kind: 'disposed' }
+    /* v8 ignore next 2 -- AgentInterruptReason is closed and the public helper filters unsupported reasons. */
+    default:
+      return assertNever(reason, 'AgentInterruptReason')
+  }
+}
+
 /** Mutable agent controls supplied to the loop driver. */
 export interface LoopHandle {
   /** Native-private agent inbox handed to the driver only at internal startup. */
@@ -96,16 +123,17 @@ export interface LoopHandle {
   /** Maximum parallel-safe calls allowed in one step. */
   readonly maxParallelToolCalls: number
   setStatus(status: 'idle' | 'running'): void
-  setAbort(controller: AbortController | undefined): void
+  /** Install a fresh active-turn owner before the running notification. */
+  installTurnCancellation(): TurnCancellation
+  /** Clear only the exact owner whose turn reached its terminal event boundary. */
+  clearTurnCancellation(cancellation: TurnCancellation): void
   /** Resolves when the agent is disposed — unblocks the idle wait. */
   disposed: Promise<void>
   isDisposed(): boolean
-  /** Whether cancellation is pending for the current loop iteration. */
-  isCancelled(): boolean
-  /** Resolved pending-cancellation reason; meaningful only while {@link isCancelled} is true. */
-  cancelReason(): string
-  /** Clear the cancel marker (called once per iteration after the turn returns). */
-  clearCancel(): void
+  /** Whether queued work was cancelled before an active turn owner existed. */
+  isPreRunCancelled(): boolean
+  /** Clear the cause-less pre-run marker without affecting replacement work. */
+  clearPreRunCancel(): void
   /** Settle idle waiters before pre-running cancellation publishes idle. */
   settleIdle(): void
   /** Run an active tool-call batch, accepting post-tool context into the FIFO drained before settlement. */
@@ -120,7 +148,7 @@ export interface LoopHandle {
  * @param ctx - the plugin context the loop reaches its initiating Agent,
  * events (agent/…, session/flush), and services (systemPrompt, llm, tools)
  * through.
- * @param handle - the bridge to the agent's mutable state: status/abort setters plus the disposal and cancel-marker reads.
+ * @param handle - the bridge to status, turn cancellation ownership, disposal, and pre-run cancellation state.
  * @throws when no initiating Agent is active.
  */
 export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
@@ -135,8 +163,8 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
   while (!handle.isDisposed()) {
     // An idle listener can enqueue and cancel replacement work before the next
     // wait is installed. Consume that empty marker before parking the driver.
-    if (handle.isCancelled()) {
-      handle.clearCancel()
+    if (handle.isPreRunCancelled()) {
+      handle.clearPreRunCancel()
       if (!handle.inbox.hasQueued) {
         handle.settleIdle()
         handle.setStatus('idle')
@@ -149,8 +177,8 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
 
     // Cancellation between wake and `running` skips only the cancelled work;
     // a replacement prompt still runs before the eventual idle transition.
-    if (handle.isCancelled()) {
-      handle.clearCancel()
+    if (handle.isPreRunCancelled()) {
+      handle.clearPreRunCancel()
       if (!handle.inbox.hasQueued) {
         // Settle before publishing idle: the already-idle path has no status
         // transition, while an idle listener can register waiters for new work.
@@ -160,24 +188,29 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
       }
     }
 
+    let cancellation = handle.installTurnCancellation()
     handle.setStatus('running')
-    if (handle.isDisposed()) break
+    if (handle.isDisposed()) {
+      handle.clearTurnCancellation(cancellation)
+      break
+    }
 
     // A synchronous `running` listener can cancel before `runTurn`; balance the
     // status only when no replacement prompt was queued by that listener.
-    if (handle.isCancelled()) {
-      handle.clearCancel()
+    if (cancellation.signal.aborted) {
+      handle.clearTurnCancellation(cancellation)
       if (!handle.inbox.hasQueued) {
         handle.setStatus('idle')
         continue
       }
+      cancellation = handle.installTurnCancellation()
     }
 
     // Idle injection can add a turn, so derive the next number from the log.
     const turn = lastTurnNumber(session) + 1
     let terminalStopped = false
     try {
-      terminalStopped = await runTurn(ctx, events, handle, turn, transmission)
+      terminalStopped = await runTurn(ctx, events, handle, turn, transmission, cancellation)
     } catch (error: unknown) {
       // Pre-turn failure has no durable boundary to close; report it without appending outside a turn.
       const err = toError(error)
@@ -185,10 +218,9 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
       try {
         events.emit('agent/error', turn, 0, err)
       } catch { /* contained: a throwing agent/error listener must not kill the driver */ }
+    } finally {
+      handle.clearTurnCancellation(cancellation)
     }
-
-    // Reset per iteration, including when a prompt arrives during the flush window.
-    handle.clearCancel()
 
     // Late steering becomes queued input unless terminal policy stopped the turn.
     for (const message of handle.inbox.drainSteering()) {
@@ -201,9 +233,11 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
 
 async function runTurn(
   ctx: Context, events: AgentEventDispatch, handle: LoopHandle, turn: number, transmission: TransmissionLog,
+  cancellation: TurnCancellation,
 ): Promise<boolean> {
   const agent = ctx.agents.requireInitiator()
   const { session } = agent
+  const { signal } = cancellation
   const drainSteering = (): boolean => {
     const messages = handle.inbox.drainSteering()
     for (const message of messages) {
@@ -247,8 +281,11 @@ async function runTurn(
     }
   }
 
-  // Pre-commit validation failure escapes rather than masquerading as a committed boundary.
+  // Retire cancellation authority before publishing the terminal event. The
+  // following durability flush is quiescent turn work, but no longer part of
+  // the cancellable turn lifetime.
   const closeTurn = (): void => {
+    handle.clearTurnCancellation(cancellation)
     session.append('turn/end', { turn, reason })
   }
 
@@ -257,15 +294,17 @@ async function runTurn(
     // matter what throws below; the catch + closeTurn guarantee it. A pre-commit
     // veto leaves no turn/start in the log and therefore owes no turn/end.
     session.append('turn/start', { turn, trigger })
+    interruptionCheckpoint(signal)
     // The claimed message runs the `agent/prompt-submit` waterfall before it
     // becomes a `user/message` — a hook can rewrite the prompt or block it.
     // Recorded INSIDE the turn (after turn/start) so every event is turn-enclosed;
     // turn/end is now owed, so a throwing prompt-submit listener (the waterfall
     // throws) is caught below and the turn still closes.
     const promptDecision = await events.waterfall(
-      'agent/prompt-submit', message.content, message.source,
+      'agent/prompt-submit', message.content, message.source, signal,
       () => Promise.resolve<PromptDecision>({ kind: 'allow' }),
     )
+    interruptionCheckpoint(signal)
     if (promptDecision.kind === 'block') {
       session.append('prompt/blocked', { content: message.content, source: message.source, reason: promptDecision.reason })
       reason = { kind: 'rejected', reason: promptDecision.reason }
@@ -293,24 +332,10 @@ async function runTurn(
       // the request.
       drainSteering()
 
-      // The step's AbortController exists BEFORE any async pre-step work so a
-      // dispose() or cancel() — in a synchronous turn-start listener or an
-      // async listener whose effect fires before we block — always has an armed
-      // abort to cancel against. isDisposed below covers disposal, which does
-      // NOT set the cancel marker. Cleared on every exit path below.
-      const abort = new AbortController()
-      handle.setAbort(abort)
-
       // Assemble once before pre-step so listener work and the request share one prompt value.
-      const assembly = await ctx.systemPrompt.assemble(assembleContextFor(agent))
+      const assembly = await ctx.systemPrompt.assemble(assembleContextFor(agent, signal))
+      interruptionCheckpoint(signal)
       const fullSystemPrompt = renderPrompt(assembly)
-
-      // Cancellation or disposal during assembly ends the turn before any step opens.
-      if (handle.isCancelled() || handle.isDisposed()) {
-        handle.setAbort(undefined)
-        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
-        break
-      }
 
       // Compose the request-only prefix once per loop instance before the first
       // request boundary. It precedes all derived history and is recorded only
@@ -318,28 +343,17 @@ async function runTurn(
       if (transmission.sessionPrefix === undefined) {
         const emptyPrefix: Message[] = deepFreeze([])
         const composed = await events.waterfall(
-          'agent/session-prefix', emptyPrefix, abort.signal,
+          'agent/session-prefix', emptyPrefix, signal,
           () => Promise.resolve(emptyPrefix),
         )
-
         // Never cache an interrupted composition; the next turn recomposes it.
-        if (handle.isCancelled() || handle.isDisposed()) {
-          handle.setAbort(undefined)
-          reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
-          break
-        }
+        interruptionCheckpoint(signal)
         transmission.sessionPrefix = deepFreeze(structuredClone(composed))
       }
 
       // Await surface mutations outside the step before snapshotting history.
-      await events.serial('agent/pre-step', turn, step, abort.signal)
-
-      // Interruption landing during the pre-step seam: do not open an empty step.
-      if (handle.isCancelled() || handle.isDisposed()) {
-        handle.setAbort(undefined)
-        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
-        break
-      }
+      await events.serial('agent/pre-step', turn, step, signal)
+      interruptionCheckpoint(signal)
 
       // Snapshot the exact log prefix before step/start: the reconstruction
       // boundary. Appends after this synchronous snapshot join the next request.
@@ -351,16 +365,8 @@ async function runTurn(
       // are contained inside Session.append().
       stepOpen = true
 
-      // Cancel landing in the step-start window: a synchronous `session/event`
-      // step/start listener can cancel after the step is already open. Check
-      // AFTER the step/start append and before `runStep`: drop the step, end the
-      // turn accordingly. closeStep balances the already-appended step/start.
-      if (handle.isCancelled() || handle.isDisposed()) {
-        handle.setAbort(undefined)
-        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
-        closeStep()
-        break
-      }
+      // A synchronous step/start observer can cancel after the step opened.
+      interruptionCheckpoint(signal)
 
       let stepOutcome:
         | { hadToolCalls: boolean; finish: FinishReason }
@@ -368,7 +374,7 @@ async function runTurn(
         | { error: RequestError }
       try {
         stepOutcome = await runStep(
-          ctx, events, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, abort.signal)
+          ctx, events, handle, turn, step, assembly, fullSystemPrompt, boundaryMessages, transmission, signal)
       } catch (error: unknown) {
         if (error instanceof TerminalModelRequestFailure) {
           stepOutcome = { requestError: error.requestError, failure: error.failure }
@@ -381,11 +387,9 @@ async function runTurn(
         // Recovery observes a balanced failed step and the original provider
         // error while the failed step's signal remains the active owner.
         closeStep()
-        if (handle.isDisposed() || abort.signal.aborted) {
-          handle.setAbort(undefined)
-          reason = handle.isDisposed()
-            ? { kind: 'disposed' }
-            : { kind: 'aborted', reason: String(abort.signal.reason) }
+        const interrupted = interruptionTurnEndReason(handle, signal)
+        if (interrupted !== undefined) {
+          reason = interrupted
           break
         }
 
@@ -394,7 +398,7 @@ async function runTurn(
         try {
           recoveryDecision = await events.waterfall(
             'agent/request-error', turn, step, stepOutcome.requestError,
-            stepOutcome.failure, requestFailureHistory, abort.signal,
+            stepOutcome.failure, requestFailureHistory, signal,
             () => Promise.resolve(defaultDecision),
           )
         } catch (recoveryError: unknown) {
@@ -402,15 +406,11 @@ async function runTurn(
             `agent "${agent.id}": request recovery failed at turn ${turn}, step ${step}: ${errorChain(recoveryError)}`,
           )
         }
-        handle.setAbort(undefined)
-
         // Cancellation and disposal always win over either a recovery decision
         // or a recovery-listener failure.
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-        if (handle.isDisposed() || abort.signal.aborted) {
-          reason = handle.isDisposed()
-            ? { kind: 'disposed' }
-            : { kind: 'aborted', reason: String(abort.signal.reason) }
+        const recoveryInterrupted = interruptionTurnEndReason(handle, signal)
+        if (recoveryInterrupted !== undefined) {
+          reason = recoveryInterrupted
           break
         }
         switch (recoveryDecision.action) {
@@ -432,17 +432,10 @@ async function runTurn(
         // runLoop re-enqueues it as a queued message, so an abort-then-steer
         // starts a fresh turn instead of being silently consumed.
         closeStep()
-        handle.setAbort(undefined)
         const { error } = stepOutcome
-        /* v8 ignore next -- narrow race: disposal while non-request step work throws. */
-        if (handle.isDisposed()) {
-          reason = { kind: 'disposed' }
-        } else if (abort.signal.aborted) {
-          /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-          reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
-        } else {
-          failTurn(error)
-        }
+        const interrupted = interruptionTurnEndReason(handle, signal)
+        if (interrupted === undefined) failTurn(error)
+        else reason = interrupted
         break
       }
 
@@ -456,48 +449,40 @@ async function runTurn(
       const steered = drainSteering()
 
       try {
-        await events.serial('agent/post-step', turn, step, abort.signal)
+        await events.serial('agent/post-step', turn, step, signal)
       } catch (error: unknown) {
         stepOutcome = { error: toError(error) }
       }
 
       if ('error' in stepOutcome) {
         closeStep()
-        handle.setAbort(undefined)
-        /* v8 ignore next -- narrow race: disposal while a post-step listener throws. */
-        if (handle.isDisposed()) {
-          reason = { kind: 'disposed' }
-        } else if (abort.signal.aborted) {
-          /* v8 ignore next -- signal.reason always set by cancellation or disposal. */
-          reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
-        } else {
-          failTurn(stepOutcome.error)
-        }
+        const interrupted = interruptionTurnEndReason(handle, signal)
+        if (interrupted === undefined) failTurn(stepOutcome.error)
+        else reason = interrupted
         break
       }
 
-      if (handle.isDisposed() || abort.signal.aborted) {
-        reason = handle.isDisposed()
-          ? { kind: 'disposed' }
-          : { kind: 'aborted', reason: String(abort.signal.reason) }
+      const postStepInterrupted = interruptionTurnEndReason(handle, signal)
+      if (postStepInterrupted !== undefined) {
+        reason = postStepInterrupted
         closeStep()
-        handle.setAbort(undefined)
         break
       }
 
       closeStep()
-      handle.setAbort(undefined)
 
       const defaultDecision: ContinuationDecision = { action: stepOutcome.hadToolCalls || steered ? 'continue' : 'stop' }
       let decision: ContinuationDecision
       try {
         decision = await events.waterfall(
-          'agent/turn-continuation', turn, defaultDecision,
+          'agent/turn-continuation', turn, defaultDecision, signal,
           () => Promise.resolve(defaultDecision),
         )
+        interruptionCheckpoint(signal)
       } catch (error: unknown) {
-        // A broken continuation plugin ends the turn, not the loop.
-        failTurn(toError(error))
+        const interrupted = interruptionTurnEndReason(handle, signal)
+        if (interrupted === undefined) failTurn(toError(error))
+        else reason = interrupted
         break
       }
 
@@ -513,12 +498,15 @@ async function runTurn(
       // Terminal policy is monotonic and runs after ordinary continuation folding.
       let terminalStop = false
       try {
-        const stop = await events.serial('agent/turn-stop', turn)
+        const stop = await events.serial('agent/turn-stop', turn, signal)
+        interruptionCheckpoint(signal)
         terminalStop = stop !== undefined
       } catch (error: unknown) {
         // A broken terminal policy is an ordinary continuation failure: fail
         // this turn closed while leaving the driver alive for later turns.
-        failTurn(toError(error))
+        const interrupted = interruptionTurnEndReason(handle, signal)
+        if (interrupted === undefined) failTurn(toError(error))
+        else reason = interrupted
         break
       }
       if (terminalStop) {
@@ -528,17 +516,7 @@ async function runTurn(
         shouldContinue = false
       }
 
-      // The marker catches cancellation after the step controller was cleared.
-      if (handle.isCancelled()) {
-        reason = { kind: 'aborted', reason: handle.cancelReason() }
-        break
-      }
-
-      if (!shouldContinue || handle.isDisposed()) {
-        /* v8 ignore next -- disposal during continuation-decision window is a narrow race; error-path disposal is covered elsewhere */
-        if (handle.isDisposed()) reason = { kind: 'disposed' }
-        break
-      }
+      if (!shouldContinue) break
     }
 
     // Normal / inline-error loop exit: close the turn.
@@ -548,12 +526,9 @@ async function runTurn(
     const turnStartLogged = session.events.some(e => e.type === 'turn/start' && e.data.turn === turn)
     if (!turnStartLogged) throw error
     closeStep()
-    // Preserve an established disposal reason; otherwise report the failure.
-    if (handle.isDisposed() && !errorReported) { // eslint-disable-line @typescript-eslint/no-unnecessary-condition
-      reason = { kind: 'disposed' }
-    } else {
-      failTurn(toError(error))
-    }
+    const interrupted = interruptionTurnEndReason(handle, signal)
+    if (interrupted === undefined) failTurn(toError(error))
+    else reason = interrupted
     closeTurn()
   }
 
@@ -602,7 +577,10 @@ async function runStep(
     : { provider: options.provider ?? '', model: options.model ?? '' }))
 
   // Listener replacements are recorded in the request header before dispatch.
-  const config = await events.waterfall('agent/request', turn, step, seedConfig, () => Promise.resolve(seedConfig))
+  const config = await events.waterfall(
+    'agent/request', turn, step, seedConfig, signal, () => Promise.resolve(seedConfig),
+  )
+  interruptionCheckpoint(signal)
   if (!config.provider || !config.model) {
     throw new Error(`agent "${agent.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or supply both via the agent/request waterfall`)
   }
@@ -639,8 +617,7 @@ async function runStep(
   const stream = ctx.llm.stream(request)
   try {
     for await (const chunk of stream) {
-      /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-      if (signal.aborted) throw new Error(String(signal.reason ?? 'aborted'))
+      interruptionCheckpoint(signal)
       const chunkEvent = session.append('assistant/chunk', { turn, step, chunk })
       chunkSeqs.push(chunkEvent.seq)
       assembler.push(chunk)
@@ -650,6 +627,7 @@ async function runStep(
     if (failure !== undefined && error instanceof Error) throw new TerminalModelRequestFailure(error, failure)
     throw error
   }
+  interruptionCheckpoint(signal)
 
   // Normalize failure finish chunks into the same path as thrown stream errors.
   const stepError = finishError(assembler.finish)
@@ -680,9 +658,11 @@ async function runStep(
   // A rejected result still records the successful provider call without retaining rejected output.
   const processStepResult = async (assembledContent: ContentBlock[], message: Message): Promise<Message> => {
     try {
-      return await events.waterfall(
-        'agent/step-result', turn, step, message, () => Promise.resolve(message),
+      const processed = await events.waterfall(
+        'agent/step-result', turn, step, message, signal, () => Promise.resolve(message),
       )
+      interruptionCheckpoint(signal)
+      return processed
     } catch (error: unknown) {
       recordAssistantMessage(assembledContent, { ...message, content: [] }, false)
       throw error

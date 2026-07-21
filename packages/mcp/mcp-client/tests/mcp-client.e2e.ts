@@ -26,6 +26,8 @@ import { apply } from '@deepseek-ai/dsh-mcp-client/src/index.ts'
 import { publicToolName } from '@deepseek-ai/dsh-mcp-client/src/tools.ts'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
+const testToolSignal = new AbortController().signal
+
 const fixtureServerPath = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
 
 // Resolve package-local .bin for pnpm-hoisted MCP server binaries.
@@ -119,6 +121,7 @@ describe('fixture server — controlled scenarios', () => {
 
   it('executes the dotted tool via its normalized public name', async () => {
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: publicToolName('fixture', 'admin.reset'), arguments: {},
     })
     expect(result.isError).toBe(false)
@@ -127,6 +130,7 @@ describe('fixture server — controlled scenarios', () => {
 
   it('executes add(2, 3) → "5"', async () => {
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__fixture__add', arguments: { a: 2, b: 3 },
     })
     expect(result.isError).toBe(false)
@@ -135,6 +139,7 @@ describe('fixture server — controlled scenarios', () => {
 
   it('executes greet("World") → "Hello, World!"', async () => {
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__fixture__greet', arguments: { name: 'World' },
     })
     expect(result.isError).toBe(false)
@@ -143,6 +148,7 @@ describe('fixture server — controlled scenarios', () => {
 
   it('executes fail() → isError result', async () => {
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__fixture__fail', arguments: {},
     })
     expect(result.isError).toBe(true)
@@ -151,6 +157,7 @@ describe('fixture server — controlled scenarios', () => {
 
   it('executes image() → image placeholder', async () => {
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__fixture__image', arguments: {},
     })
     expect(result.isError).toBe(false)
@@ -241,6 +248,7 @@ describe('server-everything — official test server', () => {
 
   it('executes echo({ message: "hello" }) → "Echo: hello"', async () => {
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__everything__echo', arguments: { message: 'hello' },
     })
     expect(result.isError).toBe(false)
@@ -249,6 +257,7 @@ describe('server-everything — official test server', () => {
 
   it('executes get-sum({ a: 3, b: 7 }) → contains "10"', async () => {
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__everything__get-sum', arguments: { a: 3, b: 7 },
     })
     expect(result.isError).toBe(false)
@@ -257,6 +266,7 @@ describe('server-everything — official test server', () => {
 
   it('executes get-tiny-image → image placeholder', async () => {
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__everything__get-tiny-image', arguments: {},
     })
     expect(result.isError).toBe(false)
@@ -306,6 +316,7 @@ describe('server-filesystem — real filesystem operations', () => {
 
     // Write via MCP tool
     const writeResult = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__filesystem__write_file', arguments: { path: filePath, content },
     })
     expect(writeResult.isError).toBe(false)
@@ -316,6 +327,7 @@ describe('server-filesystem — real filesystem operations', () => {
 
     // Read back via MCP tool
     const readResult = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__filesystem__read_file', arguments: { path: filePath },
     })
     expect(readResult.isError).toBe(false)
@@ -327,6 +339,7 @@ describe('server-filesystem — real filesystem operations', () => {
     await writeFile(join(tempDir, 'listed.txt'), 'listed')
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__filesystem__list_directory', arguments: { path: tempDir },
     })
     expect(result.isError).toBe(false)
@@ -418,6 +431,7 @@ describe('streamable-http — in-process MCP server', () => {
 
   it('executes ping() → "pong" over HTTP', async () => {
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__web__ping', arguments: {},
     })
     expect(result.isError).toBe(false)
@@ -426,6 +440,7 @@ describe('streamable-http — in-process MCP server', () => {
 
   it('executes shout({ message }) with args over HTTP', async () => {
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: nextCallId(), name: 'mcp__web__shout', arguments: { message: 'quiet' },
     })
     expect(result.isError).toBe(false)

@@ -6,6 +6,8 @@ import type { ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@de
 import * as ToolsInvariant from '@deepseek-ai/dsh-tools/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 
+const testToolSignal = new AbortController().signal
+
 async function setup(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(InvariantService)
@@ -19,6 +21,7 @@ const execution = (overrides: Partial<ToolExecution> = {}): ToolExecution => ({
   name: 'echo',
   arguments: Object.freeze({ text: 'hi' }),
   ...overrides,
+  signal: overrides.signal ?? testToolSignal,
 })
 
 const outcome = (): ToolExecutionResult => Object.freeze({
