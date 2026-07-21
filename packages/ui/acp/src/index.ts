@@ -73,6 +73,7 @@ import {
   type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
 import {
+  acpPromptToText,
   acpPromptToReferencedPrompt,
   harnessBlockToAcpContent,
   promptHasUnsupportedContent,
@@ -896,23 +897,16 @@ export function apply(ctx: Context, config: AcpConfig): void {
         if (promptHasUnsupportedContent(params.prompt)) {
           throw invalidParams('only text and resource_link prompt content is supported; image/audio/embedded resource blocks are rejected rather than silently dropped')
         }
-        let referencedPrompt: ReturnType<typeof acpPromptToReferencedPrompt>
-        try {
-          referencedPrompt = acpPromptToReferencedPrompt(params.prompt)
-        } catch (error: unknown) {
-          throw invalidParams(`invalid session reference: ${renderThrown(error)}`)
-        }
-        const { text } = referencedPrompt
-        if (text.trim().length === 0) {
+        const flattenedText = acpPromptToText(params.prompt)
+        if (flattenedText.trim().length === 0) {
           // Reject up front rather than calling send(): an empty prompt would
           // queue no work, no turn would start, and the RPC would hang forever
           // waiting for a settle that never comes.
           throw invalidParams('empty prompt')
         }
-        // ACP command prompts may carry additional supported content blocks.
-        // The same lossless flattening used for model prompts supplies their
-        // unstructured command input; unsupported kinds were rejected above.
-        const commandLine = text.startsWith('/') ? text : undefined
+        // Direct commands consume ordinary ACP flattening before reference
+        // extraction, so URI-shaped arguments remain opaque to the bridge.
+        const commandLine = flattenedText.startsWith('/') ? flattenedText : undefined
         if (commandLine !== undefined) {
           const controller = new AbortController()
           rec.commandAbort = controller
@@ -955,6 +949,13 @@ export function apply(ctx: Context, config: AcpConfig): void {
             rec.commandAbort = undefined
           }
         }
+        let referencedPrompt: ReturnType<typeof acpPromptToReferencedPrompt>
+        try {
+          referencedPrompt = acpPromptToReferencedPrompt(params.prompt)
+        } catch (error: unknown) {
+          throw invalidParams(`invalid session reference: ${renderThrown(error)}`)
+        }
+        const { text } = referencedPrompt
         let preparedContent: ContentBlock[] = [{ type: 'text', text }]
         let preparedContexts: NonNullable<Parameters<Agent['send']>[1]>['contexts'] = []
         if (referencedPrompt.references.length > 0) {
