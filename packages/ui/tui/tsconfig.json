@@ -30,6 +30,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../llm/token-meter"
+    },
+    {
       "path": "../../llm/llm-retry"
     },
     {
@@ -40,6 +43,9 @@
     },
     {
       "path": "../user-interaction"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

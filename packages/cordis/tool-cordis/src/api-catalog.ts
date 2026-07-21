@@ -315,6 +315,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'invariants',
+    summary: 'Package-owned invariant registry with global and regex-based selection.',
+    methods: [
+      {
+        signature: 'register(packageName: string, installer: InvariantInstaller): () => void',
+        jsDoc: '/**\n * Register one package\'s invariant installer. The package name is reserved\n * even when filtering disables its checks. Enabled installers run in a child\n * fiber; failure disposes that fiber and releases the reservation.\n * @param packageName - full npm package name that owns the contribution.\n * @param installer - listener or startup-check installer for the child context.\n * @returns an effect-scoped disposer for the registration.\n */',
+      },
+    ],
+  },
+  {
     key: 'llm',
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.',
     methods: [
@@ -329,6 +339,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'async listModels(provider: string): Promise<LlmModelInfo[]>',
         jsDoc: '/**\n * Discover models advertised by one registered provider. Catalog membership\n * is advisory and never changes routing or request validation.\n * @param provider - registered provider route to inspect.\n * @returns detached model metadata in adapter-preferred order.\n */',
+      },
+      {
+        signature: 'async resolveModelContext( provider: string, model: string, ): Promise<LlmModelContext | undefined>',
+        jsDoc: '/**\n * Resolve context capacity from the adapter that owns one exact route.\n * This query is independent of the advisory model catalog: an unlisted model\n * may return metadata, while `undefined` never rejects later routing.\n * @param provider - registered provider route to inspect.\n * @param model - exact model id passed to the adapter.\n * @returns detached context metadata, or `undefined` when the adapter has none.\n */',
       },
       {
         signature: 'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
@@ -1355,6 +1369,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface InjectOptions extends Omit<SendOptions, \'contexts\'> {\n    meta?: JsonValue;\n}',
   },
   {
+    name: 'InvariantFailure',
+    declaration: 'export type InvariantFailure = (message: string) => never;',
+  },
+  {
+    name: 'InvariantInstaller',
+    declaration: 'export interface InvariantInstaller {\n    (ctx: Context, fail: InvariantFailure): void | Promise<void>;\n    readonly inject?: Inject;\n}',
+  },
+  {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
@@ -1365,6 +1387,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LlmFailure',
     declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n}',
+  },
+  {
+    name: 'LlmModelContext',
+    declaration: 'export interface LlmModelContext {\n    contextWindow: number;\n}',
   },
   {
     name: 'LlmModelInfo',

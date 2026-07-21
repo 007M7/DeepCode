@@ -13,7 +13,6 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type { CompactionResult } from './types.ts'
 
 export type { CompactionResult } from './types.ts'
-export { renderContentBlocks, renderTranscript } from './render.ts'
 export { toolPairingBalancedAfter, toolPairingBalancedBefore } from './tool-pairing.ts'
 
 /** Canonical source for the replacement user message produced by every compaction backend. */

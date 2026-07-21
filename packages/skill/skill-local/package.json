@@ -11,11 +11,16 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./invariant": {
+      "types": "./lib/types/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
+    "lib/invariant.js",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "src"
@@ -24,6 +29,7 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-fs": "^0.0.1",
     "@deepseek-ai/dsh-home": "^0.0.1",
+    "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-skill": "^0.0.1",
     "cordis": "^4.0.0-rc.7"
   },
@@ -34,6 +40,7 @@
   "devDependencies": {
     "@deepseek-ai/dsh-fs": "workspace:^",
     "@deepseek-ai/dsh-home": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-skill": "workspace:^",
     "cordis": "^4.0.0-rc.7"
   }

@@ -55,6 +55,9 @@
     },
     {
       "path": "../../session-persistence/session-persistence-jsonl"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }
