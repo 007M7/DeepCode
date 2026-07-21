@@ -753,7 +753,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), {}) // no model — router plugin decides
 
-    ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, config, _signal) => {
       return { ...config, provider: 'mock', model: 'mock' }
     })
 
@@ -1467,7 +1467,7 @@ describe('surface: assistant/message records exact empty provenance when no chun
     await mountInvariants(ctx)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/step-result', async (_agent, _turn, _step, _message, _next) => ({
+    ctx.on('agent/step-result', async (_agent, _turn, _step, _message, _signal) => ({
       role: 'assistant' as const,
       content: [{ type: 'text' as const, text: 'injected' }],
     }))
