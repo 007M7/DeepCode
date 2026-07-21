@@ -26,12 +26,16 @@
   config:
     provider: acp
     toolName: subagent
+    # ACP advertises no depthLimit: the child harness owns its own recursion
+    # budget, so the local numeric default cannot apply here.
+    maxDepth: 'provider-managed'
 
-- id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-demo'
+- id: cli-agent
+  name: '@deepseek-ai/dsh-cli-demo'
   config:
     provider: mock
     model: mock-delegate
-    welcome: 'acp subagent cwd e2e ready.'
+    persona: 'Test ACP subagent cwd inheritance.'
     persistenceRoot: './.sessions'
+    persistenceCompression: 'none'
     workspaceContext: false

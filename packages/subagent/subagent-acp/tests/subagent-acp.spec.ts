@@ -262,6 +262,20 @@ describe('cwd resolution', () => {
       .rejects.toThrow('must be an absolute path')
   })
 
+  it('rejects a parent session cwd that names a FILE, not a directory', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-file-cwd-'))
+    const file = join(tmp, 'a-file')
+    writeFileSync(file, 'x')
+    try {
+      const ctx = await setup({})
+      const parent = { id: 'parent', session: { header: { cwd: file } } } as unknown as Agent
+      await expect(ctx.subagents.start('acp', { prompt: [{ type: 'text' as const, text: 'p' }], parent, signal: new AbortController().signal }))
+        .rejects.toThrow('not an accessible directory')
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a parent session cwd that is not an accessible directory, before spawning', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'acp-bad-parent-cwd-'))
     const sentinel = join(tmp, 'spawned')
