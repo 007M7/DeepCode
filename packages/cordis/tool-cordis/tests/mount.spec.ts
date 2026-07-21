@@ -348,6 +348,7 @@ describe('cordis_mount', () => {
     ['parameters: { value: { type: \'json\', default: Object.defineProperty({}, \'hidden\', { value: true }) } }', 'parameters.value.default must be lossless JSON data'],
     ['parameters: { value: { type: \'json\', default: { [Symbol(\'hidden\')]: true } } }', 'parameters.value.default must be lossless JSON data'],
     ['parameters: { value: { type: \'json\', default: new (class DefaultValue { constructor() { this.ok = true } })() } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: new (class DefaultList extends Array {})() } }', 'parameters.value.default must be lossless JSON data'],
     ['parameters: { value: { type: \'json\', default: new Date(0) } }', 'parameters.value.default must be lossless JSON data'],
   ])('rejects a malformed ParameterSchemaSpec (%s) with a teaching error', async (parameters, message) => {
     const ctx = await setup()

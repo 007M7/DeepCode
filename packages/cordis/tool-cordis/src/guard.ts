@@ -29,8 +29,33 @@ type DynamicToolMarker = { [DYNAMIC_TOOL]?: unknown }
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const prototype: unknown = Object.getPrototypeOf(value)
-  return prototype === null || Object.getPrototypeOf(prototype) === null
+  return prototype === null
+    || typeof prototype === 'object'
+      && Object.getPrototypeOf(prototype) === null
+      && hasIntrinsicConstructor(prototype, 'Object')
 }
+
+/* jscpd:ignore-start -- this VM boundary mirrors the session-owned realm-safe intrinsic test */
+/** Whether a realm-owned intrinsic prototype names and points back to its constructor. */
+function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): boolean {
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'constructor')
+  const constructor: unknown = descriptor?.value
+  return typeof constructor === 'function'
+    && constructor.name === name
+    && constructor.prototype === prototype
+}
+
+/** Whether an array uses one realm's intrinsic Array prototype rather than a subclass. */
+function hasPlainArrayPrototype(value: unknown[]): boolean {
+  const prototype: unknown = Object.getPrototypeOf(value)
+  if (!Array.isArray(prototype) || !hasIntrinsicConstructor(prototype, 'Array')) return false
+  const objectPrototype: unknown = Object.getPrototypeOf(prototype)
+  return typeof objectPrototype === 'object'
+    && objectPrototype !== null
+    && Object.getPrototypeOf(objectPrototype) === null
+    && hasIntrinsicConstructor(objectPrototype, 'Object')
+}
+/* jscpd:ignore-end */
 
 /** Materialize realm-foreign lossless JSON without allowing JSON.stringify coercions. */
 function cloneJson(value: unknown, path: string, seen = new Set<object>()): unknown {
@@ -44,7 +69,7 @@ function cloneJson(value: unknown, path: string, seen = new Set<object>()): unkn
   seen.add(value)
   try {
     if (Array.isArray(value)) {
-      if (Reflect.ownKeys(value).length !== value.length + 1) {
+      if (!hasPlainArrayPrototype(value) || Reflect.ownKeys(value).length !== value.length + 1) {
         throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
       }
       const output: unknown[] = []
