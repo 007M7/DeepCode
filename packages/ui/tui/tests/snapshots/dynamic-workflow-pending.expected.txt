@@ -33,8 +33,9 @@ buffer
   style 0-0 fg=yellow
 10| "▌   () => agent('Audit layout', { label: 'layout', phase: 'Inspect' }),                         "
   style 0-0 fg=yellow
-11| "▌   () => agent('Audit lifecycle', { label: 'lifecycle', phase: 'Inspect' }),                   "
+11| "▌ … +1 lines (Ctrl+O to expand)                                                                 "
   style 0-0 fg=yellow
+  style 2-30 dim
 12| "▌ ])                                                                                            "
   style 0-0 fg=yellow
 13| "▌ phase('Verify')                                                                               "
@@ -49,7 +50,7 @@ buffer
   style 1-1 inverse
 18| "────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-95 dim
-19| "/workspace/project  ↑0 ↓0                                      idle  reasoning:on  tools:compact"
+19| "/workspace/project  ↑0 ↓0             0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
   style 0-24 dim
-  style 63-95 dim
+  style 38-95 dim
 20-35| <blank>

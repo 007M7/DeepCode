@@ -6,13 +6,15 @@ The implemented [TUI feature Agent Note](../../../.agents/notes/implemented/feat
 
 Interactive terminals on macOS, Linux, and Windows are supported. Windows uses pi-tui's native console VT-input handling, and the [Windows support Agent Note](../../../.agents/notes/implemented/feature/2026-07-20-windows-tui-support.md) owns the platform decision and ConPTY process verification.
 
-This package owns interactive terminal presentation and input only. It injects `agents`, [`commands`](../commands/README.md), `tools`, and `userInteraction`, then drives an agent created or resumed by app or developer code. Agent lifecycle, persistence, and the model-facing [`ask_user_question`](../tool-ask-user/README.md) tool remain separate composition entries.
+This package owns interactive terminal presentation and input only. It injects `agents`, [`commands`](../commands/README.md), `llm`, `systemPrompt`, `tokenMeter`, `tools`, and `userInteraction`, then drives an agent created or resumed by app or developer code. Agent lifecycle, persistence, and the model-facing [`ask_user_question`](../tool-ask-user/README.md) tool remain separate composition entries.
 
-The TUI rebuilds resumed history from the active session surface, renders Markdown responses and reasoning, applies each tool's `presentCall` / `presentResult` intent to terminal, diff, or generic cards, keeps the latest `todo/write` plan above the editor, and presents `ctx.userInteraction` questions as keyboard-driven overlays. A durable `llm/retry` event retracts the failed step's live chunks and renders the scheduled retry count, delay, and failure in the transcript; success, exhaustion, and cancellation then settle through ordinary session events. The footer totals each logged model step's usage once, including failed attempts, while treating committed-message usage as a fallback for logs without a usage chunk. Surface replacement events rebuild the transcript so compacted history does not reappear.
+The TUI rebuilds resumed history from the active session surface, renders Markdown responses and reasoning, applies each tool's `presentCall` / `presentResult` intent to terminal, diff, or generic cards, keeps the latest `todo/write` plan above the editor, and presents `ctx.userInteraction` questions in a wide bottom-left keyboard panel with progress, numbered options, and aligned descriptions. A durable `llm/retry` event retracts the failed step's live chunks and renders the scheduled retry count, delay, and failure in the transcript; success, exhaustion, and cancellation then settle through ordinary session events. The footer totals each logged model step's usage once, including failed attempts, while treating committed-message usage as a fallback for logs without a usage chunk. Its idle view shows token-meter context occupancy, tool-card mode, and the current model with reasoning state; while the agent runs, an elapsed working indicator and `esc interrupt` replace that summary. Surface replacement events rebuild the transcript so compacted history does not reappear.
 
 Before model output, session events, tool presenters, questions, configuration, or diagnostics reach pi-tui's ANSI-aware renderers or the terminal title, the TUI renders C0 and C1 controls other than line feeds as visible `\xNN` text. Those sources cannot add terminal control sequences; the TUI and pi-tui retain ownership of terminal rendering and styling.
 
-While the agent is running, ordinary editor submissions call `agent.steer()`; otherwise they call `agent.send()`. A slash at the start of the submitted line enters `ctx.commands` instead: known commands execute directly, unknown commands produce a warning, and neither path reaches the model. The TUI registers `/help`, `/clear`, `/cancel`, `/reasoning`, `/tools`, `/redraw`, and `/exit` as agent-scoped definitions; every other effective command joins autocomplete and `/help` dynamically. Ctrl+C or Escape cancels a running turn. Ctrl+O expands tool cards, Ctrl+R toggles reasoning, Ctrl+L redraws, and Ctrl+D exits while idle.
+While the agent is running, ordinary editor submissions call `agent.steer()`; otherwise they call `agent.send()`. A slash at the start of the submitted line enters `ctx.commands` instead: known commands execute directly, unknown commands produce a warning, and neither path reaches the model. The TUI registers `/help`, `/model`, `/clear`, `/cancel`, `/reasoning`, `/tools`, `/redraw`, and `/exit` as agent-scoped definitions; every other effective command joins autocomplete and `/help` dynamically. Ctrl+C or Escape cancels a running turn. Tool cards collapse long bodies into a configurable head/tail preview; Ctrl+O toggles every card between its preview and full output. Ctrl+R toggles reasoning, Ctrl+L redraws, and Ctrl+D exits while idle.
+
+`/model` opens the advisory `ctx.llm` catalog as a keyboard selector: Up/Down moves, Enter selects, and Escape closes it. `/model <model>` still selects an unambiguous model id directly, while `/model <provider>/<model>` selects an exact target. The configured target or latest logged request header initializes the selector, and an unlisted current model remains visible because catalogs are advisory. Selection is local to this TUI session. Prompt assembly snapshots the target for one step, replaces `{{provider}}` and `{{model}}`, and applies the same pair through `agent/request`; a switch during assembly therefore starts with a later step. The request header durably records targets that reach the model, while an unused selection remains process-local.
 
 ## Config
 
@@ -21,10 +23,13 @@ While the agent is running, ordinary editor submissions call `agent.steer()`; ot
 | `welcome` | `ready.` | Header subtitle |
 | `sessionId` | `main` | Exact shared agent/session identity driven by the terminal |
 | `showReasoning` | `true` | Render reasoning blocks |
-| `maxToolOutputLines` | `12` | Collapsed tool-card output limit |
-| `maxQuestionOptions` | `8` | Visible options in a question overlay |
-| `questionDialogWidth` | `72` | Question-overlay width in columns |
-| `questionDialogMaxHeight` | `20` | Question-overlay maximum rows |
+| `maxToolOutputLines` | `6` | Output lines retained across a collapsed tool card's head/tail preview |
+| `maxQuestionOptions` | `8` | Visible options in a question panel |
+| `maxModelOptions` | `8` | Visible models in the model selector |
+| `questionDialogWidth` | `200` | Question-panel width in columns, clamped to the terminal |
+| `questionDialogMaxHeight` | `20` | Question-panel maximum rows |
+| `modelDialogWidth` | `72` | Model-selector width in columns |
+| `modelDialogMaxHeight` | `20` | Model-selector maximum rows |
 | `showHardwareCursor` | `false` | Show the hardware cursor at pi-tui's IME marker |
 | `color` | `true` | Apply the built-in ANSI palette (see [Color](#color)) |
 | `title` | `DeepSeek Harness` | Terminal window title |
@@ -36,14 +41,14 @@ While the agent is running, ordinary editor submissions call `agent.steer()`; ot
     welcome: 'Coding agent ready.'
     sessionId: main-session-123
     showReasoning: true
-    maxToolOutputLines: 12
+    maxToolOutputLines: 6
 ```
 
 Startup fails before mounting when either process stream is not a TTY. The composing app must mount the TUI before its config-created agent so the front door can observe `agent-loop/config-start-failed`; a matching exact-session failure is written before fullscreen mode starts and exits with status 1 instead of leaving a blank terminal. Disposal aborts running commands, removes the TUI definitions, stops loaders, rejects pending questions, drains terminal input, restores terminal state, unregisters event listeners and the user-interaction provider, and never exits a replacement process during HMR.
 
 ## Color
 
-The palette uses the standard 16-color ANSI foregrounds and SGR attributes, which every terminal remaps to its active color scheme, so it stays readable on light and dark backgrounds alike. Body text keeps the terminal's default foreground rather than a fixed shade. Grouped regions (user prompts, tool cards) use a colored left-gutter bar instead of a filled background block, and the question overlay's active row uses reverse video; both are foreground-only, so they never collide with the terminal background. Set `color: false` to strip all styling.
+The palette uses the standard 16-color ANSI foregrounds and SGR attributes, which every terminal remaps to its active color scheme, so it stays readable on light and dark backgrounds alike. Body text keeps the terminal's default foreground rather than a fixed shade. Grouped regions (user prompts, tool cards) use a colored left-gutter bar instead of a filled background block; the question panel emphasizes its active row with bold accent text, while selectors use reverse video. These treatments are foreground-only, so they never collide with the terminal background. Set `color: false` to strip all styling.
 
 ## Model Experience
 
@@ -60,6 +65,20 @@ Submitted text is retained under the agent loop's normal session-history and com
 #### KV Cache effect
 
 Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
+### Session model selection
+
+#### What the model sees
+
+The `/model` command text and keyboard-selector input are not logged or sent. New steps receive the selected provider/model pair in both prompt variables and request routing.
+
+#### Token effect
+
+The selector adds no messages. A target change may alter interpolated system-prompt text and sends subsequent requests to the selected model.
+
+#### KV Cache effect
+
+Changing provider or model enters that target's cache domain; no cache reuse across distinct targets is assumed.
 
 ### Interactive user-question answers
 

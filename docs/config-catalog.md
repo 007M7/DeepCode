@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:247`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:252`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -1368,7 +1368,7 @@ Source: [`packages/core/tools/src/index.ts:382`](../packages/core/tools/src/inde
 
 ## `@deepseek-ai/dsh-tui`
 
-Requires: `agents` · `commands` · `userInteraction` · `tools`
+Requires: `agents` · `commands` · `userInteraction` · `tools` · `llm` · `systemPrompt` · `tokenMeter`
 
 ```ts config-catalog
 /** Serializable plugin configuration. */
@@ -1383,14 +1383,20 @@ export interface Config extends TuiConfig {
 export interface TuiConfig {
   /** Render model reasoning blocks. */
   showReasoning?: boolean
-  /** Maximum tool-output lines shown before the card is collapsed. */
+  /** Maximum tool-card body lines retained in its collapsed head/tail preview. */
   maxToolOutputLines?: number
-  /** Maximum options visible at once in a user-question dialog. */
+  /** Maximum options visible at once in a user-question panel. */
   maxQuestionOptions?: number
-  /** User-question dialog width in terminal columns. */
+  /** Maximum models visible at once in the model selector. */
+  maxModelOptions?: number
+  /** User-question panel width in terminal columns, clamped to the terminal. */
   questionDialogWidth?: number
-  /** User-question dialog maximum height in terminal rows. */
+  /** User-question panel maximum height in terminal rows. */
   questionDialogMaxHeight?: number
+  /** Model-selector width in terminal columns. */
+  modelDialogWidth?: number
+  /** Model-selector maximum height in terminal rows. */
+  modelDialogMaxHeight?: number
   /** Show the terminal's hardware cursor at the pi editor's IME marker. */
   showHardwareCursor?: boolean
   /** Apply the built-in ANSI color palette. */
@@ -1400,7 +1406,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:103`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:127`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 

@@ -1,9 +1,10 @@
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type AgentOptions, type AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { ContentBlock, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { createTuiChat, type Config } from '../src/index.ts'
@@ -22,6 +23,15 @@ export interface TuiHarnessOptions {
   configureContext?: (ctx: Context) => Promise<void>
   beforeMount?: (session: Session) => void
   cwd?: string | null
+  agentOptions?: AgentOptions
+  contextWindow?: number
+  contextTokens?: number
+  now?: () => number
+  catalog?: {
+    providers: LlmProviderInfo[]
+    models: LlmModelInfo[]
+    listModels?: (provider: string) => Promise<LlmModelInfo[]>
+  }
 }
 
 export interface TuiHarness<TerminalType extends Terminal, Exit extends (code: number) => void> {
@@ -50,6 +60,28 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(CommandService)
   await ctx.plugin(UserInteractionService)
+  const catalog = options.catalog ?? {
+    providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+    models: [
+      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
+      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+    ],
+  }
+  ctx.provide('llm', {
+    listProviders() {
+      return catalog.providers.map(provider => ({ ...provider }))
+    },
+    listModels(provider: string) {
+      return catalog.listModels?.(provider)
+        ?? Promise.resolve(catalog.models.filter(model => model.provider === provider).map(model => ({ ...model })))
+    },
+  } as never)
+  ctx.provide('tokenMeter', {
+    contextWindow: options.contextWindow ?? 128_000,
+    measure() {
+      return { totalTokens: options.contextTokens ?? 0 }
+    },
+  } as never)
   if (options.configureContext === undefined) {
     const tools = options.tools ?? {}
     ctx.provide('tools', {
@@ -60,6 +92,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   } else {
     await options.configureContext(ctx)
   }
+  if (ctx.get('systemPrompt') === undefined) await ctx.plugin(SystemPrompt)
   const sessionId = SessionId('main-session')
   const session = ctx.sessions.create(
     sessionId,
@@ -71,7 +104,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   const cancelled: string[] = []
   const agent: FakeAgent = {
     id: sessionId,
-    options: { model: 'deepseek-v4-flash' },
+    options: options.agentOptions ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
     session,
     status: options.status ?? 'idle',
     ctx,
@@ -97,7 +130,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     welcome: 'Coding agent ready.',
     sessionId,
     color: false,
-  }, options.config), { terminal, exit })
+  }, options.config), { terminal, exit, now: options.now ?? (() => 0) })
   return { ctx, session, agent, terminal, exit, controller }
 }
 

@@ -3,7 +3,8 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
+import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -112,14 +113,26 @@ async function dispose(setupResult: Awaited<ReturnType<typeof setup>>): Promise<
   await disposeTuiTestHarness(setupResult)
 }
 
+function provideTokenMeter(ctx: Context): void {
+  ctx.provide('tokenMeter', {
+    contextWindow: 128_000,
+    measure() {
+      return { totalTokens: 0 }
+    },
+  } as never)
+}
+
 describe('TUI config', () => {
   it('defaults every direct-call TUI option', () => {
     expect(resolveTuiConfig(undefined)).toEqual({
       showReasoning: true,
-      maxToolOutputLines: 12,
+      maxToolOutputLines: 6,
       maxQuestionOptions: 8,
-      questionDialogWidth: 72,
+      maxModelOptions: 8,
+      questionDialogWidth: 200,
       questionDialogMaxHeight: 20,
+      modelDialogWidth: 72,
+      modelDialogMaxHeight: 20,
       showHardwareCursor: false,
       color: true,
       title: 'DeepSeek Harness',
@@ -128,8 +141,11 @@ describe('TUI config', () => {
       showReasoning: false,
       maxToolOutputLines: 2,
       maxQuestionOptions: 3,
+      maxModelOptions: 4,
       questionDialogWidth: 60,
       questionDialogMaxHeight: 14,
+      modelDialogWidth: 64,
+      modelDialogMaxHeight: 16,
       showHardwareCursor: true,
       color: false,
       title: 'DSH',
@@ -137,8 +153,11 @@ describe('TUI config', () => {
       showReasoning: false,
       maxToolOutputLines: 2,
       maxQuestionOptions: 3,
+      maxModelOptions: 4,
       questionDialogWidth: 60,
       questionDialogMaxHeight: 14,
+      modelDialogWidth: 64,
+      modelDialogMaxHeight: 16,
       showHardwareCursor: true,
       color: false,
       title: 'DSH',
@@ -148,7 +167,11 @@ describe('TUI config', () => {
 
 describe('pi-tui chat lifecycle and transcript', () => {
   it('renders its header, footer, replay, streaming answer, todos, and status', async () => {
+    let now = 0
     const result = await setup({
+      contextWindow: 100,
+      contextTokens: 42,
+      now: () => now,
       beforeMount(session) {
         appendUser(session, 'restored prompt')
         appendAssistant(session, [
@@ -174,9 +197,19 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('restored answer')
     expect(result.terminal.output).toContain('write tests')
     expect(result.terminal.output).toContain('↑1.3k ↓42')
+    expect(result.terminal.output).toContain('42% context  tools:compact  deepseek-v4-flash(reasoning:on)')
+    result.terminal.resize(52)
+    await tick()
+    expect(result.terminal.output).toContain('42% context  deepseek-v4-flash(reasoning:on)')
+    result.terminal.resize(65)
+    await tick()
+    expect(result.terminal.output).toContain('↑1.3k ↓42 42% context  deepseek-v4-flash(reasoning:on)')
+    result.terminal.resize(88)
+    await tick()
 
     result.agent.status = 'running'
     result.ctx.emit('agent/status', result.agent, 'running')
+    now = 8_000
     result.session.append('user/message', { content: [{ type: 'text', text: '   ' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     result.session.append('steering/message', { turn: 2, content: [{ type: 'text', text: 'steering note' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     result.session.append('steering/message', { turn: 2, content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -254,13 +287,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
     )
     await tick()
 
-    expect(result.terminal.output).toContain('Working')
+    expect(result.terminal.output).toContain('◒ Working · 8s')
+    expect(result.terminal.output).toContain('esc interrupt')
     expect(result.terminal.output).toContain('Steering')
     expect(result.terminal.output).toContain('user context')
     expect(result.terminal.output).toContain('Prompt blocked')
     expect(result.terminal.output).toContain('Turn cancelled')
     expect(result.terminal.output).toContain('final live answer')
-    expect(result.terminal.output).toContain('↑1.8k ↓50')
     expect(result.terminal.progress).toContain(true)
 
     result.session.append('assistant/chunk', {
@@ -277,6 +310,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.agent.status = 'idle'
     result.ctx.emit('agent/status', result.agent, 'idle')
     await tick()
+    expect(result.terminal.output).toContain('↑1.8k ↓50')
+    expect(result.terminal.output).toContain('deepseek-v4-flash(reasoning:off)')
     expect(result.terminal.progress.at(-1)).toBe(false)
     await dispose(result)
     expect(result.terminal.stopped).toBe(1)
@@ -446,6 +481,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\r')
 
     result.agent.status = 'running'
+    result.ctx.emit('agent/status', result.agent, 'running')
     result.terminal.send('steer it')
     result.terminal.send('\r')
     expect(result.agent.steered).toEqual([[{ type: 'text', text: 'steer it' }]])
@@ -498,6 +534,162 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(disposedAgent.terminal.output).toContain('is disposed')
     await dispose(disposedAgent)
+  })
+
+  it('opens a keyboard selector and switches the session model without sending slash text to the agent', async () => {
+    const result = await setup({
+      agentOptions: { provider: 'alpha', model: 'a1' },
+      catalog: {
+        providers: [{ id: 'alpha', name: 'Alpha' }, { id: 'beta', name: 'Beta' }],
+        models: [
+          { provider: 'alpha', id: 'a1', name: 'Alpha One', description: 'Fast' },
+          { provider: 'alpha', id: 'shared', name: 'Alpha Shared' },
+          { provider: 'beta', id: 'b1', name: 'Beta One' },
+          { provider: 'beta', id: 'shared', name: 'Beta Shared' },
+        ],
+      },
+    })
+
+    for (const command of ['/model too many model arguments', '/model missing', '/model shared', '/model alpha/a1', '/model alpha a1']) {
+      result.terminal.send(command)
+      result.terminal.send('\r')
+      await tick()
+    }
+    expect(result.terminal.output).toContain('Usage: /model')
+    expect(result.terminal.output).toContain('Unknown model: missing')
+    expect(result.terminal.output).toContain('advertised by multiple providers')
+    expect(result.terminal.output).toContain('already alpha/a1')
+
+    result.agent.status = 'running'
+    result.terminal.send('/model')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Select model')
+    expect(result.terminal.output).toContain('alpha/a1')
+    expect(result.terminal.output).toContain('Alpha One — Fast — current')
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Model selected: beta/b1')
+    expect(result.agent.sent).toEqual([])
+    expect(result.agent.steered).toEqual([])
+
+    result.terminal.send('/model')
+    result.terminal.send('\r')
+    await tick()
+    result.terminal.send('\x1b')
+    await tick()
+    expect(result.agent.cancelled).not.toContain('cancelled from terminal')
+    result.agent.status = 'idle'
+    result.ctx.emit('agent/status', result.agent, 'idle')
+    await tick()
+    expect(result.terminal.output).toContain('tools:compact  b1(reasoning:on)')
+
+    const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
+    expect(assembly.variables).toMatchObject({ provider: 'beta', model: 'b1' })
+    const seed: LlmCallConfig = { provider: 'alpha', model: 'a1', temperature: 0.2 }
+    const request = await agentEvents(result.ctx, result.agent).waterfall(
+      'agent/request', 1, 0, seed, () => Promise.resolve(seed),
+    )
+    expect(request).toEqual({ provider: 'beta', model: 'b1', temperature: 0.2 })
+    await dispose(result)
+  })
+
+  it('restores the logged model, keeps an unlisted current model visible, and reports catalog failures', async () => {
+    const resumed = await setup({
+      agentOptions: { provider: 'alpha', model: 'configured' },
+      catalog: { providers: [{ id: 'beta', name: 'Beta' }], models: [] },
+      beforeMount(session) {
+        session.append('request/header', {
+          header: { config: { provider: 'beta', model: 'private' } },
+          reason: 'initial',
+        })
+      },
+    })
+    resumed.terminal.send('/model')
+    resumed.terminal.send('\r')
+    await tick()
+    expect(resumed.terminal.output).toContain('Select model')
+    expect(resumed.terminal.output).toContain('beta/private')
+    expect(resumed.terminal.output).toContain('private — current')
+    await dispose(resumed)
+
+    const unset = await setup({
+      agentOptions: {},
+      catalog: {
+        providers: [{ id: 'alpha', name: 'Alpha' }],
+        models: [{ provider: 'alpha', id: 'a1', name: 'Alpha One' }],
+      },
+    })
+    unset.terminal.send('/model')
+    unset.terminal.send('\r')
+    await tick()
+    unset.terminal.send('\r')
+    await tick()
+    expect(unset.terminal.output).toContain('Model selected: alpha/a1')
+    await dispose(unset)
+
+    const empty = await setup({ agentOptions: {}, catalog: { providers: [], models: [] } })
+    empty.terminal.send('/model')
+    empty.terminal.send('\r')
+    await tick()
+    expect(empty.terminal.output).toContain('Current model: unset')
+    expect(empty.terminal.output).toContain('No models are advertised')
+    const assembly = await empty.ctx.systemPrompt.assemble(assembleContextFor(empty.agent))
+    expect(assembly.variables).toEqual({})
+    const seed: LlmCallConfig = { provider: 'fallback', model: 'fallback' }
+    await expect(agentEvents(empty.ctx, empty.agent).waterfall(
+      'agent/request', 1, 0, seed, () => Promise.resolve(seed),
+    )).resolves.toBe(seed)
+    await dispose(empty)
+
+    const failed = await setup({
+      catalog: {
+        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        models: [],
+        listModels: () => Promise.reject(new Error('catalog offline')),
+      },
+    })
+    failed.terminal.send('/model')
+    failed.terminal.send('\r')
+    await tick()
+    expect(failed.terminal.output).toContain('Could not read the model catalog: catalog offline')
+    await dispose(failed)
+  })
+
+  it('does not render a model catalog that resolves after TUI disposal', async () => {
+    const deferred = Promise.withResolvers<never[]>()
+    const result = await setup({
+      catalog: {
+        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        models: [],
+        listModels: () => deferred.promise,
+      },
+    })
+    result.terminal.send('/model')
+    result.terminal.send('\r')
+    await result.controller.dispose()
+    deferred.resolve([])
+    await tick()
+    expect(result.terminal.output).not.toContain('Available models')
+    await result.ctx.fiber.dispose()
+
+    const rejected = Promise.withResolvers<never[]>()
+    const rejectedResult = await setup({
+      catalog: {
+        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        models: [],
+        listModels: () => rejected.promise,
+      },
+    })
+    rejectedResult.terminal.send('/model')
+    rejectedResult.terminal.send('\r')
+    await rejectedResult.controller.dispose()
+    rejected.reject(new Error('late catalog failure'))
+    await tick()
+    expect(rejectedResult.terminal.output).not.toContain('late catalog failure')
+    await rejectedResult.ctx.fiber.dispose()
   })
 
   it('discovers and executes plugin commands, then removes TUI-local commands on disposal', async () => {
@@ -701,7 +893,7 @@ describe('tool cards and surface replay', () => {
   }
 
   it('uses terminal, diff, generic, fallback, and collapsed tool presentations', async () => {
-    const result = await setup({ tools, config: { maxToolOutputLines: 1 } })
+    const result = await setup({ tools, config: { maxToolOutputLines: 4 } })
     const calls = [
       ['c1', 'bash', '{"command":"printf hello"}'],
       ['c2', 'signal', '{}'],
@@ -770,7 +962,7 @@ describe('tool cards and surface replay', () => {
     const output = result.terminal.output
     expect(output).toContain('Run command')
     expect(output).toContain('printf hello')
-    expect(output).toContain('more lines')
+    expect(output).toContain('lines (Ctrl+O to expand)')
     expect(output).toContain('SIGTERM')
     expect(output).toContain('Edit files')
     expect(output).toContain('Inspected')
@@ -787,6 +979,11 @@ describe('tool cards and surface replay', () => {
     result.terminal.send('/redraw')
     result.terminal.send('\r')
     await tick()
+    const collapsed = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(collapsed).toContain('Run command')
+    expect(collapsed).toContain('[exit 0]')
+    expect(collapsed).not.toContain('▌ hello')
+    expect(collapsed).not.toContain('world')
     result.terminal.send('\x0f')
     await tick()
     expect(result.terminal.output).toContain('world')
@@ -840,6 +1037,7 @@ describe('TUI user-interaction dialogs', () => {
     })
     await tick()
     expect(result.terminal.output).toContain('Choose a mode')
+    expect(result.terminal.output).toContain('Question 1/1 (1 unanswered) · Mode')
     expect(result.terminal.output).toContain('1/2')
     result.terminal.send('\x1b[B')
     result.terminal.send('\r')
@@ -859,7 +1057,7 @@ describe('TUI user-interaction dialogs', () => {
       questions: [{ id: 'other', question: 'Choose or type', options: [{ label: 'Default' }] }],
     })
     await tick()
-    result.terminal.send('c')
+    result.terminal.send('\t')
     result.terminal.send('my choice')
     result.terminal.send('\r')
     await expect(custom).resolves.toEqual({ answers: [{ id: 'other', selected: [], custom: 'my choice' }] })
@@ -933,9 +1131,11 @@ describe('TUI user-interaction dialogs', () => {
       ],
     })
     await tick()
+    expect(result.terminal.output).toContain('Question 1/2 (2 unanswered)')
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('Second?')
+    expect(result.terminal.output).toContain('Question 2/2 (1 unanswered)')
     result.terminal.send('done')
     result.terminal.send('\r')
     await expect(batch).resolves.toEqual({ answers: [
@@ -982,6 +1182,7 @@ describe('TUI user-interaction dialogs', () => {
 describe('terminal mounting', () => {
   it('starts immediately when the configured agent already exists', async () => {
     const ctx = new Context()
+    provideTokenMeter(ctx)
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(CommandService)
@@ -1001,6 +1202,7 @@ describe('terminal mounting', () => {
 
   it('waits for its configured agent before starting the TUI', async () => {
     const ctx = new Context()
+    provideTokenMeter(ctx)
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(CommandService)
@@ -1030,6 +1232,7 @@ describe('terminal mounting', () => {
 
   it('prints a matching live startup failure and exits instead of waiting forever', async () => {
     const ctx = new Context()
+    provideTokenMeter(ctx)
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(CommandService)
@@ -1058,6 +1261,7 @@ describe('terminal mounting', () => {
 
   it('renders an uncoercible startup failure without escaping the display boundary', async () => {
     const ctx = new Context()
+    provideTokenMeter(ctx)
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(CommandService)
@@ -1079,6 +1283,7 @@ describe('terminal mounting', () => {
 
   it('rolls back providers, listeners, and terminal state when startup fails', async () => {
     const ctx = new Context()
+    provideTokenMeter(ctx)
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(CommandService)
@@ -1112,6 +1317,7 @@ describe('terminal mounting', () => {
 
   it('throws when createTuiChat is called without the configured agent', async () => {
     const ctx = new Context()
+    provideTokenMeter(ctx)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
