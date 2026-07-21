@@ -14,7 +14,11 @@ This zero-config function plugin consumes `ctx.sessions`, `ctx.llm`, `ctx.tools`
   name: '@deepseek-ai/dsh-session-checkpoint-policy'
 ```
 
+Persistence and checkpoint scheduling are intentionally separate Cordis plugins. A persistence backend makes each requested `session/flush` durable; this policy chooses the request, tool-dispatch, and completed-step checkpoints. Loading a backend without this policy is valid and retains checkpoints requested by the loop, including final `turn/end`, but crash recovery may lose the rest of an in-flight turn. First-party persisted apps and runtimes mount both plugins explicitly; a specialized deployment may deliberately omit or replace the policy.
+
 The policy wraps `llm/stream` lazily, so the downstream stream is not constructed until the live session's buffered request events are durable. It wraps `tools/execute` after pre-execute policy and guards; a top-level tool body runs only after its recorded call is durable. Nested tool dispatches reuse the outer model-visible call's checkpoint. `agent/post-step` persists the complete response/result batch before continuation work.
+
+The loop records its assistant message and ordered tool results before dispatching `agent/post-step`, so the policy always captures that core batch. An event appended by another `agent/post-step` listener is captured at this checkpoint only when that listener is registered before the policy; Cordis registration order is the explicit composition rule for such extensions.
 
 Checkpoint rejection is fail-closed at the model and tool boundaries: neither the adapter nor the top-level tool body runs. A post-step rejection fails the turn before another request starts. Concurrent tool checkpoints share the session store's serialized persistence drain and cannot duplicate sequence numbers.
 
