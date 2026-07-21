@@ -481,7 +481,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>',
-        jsDoc: '/**\n * Explicitly retry the registered provider, or materialize the built-in\n * fallback when no provider is registered.\n * @param session - exact live session to refresh.\n * @param signal - optional caller cancellation.\n * @returns latest accepted title, or `undefined` when no eligible text exists.\n */',
+        jsDoc: '/**\n * Explicitly retry the registered provider, or materialize the built-in\n * fallback when no provider is registered.\n * @param session - exact live session to refresh.\n * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.\n * @returns latest accepted title, or `undefined` when no eligible text exists.\n */',
       },
       {
         signature: 'register(provider: SessionTitleProvider): () => Promise<void>',

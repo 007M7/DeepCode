@@ -1007,7 +1007,7 @@ get(session: Session): SessionTitleSnapshot | undefined
  * Explicitly retry the registered provider, or materialize the built-in
  * fallback when no provider is registered.
  * @param session - exact live session to refresh.
- * @param signal - optional caller cancellation.
+ * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.
  * @returns latest accepted title, or `undefined` when no eligible text exists.
  */
 async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>
@@ -1023,7 +1023,7 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:235`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:236`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

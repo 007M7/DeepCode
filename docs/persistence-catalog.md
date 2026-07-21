@@ -390,7 +390,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [SessionTitleEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:89`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:90`](../packages/session-title/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 

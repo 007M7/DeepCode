@@ -162,6 +162,37 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     expect(disposeSignal?.aborted).toBe(true)
   })
 
+  it('rejects fallback refresh cancellation that arrives during durability flush', async () => {
+    const ctx = await setup()
+    const seed = new Session(SessionId('fallback-cancel-seed'))
+    seed.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    const source = appendPrompt(seed, 'Persist this fallback despite caller cancellation')
+    seed.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const session = ctx.sessions.create(SessionId('fallback-cancel'), { seed: seed.events })
+    const flushStarted = deferred<undefined>()
+    const releaseFlush = deferred<undefined>()
+    ctx.on('session/flush', async (subject) => {
+      if (subject !== session) return
+      flushStarted.resolve(undefined)
+      await releaseFlush.promise
+    })
+    const controller = new AbortController()
+
+    const refresh = ctx.sessionTitle.refresh(session, controller.signal)
+    await flushStarted.promise
+    controller.abort(new Error('cancelled while fallback flushed'))
+    releaseFlush.resolve(undefined)
+
+    await expect(refresh).rejects.toThrow('cancelled while fallback flushed')
+    expect(ctx.sessionTitle.get(session)).toMatchObject({
+      messageSeqs: [source.seq],
+      source: { kind: 'fallback' },
+    })
+  })
+
   it('reserves overlapping refresh order before fallback durability settles', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

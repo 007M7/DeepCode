@@ -1,5 +1,6 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
+import LlmService, { deepFreeze } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionTitleService, {
   SessionTitleProviderId,
@@ -263,6 +264,95 @@ describe('SessionTitleService provider lifecycle', () => {
     firstResult.resolve({ title: 'Old ignored result', messageSeqs: [first.seq] })
     await settle()
     expect(ctx.sessionTitle.get(session)?.title).toBe('Newest complete title')
+  })
+
+  it('runs an all-messages revision when the next main request reuses its logged header', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionTitleService, CONFIG)
+    const requests: SessionTitleProviderRequest[] = []
+    ctx.sessionTitle.register({
+      id: SessionTitleProviderId('unchanged-route'),
+      automatic: 'all-user-messages',
+      async generate(request) {
+        requests.push(request)
+        return {
+          title: `Revision ${requests.length}`,
+          messageSeqs: request.messages.map(message => message.seq),
+        }
+      },
+    })
+    const session = ctx.sessions.create(SessionId('unchanged-route'))
+    session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    const first = appendHumanPrompt(session, 'First routed prompt')
+    await settle()
+    session.append('step/start', { turn: 1, step: 1 })
+    appendRoute(session)
+    await settle()
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    session.append('turn/start', {
+      turn: 2,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    const second = appendHumanPrompt(session, 'Second prompt on the same route')
+    await settle()
+    session.append('step/start', { turn: 2, step: 1 })
+    void ctx.llm.stream(deepFreeze({
+      provider: 'main-route',
+      model: 'chat-model',
+      messages: session.deriveMessages(),
+      sessionId: session.id,
+    }))
+    await settle()
+
+    expect(session.events.filter(event => event.type === 'request/header')).toHaveLength(1)
+    expect(requests).toHaveLength(2)
+    expect(requests[1]).toMatchObject({
+      messages: [
+        { seq: first.seq, text: 'First routed prompt' },
+        { seq: second.seq, text: 'Second prompt on the same route' },
+      ],
+      route: { provider: 'main-route', model: 'chat-model' },
+    })
+  })
+
+  it('ignores model streams that are not a matching loop request', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionTitleService, CONFIG)
+    const generate = vi.fn(async (request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult> => ({
+      title: 'Unexpected title',
+      messageSeqs: request.messages.map(message => message.seq),
+    }))
+    ctx.sessionTitle.register({
+      id: SessionTitleProviderId('request-filter'),
+      automatic: 'all-user-messages',
+      generate,
+    })
+    const options = { provider: 'main-route', model: 'chat-model', messages: [] }
+
+    void ctx.llm.stream(deepFreeze(options))
+    void ctx.llm.stream(deepFreeze({ ...options, sessionId: SessionId('missing') }))
+    const quiet = ctx.sessions.create(SessionId('quiet'))
+    void ctx.llm.stream(deepFreeze({ ...options, sessionId: quiet.id }))
+    const pending = ctx.sessions.create(SessionId('unmatched-boundary'))
+    pending.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    appendHumanPrompt(pending, 'Wait for a matching request boundary')
+    await settle()
+    void ctx.llm.stream(deepFreeze({ ...options, sessionId: pending.id }))
+    await settle()
+
+    expect(generate).not.toHaveBeenCalled()
   })
 
   it('contains automatic failures but lets explicit refresh reject', async () => {

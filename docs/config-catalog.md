@@ -877,7 +877,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session-title/session-title/src/index.ts:63`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:64`](../packages/session-title/session-title/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title-all-messages-llm`
 

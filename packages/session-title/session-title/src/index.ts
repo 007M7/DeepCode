@@ -7,6 +7,7 @@ import { Context, FiberState, Service, type Fiber } from 'cordis'
 import z from 'schemastery'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { fallbackSessionTitle, normalizeSessionTitle } from './normalize.ts'
 
@@ -287,6 +288,10 @@ export class SessionTitleService extends Service {
           break
       }
     })
+    ctx.on('llm/stream', (options, next) => {
+      this.onMainRequest(options)
+      return next()
+    }, { global: true, prepend: true })
     ctx.on('session/disposed', (session) => {
       const state = this.work.get(session)
       if (state === undefined) return
@@ -308,7 +313,7 @@ export class SessionTitleService extends Service {
    * Explicitly retry the registered provider, or materialize the built-in
    * fallback when no provider is registered.
    * @param session - exact live session to refresh.
-   * @param signal - optional caller cancellation.
+   * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.
    * @returns latest accepted title, or `undefined` when no eligible text exists.
    */
   async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined> {
@@ -321,7 +326,9 @@ export class SessionTitleService extends Service {
     const messages = collectSessionTitleMessages(session.events)
     const latest = messages.at(-1)
     if (registration === undefined || registration.closing || latest === undefined) {
-      return this.ensureFallback(session)
+      const fallback = await this.ensureFallback(session)
+      signal?.throwIfAborted()
+      return fallback
     }
     const state = this.stateFor(session)
     const revision = this.supersede(state, 'explicit title refresh superseded older generation')
@@ -399,11 +406,37 @@ export class SessionTitleService extends Service {
     const state = this.work.get(session)
     const pending = state?.pending
     if (state === undefined || pending === undefined || pending.throughSeq >= event.seq) return
-    delete state.pending
     const route = {
       provider: event.data.header.config.provider,
       model: event.data.header.config.model,
     }
+    this.startPending(session, state, pending, route)
+  }
+
+  /** Start unchanged-route work from the frozen loop request after its header fold is current. */
+  private onMainRequest(options: GenerateOptions): void {
+    if (!this.serviceActive() || options.sessionId === undefined || !Object.isFrozen(options)) return
+    const session = this.ctx.sessions.get(options.sessionId)
+    const state = session === undefined ? undefined : this.work.get(session)
+    const pending = state?.pending
+    if (session === undefined || state === undefined || pending === undefined) return
+    const boundary = session.events.findLast(event => event.type === 'step/start' || event.type === 'step/end')
+    const route = session.requestHeader()?.config
+    if (boundary?.type !== 'step/start'
+      || boundary.seq <= pending.throughSeq
+      || route?.provider !== options.provider
+      || route.model !== options.model) return
+    this.startPending(session, state, pending, { provider: options.provider, model: options.model })
+  }
+
+  /** Consume one pending revision and schedule its non-blocking provider call. */
+  private startPending(
+    session: Session,
+    state: SessionTitleWorkState,
+    pending: PendingAutomaticWork,
+    route: SessionTitleModelProvenance,
+  ): void {
+    delete state.pending
     this.defer(async () => {
       if (this.registration !== pending.registration
         || pending.registration.closing
