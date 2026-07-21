@@ -75,8 +75,8 @@ function validateReading(
   if (rendered === undefined) fail('time-context reading omitted its rendered timestamp')
   const renderedTime = Date.parse(rendered.replace(/\[[^\]]+\]$/, ''))
   if (!Number.isFinite(renderedTime) || !Number.isSafeInteger(event.time)
-    || event.time < renderedTime || event.time - renderedTime >= 1_000) {
-    fail('time-context rendered timestamp must identify the durable event second')
+    || event.time < renderedTime) {
+    fail('time-context rendered timestamp must parse and not postdate its durable event')
   }
 }
 

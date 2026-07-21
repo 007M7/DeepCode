@@ -210,6 +210,9 @@ function checkSource(
       addViolation(violations, owner.sourcePath, `must named-export ${exportedName}`)
     }
   }
+  if (hasDefaultExport(sourceFile)) {
+    addViolation(violations, owner.sourcePath, 'must not default-export; Loader must retain the companion namespace')
+  }
   checkInstaller(owner, sourceFile, sourceText, violations)
 }
 
@@ -311,6 +314,19 @@ function hasNamedExport(sourceFile: ts.SourceFile, name: string): boolean {
     if (!ts.isVariableStatement(statement)
       || !statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) return false
     return statement.declarationList.declarations.some(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === name)
+  })
+}
+
+function hasDefaultExport(sourceFile: ts.SourceFile): boolean {
+  return sourceFile.statements.some((statement) => {
+    if (ts.isExportAssignment(statement)) return true
+    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined
+    if (modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.DefaultKeyword)) return true
+    if (!ts.isExportDeclaration(statement) || statement.exportClause === undefined) return false
+    if (ts.isNamespaceExport(statement.exportClause)) {
+      return statement.exportClause.name.text === 'default'
+    }
+    return statement.exportClause.elements.some(element => element.name.text === 'default')
   })
 }
 

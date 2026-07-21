@@ -162,27 +162,28 @@ export class InvariantService extends Service {
             throw new InvariantError(packageName, message)
           })
         )
-        const child = ctx.plugin(installer.inject === undefined
-          ? installInvariant
-          : Object.assign(installInvariant, { inject: installer.inject }))
-
         try {
-          await child
-        } catch (error) {
-          try {
-            await child.dispose()
-          } finally {
-            registrations.delete(packageName)
-          }
-          throw error
-        }
+          const child = ctx.plugin(installer.inject === undefined
+            ? installInvariant
+            : Object.assign(installInvariant, { inject: installer.inject }))
 
-        return async () => {
           try {
+            await child
+          } catch (error) {
             await child.dispose()
-          } finally {
-            registrations.delete(packageName)
+            throw error
           }
+
+          return async () => {
+            try {
+              await child.dispose()
+            } finally {
+              registrations.delete(packageName)
+            }
+          }
+        } catch (error) {
+          registrations.delete(packageName)
+          throw error
         }
       }, `invariants.register(${JSON.stringify(packageName)})`)
     } catch (error) {

@@ -41,7 +41,7 @@ The current executable companions protect these relationships:
 | `dsh-goal`, `dsh-goal-session` | Durable goal source/content agreement, revision and lifecycle transitions, timestamps, sequential admitted rounds, and reconstructed continuation prompts. |
 | `dsh-permission`, `dsh-user-approval` | Active-preset references and approval asked/decided audit pairing. |
 | `dsh-tasks`, `dsh-tool-todo` | Task snapshot lifecycle/ownership fields and durable whole-list todo structure. |
-| `dsh-time-context` | Durable clock readings agree with the session's open turn and next pre-step position, elapsed baseline, and event timestamp. |
+| `dsh-time-context` | Durable clock readings agree with the session's open turn and next pre-step position and elapsed baseline; rendered time parses and does not postdate its event. |
 
 The root entrypoint of each owner remains independent of diagnostics. Loading the service alone installs no product checks, and loading a companion without the service waits on its declared `invariants` injection.
 
@@ -78,6 +78,6 @@ None; invariant checks do not assemble or send provider requests.
 
 ## Known Limitations and Deferred Work
 
-- Request reconstruction covers frozen loop-built requests with a live session id; direct one-shot LLM calls remain outside that marker contract.
+- Request reconstruction covers requests explicitly marked by the loop before freezing; direct one-shot LLM calls remain outside that marker contract even when callers freeze them or attach a session id.
 - Live-only lifecycle companions cannot reconstruct operations that began before their own reload. Standard and test compositions mount them before the corresponding operations begin.
 - Regular-expression filters are fixed for the service lifetime; changing them requires ordinary Cordis plugin reload.

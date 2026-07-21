@@ -26,8 +26,8 @@ function validateRetry(
   if (!Number.isSafeInteger(maxRetries) || maxRetries < 1 || retry > maxRetries) {
     fail(`llm/retry retry ${retry} must not exceed a positive safe maxRetries ${maxRetries}`)
   }
-  if (!(delayMs > 0 && delayMs <= MAX_TIMER_DELAY_MS)) {
-    fail(`llm/retry delayMs must be within 1..${MAX_TIMER_DELAY_MS}`)
+  if (!(delayMs >= 0 && delayMs <= MAX_TIMER_DELAY_MS)) {
+    fail(`llm/retry delayMs must be within 0..${MAX_TIMER_DELAY_MS}`)
   }
 
   const currentTurnEvents: SessionEvent[] = []

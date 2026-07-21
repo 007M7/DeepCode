@@ -260,6 +260,28 @@ describe('InvariantService lifecycle', () => {
     expect(retry).toHaveBeenCalledOnce()
   })
 
+  it('rolls back publication effects and ownership when child-fiber publication fails', async () => {
+    const { ctx } = await setup()
+    const leaked = vi.fn()
+    let rejectPublication = true
+    const stopRejecting = ctx.on('internal/plugin', (fiber) => {
+      if (!rejectPublication || fiber.uid === null) return
+      rejectPublication = false
+      fiber.ctx.on('invariants-test/ping', leaked, { global: true })
+      throw new Error('publication failed')
+    })
+
+    const failed = runtimeRegistration(ctx.invariants.register('@deepseek-ai/dsh-publication-probe', () => {}))
+    await expect(Promise.resolve(failed)).rejects.toThrow('publication failed')
+    ctx.emit('invariants-test/ping')
+    expect(leaked).not.toHaveBeenCalled()
+    stopRejecting()
+
+    const retry = runtimeRegistration(ctx.invariants.register('@deepseek-ai/dsh-publication-probe', () => {}))
+    await retry
+    await retry()
+  })
+
   it('joins asynchronous checks and rolls back their effects on failure', async () => {
     const { ctx } = await setup()
     const leaked = vi.fn()

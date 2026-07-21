@@ -62,6 +62,13 @@ describe('time-context invariants', () => {
     expect(() => { ctx.emit('session/event', preparing(2, 3), event(text)) }).not.toThrow()
   })
 
+  it('accepts a reading durably appended after a long process pause', async () => {
+    const ctx = await setup()
+    expect(() => {
+      ctx.emit('session/event', preparing(1, 1), event(reading(), SECOND + 60_000))
+    }).not.toThrow()
+  })
+
   it.each([
     [reading('1', '3', 'step context'), /expected turn 2\/step 3/],
     [reading('2', '2', 'step context'), /expected turn 2\/step 3/],
@@ -96,10 +103,9 @@ describe('time-context invariants', () => {
     [reading('1', '999999999999999999999', 'step context'), SECOND, undefined, /positive safe integers/],
     [reading('1', '1', 'step context'), SECOND, undefined, /wrong elapsed-time baseline/],
     [reading('1', '2', 'model-visible message'), SECOND, undefined, /wrong elapsed-time baseline/],
-    [reading('1', '1', 'model-visible message', '2026-99-99T00:00:00+00:00[UTC]'), SECOND, undefined, /durable event second/],
-    [reading(), Number.NaN, undefined, /durable event second/],
-    [reading(), SECOND - 1, undefined, /durable event second/],
-    [reading(), SECOND + 1_000, undefined, /durable event second/],
+    [reading('1', '1', 'model-visible message', '2026-99-99T00:00:00+00:00[UTC]'), SECOND, undefined, /must parse and not postdate/],
+    [reading(), Number.NaN, undefined, /must parse and not postdate/],
+    [reading(), SECOND - 1, undefined, /must parse and not postdate/],
     ['ignored', SECOND, [], /exactly one text block/],
     ['ignored', SECOND, [{ type: 'image', data: 'x', mimeType: 'image/png' }], /exactly one text block/],
     ['ignored', SECOND, [{ type: 'text', text: 'one' }, { type: 'text', text: 'two' }], /exactly one text block/],

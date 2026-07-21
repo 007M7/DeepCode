@@ -567,7 +567,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(typeof unwrapped.apply).toBe('function')
   })
 
-  it('keeps every invariant companion loadable through the real Loader unwrap path', () => {
+  it('keeps each standard-spine invariant companion loadable through the real Loader unwrap path', () => {
     const loader = Object.create(Loader.prototype) as Loader
     for (const companion of [sessionInvariant, agentInvariant, scopeInvariant, agentLoopInvariant]) {
       expect('default' in companion).toBe(false)
