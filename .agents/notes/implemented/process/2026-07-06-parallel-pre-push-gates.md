@@ -20,7 +20,7 @@ The build gate makes the hook self-contained from a clean worktree. `publint`, `
 
 [scripts/publint-all.ts](../../../../scripts/publint-all.ts) discovers the package list from `packages/<group>/<pkg>` and calls publint's supported API against an in-memory view of each manifest's declared publication files plus npm's mandatory metadata files. That keeps unpublished workspace files invisible to publint without a package-manager subprocess per package. A worker pool sized from `availableParallelism()` bounds parallel file loading and linting; `DSH_PUBLINT_CONCURRENCY` can cap or raise it, and results print in deterministic package order.
 
-The aggregate package scripts remain the source of truth for ad hoc local runs. The scheduler is a parallel execution plan over their member gates, not a replacement vocabulary.
+The per-gate package scripts remain the vocabulary for ad hoc local runs. `hygiene` stays an aggregate `&&` chain the scheduler mirrors, while `doc-sync` has since moved its member list into the scheduler itself ([doc-sync through the gate scheduler](2026-07-21-doc-sync-through-gate-scheduler.md)).
 
 ## Alternatives considered
 
