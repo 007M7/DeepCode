@@ -45,8 +45,9 @@ buffer
   style 2-19 dim
 15| "▌ packages/ui/tui 100%                                                          "
   style 0-0 fg=green
-16| "▌ 4016 tests passed                                                             "
+16| "▌ … +1 lines (Ctrl+O to expand)                                                 "
   style 0-0 fg=green
+  style 2-30 dim
 17| "▌ 1 test skipped                                                                "
   style 0-0 fg=green
 18| "▌ coverage complete                                                             "
@@ -62,6 +63,6 @@ buffer
   style 1-1 inverse
 23| "────────────────────────────────────────────────────────────────────────────────"
   style 0-79 dim
-24| "/workspace/project  ↑0 ↓0                      idle  reasoning:on  tools:compact"
-  style 0-24 dim
-  style 47-79 dim
+24| "/workspace/pro  ↑0 ↓0 0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
+  style 0-13 dim
+  style 22-79 dim

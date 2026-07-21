@@ -32,6 +32,7 @@
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | 共享沙箱策略归属点 |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | 执行模型编写的程序 |
 | `ctx.fs` | [`fs/`](../packages/fs/README.md) | 文件系统提供方原语和策略事件 |
+| `ctx.lsp` | [`lsp/`](../packages/lsp/README.md) | 语义导航注册表 |
 | `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill（技能）提供方注册表和渐进式披露 |
 | `ctx.web` | [`web/`](../packages/web/README.md) | 搜索与抓取提供方注册表 |
 | `ctx.compact`，`ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | 摘要压缩（compaction）；可选的无模型结果裁剪 |
@@ -42,6 +43,7 @@
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | 会话日志的持久存储 |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | 实时优先的逻辑语料精确读取和关系追踪 |
 | `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | 基于日志的回退标题和单个可选异步提供方 |
+| `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | 按包名选择包自有运行时检查的注册表 |
 
 ## 事件
 

@@ -15,31 +15,7 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../llm/llm"
-    },
-    {
-      "path": "../../core/session"
-    },
-    {
-      "path": "../../core/agent"
-    },
-    {
-      "path": "../../goal/goal"
-    },
-    {
-      "path": "../../core/scope"
-    },
-    {
-      "path": "../../core/system-prompt"
-    },
-    {
-      "path": "../../ui/user-approval"
-    },
-    {
-      "path": "../../core/tools"
-    },
-    {
-      "path": "../../subagent/subagent"
+      "path": "../../../vendor/schemastery"
     }
   ]
 }

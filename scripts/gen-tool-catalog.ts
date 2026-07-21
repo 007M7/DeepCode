@@ -33,6 +33,8 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
+import Lsp from '@deepseek-ai/dsh-lsp'
+import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
@@ -241,6 +243,20 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-lsp',
+    dir: 'tool-lsp',
+    source: 'packages/lsp/tool-lsp/src/index.ts',
+    requires: ['ctx.tools', 'ctx.lsp', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The tool registers from the seam alone; the schema does not depend on any provider.
+      await ctx.plugin(Lsp)
+      await ctx.plugin(ToolLsp)
+    },
+    note:
+      'The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-local`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-ralph',

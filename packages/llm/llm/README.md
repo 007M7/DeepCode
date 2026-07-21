@@ -11,11 +11,14 @@ An adapter registry plus a single streaming call surface, interceptable via a wa
 - `ctx.llm.registerAdapter(providers: string[], adapter: LlmAdapter): () => void` Register one adapter instance for the given provider routes. Registration is all-or-nothing, and is disposed with the calling fiber.
 - `ctx.llm.listProviders(): LlmProviderInfo[]` Describe registered provider routes in registration order.
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` Discover the models one registered provider currently advertises.
+- `ctx.llm.resolveModelContext(provider: string, model: string): Promise<LlmModelContext | undefined>` Resolve authoritative context capacity for one exact route from its owning adapter.
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` Stream one model call as raw chunks (token-level deltas). Consumers assemble the chunks into blocks/messages with `BlockAssembler`.
 
 `LlmService` preserves errors from final adapter selection, synchronous dispatch, iterator construction, and iteration, and binds their provenance to the exact stream handle returned for that model call. `isLlmAdapterFailure(stream, value)` reports only errors from that call's final adapter boundary; `llmFailureOf(stream, value)` returns the adjacent immutable `LlmFailure`. Nested model calls, `llm/stream` middleware, and downstream consumer failures remain unclassified for the outer call. Classification never replaces or mutates the adapter's original coded `Error`.
 
 Provider and model metadata is a discovery surface, not a routing whitelist. `registerAdapter()` still owns provider exclusivity, while an adapter may accept model ids absent from `listModels()`; consumers must not reject a request because its model is unlisted. Returned metadata is detached and invalid or duplicate adapter entries fail with `INVALID_ADAPTER` or `INVALID_CATALOG`.
+
+Context capacity is a separate correctness query, not a catalog decoration or global LLM setting. `resolveModelContext()` asks the adapter that owns the exact provider/model route; an adapter can describe an unlisted dynamic model, and `undefined` means only that capacity is unavailable. Invalid returned capacity fails with `INVALID_MODEL_CONTEXT`.
 
 ### Events
 
@@ -25,7 +28,7 @@ Provider and model metadata is a discovery surface, not a routing whitelist. `re
 
 ### Extension points
 
-- Subclass `LlmAdapter` and call `ctx.llm.registerAdapter(providers, adapter)` to add one or more provider routes. `GenerateOptions.provider` selects the adapter; `GenerateOptions.model` is adapter-owned and may be resolved dynamically. Override `providerInfo()` and asynchronous `listModels()` to expose selector metadata; their defaults use the route id as its name and advertise no models.
+- Subclass `LlmAdapter` and call `ctx.llm.registerAdapter(providers, adapter)` to add one or more provider routes. `GenerateOptions.provider` selects the adapter; `GenerateOptions.model` is adapter-owned and may be resolved dynamically. Override `providerInfo()` and asynchronous `listModels()` to expose selector metadata, and `resolveModelContext()` when exact capacity is known; the defaults use the route id as its name, advertise no models, and return no capacity.
 - Wrap `llm/stream` via `ctx.on()` waterfall listeners for caching, logging, or routing. A wrapper that retries after emitting a chunk has no durable attempt boundary; shipped agent retry policy therefore uses `agent/request-error` instead.
 
 ### Content-block vocabulary (`types.ts`)

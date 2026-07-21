@@ -20,6 +20,8 @@ flowchart LR
   cfg --> plugin_cordis_web
   plugin_cordis_web_fetch_local["web-fetch-local<br/>@deepseek-ai/dsh-web-fetch-local"]
   cfg --> plugin_cordis_web_fetch_local
+  plugin_cordis_token_meter["token-meter<br/>@deepseek-ai/dsh-token-meter"]
+  cfg --> plugin_cordis_token_meter
   plugin_cordis_tui_agent["tui-agent<br/>@deepseek-ai/dsh-tui-demo"]
   cfg --> plugin_cordis_tui_agent
   plugin_cordis_tui_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
@@ -41,6 +43,7 @@ flowchart LR
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `web` | `@deepseek-ai/dsh-web` |
 | `web-fetch-local` | `@deepseek-ai/dsh-web-fetch-local` |
+| `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `tui-agent` | `@deepseek-ai/dsh-tui-demo` |
 | `tool-cordis` | `@deepseek-ai/dsh-tool-cordis` |
 

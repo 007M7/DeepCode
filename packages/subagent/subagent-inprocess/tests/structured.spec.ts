@@ -5,7 +5,10 @@ import type { ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import * as Invariants from '@deepseek-ai/dsh-invariants'
+import InvariantService from '@deepseek-ai/dsh-invariants'
+import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { Config as ToolConfig, StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
 import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
@@ -17,6 +20,13 @@ import {
 } from '../src/structured.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
+
+async function mountInvariants(ctx: Context): Promise<void> {
+  await ctx.plugin(InvariantService)
+  await ctx.plugin(SessionInvariant)
+  await ctx.plugin(AgentInvariant)
+  await ctx.plugin(AgentLoopInvariant)
+}
 
 interface CodeRunRequestLike {
   bindings: { global: string; functions: Record<string, (args: unknown) => Promise<unknown>> }[]
@@ -51,7 +61,7 @@ async function setup(script: Script, options: SetupOptions = {}) {
       run: options.codeRun ?? (() => Promise.resolve({ logs: [] })),
     } as never)
   }
-  await ctx.plugin(Invariants)
+  await mountInvariants(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
   const disposeProvider = ctx.subagents.registerProvider({

@@ -28,6 +28,9 @@
     },
     {
       "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

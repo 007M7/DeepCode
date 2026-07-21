@@ -21,6 +21,9 @@
       "path": "../../util/brand"
     },
     {
+      "path": "../../support/invariants"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

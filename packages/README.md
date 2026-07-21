@@ -15,6 +15,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: the abstract runtime seam for model-written programs + a worker-thread backend | Product — stable surface |
 | [`sandbox/`](sandbox/README.md) | Process-confinement seam; bwrap/Landlock/Seatbelt backends | Product — stable surface |
 | [`fs/`](fs/README.md) | Filesystem capability family: the abstract seam, a local impl, the model-facing file tools, and the bash-backed discovery tools | Product — stable surface |
+| [`lsp/`](lsp/README.md) | LSP capability family: seam, generic stdio provider, and the `lsp` tool | Product — stable surface |
 | [`skill/`](skill/README.md) | Skill capability family: the provider registry, local provider, and model-facing catalog/loader | Product — stable surface |
 | [`compact/`](compact/README.md) | Compaction capability family: the abstract seam + a basic backend (tool deferred) | Product — stable surface |
 | [`context/`](context/README.md) | Model-visible request context, including workspace instructions and time context | Product — stable surface |
