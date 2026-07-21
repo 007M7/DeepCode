@@ -6,7 +6,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { maxTokensResponse, MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
@@ -42,6 +42,36 @@ describe('startInProcessRun', () => {
     await run.dispose()
     await run.dispose()
     expect(ctx.agents.get(run.id)).toBeUndefined()
+  })
+
+  it('reports the message-turn outcome when a later non-message turn completes during flush', async () => {
+    const { ctx, parent } = await setup([maxTokensResponse('partial answer')])
+    let injected = false
+    ctx.on('session/flush', (session) => {
+      if (injected || session.header.parentSession === undefined) return
+      const lastEnd = session.events.findLast(event => event.type === 'turn/end')
+      if (lastEnd?.type !== 'turn/end' || lastEnd.data.reason.kind !== 'max-tokens') return
+      injected = true
+      const turn = lastEnd.data.turn + 1
+      session.append('turn/start', {
+        turn,
+        trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
+      })
+      session.append('context/message', {
+        content: [{ type: 'text', text: 'late metadata' }],
+        source: { kind: 'plugin', plugin: 'late-metadata' },
+      }, { surfaceOp: 'append' })
+      session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    })
+
+    const run = await startInProcessRun(request(parent), {})
+    const result = await run.result
+    const child = ctx.agents.get(run.id)!
+
+    expect(child.session.events.findLast(event => event.type === 'turn/end'))
+      .toMatchObject({ data: { reason: { kind: 'completed' } } })
+    expect(result.stopReason).toBe('max-tokens')
+    await run.dispose()
   })
 
   it('seeds a forked child but reads only the child-owned output', async () => {

@@ -561,7 +561,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:47`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:68`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -582,7 +582,7 @@ Emitted once when an announced session leaves the store, including publication r
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:57`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:78`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -605,7 +605,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:69`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:90`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -626,7 +626,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:79`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:100`](../../packages/core/session/src/index.ts)
 
 ## `subagent/*`
 

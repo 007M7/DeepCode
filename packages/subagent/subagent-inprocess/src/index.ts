@@ -10,7 +10,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
-import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { findLastMessageTurnEnd, SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertSubagentMaxDepth, delegationDepthOf } from '@deepseek-ai/dsh-subagent'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
@@ -175,7 +175,7 @@ function readResult(
 ): SubagentResult {
   const own = child.session.events.slice(seedLength)
   const lastMessage = own.findLast((event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message')
-  const lastEnd = own.findLast((event): event is SessionEvent<'turn/end'> => event.type === 'turn/end')
+  const lastEnd = findLastMessageTurnEnd(own)
   const output: ContentBlock[] = lastMessage?.data.content ?? []
   const recorded = toStopReason(lastEnd?.data.reason)
   // Disposal can tear the owner down before the loop records its ordinary

@@ -20,7 +20,7 @@ The plugin answers `shutdown`, disposes SDK-owned agents and subscriptions to qu
 
 ## Wire notes
 
-`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime`. A session accepts one in-flight prompt; overlap fails immediately, other sessions remain independent, and the session is reusable after settlement. Persistence roots and persona come from `cordis.yml`.
+`initialize.serverInfo.name` is the wire-stable `deepseek-harness-sdk-runtime`. A session accepts one in-flight prompt; overlap fails immediately, other sessions remain independent, and the session is reusable after settlement. `session.finished` reports that prompt's message-triggered turn outcome; later injection or plugin-owned zero-step turns still stream as `session.event` notifications but cannot replace the prompt status. Persistence roots and persona come from `cordis.yml`.
 
 ## Model Experience
 
