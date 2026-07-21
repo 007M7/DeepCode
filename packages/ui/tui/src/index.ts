@@ -42,6 +42,7 @@ import {
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
 import type {} from '@deepseek-ai/dsh-token-meter'
+import type {} from '@deepseek-ai/dsh-commands'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
@@ -67,7 +68,7 @@ import {
 } from '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'ui-tui'
-export const inject = ['agents', 'userInteraction', 'tools', 'llm', 'systemPrompt', 'tokenMeter']
+export const inject = ['agents', 'commands', 'userInteraction', 'tools', 'llm', 'systemPrompt', 'tokenMeter']
 
 /** Presentation settings for the pi-tui terminal mode. */
 export interface TuiConfig {
@@ -1053,6 +1054,7 @@ export function createTuiChat(
   const allToolCards = new Set<ToolCardComponent>()
   const liveErrors = new Set<string>()
   const questionQueue: PendingQuestion[] = []
+  const commandControllers = new Set<AbortController>()
   let activeQuestion: PendingQuestion | undefined
   let modelOverlay: OverlayHandle | undefined
   const target: AgentLlmTargetRef = { current: initialTarget(agent), assembled: undefined }
@@ -1433,6 +1435,8 @@ export function createTuiChat(
       clearStatus()
       modelOverlay?.hide()
       modelOverlay = undefined
+      for (const controller of commandControllers) controller.abort(new Error('TUI disposed'))
+      commandControllers.clear()
       if (activeQuestion !== undefined) {
         const pending = activeQuestion
         activeQuestion = undefined
@@ -1457,17 +1461,6 @@ export function createTuiChat(
     void shutdown(true)
   }
 
-  editor.setAutocompleteProvider(new CombinedAutocompleteProvider([
-    { name: 'help', description: 'Show keyboard shortcuts and commands' },
-    { name: 'model', description: 'Show or switch this session\'s model' },
-    { name: 'clear', description: 'Clear the transcript view (session history is unchanged)' },
-    { name: 'cancel', description: 'Cancel the active turn' },
-    { name: 'reasoning', description: 'Toggle reasoning blocks' },
-    { name: 'tools', description: 'Expand or collapse all tool cards' },
-    { name: 'redraw', description: 'Invalidate components and redraw the terminal' },
-    { name: 'exit', description: 'Exit after the active turn reaches idle' },
-  ], agent.session.header.cwd ?? process.cwd()))
-
   const toggleTools = (): void => {
     toolsExpanded = !toolsExpanded
     for (const card of allToolCards) card.setExpanded(toolsExpanded)
@@ -1487,15 +1480,106 @@ export function createTuiChat(
   }
 
   const showHelp = (): void => {
+    const commandLines = ctx.commands.list(agent).map((command) => {
+      const input = command.input === undefined ? '' : ` ${command.input.hint}`
+      return `/${command.name}${input} — ${command.description}`
+    })
     chat.addChild(new Spacer(1))
     chat.addChild(new Text(palette.bold(palette.accent('Keyboard shortcuts')), 1, 0))
     chat.addChild(new Text([
       'Enter send • Shift/Alt+Enter newline • Up/Down prompt history',
       'Esc cancel active turn • Ctrl+O toggle tool cards • Ctrl+R toggle reasoning',
       'Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit',
-      '/help /model /clear /cancel /reasoning /tools /redraw /exit',
+      '',
+      ...commandLines,
     ].map(line => palette.muted(line)).join('\n'), 1, 0))
     requestRender()
+  }
+
+  const refreshCommandAutocomplete = (): void => {
+    editor.setAutocompleteProvider(new CombinedAutocompleteProvider(
+      ctx.commands.list(agent).map(command => ({
+        name: command.name,
+        description: command.description,
+      })),
+      agent.session.header.cwd ?? process.cwd(),
+    ))
+  }
+  const disposeCommandChanges = ctx.on('commands/change', refreshCommandAutocomplete)
+  refreshCommandAutocomplete()
+
+  // The agent scope is minted by agent-loop and intentionally inherits only
+  // that core plugin's dependencies. A child command producer declares its own
+  // UI-service dependency while retaining the parent agent scope and lifetime.
+  const commandFiber = agent.ctx.inject(['commands'], (commandCtx) => {
+    commandCtx.commands.register({
+      name: 'help',
+      description: 'Show keyboard shortcuts and commands',
+      handler: () => { showHelp(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'model',
+      description: 'Show or switch this session\'s model',
+      input: { hint: '[[provider/]model]' },
+      handler: ({ rawInput }) => {
+        queueModelCommand(rawInput)
+        return { kind: 'success' }
+      },
+    })
+    commandCtx.commands.register({
+      name: 'clear',
+      description: 'Clear the transcript view (session history is unchanged)',
+      handler: () => { chat.clear(); requestRender(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'cancel',
+      description: 'Cancel the active turn',
+      handler: () => {
+        if (agent.status !== 'running') return { kind: 'error', text: 'The agent is already idle.' }
+        agent.cancel('cancelled from terminal')
+        return { kind: 'success', text: 'Cancellation requested.' }
+      },
+    })
+    commandCtx.commands.register({
+      name: 'reasoning',
+      description: 'Toggle reasoning blocks',
+      handler: () => { toggleReasoning(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'tools',
+      description: 'Expand or collapse all tool cards',
+      handler: () => { toggleTools(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'redraw',
+      description: 'Invalidate components and redraw the terminal',
+      handler: () => { ui.invalidate(); ui.requestRender(true); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'exit',
+      description: 'Exit after the active turn reaches idle',
+      handler: () => { requestExit(); return { kind: 'success' } },
+    })
+  })
+
+  const runCommand = (text: string): void => {
+    const controller = new AbortController()
+    commandControllers.add(controller)
+    void ctx.commands.execute(agent, text, controller.signal).then(
+      (result) => {
+        if (disposed) return
+        if (result === undefined) {
+          appendNotice(`Unknown command: ${text}`, 'warning')
+        } else if (result.text !== undefined && result.text !== '') {
+          appendNotice(result.text, result.kind === 'error' ? 'error' : 'info')
+        }
+      },
+      (error: unknown) => {
+        if (!disposed) {
+          appendNotice(`Command failed: ${errorChain(error)}`, 'error')
+        }
+      },
+    ).finally(() => { commandControllers.delete(controller) })
   }
 
   editor.onSubmit = (value: string) => {
@@ -1503,40 +1587,9 @@ export function createTuiChat(
     if (text === '') return
     editor.addToHistory(text)
     editor.setText('')
-    if (/^\/model(?:\s|$)/u.test(text)) {
-      queueModelCommand(text.slice('/model'.length))
+    if (value.startsWith('/')) {
+      runCommand(value)
       return
-    }
-    switch (text) {
-      case '/help':
-        showHelp()
-        return
-      case '/clear':
-        chat.clear()
-        requestRender()
-        return
-      case '/cancel':
-        if (agent.status === 'running') agent.cancel('cancelled from terminal')
-        else appendNotice('The agent is already idle.')
-        return
-      case '/reasoning':
-        toggleReasoning()
-        return
-      case '/tools':
-        toggleTools()
-        return
-      case '/redraw':
-        ui.invalidate()
-        ui.requestRender(true)
-        return
-      case '/exit':
-        requestExit()
-        return
-      default:
-        if (text.startsWith('/')) {
-          appendNotice(`Unknown command: ${text}`, 'warning')
-          return
-        }
     }
     if (agent.status === 'disposed') {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
@@ -1613,6 +1666,7 @@ export function createTuiChat(
 
   const detachListeners = (): void => {
     removeInputListener()
+    disposeCommandChanges()
     disposeSessionEvents()
     disposeStatus()
     disposeError()
@@ -1627,6 +1681,12 @@ export function createTuiChat(
   } catch (error: unknown) {
     disposed = true
     detachListeners()
+    void commandFiber.dispose().catch(
+      /* v8 ignore next 2 -- command registration cleanup is non-throwing; this guards a future disposer regression */
+      (cleanupError: unknown) => {
+        ctx.logger.warn(`ui-tui: command cleanup after startup failure failed: ${errorChain(cleanupError)}`)
+      },
+    )
     clearStatus()
     disposeUserInteraction()
     ui.stop()
@@ -1637,6 +1697,7 @@ export function createTuiChat(
     async dispose(): Promise<void> {
       detachListeners()
       await shutdown(false)
+      await commandFiber.dispose()
     },
   }
 }

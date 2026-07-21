@@ -2,6 +2,7 @@ import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, { type Agent, type AgentOptions, type AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
+import CommandService from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -57,6 +58,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(CommandService)
   await ctx.plugin(UserInteractionService)
   const catalog = options.catalog ?? {
     providers: [{ id: 'deepseek', name: 'DeepSeek' }],
