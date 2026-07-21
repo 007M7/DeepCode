@@ -1,5 +1,5 @@
 import type { Context } from 'cordis'
-import type { GenerateOptions, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelContext, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 
 const CONTROL_PROBE = '\u001b]2;MODEL_CONTROLLED\u0007\u001b[999CMODEL_CURSOR\u009b31mMODEL_C1'
@@ -23,6 +23,10 @@ class ScriptedTuiAdapter extends LlmAdapter {
       { provider, id: 'tui-scripted-model', name: 'Scripted Base' },
       { provider, id: 'tui-scripted-model-pro', name: 'Scripted Pro' },
     ])
+  }
+
+  override resolveModelContext(_provider: string, _model: string): Promise<LlmModelContext> {
+    return Promise.resolve({ contextWindow: 128_000 })
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {

@@ -536,7 +536,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:44`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:52`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 

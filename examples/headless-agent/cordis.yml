@@ -11,7 +11,9 @@
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
     models:
       - id: deepseek-v4-pro
+        contextWindow: 128000
       - id: deepseek-v4-flash
+        contextWindow: 128000
 
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
@@ -35,13 +37,14 @@
       factual.
 
 # Summarize an older range when derived history approaches the context window.
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
   config:
-    contextWindow: 128000
     thresholdRatio: 0.8
-    retainTokens: 20480
-    summarizationModel: ''
+    retainRatio: 0.16
     maxTokens: 8192
     compactionRetries: 1
 

@@ -717,10 +717,11 @@ describe('SessionStore', () => {
     // may create an unrelated property with the old implementation's name,
     // but cannot suppress the durable event feed.
     expect(Reflect.set(session, 'onAppend', undefined)).toBe(true)
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    expect(events).toHaveLength(1)
-    expect(events[0]![0]).toBe(session)
-    expect(events[0]![1].type).toBe('user/message')
+    expect(events).toHaveLength(2)
+    expect(events[1]![0]).toBe(session)
+    expect(events[1]![1].type).toBe('user/message')
 
     expect(ctx.sessions.get(session.id)).toBe(session)
     expect(ctx.sessions.list()).toEqual([session])
@@ -732,6 +733,7 @@ describe('SessionStore', () => {
     const a = ctx.sessions.create(SessionId('fixed'))
     expect(() => ctx.sessions.create(SessionId('fixed'))).toThrow('already exists')
 
+    a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     a.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const forked = ctx.sessions.create(SessionId('fork'), { seed: [...a.events] })
     expect(forked.deriveMessages()).toEqual(a.deriveMessages())
@@ -973,8 +975,9 @@ describe('SessionStore', () => {
     ctx.on('session/event', (_session, event) => void events.push(event))
     const session = ctx.sessions.create(SessionId('fixed'))
     expect(ctx.sessions.get(SessionId('fixed'))).toBe(session)
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    expect(events).toHaveLength(1)
+    expect(events.at(-1)?.type).toBe('user/message')
   })
 
   it('contains session/event observer failures after the append commit point', async () => {
@@ -1058,6 +1061,8 @@ describe('SessionStore', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('surface-dispatch-veto'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', {
       content: [{ type: 'text', text: 'source' }],
       source: { kind: 'user' },
@@ -1077,19 +1082,19 @@ describe('SessionStore', () => {
       step: 1,
       content: [{ type: 'text', text: 'replacement' }],
     }, {
-      surfaceOp: { op: 'replace', start: 0, end: 0 },
-      sourceEventSeqs: [0],
+      surfaceOp: { op: 'replace', start: 2, end: 2 },
+      sourceEventSeqs: [2],
     })).toThrow('reject surface candidate')
 
-    expect(session.events).toHaveLength(1)
-    expect(surface.nodes).toEqual([0])
+    expect(session.events).toHaveLength(3)
+    expect(surface.nodes).toEqual([2])
     expect(surface.replaceGeneration).toBe(0)
 
     session.append('user/message', {
       content: [{ type: 'text', text: 'next' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
-    expect(surface.nodes).toEqual([0, 1])
+    expect(surface.nodes).toEqual([2, 3])
     expect(surface.replaceGeneration).toBe(0)
   })
 

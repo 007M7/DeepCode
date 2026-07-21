@@ -6,7 +6,13 @@
  */
 
 import { attributionHeaders, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, ProviderRequestId, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type {
+  GenerateOptions,
+  LlmModelContext,
+  LlmModelInfo,
+  LlmProviderInfo,
+  StreamChunk,
+} from '@deepseek-ai/dsh-llm'
 import { idleWatchdog, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { serializeRequest } from './serialize.ts'
 import type { RequestDefaults } from './serialize.ts'
@@ -22,6 +28,8 @@ export interface DeepSeekCatalogModel {
   name?: string
   /** Optional selector detail for deployments with similar model variants. */
   description?: string
+  /** Known combined request/response context capacity; omitted when deployment metadata is unavailable. */
+  contextWindow?: number
 }
 
 /** Constructor options for {@link DeepSeekAdapter}; the plugin's `apply` resolves them from Config + environment. */
@@ -109,6 +117,14 @@ export class DeepSeekAdapter extends LlmAdapter {
       name: model.name ?? model.id,
       ...model.description === undefined ? {} : { description: model.description },
     })))
+  }
+
+  override resolveModelContext(
+    _provider: string,
+    model: string,
+  ): Promise<LlmModelContext | undefined> {
+    const contextWindow = this.options.models?.find(entry => entry.id === model)?.contextWindow
+    return Promise.resolve(contextWindow === undefined ? undefined : { contextWindow })
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {

@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
+import { agentEvents } from '@deepseek-ai/dsh-agent'
 import { CallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -100,7 +101,7 @@ async function disposeSnapshot(harness: SnapshotHarness): Promise<void> {
 async function configureAdvancedTools(ctx: Context): Promise<void> {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry, { mode: 'code' })
-  ctx.provide('workflows', {} as never)
+  ctx.provide('workflows', { start() {} } as never)
   await ctx.plugin(ToolWorkflow, { toolName: 'workflow', maxResultChars: 50_000 })
   await ctx.plugin(ToolCordis, { vmTimeoutMs: 5_000 })
 }
@@ -121,7 +122,7 @@ function appendToolCalls(session: Session, calls: readonly ToolCallFixture[]): v
   for (const call of calls) {
     session.append('tool/call', {
       turn: 1,
-      step: 0,
+      step: 1,
       callId: CallId(call.id),
       name: call.name,
       arguments: JSON.stringify(call.arguments),
@@ -137,7 +138,7 @@ function appendToolResult(
 ): void {
   session.append('tool/result', {
     turn: 1,
-    step: 0,
+    step: 1,
     callId: CallId(id),
     content,
     isError: options.isError ?? false,
@@ -207,23 +208,23 @@ describe('TUI terminal-state snapshots', () => {
       harness.ctx.emit('agent/status', harness.agent, 'running')
       appendUser(harness.session, 'Show the live update.')
       harness.session.append('assistant/chunk', {
-        turn: 2,
-        step: 0,
+        turn: 1,
+        step: 1,
         chunk: { type: 'block-start', index: 0, blockType: 'reasoning' },
       })
       harness.session.append('assistant/chunk', {
-        turn: 2,
-        step: 0,
+        turn: 1,
+        step: 1,
         chunk: { type: 'reasoning-delta', index: 0, text: 'Inspecting width and styles.' },
       })
       harness.session.append('assistant/chunk', {
-        turn: 2,
-        step: 0,
+        turn: 1,
+        step: 1,
         chunk: { type: 'block-start', index: 1, blockType: 'text' },
       })
       harness.session.append('assistant/chunk', {
-        turn: 2,
-        step: 0,
+        turn: 1,
+        step: 1,
         chunk: { type: 'text-delta', index: 1, text: 'Streaming **visible state**…' },
       })
     })
@@ -430,9 +431,10 @@ describe('TUI terminal-state snapshots', () => {
           source: { kind: 'user' },
           reason: `Unsafe policy ${CONTROL_PROBE}`,
         })
+        session.append('step/end', { turn: 1, step: 1 })
         session.append('turn/end', {
-          turn: 7,
-          reason: { kind: 'error', step: 2, message: `Unsafe turn error ${CONTROL_PROBE}` },
+          turn: 1,
+          reason: { kind: 'error', step: 1, message: `Unsafe turn error ${CONTROL_PROBE}` },
         })
       },
     }, { columns: 100, rows: 34 })
@@ -454,7 +456,7 @@ describe('TUI terminal-state snapshots', () => {
     const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
     await harness.terminal.waitForFrame(beforeQuestion)
     await renderAfter(harness, () => {
-      harness.ctx.emit('agent/error', harness.agent, 8, 3, new Error(`Unsafe live error ${CONTROL_PROBE}`))
+      agentEvents(harness.ctx, harness.agent).emit('agent/error', 8, 3, new Error(`Unsafe live error ${CONTROL_PROBE}`))
     })
     await checkpoint('untrusted-controls', harness.terminal, { includeScrollback: true })
 
@@ -516,14 +518,14 @@ describe('TUI terminal-state snapshots', () => {
         }, { surfaceOp: 'append' })
         const assistant = session.append('assistant/message', {
           turn: 1,
-          step: 0,
+          step: 1,
           provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
           content: [{ type: 'tool-call', id: CallId('old-tool'), name: 'bash', arguments: '{}' }],
         }, { surfaceOp: 'append' })
-        session.append('tool/call', { turn: 1, step: 0, callId: CallId('old-tool'), name: 'bash', arguments: '{}' })
+        session.append('tool/call', { turn: 1, step: 1, callId: CallId('old-tool'), name: 'bash', arguments: '{}' })
         const result = session.append('tool/result', {
           turn: 1,
-          step: 0,
+          step: 1,
           callId: CallId('old-tool'),
           content: [{ type: 'text', text: 'obsolete output that must disappear' }],
           isError: false,
@@ -559,13 +561,15 @@ describe('TUI terminal-state snapshots', () => {
       harness.terminal.send('\r')
       harness.terminal.send('/unknown-advanced-command')
       harness.terminal.send('\r')
-      harness.ctx.emit('agent/error', harness.agent, 3, 1, new Error('provider stream failed after partial output'))
+      agentEvents(harness.ctx, harness.agent).emit('agent/error', 1, 1, new Error('provider stream failed after partial output'))
+      harness.session.append('step/end', { turn: 1, step: 1 })
       harness.session.append('turn/end', {
-        turn: 3,
+        turn: 1,
         reason: { kind: 'error', step: 1, message: 'provider stream failed after partial output' },
       })
+      harness.session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
       harness.session.append('turn/end', {
-        turn: 4,
+        turn: 2,
         reason: { kind: 'interrupted' },
       })
     })

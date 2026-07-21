@@ -19,12 +19,6 @@ import type {
 
 export type * from './types.ts'
 
-/** Default service-wide provider context capacity. */
-const DEFAULT_CONTEXT_WINDOW = 128_000
-
-/** Complete public configuration key set. */
-const TOKEN_METER_CONFIG_KEYS: ReadonlySet<string> = new Set(['contextWindow'])
-
 /** Fixed text-density estimate used until exact tokenization is needed. */
 const CHARS_PER_TOKEN = 4
 
@@ -74,26 +68,8 @@ function optionalHeaderEquals(
 /** Reject stale or misspelled keys before defaults can hide them. */
 function validateConfigKeys(config: TokenMeterConfig): void {
   for (const key of Object.keys(config)) {
-    if (!TOKEN_METER_CONFIG_KEYS.has(key)) {
-      throw new Error(
-        `TokenMeterConfig: unknown key "${key}" (allowed: contextWindow)`,
-      )
-    }
+    throw new Error(`TokenMeterConfig: unknown key "${key}" (no settings are supported)`)
   }
-}
-
-/** Resolve and validate the one service-wide context capacity. */
-function resolveContextWindow(config: TokenMeterConfig): number {
-  validateConfigKeys(config)
-  const contextWindow = config.contextWindow === undefined
-    ? DEFAULT_CONTEXT_WINDOW
-    : config.contextWindow
-  if (!Number.isInteger(contextWindow) || contextWindow <= 0) {
-    throw new Error(
-      `TokenMeterConfig: contextWindow (${contextWindow}) must be a positive integer`,
-    )
-  }
-  return contextWindow
 }
 
 declare module 'cordis' {
@@ -104,18 +80,15 @@ declare module 'cordis' {
 
 /** Replay owner for one service-wide estimator and isolated per-session folds. */
 export class TokenMeterService extends Service {
-  static Config: z<TokenMeterConfig> = z.object({
-    contextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
-  })
-
-  /** Provider context-window capacity used by pressure consumers. */
-  readonly contextWindow: number
+  // Schemastery preserves untrusted loader keys on an empty object schema;
+  // the public type excludes settings while validateConfigKeys rejects them.
+  static Config: z<TokenMeterConfig> = z.object({}) as unknown as z<TokenMeterConfig>
 
   private readonly states = new WeakMap<Session, ReplayState>()
 
   constructor(ctx: Context, config: TokenMeterConfig = {}) {
     super(ctx, 'tokenMeter')
-    this.contextWindow = resolveContextWindow(config)
+    validateConfigKeys(config)
 
     // Readers catch up independently, while eager observation bounds ordinary
     // read latency without creating state for sessions no consumer has read.

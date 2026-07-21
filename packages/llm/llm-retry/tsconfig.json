@@ -27,6 +27,9 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../support/invariants"
+    },
+    {
       "path": "../../util/timeout"
     }
   ]

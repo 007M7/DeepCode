@@ -232,6 +232,29 @@ describe('bounded transient retry policy', () => {
     })
   })
 
+  it('accepts the zero-delay lower jitter bound', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      new LlmError('busy', 'SERVER'),
+      textResponse('done'),
+    ])
+    ;({ ctx: context } = await harness(adapter, {
+      initialDelayMs: 1,
+      maxDelayMs: 1,
+      jitterRatio: 1,
+    }, undefined, { random: () => 0 }))
+    const agent = context.agentLoop.create(SessionId('retry-zero-delay'), { provider: 'mock', model: 'mock' })
+    const scheduled = waitForRetry(context, agent, 1)
+
+    agent.send([{ type: 'text', text: 'go' }])
+    expect((await scheduled).data.delayMs).toBe(0)
+
+    const idle = waitForIdle(context, agent)
+    await vi.runAllTimersAsync()
+    await idle
+    expect(adapter.requests).toHaveLength(2)
+  })
+
   it('uses a bounded provider Retry-After verbatim and delegates an over-cap instruction', async () => {
     vi.useFakeTimers()
     const accepted = new ScriptedAdapter([
