@@ -60,10 +60,23 @@ async function scenario(behavior: object): Promise<{ dir: string; fixtureFile: s
 
 const boot: InputStep[] = [{ op: 'initialize' }, { op: 'newSession' }]
 
-it('keeps the resolved snapshot spill root length stable across platforms', () => {
-  expect(snapshotSpillRoot('linux')).toBe('/tmp/dsh-acp-snapshot-spill')
-  expect(snapshotSpillRoot('win32')).toBe('/t/dsh-acp-snapshot-spill')
+it('keeps scenario-owned snapshot spill root length stable across platforms', () => {
+  const fixtureFile = '/fixtures/scenario/session.jsonl'
+  const posix = snapshotSpillRoot(fixtureFile, 'linux')
+  const windows = snapshotSpillRoot(fixtureFile, 'win32')
+  expect(posix).toMatch(/^\/tmp\/dsh-acp-snap-[0-9a-f]{9}$/)
+  expect(windows).toMatch(/^\/t\/dsh-acp-snap-[0-9a-f]{9}$/)
+  expect(windows.length + 2).toBe(posix.length)
 })
+
+function environmentEcho(rawStdout: string): Record<string, unknown> {
+  const frames = rawStdout.trim().split('\n')
+    .map(line => JSON.parse(line) as { params?: { update?: { content?: { text?: unknown } } } })
+  const text = frames.map(frame => frame.params?.update?.content?.text)
+    .find(value => typeof value === 'string' && value.startsWith('env:'))
+  if (typeof text !== 'string') throw new Error('fake ACP agent did not echo its environment')
+  return JSON.parse(text.slice('env:'.length)) as Record<string, unknown>
+}
 
 describe('runScenario', () => {
   it('surfaces an asynchronous child spawn failure through startup and close', async () => {
@@ -422,6 +435,22 @@ describe('runScenario', () => {
     expect(env.childFiles).toBe(childFiles.join(delimiter))
   })
 
+  it('gives concurrent scenarios distinct equal-length spill roots', { timeout: 20_000 }, async () => {
+    const [first, second] = await Promise.all([scenario({ echoEnv: true }), scenario({ echoEnv: true })])
+    const results = await Promise.all([first, second].map(({ fixtureFile }) => runScenario(
+      { steps: [...boot, { op: 'prompt', text: 'env?' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )))
+    const roots = results.map(result => environmentEcho(result.rawStdout).spillRoot)
+    expect(roots.every(root => typeof root === 'string')).toBe(true)
+    expect(new Set(roots).size).toBe(2)
+    expect((roots[0] as string).length).toBe((roots[1] as string).length)
+    expect(roots).toEqual([
+      snapshotSpillRoot(first.fixtureFile),
+      snapshotSpillRoot(second.fixtureFile),
+    ])
+  })
+
   it('seeds the workspace dir into the temp cwd before the run', { timeout: 20_000 }, async () => {
     const { dir, fixtureFile } = await scenario({ echoWorkspace: true })
     const workspaceDir = join(dir, 'workspace')
@@ -445,6 +474,21 @@ describe('runScenario', () => {
     expect(result.rawStdout).toContain('"stopReason":"cancelled"')
     // The streamed chunk deterministically precedes the cancelled response.
     expect(result.rawStdout.indexOf('thinking about it')).toBeLessThan(result.rawStdout.indexOf('cancelled'))
+  })
+
+  it('promptAndWaitForAgentMessage keeps the app live through a matching later update', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ prompt: 'respond' })
+    const result = await runScenario(
+      {
+        steps: [...boot, {
+          op: 'promptAndWaitForAgentMessage',
+          text: 'go',
+          waitForText: 'thinking about it',
+        }],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.rawStdout).toContain('thinking about it')
   })
 
   it('promptAndCancel can bracket cancellation with tool-call updates', { timeout: 20_000 }, async () => {
@@ -556,6 +600,7 @@ describe('runScenario', () => {
 
   it.each([
     [{ op: 'prompt', text: 'x' }, /prompt before newSession/],
+    [{ op: 'promptAndWaitForAgentMessage', text: 'x', waitForText: 'later' }, /promptAndWaitForAgentMessage before newSession/],
     [{ op: 'promptExpectError', text: 'x' }, /promptExpectError before newSession/],
     [{ op: 'promptAndCancel', text: 'x' }, /promptAndCancel before newSession/],
     [{ op: 'cancel' }, /cancel before newSession/],

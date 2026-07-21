@@ -74,6 +74,10 @@ class AppOption extends FeatureOption {
         return new ProjectContribution([
           ...appProjectResources(profile, this.id),
           ...npmCordisConfigEntry(ID, {
+            id: 'commands',
+            name: '@deepseek-ai/dsh-commands',
+          }),
+          ...npmCordisConfigEntry(ID, {
             id: 'user-interaction',
             name: '@deepseek-ai/dsh-user-interaction',
           }),

@@ -115,6 +115,9 @@
 
 - id: tool-workflow
   name: '@deepseek-ai/dsh-tool-workflow'
+
+- id: tool-ralph
+  name: '@deepseek-ai/dsh-tool-ralph'
 # `todo_write` replaces the logged whole list and surfaces an ACP `plan` update.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'

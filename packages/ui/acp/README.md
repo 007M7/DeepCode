@@ -8,7 +8,7 @@ It is a **client-driver / UI plugin**, the structured analogue of the terminal `
 
 `apply(ctx, config)` — wires an `AgentSideConnection` (from `@agentclientprotocol/sdk`) to `process.stdin`/`process.stdout` and implements the ACP `Agent` method surface.
 
-The plugin injects `agents`, `sessionPersistence`, `tools`, `userInteraction`, `llm`, and `systemPrompt`, never the concrete loop. Persistence backs `session/load`; the LLM catalog backs model selection; prompt assembly keeps model variables aligned with routing; tool definitions own presentation; user interaction maps agent questions to ACP forms.
+The plugin injects `agents`, [`commands`](../commands/README.md), `sessionPersistence`, `tools`, `userInteraction`, `llm`, and `systemPrompt`, never the concrete loop. Persistence backs `session/load`; the command registry backs slash discovery and direct dispatch; the LLM catalog backs model selection; prompt assembly keeps model variables aligned with routing; tool definitions own presentation; user interaction maps agent questions to ACP forms.
 
 ### Config
 
@@ -26,10 +26,10 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 | ACP method | Harness seam | Notes |
 |---|---|---|
 | `initialize` | static | negotiate `protocolVersion`; advertise baseline prompt capabilities (`text`, plus `resource_link` rendered as text) and `loadSession: true` |
-| `session/new` | `ctx.agents.create({ sessionId, meta:{cwd} })` | creates a new session/agent; N concurrent sessions are allowed, keyed by id; `cwd` must be absolute (it becomes the session's workspace — see Per-session cwd); non-empty `additionalDirectories` and `mcpServers` rejected |
-| `session/load` | `ctx.agents.resume(...)` | reserves the id, verifies the persisted cwd, resumes, and replays user, assistant, and tool events |
-| `session/prompt` | `agent.send()` | supports ACP `text` and `resource_link` blocks; rejects image/audio/embedded resource and empty prompts; one in-flight prompt PER session (independent); settles on the OWNING turn's end (a turn that ends in `error` rejects the RPC) |
-| `session/cancel` | `agent.cancel()` | the queue-aware cancel: aborts a running step, clears queued + steering work, and drops a turn about to start, then settles the prompt `cancelled` — for ONLY that session (a cancel never touches another session's stream or prompt) |
+| `session/new` | `ctx.agents.create({ sessionId, meta:{cwd} })` | creates a new session/agent; N concurrent sessions are allowed, keyed by id; advertises the effective command snapshot; `cwd` must be absolute (it becomes the session's workspace — see Per-session cwd); non-empty `additionalDirectories` and `mcpServers` rejected |
+| `session/load` | `ctx.agents.resume(...)` | reserves the id, verifies the persisted cwd, resumes, replays user, assistant, and tool events, and re-advertises commands |
+| `session/prompt` | `ctx.commands.execute()` or `agent.send()` | a flattened prompt beginning with `/` stays in the direct command plane; ordinary prompts support ACP `text` and `resource_link`; unsupported content and empty prompts are rejected; one request is in flight per session and settles on the owning turn's end, with an error turn rejecting the RPC |
+| `session/cancel` | command `AbortSignal` or `agent.cancel()` | aborts the exact direct command, or applies the queue-aware agent cancel and settles its prompt `cancelled`; one session never cancels another |
 | `session/update` | `session/event` | streams user replay, assistant text/reasoning, retry/failure attempt markers, and tool render intents |
 | `elicitation/create` | `ctx.userInteraction.ask()` | maps `ask_user_question` questions to ACP form elicitations; option descriptions are shown in enum titles, `multi_select` uses ACP array enums, optionless requests use a required `custom` field, and a non-empty custom answer overrides any selected choice |
 | `session/request_permission` | `approval/request` listener | answers one-shot allow/reject requests for bridge-owned calls; foreign or call-less requests delegate and fail closed if unanswered — see "Permission prompts" |
@@ -38,6 +38,12 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 ## Multi-session
 
 One id-keyed record map plus exact agent-object checks route every event, prompt, cancel, and approval to one session. Each session permits one in-flight prompt; teardown drains all sessions in parallel. See the [multi-session Agent Note](../../../.agents/notes/implemented/feature/2026-06-14-acp-multi-session.md).
+
+## Human commands
+
+After `session/new` and `session/load`, the bridge emits ACP's full `available_commands_update` snapshot for that exact agent. A new session's server-generated id is introduced by the RPC response before its snapshot enters the connection write queue. A global or scoped registry change refreshes every live session from its independently resolved view, so clients replace rather than merge cached catalogs. Names omit the slash; descriptions and optional unstructured-input hints map directly to ACP `AvailableCommand`.
+
+ACP v1 permits a command prompt to carry additional content blocks. The bridge applies its ordinary lossless flattening for supported `text` and `resource_link` blocks, then dispatches when the result begins with `/`. Known commands execute without a model request. Unknown or malformed slash input returns a direct error instead of falling back to the model; prefix whitespace when literal slash-leading text must reach the model. Expected handler errors, thrown failures, and successful text stream as UI-only `agent_message_chunk` output and end the request; cancellation returns `cancelled`. See the [command Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-plugin-command-registration.md) and the [ACP v1 slash-command contract](https://agentclientprotocol.com/protocol/v1/slash-commands).
 
 ## Session config options
 
@@ -108,6 +114,20 @@ Prompt tokens are data-dependent and remain in that session's history until comp
 
 Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
+### Human commands
+
+#### What the model sees
+
+Nothing from command discovery, slash input, or command output. A command handler may separately mutate a durable domain whose later state affects model requests.
+
+#### Token effect
+
+Direct dispatch adds no model tokens and no session message. The mutated domain owns any later prompt or history cost.
+
+#### KV Cache effect
+
+Command discovery, dispatch, and direct output never enter a model request and do not affect its cache. A mutated domain owns any later cache effect.
+
 ### Human answers and permission decisions
 
 #### What the model sees
@@ -170,3 +190,4 @@ Loading does not rewrite the stored log, but the next request is reconstructed u
 - **Prompt content is `text` + `resource_link` only** — image, audio, and embedded-resource blocks are rejected, as is a non-empty `mcpServers` list at `session/new`.
 - **Terminal cards render completed output** — live incremental streaming and command classification are named follow-ups of [the terminal-rendering Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md).
 - **Permission answers are one-shot only** — the bridge offers `allow_once` / `reject_once`; durable `allow_always` grants and their storage/revocation policy remain deferred to the approval seam.
+- **Command output is live-only** — discovery is refreshed after load, but direct command results are not persisted or replayed into a reconnected editor.

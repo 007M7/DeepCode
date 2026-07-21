@@ -152,6 +152,7 @@ async function handlePrompt(id: number | string): Promise<void> {
       mode: process.env.DSH_SNAPSHOT,
       override: process.env.DSH_SNAPSHOT_OVERRIDE ?? null,
       childFiles: process.env.DSH_SNAPSHOT_CHILD_FILES ?? null,
+      spillRoot: process.env.DSH_SNAPSHOT_SPILL_ROOT ?? null,
     })}`)
   }
   if (behavior.echoWorkspace === true) {
