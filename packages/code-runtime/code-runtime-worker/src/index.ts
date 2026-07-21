@@ -15,7 +15,7 @@ import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeBindingFunction, CodeJsonValue, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
-import { truncateJsonStringBytes } from './output-json.ts'
+import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
 
 /** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
 export interface Config {
@@ -141,11 +141,6 @@ function parseWorkerMessage(raw: unknown): WorkerToHost | undefined {
 }
 
 
-/** Serialized byte size of one lossless JSON value. */
-function jsonBytes(value: CodeJsonValue): number {
-  return Buffer.byteLength(JSON.stringify(value), 'utf8')
-}
-
 /** One run's combined outer-output ledger; binding values never enter it. */
 class OutputLedger {
   private bytes = 2 // JSON serialization of the empty logs array: []
@@ -155,9 +150,10 @@ class OutputLedger {
 
   /** Admit one exact log entry, or report that the hard cap was crossed. */
   admit(text: string, sink: string[]): boolean {
-    const cost = Buffer.byteLength(JSON.stringify(text), 'utf8') + (this.entries > 0 ? 1 : 0)
-    if (this.bytes + cost > this.maxBytes) return false
-    this.bytes += cost
+    const separatorBytes = this.entries > 0 ? 1 : 0
+    const stringBytes = jsonStringBytesUpTo(text, this.maxBytes - this.bytes - separatorBytes)
+    if (stringBytes === undefined) return false
+    this.bytes += stringBytes + separatorBytes
     this.entries += 1
     sink.push(text)
     return true
@@ -165,46 +161,45 @@ class OutputLedger {
 
   /** Finalize a successful absent-or-JSON completion against the combined cap. */
   success(logs: string[], value?: CodeJsonValue): CodeRunResult {
-    if (value !== undefined && this.bytes + jsonBytes(value) > this.maxBytes) return this.limit(logs)
+    if (value !== undefined && jsonValueBytesUpTo(value, this.maxBytes - this.bytes) === undefined) return this.limit(logs)
     return { logs, ...value !== undefined ? { value } : {} }
   }
 
   /** Finalize a failure diagnostic, with output-limit taking precedence when combined bytes exceed the cap. */
   failure(logs: string[], error: CodeRunFailure): CodeRunResult {
-    if (this.bytes + Buffer.byteLength(JSON.stringify(error.message), 'utf8') > this.maxBytes) return this.limit(logs)
+    if (jsonStringBytesUpTo(error.message, this.maxBytes - this.bytes) === undefined) return this.limit(logs)
     return { logs, error }
   }
 
   /** Build the explicit output-limit failure while retaining a fitting prefix of the final log. */
   limit(logs: string[]): CodeRunResult {
     const fullMessage = `outer output exceeded ${this.maxBytes} bytes`
-    const messageBytes = Buffer.byteLength(JSON.stringify(fullMessage), 'utf8')
-    const retained = [...logs]
-    let retainedBytes = jsonBytes(retained)
+    // The fixed diagnostic is ASCII, so every character is one byte plus the quotes.
+    const messageBytes = fullMessage.length + 2
+    const retained: string[] = []
+    let retainedBytes = 2
     const logBudget = this.maxBytes - messageBytes
-    while (retained.length > 0 && retainedBytes > logBudget) {
-      const removed = retained.pop()
-      /* v8 ignore next -- the while guard proves pop cannot return undefined. */
-      if (removed === undefined) throw new Error('output ledger lost its final log entry')
+    for (const text of logs) {
       const separatorBytes = retained.length > 0 ? 1 : 0
-      retainedBytes -= Buffer.byteLength(JSON.stringify(removed), 'utf8') + separatorBytes
-      const prefix = truncateJsonStringBytes(removed, logBudget - retainedBytes - separatorBytes)
-      if (prefix.length > 0) {
-        retained.push(prefix)
-        retainedBytes += Buffer.byteLength(JSON.stringify(prefix), 'utf8') + separatorBytes
-        break
+      const availableBytes = logBudget - retainedBytes - separatorBytes
+      const stringBytes = jsonStringBytesUpTo(text, availableBytes)
+      if (stringBytes !== undefined) {
+        retained.push(text)
+        retainedBytes += stringBytes + separatorBytes
+        continue
       }
-    }
-    if (logBudget < 2) {
-      retained.length = 0
-      retainedBytes = 2
+      const prefix = truncateJsonStringBytes(text, availableBytes)
+      if (prefix.length > 0) {
+        const prefixBytes = jsonStringBytesUpTo(prefix, availableBytes)
+        /* v8 ignore next -- truncateJsonStringBytes guarantees its returned prefix fits the same budget. */
+        if (prefixBytes === undefined) throw new Error('output ledger produced an oversized log prefix')
+        retained.push(prefix)
+        retainedBytes += prefixBytes + separatorBytes
+      }
+      break
     }
     const availableMessageBytes = this.maxBytes - retainedBytes
-    // This fixed diagnostic is ASCII with no JSON escapes, so two bytes are
-    // the surrounding quotes and every retained character costs one byte.
-    const message = messageBytes <= availableMessageBytes
-      ? fullMessage
-      : fullMessage.slice(0, availableMessageBytes - 2)
+    const message = truncateJsonStringBytes(fullMessage, availableMessageBytes)
     return { logs: retained, error: { kind: 'output-limit', message } }
   }
 }
@@ -410,12 +405,9 @@ export class WorkerCodeRuntime extends CodeRuntime {
           reply({ type: 'reply', id: message.id, ok: false, message: `unknown binding ${JSON.stringify(`${message.global}.${message.name}`)}` })
           return
         }
-        let args: CodeJsonValue | undefined
-        try {
-          args = snapshotJsonValue(message.args) as CodeJsonValue | undefined
-        } catch {
-          args = undefined
-        }
+        // Structured clone has already removed accessors and proxies, so the
+        // host can repeat the lossless snapshot without a reflective throw.
+        const args = snapshotJsonValue(message.args) as CodeJsonValue | undefined
         if (args === undefined) {
           reply({ type: 'reply', id: message.id, ok: false, message: 'binding arguments must be lossless JSON' })
           return

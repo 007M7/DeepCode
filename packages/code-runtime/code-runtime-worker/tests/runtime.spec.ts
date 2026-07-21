@@ -401,6 +401,22 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8')).toBeLessThan(200)
   })
 
+  it('bounds one oversized forged log while retaining its fitting escaped prefix', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 96 })
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        parentPort.postMessage({ type: 'log', text: '"'.repeat(1_000_000) });
+        for (;;) {}
+      `,
+      bindings: [],
+    })
+    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 96 bytes' })
+    expect(result.logs).toHaveLength(1)
+    expect(result.logs[0]).toMatch(/^"+$/)
+    expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8') + Buffer.byteLength(JSON.stringify('outer output exceeded 96 bytes'), 'utf8')).toBeLessThanOrEqual(96)
+  })
+
   it('drops a malformed forged done carrying both value and error', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({
