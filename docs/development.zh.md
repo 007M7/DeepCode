@@ -90,7 +90,7 @@ pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README 
 pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
 pnpm run verify-doc-budgets  # fail if a budgeted standing doc exceeds its word ceiling
-pnpm run doc-sync       # all Markdown/doc gates; see the doc-sync script in package.json for the full list
+pnpm run doc-sync       # all Markdown/doc gates, scheduled concurrently; the doc-sync leaf list in scripts/run-gates.ts is the full list
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
 pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
