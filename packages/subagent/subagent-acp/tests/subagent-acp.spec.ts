@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -213,6 +213,29 @@ describe('cwd resolution', () => {
       env: {},
     })).rejects.toThrow('config cwd must not be empty')
     await ctx.fiber.dispose()
+  })
+
+  it('rejects a config cwd directory without search permission at load', async () => {
+    // statSync().isDirectory() is true for a mode-600 directory, but a
+    // subprocess cwd needs SEARCH permission — spawn would fail EACCES.
+    const tmp = mkdtempSync(join(tmpdir(), 'acp-noexec-'))
+    chmodSync(tmp, 0o600)
+    try {
+      const ctx = new Context()
+      await ctx.plugin(SubagentService)
+      await expect(ctx.plugin(acp, {
+        providerName: 'acp',
+        command: 'true',
+        args: [],
+        cwd: tmp,
+        permission: 'reject',
+        env: {},
+      })).rejects.toThrow('not an accessible directory')
+      await ctx.fiber.dispose()
+    } finally {
+      chmodSync(tmp, 0o700)
+      rmSync(tmp, { recursive: true, force: true })
+    }
   })
 
   it('rejects a config cwd that is not an accessible directory at load', async () => {

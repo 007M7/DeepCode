@@ -7,7 +7,7 @@
  * @module @deepseek-ai/dsh-subagent-acp
  */
 
-import { statSync } from 'node:fs'
+import { accessSync, constants, statSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
@@ -77,13 +77,20 @@ function assertPositiveFinite(name: string, value: number): void {
 /** The shape after schemastery applied the defaults (cwd has none). */
 type ResolvedConfig = Required<Omit<Config, 'cwd'>> & Pick<Config, 'cwd'>
 
-/** Whether `path` names an existing, accessible directory. */
+/**
+ * Whether `path` names an existing directory the harness can ENTER. The
+ * search-permission probe matters: `statSync().isDirectory()` is true for a
+ * mode-600 directory, but a subprocess cwd needs `X_OK` or spawn fails EACCES.
+ */
 function isDirectory(path: string): boolean {
   try {
-    return statSync(path).isDirectory()
+    if (!statSync(path).isDirectory()) return false
+    accessSync(path, constants.X_OK)
+    return true
   } catch {
-    // statSync throws only filesystem access errors here (ENOENT/EACCES/ENOTDIR/…),
-    // and every one of them means the path cannot serve as the child's cwd.
+    // statSync/accessSync throw only filesystem access errors here
+    // (ENOENT/EACCES/ENOTDIR/…), and every one of them means the path cannot
+    // serve as the child's cwd.
     return false
   }
 }
