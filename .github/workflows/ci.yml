@@ -239,15 +239,16 @@ jobs:
       # re-executing their bash calls under a real runner. ubuntu-latest has
       # no bubblewrap preinstalled and no built Landlock launcher, so without
       # this the confined executions fail closed (SANDBOX_UNAVAILABLE). Same
-      # install as sandbox.yml's bwrap leg (incl. the Ubuntu 24.04 AppArmor
-      # userns knob). Bubblewrap preparation is independent of dependency
-      # installation and the build, so it runs beside both.
+      # refreshed install as sandbox.yml's bwrap leg (incl. the Ubuntu 24.04
+      # AppArmor userns knob). Bubblewrap preparation is independent of
+      # dependency installation and the build, so it runs beside both.
       - name: Install and prepare built snapshot runtime and bubblewrap
         if: startsWith(matrix.lane, 'snapshot-')
         run: |
           pnpm install --frozen-lockfile &
           install_pid=$!
           (
+            sudo apt-get update -q
             sudo apt-get install -yq --no-install-recommends bubblewrap
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
               || echo "apparmor userns knob absent — the functional probe decides"
@@ -269,9 +270,9 @@ jobs:
         if: startsWith(matrix.lane, 'lint-')
         with:
           path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ matrix.lint_shard }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
           restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ matrix.lint_shard }}-
 
       - name: Run gates
         run: ${{ matrix.command }}
@@ -467,9 +468,9 @@ jobs:
         if: startsWith(matrix.lane, 'lint-')
         with:
           path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ matrix.lint_shard }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
           restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ matrix.lint_shard }}-
 
       - name: Run gates
         shell: pwsh
