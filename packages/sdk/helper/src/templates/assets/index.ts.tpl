@@ -8,18 +8,18 @@ import { startSDK, type SdkBootContext } from '@deepseek-ai/dsh-scripts'
 
 /** Boot this project's cordis.yml when invoked by dsh-scripts. */
 export async function main(boot: SdkBootContext) {
-{{#if isStdio}}
+{{#if isTui}}
   const model = boot.args.model
-  if (typeof model !== 'string' || model.length === 0) throw new Error('stdio startup requires --model=<name>')
+  if (typeof model !== 'string' || model.length === 0) throw new Error('TUI startup requires --model=<name>')
   const resume = boot.args.resume
   if (resume !== undefined && (typeof resume !== 'string' || resume.length === 0)) {
-    throw new Error('stdio startup requires --resume=<session-id>')
+    throw new Error('TUI startup requires --resume=<session-id>')
   }
   const sessionId = SessionId(resume ?? `main-session-${randomUUID()}`)
   process.env.DSH_SDK_SESSION_ID = sessionId
 {{/if}}
   const ctx = await startSDK(new URL('./cordis.yml', import.meta.url))
-{{#if isStdio}}
+{{#if isTui}}
   try {
     if (resume === undefined) {
       await ctx.agents.create({
@@ -37,7 +37,7 @@ export async function main(boot: SdkBootContext) {
     try {
       await ctx.fiber.dispose()
     } catch (disposeError) {
-      throw new AggregateError([error, disposeError], 'stdio startup and cleanup failed')
+      throw new AggregateError([error, disposeError], 'TUI startup and cleanup failed')
     }
     throw error
   }

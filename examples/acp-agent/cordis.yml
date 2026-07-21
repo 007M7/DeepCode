@@ -15,17 +15,25 @@
       - id: deepseek-v4-pro
         contextWindow: 256000
 
-# The default composition confines bash to the workspace and asks before a
-# wider retry. Snapshots use danger-full-access; DSH_PERMISSION_MODE overrides
-# both mode and approval policy for deployments and tests.
+# The default composition confines bash AND the filesystem tools to the
+# workspace and asks before a wider retry. Snapshot runs select
+# danger-full-access so the established scenarios remain runner-independent;
+# DSH_PERMISSION_MODE provides the same explicit deployment/test override
+# outside the snapshot harness. The sandbox mode + workspace root live on
+# ctx.sandboxPolicy — the one home both enforcing families (bash, fs) read.
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: !!js "process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')"
+    workspaceRoot: !!js process.cwd()
+
 - id: bash
   name: '@deepseek-ai/dsh-bash-sandbox'
   config:
     timeoutMs: 60000
-    mode: !!js "process.env.DSH_PERMISSION_MODE ?? (process.env.DSH_SNAPSHOT === undefined ? 'workspace-write' : 'danger-full-access')"
-    workspaceRoot: !!js process.cwd()
 
 - id: approval
   name: '@deepseek-ai/dsh-user-approval'
@@ -38,12 +46,14 @@
 # The ACP server app: the agent-spine-demo spine + JSONL persistence + the ACP bridge.
 # Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness sets it
 # (so it can harvest / isolate the log), else ./.sessions for the demo.
+# Snapshot modes use raw JSONL fixtures; ordinary runs keep the compressed default.
 - id: acp-agent
   name: '@deepseek-ai/dsh-acp-demo'
   config:
     provider: deepseek
     model: deepseek-v4-flash
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+    persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
     workspaceContext:
       maxBytes: 65536
     # Keep the persona to identity and behavior; tool plugins own tool guidance.
@@ -88,12 +98,14 @@
   config:
     provider: spawn
     toolName: subagent
+    maxDepth: 1
 
 - id: tool-subagent-fork
   name: '@deepseek-ai/dsh-tool-subagent'
   config:
     provider: fork
     toolName: subagent_fork
+    maxDepth: 1
 
 
 # The worker-thread workflow engine fans a model-written JavaScript script's
@@ -105,6 +117,9 @@
 
 - id: tool-workflow
   name: '@deepseek-ai/dsh-tool-workflow'
+
+- id: tool-ralph
+  name: '@deepseek-ai/dsh-tool-ralph'
 # `todo_write` replaces the logged whole list and surfaces an ACP `plan` update.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
@@ -113,6 +128,22 @@
 # thresholds [3, 5, 8]. Only the repeat-tool-guard snapshot scenario reaches them.
 - id: repeat-tool-guard
   name: '@deepseek-ai/dsh-repeat-tool-guard'
+
+# The filesystem stack rides the SAME sandbox policy as bash: dsh-fs-sandbox
+# replaces dsh-fs-local behind ctx.fs and fences write/edit by the effective
+# mode (read-only denies, workspace-write contains to the workspace + temp
+# roots, danger-full-access passes through), so read/write/edit are available
+# under every mode. fs-policy (read-before-edit) composes orthogonally on top.
+- id: fs-sandbox
+  name: '@deepseek-ai/dsh-fs-sandbox'
+  config:
+    cwd: !!js process.cwd()
+
+- id: fs-policy
+  name: '@deepseek-ai/dsh-fs-policy'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
 
 # `configPath` is read once at load and resolves from the server launch cwd, not
 # `session/new.cwd`; one `hooks.json` therefore applies to every session and a

@@ -14,7 +14,7 @@ function messageTextFor(updates: { sessionId?: string; update: CapturedUpdate }[
     .join('')
 }
 
-describe('acp bridge — RFC 011 multi-session isolation', () => {
+describe('acp bridge — multi-session isolation', () => {
   let storageDir: string
   let harness: BridgeHarness | undefined
 

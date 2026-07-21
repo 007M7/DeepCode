@@ -255,7 +255,7 @@ export class WorkflowExecution {
     const opts = this.readAgentOptions(rawOpts)
     if (this.started >= this.limits.maxTotalAgents) {
       throw new WorkflowError(
-        `this run reached its total agent cap (${this.limits.maxTotalAgents}) — a runaway-loop backstop; raise maxTotalAgents in the engine config if the scale is intentional`,
+        `this run reached its total agent cap (${this.limits.maxTotalAgents}) — a runaway-loop backstop; raise the applicable maxTotalAgents limit if the scale is intentional`,
         'AGENT_CAP',
       )
     }

@@ -46,15 +46,21 @@ export interface CreateAgentOptions {
   readonly sessionId: SessionId
   /**
    * Session creation metadata: validated absolute `cwd`, `parentSession`
-   * fork lineage, and the `seedLength` seed boundary. Mirrors the
-   * `cwd`/`parentSession`/`seedLength` fields of
+   * fork lineage, the `seedLength` seed boundary, and the `delegationDepth`
+   * recursion budget. Mirrors the
+   * `cwd`/`parentSession`/`seedLength`/`delegationDepth` fields of
    * {@link CreateSessionOptions.meta} in dsh-session (the internal-only
    * `createdAt`, used when reconstructing a persisted session, is deliberately
    * excluded — a factory caller never sets it). This is durable session data,
    * so the session boundary validates and snapshots it before asynchronous
    * setup begins.
    */
-  readonly meta?: { readonly cwd?: string; readonly parentSession?: SessionId; readonly seedLength?: number }
+  readonly meta?: {
+    readonly cwd?: string
+    readonly parentSession?: SessionId
+    readonly seedLength?: number
+    readonly delegationDepth?: number
+  }
   /**
    * Seed events to reconstruct the child session's log from (the fork lineage
    * primitive). When present, the factory creates the session with this event

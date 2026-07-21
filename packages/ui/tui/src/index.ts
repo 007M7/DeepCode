@@ -35,7 +35,10 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
-import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-commands'
+import { errorChain } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
 import type {
   FileDiff,
@@ -53,7 +56,7 @@ import {
 } from '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'ui-tui'
-export const inject = ['agents', 'userInteraction', 'tools']
+export const inject = ['agents', 'commands', 'userInteraction', 'tools']
 
 /** Presentation settings for the pi-tui terminal mode. */
 export interface TuiConfig {
@@ -189,15 +192,6 @@ const TERMINAL_CONTROL_PATTERN = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu
 function displayText(text: string): string {
   return text.replace(TERMINAL_CONTROL_PATTERN, control =>
     `\\x${control.charCodeAt(0).toString(16).padStart(2, '0')}`)
-}
-
-/** Render an arbitrary failure without allowing hostile coercion to escape the UI boundary. */
-function renderThrown(value: unknown): string {
-  try {
-    return String(value)
-  } catch {
-    return '<unrenderable thrown value>'
-  }
 }
 
 /**
@@ -612,15 +606,38 @@ function formatCwd(cwd: string | undefined): string {
   return displayText(cwd)
 }
 
-function sessionTokens(session: Session): { input: number; output: number } {
-  let input = 0
-  let output = 0
-  for (const event of session.events) {
-    if (event.type !== 'assistant/message' || event.data.usage === undefined) continue
-    input += event.data.usage.inputTokens
-    output += event.data.usage.outputTokens
+interface SessionTokenTotals {
+  input: number
+  output: number
+  readonly byStep: Map<string, TokenUsage>
+}
+
+function recordTokenUsage(totals: SessionTokenTotals, turn: number, step: number, usage: TokenUsage): void {
+  const key = `${turn}:${step}`
+  const previous = totals.byStep.get(key)
+  if (previous !== undefined) {
+    totals.input -= previous.inputTokens
+    totals.output -= previous.outputTokens
   }
-  return { input, output }
+  totals.byStep.set(key, usage)
+  totals.input += usage.inputTokens
+  totals.output += usage.outputTokens
+}
+
+function recordEventUsage(totals: SessionTokenTotals, event: SessionEvent): void {
+  if (event.type === 'assistant/chunk' && event.data.chunk.type === 'usage') {
+    recordTokenUsage(totals, event.data.turn, event.data.step, event.data.chunk.usage)
+  } else if (event.type === 'assistant/message' && event.data.usage !== undefined) {
+    recordTokenUsage(totals, event.data.turn, event.data.step, event.data.usage)
+  }
+}
+
+function sessionTokens(session: Session): SessionTokenTotals {
+  const totals: SessionTokenTotals = { input: 0, output: 0, byStep: new Map() }
+  for (const event of session.events) {
+    recordEventUsage(totals, event)
+  }
+  return totals
 }
 
 class FooterComponent implements Component {
@@ -839,6 +856,7 @@ export function createTuiChat(
   const allToolCards = new Set<ToolCardComponent>()
   const liveErrors = new Set<string>()
   const questionQueue: PendingQuestion[] = []
+  const commandControllers = new Set<AbortController>()
   let activeQuestion: PendingQuestion | undefined
 
   const welcome = config.welcome ?? 'ready.'
@@ -899,6 +917,14 @@ export function createTuiChat(
     return card
   }
 
+  const clearStreaming = (): void => {
+    if (streaming === undefined) return
+    const index = chat.children.indexOf(streaming)
+    /* v8 ignore next -- streaming is assigned only after the same component is added, and every removal clears it. */
+    if (index >= 0) chat.children.splice(index, 1)
+    streaming = undefined
+  }
+
   const renderEvent = (event: SessionEvent, options: { addHistory: boolean; renderChunks: boolean }): void => {
     switch (event.type) {
       case 'user/message': {
@@ -941,13 +967,17 @@ export function createTuiChat(
         }
         break
       case 'assistant/message': {
-        if (streaming !== undefined) {
-          const index = chat.children.indexOf(streaming)
-          if (index >= 0) chat.children.splice(index, 1)
-          streaming = undefined
-        }
+        clearStreaming()
         const component = new AssistantMessageComponent(event.data.content, showReasoning, palette, mdTheme)
         if (component.children.length > 0) chat.addChild(component)
+        break
+      }
+      case 'llm/retry': {
+        clearStreaming()
+        appendNotice(
+          `Retrying model request (${event.data.retry}/${event.data.maxRetries}) in ${event.data.delayMs}ms: ${event.data.failure.message}`,
+          'warning',
+        )
         break
       }
       case 'tool/call':
@@ -970,9 +1000,13 @@ export function createTuiChat(
         todo.update(event.data.todos)
         break
       case 'turn/end':
+        clearStreaming()
         if (event.data.reason.kind === 'error') {
           const key = `${event.data.turn}:${event.data.reason.step}`
-          if (!liveErrors.delete(key)) appendNotice(event.data.reason.message, 'error')
+          const message = 'failure' in event.data.reason
+            ? event.data.reason.failure.message
+            : event.data.reason.message
+          if (!liveErrors.delete(key)) appendNotice(message, 'error')
         } else if (event.data.reason.kind === 'aborted') {
           appendNotice(event.data.reason.reason ?? 'Turn cancelled.', 'warning')
         } else if (event.data.reason.kind === 'max-tokens') {
@@ -1097,6 +1131,8 @@ export function createTuiChat(
     shuttingDown ??= (async () => {
       disposed = true
       clearStatus()
+      for (const controller of commandControllers) controller.abort(new Error('TUI disposed'))
+      commandControllers.clear()
       if (activeQuestion !== undefined) {
         const pending = activeQuestion
         activeQuestion = undefined
@@ -1121,16 +1157,6 @@ export function createTuiChat(
     void shutdown(true)
   }
 
-  editor.setAutocompleteProvider(new CombinedAutocompleteProvider([
-    { name: 'help', description: 'Show keyboard shortcuts and commands' },
-    { name: 'clear', description: 'Clear the transcript view (session history is unchanged)' },
-    { name: 'cancel', description: 'Cancel the active turn' },
-    { name: 'reasoning', description: 'Toggle reasoning blocks' },
-    { name: 'tools', description: 'Expand or collapse all tool cards' },
-    { name: 'redraw', description: 'Invalidate components and redraw the terminal' },
-    { name: 'exit', description: 'Exit after the active turn reaches idle' },
-  ], agent.session.header.cwd ?? process.cwd()))
-
   const toggleTools = (): void => {
     toolsExpanded = !toolsExpanded
     for (const card of allToolCards) card.setExpanded(toolsExpanded)
@@ -1150,15 +1176,97 @@ export function createTuiChat(
   }
 
   const showHelp = (): void => {
+    const commandLines = ctx.commands.list(agent).map((command) => {
+      const input = command.input === undefined ? '' : ` ${command.input.hint}`
+      return `/${command.name}${input} — ${command.description}`
+    })
     chat.addChild(new Spacer(1))
     chat.addChild(new Text(palette.bold(palette.accent('Keyboard shortcuts')), 1, 0))
     chat.addChild(new Text([
       'Enter send • Shift/Alt+Enter newline • Up/Down prompt history',
       'Esc cancel active turn • Ctrl+O expand tool cards • Ctrl+R toggle reasoning',
       'Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit',
-      '/help /clear /cancel /reasoning /tools /redraw /exit',
+      '',
+      ...commandLines,
     ].map(line => palette.muted(line)).join('\n'), 1, 0))
     requestRender()
+  }
+
+  const refreshCommandAutocomplete = (): void => {
+    editor.setAutocompleteProvider(new CombinedAutocompleteProvider(
+      ctx.commands.list(agent).map(command => ({
+        name: command.name,
+        description: command.description,
+      })),
+      agent.session.header.cwd ?? process.cwd(),
+    ))
+  }
+  const disposeCommandChanges = ctx.on('commands/change', refreshCommandAutocomplete)
+  refreshCommandAutocomplete()
+
+  // The agent scope is minted by agent-loop and intentionally inherits only
+  // that core plugin's dependencies. A child command producer declares its own
+  // UI-service dependency while retaining the parent agent scope and lifetime.
+  const commandFiber = agent.ctx.inject(['commands'], (commandCtx) => {
+    commandCtx.commands.register({
+      name: 'help',
+      description: 'Show keyboard shortcuts and commands',
+      handler: () => { showHelp(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'clear',
+      description: 'Clear the transcript view (session history is unchanged)',
+      handler: () => { chat.clear(); requestRender(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'cancel',
+      description: 'Cancel the active turn',
+      handler: () => {
+        if (agent.status !== 'running') return { kind: 'error', text: 'The agent is already idle.' }
+        agent.cancel('cancelled from terminal')
+        return { kind: 'success', text: 'Cancellation requested.' }
+      },
+    })
+    commandCtx.commands.register({
+      name: 'reasoning',
+      description: 'Toggle reasoning blocks',
+      handler: () => { toggleReasoning(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'tools',
+      description: 'Expand or collapse all tool cards',
+      handler: () => { toggleTools(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'redraw',
+      description: 'Invalidate components and redraw the terminal',
+      handler: () => { ui.invalidate(); ui.requestRender(true); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'exit',
+      description: 'Exit after the active turn reaches idle',
+      handler: () => { requestExit(); return { kind: 'success' } },
+    })
+  })
+
+  const runCommand = (text: string): void => {
+    const controller = new AbortController()
+    commandControllers.add(controller)
+    void ctx.commands.execute(agent, text, controller.signal).then(
+      (result) => {
+        if (disposed) return
+        if (result === undefined) {
+          appendNotice(`Unknown command: ${text}`, 'warning')
+        } else if (result.text !== undefined && result.text !== '') {
+          appendNotice(result.text, result.kind === 'error' ? 'error' : 'info')
+        }
+      },
+      (error: unknown) => {
+        if (!disposed) {
+          appendNotice(`Command failed: ${errorChain(error)}`, 'error')
+        }
+      },
+    ).finally(() => { commandControllers.delete(controller) })
   }
 
   editor.onSubmit = (value: string) => {
@@ -1166,36 +1274,9 @@ export function createTuiChat(
     if (text === '') return
     editor.addToHistory(text)
     editor.setText('')
-    switch (text) {
-      case '/help':
-        showHelp()
-        return
-      case '/clear':
-        chat.clear()
-        requestRender()
-        return
-      case '/cancel':
-        if (agent.status === 'running') agent.cancel('cancelled from terminal')
-        else appendNotice('The agent is already idle.')
-        return
-      case '/reasoning':
-        toggleReasoning()
-        return
-      case '/tools':
-        toggleTools()
-        return
-      case '/redraw':
-        ui.invalidate()
-        ui.requestRender(true)
-        return
-      case '/exit':
-        requestExit()
-        return
-      default:
-        if (text.startsWith('/')) {
-          appendNotice(`Unknown command: ${text}`, 'warning')
-          return
-        }
+    if (value.startsWith('/')) {
+      runCommand(value)
+      return
     }
     if (agent.status === 'disposed') {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
@@ -1245,10 +1326,7 @@ export function createTuiChat(
 
   const disposeSessionEvents = ctx.on('session/event', (session, event) => {
     if (session !== agent.session) return
-    if (event.type === 'assistant/message' && event.data.usage !== undefined) {
-      tokens.input += event.data.usage.inputTokens
-      tokens.output += event.data.usage.outputTokens
-    }
+    recordEventUsage(tokens, event)
     if ('surfaceOp' in event && typeof event.surfaceOp === 'object') {
       rebuildTranscript(false)
       return
@@ -1263,7 +1341,9 @@ export function createTuiChat(
   const disposeError = ctx.on('agent/error', (subject, turn, step, error) => {
     if (subject !== agent) return
     liveErrors.add(`${turn}:${step}`)
-    appendNotice(error.message, 'error')
+    // Full cause chain: wrapper messages like `fetch failed` carry the
+    // actionable transport detail on `cause`.
+    appendNotice(errorChain(error), 'error')
   })
   const disposeAgent = ctx.on('agent/disposed', (subject) => {
     if (subject !== agent) return
@@ -1273,6 +1353,7 @@ export function createTuiChat(
 
   const detachListeners = (): void => {
     removeInputListener()
+    disposeCommandChanges()
     disposeSessionEvents()
     disposeStatus()
     disposeError()
@@ -1286,6 +1367,12 @@ export function createTuiChat(
   } catch (error: unknown) {
     disposed = true
     detachListeners()
+    void commandFiber.dispose().catch(
+      /* v8 ignore next 2 -- command registration cleanup is non-throwing; this guards a future disposer regression */
+      (cleanupError: unknown) => {
+        ctx.logger.warn(`ui-tui: command cleanup after startup failure failed: ${errorChain(cleanupError)}`)
+      },
+    )
     clearStatus()
     disposeUserInteraction()
     ui.stop()
@@ -1296,6 +1383,7 @@ export function createTuiChat(
     async dispose(): Promise<void> {
       detachListeners()
       await shutdown(false)
+      await commandFiber.dispose()
     },
   }
 }
@@ -1330,7 +1418,7 @@ export function mountTui(ctx: Context, config: Config, runtime: TuiRuntime): voi
     if (settled || failedSessionId !== sessionId) return
     settled = true
     stopWaiting()
-    runtime.terminal.write(displayText(`ui-tui: session "${sessionId}" failed to start: ${renderThrown(error)}\n`))
+    runtime.terminal.write(displayText(`ui-tui: session "${sessionId}" failed to start: ${errorChain(error)}\n`))
     runtime.exit(1)
   }
 
@@ -1342,10 +1430,10 @@ export function mountTui(ctx: Context, config: Config, runtime: TuiRuntime): voi
 
 /** Cordis entry point using the process terminal; explicit TUI composition requires a TTY pair. */
 /* v8 ignore start -- production process wiring; fake-terminal tests cover mountTui/createTuiChat,
-   and the repl-agent PTY smoke covers the real entry */
+   and the tui-agent PTY smoke covers the real entry */
 export function apply(ctx: Context, config: Config): void {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error('ui-tui: both stdin and stdout must be TTYs; use @deepseek-ai/dsh-stdio for pipes')
+    throw new Error('ui-tui: both stdin and stdout must be TTYs; use @deepseek-ai/dsh-cli-demo for non-interactive runs')
   }
   mountTui(ctx, config, {
     terminal: new ProcessTerminal(),

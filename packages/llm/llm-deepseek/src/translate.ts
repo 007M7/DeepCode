@@ -35,7 +35,10 @@ export function mapFinishReason(reason: string): FinishReason {
     case 'length': return { kind: 'max-tokens' }
     default:
       // content_filter, insufficient_system_resource, future additions.
-      return { kind: 'error', message: `model stopped: ${reason}`, code: reason.toUpperCase() }
+      return {
+        kind: 'error',
+        failure: { message: `model stopped: ${reason}`, code: reason.toUpperCase() },
+      }
   }
 }
 

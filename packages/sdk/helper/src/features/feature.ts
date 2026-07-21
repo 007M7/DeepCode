@@ -113,7 +113,7 @@ export abstract class Feature {
   /** Features recommended during creation. */
   readonly suggests: readonly FeatureId[] = []
   /** Front doors under which this feature is meaningful. */
-  readonly supportedInterfaces: readonly RunInterface[] = ['acp', 'stdio', 'embed']
+  readonly supportedInterfaces: readonly RunInterface[] = ['acp', 'tui', 'embed']
 
   /**
    * Options selected when installation has no override.

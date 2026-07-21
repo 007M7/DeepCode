@@ -27,6 +27,7 @@
     provider: deepseek
     model: deepseek-v4-flash
     persistenceRoot: './.sessions'
+    persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
     workspaceContext:
       maxBytes: 65536
     persona: |
@@ -67,12 +68,14 @@
   config:
     provider: spawn
     toolName: subagent
+    maxDepth: 1
 
 - id: tool-subagent-fork
   name: '@deepseek-ai/dsh-tool-subagent'
   config:
     provider: fork
     toolName: subagent_fork
+    maxDepth: 1
 
 # The worker-thread workflow engine fans a model-written JavaScript script's
 # `agent()` calls out through the spawn backend.
@@ -83,6 +86,11 @@
 
 - id: tool-workflow
   name: '@deepseek-ai/dsh-tool-workflow'
+
+# A separate fixed consumer demonstrates fresh-agent Ralph iteration without
+# changing the workflow tool or same-session goal behavior.
+- id: tool-ralph
+  name: '@deepseek-ai/dsh-tool-ralph'
 
 # `todo_write` replaces the logged whole list.
 - id: tool-todo

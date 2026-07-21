@@ -9,6 +9,7 @@ import Include from '@cordisjs/plugin-include'
 import LlmService from '@deepseek-ai/dsh-llm'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import BasicCompactService from '@deepseek-ai/dsh-compact-basic'
+import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 
 let root: string | undefined
 let context: Context | undefined
@@ -32,6 +33,7 @@ async function loadYaml(lines: readonly string[]): Promise<Context> {
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-llm', LlmService],
     ['@deepseek-ai/dsh-token-meter', TokenMeterService],
+    ['@deepseek-ai/dsh-compact-tool-result-prune', ToolResultPruneService],
     ['@deepseek-ai/dsh-compact-basic', BasicCompactService],
   ])
   context.loader.internal = {
@@ -50,10 +52,15 @@ async function loadYaml(lines: readonly string[]): Promise<Context> {
 }
 
 describe('real Loader composition', () => {
-  it('loads the flat token-meter and compact-basic YAML shape', async () => {
+  it('loads the shipped token-meter, pruning, and compact-basic YAML order', async () => {
     const loaded = await loadYaml([
       "- name: '@deepseek-ai/dsh-llm'",
       "- name: '@deepseek-ai/dsh-token-meter'",
+      "- name: '@deepseek-ai/dsh-compact-tool-result-prune'",
+      '  config:',
+      '    thresholdChars: 100',
+      '    headChars: 20',
+      '    tailChars: 10',
       "- name: '@deepseek-ai/dsh-compact-basic'",
       '  config:',
       '    thresholdRatio: 0.5',
@@ -65,6 +72,7 @@ describe('real Loader composition', () => {
       .filter(entry => entry.fiber === undefined && !entry.disabled)
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
+    expect(loaded.get('toolResultPrune')).toBeInstanceOf(ToolResultPruneService)
     expect(loaded.get('compact')).toBeInstanceOf(BasicCompactService)
     expect((loaded.compact as BasicCompactService).config).toMatchObject({
       thresholdRatio: 0.5,

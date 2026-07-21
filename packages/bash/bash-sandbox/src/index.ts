@@ -7,52 +7,39 @@
  * @module @deepseek-ai/dsh-bash-sandbox
  */
 
-import { resolve } from 'node:path'
 import { Context } from 'cordis'
-import z from 'schemastery'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedSandboxMode, SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
 import { classifyDenial, classifyRunnerFailure, matchesSignature, shellQuote } from './helpers.ts'
 
 /**
- * Plugin config: the local executor's knobs plus the sandbox policy. All
- * optional — `static Config` supplies the defaults (`mode: 'read-only'` is the
- * fail-safe default; an example that wants a workspace-writable agent opts in
- * explicitly). The runner choice is not configured here: which platform
- * backend confines the command is the `ctx.sandbox` provider's config.
+ * Plugin config: the local executor's knobs, verbatim. The sandbox policy —
+ * the default mode and the `workspace-write` boundary root — is NOT here: it
+ * lives on `ctx.sandboxPolicy` (`@deepseek-ai/dsh-sandbox-policy`), the one
+ * home both enforcing families read, so bash and fs can never confine to
+ * different roots. The runner choice is likewise the `ctx.sandbox` provider's
+ * config, not this executor's.
  */
-export interface Config extends LocalConfig {
-  /** File-sandbox mode commands run under (default: `read-only`). */
-  mode?: SandboxMode
-  /**
-   * Root directory `workspace-write` mode may write under (default: the
-   * executor's default working directory — `cwd`, else `process.cwd()`).
-   */
-  workspaceRoot?: string
-}
+export type Config = LocalConfig
 
 /**
  * Registers as `ctx.bash` in place of the local executor and requires a
- * `ctx.sandbox` provider; the tool layer is unchanged. The configured mode is
- * the fallback, while a session override or approved one-shot escalation may
- * select each call's mode. The prompt does not state the standing mode;
- * `result.sandbox` reports the mode and enforcement actually used.
+ * `ctx.sandbox` provider plus `ctx.sandboxPolicy`; the tool layer is
+ * unchanged. The policy default (mode + workspace root) is the fallback,
+ * while a session override or approved one-shot escalation may select each
+ * call's mode. The prompt does not state the standing mode; `result.sandbox`
+ * reports the mode and enforcement actually used.
  */
 export class SandboxBashExecutor extends LocalBashExecutor {
-  static inject = ['sandbox']
+  static inject = ['sandbox', 'sandboxPolicy']
 
-  // The sandbox-specific fields intersect the local executor's Config as an
-  // inline schema call: the config catalog walks `static Config` statically.
-  static override Config: z<Config> = z.intersect([
-    LocalBashExecutor.Config,
-    z.object({
-      mode: z.union(['read-only', 'workspace-write', 'danger-full-access'] as const).default('read-only'),
-      workspaceRoot: z.string(),
-    }),
-  ])
+  // No own Config: the sandbox default (mode + workspaceRoot) moved to
+  // ctx.sandboxPolicy, so this executor inherits LocalBashExecutor's Config
+  // verbatim (the config catalog walks the inherited static).
 
   private readonly mode: SandboxMode
   private readonly workspaceRoot: string
@@ -71,9 +58,11 @@ export class SandboxBashExecutor extends LocalBashExecutor {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, config)
-    // Schemastery fills mode before construction; workspaceRoot and cwd retain runtime fallbacks.
-    this.mode = config.mode as SandboxMode
-    this.workspaceRoot = resolve(config.workspaceRoot ?? config.cwd ?? process.cwd())
+    // The sandbox default (mode + workspaceRoot) is the one shared policy home
+    // both enforcing families read; injecting sandboxPolicy guarantees it is
+    // constructed first. workspaceRoot arrives already resolved absolute.
+    this.mode = ctx.sandboxPolicy.defaultMode
+    this.workspaceRoot = ctx.sandboxPolicy.workspaceRoot
   }
 
   /** The configured default mode — the capability fact the tool layer reads. */

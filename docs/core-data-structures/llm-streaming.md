@@ -31,18 +31,40 @@ type StreamChunk =
   }
 ```
 
+## `LlmFailure`
+
+Every thrown or in-band final-adapter failure normalizes to one serializable provider-neutral payload. `providerRetryAfterMs` is a validated positive delay requested by the provider, not a retry decision; `ProviderRequestId` is an opaque branded string for diagnostics.
+
+```ts type-equiv
+/** Serializable provider-boundary facts; policy decides whether they are retryable. */
+interface LlmFailure {
+  /** Human-readable provider or transport failure. */
+  readonly message: string
+  /** Stable provider-neutral machine-routing code. */
+  readonly code: string
+  /** HTTP status observed at the provider boundary, when available. */
+  readonly status?: number
+  /** Provider-requested delay in milliseconds, when valid and available. */
+  readonly providerRetryAfterMs?: number
+  /** Opaque provider-issued request identifier for diagnostics. */
+  readonly requestId?: ProviderRequestId
+}
+```
+
 ## The adapter contract
 
 Every adapter MUST obey these, and every consumer may rely on them:
 
 - **`usage` before `finish`, nothing after `finish`.** Defer both to the provider's end-of-stream marker so a trailing usage-only chunk can't violate the ordering.
 - **Tool-call `arguments` stay raw JSON strings end-to-end.** Partial fragments stream via `argumentsDelta`; a provider that hands back parsed objects re-stringifies at `block-end`.
-- **Two sanctioned error paths.** A failure may either THROW from `stream()` (transport/protocol errors) **or** end the stream with `finish {kind:'error'|'aborted'}` (provider in-band errors, for adapters that can't throw mid-stream). Consumers must handle *both*. The agent loop closes the failed step and offers either form to `agent/request-error`; absent recovery it becomes a turn error, and no normal completed assistant message is logged for that request.
+- **Two sanctioned error paths, one fact shape.** A failure may either THROW from `stream()` (transport/protocol errors) **or** end the stream with `finish {kind:'error'|'aborted', failure}` (provider in-band errors, for adapters that can't throw mid-stream). `LlmError.failure` carries the same `LlmFailure`. The final adapter boundary preserves the exact thrown `Error` object and associates immutable facts with that call; the agent loop closes the failed step and offers the error, facts, and immutable prior-retried facts to `agent/request-error`. Absent recovery the structured failure becomes the turn error, and no normal assistant message or tool side effect is committed for that attempt.
+- **One adapter call is one provider attempt.** Adapters disable library retries. Agent-level recovery opens another durable numbered step; direct `ctx.llm.stream()` callers remain single-attempt.
+- **Provider stalls are bounded at the transport.** Both shipping remote adapters expose positive finite `streamIdleTimeoutMs` with a five-minute default. The watchdog arms only while iterator `next()` is outstanding, uses one stable signal for the whole request, maps its own expiry to `TIMEOUT`, and keeps an earlier caller abort as `ABORTED`.
 - **Context overflow has one canonical code.** Both DeepSeek adapters classify explicit provider detail through `isContextWindowExceededError()` and surface `CONTEXT_WINDOW_EXCEEDED`, whether the failure arrives as a thrown HTTP `LlmError` or an in-band finish error. Consumers route on the code, never provider text.
 - **Every provider HTTP request carries the app-attribution header.** Adapters send `attributionHeaders()` (below) - the `User-Agent` baseline - and prove it with a wire-level test (mock server asserting the received header, or the library's header hook for a library-backed adapter).
 - **Replay state is adapter-owned.** A successful `finish` may carry lossless-JSON state needed to reconstruct a native provider response. The loop stores it with the assembled assistant message unless an `agent/step-result` listener rewrote the content. On a later request, `LlmService` passes the state only when the historical provider and target provider are currently registered to the exact same adapter instance. That adapter validates the state and owns any cross-model or cross-provider conversion; other adapters receive the provider-neutral content and provenance without the private state.
 
-This contract was pinned down by two deliberately independent implementations: `dsh-llm-deepseek` (hand-rolled fetch/SSE) and `dsh-llm-pi-ai` (a generic multi-provider adapter through `@earendil-works/pi-ai`). The library-backed adapter cannot throw mid-stream, so it exercises the finish-chunk error path the hand-rolled one might not.
+This contract is pinned down by two deliberately independent implementations: `dsh-llm-deepseek` (hand-rolled fetch/SSE) and `dsh-llm-pi-ai` (a generic multi-provider adapter through `@earendil-works/pi-ai`). The library-backed adapter exercises the finish-chunk error path, while transport-boundary tests prove each idle watchdog stops its actual request.
 
 ## `AppIdentity` — app attribution
 

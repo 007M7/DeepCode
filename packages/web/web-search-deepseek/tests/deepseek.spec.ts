@@ -162,6 +162,7 @@ describe('DeepSeekSearchProvider request mapping', () => {
     await new DeepSeekSearchProvider(options).search({ query: 'hello' })
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://api.deepseek.test/anthropic/v1/messages')
+    expect(init).toMatchObject({ method: 'POST', redirect: 'error' })
     const headers = init.headers as Record<string, string>
     expect(headers['x-api-key']).toBe('ds-key')
     expect(headers['authorization']).toBe('Bearer ds-key')
