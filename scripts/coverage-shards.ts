@@ -98,9 +98,11 @@ export function coverageArgs(name: string): string[] {
     throw new Error(`run-gates: unknown DSH_COVERAGE_SHARD ${JSON.stringify(name)}.`)
   }
 
+  // Vitest positional filters are substrings; the trailing separator keeps
+  // prefix-named sibling packages out of each lane.
   const testRoots = new Set([
-    ...shard.packageRoots.map(packageRoot => `packages/${packageRoot}`),
-    ...('extraTestRoots' in shard ? shard.extraTestRoots : []),
+    ...shard.packageRoots.map(packageRoot => `packages/${packageRoot}/`),
+    ...('extraTestRoots' in shard ? shard.extraTestRoots.map(testRoot => `${testRoot}/`) : []),
     'scripts/test-invariants.spec.ts',
   ])
   return [

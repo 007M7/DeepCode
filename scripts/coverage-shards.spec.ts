@@ -28,10 +28,13 @@ describe('coverage shards', () => {
   it.each(coverageShards)('selects tests and source includes for $name', (shard) => {
     const args = coverageArgs(shard.name)
     for (const packageRoot of shard.packageRoots) {
-      expect(args).toContain(`packages/${packageRoot}`)
+      expect(args).toContain(`packages/${packageRoot}/`)
       expect(args).toContain(packageRoot.includes('/')
         ? `--coverage.include=packages/${packageRoot}/src/**/*.ts`
         : `--coverage.include=packages/${packageRoot}/*/src/**/*.ts`)
+    }
+    if ('extraTestRoots' in shard) {
+      for (const testRoot of shard.extraTestRoots) expect(args).toContain(`${testRoot}/`)
     }
     expect(args).toContain('scripts/test-invariants.spec.ts')
     expect(new Set(args).size).toBe(args.length)
