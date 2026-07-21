@@ -3,11 +3,12 @@ import { Context } from 'cordis'
 import BasicCompactService from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compact-basic/src/region.ts'
+import type { SummarizationInput } from '@deepseek-ai/dsh-compact-basic/src/summarizer.ts'
 import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
 import { resolveConfig } from '@deepseek-ai/dsh-compact-basic/src/config.ts'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
 import LlmService, { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmAdapter } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, LlmFailure, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
@@ -24,6 +25,21 @@ function createContext(contextWindow = 1_000): Context {
 
 function agent(session: Session, model?: string): Agent {
   return { session, options: model === undefined ? {} : { provider: model, model } } as Agent
+}
+
+/** Flatten every text fragment the summarizer received, recursing tool-result blocks. */
+function summarizedText(input: SummarizationInput): string {
+  const collect = (blocks: readonly ContentBlock[]): string =>
+    blocks.map(block =>
+      block.type === 'text' ? block.text
+        : block.type === 'tool-result' ? collect(block.content)
+          : '').join('\n')
+  return input.messages.map(message => collect(message.content)).join('\n')
+}
+
+/** A minimal replayed prefix carrying one user message of the given text. */
+function promptInput(text: string): SummarizationInput {
+  return { messages: [{ role: 'user', content: [{ type: 'text', text }] }] }
 }
 
 /** Closed two-message turns followed by one open turn for durable compaction events. */
@@ -141,14 +157,14 @@ class TestCompactService extends BasicCompactService {
   summaryModel = 'summary-model'
   error: unknown
   mutateDuringSummary: (() => void) | undefined
-  calls: Array<{ text: string; signal: AbortSignal | undefined }> = []
+  calls: Array<{ input: SummarizationInput; signal: AbortSignal | undefined }> = []
 
   override async summarize(
-    text: string,
+    input: SummarizationInput,
     _agent: Agent,
     signal?: AbortSignal,
   ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
-    this.calls.push({ text, signal })
+    this.calls.push({ input, signal })
     this.mutateDuringSummary?.()
     if (this.error !== undefined) throw this.error
     return {
@@ -503,8 +519,8 @@ describe('optional model-free tool-result pruning', () => {
 
     expect(await compactIfNeeded(compact, session)).not.toBeNull()
     expect(compact.calls).toHaveLength(1)
-    expect(compact.calls[0]!.text).toContain('tool result middle pruned')
-    expect(compact.calls[0]!.text).not.toContain('result 1 '.repeat(300))
+    expect(summarizedText(compact.calls[0]!.input)).toContain('tool result middle pruned')
+    expect(summarizedText(compact.calls[0]!.input)).not.toContain('result 1 '.repeat(300))
   })
 
   it('retains the original compact-basic behavior without the optional plugin', async () => {
@@ -541,7 +557,7 @@ describe('compaction region transaction', () => {
     expect(result.shadowedSeqs).toEqual(before.slice(0, 4))
     expect(result.shadowedTokenCount).toBeGreaterThan(0)
     expect(compact.calls[0]).toMatchObject({ signal: SIGNAL })
-    expect(compact.calls[0]?.text).toContain('fixture user 1')
+    expect(summarizedText(compact.calls[0]!.input)).toContain('fixture user 1')
     const summary = session.events.findLast(event => event.type === 'compact/summary')
     expect(summary?.data).toMatchObject({
       shadowedSeqs: result.shadowedSeqs,
@@ -557,6 +573,25 @@ describe('compaction region transaction', () => {
 
     const replay = new Session(SessionId('replay'), [...session.events])
     expect(replay.deriveMessages()).toEqual(session.deriveMessages())
+  })
+
+  it('replays the latest routed header prefix so the summarizer reuses the cache', async () => {
+    const compact = service()
+    const session = conversation(3)
+    const tools = [{ name: 'do_thing', description: 'd', parameters: { type: 'object' } }]
+    const messagePrefix: Message[] = [{ role: 'user', content: [{ type: 'text', text: 'SESSION PREFIX' }] }]
+    session.append('request/header', {
+      header: { config: { provider: MODEL, model: MODEL }, system: 'CONVERSATION SYSTEM', tools, messagePrefix },
+      reason: 'resume',
+    })
+    const nodes = session.surface.nodes
+    await compact.compactRegion(nodes[0]!, nodes[1]!, agent(session, MODEL), SIGNAL)
+
+    const { input } = compact.calls[0]!
+    expect(input.system).toBe('CONVERSATION SYSTEM')
+    expect(input.tools).toEqual(tools)
+    expect(input.messages[0]).toEqual(messagePrefix[0])
+    expect(summarizedText(input)).toContain('fixture user 1')
   })
 
   it.each([
@@ -772,11 +807,11 @@ class ScriptedAdapter extends LlmAdapter {
 
 class ExposedCompactService extends BasicCompactService {
   runSummarize(
-    text: string,
+    input: SummarizationInput,
     owner: Agent,
     signal?: AbortSignal,
   ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
-    return this.summarize(text, owner, signal)
+    return this.summarize(input, owner, signal)
   }
 }
 
@@ -808,7 +843,7 @@ describe('default one-shot summarizer', () => {
       maxTokens: 321,
     })
     const session = conversation(1)
-    const output = await compact.runSummarize('transcript', agent(session, 'fallback'), SIGNAL)
+    const output = await compact.runSummarize(promptInput('transcript'), agent(session, 'fallback'), SIGNAL)
 
     expect(output).toEqual({
       summary: [{ type: 'text', text: 'public summary' }],
@@ -823,7 +858,28 @@ describe('default one-shot summarizer', () => {
       signal: SIGNAL,
       sessionId: session.id,
     })
-    expect(adapter.lastOptions?.system).toContain('## Primary Request and Intent')
+    const instruction = adapter.lastOptions?.messages.at(-1)?.content[0]
+    expect(instruction?.type === 'text' ? instruction.text : '').toContain('## Primary Request and Intent')
+  })
+
+  it('replays the conversation prefix and appends the instruction as the final message', async () => {
+    const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }])
+    const tools = [{ name: 'do_thing', description: 'd', parameters: { type: 'object' } }]
+    const prefix: Message = { role: 'user', content: [{ type: 'text', text: 'earlier turn' }] }
+    await compact.runSummarize({
+      system: 'REPLAYED SYSTEM',
+      tools,
+      messages: [prefix],
+    }, agent(conversation(1), MODEL))
+
+    expect(adapter.lastOptions?.system).toBe('REPLAYED SYSTEM')
+    expect(adapter.lastOptions?.tools).toEqual(tools)
+    const messages = adapter.lastOptions?.messages ?? []
+    expect(messages[0]).toEqual(prefix)
+    const last = messages.at(-1)?.content[0]
+    const lastText = last?.type === 'text' ? last.text : ''
+    expect(lastText).toContain('Condense the conversation ABOVE')
+    expect(lastText).toContain('## Primary Request and Intent')
   })
 
   it('resolves the latest routed provider/model before the AgentOptions pair', async () => {
@@ -833,7 +889,7 @@ describe('default one-shot summarizer', () => {
       header: { config: { provider: 'routed', model: 'routed' } },
       reason: 'initial',
     })
-    const output = await compact.runSummarize('history', agent(session, 'fallback'))
+    const output = await compact.runSummarize(promptInput('history'), agent(session, 'fallback'))
     expect(output.provider).toBe('routed')
     expect(output.model).toBe('routed')
     expect(adapter.lastOptions?.provider).toBe('routed')
@@ -867,7 +923,7 @@ describe('default one-shot summarizer', () => {
     await ctx.plugin(LlmService)
     void new TokenMeterService(ctx)
     const compact = new ExposedCompactService(ctx, { auto: false })
-    await expect(compact.runSummarize('history', agent(new Session(SessionId('model-less')))))
+    await expect(compact.runSummarize(promptInput('history'), agent(new Session(SessionId('model-less')))))
       .rejects.toThrow(/no provider\/model available for summarization/)
   })
 
@@ -882,7 +938,7 @@ describe('default one-shot summarizer', () => {
       const { compact } = await summarizerHarness([], finish)
       let thrown: unknown
       try {
-        await compact.runSummarize('history', agent(conversation(1), MODEL))
+        await compact.runSummarize(promptInput('history'), agent(conversation(1), MODEL))
       } catch (error: unknown) {
         thrown = error
       }
@@ -894,7 +950,7 @@ describe('default one-shot summarizer', () => {
 
   it('rejects empty or reasoning-only successful output', async () => {
     const { compact } = await summarizerHarness([{ type: 'reasoning', text: 'private' }])
-    await expect(compact.runSummarize('history', agent(conversation(1), MODEL)))
+    await expect(compact.runSummarize(promptInput('history'), agent(conversation(1), MODEL)))
       .rejects.toThrow(/no text summary content/)
   })
 })
@@ -1023,7 +1079,7 @@ describe('automatic listener and loader composition', () => {
     expect(await recover(ctx, agent(session, MODEL), overflow())).toEqual({ action: 'retry' })
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(true)
     expect(compact.calls).toHaveLength(1)
-    expect(compact.calls[0]!.text).toContain('tool result middle pruned')
+    expect(summarizedText(compact.calls[0]!.input)).toContain('tool result middle pruned')
   })
 
   it('retries from a durable prune when later overflow summarization throws', async () => {
