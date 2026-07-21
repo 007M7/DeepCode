@@ -6,7 +6,7 @@ This package is the interface tier of the compaction capability, split so each c
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + tool-pairing boundary helpers + the shared transcript renderer (`renderTranscript`/`renderContentBlocks`) |
+| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + tool-pairing boundary helpers |
 | `@deepseek-ai/dsh-compact-basic` | a backend: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-tool-compact` (deferred) | the model-facing `/compact` tool over `ctx.compact` |
 
@@ -63,7 +63,7 @@ Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and 
 
 #### What the model sees
 
-A successful implementation replaces an older surface range with one user-role summary checkpoint; the raw events stay logged but stop appearing in derived model messages. The seam itself performs no rewrite.
+A successful implementation replaces an older surface range with one user-role summary checkpoint — a `user/message` carrying `surfaceOp: { op: 'replace', start, end }`; the raw events stay logged but stop appearing in derived model messages. The seam itself performs no rewrite.
 
 #### Token effect
 
@@ -72,20 +72,6 @@ Zero direct tokens from this interface. A backend trades many retained history t
 #### KV Cache effect
 
 A successful backend replacement invalidates reuse from the first shadowed history token; the seam itself does not alter a request.
-
-### Transcript supplied to a compaction consumer
-
-#### What the model sees
-
-`renderTranscript()` joins entries with one blank line and renders them exactly as `User: <content>`, `Assistant: <content>`, `Tool result (call <callId>): <content>`, `Tool error (call <callId>): <content>`, `[Context: <content>]`, or `[Steering: <content>]`. Non-text blocks render exactly as `[reasoning: <text>]`, `[tool-call: <name>(<arguments>)]`, `[tool-result: <content>]`, `[tool-result]`, or `[<block-type>]`.
-
-#### Token effect
-
-Data-dependent input tokens are paid only by the auxiliary model or consumer that requests this transcript; the conversation model does not receive a duplicate transcript.
-
-#### KV Cache effect
-
-No conversation-cache invalidation. A consumer's auxiliary request can reuse only the exact prefix produced by this rendering; changed or compacted entries invalidate reuse from their first difference.
 
 ## Known Limitations and Deferred Work
 

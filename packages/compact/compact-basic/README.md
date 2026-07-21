@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-compact-basic
 
-The **basic compaction backend**: a `BasicCompactService` implementing the `@deepseek-ai/dsh-compact` seam with reusable `ctx.tokenMeter` pressure, token-budget retention, and summarization as a direct one-shot `ctx.llm.stream()` call (interceptable at `llm/stream`).
+The **basic compaction backend**: a `BasicCompactService` implementing the `@deepseek-ai/dsh-compact` seam with reusable `ctx.tokenMeter` pressure, token-budget retention, and summarization as a direct one-shot `ctx.llm.stream()` call that replays the conversation prefix to reuse the provider's KV cache (interceptable at `llm/stream`).
 
 This is the implementation tier of the compaction capability — see the [interface package](../compact/README.md) for the seam and the [capability-seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) for the design.
 
@@ -13,7 +13,7 @@ This backend owns the compaction policy:
 - **Model-free pruning** — after pressure or canonical overflow qualifies, the optional [`ctx.toolResultPrune`](../compact-tool-result-prune/README.md) service rewrites oversized tool results before range selection. Compact-basic remeasures through `ctx.tokenMeter`, skips summarization when pressure becomes safe, and otherwise summarizes the pruned surface. Below-pressure post-step checks never prune.
 - **Retention** — compact the oldest whole surface units while preserving a recent tail and balanced tool-call/result cuts through the [`dsh-compact` boundary helpers](../compact/README.md#tool-pairing-boundaries). Turn boundaries do not protect old steps inside a runaway turn. An open indivisible tail declines until it closes. The optional pruner can repair an oversized closed tool unit when its text-bearing result is the removable bulk; indivisible non-tool units and non-prunable tool remainders remain out of scope.
 - **Convergence** — retry head-checkpoint compaction up to `compactionRetries`; reject a summary that does not shrink its source, and throw if retries cannot return below threshold.
-- **Summarization** — a direct `llm/stream` call uses the configured provider/model pair and cap, falling back to the latest logged request target and then the agent target, without running the loop-only `agent/request` seam. The input transcript preserves non-text blocks as tagged placeholders; only returned text enters the checkpoint, excluding reasoning and tool calls that would leak private reasoning or create an orphaned call.
+- **Summarization** — a direct `llm/stream` call uses the configured provider/model pair and cap, falling back to the latest logged request target and then the agent target, without running the loop-only `agent/request` seam. The call replays the conversation's own system prompt, tools, and shadowed-region messages verbatim and appends the compaction instruction as the final user message, so it reuses the provider's warm prefix cache instead of invalidating it. Only returned text enters the checkpoint, excluding reasoning and tool calls that would leak private reasoning or create an orphaned call.
 - **Framing** — the replacement user message marks established checkpoint context with `<compacted-summary>` tags. The raw summary remains on the provenance event, and later automatic cycles merge the prior checkpoint.
 - **Lifecycle** — `compactRegion()` mutates `agent.session` and records its start, summary, replacement, and end. The serial `agent/post-step` listener checks pressure after successful output and tool work are durable but before `step/end`. Canonical provider overflow is handled through `agent/request-error` after the failed step closes.
 - **Overflow recovery** — provider-confirmed overflow needs no capacity metadata: it bypasses normal pressure and retention, prunes, then attempts one maximal balanced head reduction while leaving the newest indivisible unit. Retry is authorized whenever `surface.replaceGeneration` advances, including when pruning lands before later summary work throws. No replacement, an exhausted target-specific cap, cancellation, or an unknown/noncanonical error preserves the original provider failure.
@@ -96,30 +96,16 @@ Model-free pruning can avoid the auxiliary call entirely; otherwise it reduces t
 
 Replacing rather than append-only. Each checkpoint invalidates reuse from the first replaced history token; the unchanged request prefix before that range remains reusable.
 
-### Auxiliary summarizer user message
+### Auxiliary summarizer request
 
 #### What the model sees
 
-The summarization model receives exactly `Summarize this conversation history:` followed by a blank line, the data-dependent [`renderTranscript()`](../compact/README.md) output, another blank line, and `Summary:`. The conversation model never sees this private request or its reasoning; only returned text is stored.
+The summarization model receives the conversation replayed verbatim — the same system prompt, tool schemas, and messages the last routed request sent for the shadowed region — followed by one final user message: the compaction instruction below. The conversation model never sees this private request or its reasoning; only returned text is stored.
 
-#### Token effect
-
-This is a separate model call with data-dependent input and `maxTokens`-capped output. Convergence retries can pay this cost more than once.
-
-#### KV Cache effect
-
-Independent of the conversation request cache. An auxiliary call can reuse an exact transcript prefix, while a different selected range or rendering invalidates reuse from its first changed token.
-
-### Auxiliary summarizer system prompt
-
-#### What the model sees
-
-The summarization model receives the checkpoint-writing instruction below.
-
-##### Auxiliary summarizer system prompt
+##### Compaction instruction (final user message)
 
 ```markdown
-You are a compaction engine for an AI coding assistant. Condense the conversation transcript into a structured checkpoint that lets another model resume the work with no loss of essential context.
+You are now acting as a compaction engine for this AI coding assistant. Condense the conversation ABOVE into a structured checkpoint that lets another model resume the work with no loss of essential context.
 
 Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.
 
@@ -150,17 +136,18 @@ Output EXACTLY the Markdown structure below: keep every section, in order. Use t
 Rules:
 - Preserve exact file paths, commands, error strings, identifiers, and function signatures.
 - Capture user feedback and explicit instructions faithfully, especially corrections.
-- Do NOT mention this summarization process or that the context was compacted.
-- If the transcript already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.
+- Do NOT mention this summarization request or that the context was compacted.
+- Output only the checkpoint text: do not call any tool or take any other action.
+- If the conversation already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.
 ```
 
 #### Token effect
 
-Fixed auxiliary input cost plus the data-dependent transcript on every summarization attempt.
+This is a separate model call: the replayed conversation prefix plus the fixed instruction as input, with `maxTokens`-capped output. Convergence retries can pay this cost more than once.
 
 #### KV Cache effect
 
-Prefix-stable for auxiliary calls while this instruction and the summarizer route are unchanged. Changing either starts a different prefix; transcript changes occur after the instruction.
+The replayed system prompt, tools, and shadowed-region messages match the conversation's last routed request byte-for-byte, so the provider's warm prefix cache is reused up to the trailing instruction; only that instruction, and the summary output, is uncached. Routing the summarizer to a different provider/model, or compacting a non-head range, forgoes this reuse.
 
 ## Known Limitations and Deferred Work
 
