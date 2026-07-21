@@ -45,10 +45,14 @@ jobs:
             command: pnpm run check:ci:static
             gate_concurrency: '1'
             static_shard: doc-types
-          - lane: static-api-catalogs
+          - lane: static-api-contracts
             command: pnpm run check:ci:static
             gate_concurrency: '4'
-            static_shard: 'api-contracts,catalogs'
+            static_shard: api-contracts
+          - lane: static-catalogs
+            command: pnpm run check:ci:static
+            gate_concurrency: '4'
+            static_shard: catalogs
           - lane: static-prose
             command: pnpm run check:ci:static
             gate_concurrency: '4'
@@ -438,22 +442,12 @@ jobs:
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-sources-a-m
-          - lane: lint-package-sources-n-z
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: package-sources-n-z
+            lint_shard: package-sources
           - lane: lint-package-tests
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-tests-a-m
-          - lane: lint-package-tests-n-z
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: package-tests-n-z
+            lint_shard: package-tests
           - lane: lint-repository
             command: pnpm run check:ci:lint
             gate_concurrency: '1'

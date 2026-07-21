@@ -44,20 +44,12 @@ describe('lint gate shards', () => {
       eslintTargets: ['packages/[t-z]*/*/tests/**/*.ts'],
       includeDuplication: false,
     })
-    expect(selectLintShard('package-sources-a-m')).toEqual({
-      eslintTargets: ['packages/[a-m]*/*/src/**/*.ts'],
+    expect(selectLintShard('package-sources')).toEqual({
+      eslintTargets: ['packages/*/*/src/**/*.ts'],
       includeDuplication: false,
     })
-    expect(selectLintShard('package-sources-n-z')).toEqual({
-      eslintTargets: ['packages/[n-z]*/*/src/**/*.ts'],
-      includeDuplication: false,
-    })
-    expect(selectLintShard('package-tests-a-m')).toEqual({
-      eslintTargets: ['packages/[a-m]*/*/tests/**/*.ts'],
-      includeDuplication: false,
-    })
-    expect(selectLintShard('package-tests-n-z')).toEqual({
-      eslintTargets: ['packages/[n-z]*/*/tests/**/*.ts'],
+    expect(selectLintShard('package-tests')).toEqual({
+      eslintTargets: ['packages/*/*/tests/**/*.ts'],
       includeDuplication: false,
     })
     expect(selectLintShard('repository')).toEqual({
@@ -72,20 +64,15 @@ describe('lint gate shards', () => {
     })
   })
 
-  it('assigns every package group once in the Linux and Windows topologies', () => {
+  it('assigns every package group once in the Linux topology', () => {
     const groups = readdirSync(packagesRoot, { withFileTypes: true })
       .filter(entry => entry.isDirectory())
       .map(entry => entry.name)
       .sort()
-    const topologies = [
-      [/^[a-c]/u, /^[d-m]/u, /^[n-s]/u, /^[t-z]/u],
-      [/^[a-m]/u, /^[n-z]/u],
-    ]
+    const ranges = [/^[a-c]/u, /^[d-m]/u, /^[n-s]/u, /^[t-z]/u]
+    const assignments = ranges.flatMap(range => groups.filter(group => range.test(group))).sort()
 
-    for (const ranges of topologies) {
-      const assignments = ranges.flatMap(range => groups.filter(group => range.test(group))).sort()
-      expect(assignments).toEqual(groups)
-    }
+    expect(assignments).toEqual(groups)
   })
 
   it('rejects an unknown lane', () => {
