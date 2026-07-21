@@ -27,6 +27,8 @@ import type { FileReadOutcome } from '../src/read-render.ts'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 
+const testToolSignal = new AbortController().signal
+
 /** An in-memory fake provider; a test can arm a rejection on any primitive. */
 class FakeFs extends FileSystem {
   files = new Map<string, string>()
@@ -93,6 +95,7 @@ async function setup() {
 let callCounter = 0
 function call(ctx: Context, name: string, args: unknown, agent?: object) {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId(`call-${++callCounter}`),
     name,
     arguments: args,
@@ -112,11 +115,11 @@ describe('registration', () => {
 
   it('declares read parallel-safe while write/edit remain exclusive', async () => {
     const { ctx } = await setup()
-    expect(ctx.tools.executionMode({ callId: CallId('read-safe'), name: 'read', arguments: { file_path: 'a.txt' } }))
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('read-safe'), name: 'read', arguments: { file_path: 'a.txt' } }))
       .toEqual({ kind: 'parallel' })
-    expect(ctx.tools.executionMode({ callId: CallId('write-exclusive'), name: 'write', arguments: { file_path: 'a.txt', content: 'x' } }))
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('write-exclusive'), name: 'write', arguments: { file_path: 'a.txt', content: 'x' } }))
       .toEqual({ kind: 'exclusive' })
-    expect(ctx.tools.executionMode({ callId: CallId('edit-exclusive'), name: 'edit', arguments: { file_path: 'a.txt', old_string: 'x', new_string: 'y' } }))
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('edit-exclusive'), name: 'edit', arguments: { file_path: 'a.txt', old_string: 'x', new_string: 'y' } }))
       .toEqual({ kind: 'exclusive' })
   })
 

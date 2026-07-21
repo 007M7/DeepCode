@@ -9,6 +9,7 @@
   ],
   "references": [
     { "path": "../../util/brand" },
+    { "path": "../../util/paths" },
     { "path": "../../support/invariants" }
   ]
 }

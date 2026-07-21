@@ -451,11 +451,11 @@ export function apply(ctx: Context, config: Config): void {
         subagentProvider: resolved.subagentProvider,
         maxTotalAgents: maxRounds,
         parent,
-        ...exec.signal === undefined ? {} : { signal: exec.signal },
+        signal: exec.signal,
       })
       const onAbort = (): void => { run.cancel('parent step aborted') }
-      exec.signal?.addEventListener('abort', onAbort, { once: true })
-      if (exec.signal?.aborted) run.cancel('parent step aborted')
+      exec.signal.addEventListener('abort', onAbort, { once: true })
+      if (exec.signal.aborted) run.cancel('parent step aborted')
 
       try {
         const settled = await run.result
@@ -469,7 +469,7 @@ export function apply(ctx: Context, config: Config): void {
           result: value as unknown as JsonValue,
         }
       } finally {
-        exec.signal?.removeEventListener('abort', onAbort)
+        exec.signal.removeEventListener('abort', onAbort)
         await run.dispose()
       }
     },

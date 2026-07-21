@@ -204,7 +204,7 @@ describe('agent post-step and request-error lifecycle', () => {
     send(agent)
     const idle = waitForIdle(ctx, agent)
     await postStepEntered
-    agent.cancel('cancelled during max-tokens post-step')
+    agent.cancel({ kind: 'user' })
     await idle
 
     expect(agent.session.events.find(event => event.type === 'assistant/message')).toMatchObject({
@@ -212,7 +212,7 @@ describe('agent post-step and request-error lifecycle', () => {
     })
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'aborted', reason: 'cancelled during max-tokens post-step' } },
+      data: { reason: { kind: 'aborted' } },
     })
   })
 
@@ -587,7 +587,7 @@ describe('agent post-step and request-error lifecycle', () => {
     const idle = waitForIdle(ctx, agent)
     await recoveryEntered
     if (action === 'cancel') {
-      agent.cancel('cancelled during recovery')
+      agent.cancel({ kind: 'user' })
       await idle
     } else {
       await ctx.fiber.dispose()
@@ -596,7 +596,7 @@ describe('agent post-step and request-error lifecycle', () => {
     expect(adapter.requests).toHaveLength(1)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { reason: action === 'cancel' ? { kind: 'aborted', reason: 'cancelled during recovery' } : { kind: 'disposed' } },
+      data: { reason: action === 'cancel' ? { kind: 'aborted' } : { kind: 'disposed' } },
     })
   })
 })

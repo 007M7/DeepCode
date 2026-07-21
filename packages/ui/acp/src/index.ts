@@ -663,7 +663,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
 
   // Prompt-submit is inside the new turn but before prompt assembly. Promptless
   // injection turns leave the switch pending because they execute no request.
-  ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
+  ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) => {
     const rec = ownedRecord(agent)
     if (rec !== undefined) flushPendingSwitches(rec)
     return next()
@@ -927,7 +927,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       cancel(params: CancelNotification): Promise<void> {
         const rec = sessions.get(SessionId(params.sessionId))
         if (rec === undefined) return Promise.resolve()
-        // session/cancel maps to the queue-aware agent.cancel(reason): it aborts
+        // session/cancel maps to the queue-aware agent.cancel({ kind: 'user' }): it aborts
         // a RUNNING step, clears the queued + steering FIFOs, and drops a
         // turn that is about to start (the pre-step window) — so a queued-but-
         // not-yet-started prompt never runs, while a prompt accepted afterward
@@ -942,7 +942,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         if (rec.commandAbort !== undefined) {
           rec.commandAbort.abort(new Error('session/cancel'))
         } else {
-          rec.agent.cancel('session/cancel')
+          rec.agent.cancel({ kind: 'user' })
           settlePrompt(rec, 'cancelled')
         }
         return Promise.resolve()

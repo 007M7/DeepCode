@@ -105,6 +105,32 @@ describe('hooks-codex bridge', () => {
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('keep going: address the goal')
   })
 
+  it('turn cancellation aborts and reaps a running UserPromptSubmit hook before idle', async () => {
+    const dir = configDir()
+    const pidFile = join(dir, 'pid')
+    const marker = join(dir, 'started')
+    const slow = script(dir, 'slow-prompt.sh', `#!/usr/bin/env bash\necho $$ > "${pidFile}"\ntouch "${marker}"\nsleep 30\n`)
+    writeHooks(dir, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: slow }] }] })
+
+    const adapter = new MockAdapter([textResponse('must not run')])
+    const ctx = await harness(dir, adapter)
+    const agent = ctx.agentLoop.create(SessionId('cancel-prompt-hook'), { provider: 'mock', model: 'mock' })
+    agent.send([{ type: 'text', text: 'cancel the hook' }])
+    await waitFor(() => existsSync(marker))
+    const pid = Number(readFileSync(pidFile, 'utf8').trim())
+
+    const idle = agent.whenIdle()
+    agent.cancel({ kind: 'user' })
+    await idle
+
+    expect(() => process.kill(pid, 0)).toThrow()
+    expect(adapter.requests).toHaveLength(0)
+    expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
+      data: { reason: { kind: 'aborted' } },
+    })
+    expect(events(agent).some(event => event.type === 'hook/result' && event.data.point === 'UserPromptSubmit')).toBe(true)
+  })
+
   it('only the five bridge-supported Codex events are honored — a SubagentStop entry is ignored', async () => {
     const dir = configDir()
     const s = script(dir, 'x.sh', '#!/usr/bin/env bash\nexit 2\n')

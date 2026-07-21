@@ -26,7 +26,7 @@ export function classifyGoalRound(reason: TurnEndReason, durable: boolean): Goal
     case 'completed':
       return { kind: 'continue' }
     case 'aborted':
-      return { kind: 'pause', reason: reason.reason ?? 'cancelled' }
+      return { kind: 'pause', reason: 'cancelled' }
     case 'error': {
       const { code, message } = reason.failure ?? reason
       return code === 'RATE_LIMIT' || code === 'QUOTA'

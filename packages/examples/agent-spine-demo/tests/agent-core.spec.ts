@@ -17,6 +17,8 @@ import * as agentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as scopeInvariant from '@deepseek-ai/dsh-scope/invariant'
 import * as agentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 
+const testToolSignal = new AbortController().signal
+
 declare module '@deepseek-ai/dsh-tasks' {
   interface TaskKindMap {
     probe: 'probe'
@@ -385,6 +387,7 @@ describe('dsh-agent-spine-demo bundle', () => {
 
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['shared-skill'])
     const execution: ToolExecution = {
+      signal: testToolSignal,
       token: Symbol('agent-core-dsh-home-test') as ToolExecution['token'],
       callId: CallId('agent-core-dsh-home'),
       name: 'bash',
@@ -456,11 +459,12 @@ describe('dsh-agent-spine-demo bundle', () => {
     })
     const wait = vi.spyOn(ctx.tasks, 'wait')
     await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('task-config-forwarding'),
       name: 'task_output',
       arguments: { task_id: id, wait: true },
     })
-    expect(wait).toHaveBeenCalledWith(id, 7, undefined, undefined)
+    expect(wait).toHaveBeenCalledWith(id, 7, undefined, testToolSignal)
 
     await ctx.fiber.dispose()
   })

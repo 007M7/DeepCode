@@ -6,6 +6,8 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as tool from '../src/index.ts'
 
+const testToolSignal = new AbortController().signal
+
 /**
  * Shared spec helpers: a real `SystemPrompt` + `ToolRegistry` + timer +
  * tool-cordis tree (only the model is absent — the code strings below stand in
@@ -27,7 +29,7 @@ let callCounter = 0
 
 /** Execute a registered tool through the real registry pipeline. */
 export function call(ctx: Context, name: string, args: unknown): Promise<ToolExecutionResult> {
-  return ctx.tools.execute({ callId: CallId(`call-${++callCounter}`), name, arguments: args })
+  return ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++callCounter}`), name, arguments: args })
 }
 
 /** Concatenated text blocks of one tool result. */
