@@ -17,8 +17,8 @@ export const coverageShards = [
     packageRoots: ['core', 'context'],
     extraTestRoots: ['packages/examples/cli-demo/tests'],
   },
-  { name: 'models', packageRoots: ['llm', 'compact'] },
-  { name: 'sdk', packageRoots: ['sdk'] },
+  { name: 'models-protocol', packageRoots: ['llm', 'compact', 'hooks/hook-protocol'] },
+  { name: 'sdk-codex', packageRoots: ['sdk', 'hooks/hooks-codex'] },
   {
     name: 'interfaces',
     packageRoots: ['ui', 'examples', 'goal'],
@@ -42,18 +42,11 @@ export const coverageShards = [
     ],
   },
   {
-    name: 'scripts',
-    packageRoots: ['support/invariants'],
+    name: 'session-scripts',
+    packageRoots: ['session-persistence', 'session-query', 'support/invariants'],
     extraTestRoots: ['scripts'],
   },
-  { name: 'integrations', packageRoots: ['lsp', 'mcp'] },
-  {
-    name: 'session-state',
-    packageRoots: ['session-persistence', 'session-query'],
-  },
-  { name: 'hook-protocol', packageRoots: ['hooks/hook-protocol'] },
-  { name: 'hooks-claude', packageRoots: ['hooks/hooks-claude'] },
-  { name: 'hooks-codex', packageRoots: ['hooks/hooks-codex'] },
+  { name: 'integrations-claude', packageRoots: ['lsp', 'mcp', 'hooks/hooks-claude'] },
   {
     name: 'capabilities',
     packageRoots: ['web', 'skill', 'spill', 'util', 'guard', 'todo', 'timeout'],

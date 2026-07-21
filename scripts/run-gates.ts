@@ -263,8 +263,7 @@ function ciArtifactGates(): Gate[] {
     builtPackageInvariantsGate(['build']),
   ]
   if (shard === 'metadata') return metadataGates
-  if (shard === 'smoke-1') return [pnpmScript('build', 'build'), builtBinSmokeGate('1/2')]
-  if (shard === 'smoke-2') return [pnpmScript('build', 'build'), builtBinSmokeGate('2/2')]
+  if (shard === 'smoke') return [pnpmScript('build', 'build'), builtBinSmokeGate()]
   if (shard !== undefined && shard !== '') {
     throw new Error(`run-gates: unknown DSH_ARTIFACT_SHARD ${JSON.stringify(shard)}.`)
   }

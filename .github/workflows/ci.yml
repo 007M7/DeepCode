@@ -82,16 +82,16 @@ jobs:
             gate_concurrency: '1'
             coverage_max_workers: '4'
             coverage_shard: core
-          - lane: coverage-models
+          - lane: coverage-models-protocol
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
             coverage_max_workers: '4'
-            coverage_shard: models
-          - lane: coverage-sdk
+            coverage_shard: models-protocol
+          - lane: coverage-sdk-codex
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
             coverage_max_workers: '4'
-            coverage_shard: sdk
+            coverage_shard: sdk-codex
           - lane: coverage-interfaces
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
@@ -122,36 +122,16 @@ jobs:
             gate_concurrency: '1'
             coverage_max_workers: '4'
             coverage_shard: repository
-          - lane: coverage-scripts
+          - lane: coverage-integrations-claude
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
             coverage_max_workers: '4'
-            coverage_shard: scripts
-          - lane: coverage-integrations
+            coverage_shard: integrations-claude
+          - lane: coverage-session-scripts
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
             coverage_max_workers: '4'
-            coverage_shard: integrations
-          - lane: coverage-session-state
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: session-state
-          - lane: coverage-hooks-claude
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: hooks-claude
-          - lane: coverage-hook-protocol
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: hook-protocol
-          - lane: coverage-hooks-codex
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: hooks-codex
+            coverage_shard: session-scripts
           - lane: coverage-capabilities
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
@@ -161,12 +141,6 @@ jobs:
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
             snapshot_lane: support
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: snapshot-demos
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: demos
             snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
           - lane: snapshot-agents
@@ -187,31 +161,15 @@ jobs:
             snapshot_lane: acp-2
             snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
-          - lane: snapshot-acp-3
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: acp-3
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: snapshot-acp-4
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: acp-4
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
           - lane: artifacts-metadata
             command: pnpm run check:ci:artifacts
             gate_concurrency: '3'
             publint_concurrency: '8'
             artifact_shard: metadata
-          - lane: artifacts-smoke-1
+          - lane: artifacts-smoke
             command: pnpm run check:ci:artifacts
             gate_concurrency: '1'
-            artifact_shard: smoke-1
-          - lane: artifacts-smoke-2
-            command: pnpm run check:ci:artifacts
-            gate_concurrency: '1'
-            artifact_shard: smoke-2
+            artifact_shard: smoke
     steps:
       - uses: actions/checkout@v6
 
@@ -409,14 +367,10 @@ jobs:
             gate_concurrency: '3'
             publint_concurrency: '8'
             artifact_shard: metadata
-          - lane: artifacts-smoke-1
+          - lane: artifacts-smoke
             command: pnpm run check:ci:artifacts
             gate_concurrency: '1'
-            artifact_shard: smoke-1
-          - lane: artifacts-smoke-2
-            command: pnpm run check:ci:artifacts
-            gate_concurrency: '1'
-            artifact_shard: smoke-2
+            artifact_shard: smoke
     steps:
       - uses: actions/checkout@v6
 
