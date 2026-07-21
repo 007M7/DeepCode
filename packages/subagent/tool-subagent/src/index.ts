@@ -285,9 +285,6 @@ export function apply(ctx: Context, config: Config): void {
           if (tasks === undefined) {
             throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
           }
-          // Reject cancellation before spawning; after return, the task-owned
-          // signal covers both pending startup and the ready child.
-          if (exec.signal?.aborted) throw new Error('subagent delegation aborted')
           // Task preflight finishes before the starter can spawn a child.
           const id = tasks.start({
             kind: 'subagent',
@@ -315,7 +312,7 @@ export function apply(ctx: Context, config: Config): void {
           config,
           args.prompt,
           parent,
-          exec.signal ?? new AbortController().signal,
+          exec.signal,
         )
 
         const run: SubagentRun = await ctx.subagents.start(config.provider, request)

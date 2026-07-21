@@ -79,7 +79,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:267`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:274`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:268`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:275`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:305`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:337`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -151,7 +151,7 @@ Source: [`packages/ui/user-approval/src/index.ts:68`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:231`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:232`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -167,7 +167,7 @@ Source: [`packages/core/session/src/types.ts:231`](../packages/core/session/src/
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:239`](../packages/core/session/src/types.ts)
 
 ### `compact/*`
 
@@ -246,7 +246,7 @@ Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:225`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
 
 ### `hook/*`
 
@@ -342,7 +342,7 @@ Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:214`](../packages/core/session/src/types.ts)
 
 ### `request/*`
 
@@ -356,7 +356,7 @@ Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -387,7 +387,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -398,7 +398,7 @@ Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:206`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:207`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -407,7 +407,7 @@ Source: [`packages/core/session/src/types.ts:206`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:205`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -420,7 +420,7 @@ Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:258`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:259`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -437,7 +437,7 @@ Source: [`packages/core/session/src/types.ts:258`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:244`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -481,7 +481,7 @@ Source: [`packages/core/tools/src/code-mode.ts:34`](../packages/core/tools/src/c
 
 Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:255`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -499,7 +499,7 @@ Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:203`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -515,7 +515,7 @@ Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:195`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:196`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -528,4 +528,4 @@ Source: [`packages/core/session/src/types.ts:195`](../packages/core/session/src/
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:208`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:209`](../packages/core/session/src/types.ts)

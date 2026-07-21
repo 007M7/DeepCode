@@ -9,6 +9,8 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
+const testToolSignal = new AbortController().signal
+
 interface Harness {
   ctx: Context
   agentsFiber: Fiber
@@ -142,6 +144,80 @@ describe('AgentLoop initiator scope', () => {
     await ctx.fiber.dispose()
   })
 
+  it('keeps initiator identity minimal while one explicit signal spans each turn seam', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('observe-call', 'observe', {}),
+      textResponse('first done'),
+      textResponse('second done'),
+    ])
+    const { ctx } = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('signal-owner'), { provider: 'mock', model: 'mock' })
+    let signals: AbortSignal[] = []
+    const capture = (signal: AbortSignal | undefined): void => {
+      if (signal === undefined) throw new Error('turn seam omitted its explicit signal')
+      expect(ctx.agents.requireInitiator()).toBe(agent)
+      signals.push(signal)
+    }
+
+    ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+      if (context.agent === agent) capture(context.signal)
+      return next()
+    })
+    ctx.on('agent/prompt-submit', async (subject, _content, _source, signal, next) => {
+      if (subject === agent) capture(signal)
+      return next()
+    })
+    ctx.on('agent/session-prefix', async (subject, _prefix, signal, next) => {
+      if (subject === agent) capture(signal)
+      return next()
+    })
+    ctx.on('agent/pre-step', (subject, _turn, _step, signal) => {
+      if (subject === agent) capture(signal)
+    })
+    ctx.on('agent/request', async (subject, _turn, _step, _config, signal, next) => {
+      if (subject === agent) capture(signal)
+      return next()
+    })
+    ctx.on('agent/step-result', async (subject, _turn, _step, _message, signal, next) => {
+      if (subject === agent) capture(signal)
+      return next()
+    })
+    ctx.on('agent/turn-continuation', async (subject, _turn, _decision, signal, next) => {
+      if (subject === agent) capture(signal)
+      return next()
+    })
+    ctx.on('agent/turn-stop', (subject, _turn, signal) => {
+      if (subject === agent) capture(signal)
+    })
+    ctx.tools.register(defineTool({
+      name: 'observe',
+      description: 'observe explicit turn state',
+      parameters: {},
+      execute: async (_args, exec) => {
+        capture(exec.signal)
+        return [{ type: 'text', text: 'observed' }]
+      },
+    }))
+
+    const firstIdle = waitForIdle(ctx, agent)
+    send(agent, 'first')
+    await firstIdle
+    const firstSignal = signals[0]
+    expect(firstSignal).toBeDefined()
+    expect(new Set([...signals, ...adapter.requests.slice(0, 2).map(request => request.signal!)])).toEqual(new Set([firstSignal]))
+
+    signals = []
+    const secondIdle = waitForIdle(ctx, agent)
+    send(agent, 'second')
+    await secondIdle
+    const secondSignal = signals[0]
+    expect(secondSignal).toBeDefined()
+    expect(new Set([...signals, adapter.requests[2]!.signal!])).toEqual(new Set([secondSignal]))
+    expect(secondSignal).not.toBe(firstSignal)
+    expect(ctx.agents.currentInitiator()).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('keeps child setup under the parent boundary and restores the parent while the child driver remains active', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('spawn', 'spawn-child', {}),
@@ -239,6 +315,7 @@ describe('AgentLoop initiator scope', () => {
     }))
 
     const direct = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('direct'),
       name: 'agentless-probe',
       arguments: {},

@@ -6,11 +6,13 @@ import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
-import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Config, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap } from '@deepseek-ai/dsh-session'
+
+const testToolSignal = new AbortController().signal
 
 /**
  * Code Mode unit tier (per the Agent Note's plan): provider contribution per mode,
@@ -95,6 +97,7 @@ function fakeAgent(options: { cwd?: string } = { cwd: '/workspace' }): { agent: 
 /** Dispatch run_code through the registry pipeline, as the loop would. */
 async function runCode(ctx: Context, code: string, extras: { agent?: Agent; signal?: AbortSignal } = {}): Promise<ToolExecutionResult> {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId('call-1'),
     name: RUN_CODE_NAME,
     arguments: { code },
@@ -357,8 +360,7 @@ describe('the run_code dispatch bridge', () => {
       const previous = exec.signal
       exec.signal = new AbortController().signal
       const result = await next()
-      if (previous === undefined) delete exec.signal
-      else exec.signal = previous
+      exec.signal = previous
       return result
     })
     ctx.on('tools/result', (exec) => {
@@ -574,7 +576,7 @@ describe('the run_code dispatch bridge', () => {
         seen.push(args.id)
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, 500)
-          exec.signal?.addEventListener('abort', () => { sawAbort = true; clearTimeout(timer); resolve() }, { once: true })
+          exec.signal.addEventListener('abort', () => { sawAbort = true; clearTimeout(timer); resolve() }, { once: true })
         })
         return [{ type: 'text' as const, text: args.id }]
       },
@@ -610,7 +612,7 @@ describe('the run_code dispatch bridge', () => {
         started()
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, 500)
-          exec.signal?.addEventListener('abort', () => { sawAbort = true; clearTimeout(timer); resolve() }, { once: true })
+          exec.signal.addEventListener('abort', () => { sawAbort = true; clearTimeout(timer); resolve() }, { once: true })
         })
         return [{ type: 'text' as const, text: args.id }]
       },
@@ -838,7 +840,7 @@ describe('the run_code dispatch bridge', () => {
     expect((result.content[0] as { text: string }).text).toBe('{ n: 42 }')
   })
 
-  it('reports a pre-aborted outer signal as the run failure without dispatching anything', async () => {
+  it('short-circuits a pre-aborted outer signal before the code runtime', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const calls = registerEcho(ctx)
     runtime.behavior = (request) => {
@@ -850,11 +852,16 @@ describe('the run_code dispatch bridge', () => {
     controller.abort('too-late')
     const result = await runCode(ctx, 'program', { signal: controller.signal })
     expect(result.isError).toBe(true)
-    expect((result.content[0] as { text: string }).text).toContain('code run failed (abort)')
+    expect(result).toEqual({
+      content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
+      isError: true,
+      error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    })
+    expect(runtime.lastRequest).toBeUndefined()
     expect(calls).toEqual([])
   })
 
-  it('rejects a binding invoked after the run is over without dispatching it', async () => {
+  it('reports cancellation after rejecting a late binding without dispatching it', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const calls = registerEcho(ctx)
     const controller = new AbortController()
@@ -865,8 +872,9 @@ describe('the run_code dispatch bridge', () => {
       return { logs: [], value: message }
     }
     const result = await runCode(ctx, 'program', { signal: controller.signal })
-    expect(result.isError).toBe(false)
-    expect((result.content[0] as { text: string }).text).toContain('not dispatched')
+    expect(result.isError).toBe(true)
+    expect(result.error).toEqual({ name: 'AbortError', code: 'ABORTED' })
+    expect((result.content[0] as { text: string }).text).toBe('Error: tool call aborted')
     expect(calls).toEqual([])
   })
 

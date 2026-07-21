@@ -1101,7 +1101,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:143`](../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:147`](../packages/core/system-prompt/src/index.ts)
 
 ## `@deepseek-ai/dsh-time-context`
 
@@ -1400,7 +1400,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:382`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:419`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui`
 

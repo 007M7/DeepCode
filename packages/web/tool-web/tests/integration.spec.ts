@@ -19,6 +19,8 @@ import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import * as TimeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
 
+const testToolSignal = new AbortController().signal
+
 type Handler = (req: IncomingMessage, res: ServerResponse) => void
 
 let server: Server
@@ -56,7 +58,7 @@ afterEach(async () => {
 let counter = 0
 type ToolResult = { isError: boolean; content: { type: string; text?: string }[]; error?: { code: string } }
 function call(name: string, args: unknown): Promise<ToolResult> {
-  return ctx.tools.execute({ callId: CallId(`call-${++counter}`), name, arguments: args })
+  return ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++counter}`), name, arguments: args })
 }
 
 describe('web_fetch integration over the real backend', () => {
@@ -147,7 +149,7 @@ describe('tool-call timeout returns TOOL_TIMEOUT (deadline wins over a slow fetc
   })
 
   it('returns a structured TOOL_TIMEOUT (not the provider WEB_FETCH_TIMEOUT) when the tool-call budget wins', async () => {
-    const out = await tctx.tools.execute({ callId: CallId('slow-1'), name: 'web_fetch', arguments: { url: slowBase } })
+    const out = await tctx.tools.execute({ signal: testToolSignal, callId: CallId('slow-1'), name: 'web_fetch', arguments: { url: slowBase } })
     expect(out.isError).toBe(true)
     // The outer tool-call deadline won: TOOL_TIMEOUT, owned by dsh-timeout-policy,
     // NOT the provider's own WEB_FETCH_TIMEOUT (its 30s backstop never fired).
