@@ -406,6 +406,18 @@ function snapshotProjection<T>(toolName: string, projector: 'render' | 'presenta
   }
 }
 
+/** Snapshot one body or policy value into the canonical invalid-output failure class. */
+function snapshotToolValue(toolName: string, candidate: unknown): JsonValue {
+  try {
+    const detached = snapshotJsonValue(candidate)
+    if (detached === undefined) throw new ToolOutputError(toolName, ['value is not lossless JSON'])
+    return detached as JsonValue
+  } catch (error: unknown) {
+    if (error instanceof ToolOutputError) throw error
+    throw new ToolOutputError(toolName, [`value snapshot failed: ${errorMessage(error)}`])
+  }
+}
+
 /** Successful canonical tool execution, including its Native/model projection. */
 export interface ToolExecutionSuccess {
   readonly isError: false
@@ -1327,13 +1339,10 @@ export class ToolRegistry extends Service {
 
   /** Snapshot, validate, render, and optionally project one successful body value. */
   private createSuccessResult(exec: ToolExecution, tool: ToolDefinition, candidate: unknown): ToolExecutionSuccess {
-    const detached = snapshotJsonValue(candidate)
-    if (detached === undefined) {
-      throw new ToolOutputError(tool.name, ['value is not lossless JSON'])
-    }
+    const detached = snapshotToolValue(tool.name, candidate)
     const violations = validateJsonSchemaValue(tool.output.schema, detached, 'value')
     if (violations.length > 0) throw new ToolOutputError(tool.name, violations)
-    const value = deepFreeze(detached as JsonValue)
+    const value = deepFreeze(detached)
     let rendered: ContentBlock[]
     try {
       rendered = tool.output.render(exec.arguments, value)

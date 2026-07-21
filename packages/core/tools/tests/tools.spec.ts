@@ -193,6 +193,28 @@ describe('ToolRegistry', () => {
     expect(mismatch.content[0]?.type === 'text' ? mismatch.content[0].text : '').toContain('"value" must be a string')
   })
 
+  it('classifies a throwing body snapshot as invalid tool output', async () => {
+    const ctx = await setup()
+    const hostile = Object.defineProperty({}, 'value', {
+      enumerable: true,
+      get: () => { throw new Error('body snapshot getter exploded') },
+    })
+    ctx.tools.register(defineTool({
+      name: 'hostile-body',
+      description: 'hostile body',
+      parameters: {},
+      output: { schema: { type: 'json' }, render: () => [] },
+      execute: async () => hostile as JsonValue,
+    }))
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('hostile-body'), name: 'hostile-body', arguments: {},
+    })
+    expect(result.error?.message).toContain('value snapshot failed: body snapshot getter exploded')
+    expect(result.error?.info).toEqual({ name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' })
+  })
+
   it.each(['render', 'presentationMeta'] as const)('contains a throwing output.%s projector as one failed call', async (projector) => {
     const ctx = await setup()
     ctx.tools.register(defineTool({
