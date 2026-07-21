@@ -24,6 +24,7 @@
     "docs/user/guide/quickstart.md",
     "docs/user/index.md",
     ".agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md",
+    ".agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md",
     ".agents/notes/implemented/process/2026-07-02-bilingual-docs-and-pairing-gate.md",
     "python/README.md",
     "python/sdk-runtime/README.md",

@@ -86,6 +86,14 @@ export type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 /** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
+/** Stable runtime cause accepted by {@link Agent.cancel}. */
+export type AgentCancelCause =
+  | { readonly kind: 'user' }
+  | { readonly kind: 'parent' }
+
+/** Runtime reason carried by the signal that controls one live turn. */
+export type AgentInterruptReason = AgentCancelCause | { readonly kind: 'disposed' }
+
 /** Public agent handle; its concrete implementation is internal to `@deepseek-ai/dsh-agent-loop`. */
 export interface Agent {
   /** The single identity shared with {@link session}. */
@@ -125,12 +133,14 @@ export interface Agent {
 
   /**
    * Clear all queued and steering work, including items waiting to start, and
-   * abort the active step. An effective call first emits `agent/cancel-requested`
-   * with the resolved reason. That reason is preserved across pre-step and active
-   * cancellation windows, and `whenIdle()` resolves after cancellation reaches
-   * quiescence. Idle cancellation is a no-op and does not arm a later cancel.
+   * abort the active turn. An effective call first emits
+   * `agent/cancel-requested` with the resolved typed cause. The first cause wins
+   * for the active turn, and `whenIdle()` resolves after cancellation reaches
+   * quiescence. Omission means `{ kind: 'user' }`. Idle cancellation is a no-op
+   * and does not arm later work. The active turn snapshots and freezes the cause.
+   * @param cause - the stable caller intent carried by the current turn signal.
    */
-  cancel(reason?: string): void
+  cancel(cause?: AgentCancelCause): void
 
   /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
   whenIdle(): Promise<void>
@@ -181,14 +191,14 @@ declare module 'cordis' {
     'agent/queued'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
     /**
      * Effective broad cancellation was requested, before queued/steering work
-     * is cleared or the active step is aborted. This observe-only notification
+     * is cleared or the active turn is aborted. This observe-only notification
      * cannot veto cancellation; listener failures are contained.
      * @param agent - the agent whose current work is being cancelled.
-     * @param reason - resolved cancellation reason, including the default.
+     * @param cause - resolved typed cancellation cause, including the default.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/cancel-requested'(this: Scoped<Agent>, agent: Agent, reason: string): void
+    'agent/cancel-requested'(this: Scoped<Agent>, agent: Agent, cause: AgentCancelCause): void
 
     // ---- session lifecycle (emit) ----
     /**
@@ -220,14 +230,17 @@ declare module 'cordis' {
     'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
     /**
      * Allow, rewrite, or block one claimed prompt before it becomes a user
-     * message. Call `next()` for the unchanged default.
+     * message. Call `next()` for the unchanged default. The signal controls only
+     * this turn; listeners may cooperate with it but must not retain it to
+     * control another turn.
      * @param agent - the agent whose turn claimed the message.
      * @param content - the claimed message's blocks, as queued.
      * @param source - the message's resolved source.
+     * @param signal - the current turn's explicit abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>
+    'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>
     /**
      * Replace the frozen call configuration. Model-visible content must use
      * logged channels; this seam cannot mutate messages. Injection here joins
@@ -236,10 +249,12 @@ declare module 'cordis' {
      * @param turn - the open turn number.
      * @param step - the step whose request this is.
      * @param config - the config the loop would use (frozen); return a replacement to switch.
+     * @param signal - the current turn's explicit abort signal; ambient
+     * initiator identity does not imply liveness or cancellation authority.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+    'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
     /**
      * Compose request-only messages placed before derived history. The frozen
      * result is computed once per loop instance, logged on its anchoring request
@@ -251,7 +266,7 @@ declare module 'cordis' {
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @param agent - the agent whose session prefix is being composed.
      * @param prefix - the frozen seed; return an extended replacement.
-     * @param signal - aborts composition when the step is torn down.
+     * @param signal - the current turn's explicit abort signal.
      * @mode waterfall
      */
     'agent/session-prefix'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>
@@ -262,10 +277,11 @@ declare module 'cordis' {
      * @param turn - the open turn number.
      * @param step - the step that produced the message.
      * @param message - the assistant message as assembled from the stream.
+     * @param signal - the current turn's explicit abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/step-result'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>
+    'agent/step-result'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, signal: AbortSignal, next: () => Promise<Message>): Promise<Message>
     /**
      * Awaited serial checkpoint after the response, real or synthetic tool
      * results, injected context, and steering are durable but before `step/end`.
@@ -299,20 +315,22 @@ declare module 'cordis' {
      * @param agent - the agent deciding whether to run another step.
      * @param turn - the turn being continued or stopped.
      * @param defaultDecision - what the loop would do absent an override.
+     * @param signal - the current turn's explicit abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/turn-continuation'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
+    'agent/turn-continuation'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, signal: AbortSignal, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
     /**
      * Monotonic terminal-stop checkpoint after continuation and steering are
      * folded; a stop remains authoritative through turn close and flush:
      * steering queued in that window is discarded, while ordinary sends survive.
      * @param agent - the agent whose composed continuation outcome may be stopped.
      * @param turn - the turn at its terminal-stop checkpoint.
+     * @param signal - the current turn's explicit abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode serial
      */
-    'agent/turn-stop'(this: Scoped<Agent>, agent: Agent, turn: number): ContinuationStop | undefined
+    'agent/turn-stop'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<ContinuationStop | undefined> | ContinuationStop | undefined
 
     // ---- error notifications (emit) ----
     /**

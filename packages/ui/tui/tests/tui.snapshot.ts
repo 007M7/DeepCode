@@ -279,7 +279,7 @@ describe('TUI terminal-state snapshots', () => {
       })
       harness.session.append('turn/end', {
         turn: 1,
-        reason: { kind: 'aborted', reason: 'cancelled during retry delay' },
+        reason: { kind: 'aborted' },
       })
     })
     await checkpoint('retry-cancelled', harness.terminal, { includeScrollback: true })

@@ -68,6 +68,8 @@ Merge-extensible via `SessionEventMap` — a plugin declaration-merges its own t
 
 Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types for typed turn boundaries — `kind`-tagged instead of strings). A final model-request error retains one structured `LlmFailure`; other turn errors retain message/code, and both identify the failed step.
 
+An interrupted live turn ends with the coarse `{ kind: 'aborted' }` outcome. Caller identity belongs to the Agent's runtime cancellation signal rather than the durable transcript; disposal remains the separate `{ kind: 'disposed' }` terminal state.
+
 Every `SessionEvent` carries two optional top-level fields (structural metadata):
 
 - `sourceEventSeqs?: number[]` — seq numbers of provenance sources (e.g., the `assistant/chunk` seqs behind an `assistant/message`, or the shadowed entries behind a compaction replacement entry). On `assistant/message`, a present `[]` records a known empty provider stream, while omission means legacy or otherwise unrecorded provenance; other surface events require a non-empty list when this field is present.
@@ -80,7 +82,7 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 ### Extension points
 
 - Persistence plugins: subscribe to `session/event` (write-behind) and drain on `session/flush` (awaited) and fiber dispose. A durable backend reads the log and reloads it into a live session; the metadata seam (`SessionHeader`, `session.header`) is what such a backend stores beside the log.
-- Replay/fork: `create(id, { seed })` validates and freezes a contiguous current-format log and rebuilds its surface; request headers require provider/model and assistant messages require provider/model provenance. `fork(source, boundary?, childSessionId?)` selects a completed-turn prefix and records lineage.
+- Replay/fork: `create(id, { seed })` validates and freezes a contiguous current-format log and rebuilds its surface; request headers require provider/model, assistant messages require provider/model provenance, and a coarse aborted outcome must contain only `{ kind: 'aborted' }` (legacy reason-bearing records are rejected). `fork(source, boundary?, childSessionId?)` selects a completed-turn prefix and records lineage.
 - Compaction: `dsh-compact-basic` appends a `user/message` replacement for summary checkpoints, while `dsh-compact-tool-result-prune` appends a content-only `tool/result` replacement. Tool-pairing boundary policy and its cache belong to the [`dsh-compact` seam](../../compact/compact/README.md), while this package owns ordered surface membership, replacement validation, and `replaceGeneration`.
 
 ## Model Experience

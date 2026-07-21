@@ -15,6 +15,8 @@ import SubagentService, { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as HooksClaude from '@deepseek-ai/dsh-hooks-claude'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
+const testToolSignal = new AbortController().signal
+
 /** Targeted branch coverage for the CC bridge: option arms, warn paths, no-agent
  * fallbacks, contextFrom-empty, and the detached-listener catch handlers. */
 
@@ -150,7 +152,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'x' }] } }))
       // Call execute() directly with NO agent — the bridge's no-agent/no-turn path.
       const { CallId } = await import('@deepseek-ai/dsh-llm')
-      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'echo', arguments: {} })
+      const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: {} })
       expect(ran).toBe(false)
       expect(result.isError).toBe(true)
     })

@@ -20,6 +20,8 @@ declare module 'cordis' {
      * Expert waterfall over the assembled sections, tools, and variables.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners
      * receive only that scope's assemblies. The returned value is authoritative.
+     * A supplied signal controls only this explicit assembly request and must not
+     * be retained to control later turns.
      * @param assembly - the mutable assembly built from registered providers.
      * @param context - the caller's per-assembly context.
      * @mode waterfall
@@ -41,6 +43,8 @@ export interface AssembleContext {
    * only global providers and subject-less listeners participate.
    */
   scope?: ScopeKey
+  /** Explicit control signal for the turn that requested this assembly, when any. */
+  signal?: AbortSignal
 }
 
 /** One contributed section of the system prompt (registry input). */

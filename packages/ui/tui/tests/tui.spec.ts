@@ -495,7 +495,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\x0f')
     result.terminal.send('/cancel')
     result.terminal.send('\r')
-    expect(result.agent.cancelled).toContain('cancelled from terminal')
+    expect(result.agent.cancelled).toContainEqual({ kind: 'user' })
 
     result.agent.status = 'idle'
     for (const command of ['/help', '/reasoning', '/tools', '/redraw']) {
@@ -600,7 +600,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(assembly.variables).toMatchObject({ provider: 'beta', model: 'b1' })
     const seed: LlmCallConfig = { provider: 'alpha', model: 'a1', temperature: 0.2 }
     const request = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/request', 1, 0, seed, () => Promise.resolve(seed),
+      'agent/request', 1, 0, seed, new AbortController().signal, () => Promise.resolve(seed),
     )
     expect(request).toEqual({ provider: 'beta', model: 'b1', temperature: 0.2 })
     await dispose(result)
@@ -652,7 +652,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(assembly.variables).toEqual({})
     const seed: LlmCallConfig = { provider: 'fallback', model: 'fallback' }
     await expect(agentEvents(empty.ctx, empty.agent).waterfall(
-      'agent/request', 1, 0, seed, () => Promise.resolve(seed),
+      'agent/request', 1, 0, seed, new AbortController().signal, () => Promise.resolve(seed),
     )).resolves.toBe(seed)
     await dispose(empty)
 
@@ -828,7 +828,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('/exit')
     result.terminal.send('\r')
     await tick()
-    expect(result.agent.cancelled).toContain('terminal exit requested')
+    expect(result.agent.cancelled).toContainEqual({ kind: 'user' })
     expect(result.exit).toHaveBeenCalledWith(0)
 
     const events = await setup()
@@ -845,7 +845,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     events.session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
     events.session.append('turn/end', { turn: 2, reason: { kind: 'error', step: 1, message: 'durable failure' } })
     events.session.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
-    events.session.append('turn/end', { turn: 3, reason: { kind: 'aborted', reason: 'stopped' } })
+    events.session.append('turn/end', { turn: 3, reason: { kind: 'aborted' } })
     events.session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
     events.session.append('turn/end', { turn: 4, reason: { kind: 'max-tokens' } })
     events.session.append('turn/start', { turn: 5, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -861,8 +861,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(events.terminal.output).toContain('live failure')
     expect(events.terminal.output).toContain('durable failure')
+    expect(events.terminal.output).toContain('Turn cancelled')
     expect(events.terminal.output).toContain('structured provider failure')
-    expect(events.terminal.output).toContain('stopped')
     expect(events.terminal.output).toContain('output-token limit')
     expect(events.terminal.output).toContain('Turn rejected')
     expect(events.terminal.output).toContain('previous process ended')
