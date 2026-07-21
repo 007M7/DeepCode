@@ -69,6 +69,8 @@ describe('snapshotJsonValue', () => {
     }
     class ExoticArray extends Array<number> {}
     const sparse = new Array<number>(1)
+    const compensatedSparse = new Array<number>(1)
+    Object.defineProperty(compensatedSparse, 'extra', { value: true })
     const decorated = [1]
     Object.defineProperty(decorated, 'extra', { value: true })
     const symbolDecorated = [1]
@@ -80,6 +82,7 @@ describe('snapshotJsonValue', () => {
     expect(snapshotJsonValue(new Map([['value', 1]]))).toBeUndefined()
     expect(snapshotJsonValue(new ExoticArray(1))).toBeUndefined()
     expect(snapshotJsonValue(sparse)).toBeUndefined()
+    expect(snapshotJsonValue(compensatedSparse)).toBeUndefined()
     expect(snapshotJsonValue(decorated)).toBeUndefined()
     expect(snapshotJsonValue(symbolDecorated)).toBeUndefined()
     expect(snapshotJsonValue(cyclic)).toBeUndefined()
@@ -145,6 +148,8 @@ describe('isJsonValue', () => {
     }
     class ExoticArray extends Array<number> {}
     const sparse = new Array<number>(1)
+    const compensatedSparse = new Array<number>(1)
+    Object.defineProperty(compensatedSparse, 'extra', { value: true })
     const decorated = Object.assign([1], { extra: true })
     const symbolDecorated = [1]
     Object.defineProperty(symbolDecorated, Symbol('extra'), { value: true })
@@ -152,6 +157,7 @@ describe('isJsonValue', () => {
     cyclic.self = cyclic
 
     expect(isJsonValue(sparse)).toBe(false)
+    expect(isJsonValue(compensatedSparse)).toBe(false)
     expect(isJsonValue(decorated)).toBe(false)
     expect(isJsonValue(symbolDecorated)).toBe(false)
     expect(isJsonValue(new ExoticArray(1))).toBe(false)

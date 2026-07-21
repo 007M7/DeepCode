@@ -253,7 +253,7 @@ describe('agent loop', () => {
     ['BigInt', { n: 1n }],
     ['Map', new Map([['key', 'value']])],
     ['class instance', new (class ResultMeta { x = 1 })()],
-  ])('normalizes non-JSON presentation metadata (%s) before the durable result commit', async (_kind, meta) => {
+  ])('rejects non-JSON presentation metadata (%s) before the durable result commit', async (_kind, meta) => {
     const adapter = new MockAdapter([
       toolCallResponse('bad-meta-call', 'bad-meta', {}, 'calling'),
       textResponse('recovered'),
@@ -281,15 +281,16 @@ describe('agent loop', () => {
       expect(result.data.callId).toBe('bad-meta-call')
       expect(result.data.isError).toBe(true)
       expect(result.data.meta).toBeUndefined()
+      expect(result.data.error).toEqual({ name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' })
       expect(result.data.content).toEqual([{
         type: 'text',
-        text: 'Error: tool result must be losslessly JSON-serializable',
+        text: 'Error: tool "bad-meta" returned invalid output: output.presentationMeta returned non-lossless JSON',
       }])
     }
     // The normalized failure was durably logged and fed back to the model; the
     // turn continued normally instead of failing after an apparent success.
     expect(adapter.requests).toHaveLength(2)
-    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('losslessly JSON-serializable')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('output.presentationMeta returned non-lossless JSON')
   })
 
   it('omits the system field when a system-prompt/assemble veto empties the assembly', async () => {

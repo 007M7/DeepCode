@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
+import { isJsonValue } from '@deepseek-ai/dsh-session'
 import { parameterSchemaSpecToJsonSchema, validateArgs } from '@deepseek-ai/dsh-tools'
 import type { ParameterPropertySpec, ParameterSchemaSpec, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 
@@ -80,7 +81,7 @@ function valueForProp(prop: ParameterPropertySpec): fc.Arbitrary<unknown> {
     case 'null': return fc.constant(null)
     case 'object': return prop.properties ? validArgsForSpec(prop.properties) : fc.constant({})
     case 'array': return prop.items ? fc.array(valueForProp(prop.items), { maxLength: 3 }) : fc.constant([])
-    case 'json': return fc.jsonValue()
+    case 'json': return fc.jsonValue().filter(value => isJsonValue(value))
   }
 }
 
