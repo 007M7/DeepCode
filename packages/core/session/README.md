@@ -2,6 +2,8 @@
 
 Event-sourced session log and in-memory store. A `Session` is the append-only source of truth for an agent's whole interaction history — the LLM message history is *derived* from it. A **surface** layer (an ordered projection of message-producing events) is maintained on top of the raw log for efficient derivation and compaction.
 
+The optional `@deepseek-ai/dsh-session/invariant` companion registers this package's relational trace checks with `ctx.invariants`: monotonic sequence numbers, turn/step enclosure, and same-step tool call/result pairing. It replays existing sessions when loaded or reloaded; storage validation, snapshotting, freezing, provenance, and surface acceptance remain always-on responsibilities of the root session package.
+
 ## Service: `SessionStore` (ctx key: `sessions`)
 
 Creates and holds event-sourced `Session` instances. Persistence is intentionally not implemented here — plugins subscribe to `session/event`, flush on `session/flush`, and may mirror the paired `session/created`/`session/disposed` lifecycle.
@@ -34,7 +36,7 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
 - `session.append(type, data, opts?)` snapshots and freezes durable data and surface metadata, validates marker shape, provenance, complete replacement coverage, and content-only single-result `tool/result` rewrites, commits synchronously, then notifies observers with independent failure containment. Reentrant attached-session appends reject, and runtime checks cover widened unions and loaded logs.
 - `session.deriveMessages()` incrementally projects each new surface entry once and returns a fresh array over shared frozen messages. Assistant projections preserve provider/model provenance and adapter-private replay state. A surface rewrite rebuilds the projection; there is no raw-log fallback.
-- `session.deriveEventMessage(event)` is the canonical per-event projection used by reconstruction and invariants.
+- `session.deriveEventMessage(event)` is the canonical per-event projection used by reconstruction and request checks.
 - `session.surface` exposes the readonly `SessionSurface` view owned by the session's single incremental surface manager; `replaceGeneration` changes on every committed rewrite.
 - `session.events` is a cached frozen snapshot invalidated by append; accepted events remain deeply frozen.
 - `session.seq`, `session.id` — current sequence and readonly typed identity.

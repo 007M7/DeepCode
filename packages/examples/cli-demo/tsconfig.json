@@ -8,15 +8,38 @@
   },
   "include": ["src/**/*.ts"],
   "references": [
-    { "path": "../../../vendor/schemastery" },
-    { "path": "../../../vendor/cordis" },
-    { "path": "../../llm/llm" },
-    { "path": "../../core/session" },
-    { "path": "../../core/agent" },
-    { "path": "../../core/system-prompt" },
-    { "path": "../../core/tools" },
-    { "path": "../agent-spine-demo" },
-    { "path": "../../session-persistence/session-persistence-jsonl" },
-    { "path": "../../ui/app-boot" }
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../agent-spine-demo"
+    },
+    {
+      "path": "../../session-persistence/session-persistence-jsonl"
+    },
+    {
+      "path": "../../ui/app-boot"
+    },
+    {
+      "path": "../../support/invariants"
+    }
   ]
 }

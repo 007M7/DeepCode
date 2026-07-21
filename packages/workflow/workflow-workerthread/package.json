@@ -11,6 +11,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./invariant": {
+      "types": "./lib/types/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
     "./worker": {
       "types": "./lib/types/worker.d.ts",
       "default": "./lib/worker.cjs"
@@ -20,6 +24,7 @@
   },
   "files": [
     "lib/index.js",
+    "lib/invariant.js",
     "lib/worker.cjs",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
@@ -29,6 +34,7 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-brand": "^0.0.1",
+    "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
     "@deepseek-ai/dsh-session": "^0.0.1",
     "@deepseek-ai/dsh-subagent": "^0.0.1",

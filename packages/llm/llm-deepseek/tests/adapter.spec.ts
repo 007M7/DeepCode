@@ -517,6 +517,8 @@ describe('plugin registration and config', () => {
       { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' },
       { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' },
     ])
+    await expect(ctx.llm.resolveModelContext('deepseek', 'deepseek-v4-flash'))
+      .resolves.toEqual({ contextWindow: 128_000 })
   })
 
   it('uses the default model catalog when apply is called directly', async () => {
@@ -536,14 +538,23 @@ describe('plugin registration and config', () => {
       apiKey: 'k',
       baseURL: 'http://127.0.0.1:1',
       models: [
-        { id: 'private-fast' },
-        { id: 'private-reasoner', name: 'Private Reasoner', description: 'Higher reasoning budget' },
+        { id: 'private-fast', contextWindow: 32_000 },
+        {
+          id: 'private-reasoner',
+          name: 'Private Reasoner',
+          description: 'Higher reasoning budget',
+          contextWindow: 64_000,
+        },
       ],
     })
     await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
       { provider: 'deepseek', id: 'private-fast', name: 'private-fast' },
       { provider: 'deepseek', id: 'private-reasoner', name: 'Private Reasoner', description: 'Higher reasoning budget' },
     ])
+    await expect(ctx.llm.resolveModelContext('deepseek', 'private-fast'))
+      .resolves.toEqual({ contextWindow: 32_000 })
+    await expect(ctx.llm.resolveModelContext('deepseek', 'arbitrary-unlisted'))
+      .resolves.toBeUndefined()
   })
 
   it('allows an explicit empty model catalog', async () => {
@@ -560,6 +571,8 @@ describe('plugin registration and config', () => {
   it.each([
     [[{ id: '' }], /ids must be non-empty/],
     [[{ id: 'm', name: '' }], /empty name/],
+    [[{ id: 'm', contextWindow: 0 }], /contextWindow/],
+    [[{ id: 'm', contextWindow: 1.5 }], /contextWindow/],
     [[{ id: 'm' }, { id: 'm' }], /duplicate catalog model/],
   ] as const)('rejects invalid advisory model config', async (models, message) => {
     const ctx = new Context()
@@ -569,6 +582,19 @@ describe('plugin registration and config', () => {
       baseURL: 'http://127.0.0.1:1',
       models: [...models],
     })).rejects.toThrow(message)
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('rejects invalid context capacity when apply is called directly', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    expect(() => {
+      LlmDeepSeek.apply(ctx, {
+        apiKey: 'k',
+        baseURL: 'http://127.0.0.1:1',
+        models: [{ id: 'invalid-context', contextWindow: 0 }],
+      })
+    }).toThrow(/contextWindow must be a positive integer/)
     expect(ctx.llm.listProviders()).toEqual([])
   })
 

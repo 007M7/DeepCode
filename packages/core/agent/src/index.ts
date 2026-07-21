@@ -16,6 +16,7 @@ import type { Agent, AgentOptions } from './types.ts'
 
 export * from './types.ts'
 export { agentInterruptReasonOf } from './cancellation.ts'
+export * from './llm-target.ts'
 export { agentEvents, assembleContextFor } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
 

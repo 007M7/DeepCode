@@ -4,11 +4,7 @@ Replay-aware token measurement through the singleton `ctx.tokenMeter` service. I
 
 ## Configuration
 
-| Key | Default | Contract |
-|---|---:|---|
-| `contextWindow` | `128000` | Positive integer service-wide context capacity. |
-
-The estimator intentionally uses one fixed heuristic: four characters per token plus structural overhead for roles, blocks, and request-envelope fields. `contextWindow` is the only deployment setting. Direct construction validates it; Loader mounts first apply the package's Schemastery shape validation. Unrecognized top-level keys are rejected.
+The estimator has no settings. It intentionally uses one fixed heuristic: four characters per token plus structural overhead for roles, blocks, and request-envelope fields. Any key is rejected, including the obsolete global `contextWindow`; model capacity belongs to the adapter that owns an exact provider/model route and is available through `ctx.llm.resolveModelContext()`.
 
 ## Measurement contract
 
@@ -30,13 +26,7 @@ Usage accounting sums disjoint input, cache-read, cache-write, and output bucket
 - name: '@deepseek-ai/dsh-compact-basic'
 ```
 
-Both plugins have usable defaults. A deployment with a different capacity configures the meter once:
-
-```yaml
-- name: '@deepseek-ai/dsh-token-meter'
-  config:
-    contextWindow: 32768
-```
+Both plugins have usable defaults. The meter remains independent of model routing and optional compaction. A deployment configures capacity on its LLM adapter and compaction policy on `dsh-compact-basic`.
 
 ## Model Experience
 
