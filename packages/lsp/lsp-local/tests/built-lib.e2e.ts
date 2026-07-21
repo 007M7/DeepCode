@@ -18,9 +18,7 @@ const pkgDir = fileURLToPath(new URL('..', import.meta.url))
 const seamLib = join(pkgDir, '../lsp/lib/index.js')
 const built = existsSync(join(pkgDir, 'lib/index.js')) && existsSync(seamLib)
 
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
-const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
 let root: string
 let ws: string
@@ -49,13 +47,13 @@ describe.skipIf(!built)('built lib real load path (plain node)', () => {
         servers: {
           fake: {
             command: ${JSON.stringify(process.execPath)},
-            args: ['--import', ${JSON.stringify(tsxLoader)}, ${JSON.stringify(fixtureServer)}],
-            env: { TSX_TSCONFIG_PATH: ${JSON.stringify(repoTsconfig)}, LSP_FAKE_DEF: ${JSON.stringify(location)} },
+            args: [${JSON.stringify(fixtureServer)}],
+            env: { LSP_FAKE_DEF: ${JSON.stringify(location)} },
             extensionToLanguage: { '.ts': 'typescript' },
           },
         },
       })
-      const result = await ctx.lsp.query({ operation: 'definition', filePath: 'a.ts', position: { line: 0, character: 6 }, workspaceRoot: ${JSON.stringify(ws)} })
+      const result = await ctx.lsp.query({ operation: 'goToDefinition', filePath: 'a.ts', position: { line: 0, character: 6 }, workspaceRoot: ${JSON.stringify(ws)} })
       console.log(JSON.stringify(result))
       await ctx.fiber.dispose()
     `

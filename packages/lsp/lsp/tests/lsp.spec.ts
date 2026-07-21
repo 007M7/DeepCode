@@ -39,7 +39,7 @@ async function mountLsp(): Promise<{ ctx: Context; lsp: Lsp }> {
 
 const hover: LspQueryResult = { kind: 'hover', hover: { contents: 'x' } }
 
-function query(filePath: string, operation: LspProviderQuery['operation'] = 'definition'): Parameters<Lsp['query']>[0] {
+function query(filePath: string, operation: LspProviderQuery['operation'] = 'goToDefinition'): Parameters<Lsp['query']>[0] {
   return { operation, filePath, position: { line: 0, character: 0 }, workspaceRoot: '/ws' }
 }
 

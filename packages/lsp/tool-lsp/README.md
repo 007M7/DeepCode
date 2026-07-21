@@ -6,7 +6,7 @@ Namespace plugin (`name` / `inject` / `Config` / `apply`, no default export). In
 
 ## The tool
 
-`lsp` accepts `operation` (`definition` | `references` | `implementation` | `hover`), `file_path`, `line`, and `character`. `line` and `character` are positive, one-based UTF-16 cursor coordinates; the tool converts them to the seam's zero-based positions and converts rendered locations back. `references` includes declarations so impact analysis does not omit the defining site. Provider, language id, workspace root, limits, timeout, initialization, and executable stay outside model input.
+`lsp` accepts `operation` (`goToDefinition` | `findReferences` | `goToImplementation` | `hover`), `file_path`, `line`, and `character`. `line` and `character` are positive, one-based UTF-16 cursor coordinates; the tool converts them to the seam's zero-based positions and converts rendered locations back. `findReferences` includes declarations so impact analysis does not omit the defining site. Provider, language id, workspace root, limits, timeout, initialization, and executable stay outside model input.
 
 The tool requires the workspace root from the session `header.cwd`, with no fallback: absence fails as `LSP_WORKSPACE_REQUIRED` before querying. Locations render as stable, file-grouped `path:line:character` entries relativized against the result's `resolvedWorkspaceRoot` (the provider's canonical root), not the session cwd — so a symlinked cwd still renders in-workspace results as workspace-relative paths; a `file:` URI becomes a workspace-relative path (inside) or absolute path (outside), and any other URI stays verbatim. Empty locations and `null` hover are successful no-result responses; malformed provider payloads remain structured errors.
 
@@ -15,7 +15,7 @@ The tool requires the workspace root from the session `header.cwd`, with no fall
 | Key | Default | Meaning |
 |---|---|---|
 | `maxLocations` | `100` | Largest number of rendered locations before an omission marker. |
-| `maxHoverChars` | `16000` | Largest hover length in characters, applied after normalization. |
+| `maxResultChars` | `16000` | Largest complete rendered result, including truncation metadata. |
 | `timeoutMs` | `60000` | Tool-call timeout budget, enforced by `dsh-timeout-policy`; covers the complete queued open/query/close lifecycle and is not model-configurable. |
 
 ## Model Experience
@@ -29,7 +29,7 @@ One system-prompt section (order 112) positions LSP as a precision aid with the 
 ##### Verbatim guidance
 
 ```markdown
-Use search/read for ordinary navigation. Use lsp when textual matches are ambiguous or before a change requires precise definitions, implementations, or references. Positions are one-based line and character (UTF-16) at the cursor; an off-symbol position may return no results. references always includes the declaration.
+Use search/read for ordinary navigation. Use lsp when textual matches are ambiguous or before a change requires precise definitions, implementations, or references. Positions are one-based line and character (UTF-16) at the cursor; an off-symbol position may return no results. findReferences always includes the declaration.
 ```
 
 #### Token effect
@@ -58,11 +58,11 @@ Prefix-stable while the visible tool definition and order are unchanged; registr
 
 #### What the model sees
 
-File-grouped `path:line:character` location lines or normalized hover text, capped by `maxLocations` / `maxHoverChars` with an omission marker when truncated, and distinct `No results.` / `No hover information.` lines for empty results.
+File-grouped `path:line:character` location lines or normalized hover text, capped first by `maxLocations` and then by `maxResultChars`; omission and truncation markers are included inside the complete character cap. Empty results use distinct `No results.` / `No hover information.` lines.
 
 #### Token effect
 
-Capped per tool result by the two limits above.
+Capped per tool result by `maxResultChars`, with `maxLocations` additionally bounding navigation item count.
 
 #### KV Cache effect
 

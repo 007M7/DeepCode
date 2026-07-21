@@ -14,7 +14,7 @@ import type { LspProviderId } from './brand.ts'
  * compile-enforced change across the seam, providers, and the tool. Symbols and call hierarchy are
  * deliberately deferred (they need different schemas).
  */
-export type LspOperation = 'definition' | 'references' | 'implementation' | 'hover'
+export type LspOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
 
 /** A zero-based UTF-16 cursor coordinate, matching the LSP wire convention. */
 export interface LspPosition {
@@ -73,9 +73,9 @@ export interface LspHover {
 }
 
 /**
- * The closed result union. Navigation operations (`definition`, `references`, `implementation`)
- * normalize to `locations`; `hover` normalizes to content or `null`. Consumers `switch` on `kind`
- * to exhaustiveness so a new arm breaks compilation until handled.
+ * The closed result union. Navigation operations (`goToDefinition`, `findReferences`,
+ * `goToImplementation`) normalize to `locations`; `hover` normalizes to content or `null`.
+ * Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled.
  *
  * The `locations` variant carries `resolvedWorkspaceRoot`: the provider's canonical form of the
  * request's `workspaceRoot`, and the root its `file:` location URIs are relative to. A caller that
@@ -88,8 +88,9 @@ export type LspQueryResult =
 
 /**
  * A language-server backend registered on `ctx.lsp`. Each provider owns a stable {@link
- * LspProviderId} and an extension-to-language-id map (lowercase, leading-dot keys). `references`
- * always includes declarations — the provider enforces this internally; callers get no flag.
+ * LspProviderId} and an extension-to-language-id map (lowercase, leading-dot keys).
+ * `findReferences` always includes declarations — the provider enforces this internally; callers
+ * get no flag.
  */
 export interface LspProvider {
   /** Stable provider identity, reserved atomically with the extension mappings. */

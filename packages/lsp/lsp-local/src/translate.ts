@@ -11,6 +11,7 @@ import type {
   LspOperation,
   LspRange,
 } from '@deepseek-ai/dsh-lsp'
+import { LspError } from '@deepseek-ai/dsh-lsp'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import type {
   WireHover,
@@ -30,9 +31,9 @@ import type {
  */
 export function requestMethod(operation: LspOperation): string {
   switch (operation) {
-    case 'definition': return 'textDocument/definition'
-    case 'references': return 'textDocument/references'
-    case 'implementation': return 'textDocument/implementation'
+    case 'goToDefinition': return 'textDocument/definition'
+    case 'findReferences': return 'textDocument/references'
+    case 'goToImplementation': return 'textDocument/implementation'
     case 'hover': return 'textDocument/hover'
     /* v8 ignore next -- exhaustive over the closed LspOperation union; unreachable. */
     default: return assertNever(operation, 'requestMethod')
@@ -42,9 +43,9 @@ export function requestMethod(operation: LspOperation): string {
 /** The `ServerCapabilities` provider field backing each operation. */
 function capabilityValue(capabilities: WireServerCapabilities, operation: LspOperation): WireProviderCapability {
   switch (operation) {
-    case 'definition': return capabilities.definitionProvider
-    case 'references': return capabilities.referencesProvider
-    case 'implementation': return capabilities.implementationProvider
+    case 'goToDefinition': return capabilities.definitionProvider
+    case 'findReferences': return capabilities.referencesProvider
+    case 'goToImplementation': return capabilities.implementationProvider
     case 'hover': return capabilities.hoverProvider
     /* v8 ignore next -- exhaustive over the closed LspOperation union; unreachable. */
     default: return assertNever(operation, 'capabilityValue')
@@ -127,7 +128,12 @@ function isRange(value: unknown): value is WireRange {
 function isPosition(value: unknown): boolean {
   if (value === null || typeof value !== 'object') return false
   const position = value as Record<string, unknown>
-  return typeof position.line === 'number' && typeof position.character === 'number'
+  return isProtocolCoordinate(position.line) && isProtocolCoordinate(position.character)
+}
+
+/** Whether a wire coordinate is a valid nonnegative integer. */
+function isProtocolCoordinate(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
 }
 
 /**
@@ -138,12 +144,13 @@ function isPosition(value: unknown): boolean {
  * @throws Error when an element is neither a `Location` nor a `LocationLink`.
  */
 export function normalizeLocations(payload: unknown): LspLocation[] {
-  if (payload === null || payload === undefined) return []
+  if (payload === null) return []
+  if (payload === undefined) throw malformedResponse('LSP navigation result was missing')
   const elements = Array.isArray(payload) ? payload : [payload]
   const locations: LspLocation[] = []
   for (const element of elements) {
     if (element === null || typeof element !== 'object') {
-      throw new Error('LSP navigation result contained a non-object entry')
+      throw malformedResponse('LSP navigation result contained a non-object entry')
     }
     const record = element as Record<string, unknown>
     if (isLocationLink(record)) {
@@ -153,7 +160,7 @@ export function normalizeLocations(payload: unknown): LspLocation[] {
       const location = record as unknown as WireLocation
       locations.push({ uri: location.uri, range: toRange(location.range) })
     } else {
-      throw new Error('LSP navigation result contained neither a Location nor a LocationLink')
+      throw malformedResponse('LSP navigation result contained neither a Location nor a LocationLink')
     }
   }
   return locations
@@ -168,39 +175,61 @@ function renderMarkedString(value: WireMarkedString): string {
 /**
  * Normalize a `Hover` (or `null`) to the seam's hover. `MarkupContent` uses its `value`; a string
  * `MarkedString` is verbatim; a language-tagged `MarkedString` becomes a fenced code block; an array
- * joins its rendered parts with one blank line. `maxHoverChars` is NOT applied here — the tool caps.
+ * joins its rendered parts with one blank line. The model-facing tool owns the complete result cap.
  * @param payload - the raw `textDocument/hover` result.
  * @returns the normalized hover, or `null` when there is no content.
  * @throws Error when the payload is a non-null, non-object, or structurally invalid hover.
  */
 export function normalizeHover(payload: unknown): LspHover | null {
-  if (payload === null || payload === undefined) return null
-  if (typeof payload !== 'object') throw new Error('LSP hover result was not an object')
+  if (payload === null) return null
+  if (payload === undefined) throw malformedResponse('LSP hover result was missing')
+  if (typeof payload !== 'object') throw malformedResponse('LSP hover result was not an object')
   const hover = payload as unknown as WireHover
   const contents = renderHoverContents(hover.contents)
   if (contents === '') return null
   const range = hover.range
-  return range !== undefined && isRange(range) ? { contents, range: toRange(range) } : { contents }
+  if (range === undefined) return { contents }
+  if (!isRange(range)) throw malformedResponse('LSP hover result contained a malformed range')
+  return { contents, range: toRange(range) }
 }
 
 /** Render the three `Hover.contents` encodings into one string (input is untrusted wire data). */
 function renderHoverContents(contents: unknown): string {
   if (contents === null || contents === undefined) {
-    throw new Error('LSP hover result had no contents')
+    throw malformedResponse('LSP hover result had no contents')
   }
   if (typeof contents === 'string') return contents
   if (Array.isArray(contents)) {
-    return contents.map(renderMarkedString).join('\n\n')
+    return contents.map((value) => {
+      if (isMarkedString(value)) return renderMarkedString(value)
+      throw malformedResponse('LSP hover contents contained a malformed MarkedString')
+    }).join('\n\n')
   }
   if (typeof contents !== 'object') {
-    throw new Error('LSP hover contents were not MarkupContent, MarkedString, or an array')
+    throw malformedResponse('LSP hover contents were not MarkupContent, MarkedString, or an array')
   }
   const record = contents as Record<string, unknown>
   if (record.kind === 'markdown' || record.kind === 'plaintext') {
-    return typeof record.value === 'string' ? record.value : ''
+    if (typeof record.value !== 'string') {
+      throw malformedResponse('LSP hover MarkupContent value was not a string')
+    }
+    return record.value
   }
   if (typeof record.language === 'string' && typeof record.value === 'string') {
     return renderMarkedString({ language: record.language, value: record.value })
   }
-  throw new Error('LSP hover contents were not MarkupContent, MarkedString, or an array')
+  throw malformedResponse('LSP hover contents were not MarkupContent, MarkedString, or an array')
+}
+
+/** Whether an untrusted value is either form of `MarkedString`. */
+function isMarkedString(value: unknown): value is WireMarkedString {
+  if (typeof value === 'string') return true
+  if (value === null || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record.language === 'string' && typeof record.value === 'string'
+}
+
+/** Create the stable structured error used for malformed server result payloads. */
+function malformedResponse(message: string): LspError {
+  return new LspError(message, 'LSP_MALFORMED_RESPONSE')
 }

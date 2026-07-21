@@ -650,12 +650,12 @@ export interface LspLocalServerConfig {
   maxDocumentBytes?: number
   /** Graceful `shutdown`/`exit` budget before escalation (ms). Default 5000. */
   shutdownTimeoutMs?: number
-  /** SIGTERM→SIGKILL grace after graceful shutdown fails (ms). Default 2000. */
+  /** Request-cancel and SIGTERM→SIGKILL grace (ms). Default 2000. */
   killGraceMs?: number
 }
 ```
 
-Source: [`packages/lsp/lsp-local/src/index.ts:83`](../packages/lsp/lsp-local/src/index.ts)
+Source: [`packages/lsp/lsp-local/src/index.ts:85`](../packages/lsp/lsp-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-mcp-client`
 
@@ -1188,14 +1188,14 @@ Requires: `tools` · `lsp` · `systemPrompt`
 export interface Config {
   /** Largest number of rendered locations before an omission marker (default 100). */
   maxLocations?: number
-  /** Largest hover length in characters after normalization (default 16000). */
-  maxHoverChars?: number
+  /** Largest complete rendered result in characters, including truncation metadata (default 16000). */
+  maxResultChars?: number
   /** Tool-call timeout budget in ms (default 60000). */
   timeoutMs?: number
 }
 ```
 
-Source: [`packages/lsp/tool-lsp/src/index.ts:56`](../packages/lsp/tool-lsp/src/index.ts)
+Source: [`packages/lsp/tool-lsp/src/index.ts:58`](../packages/lsp/tool-lsp/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-ralph`
 

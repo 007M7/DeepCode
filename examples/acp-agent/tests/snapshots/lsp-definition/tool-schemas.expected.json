@@ -117,17 +117,17 @@
     },
     {
       "name": "lsp",
-      "description": "Query a language server for precise code navigation. operation is one of definition, references, implementation, hover. line and character are one-based UTF-16 cursor coordinates. references includes the declaration.",
+      "description": "Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration.",
       "parameters": {
         "type": "object",
         "properties": {
           "operation": {
             "type": "string",
-            "description": "definition, references, implementation, or hover.",
+            "description": "goToDefinition, findReferences, goToImplementation, or hover.",
             "enum": [
-              "definition",
-              "references",
-              "implementation",
+              "goToDefinition",
+              "findReferences",
+              "goToImplementation",
               "hover"
             ]
           },

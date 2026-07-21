@@ -492,7 +492,7 @@ create, edit, pause, and resume require direct-human root authority; complete an
 
 ### `lsp`
 
-Query a language server for precise code navigation. operation is one of definition, references, implementation, hover. line and character are one-based UTF-16 cursor coordinates. references includes the declaration.
+Query a language server for precise code navigation. operation is one of goToDefinition, findReferences, goToImplementation, hover. line and character are one-based UTF-16 cursor coordinates. findReferences includes the declaration.
 
 ```json
 {
@@ -500,11 +500,11 @@ Query a language server for precise code navigation. operation is one of definit
   "properties": {
     "operation": {
       "type": "string",
-      "description": "definition, references, implementation, or hover.",
+      "description": "goToDefinition, findReferences, goToImplementation, or hover.",
       "enum": [
-        "definition",
-        "references",
-        "implementation",
+        "goToDefinition",
+        "findReferences",
+        "goToImplementation",
         "hover"
       ]
     },

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
 import {
-  DEFAULT_MAX_HOVER_CHARS,
   DEFAULT_MAX_LOCATIONS,
+  DEFAULT_MAX_RESULT_CHARS,
   formatHover,
   formatLocations,
   LSP_OPERATIONS,
@@ -79,52 +79,63 @@ describe('renderUri', () => {
 
 describe('formatLocations', () => {
   it('renders a no-result line for an empty list', () => {
-    expect(formatLocations([], WS, DEFAULT_MAX_LOCATIONS)).toBe('No results.')
+    expect(formatLocations([], WS, DEFAULT_MAX_LOCATIONS, DEFAULT_MAX_RESULT_CHARS)).toBe('No results.')
   })
 
   it('renders one-based path:line:character grouped by file', () => {
     const a = pathToFileURL(join(WS, 'a.ts')).href
-    const text = formatLocations([loc(a, 0, 0), loc(a, 4, 2)], WS, DEFAULT_MAX_LOCATIONS)
+    const text = formatLocations([loc(a, 0, 0), loc(a, 4, 2)], WS, DEFAULT_MAX_LOCATIONS, DEFAULT_MAX_RESULT_CHARS)
     expect(text).toBe('a.ts:1:1\na.ts:5:3')
   })
 
   it('caps at maxLocations and marks the omission', () => {
     const a = pathToFileURL(join(WS, 'a.ts')).href
     const many = Array.from({ length: 5 }, (_, i) => loc(a, i))
-    const text = formatLocations(many, WS, 2)
+    const text = formatLocations(many, WS, 2, DEFAULT_MAX_RESULT_CHARS)
     expect(text).toContain('a.ts:1:1')
     expect(text).toContain('3 more locations omitted (limit 2).')
   })
 
   it('uses the singular omission marker for exactly one extra', () => {
     const a = pathToFileURL(join(WS, 'a.ts')).href
-    const text = formatLocations([loc(a, 0), loc(a, 1)], WS, 1)
+    const text = formatLocations([loc(a, 0), loc(a, 1)], WS, 1, DEFAULT_MAX_RESULT_CHARS)
     expect(text).toContain('1 more location omitted (limit 1).')
+  })
+
+  it('caps the complete location text even when one URI is enormous', () => {
+    const maxResultChars = 80
+    const text = formatLocations([loc(`custom:${'x'.repeat(1_000_000)}`, 0)], WS, 1, maxResultChars)
+    expect(text).toHaveLength(maxResultChars)
+    expect(text).toContain('locations truncated')
   })
 })
 
 describe('formatHover', () => {
   it('renders a no-result line for null', () => {
-    expect(formatHover(null, DEFAULT_MAX_HOVER_CHARS)).toBe('No hover information.')
+    expect(formatHover(null, DEFAULT_MAX_RESULT_CHARS)).toBe('No hover information.')
   })
 
   it('returns short hover verbatim', () => {
-    expect(formatHover({ contents: '```ts\nx: number\n```' }, DEFAULT_MAX_HOVER_CHARS)).toBe('```ts\nx: number\n```')
+    expect(formatHover({ contents: '```ts\nx: number\n```' }, DEFAULT_MAX_RESULT_CHARS)).toBe('```ts\nx: number\n```')
   })
 
-  it('caps hover at maxHoverChars and marks truncation', () => {
-    const text = formatHover({ contents: 'a'.repeat(50) }, 10)
-    expect(text.startsWith('aaaaaaaaaa\n')).toBe(true)
-    expect(text).toContain('hover truncated (limit 10 characters).')
+  it('caps the complete hover text including its truncation marker', () => {
+    const text = formatHover({ contents: 'a'.repeat(100) }, 60)
+    expect(text).toHaveLength(60)
+    expect(text).toContain('hover truncated (limit 60 characters).')
+  })
+
+  it('still honors a cap smaller than the truncation marker', () => {
+    expect(formatHover({ contents: 'a'.repeat(100) }, 10)).toHaveLength(10)
   })
 })
 
 describe('presentLspCall', () => {
   it('is a generic search card with an operation/cursor title and a line location', () => {
-    expect(presentLspCall({ operation: 'references', file_path: 'a.ts', line: 3, character: 7 })).toEqual({
+    expect(presentLspCall({ operation: 'findReferences', file_path: 'a.ts', line: 3, character: 7 })).toEqual({
       card: 'generic',
       kind: 'search',
-      title: 'LSP references a.ts:3:7',
+      title: 'LSP findReferences a.ts:3:7',
       locations: [{ path: 'a.ts', line: 3 }],
     })
   })

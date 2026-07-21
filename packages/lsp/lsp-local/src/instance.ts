@@ -14,7 +14,8 @@ import type {
   LspProviderQuery,
   LspQueryResult,
 } from '@deepseek-ai/dsh-lsp'
-import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { deadline } from '@deepseek-ai/dsh-timeout'
+import { abortable, abortError } from './abort.ts'
 import { LspConnection } from './connection.ts'
 import type { ConnectionSpec } from './connection.ts'
 import type { HostSource } from './host.ts'
@@ -83,7 +84,7 @@ export class LspInstance {
     // Serialize behind prior work, but observe abort DURING the queue wait too: if an earlier query
     // hangs (e.g. a signal-less seam caller), a later tool's timeout must still be able to give up
     // rather than block on the shared tail forever.
-    const run = this.abortable(this.queue, signal).then(() => this.runQuery(request, source, signal))
+    const run = abortable(this.queue, signal).then(() => this.runQuery(request, source, signal))
     // Keep the tail alive regardless of this query's outcome so the next caller still serializes. The
     // tail follows the ACTUAL prior work (this.queue), not the abortable view, so a caller giving up
     // on the wait does not deserialize the queue.
@@ -103,11 +104,11 @@ export class LspInstance {
     // An omitted encoding defaults to utf-16; any other value is a protocol error we reject here.
     negotiatePositionEncoding(capabilities.positionEncoding)
     this.capabilities = capabilities
-    this.connection.notify('initialized', {})
+    await this.connection.notify('initialized', {})
   }
 
   private async runQuery(request: LspProviderQuery, source: HostSource, signal?: AbortSignal): Promise<LspQueryResult> {
-    if (this.disposed) throw new Error('LSP instance was disposed')
+    if (this.disposed) throw new LspError('LSP instance was disposed', 'LSP_DISPOSED')
     /* v8 ignore next -- the abortable queue wait rejects a pre-aborted signal before runQuery; this is a belt-and-suspenders guard. */
     if (signal?.aborted) throw abortError(signal)
     // Observe abort during the handshake wait, and never pool a poisoned instance: if the wait ends
@@ -115,11 +116,10 @@ export class LspInstance {
     // negotiation, malformed result) without the process exiting — tear the instance down so a
     // permanently-rejecting/pending `ready` can't make every later query for this workspace fail.
     try {
-      await this.abortable(this.ready, signal)
+      await abortable(this.ready, signal)
     } catch (error) {
       if (!this.dead) {
-        /* v8 ignore next -- ready rejects with an Error (abort reason or initialize failure); the String() fallback is defensive. */
-        await this.startTeardown(error instanceof Error ? error : new Error(String(error)))
+        await this.startTeardown()
       }
       throw error
     }
@@ -138,9 +138,16 @@ export class LspInstance {
     try {
       /* v8 ignore next -- guards an abort landing between the ready wait and didOpen; not deterministically reproducible. */
       if (signal?.aborted) throw abortError(signal)
-      this.connection.notify('textDocument/didOpen', {
-        textDocument: { uri, languageId: request.languageId, version: 1, text: source.text },
-      })
+      try {
+        await abortable(this.connection.notify('textDocument/didOpen', {
+          textDocument: { uri, languageId: request.languageId, version: 1, text: source.text },
+        }), signal)
+      } catch (error) {
+        // A canceled backpressured write or failed stdin leaves the protocol stream unusable before
+        // `opened` can arm the didClose cleanup. Teardown here makes the pool evict the instance.
+        await this.startTeardown()
+        throw error
+      }
       opened = true
       const payload = await this.sendRequest(request.operation, uri, request.position, signal)
       return this.normalize(request.operation, payload)
@@ -150,32 +157,19 @@ export class LspInstance {
       // the next queued query's document lifecycle overlap the still-active request.
       if (opened && !this.dead) {
         try {
-          this.connection.notify('textDocument/didClose', { textDocument: { uri } })
-        } catch (error) {
-          /* v8 ignore start -- stdin write errors surface asynchronously via the swallowed 'error'
-             listener, so a synchronous didClose write failure is a defensive path. */
+          await this.connection.notify('textDocument/didClose', { textDocument: { uri } })
+        } catch {
           // A close-write failure does not replace the settled result/error, but the instance can no
           // longer be trusted: invalidate it and await bounded process termination.
-          void this.startTeardown(error instanceof Error ? error : new Error(String(error)))
-          /* v8 ignore stop */
+          try {
+            await this.startTeardown()
+          } catch {
+            /* v8 ignore next -- teardown owns all expected process races; this only preserves the
+               already-settled query outcome if an unexpected cleanup primitive itself rejects. */
+          }
         }
       }
     }
-  }
-
-  /**
-   * Await `work`, but reject as soon as `signal` aborts. The underlying `work` promise keeps its own
-   * handlers, so an orphaned rejection after abort is not unhandled.
-   */
-  private abortable<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-    if (signal === undefined) return work
-    /* v8 ignore next -- callers either pre-check the signal or pass a freshly armed teardown deadline. */
-    if (signal.aborted) return Promise.reject(abortError(signal))
-    return new Promise<T>((resolve, reject) => {
-      const onAbort = (): void => { reject(abortError(signal)) }
-      signal.addEventListener('abort', onAbort, { once: true })
-      work.then(resolve, reject).finally(() => { signal.removeEventListener('abort', onAbort) })
-    })
   }
 
   private async sendRequest(
@@ -187,9 +181,9 @@ export class LspInstance {
     const params = {
       textDocument: { uri },
       position: { line: position.line, character: position.character },
-      // references always includes declarations: the caller gets no flag and impact analysis never
-      // omits the defining site.
-      ...(operation === 'references' ? { context: { includeDeclaration: true } } : {}),
+      // findReferences always includes declarations: the caller gets no flag and impact analysis
+      // never omits the defining site.
+      ...(operation === 'findReferences' ? { context: { includeDeclaration: true } } : {}),
     }
     const requestId = this.connection.peekNextId()
     const send = this.connection.request(requestMethod(operation), params)
@@ -204,7 +198,7 @@ export class LspInstance {
    */
   private async raceAbort(send: Promise<unknown>, requestId: number, signal: AbortSignal): Promise<unknown> {
     try {
-      return await this.abortable(send, signal)
+      return await abortable(send, signal)
     } catch (error) {
       if (!signal.aborted) throw error
       this.connection.cancel(requestId)
@@ -221,7 +215,7 @@ export class LspInstance {
             grace.signal.addEventListener('abort', () => { resolve(false) }, { once: true })
           }),
         ])
-        if (!settled) await this.startTeardown(abortError(signal))
+        if (!settled) await this.startTeardown()
       } finally {
         grace[Symbol.dispose]()
       }
@@ -263,17 +257,17 @@ export class LspInstance {
    * process close so nothing outlives disposal.
    */
   async dispose(): Promise<void> {
-    await this.startTeardown(new Error('LSP instance disposed'))
+    await this.startTeardown()
   }
 
   /** Publish disposal once and make every caller await the same quiescence boundary. */
-  private startTeardown(reason: Error): Promise<void> {
+  private startTeardown(): Promise<void> {
     this.disposed = true
-    this.teardownPromise ??= this.tearDown(reason)
+    this.teardownPromise ??= this.tearDown()
     return this.teardownPromise
   }
 
-  private async tearDown(_reason: Error): Promise<void> {
+  private async tearDown(): Promise<void> {
     const shutdownDeadline = deadline(undefined, this.spec.shutdownTimeoutMs, 'LSP_SHUTDOWN')
     try {
       await this.gracefulShutdown(shutdownDeadline.signal)
@@ -287,9 +281,9 @@ export class LspInstance {
 
   /** Best-effort LSP `shutdown`/`exit`, including process close, bounded by `signal`. */
   private async gracefulShutdown(signal: AbortSignal): Promise<void> {
-    await this.abortable(this.connection.request('shutdown', null), signal)
-    this.connection.notify('exit', null)
-    await this.abortable(this.connection.closed, signal)
+    await abortable(this.connection.request('shutdown', null), signal)
+    await this.connection.notify('exit', null)
+    await abortable(this.connection.closed, signal)
   }
 
   /** SIGTERM the group, escalate after `killGraceMs`, then await leader and helper exit. */
@@ -320,19 +314,6 @@ const LIFECYCLE_NOOP_METHODS = new Set([
 /** Mark a settled request in the cancel-grace race (either outcome means the request finished). */
 function markSettled(): boolean {
   return true
-}
-
-/**
- * Build an abort Error carrying the signal's reason (preserving a timeout classification).
- * @param signal - the aborted signal whose reason to surface.
- * @returns the timeout reason if the signal carries one, else the signal's Error reason, else a generic aborted Error.
- */
-export function abortError(signal: AbortSignal): Error {
-  const timeout = timeoutOf(signal)
-  if (timeout !== undefined) return timeout
-  const reason: unknown = signal.reason
-  if (reason instanceof Error) return reason
-  return new Error('LSP query aborted')
 }
 
 /**
