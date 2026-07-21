@@ -1,11 +1,14 @@
 /**
- * Per-machine anonymous telemetry id.
+ * Per-harness-home anonymous telemetry id.
  *
- * The id is a random UUID persisted in the per-user harness home — never in
- * the project, and never derived from the git remote, repository URL, or any
- * other identifying source (a derived id would make "anonymous" a fiction). The
- * same id is reused across projects on one machine so telemetry counts machines,
- * not repositories.
+ * The id is a random UUID persisted directly in the harness home resolved by
+ * {@link resolveDshHome} (`$DSH_HOME` > `~/.dsh`), and never derived from the
+ * git remote, repository URL, or any other identifying source (a derived id
+ * would make "anonymous" a fiction). The id is scoped to the harness home, not
+ * the machine: every command sharing one `$DSH_HOME` reuses the same id, so the
+ * default `~/.dsh` counts per-OS-user home directories, while a relocated
+ * `$DSH_HOME` moves the id with the rest of the harness data — the single-root
+ * convention this package shares, not a telemetry-specific policy.
  *
  * @module @deepseek-ai/dsh-telemetry/anonymous-id
  */
@@ -16,7 +19,7 @@ import { dirname, join } from 'node:path'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 
-/** A machine-scoped anonymous telemetry id (random UUID v4). */
+/** A harness-home-scoped anonymous telemetry id (random UUID v4). */
 export type AnonymousId = Branded<'AnonymousId'>
 
 /** Default file, inside the harness home, storing the anonymous id. */
@@ -68,11 +71,11 @@ async function readPersistedId(file: string): Promise<AnonymousId | undefined> {
 }
 
 /**
- * Return the machine's anonymous id, creating and persisting one on first use.
+ * Return the harness home's anonymous id, creating and persisting one on first use.
  * Persistence is best-effort: a write failure still returns a usable id for the
  * current run so telemetry is never blocked by config-dir permissions.
  * @param options - config-location and UUID-generation seams.
- * @returns the stable per-machine anonymous id.
+ * @returns the stable per-harness-home anonymous id.
  */
 export async function getOrCreateAnonymousId(options: AnonymousIdOptions = {}): Promise<AnonymousId> {
   const file = join(globalConfigDir(options), ANONYMOUS_ID_FILE_NAME)
