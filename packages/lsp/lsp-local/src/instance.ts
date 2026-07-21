@@ -138,9 +138,16 @@ export class LspInstance {
     try {
       /* v8 ignore next -- guards an abort landing between the ready wait and didOpen; not deterministically reproducible. */
       if (signal?.aborted) throw abortError(signal)
-      await this.connection.notify('textDocument/didOpen', {
-        textDocument: { uri, languageId: request.languageId, version: 1, text: source.text },
-      })
+      try {
+        await abortable(this.connection.notify('textDocument/didOpen', {
+          textDocument: { uri, languageId: request.languageId, version: 1, text: source.text },
+        }), signal)
+      } catch (error) {
+        // A canceled backpressured write or failed stdin leaves the protocol stream unusable before
+        // `opened` can arm the didClose cleanup. Teardown here makes the pool evict the instance.
+        await this.startTeardown()
+        throw error
+      }
       opened = true
       const payload = await this.sendRequest(request.operation, uri, request.position, signal)
       return this.normalize(request.operation, payload)

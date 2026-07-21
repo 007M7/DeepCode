@@ -178,6 +178,40 @@ describe('LspInstance query and abort', () => {
     await instance.dispose()
   })
 
+  it('terminates when abort interrupts a backpressured didOpen write', async () => {
+    // The fixture consumes initialized, then stops reading. A document larger than the stdio pipe
+    // keeps didOpen's write callback pending until cancellation forces bounded process teardown.
+    await writeFile(join(ws, 'a.ts'), 'x'.repeat(2_000_000))
+    const marker = join(root, 'initialized.log')
+    const instance = makeInstance({
+      LSP_FAKE_INITIALIZED_MARKER: marker,
+      LSP_FAKE_PAUSE_STDIN_AFTER_INITIALIZED: '1',
+    }, {
+      shutdownTimeoutMs: 100,
+      killGraceMs: 100,
+    })
+    const controller = new AbortController()
+    const pending = run(instance, 'goToDefinition', controller.signal)
+    await waitForFile(marker)
+    // Let the client enter the large didOpen write after the fixture has paused stdin.
+    await new Promise<void>(resolve => setTimeout(resolve, 100))
+    controller.abort(new Error('didOpen-abort'))
+    await expect(pending).rejects.toThrow(/didOpen-abort/)
+    expect(instance.dead).toBe(true)
+  })
+
+  it('terminates when stdin fails during the didOpen write', async () => {
+    // Closing stdin after initialized makes a large didOpen fail before `opened` can arm didClose;
+    // the instance must still become dead so its provider can replace it.
+    await writeFile(join(ws, 'a.ts'), 'x'.repeat(2_000_000))
+    const instance = makeInstance({ LSP_FAKE_CLOSE_STDIN_AFTER_INITIALIZED: '1' }, {
+      shutdownTimeoutMs: 100,
+      killGraceMs: 100,
+    })
+    await expect(run(instance, 'goToDefinition')).rejects.toThrow()
+    expect(instance.dead).toBe(true)
+  })
+
   it('rejects when the server lacks the operation capability', async () => {
     const instance = makeInstance({ LSP_FAKE_CAPS: JSON.stringify({ definitionProvider: false }), LSP_FAKE_DEF: 'null' })
     await expect(run(instance, 'goToDefinition')).rejects.toThrow(/does not support goToDefinition/)
@@ -285,5 +319,20 @@ function processAlive(pid: number): boolean {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
     throw error
+  }
+}
+
+/** Wait until a fixture marker exists, bounded so a broken handshake cannot hang the test. */
+async function waitForFile(path: string, timeoutMs = 3000): Promise<void> {
+  const started = Date.now()
+  for (;;) {
+    try {
+      await readFile(path)
+      return
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    if (Date.now() - started > timeoutMs) throw new Error('waitForFile timed out')
+    await new Promise<void>(resolve => setTimeout(resolve, 10))
   }
 }
