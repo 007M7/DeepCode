@@ -28,10 +28,10 @@ export const snapshotLanes: readonly SnapshotLane[] = [
       'examples/headless-agent/tests/headless.snapshot.ts',
     ],
   },
-  ...Array.from({ length: 6 }, (_, offset) => ({
+  ...Array.from({ length: 8 }, (_, offset) => ({
     name: `acp-${offset + 1}`,
     files: ['examples/acp-agent/tests/acp.snapshot.ts'],
-    scenarioShard: `${offset + 1}/6`,
+    scenarioShard: `${offset + 1}/8`,
   })),
 ]
 

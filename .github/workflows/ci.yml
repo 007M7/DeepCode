@@ -190,6 +190,18 @@ jobs:
             snapshot_lane: acp-6
             snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
+          - lane: snapshot-acp-7
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_lane: acp-7
+            snapshot_max_concurrency: '5'
+            snapshot_prebuilt: '1'
+          - lane: snapshot-acp-8
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_lane: acp-8
+            snapshot_max_concurrency: '5'
+            snapshot_prebuilt: '1'
           - lane: artifacts-metadata
             command: pnpm run check:ci:artifacts
             gate_concurrency: '3'
@@ -220,6 +232,7 @@ jobs:
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
       - name: Install (immutable)
+        if: ${{ ! startsWith(matrix.lane, 'snapshot-') }}
         run: pnpm install --frozen-lockfile
 
       # The snapshot lanes REPLAY the sandbox example's recorded scenarios,
@@ -227,22 +240,28 @@ jobs:
       # no bubblewrap preinstalled and no built Landlock launcher, so without
       # this the confined executions fail closed (SANDBOX_UNAVAILABLE). Same
       # install as sandbox.yml's bwrap leg (incl. the Ubuntu 24.04 AppArmor
-      # userns knob). Building does not depend on bubblewrap, so overlap them.
-      - name: Prepare built snapshot runtime and bubblewrap
+      # userns knob). Bubblewrap preparation is independent of dependency
+      # installation and the build, so it runs beside both.
+      - name: Install and prepare built snapshot runtime and bubblewrap
         if: startsWith(matrix.lane, 'snapshot-')
         run: |
-          pnpm run build &
-          build_pid=$!
+          pnpm install --frozen-lockfile &
+          install_pid=$!
           (
             sudo apt-get install -yq --no-install-recommends bubblewrap
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
               || echo "apparmor userns knob absent — the functional probe decides"
           ) &
           sandbox_pid=$!
+          install_status=0
+          wait "$install_pid" || install_status=$?
           build_status=0
+          if (( install_status == 0 )); then
+            pnpm run build || build_status=$?
+          fi
           sandbox_status=0
-          wait "$build_pid" || build_status=$?
           wait "$sandbox_pid" || sandbox_status=$?
+          if (( install_status != 0 )); then exit "$install_status"; fi
           if (( build_status != 0 )); then exit "$build_status"; fi
           exit "$sandbox_status"
 
