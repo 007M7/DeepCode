@@ -22,6 +22,7 @@ import {
 } from './config.ts'
 import { compactSurfaceRegion, selectCompactableRange } from './region.ts'
 import { summarizeWithLlm } from './summarizer.ts'
+import type { SummarizationInput } from './summarizer.ts'
 import type {
   BasicCompactConfig,
   ModelCompactPolicyConfig,
@@ -205,15 +206,17 @@ export class BasicCompactService extends CompactService {
   }
 
   /**
-   * Summarize a rendered region through a direct one-shot `ctx.llm.stream()`
-   * call. Override this sole hook for a template or remote summarizer.
-   * @param text - plain-text conversation region to condense.
+   * Summarize the replayed conversation region through a direct one-shot
+   * `ctx.llm.stream()` call whose prefix reuses the conversation's own system
+   * prompt, tools, and messages so the provider's KV cache is not invalidated.
+   * Override this sole hook for a template or remote summarizer.
+   * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
    * @param agent - supplies routed-model history, fallback model, and session id.
    * @param signal - optional cancellation forwarded to the adapter.
    * @returns safe text summary blocks and exact auxiliary-call provenance.
    */
   protected async summarize(
-    text: string,
+    input: SummarizationInput,
     agent: Agent,
     signal?: AbortSignal,
   ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
@@ -221,7 +224,7 @@ export class BasicCompactService extends CompactService {
     const config = target === undefined
       ? this.config
       : resolveTargetPolicy(this.config, target)
-    return summarizeWithLlm(this.ctx, config, text, agent, signal)
+    return summarizeWithLlm(this.ctx, config, input, agent, signal)
   }
 
   /**
@@ -327,7 +330,7 @@ export class BasicCompactService extends CompactService {
     const session = agent.session
     return compactSurfaceRegion({
       meter: this.ctx.tokenMeter,
-      summarize: (text, owner, abort) => this.summarize(text, owner, abort),
+      summarize: (input, owner, abort) => this.summarize(input, owner, abort),
     }, session, start, end, agent, signal)
   }
 }

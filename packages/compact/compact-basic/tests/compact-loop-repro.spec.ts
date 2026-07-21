@@ -81,7 +81,12 @@ class OverflowRecoveryAdapter extends LlmAdapter {
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    if (options.system?.includes('You are a compaction engine')) {
+    // The cache-reusing summarizer replays the conversation prefix and marks
+    // its call only by the compaction instruction in the trailing user message.
+    const trailing = options.messages.at(-1)?.content
+      .map(block => (block.type === 'text' ? block.text : ''))
+      .join('') ?? ''
+    if (trailing.includes('acting as a compaction engine')) {
       this.summaryRequests.push(options)
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: 'RECOVERY CHECKPOINT' } }
