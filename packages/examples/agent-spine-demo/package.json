@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-agent-spine-demo",
-  "description": "The default executor-less/UI-less agent spine with bounded retry and optional persisted goals",
+  "description": "The default executor-less/UI-less agent spine with fallback session titles, bounded retry, and optional persisted goals",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -38,6 +38,7 @@
     "@deepseek-ai/dsh-llm-retry": "^0.0.1",
     "@deepseek-ai/dsh-scope": "^0.0.1",
     "@deepseek-ai/dsh-session": "^0.0.1",
+    "@deepseek-ai/dsh-session-title": "^0.0.1",
     "@deepseek-ai/dsh-skill": "^0.0.1",
     "@deepseek-ai/dsh-skill-local": "^0.0.1",
     "@deepseek-ai/dsh-system-prompt": "^0.0.1",
@@ -63,6 +64,7 @@
     "@deepseek-ai/dsh-llm-retry": "workspace:^",
     "@deepseek-ai/dsh-scope": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-session-title": "workspace:^",
     "@deepseek-ai/dsh-skill": "workspace:^",
     "@deepseek-ai/dsh-skill-local": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",

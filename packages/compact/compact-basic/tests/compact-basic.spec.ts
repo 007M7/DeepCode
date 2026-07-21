@@ -936,13 +936,13 @@ describe('compaction region transaction', () => {
       .toMatchObject({ error: 'plain failure' })
   })
 
-  it('rejects concurrent durable appends before committing the replacement', async () => {
+  it('tolerates concurrent log-only appends while the selected surface is stable', async () => {
     const compact = service()
     const session = conversation(2)
     compact.mutateDuringSummary = () => {
       session.append('request/header', {
         header: { config: { provider: MODEL, model: MODEL } },
-        reason: 'initial',
+        reason: 'change',
       })
     }
     const nodes = session.surface.nodes
@@ -951,7 +951,26 @@ describe('compaction region transaction', () => {
       nodes[0]!,
       nodes[2]!,
       agent(session, MODEL),
-    )).rejects.toThrow(/session log changed/)
+    )).resolves.toMatchObject({ shadowedSeqs: nodes.slice(0, 3) })
+    expect(session.events.some(event => event.type === 'compact/summary')).toBe(true)
+  })
+
+  it('rejects concurrent surface appends before committing the replacement', async () => {
+    const compact = service()
+    const session = conversation(2)
+    compact.mutateDuringSummary = () => {
+      session.append('context/message', {
+        content: [{ type: 'text', text: 'concurrent surface mutation' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }, { surfaceOp: 'append' })
+    }
+    const nodes = session.surface.nodes
+
+    await expect(compact.compactRegion(
+      nodes[0]!,
+      nodes[2]!,
+      agent(session, MODEL),
+    )).rejects.toThrow(/session surface changed/)
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
   })
 

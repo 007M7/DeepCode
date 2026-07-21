@@ -5,7 +5,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { callConfigEquals, deepFreeze } from '../src/call-config.ts'
+import { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from '../src/call-config.ts'
+import type { GenerateOptions } from '../src/types.ts'
 
 describe('callConfigEquals', () => {
   it('compares every field, including the stop list element-wise', () => {
@@ -54,5 +55,21 @@ describe('deepFreeze', () => {
     cyclic.self = cyclic
     deepFreeze(cyclic)
     expect(Object.isFrozen(cyclic)).toBe(true)
+  })
+})
+
+describe('agent-loop request identity', () => {
+  it('marks only the exact request object and preserves its identity', () => {
+    const request: GenerateOptions = {
+      provider: 'mock',
+      model: 'model',
+      messages: [],
+    }
+    const copy = { ...request }
+
+    expect(isAgentLoopRequest(request)).toBe(false)
+    expect(markAgentLoopRequest(request)).toBe(request)
+    expect(isAgentLoopRequest(request)).toBe(true)
+    expect(isAgentLoopRequest(copy)).toBe(false)
   })
 })
