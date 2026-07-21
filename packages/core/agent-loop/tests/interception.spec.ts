@@ -99,7 +99,6 @@ describe('agent/prompt-submit', () => {
         additionalContexts: [{
           content: [{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }],
           source: { kind: 'plugin', plugin: 'test' },
-          envelope: 'raw',
           meta,
         }],
       }))
@@ -113,7 +112,6 @@ describe('agent/prompt-submit', () => {
     expect(userMsg).toBeDefined()
     expect(ctxMsg?.type === 'context/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }])
     expect(ctxMsg?.type === 'context/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'test' })
-    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.envelope).toBe('raw')
     expect(ctxMsg?.type === 'context/message' && ctxMsg.data.meta).toEqual(meta)
     const sent = JSON.stringify(adapter.requests[0]!.messages)
     expect(sent).toContain('extra ctx')
@@ -179,9 +177,7 @@ describe('agent/prompt-submit', () => {
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'rejected', reason: 'blocked by policy' })
   })
 
-  it('a mixed batch records a prompt/blocked for the vetoed prompt while the allowed one runs', async () => {
-    // Blocking one prompt in a mixed batch must persist its reason even though
-    // the allowed prompt keeps the turn from ending rejected.
+  it('adjacent blocked and allowed prompts keep independent turn outcomes', async () => {
     const adapter = new MockAdapter([textResponse('ran once')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -194,13 +190,13 @@ describe('agent/prompt-submit', () => {
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
-    // both sends land before the loop drains → one batched turn
+    // Both sends land before the driver wakes, but each remains its own turn.
     send(agent, 'secret')
     send(agent, 'safe')
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
-    // the allowed prompt became a user/message and drove exactly one model call
+    // The allowed prompt became a user/message and drove exactly one model call.
     const userMsgs = log.filter(e => e.type === 'user/message')
     expect(userMsgs).toHaveLength(1)
     expect(userMsgs[0]?.type === 'user/message' && userMsgs[0].data.content).toEqual([{ type: 'text', text: 'safe' }])
@@ -212,12 +208,14 @@ describe('agent/prompt-submit', () => {
       content: [{ type: 'text', text: 'secret' }],
       reason: 'policy: no secrets',
     })
-    // the turn did NOT reject — a sibling was allowed — so the boundary reason
-    // alone would not have preserved the block
-    expect(reasons.some(r => r.kind === 'rejected')).toBe(false)
+    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(2)
+    expect(reasons).toEqual([
+      { kind: 'rejected', reason: 'policy: no secrets' },
+      { kind: 'completed' },
+    ])
   })
 
-  it('a throwing prompt-submit listener ends the turn balanced (error), loop survives', async () => {
+  it('a throwing prompt-submit listener ends its turn balanced while an adjacent message survives', async () => {
     const adapter = new MockAdapter([textResponse('after')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -228,20 +226,31 @@ describe('agent/prompt-submit', () => {
       return { kind: 'allow' as const }
     })
     const errors: Error[] = []
+    const reasons: TurnEndReason[] = []
+    const statuses: string[] = []
     ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
+    ctx.on('agent/status', (subject, status) => { if (subject === agent) statuses.push(status) })
+    ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'turn/end') reasons.push(event.data.reason)
+    })
 
+    const idle = waitForIdle(ctx, agent)
     send(agent, 'first')
-    await waitForIdle(ctx, agent)
-    expect(errors.map(e => e.message)).toEqual(['prompt hook broke'])
-    // turn balanced
-    const log = events(agent)
-    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(1)
-    expect(log.filter(e => e.type === 'turn/end')).toHaveLength(1)
-
-    // loop survives: a second prompt runs normally
     send(agent, 'second')
-    await waitForIdle(ctx, agent)
-    expect(adapter.requests.length).toBeGreaterThanOrEqual(1)
+    await idle
+    expect(errors.map(e => e.message)).toEqual(['prompt hook broke'])
+    // The failed prompt forms one balanced error turn; the adjacent prompt forms
+    // the following normal turn without an intermediate idle transition.
+    const log = events(agent)
+    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(2)
+    expect(log.filter(e => e.type === 'turn/end')).toHaveLength(2)
+    expect(reasons).toEqual([
+      { kind: 'error', step: 0, message: 'prompt hook broke' },
+      { kind: 'completed' },
+    ])
+    expect(statuses).toEqual(['running', 'idle'])
+    expect(adapter.requests).toHaveLength(1)
+    expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('second')
   })
 })
 
@@ -556,7 +565,6 @@ describe('tool additionalContexts buffering across a step', () => {
         additionalContexts: [{
           content: [{ type: 'text', text: `ctx-${exec.callId}` }],
           source: { kind: 'plugin', plugin: 'p' },
-          envelope: 'raw',
           meta: { callId: exec.callId },
         }],
       }))
@@ -580,7 +588,6 @@ describe('tool additionalContexts buffering across a step', () => {
       .map(b => (b.type === 'text' ? b.text : ''))
     expect(ctxTexts).toEqual(['ctx-c1', 'ctx-c2'])
     const contextEvents = events(agent).filter(e => e.type === 'context/message')
-    expect(contextEvents.map(e => e.type === 'context/message' && e.data.envelope)).toEqual(['raw', 'raw'])
     expect(contextEvents.map(e => e.type === 'context/message' && e.data.meta)).toEqual([{ callId: 'c1' }, { callId: 'c2' }])
   })
 
@@ -591,7 +598,7 @@ describe('tool additionalContexts buffering across a step', () => {
       name: 'composite', description: 'composite', parameters: {},
       async execute(_args, exec) {
         exec.deferContext({ content: [{ type: 'text', text: 'nested-a' }], source: { kind: 'plugin', plugin: 'a' }, meta: { order: 1 } })
-        exec.deferContext({ content: [{ type: 'text', text: 'nested-b' }], source: { kind: 'plugin', plugin: 'b' }, envelope: 'raw', meta: { order: 2 } })
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-b' }], source: { kind: 'plugin', plugin: 'b' }, meta: { order: 2 } })
         return [{ type: 'text', text: 'outer result' }]
       },
     }))

@@ -70,6 +70,17 @@ export interface WorkflowStartRequest {
   meta: WorkflowMeta
   /** Optional input exposed verbatim to the script as the `args` global. */
   args?: unknown
+  /**
+   * Optional engine-wide child-provider override for this run. The workflow
+   * script cannot observe or replace it; omission uses the engine's configured
+   * provider.
+   */
+  subagentProvider?: string
+  /**
+   * Optional per-run total-child ceiling. Implementations reject values above
+   * their deployment ceiling before publishing the run.
+   */
+  maxTotalAgents?: number
   /** The agent on whose behalf the run executes (parent of every child). */
   parent: Agent
   /** Cancels the run when aborted (the tool's `exec.signal`). */

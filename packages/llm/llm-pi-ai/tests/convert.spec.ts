@@ -485,19 +485,31 @@ describe('toStreamChunks', () => {
     )))
     expect(chunks).toEqual([
       { type: 'usage', usage: { inputTokens: 1, outputTokens: 0 } },
-      { type: 'finish', reason: { kind: 'error', message: 'boom', code: 'PI_AI_ERROR' } },
+      { type: 'finish', reason: { kind: 'error', failure: { message: 'boom', code: 'PI_AI_ERROR' } } },
     ])
   })
 
   it('maps aborted error events to aborted finish', async () => {
     const error = assistant({ stopReason: 'aborted' })
     const chunks = await collect(toStreamChunks(feed({ type: 'error', reason: 'aborted', error })))
-    expect(chunks.at(-1)).toEqual({ type: 'finish', reason: { kind: 'aborted' } })
+    expect(chunks.at(-1)).toEqual({
+      type: 'finish',
+      reason: { kind: 'aborted', failure: { message: 'pi-ai stream aborted', code: 'ABORTED' } },
+    })
   })
 
   it('rejects a stream that ends without done or error', async () => {
     await expect(collect(toStreamChunks(feed({ type: 'start', partial: assistant() }))))
       .rejects.toThrow(/without done\/error/)
+  })
+
+  it('preserves an unknown SDK iterator Error exactly', async () => {
+    const original = Object.assign(new Error('SDK transport exploded'), { code: 'ECONNRESET' })
+    async function* failedSdkStream(): AsyncGenerator<AssistantMessageEvent> {
+      throw original
+    }
+
+    await expect(collect(toStreamChunks(failedSdkStream()))).rejects.toBe(original)
   })
 })
 
@@ -506,46 +518,65 @@ describe('mapStopReason / mapUsage', () => {
     ['stop', { kind: 'stop' }],
     ['length', { kind: 'max-tokens' }],
     ['toolUse', { kind: 'tool-calls' }],
-    ['aborted', { kind: 'aborted' }],
+    ['aborted', { kind: 'aborted', failure: { message: 'pi-ai stream aborted', code: 'ABORTED' } }],
   ] as const)('maps %s', (stopReason, expected) => {
     expect(mapStopReason(assistant({ stopReason }))).toEqual(expected)
   })
 
   it('defaults the error message when pi-ai omits it', () => {
     expect(mapStopReason(assistant({ stopReason: 'error' })))
-      .toEqual({ kind: 'error', message: 'pi-ai stream error', code: 'PI_AI_ERROR' })
+      .toEqual({ kind: 'error', failure: { message: 'pi-ai stream error', code: 'PI_AI_ERROR' } })
   })
 
   it('maps routable HTTP-ish error messages to stable codes', () => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 401: bad key' })))
-      .toMatchObject({ kind: 'error', code: 'AUTH' })
+      .toMatchObject({ kind: 'error', failure: { code: 'AUTH' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 429: rate limit' })))
-      .toMatchObject({ kind: 'error', code: 'RATE_LIMIT' })
+      .toMatchObject({ kind: 'error', failure: { code: 'RATE_LIMIT' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 429: insufficient_quota' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'QUOTA' } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'OpenAI API error (429): You exceeded your current quota, please check your plan and billing details.',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'QUOTA' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 500: backend down' })))
-      .toMatchObject({ kind: 'error', code: 'SERVER' })
+      .toMatchObject({ kind: 'error', failure: { code: 'SERVER' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'provider timed out' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'TIMEOUT' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'ECONNRESET socket closed' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
     expect(mapStopReason(assistant({
       stopReason: 'error',
       errorMessage: 'HTTP 400: input exceeds the model context window limit',
-    }))).toMatchObject({ kind: 'error', code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    }))).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
     expect(mapStopReason(assistant({
       stopReason: 'error',
       errorMessage: 'HTTP 400: request too large for model context',
-    }))).toMatchObject({ kind: 'error', code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    }))).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
     expect(mapStopReason(assistant({
       stopReason: 'error',
       errorMessage: 'HTTP 400: invalid input: temperature exceeds maximum allowed value',
-    }))).toMatchObject({ kind: 'error', code: 'INVALID_REQUEST' })
+    }))).toMatchObject({ kind: 'error', failure: { code: 'INVALID_REQUEST' } })
+  })
+
+  it.each([
+    'other side closed',
+    'HTTP2 request did not get a response',
+    'WebSocket closed unexpectedly',
+  ])('maps pi-ai transport wording %j', (errorMessage) => {
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage })))
+      .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
   })
 
   it('uses pi-ai provider-specific overflow classification without losing rate-limit exclusions', () => {
     expect(mapStopReason(assistant({
       stopReason: 'error',
       errorMessage: 'prompt is too long: 213462 tokens > 200000 maximum',
-    }))).toMatchObject({ kind: 'error', code: CONTEXT_WINDOW_EXCEEDED_CODE })
+    }))).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
     expect(mapStopReason(assistant({
       stopReason: 'error',
       errorMessage: 'ThrottlingException: Too many tokens, rate limit reached',
-    }))).toMatchObject({ kind: 'error', code: 'RATE_LIMIT' })
+    }))).toMatchObject({ kind: 'error', failure: { code: 'RATE_LIMIT' } })
   })
 
   it('uses the resolved context window for silent and length-stop overflows', () => {
@@ -553,15 +584,17 @@ describe('mapStopReason / mapUsage', () => {
     expect(mapStopReason(silent)).toEqual({ kind: 'stop' })
     expect(mapStopReason(silent, 100)).toEqual({
       kind: 'error',
-      message: 'pi-ai detected context overflow for model "deepseek-v4-flash"',
-      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+      failure: {
+        message: 'pi-ai detected context overflow for model "deepseek-v4-flash"',
+        code: CONTEXT_WINDOW_EXCEEDED_CODE,
+      },
     })
 
     const truncated = assistant({ stopReason: 'length', usage: usage(80, 0, 19) })
     expect(mapStopReason(truncated)).toEqual({ kind: 'max-tokens' })
     expect(mapStopReason(truncated, 100)).toMatchObject({
       kind: 'error',
-      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+      failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE },
     })
   })
 

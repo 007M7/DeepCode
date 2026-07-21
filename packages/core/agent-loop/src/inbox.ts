@@ -15,7 +15,7 @@ export interface InboxMessage {
 }
 
 /**
- * Per-agent inbox: a queued FIFO (drained at turn start) and a steering FIFO
+ * Per-agent inbox: a queued FIFO (dequeued once per turn start) and a steering FIFO
  * (drained between steps of a running turn). Purely an in-memory mechanism of
  * the loop — the public surface is `Agent.send()` / `Agent.steer()`.
  */
@@ -54,11 +54,11 @@ export class Inbox {
   }
 
   /**
-   * Drain all queued messages (turn start).
-   * @returns the drained messages in arrival order; the queued FIFO is left empty.
+   * Remove the oldest queued message for one turn start.
+   * @returns the oldest message, or `undefined` when the queued FIFO is empty.
    */
-  drainQueued(): InboxMessage[] {
-    return this.queuedMessages.splice(0)
+  dequeueQueued(): InboxMessage | undefined {
+    return this.queuedMessages.shift()
   }
 
   /**
@@ -72,7 +72,7 @@ export class Inbox {
   /**
    * Discard all pending messages (queued + steering) without delivering them —
    * used by `cancel()`, which drops un-started work rather than draining it into
-   * a turn. Unlike `drainQueued`/`drainSteering`, the messages are thrown away.
+   * a turn. Unlike `dequeueQueued`/`drainSteering`, the messages are thrown away.
    */
   clear(): void {
     this.queuedMessages.length = 0

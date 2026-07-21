@@ -87,7 +87,7 @@ export function apply(ctx: Context) {
 
 ## Runnable wirings
 
-Six runnable leaves load their plugin trees from `cordis.yml`: [`examples/echo-agent`](../../examples/echo-agent) (mock model + echo tool, `pnpm run demo:echo`), [`examples/repl-agent`](../../examples/repl-agent) (DeepSeek V4 + coding tools through a line-oriented readline REPL, `pnpm run demo:repl`), [`examples/tui-agent`](../../examples/tui-agent) (the same coding composition through full-screen pi-tui, `pnpm run demo:tui`), [`examples/headless-agent`](../../examples/headless-agent) (the same capability class behind a one-shot task and DSH-native output, `pnpm run demo:headless -- "task"`), [`examples/cordis-agent`](../../examples/cordis-agent) (self-inspection and dynamic plugin mounting, `pnpm run demo:cordis`), and [`examples/acp-agent`](../../examples/acp-agent) (an ACP server over JSON-RPC stdio, `pnpm run demo:acp`). The terminal leaves load [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo), the headless leaf loads [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo), the ACP leaf loads [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), and all three app packages share [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo).
+Four runnable leaves load their plugin trees from `cordis.yml`: [`examples/tui-agent`](../../examples/tui-agent) (DeepSeek coding tools through the full-screen TUI, `pnpm run demo:tui`), [`examples/headless-agent`](../../examples/headless-agent) (the coding capabilities behind a one-shot task and DSH-native output, `pnpm run demo:headless "task"`), [`examples/cordis-agent`](../../examples/cordis-agent) (self-inspection and dynamic plugin mounting through the TUI, `pnpm run demo:cordis`), and [`examples/acp-agent`](../../examples/acp-agent) (an ACP server over JSON-RPC stdio, `pnpm run demo:acp`). Interactive leaves load [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo), non-interactive leaves load [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo), the ACP leaf loads [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), and all three app packages share [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo).
 
 ## The feature → mechanism map
 
@@ -98,7 +98,7 @@ Every product feature maps to a listener on a documented extension seam — the 
 | Product feature | Plugin mechanism |
 |---|---|
 | Hook system (user + project level) | listeners on `agent/session-start`, `agent/prompt-submit`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation` — each interception waterfall returns a typed Decision; the `dsh-hooks-claude` / `dsh-hooks-codex` bridges map hook config files onto these seams |
-| `/goal` | force-continue via `agent/turn-continuation` + `steer()` reminders |
+| `/goal` | `ctx.goals` owns durable state, `dsh-goal-session` schedules same-session rounds through the public `Agent`, and separate command/tool producers expose human/model control |
 | `/loop` | on the `turn/end` session event, `send()` the next iteration; or force-continue |
 | Dynamic workflow | `ctx.workflows` + the worker-thread engine + the `workflow` tool; structured in-process children enforce output with scoped prompt/tool registrations, a monotonic tool guard, final `tools/result` commit (including enclosing `run_code`), and terminal `agent/turn-stop` |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |

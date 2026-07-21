@@ -2,7 +2,8 @@
  * Reject Markdown prose paragraphs spanning multiple physical lines. The GFM
  * AST distinguishes paragraphs—including those in lists and blockquotes—from
  * multiline structural nodes. The checker never rewrites; symlinked instruction
- * files are deduped. The owning convention is in `docs/AGENTS.md`.
+ * files are deduped. VitePress frontmatter and custom-container delimiters are
+ * masked before parsing. The owning convention is in `docs/AGENTS.md`.
  */
 
 import { readFileSync } from 'node:fs'
@@ -35,11 +36,23 @@ interface Violation {
   text: string
 }
 
+function maskVitePressStructure(source: string): string {
+  const lines = source.split('\n')
+  if (lines[0] === '---') {
+    const closing = lines.indexOf('---', 1)
+    if (closing !== -1) {
+      for (let index = 0; index <= closing; index++) lines[index] = ''
+    }
+  }
+  return lines.map(line => line.trimStart().startsWith(':::') ? '' : line).join('\n')
+}
+
 /** Find every hard-wrapped prose paragraph in one Markdown file via its AST. */
 function findViolations(absPath: string): Violation[] {
   const file = relative(root, absPath)
   const source = readFileSync(absPath, 'utf8')
-  const tree = parseMarkdown(source)
+  const parsedSource = maskVitePressStructure(source)
+  const tree = parseMarkdown(parsedSource)
   const out: Violation[] = []
 
   visitMarkdown(tree, (node: Nodes): boolean | void => {

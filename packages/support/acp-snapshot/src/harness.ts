@@ -18,8 +18,9 @@
 
 import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { join, delimiter } from 'node:path'
+import { basename, dirname, join, delimiter } from 'node:path'
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
@@ -41,12 +42,15 @@ export type { AgentUnderTest } from './launcher.ts'
  * the client observes the selected update (`agent_message_chunk` by default),
  * then cancels and awaits completion. A named `waitForToolCallUpdate` keeps the
  * step open for a terminal tool update that may follow the prompt response.
+ * `promptAndWaitForAgentMessage` arms an exact text-chunk waiter before sending
+ * the prompt, then keeps the application live until that later update arrives.
  */
 export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
   | { op: 'newSession' }
   | { op: 'newSessionExpectError'; additionalDirectories?: string[] }
   | { op: 'prompt'; text: string }
+  | { op: 'promptAndWaitForAgentMessage'; text: string; waitForText: string }
   | { op: 'promptExpectError'; text: string }
   | {
     op: 'promptAndCancel'
@@ -149,6 +153,13 @@ export interface RunOptions {
   configPath?: string
 }
 
+/** Derive one stable, fixed-length spill root owned by this scenario. */
+function scenarioSpillRoot(fixtureFile: string): string {
+  const scenario = basename(dirname(fixtureFile))
+  const key = createHash('sha256').update(scenario).digest('hex').slice(0, 9)
+  return `/tmp/dsh-acp-snap-${key}`
+}
+
 /**
  * Run a scenario end-to-end against a freshly-spawned subprocess. Owns the
  * child and its temp dirs; always tears them down. Returns the captured stdout
@@ -163,7 +174,9 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
   // Fixed path length: spill-policy budgets the preview against the REAL path
   // before stdout normalization, so tmpdir() length differences churn expected outputs.
-  const spillRoot = '/tmp/dsh-acp-snapshot-spill'
+  // Scenario ownership also matters: replay runs concurrently, and one teardown
+  // must never delete another scenario's in-flight full-output recovery file.
+  const spillRoot = scenarioSpillRoot(opts.fixtureFile)
   // Everything past the temp-dir creation is followed by failure-safe cleanup,
   // so a failure in workspace seeding, spawn, or any step never leaks resources.
   let launched: LaunchedAcpTestAgent | undefined
@@ -331,6 +344,15 @@ async function runStep(
       await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
       return
     }
+    case 'promptAndWaitForAgentMessage': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: promptAndWaitForAgentMessage before newSession')
+      const updateDone = waitForUpdate(update => update.sessionUpdate === 'agent_message_chunk'
+        && update.content.type === 'text' && update.content.text === step.waitForText)
+      await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
+      await updateDone
+      return
+    }
     case 'promptExpectError': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: promptExpectError before newSession')
@@ -395,11 +417,11 @@ async function runStep(
  * header line, and return them ordered primary-first: the top-level session (no
  * `parentSession`) leads, then each subagent child by ascending `createdAt`.
  *
- * The JSONL backend lays sessions out as `<root>/<cwd-bucket>/<encoded-id>.jsonl`
- * (one bucket per cwd), so a parent and its same-cwd in-process child land in
- * the SAME bucket — collecting all files across all buckets catches both (a
- * first-match short-circuit would silently drop the child). Returns `[]` if no
- * log was produced (a no-session scenario).
+ * Snapshot configs select the JSONL backend's raw mode, which lays sessions
+ * out as `<root>/<cwd-bucket>/<encoded-id>.jsonl` (one bucket per cwd). A
+ * parent and its same-cwd in-process child land in the SAME bucket, so
+ * collecting all files across all buckets catches both. Returns `[]` if no log
+ * was produced (a no-session scenario).
  */
 async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {
   let cwdDirs: string[]
