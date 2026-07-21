@@ -339,7 +339,10 @@ describe('probeTimeoutMs config', () => {
       { platform: 'linux', probeBwrap: () => false, landlockLauncher: launcher },
     )
     expect(() => impatient.sandbox.confine(['true'], RO)).toThrow(expect.objectContaining({ code: SANDBOX_UNAVAILABLE }))
-  })
+    // The patient probe blocks on a real 1s launcher under the 5000ms default
+    // budget; an explicit timeout keeps the test clear of vitest's 5000ms
+    // default, which the blocking spawnSync would otherwise race under load.
+  }, 20_000)
 })
 
 describe('the default seatbelt probe (sandbox-exec contract)', () => {
