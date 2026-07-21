@@ -49,4 +49,4 @@
 
 ## 分工
 
-对侧译文由运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) 的 agent 生成，再由人评审：在这里推理（inference）很便宜，评审注意力才是稀缺资源。门禁负责检查配对是否完整、记录的 hash、语言切换行以及本文列出的结构签名；翻译质量、术语和签名未涵盖的结构要求仍由评审把关。prompt 契约也有可执行实现：[scripts/translation-prompt.ts](../../scripts/translation-prompt.ts) 会把权威规则渲染到英译中或中译英的 prompt 中，并严格解析包含三个字段的 XML 响应；`doc-sync` 中的 `verify-translation-prompt` 会检查两个渲染方向、仓库内示例与 CDATA 拆分规则。
+对侧译文由运行 [dsh-translate-docs](../../.agents/skills/dsh-translate-docs/SKILL.md) 的 agent 生成，再由人评审：在这里推理（inference）很便宜，评审注意力才是稀缺资源。门禁负责检查配对是否完整、记录的 hash、语言切换行以及本文列出的结构签名；翻译质量、术语和签名未涵盖的结构要求仍由评审把关。prompt 契约也有可执行实现：[scripts/translation-prompt.ts](../../scripts/translation-prompt.ts) 会把进仓模板（注入术语表；模板自带经人工校准的规则）渲染到英译中或中译英的 prompt 中，并解析三段式响应；`doc-sync` 中的 `verify-translation-prompt` 会检查两个渲染方向与仓库内示例。

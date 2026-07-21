@@ -81,6 +81,10 @@ export function renderTranslationResponse(response: TranslationResponse): string
  * and in order; bodies are raw Markdown taken verbatim between the tags.
  * A fenced ```xml wrapper around the whole response is tolerated, matching
  * the shape some models echo back from the prompt's own example.
+ *
+ * Section close tags are matched at line starts (the wire shape the prompt
+ * example establishes), so a tag mentioned inline in translated prose does
+ * not terminate its section early.
  */
 export function parseTranslationResponse(text: string): TranslationResponse {
   let body = text.trim()
@@ -88,20 +92,16 @@ export function parseTranslationResponse(text: string): TranslationResponse {
   if (fenced?.[1] !== undefined) body = fenced[1].trim()
 
   const values: Partial<Record<(typeof RESPONSE_SECTIONS)[number], string>> = {}
-  let cursor = 0
   for (const section of RESPONSE_SECTIONS) {
-    const open = `<${section}>`
-    const close = `</${section}>`
-    const start = body.indexOf(open, cursor)
-    if (start === -1) throw new Error(`translation response: missing <${section}> section`)
-    const end = body.indexOf(close, start + open.length)
-    if (end === -1) throw new Error(`translation response: unterminated <${section}> section`)
-    values[section] = body.slice(start + open.length, end).replace(/^\n/, '').replace(/\n$/, '')
-    cursor = end + close.length
+    const pattern = new RegExp(`^<${section}>\\n?([\\s\\S]*?)\\n?^</${section}>$`, 'gm')
+    const first = pattern.exec(body)
+    if (first?.[1] === undefined) throw new Error(`translation response: missing or unterminated <${section}> section`)
+    if (pattern.exec(body) !== null) throw new Error(`translation response: duplicate <${section}> section`)
+    values[section] = first[1]
   }
-  for (const section of RESPONSE_SECTIONS) {
-    const again = body.indexOf(`<${section}>`, cursor)
-    if (again !== -1) throw new Error(`translation response: duplicate <${section}> section`)
+  const order = RESPONSE_SECTIONS.map(section => body.search(new RegExp(`^<${section}>`, 'm')))
+  if (!(order[0]! < order[1]! && order[1]! < order[2]!)) {
+    throw new Error('translation response: sections must appear in translation, review, final order')
   }
   return values as TranslationResponse
 }

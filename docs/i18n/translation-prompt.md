@@ -14,6 +14,8 @@
 
 流水线只识别上表中的占位符，并且一次翻译整篇文档。它不支持 `{{to}}`、`{{title_prompt}}`、`{{summary_prompt}}`、`{{terms_prompt}}`、`{{imt_style_guide}}`、`{{translation_rules}}` 或 `%%` 分段协议；输出采用模板正文规定的三段 XML，流水线解析取 `<final>` 段。
 
+语言切换行：已有配对的源文件自带切换行，模型按模板规则翻转即可。全新配对的源文件没有切换行，模型也无从得知文件名——此时由流水线在解析 `<final>` 后按目标文件名插入或校正切换行（机械后处理，配对门禁兜底校验）。
+
 ## Few-shot 金标
 
 流水线使用**整篇文档**的中英对照作为 few-shot，不是模板内嵌的句子级正误例。以下 5 组配对文档均经过人工评审，以仓库当前版本为准、随仓库更新：
@@ -41,7 +43,7 @@ You are a senior technical translator specializing in LLM and agent development 
 - Inline code spans (commands, flags, paths, API names, version numbers) must be kept verbatim. Never translate or reformat them.
 - Every relative link must point to the same target as in the source. Link text is translated; link targets are not.
 - Language switcher line: when translating into Chinese, write `[English](source-filename.md) | 中文`. When translating into English, write `English | [中文](source-filename.zh.md)`. Do NOT copy the switcher line from the source file unchanged — you must flip the link direction.
-- After a closing bold marker `**`, always insert a space before the next character.
+- After a closing bold marker `**`, insert a space before the next character when that character is a Latin letter, digit, or CJK ideograph. Never insert a space before any punctuation (full-width or half-width).
 
 ### Tone and Style
 - The translation must read as if originally written in the target language by a native speaker. If an expression sounds like a word-for-word rendering from the source language, rephrase it.
@@ -73,7 +75,7 @@ You are a senior technical translator specializing in LLM and agent development 
 - Use enumeration commas (、) between parallel items, not regular commas.
 - List item endings: use semicolons or no punctuation. Do not end list items with commas.
 - Put one half-width space between Chinese text and Latin words/numbers.
-- For RFC 2119 keywords (MUST, MUST NOT, SHOULD, MAY), render the corresponding Chinese term in italics: *必须*、*禁止*、*应当*、*可以*.
+- For RFC 2119 keywords (MUST, MUST NOT, SHOULD, MAY), translate to the corresponding Chinese term (必须、禁止、应当、可以) and keep the SOURCE emphasis marker: plain source stays plain in italics (*必须*), bold source stays bold (**必须**).
 
 #### When translating into English
 (To be added.)

@@ -42,9 +42,19 @@ describe('translation response sections', () => {
     expect(parseTranslationResponse(fenced).final).toBe('A')
   })
 
+  it('keeps an inline close tag inside prose from terminating the section', () => {
+    const doc = { translation: 'the wire format uses </translation> as its close tag', review: '- 无修正', final: 'F' }
+    expect(parseTranslationResponse(renderTranslationResponse(doc))).toEqual(doc)
+  })
+
+  it('rejects a duplicate section appearing before final', () => {
+    const early = '<translation>\nA\n</translation>\n<translation>\nB\n</translation>\n<review>\nR\n</review>\n<final>\nF\n</final>'
+    expect(() => parseTranslationResponse(early)).toThrow(/duplicate <translation>/)
+  })
+
   it('rejects missing, unterminated, or duplicated sections', () => {
-    expect(() => parseTranslationResponse('<translation>\nA\n</translation>')).toThrow(/missing <review>/)
-    expect(() => parseTranslationResponse('<translation>\nA')).toThrow(/unterminated <translation>/)
+    expect(() => parseTranslationResponse('<translation>\nA\n</translation>')).toThrow(/missing or unterminated <review>/)
+    expect(() => parseTranslationResponse('<translation>\nA')).toThrow(/missing or unterminated <translation>/)
     const dup = '<translation>\nA\n</translation>\n<review>\nR\n</review>\n<final>\nF\n</final>\n<final>\nG\n</final>'
     expect(() => parseTranslationResponse(dup)).toThrow(/duplicate <final>/)
   })
