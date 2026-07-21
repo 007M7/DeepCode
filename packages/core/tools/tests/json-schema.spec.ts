@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import {
   assertObjectJsonSchema,
@@ -185,6 +186,16 @@ describe('the enforced raw JSON Schema subset', () => {
     })
     expect(violationsOf({ examples: explosive }))
       .toEqual(['schema.examples annotation must be lossless JSON data'])
+  })
+
+  it('accepts lossless annotation containers from another JavaScript realm', () => {
+    const schema = runInNewContext(`({
+      type: 'object',
+      default: { x: 1 },
+      examples: [[{ ok: true }]],
+    })`) as unknown
+
+    expect(() => { assertSupportedJsonSchema(schema) }).not.toThrow()
   })
 
   it('rejects cyclic/exotic schema structure but permits sibling reuse', () => {

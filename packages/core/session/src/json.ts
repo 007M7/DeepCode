@@ -12,6 +12,18 @@
  */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
+/** Whether an array uses one realm's intrinsic `Array.prototype`, not a subclass or forged prototype. */
+function hasPlainArrayPrototype(value: unknown[]): boolean {
+  const prototype: unknown = Object.getPrototypeOf(value)
+  return Array.isArray(prototype) && Object.getPrototypeOf(Object.getPrototypeOf(prototype)) === null
+}
+
+/** Whether an object is a plain or null-prototype record from any JavaScript realm. */
+function hasPlainObjectPrototype(value: object): boolean {
+  const prototype: unknown = Object.getPrototypeOf(value)
+  return prototype === null || Object.getPrototypeOf(prototype) === null
+}
+
 /**
  * Validate and detach lossless JSON in one read per property, so a stateful
  * getter cannot change between validation and copying. Accepts ordinary arrays,
@@ -46,7 +58,7 @@ export function snapshotJsonValue<T>(value: T): T | undefined {
     ancestors.add(current)
     try {
       if (Array.isArray(current)) {
-        if (Object.getPrototypeOf(current) !== Array.prototype) return undefined
+        if (!hasPlainArrayPrototype(current)) return undefined
         const length = current.length
         // Every ordinary array owns `length`; dense indexed elements account
         // for the remaining keys. Anything else would be lost by JSON and by
@@ -62,8 +74,7 @@ export function snapshotJsonValue<T>(value: T): T | undefined {
         return snapshot
       }
 
-      const prototype = Object.getPrototypeOf(current) as unknown
-      if (prototype !== Object.prototype && prototype !== null) return undefined
+      if (!hasPlainObjectPrototype(current)) return undefined
       const snapshot: { [key: string]: JsonValue } = {}
       for (const key of Object.keys(current)) {
         const item = visit((current as Record<string, unknown>)[key])
@@ -115,7 +126,7 @@ export function isJsonValue(value: unknown, seen: Set<object> = new Set()): bool
   seen.add(value)
   try {
     if (Array.isArray(value)) {
-      if (Object.getPrototypeOf(value) !== Array.prototype) return false
+      if (!hasPlainArrayPrototype(value)) return false
       if (Reflect.ownKeys(value).length !== value.length + 1) return false
       // Reject sparse arrays: a hole is skipped by `every`/`forEach` but
       // JSON.stringify writes it as `null`, so `[1, , 3]` would round-trip
@@ -127,8 +138,7 @@ export function isJsonValue(value: unknown, seen: Set<object> = new Set()): bool
       return true
     }
     // Plain object only (reject Map/Set/Date/class instances).
-    const proto = Object.getPrototypeOf(value) as unknown
-    if (proto !== Object.prototype && proto !== null) return false
+    if (!hasPlainObjectPrototype(value)) return false
     return Object.values(value).every(v => isJsonValue(v, seen))
   } finally {
     seen.delete(value)
