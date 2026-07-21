@@ -19,10 +19,14 @@ export function selectLintShard(name?: string): LintSelection {
     case undefined:
     case '':
       return { eslintTargets: ['.'], includeDuplication: true }
-    case 'package-sources':
-      return { eslintTargets: ['packages/*/*/src/**/*.ts'], includeDuplication: false }
-    case 'package-tests':
-      return { eslintTargets: ['packages/*/*/tests/**/*.ts'], includeDuplication: false }
+    case 'package-sources-a-m':
+      return { eslintTargets: ['packages/[a-m]*/*/src/**/*.ts'], includeDuplication: false }
+    case 'package-sources-n-z':
+      return { eslintTargets: ['packages/[n-z]*/*/src/**/*.ts'], includeDuplication: false }
+    case 'package-tests-a-m':
+      return { eslintTargets: ['packages/[a-m]*/*/tests/**/*.ts'], includeDuplication: false }
+    case 'package-tests-n-z':
+      return { eslintTargets: ['packages/[n-z]*/*/tests/**/*.ts'], includeDuplication: false }
     case 'repository':
       return {
         eslintTargets: [

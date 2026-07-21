@@ -67,16 +67,26 @@ jobs:
             static_shard: site-build
           - lane: typecheck
             command: pnpm run typecheck
-          - lane: lint-package-sources
+          - lane: lint-package-sources-a-m
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-sources
-          - lane: lint-package-tests
+            lint_shard: package-sources-a-m
+          - lane: lint-package-sources-n-z
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-tests
+            lint_shard: package-sources-n-z
+          - lane: lint-package-tests-a-m
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests-a-m
+          - lane: lint-package-tests-n-z
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests-n-z
           - lane: lint-repository
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
@@ -238,9 +248,9 @@ jobs:
       # The snapshot lanes REPLAY the sandbox example's recorded scenarios,
       # re-executing their bash calls under a real runner. ubuntu-latest has
       # no bubblewrap preinstalled and no built Landlock launcher, so without
-      # this the confined executions fail closed (SANDBOX_UNAVAILABLE). Same
-      # refreshed install as sandbox.yml's bwrap leg (incl. the Ubuntu 24.04
-      # AppArmor userns knob). Bubblewrap preparation is independent of
+      # this the confined executions fail closed (SANDBOX_UNAVAILABLE). The
+      # install retries after refreshing stale indexes and applies the Ubuntu
+      # 24.04 AppArmor userns knob. Bubblewrap preparation is independent of
       # dependency installation and the build, so it runs beside both.
       - name: Install and prepare built snapshot runtime and bubblewrap
         if: startsWith(matrix.lane, 'snapshot-')
@@ -248,8 +258,11 @@ jobs:
           pnpm install --frozen-lockfile &
           install_pid=$!
           (
-            sudo apt-get update -q
-            sudo apt-get install -yq --no-install-recommends bubblewrap
+            if ! sudo apt-get install -yq --no-install-recommends bubblewrap; then
+              echo "initial bubblewrap install failed; refreshing APT indexes and retrying"
+              sudo apt-get update -q
+              sudo apt-get install -yq --no-install-recommends bubblewrap
+            fi
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
               || echo "apparmor userns knob absent — the functional probe decides"
           ) &
@@ -409,16 +422,26 @@ jobs:
             command: pnpm run check:ci:static
             gate_concurrency: '4'
             static_shard: 'doc-types,api-contracts'
-          - lane: lint-package-sources
+          - lane: lint-package-sources-a-m
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-sources
-          - lane: lint-package-tests
+            lint_shard: package-sources-a-m
+          - lane: lint-package-sources-n-z
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-            lint_shard: package-tests
+            lint_shard: package-sources-n-z
+          - lane: lint-package-tests-a-m
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests-a-m
+          - lane: lint-package-tests-n-z
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests-n-z
           - lane: lint-repository
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
