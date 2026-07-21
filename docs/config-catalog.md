@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:248`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:253`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -611,6 +611,46 @@ export interface Config {
 
 Source: [`packages/llm/llm-retry/src/index.ts:39`](../packages/llm/llm-retry/src/index.ts)
 
+## `@deepseek-ai/dsh-lsp-local`
+
+Requires: `lsp`
+
+```ts config-catalog
+/** Plugin configuration: provider id → local language-server configuration. */
+export interface Config {
+  /** Non-empty table of stable provider ids to independent local server configurations. */
+  servers: Record<string, LspLocalServerConfig>
+}
+
+/** One configured local language server and its host bounds. */
+export interface LspLocalServerConfig {
+  /** Executable to spawn (absolute, or resolved on PATH at load). */
+  command: string
+  /** Lowercase leading-dot extension → LSP language id (e.g. `{ '.ts': 'typescript' }`). */
+  extensionToLanguage: Record<string, string>
+  /** Arguments passed to the executable (no shell). Default `[]`. */
+  args?: string[]
+  /** Extra env vars merged on top of the scrubbed ambient env. Default `{}`. */
+  env?: Record<string, string>
+  /** Static `initialize` options forwarded to the server. Default `null`. */
+  initializationOptions?: unknown
+  /** Static answer to every `workspace/configuration` item. Default `null`. */
+  configuration?: unknown
+  /** Largest single framed message accepted from the server (bytes). Default 16000000. */
+  maxMessageBytes?: number
+  /** Largest stderr tail retained for diagnostics (bytes). Default 1000000. */
+  maxStderrBytes?: number
+  /** Largest source file this host will open (bytes). Default 4000000. */
+  maxDocumentBytes?: number
+  /** Graceful `shutdown`/`exit` budget before escalation (ms). Default 5000. */
+  shutdownTimeoutMs?: number
+  /** Request-cancel and SIGTERM→SIGKILL grace (ms). Default 2000. */
+  killGraceMs?: number
+}
+```
+
+Source: [`packages/lsp/lsp-local/src/index.ts:85`](../packages/lsp/lsp-local/src/index.ts)
+
 ## `@deepseek-ai/dsh-mcp-client`
 
 Requires: `tools`
@@ -933,8 +973,11 @@ export interface Config {
   /** Arguments passed to {@link command}. */
   args: string[]
   /**
-   * Working directory for the child process and its ACP session. Defaults to
-   * the parent process's cwd when omitted.
+   * Working directory override for the child process and its ACP session.
+   * Must be non-empty; a relative path resolves against the harness launch
+   * directory at load, and the result must be an existing directory. When
+   * omitted, each child inherits its delegating parent session's cwd — and
+   * starting one from a parent session that has no cwd fails.
    */
   cwd?: string
   /**
@@ -964,7 +1007,7 @@ export interface Config {
 export type PermissionPolicy = 'allow' | 'reject'
 ```
 
-Source: [`packages/subagent/subagent-acp/src/index.ts:18`](../packages/subagent/subagent-acp/src/index.ts)
+Source: [`packages/subagent/subagent-acp/src/index.ts:21`](../packages/subagent/subagent-acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-fork`
 
@@ -1132,6 +1175,24 @@ export interface Config {
 ```
 
 Source: [`packages/goal/tool-goal/src/index.ts:27`](../packages/goal/tool-goal/src/index.ts)
+
+## `@deepseek-ai/dsh-tool-lsp`
+
+Requires: `tools` · `lsp` · `systemPrompt`
+
+```ts config-catalog
+/** Plugin configuration: result caps and the timeout budget. */
+export interface Config {
+  /** Largest number of rendered locations before an omission marker (default 100). */
+  maxLocations?: number
+  /** Largest complete rendered result in characters, including truncation metadata (default 16000). */
+  maxResultChars?: number
+  /** Tool-call timeout budget in ms (default 60000). */
+  timeoutMs?: number
+}
+```
+
+Source: [`packages/lsp/tool-lsp/src/index.ts:58`](../packages/lsp/tool-lsp/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-ralph`
 
@@ -1301,7 +1362,7 @@ Source: [`packages/core/tools/src/index.ts:468`](../packages/core/tools/src/inde
 
 ## `@deepseek-ai/dsh-tui`
 
-Requires: `agents` · `commands` · `userInteraction` · `tools`
+Requires: `agents` · `commands` · `userInteraction` · `tools` · `llm` · `systemPrompt` · `tokenMeter`
 
 ```ts config-catalog
 /** Serializable plugin configuration. */
@@ -1316,14 +1377,20 @@ export interface Config extends TuiConfig {
 export interface TuiConfig {
   /** Render model reasoning blocks. */
   showReasoning?: boolean
-  /** Maximum tool-output lines shown before the card is collapsed. */
+  /** Maximum tool-card body lines retained in its collapsed head/tail preview. */
   maxToolOutputLines?: number
-  /** Maximum options visible at once in a user-question dialog. */
+  /** Maximum options visible at once in a user-question panel. */
   maxQuestionOptions?: number
-  /** User-question dialog width in terminal columns. */
+  /** Maximum models visible at once in the model selector. */
+  maxModelOptions?: number
+  /** User-question panel width in terminal columns, clamped to the terminal. */
   questionDialogWidth?: number
-  /** User-question dialog maximum height in terminal rows. */
+  /** User-question panel maximum height in terminal rows. */
   questionDialogMaxHeight?: number
+  /** Model-selector width in terminal columns. */
+  modelDialogWidth?: number
+  /** Model-selector maximum height in terminal rows. */
+  modelDialogMaxHeight?: number
   /** Show the terminal's hardware cursor at the pi editor's IME marker. */
   showHardwareCursor?: boolean
   /** Apply the built-in ANSI color palette. */
@@ -1333,7 +1400,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:103`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:127`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 
@@ -1582,6 +1649,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-goal-session` — requires `agents` · `goals` · `sessions` ([`packages/goal/goal-session/src/index.ts`](../packages/goal/goal-session/src/index.ts))
 - `@deepseek-ai/dsh-invariants` — requires `sessions` ([`packages/support/invariants/src/index.ts`](../packages/support/invariants/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
+- `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-tasks` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))

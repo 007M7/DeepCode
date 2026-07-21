@@ -1,7 +1,7 @@
-terminal 100x36 buffer=normal length=40 base=4 viewport=4
+terminal 100x36 buffer=normal length=38 base=2 viewport=2
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH TUI snapshot"
-cursor hidden column=1 viewportRow=31 bufferRow=35
+cursor hidden column=1 viewportRow=33 bufferRow=35
 buffer
 0| "╭──────────────────────────────────────────────────────────────────────────────────────────────────╮"
   style 0-99 fg=bright-blue
@@ -93,7 +93,6 @@ buffer
   style 1-1 inverse
 36| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-37| "/workspace/project  ↑4.1k ↓227                 idle  reasoning:on  tools:compact"
-  style 0-49 dim
-  style 67-99 dim
-38-39| <blank>
+37| "/tmp/dsh-tui-snapshot-code-mo  ↑4.1k ↓227 4% context  tools:compact  deepseek-v4-flash(reasoning:on)"
+  style 0-28 dim
+  style 42-99 dim

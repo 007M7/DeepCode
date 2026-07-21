@@ -46,6 +46,7 @@
         "./packages/bash/*/src",
         "./packages/code-runtime/*/src",
         "./packages/fs/*/src",
+        "./packages/lsp/*/src",
         "./packages/skill/*/src",
         "./packages/compact/*/src",
         "./packages/context/*/src",
