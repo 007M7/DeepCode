@@ -78,7 +78,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/examples/jsonrpc-demo': { kind: 'indirect', reason: 'Only the externally configured plugin tree contributes model context.' },
   'packages/ui/permission': { kind: 'indirect', reason: 'The service writes mechanism events rendered by dsh-user-approval and dsh-tool-bash.' },
   'packages/ui/user-interaction': { kind: 'indirect', reason: 'Model-facing consumers render provider answers and seam errors.' },
-  'packages/util/home': { kind: 'indirect', reason: 'Only dsh-tool-bash exposes the resolved home to model commands.' },
   'packages/util/timeout': { kind: 'indirect', reason: 'Only timeout consumers render timeout outcomes.' },
   'packages/util/retention': { kind: 'indirect', reason: 'Only retention consumers render retained content and omission metadata.' },
   'packages/web/web': { kind: 'indirect', reason: 'The provider registry delegates model rendering to dsh-tool-web.' },
