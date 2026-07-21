@@ -322,6 +322,9 @@ describe('provider profile lifecycle', () => {
       provider: 'openai', id: 'gpt-4.1', name: 'GPT-4.1',
     })
     expect(models.every(model => model.provider === 'openai')).toBe(true)
+    const context = await ctx.llm.resolveModelContext('openai', 'gpt-4.1')
+    expect(context).toBeDefined()
+    expect(typeof context?.contextWindow).toBe('number')
   })
 
   it('accepts absent credentials for pi-ai ambient authentication', async () => {
@@ -373,6 +376,10 @@ describe('provider profile lifecycle', () => {
   it('constructs the adapter directly and rejects routes it does not own', async () => {
     const adapter = new PiAiAdapter({ profiles: [{ provider: 'openai' }] })
     await expect(adapter.listModels('anthropic')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
+    await expect(adapter.resolveModelContext('anthropic', 'claude-sonnet-4'))
+      .rejects.toMatchObject({ code: 'NO_ADAPTER' })
+    await expect(adapter.resolveModelContext('openai', 'not-a-catalog-model'))
+      .rejects.toMatchObject({ code: 'UNKNOWN_MODEL' })
     await expect((async () => {
       for await (const _chunk of adapter.stream({ provider: 'anthropic', model: 'claude-sonnet-4', messages: [] })) { /* drain */ }
     })()).rejects.toMatchObject({ code: 'NO_ADAPTER' })

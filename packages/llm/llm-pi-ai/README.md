@@ -28,7 +28,7 @@ Configure credentials and deployment-specific transport settings per provider. O
 
 Each provider name must exist in pi-ai's installed catalog and may appear only once in this plugin instance. Registration with `ctx.llm` is atomic: a collision with any provider route already owned by another adapter fails plugin loading without registering the remaining routes. Model ids are not lifecycle config; an unknown model fails before any provider request with `LlmError('UNKNOWN_MODEL')`.
 
-The adapter exposes each configured provider's installed pi-ai models through `ctx.llm.listModels(provider)`. This is provider-neutral selector metadata derived from `getModels(provider)`; request-time resolution still performs the authoritative catalog lookup, so discovery does not create a second model registry.
+The adapter exposes each configured provider's installed pi-ai models through `ctx.llm.listModels(provider)`. This is provider-neutral selector metadata derived from `getModels(provider)`; request-time resolution still performs the authoritative catalog lookup, so discovery does not create a second model registry. `ctx.llm.resolveModelContext(provider, model)` performs the same exact descriptor lookup and returns its context window, keeping capacity metadata on the route-owning adapter rather than a consuming plugin.
 
 Supported profile fields are `provider`, `apiKey`, `baseURL`, `headers`, `reasoning`, `thinkingBudgets`, `cacheRetention`, `transport`, `timeoutMs`, `websocketConnectTimeoutMs`, and `streamIdleTimeoutMs`. The stream-idle interval is a positive finite Node timer delay, defaults to five minutes, and covers only an outstanding provider read, not consumer think time. Harness app attribution wins a conflicting configured header name.
 

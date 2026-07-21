@@ -7,8 +7,18 @@ import ToolRegistry, { defineTool, type PostToolDecision } from '@deepseek-ai/ds
 import AgentRegistry, { type Agent, type ContinuationDecision } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { prepareReactLoopAgent } from '../src/agent.ts'
-import * as Invariants from '@deepseek-ai/dsh-invariants'
+import InvariantService from '@deepseek-ai/dsh-invariants'
+import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import { maxTokensResponse, MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+
+async function mountInvariants(ctx: Context): Promise<void> {
+  await ctx.plugin(InvariantService)
+  await ctx.plugin(SessionInvariant)
+  await ctx.plugin(AgentInvariant)
+  await ctx.plugin(AgentLoopInvariant)
+}
 
 function driverDone(agent: Agent): Promise<void> {
   return (agent as Agent & { done: Promise<void> }).done
@@ -144,7 +154,7 @@ describe('successful provider completion survives agent/step-result failure', ()
   ): Promise<void> {
     const adapter = new MockAdapter([response])
     const ctx = await harness(adapter)
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     const agent = ctx.agentLoop.create(SessionId(id), { provider: 'mock', model: 'mock' })
     const failure = new Error(`${id} result processing failed`)
     const reported: Error[] = []
@@ -1041,7 +1051,7 @@ describe('step boundary publication order', () => {
 })
 
 describe('turn and step boundary recovery', () => {
-  // The invariants plugin makes an unbalanced log fail the test.
+  // The session invariant companion makes an unbalanced log fail the test.
   async function balancedHarness(adapter: MockAdapter) {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -1050,7 +1060,7 @@ describe('turn and step boundary recovery', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
     return ctx
   }
@@ -1468,7 +1478,7 @@ describe('surface: assistant/message records exact empty provenance when no chun
     // stream from legacy events whose provenance was not recorded.
     const adapter = new MockAdapter([[]])
     const ctx = await harness(adapter)
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/step-result', async (_agent, _turn, _step, _message, _next) => ({
@@ -1505,7 +1515,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     // Parent-owned listener survives agent-fiber disposal.
@@ -1556,7 +1566,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
@@ -1611,7 +1621,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     ctx.on('agent/pre-step', async () => {
@@ -1662,7 +1672,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     ctx.on('agent/pre-step', async () => {
@@ -1711,7 +1721,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {

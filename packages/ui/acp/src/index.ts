@@ -44,10 +44,15 @@ import {
   type Stream,
   type StopReason,
 } from '@agentclientprotocol/sdk'
-import type { ContentBlock, LlmCallConfig, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import { assertNever, CallId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import {
+  installAgentLlmTarget,
+  type Agent,
+  type AgentLlmTarget as LlmTarget,
+  type AgentLlmTargetRef as LlmTargetRef,
+} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
 import { SessionId } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
@@ -258,19 +263,6 @@ export const Config: Schema<AcpConfig> = Schema.object({
   model: Schema.string(),
 })
 
-/** Provider/model pair selected for one ACP session. */
-interface LlmTarget {
-  provider: string
-  model: string
-}
-
-/** Mutable target shared by one agent's scoped assembly and request listeners. */
-interface LlmTargetRef {
-  current: LlmTarget | undefined
-  /** Step snapshot captured by prompt assembly so target switches cannot split prompt and request. */
-  assembled: LlmTarget | undefined
-}
-
 /** One resolved ACP model selector plus its opaque value lookup. */
 interface ModelDirectory {
   option: Extract<SessionConfigOption, { type: 'select' }> | undefined
@@ -338,32 +330,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
     const logged = agent.session.requestHeader()?.config
     if (logged !== undefined) target.current = { provider: logged.provider, model: logged.model }
 
-    // Capture once at assembly entry and apply the same pair after downstream
-    // prompt listeners. A selector change during async assembly therefore takes
-    // effect on the following step instead of splitting {{model}} from routing.
-    agentCtx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-      const selected = target.current
-      const assembled = await next()
-      target.assembled = selected
-      if (selected === undefined) return assembled
-      return {
-        ...assembled,
-        variables: {
-          ...assembled.variables,
-          provider: selected.provider,
-          model: selected.model,
-        },
-      }
-    })
-    agentCtx.on('agent/request', async (_agent, _turn, _step, _callConfig, next): Promise<LlmCallConfig> => {
-      const resolved = await next()
-      const selected = target.assembled
-      return selected === undefined ? resolved : {
-        ...resolved,
-        provider: selected.provider,
-        model: selected.model,
-      }
-    })
+    installAgentLlmTarget(agentCtx, target)
   }
 
   /** Opaque ACP value preserving both routing dimensions. */

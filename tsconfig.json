@@ -122,6 +122,9 @@
     { "path": "./packages/sdk/helper" },
     { "path": "./packages/sdk/scripts" },
     { "path": "./packages/sdk/create-sdk" },
-    { "path": "./packages/sdk/telemetry" }
+    { "path": "./packages/sdk/telemetry" },
+    { "path": "./packages/lsp/lsp" },
+    { "path": "./packages/lsp/lsp-local" },
+    { "path": "./packages/lsp/tool-lsp" }
   ]
 }

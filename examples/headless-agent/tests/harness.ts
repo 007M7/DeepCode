@@ -8,7 +8,6 @@ import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
-import type { TokenMeterConfig } from '@deepseek-ai/dsh-token-meter'
 import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
@@ -46,8 +45,8 @@ export interface CodingHarnessOptions {
    * compaction plugin (the default suites run without it).
    */
   compact?: BasicCompactConfig
-  /** Optional token-meter capacity loaded before compact-basic. */
-  tokenMeter?: TokenMeterConfig
+  /** Test-only context capacity advertised for `deepseek-v4-flash`. */
+  modelContextWindow?: number
 }
 
 export async function codingHarness(workdir: string, options: CodingHarnessOptions = {}): Promise<Context> {
@@ -56,14 +55,15 @@ export async function codingHarness(workdir: string, options: CodingHarnessOptio
     systemPrompt: { persona: options.persona ?? '' },
   })
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(LlmDeepSeek)
+  await ctx.plugin(LlmDeepSeek, options.modelContextWindow === undefined ? {} : {
+    models: [{ id: 'deepseek-v4-flash', contextWindow: options.modelContextWindow }],
+  })
   await ctx.plugin(LocalBashExecutor, { cwd: workdir, timeoutMs: 30_000 })
   await ctx.plugin(ToolBash)
   await ctx.plugin(ToolTodo)
-  // Compaction is opt-in: only the compaction e2e loads the reusable meter and
-  // backend, with a lower context window so a short real session crosses the threshold.
+  // Compaction is opt-in: only the compaction e2e loads the reusable meter and backend.
   if (options.compact !== undefined) {
-    await ctx.plugin(TokenMeterService, options.tokenMeter)
+    await ctx.plugin(TokenMeterService)
     await ctx.plugin(ToolResultPruneService)
     await ctx.plugin(BasicCompactService, options.compact)
   }
