@@ -430,6 +430,29 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     expect(result).toEqual({ logs: [], error: { kind: 'exception', message: 'fake failure' } })
   })
 
+  it('contains a deeply nested forged completion without overflowing the host meter', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        let value = null;
+        for (let depth = 0; depth < 3_000; depth++) value = [value];
+        parentPort.postMessage({ type: 'done', value });
+      `,
+      bindings: [],
+    })
+    expect(result.error).toBeUndefined()
+    let value = result.value
+    let depth = 0
+    while (Array.isArray(value)) {
+      expect(value).toHaveLength(1)
+      value = value[0]
+      depth += 1
+    }
+    expect(depth).toBe(3_000)
+    expect(value).toBeNull()
+  })
+
   it('turns forged over-limit error text into output-limit at the host', async () => {
     const { runtime } = await setup({ maxOutputBytes: 64 })
     const result = await runtime.run({

@@ -94,6 +94,8 @@ describe('snapshotJsonValue', () => {
     Object.defineProperty(symbolDecorated, Symbol('extra'), { value: true })
     const hiddenObject = Object.defineProperty({}, 'hidden', { value: true })
     const symbolObject = { [Symbol('extra')]: true }
+    const customPrototype = Object.create(null) as Record<string, unknown>
+    const customPrototypeObject = Object.assign(Object.create(customPrototype) as Record<string, unknown>, { value: 1 })
     const forgedPrototype: unknown[] = []
     Object.setPrototypeOf(forgedPrototype, null)
     const forgedArray = [1]
@@ -117,6 +119,7 @@ describe('snapshotJsonValue', () => {
     expect(snapshotJsonValue(symbolDecorated)).toBeUndefined()
     expect(snapshotJsonValue(hiddenObject)).toBeUndefined()
     expect(snapshotJsonValue(symbolObject)).toBeUndefined()
+    expect(snapshotJsonValue(customPrototypeObject)).toBeUndefined()
     expect(snapshotJsonValue(forgedArray)).toBeUndefined()
     expect(snapshotJsonValue(cyclic)).toBeUndefined()
     expect(snapshotJsonValue([undefined])).toBeUndefined()
@@ -188,6 +191,8 @@ describe('isJsonValue', () => {
     Object.defineProperty(symbolDecorated, Symbol('extra'), { value: true })
     const hiddenObject = Object.defineProperty({}, 'hidden', { value: true })
     const symbolObject = { [Symbol('extra')]: true }
+    const customPrototype = Object.create(null) as Record<string, unknown>
+    const customPrototypeObject = Object.assign(Object.create(customPrototype) as Record<string, unknown>, { value: 1 })
     const forgedPrototype: unknown[] = []
     Object.setPrototypeOf(forgedPrototype, null)
     const forgedArray = [1]
@@ -201,6 +206,7 @@ describe('isJsonValue', () => {
     expect(isJsonValue(symbolDecorated)).toBe(false)
     expect(isJsonValue(hiddenObject)).toBe(false)
     expect(isJsonValue(symbolObject)).toBe(false)
+    expect(isJsonValue(customPrototypeObject)).toBe(false)
     expect(isJsonValue(forgedArray)).toBe(false)
     expect(isJsonValue(new ExoticArray(1))).toBe(false)
     expect(isJsonValue([undefined])).toBe(false)

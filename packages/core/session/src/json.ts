@@ -12,20 +12,35 @@
  */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
+/** Whether a realm-owned intrinsic prototype names and points back to its constructor. */
+function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): boolean {
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'constructor')
+  const constructor: unknown = descriptor?.value
+  return typeof constructor === 'function'
+    && constructor.name === name
+    && constructor.prototype === prototype
+}
+
+/** Whether a candidate is one realm's intrinsic `Object.prototype`. */
+function isIntrinsicObjectPrototype(value: object): boolean {
+  return Object.getPrototypeOf(value) === null && hasIntrinsicConstructor(value, 'Object')
+}
+
 /** Whether an array uses one realm's intrinsic `Array.prototype`, not a subclass or forged prototype. */
 function hasPlainArrayPrototype(value: unknown[]): boolean {
   const prototype: unknown = Object.getPrototypeOf(value)
-  if (!Array.isArray(prototype)) return false
+  if (!Array.isArray(prototype) || !hasIntrinsicConstructor(prototype, 'Array')) return false
   const objectPrototype: unknown = Object.getPrototypeOf(prototype)
-  return objectPrototype !== null
-    && !Array.isArray(objectPrototype)
-    && Object.getPrototypeOf(objectPrototype) === null
+  return typeof objectPrototype === 'object'
+    && objectPrototype !== null
+    && isIntrinsicObjectPrototype(objectPrototype)
 }
 
 /** Whether an object is a plain or null-prototype record from any JavaScript realm. */
 function hasPlainObjectPrototype(value: object): boolean {
   const prototype: unknown = Object.getPrototypeOf(value)
-  return prototype === null || Object.getPrototypeOf(prototype) === null
+  return prototype === null
+    || typeof prototype === 'object' && isIntrinsicObjectPrototype(prototype)
 }
 
 /** Return every JSON-visible object key, or reject own data JSON would discard. */

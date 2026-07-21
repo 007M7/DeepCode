@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { CodeJsonValue } from '@deepseek-ai/dsh-code-runtime'
 import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from '../src/output-json.ts'
 
 describe('truncateJsonStringBytes', () => {
@@ -45,6 +46,8 @@ describe('jsonValueBytesUpTo', () => {
     expect(jsonValueBytesUpTo(value, bytes)).toBe(bytes)
     expect(jsonValueBytesUpTo(value, bytes - 1)).toBeUndefined()
     expect(jsonValueBytesUpTo({}, 1)).toBeUndefined()
+    expect(jsonValueBytesUpTo([], 1)).toBeUndefined()
+    expect(jsonValueBytesUpTo([], 2)).toBe(2)
     expect(jsonValueBytesUpTo(null, 3)).toBeUndefined()
     expect(jsonValueBytesUpTo(10, 1)).toBeUndefined()
     expect(jsonValueBytesUpTo(false, 4)).toBeUndefined()
@@ -55,5 +58,14 @@ describe('jsonValueBytesUpTo', () => {
     expect(jsonValueBytesUpTo({ long: null }, 2)).toBeUndefined()
     expect(jsonValueBytesUpTo({ '': null }, 4)).toBeUndefined()
     expect(jsonValueBytesUpTo({ a: null }, 9)).toBeUndefined()
+    expect(jsonValueBytesUpTo({ a: undefined } as unknown as CodeJsonValue, 100)).toBeUndefined()
+  })
+
+  it('meters deeply nested arrays without recursive stack growth', () => {
+    let value: CodeJsonValue = null
+    for (let depth = 0; depth < 5_000; depth++) value = [value]
+
+    expect(jsonValueBytesUpTo(value, 10_004)).toBe(10_004)
+    expect(jsonValueBytesUpTo(value, 10_003)).toBeUndefined()
   })
 })
