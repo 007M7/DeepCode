@@ -37,6 +37,15 @@ function afterCheckpoint(
   })()
 }
 
+/** Materialize the canonical result for a call cancelled before tool dispatch. */
+function abortedToolResult(): ToolExecutionResult {
+  return {
+    content: [{ type: 'text', text: 'Error: tool call skipped because the step was aborted before execution' }],
+    isError: true,
+    error: { name: 'AbortError', code: 'ABORTED' },
+  }
+}
+
 /**
  * Install semantic checkpoint listeners. Loop-built model calls checkpoint the
  * logged request before adapter dispatch; top-level tool calls checkpoint their
@@ -58,6 +67,7 @@ export function apply(ctx: Context): void {
   ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {
     if (exec.agent === undefined || exec.parent !== undefined) return next()
     await ctx.sessions.flush(exec.agent.session)
+    if (exec.signal?.aborted === true) return abortedToolResult()
     return next()
   })
 

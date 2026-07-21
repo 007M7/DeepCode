@@ -343,6 +343,35 @@ describe('Agent.cancel()', () => {
     expect(adapter.requests).toHaveLength(1)
   })
 
+  it('preserves cancellation when disposal follows during post-step work', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(adapter)
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('cancel-then-dispose'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const agent = handle.agent
+    ctx.on('agent/post-step', async (subject) => {
+      if (subject !== agent) return
+      entered.resolve(undefined)
+      await release.promise
+    })
+
+    send(agent, 'go')
+    await entered.promise
+    agent.cancel('user cancelled')
+    const disposed = handle.dispose()
+    release.resolve(undefined)
+    await disposed
+
+    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason)
+      .toEqual({ kind: 'aborted', reason: 'user cancelled' })
+    await ctx.fiber.dispose()
+  })
+
   it('cancel() with no reason defaults to "cancelled" when aborting an in-flight step', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)

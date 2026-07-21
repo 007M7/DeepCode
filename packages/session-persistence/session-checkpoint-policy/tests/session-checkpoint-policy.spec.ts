@@ -134,6 +134,40 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     expect(order).toEqual(['flush:start', 'flush:end', 'tool'])
   })
 
+  it('does not dispatch when cancellation lands during the tool checkpoint', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create(SessionId('tool-checkpoint-cancel'))
+    const agent = { session } as Agent
+    const controller = new AbortController()
+    const gate = Promise.withResolvers<undefined>()
+    const order: string[] = []
+    ctx.on('session/flush', async () => {
+      order.push('flush:start')
+      await gate.promise
+      order.push('flush:end')
+    })
+    ctx.tools.register({
+      name: 'write', description: 'side effect', parameters: {},
+      execute: async () => { order.push('tool'); return [] },
+    })
+
+    const pending = ctx.tools.execute({
+      callId: CallId('write-cancelled'), name: 'write', arguments: {}, agent,
+      signal: controller.signal,
+    })
+    await Promise.resolve()
+    expect(order).toEqual(['flush:start'])
+    controller.abort('cancelled during checkpoint')
+    gate.resolve(undefined)
+
+    await expect(pending).resolves.toEqual({
+      content: [{ type: 'text', text: 'Error: tool call skipped because the step was aborted before execution' }],
+      isError: true,
+      error: { name: 'AbortError', code: 'ABORTED' },
+    })
+    expect(order).toEqual(['flush:start', 'flush:end'])
+  })
+
   it('turns a rejected checkpoint into an error result without running the tool body', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('tool-failure'))

@@ -88,6 +88,19 @@ function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
   }
 }
 
+/** Classify an interruption before a step controller can provide an abort reason. */
+function pendingInterruptionReason(handle: LoopHandle): TurnEndReason {
+  if (handle.isCancelled()) return { kind: 'aborted', reason: handle.cancelReason() }
+  return { kind: 'disposed' }
+}
+
+/** Preserve an effective cancel reason when structural disposal follows it. */
+function stepInterruptionReason(handle: LoopHandle, signal: AbortSignal): TurnEndReason {
+  if (handle.isCancelled()) return { kind: 'aborted', reason: handle.cancelReason() }
+  if (handle.isDisposed()) return { kind: 'disposed' }
+  return { kind: 'aborted', reason: String(signal.reason) }
+}
+
 /** Mutable agent controls supplied to the loop driver. */
 export interface LoopHandle {
   /** Native-private agent inbox handed to the driver only at internal startup. */
@@ -307,7 +320,7 @@ async function runTurn(
       // Cancellation or disposal during assembly ends the turn before any step opens.
       if (handle.isCancelled() || handle.isDisposed()) {
         handle.setAbort(undefined)
-        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
+        reason = pendingInterruptionReason(handle)
         break
       }
 
@@ -324,7 +337,7 @@ async function runTurn(
         // Never cache an interrupted composition; the next turn recomposes it.
         if (handle.isCancelled() || handle.isDisposed()) {
           handle.setAbort(undefined)
-          reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
+          reason = pendingInterruptionReason(handle)
           break
         }
         transmission.sessionPrefix = deepFreeze(structuredClone(composed))
@@ -336,7 +349,7 @@ async function runTurn(
       // Interruption landing during the pre-step seam: do not open an empty step.
       if (handle.isCancelled() || handle.isDisposed()) {
         handle.setAbort(undefined)
-        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
+        reason = pendingInterruptionReason(handle)
         break
       }
 
@@ -356,7 +369,7 @@ async function runTurn(
       // turn accordingly. closeStep balances the already-appended step/start.
       if (handle.isCancelled() || handle.isDisposed()) {
         handle.setAbort(undefined)
-        reason = handle.isDisposed() ? { kind: 'disposed' } : { kind: 'aborted', reason: handle.cancelReason() }
+        reason = pendingInterruptionReason(handle)
         closeStep()
         break
       }
@@ -382,9 +395,7 @@ async function runTurn(
         closeStep()
         if (handle.isDisposed() || abort.signal.aborted) {
           handle.setAbort(undefined)
-          reason = handle.isDisposed()
-            ? { kind: 'disposed' }
-            : { kind: 'aborted', reason: String(abort.signal.reason) }
+          reason = stepInterruptionReason(handle, abort.signal)
           break
         }
 
@@ -407,9 +418,7 @@ async function runTurn(
         // or a recovery-listener failure.
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         if (handle.isDisposed() || abort.signal.aborted) {
-          reason = handle.isDisposed()
-            ? { kind: 'disposed' }
-            : { kind: 'aborted', reason: String(abort.signal.reason) }
+          reason = stepInterruptionReason(handle, abort.signal)
           break
         }
         switch (recoveryDecision.action) {
@@ -434,11 +443,8 @@ async function runTurn(
         handle.setAbort(undefined)
         const { error } = stepOutcome
         /* v8 ignore next -- narrow race: disposal while non-request step work throws. */
-        if (handle.isDisposed()) {
-          reason = { kind: 'disposed' }
-        } else if (abort.signal.aborted) {
-          /* v8 ignore next -- signal.reason always set: cancel()/disposal provide a default */
-          reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
+        if (handle.isDisposed() || handle.isCancelled() || abort.signal.aborted) {
+          reason = stepInterruptionReason(handle, abort.signal)
         } else {
           failTurn(error)
         }
@@ -464,11 +470,8 @@ async function runTurn(
         closeStep()
         handle.setAbort(undefined)
         /* v8 ignore next -- narrow race: disposal while a post-step listener throws. */
-        if (handle.isDisposed()) {
-          reason = { kind: 'disposed' }
-        } else if (abort.signal.aborted) {
-          /* v8 ignore next -- signal.reason always set by cancellation or disposal. */
-          reason = { kind: 'aborted', reason: String(abort.signal.reason ?? 'aborted') }
+        if (handle.isDisposed() || handle.isCancelled() || abort.signal.aborted) {
+          reason = stepInterruptionReason(handle, abort.signal)
         } else {
           failTurn(stepOutcome.error)
         }
@@ -476,9 +479,7 @@ async function runTurn(
       }
 
       if (handle.isDisposed() || abort.signal.aborted) {
-        reason = handle.isDisposed()
-          ? { kind: 'disposed' }
-          : { kind: 'aborted', reason: String(abort.signal.reason) }
+        reason = stepInterruptionReason(handle, abort.signal)
         closeStep()
         handle.setAbort(undefined)
         break

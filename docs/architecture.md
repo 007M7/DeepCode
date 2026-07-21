@@ -118,9 +118,9 @@ Pruning precedes summaries; overflow retries require durable progress. Bounded t
 
 The turn is the containment boundary. Adapter failures close the step, entering `agent/request-error` with the exact `Error`, `LlmFailure`, and retry history. Retry opens a numbered step; success clears history; exhaustion stores the failure on `turn/end`. Failed chunks commit no message or tool.
 
-Other failures use `agent/error`. Cancellation beats recovery; undispatched calls get synthetic `ABORTED` results. Effective `cancel()` emits `agent/cancel-requested` before queue clearing or abort; observers cannot veto it, and idle calls emit nothing. Disposal awaits quiescence.
+Other failures use `agent/error`. Cancellation beats recovery and later disposal; undispatched calls get synthetic `ABORTED` results. Effective `cancel()` emits `agent/cancel-requested` before clearing or aborting work; observers cannot veto it, and idle calls emit nothing. Disposal alone yields `disposed` and always awaits quiescence.
 
-Every session event is turn-enclosed. Reloading preserves an interrupted tail and closes it with a synthetic `interrupted` turn end. Failures after durable turn close report only through `agent/error` because no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
+Session events are turn-enclosed. Reload closes an interrupted tail with a synthetic `interrupted` turn end. Post-close failures report only through `agent/error`; no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
 
 ### Agent Handles
 
