@@ -15,6 +15,7 @@ import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SubagentService from '@deepseek-ai/dsh-subagent'
@@ -170,6 +171,7 @@ async function mountScenarioContext(
     tools: { mode: scenario.composition === 'code' ? 'code' : scenario.composition === 'advanced' ? 'both' : 'native' },
     skills: { local: { agentsHome: join(cwd, '.agents') } },
   })
+  await ctx.plugin(TokenMeterService)
   await ctx.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await ctx.plugin(LocalFileSystem, { cwd: '/' })
   await ctx.plugin(FsPolicy)
