@@ -13,10 +13,11 @@ export interface CoverageShard {
 /** Exhaustive, non-overlapping ownership of workspace packages in coverage CI. */
 export const coverageShards = [
   {
-    name: 'spine',
-    packageRoots: ['core', 'llm', 'compact', 'context'],
+    name: 'core',
+    packageRoots: ['core', 'context'],
     extraTestRoots: ['packages/examples/cli-demo/tests'],
   },
+  { name: 'models', packageRoots: ['llm', 'compact'] },
   { name: 'sdk', packageRoots: ['sdk'] },
   {
     name: 'interfaces',
@@ -24,17 +25,34 @@ export const coverageShards = [
     extraTestRoots: ['examples'],
   },
   { name: 'execution', packageRoots: ['fs', 'bash', 'sandbox', 'code-runtime'] },
-  { name: 'orchestration', packageRoots: ['workflow', 'subagent', 'tasks'] },
   {
-    name: 'infrastructure',
-    packageRoots: ['cordis', 'support', 'lsp', 'mcp'],
+    name: 'workflow',
+    packageRoots: ['workflow/workflow', 'workflow/tool-workflow', 'workflow/tool-ralph'],
+  },
+  { name: 'workflow-worker', packageRoots: ['workflow/workflow-workerthread'] },
+  { name: 'delegation', packageRoots: ['subagent', 'tasks'] },
+  {
+    name: 'repository',
+    packageRoots: [
+      'cordis',
+      'support/acp-snapshot',
+      'support/agent-loop-testkit',
+      'support/llm-replay',
+      'support/loader-smoke',
+    ],
+  },
+  {
+    name: 'scripts',
+    packageRoots: ['support/invariants'],
     extraTestRoots: ['scripts'],
   },
+  { name: 'integrations', packageRoots: ['lsp', 'mcp'] },
   {
     name: 'session-state',
     packageRoots: ['session-persistence', 'session-query'],
   },
-  { name: 'hooks-claude', packageRoots: ['hooks/hook-protocol', 'hooks/hooks-claude'] },
+  { name: 'hook-protocol', packageRoots: ['hooks/hook-protocol'] },
+  { name: 'hooks-claude', packageRoots: ['hooks/hooks-claude'] },
   { name: 'hooks-codex', packageRoots: ['hooks/hooks-codex'] },
   {
     name: 'capabilities',

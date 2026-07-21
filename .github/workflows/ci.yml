@@ -58,11 +58,16 @@ jobs:
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
-          - lane: coverage-spine
+          - lane: coverage-core
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
             coverage_max_workers: '4'
-            coverage_shard: spine
+            coverage_shard: core
+          - lane: coverage-models
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: models
           - lane: coverage-sdk
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
@@ -78,16 +83,36 @@ jobs:
             gate_concurrency: '1'
             coverage_max_workers: '4'
             coverage_shard: execution
-          - lane: coverage-orchestration
+          - lane: coverage-workflow
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
             coverage_max_workers: '4'
-            coverage_shard: orchestration
-          - lane: coverage-infrastructure
+            coverage_shard: workflow
+          - lane: coverage-workflow-worker
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
             coverage_max_workers: '4'
-            coverage_shard: infrastructure
+            coverage_shard: workflow-worker
+          - lane: coverage-delegation
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: delegation
+          - lane: coverage-repository
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: repository
+          - lane: coverage-scripts
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: scripts
+          - lane: coverage-integrations
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: integrations
           - lane: coverage-session-state
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
@@ -98,6 +123,11 @@ jobs:
             gate_concurrency: '1'
             coverage_max_workers: '4'
             coverage_shard: hooks-claude
+          - lane: coverage-hook-protocol
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: hook-protocol
           - lane: coverage-hooks-codex
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
