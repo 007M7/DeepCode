@@ -10,8 +10,12 @@ import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { CallId, type Message } from '@deepseek-ai/dsh-llm'
+import { CallId, LlmAdapter, LlmError, type GenerateOptions, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import * as sessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import * as agentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import * as scopeInvariant from '@deepseek-ai/dsh-scope/invariant'
+import * as agentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 
 declare module '@deepseek-ai/dsh-tasks' {
   interface TaskKindMap {
@@ -44,7 +48,14 @@ async function mount(config: agentCore.Config, withBash = false): Promise<Contex
   process.env.DSH_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-home-'))
   process.env.DSH_AGENTS_HOME = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-agents-'))
   const ctx = new Context()
-  if (withBash) ctx.provide('bash', { sandboxMode: undefined })
+  if (withBash) {
+    ctx.provide('bash', {
+      sandboxMode: undefined,
+      resolve() { throw new Error('composition test does not execute bash') },
+      run() { throw new Error('composition test does not execute bash') },
+      start() { throw new Error('composition test does not execute bash') },
+    })
+  }
   try {
     await ctx.plugin(agentCore, config)
     // The bundle mounts its children inside apply() (not awaited there); let their
@@ -101,6 +112,16 @@ function messageText(message: Message | undefined): string {
   return message?.content.map(block => block.type === 'text' ? block.text : '').join('\n') ?? ''
 }
 
+class TransientOnceAdapter extends LlmAdapter {
+  requests = 0
+
+  async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.requests += 1
+    if (this.requests === 1) throw new LlmError('temporary outage', 'SERVER')
+    yield* textResponse('recovered by bundled policy')
+  }
+}
+
 describe('dsh-agent-spine-demo bundle', () => {
   it('brings up the full default spine', async () => {
     const ctx = await mount({ workspaceContext: false })
@@ -113,7 +134,90 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(ctx.get('skills')).toBeDefined()
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('tasks')).toBeDefined()
+    expect(ctx.get('invariants')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
+    expect(ctx.get('goals')).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('opts into the configured persisted-goal domain, tools, and same-session driver', async () => {
+    const ctx = await mount({
+      workspaceContext: false,
+      agents: [{ id: SessionId('configured-goal'), provider: 'mock', model: 'mock' }],
+      goals: {
+        domain: { defaultMaxGoalRounds: 17 },
+        tool: { blockedAfterConsecutiveRounds: 5 },
+      },
+    })
+    const agent = ctx.agents.list()[0]
+    if (agent === undefined) throw new Error('configured goal test has no live agent')
+    expect(ctx.goals.create(agent, { objective: 'configured' })).toMatchObject({
+      objective: 'configured', maxGoalRounds: 17,
+    })
+    expect(['create_goal', 'get_goal', 'update_goal'].map(name => ctx.tools.get(name)?.name))
+      .toEqual(['create_goal', 'get_goal', 'update_goal'])
+    expect((await ctx.systemPrompt.assemble()).sections.find(section => section.name === 'tool:goal')?.text)
+      .toContain('at least 5 consecutive goal rounds')
+    await ctx.fiber.dispose()
+  })
+
+  it('accepts an explicit false goal composition without mounting it', async () => {
+    const ctx = await mount({ workspaceContext: false, goals: false })
+    expect(ctx.get('goals')).toBeUndefined()
+    expect(ctx.tools.get('get_goal')).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('mounts package companions and forwards invariant selection config', async () => {
+    const nestedTurn = (ctx: Context): void => {
+      const session = ctx.sessions.create()
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    }
+
+    const enabled = await mount({ workspaceContext: false })
+    expect(() => { nestedTurn(enabled) }).toThrow(/turn 1 is still open/)
+    await enabled.fiber.dispose()
+
+    for (const invariants of [
+      { enabled: false },
+      { package_allowlist: ['^@deepseek-ai/dsh-agent$'] },
+      { package_blocklist: ['^@deepseek-ai/dsh-session$'] },
+    ]) {
+      const filtered = await mount({ workspaceContext: false, invariants })
+      expect(() => { nestedTurn(filtered) }).not.toThrow()
+      await filtered.fiber.dispose()
+    }
+  })
+
+  it('loads and configures bounded request recovery for every bundled front door', async () => {
+    const adapter = new TransientOnceAdapter()
+    const ctx = await mount({
+      workspaceContext: false,
+      llmRetry: {
+        maxTransientRetries: 1,
+        initialDelayMs: 1,
+        maxDelayMs: 1,
+        jitterRatio: 0,
+      },
+    })
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('bundled-retry-session'),
+      meta: { cwd: process.cwd() },
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+
+    handle.agent.send([{ type: 'text', text: 'recover' }])
+    await waitForIdle(ctx, handle.agent)
+
+    expect(adapter.requests).toBe(2)
+    const retryEvents = handle.agent.session.events.filter(event => event.type === 'llm/retry')
+    expect(retryEvents).toHaveLength(1)
+    expect(retryEvents[0]?.data.retry).toBe(1)
+    expect(retryEvents[0]?.data.maxRetries).toBe(1)
+    expect(messageText(handle.agent.session.deriveMessages().at(-1))).toBe('recovered by bundled policy')
+    await handle.dispose()
     await ctx.fiber.dispose()
   })
 
@@ -167,6 +271,23 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(ctx.get('agents')?.list()).toHaveLength(0)
     const assembly = await ctx.get('systemPrompt')!.assemble()
     expect(assembly.sections.find(s => s.name === 'deployment:persona')?.text).toBe('')
+    await ctx.fiber.dispose()
+  })
+
+  it('uses owner defaults for a schema-bypassing empty goal opt-in', async () => {
+    const ctx = new Context()
+    agentCore.apply(ctx, {
+      workspaceContext: false,
+      agents: [{ id: SessionId('defaulted-goal'), provider: 'mock', model: 'mock' }],
+      goals: {},
+    })
+    await new Promise(resolve => setTimeout(resolve, 50))
+    const agent = ctx.agents.list()[0]
+    if (agent === undefined) throw new Error('default goal test has no live agent')
+    expect(ctx.goals.create(agent, { objective: 'defaulted' })).toMatchObject({
+      objective: 'defaulted', maxGoalRounds: 256,
+    })
+    expect(ctx.tools.get('get_goal')).toBeDefined()
     await ctx.fiber.dispose()
   })
 
@@ -370,6 +491,8 @@ describe('dsh-agent-spine-demo bundle', () => {
       skills: { enabled: false },
       toolBash: { enableRunInBackground: false },
       toolTasks: false as const,
+      invariants: { enabled: false },
+      llmRetry: { maxTransientRetries: 1, jitterRatio: 0 },
     }
 
     expect(agentCore.pickSpineConfig(appConfig)).toEqual({
@@ -381,6 +504,8 @@ describe('dsh-agent-spine-demo bundle', () => {
       skills: appConfig.skills,
       toolBash: appConfig.toolBash,
       toolTasks: appConfig.toolTasks,
+      invariants: appConfig.invariants,
+      llmRetry: appConfig.llmRetry,
     })
     expect(agentCore.pickSpineConfig({ workspaceContext: false })).toEqual({ workspaceContext: false })
   })
@@ -440,5 +565,17 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(unwrapped.name).toBe('agent-spine-demo')
     expect(unwrapped.Config).toBeDefined()
     expect(typeof unwrapped.apply).toBe('function')
+  })
+
+  it('keeps each standard-spine invariant companion loadable through the real Loader unwrap path', () => {
+    const loader = Object.create(Loader.prototype) as Loader
+    for (const companion of [sessionInvariant, agentInvariant, scopeInvariant, agentLoopInvariant]) {
+      expect('default' in companion).toBe(false)
+      const unwrapped = loader.unwrapExports(companion) as Record<string, unknown>
+      expect(unwrapped).toBe(companion)
+      expect(typeof unwrapped.name).toBe('string')
+      expect(unwrapped.inject).toContain('invariants')
+      expect(typeof unwrapped.apply).toBe('function')
+    }
   })
 })

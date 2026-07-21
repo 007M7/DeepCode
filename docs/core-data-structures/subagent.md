@@ -49,7 +49,10 @@ interface SubagentStartRequest {
    * The spawning ("parent") agent — the one whose tool call started this
    * subagent. REQUIRED: in-process backends read `parent.session.header` for
    * the working directory, the `parentSession` lineage to stamp on the child,
-   * and the parent's delegation depth. Out-of-process backends (ACP) ignore it.
+   * and the parent's delegation depth. The out-of-process backend (ACP) reads
+   * exactly one field — the session header's cwd, the child's workspace when
+   * no deployment `cwd` override is configured; nothing else crosses the
+   * process boundary.
    */
   readonly parent: Agent
   /**
@@ -237,5 +240,5 @@ interface SubagentProvider {
 
 The spawn and fork backends create an ordinary agent through `parent.ctx`, pass cancellation into core creation, and dispose through `AgentHandle`. Provider removal blocks new starts without revoking accepted runs. Each child gets a new flat scope rather than inheriting parent registrations. Depth and fork seeding reuse existing agent and session vocabulary:
 
-- **Delegation depth** is a merge-extensible `AgentOptions.subagentDepth` field (`0` for a top-level agent, parent + 1 for a child). Only `undefined` means top level; every stored present value must be a non-negative safe integer. The seam owns it — the loop neither sets nor reads it — so a nested spawn validates its parent's stored depth, rejects a derived child depth outside the safe-integer domain, and applies a defined absolute `request.maxDepth` cap to that child.
+- **Delegation depth** is durable `SessionHeader.delegationDepth` plus the merge-extensible runtime field `AgentOptions.subagentDepth`; absence means top-level depth zero, and the greater present value is authoritative. The seam owns both fields — the loop neither sets nor reads them — so an in-process child persists parent depth + 1, resume cannot lower it, and every start rejects a derived depth outside the safe-integer domain or above a defined absolute `request.maxDepth` cap.
 - **Fork seeding** uses `CreateAgentOptions.seed` (a `SessionEvent[]` prefix threaded through `AgentLoop.createAgent` → `ctx.sessions.prepare({ seed })`, the same primitive `resume` uses). The fork backend passes a *balanced completed-turn prefix* of the parent's log — the parent's events up to and including its last `turn/end` — so the seed is contiguous-from-0 and the [invariants](../../packages/support/invariants) replay accepts it (the in-flight, unbalanced turn is excluded).

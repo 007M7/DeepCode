@@ -27,6 +27,10 @@ The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loo
 
 `agents`, `sessions`, `llm`, `tools`, `systemPrompt` — all five interface services.
 
+### Invariant companion
+
+The optional `@deepseek-ai/dsh-agent-loop/invariant` companion registers request reconstruction with `ctx.invariants`. The loop marks each request with an internal non-enumerable identity before freezing it; the companion then requires a live session and independently rebuilds the message boundary and folded request header from the log. Direct one-shot calls remain outside this contract even when callers freeze them or attach a session id.
+
 ### Configuration (schemastery)
 
 ```ts
@@ -46,7 +50,9 @@ Configured agents start automatically. A model call requires both `provider` and
 
 ### Internal concrete driver
 
-The concrete `Agent` class, its `Inbox`, `runLoop`, and instance-bound publication/start controls are package-internal. The package root exports only the plugin/service/config contract, and the package exports map exposes no `./src/*` escape hatch; lifecycle owners create agents through `ctx.agents` rather than naming, constructing, or starting driver internals. The concrete `send()`, running `steer()`, and open-turn `inject()` materialize content plus resolved source once as detached, deeply frozen lossless JSON; malformed data throws before enqueue or append. An injection that arrives while the current step executes assistant tool calls stays in a FIFO until the batch settles; successful batches place it after the complete result batch, and interrupted batches drain it before the turn closes. One prepared session can be claimed by only one concrete driver, and everything observable happens through session events and the `agent/*` event taxonomy.
+The concrete `Agent` class, its `Inbox`, `runLoop`, and instance-bound publication/start controls are package-internal. The package root exports only the plugin/service/config contract, and the package exports map exposes no `./src/*` escape hatch; lifecycle owners create agents through `ctx.agents` rather than naming, constructing, or starting driver internals. One prepared session can be claimed by only one concrete driver, and everything observable happens through session events and the `agent/*` event taxonomy.
+
+Each concrete `send()` materializes content plus resolved source once as a detached, deeply frozen lossless-JSON FIFO item. If claimed, it is the sole ordinary message in its turn; a successor waits for the preceding ordinary turn's checkpoint to settle, while cancellation, disposal, or a pre-start failure may drop it without a turn. Running `steer()` enters the steering FIFO: an open turn records it at the next steering checkpoint before a request or continuation decision, but policy can still stop before another step; steering left after turn close and its checkpoint becomes later queued input unless terminal turn policy, cancellation, or disposal discards it. Open-turn `inject()` uses the same accepted-value boundary but defers in a FIFO while the current step executes assistant tool calls; successful batches place it after all results, and interrupted batches drain it before turn close. Malformed data throws before enqueue or append.
 
 ### Loop lifecycle (`loop.ts`)
 
@@ -54,7 +60,7 @@ The driver owns one agent for its lifetime and runs inside `ctx.agents.withIniti
 
 Every provider call that reaches a successful finish appends exactly one `assistant/message` completion anchor, including content-less calls and `max-tokens` finishes. A successful `agent/step-result` stores its transformed content; a rejected result records empty content before the original failure continues. The anchor retains exact chunk provenance (`[]` for a stream with no chunks) and usage when available, while empty content stays out of derived message history.
 
-Plugin failure ends the current turn, not the loop. Only final adapter dispatch/iteration failures and terminal in-band error or aborted finishes enter `agent/request-error`; middleware, result processing, tools, and `agent/post-step` remain ordinary turn failures. Recovery observes a closed failed step, and a retry rebuilds the request from the durable log in a new numbered step. Cancellation clears pending work and aborts the current step without leaking to the next prompt; undispatched model tool calls receive synthetic `tool/call` and aborted result pairs. Terminal continuation stops remain authoritative through turn close and durability flush.
+Plugin failure ends the current turn, not the loop. Only final adapter dispatch/iteration failures and terminal in-band error or aborted finishes enter `agent/request-error`; middleware, result processing, tools, and `agent/post-step` remain ordinary turn failures. Recovery receives the exact live error, immutable provider facts, and immutable prior failures after the failed step closes. A retry rebuilds from the durable log in a new numbered step, success clears the consecutive history, and exhaustion records the structured failure once on `turn/end`. Effective cancellation resolves its reason and emits `agent/cancel-requested` before clearing pending work or aborting the current step; notification failures are contained, queued work added by an observer is included in the same broad clear, and idle cancellation emits nothing. Undispatched model tool calls receive synthetic `tool/call` and aborted result pairs. Terminal continuation stops remain authoritative through turn close and durability flush.
 
 Within a step, exclusive calls form barriers; parallel-safe calls use a bounded rolling pool and are reclassified before start. Only dispatch/body overlaps. Policy, durable results, and result context remain model-ordered. Abort stops new calls, drains started results, then drains accepted batch context before the turn closes through the normal abort path.
 
@@ -63,6 +69,7 @@ Within a step, exclusive calls form barriers; parallel-safe calls use a bounded 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
 - Hooks and policy: the relevant `agent/*` checkpoints plus the guarded `tools/pre-execute` → `tools/execute` → `tools/post-execute` → `tools/result` pipeline; exact signatures and modes live in the [generated event catalog](../../../docs/cordis-catalog/events.md)
 - Compaction: pressure on `agent/post-step`; canonical context overflow on `agent/request-error`
+- Transient model recovery: `dsh-llm-retry` on `agent/request-error`, with finite code-specific budgets and non-surface `llm/retry` status events
 - Sandbox, permission, plan mode: `tools/pre-execute` for extensible deny/ask, `tools.guard()` for monotonic owner policy, `tools/post-execute` for result decisions, and `tools/result` for final observation
 - Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while generic [`ctx.tasks`](../../tasks/tasks/) plus [`dsh-tool-subagent`](../../subagent/tool-subagent/) own background collection.
 - Persistence: `session/event` + `session/flush`

@@ -411,7 +411,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx.fiber.dispose()
   })
 
-  it('resume of a forked session preserves the parentSession lineage and seed boundary in the header', async () => {
+  it('resume of a forked session preserves the lineage, seed boundary, and delegation depth in the header', async () => {
     // Lifecycle 1: persist a FORKED session (carries parentSession + seedLength
     // in its header) by creating it with a complete-turn seed — the write path
     // materializes the fork (header + seed) on disk.
@@ -423,9 +423,9 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const forked = ctx1.sessions.create(SessionId('forked-sess'), {
       seed,
-      meta: { cwd: '/w', parentSession: SessionId('parent-sess'), seedLength: seed.length },
+      meta: { cwd: '/w', parentSession: SessionId('parent-sess'), seedLength: seed.length, delegationDepth: 1 },
     })
-    await ctx1.parallel('session/flush', forked)
+    await ctx1.sessions.flush(forked)
     await ctx1.fiber.dispose()
 
     // Lifecycle 2: resume it; the parentSession + seedLength header survives the
@@ -447,6 +447,9 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     expect(a2.session.header.parentSession).toBe('parent-sess')
     expect(a2.session.header.cwd).toBe('/w')
     expect(a2.session.header.seedLength).toBe(seed.length)
+    // The recursion budget survives resume — a dropped depth would let a
+    // resumed child delegate as if it were top-level.
+    expect(a2.session.header.delegationDepth).toBe(1)
     await ctx2.fiber.dispose()
   })
 
@@ -482,7 +485,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
-    await ctx1.parallel('session/flush', a1.session)
+    await ctx1.sessions.flush(a1.session)
     await ctx1.fiber.dispose()
 
     // Lifecycle 2: resume; the injected context is still in the derived history.

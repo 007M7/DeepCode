@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, {
+  errorChain,
   GenerateOptions,
   HarnessError,
   isContextWindowExceededError,
+  isQuotaExceededError,
   isLlmAdapterFailure,
   LlmAdapter,
   LlmError,
+  llmFailureOf,
+  ProviderRequestId,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
+import type { LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 
 class ScriptedAdapter extends LlmAdapter {
   constructor(private script: StreamChunk[]) {
@@ -44,6 +48,7 @@ class CatalogAdapter extends ScriptedAdapter {
   constructor(
     private readonly provider: LlmProviderInfo,
     private readonly models: readonly LlmModelInfo[],
+    private readonly contexts: Readonly<Record<string, LlmModelContext>> = {},
   ) {
     super(SCRIPT)
   }
@@ -55,11 +60,19 @@ class CatalogAdapter extends ScriptedAdapter {
   override listModels(_provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve(this.models)
   }
+
+  override resolveModelContext(
+    _provider: string,
+    model: string,
+  ): Promise<LlmModelContext | undefined> {
+    return Promise.resolve(this.contexts[model])
+  }
 }
 
 const SCRIPT: StreamChunk[] = [
   { type: 'block-start', index: 0, blockType: 'text' },
   { type: 'text-delta', index: 0, text: 'hi' },
+  { type: 'block-end', index: 0, block: { type: 'text', text: 'hi' } },
   { type: 'finish', reason: { kind: 'stop' } },
 ]
 
@@ -78,6 +91,62 @@ describe('LlmService', () => {
     expect(isContextWindowExceededError('invalid input: temperature exceeds maximum allowed value')).toBe(false)
     expect(isContextWindowExceededError('input exceeds maximum allowed value')).toBe(false)
     expect(isContextWindowExceededError('context window size must be positive')).toBe(false)
+  })
+
+  it('distinguishes exhausted account quota from transient rate limiting', () => {
+    for (const detail of [
+      'insufficient_quota',
+      'account balance depleted',
+      'usage-limit-exceeded',
+      'out of credits',
+      'OpenAI API error (429): You exceeded your current quota, please check your plan and billing details.',
+    ]) expect(isQuotaExceededError(detail)).toBe(true)
+    expect(isQuotaExceededError('HTTP 429: rate limit reached')).toBe(false)
+    expect(isQuotaExceededError('quota resets in one minute')).toBe(false)
+  })
+
+  it('errorChain renders the full cause chain of a wrapped transport failure', () => {
+    const chain = new TypeError('fetch failed', { cause: new Error('connect ECONNREFUSED 127.0.0.1:443') })
+    expect(errorChain(chain)).toBe('fetch failed: connect ECONNREFUSED 127.0.0.1:443')
+  })
+
+  it('errorChain renders AggregateError members (Happy Eyeballs multi-address failures)', () => {
+    const aggregate = new AggregateError(
+      [new Error('connect ECONNREFUSED ::1:443'), new Error('connect ECONNREFUSED 127.0.0.1:443')],
+      '',
+    )
+    const wrapped = new TypeError('fetch failed', { cause: aggregate })
+    expect(errorChain(wrapped)).toBe(
+      'fetch failed: AggregateError [connect ECONNREFUSED ::1:443; connect ECONNREFUSED 127.0.0.1:443]',
+    )
+  })
+
+  it('errorChain survives non-Error values, hostile coercion, and circular causes', () => {
+    expect(errorChain('plain string')).toBe('plain string')
+    expect(errorChain({ toString: () => { throw new Error('hostile') } })).toBe('<unrenderable value>')
+    const circular = new Error('outer')
+    circular.cause = circular
+    expect(errorChain(circular)).toBe('outer: <circular cause>')
+    // A hostile accessor collapses only its own node, not the whole chain.
+    const hostileNode = new Error('node')
+    Object.defineProperty(hostileNode, 'message', { get() { throw new Error('hostile getter') } })
+    expect(errorChain(new Error('outer', { cause: hostileNode }))).toBe('outer: <unrenderable value>')
+    // A diamond-shared (non-cyclic) cause renders in full on both paths.
+    const shared = new Error('shared')
+    const diamond = new AggregateError([new Error('a', { cause: shared }), new Error('b', { cause: shared })], 'agg')
+    expect(errorChain(diamond)).toBe('agg [a: shared; b: shared]')
+  })
+
+  it('errorChain falls back to the error name, skips empty aggregates, and stops at null causes', () => {
+    expect(errorChain(new TypeError('', { cause: null }))).toBe('TypeError')
+    expect(errorChain(new AggregateError([], 'all failed'))).toBe('all failed')
+  })
+
+  it('errorChain collapses a cause that repeats the wrapper message verbatim', () => {
+    // The `new HarnessError(String(value), code, { cause: value })` normalization
+    // pattern repeats its cause; rendering it twice would only add noise.
+    const wrapped = new HarnessError('boom', 'UNKNOWN', { cause: 'boom' })
+    expect(errorChain(wrapped)).toBe('boom')
   })
 
   it('routes stream() to the registered adapter', async () => {
@@ -168,6 +237,151 @@ describe('LlmService', () => {
 
     expect(caught).toBe(original)
     expect(isLlmAdapterFailure(stream, caught)).toBe(true)
+    expect(llmFailureOf(stream, caught)).toEqual({
+      message: `${boundary} failed`,
+      code: 'BOUNDARY_FAILED',
+    })
+  })
+
+  it('keeps structured provider facts beside a frozen third-party Error', async () => {
+    const original = new LlmError('provider busy', 'RATE_LIMIT', {
+      status: 429,
+      providerRetryAfterMs: 1_500,
+      requestId: ProviderRequestId('req-7'),
+    })
+    Object.freeze(original)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
+
+    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
+    let caught: unknown
+    try {
+      for await (const _chunk of stream) { /* drain */ }
+    } catch (error: unknown) {
+      caught = error
+    }
+
+    expect(caught).toBe(original)
+    expect(llmFailureOf(stream, caught)).toEqual({
+      message: 'provider busy',
+      code: 'RATE_LIMIT',
+      status: 429,
+      providerRetryAfterMs: 1_500,
+      requestId: ProviderRequestId('req-7'),
+    })
+  })
+
+  it('does not trust retry facts carried by an unknown third-party Error', async () => {
+    const carried = { message: 'busy', code: 'SERVER', status: 503 }
+    const original = Object.assign(new Error('busy'), { failure: carried })
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
+
+    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
+    await expect((async () => {
+      for await (const _chunk of stream) { /* drain */ }
+    })()).rejects.toBe(original)
+    const facts = llmFailureOf(stream, original)
+    carried.status = 500
+
+    expect(facts).toEqual({ message: 'busy', code: 'UNKNOWN' })
+    expect(Object.isFrozen(facts)).toBe(true)
+    expect(facts).not.toBe(carried)
+  })
+
+  it('keeps an unknown SDK Error exact without trusting its private code or accessors', async () => {
+    const original = Object.assign(new Error('socket closed'), { code: 'ECONNRESET' })
+    Object.defineProperty(original, 'failure', {
+      get() { throw new Error('SDK failure accessor must not run') },
+    })
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
+
+    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
+    await expect((async () => {
+      for await (const _chunk of stream) { /* drain */ }
+    })()).rejects.toBe(original)
+
+    expect(original.code).toBe('ECONNRESET')
+    expect(llmFailureOf(stream, original)).toEqual({ message: 'socket closed', code: 'UNKNOWN' })
+  })
+
+  it('keeps an SDK Error exact when its message accessor is hostile', async () => {
+    const original = Object.defineProperty(new Error(), 'message', {
+      get() { throw new Error('SDK message accessor trap') },
+    })
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
+    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
+
+    await expect((async () => {
+      for await (const _chunk of stream) { /* drain */ }
+    })()).rejects.toBe(original)
+    expect(llmFailureOf(stream, original)).toEqual({ message: 'LLM adapter failed', code: 'UNKNOWN' })
+  })
+
+  it('falls back safely when SDK objects trap failure inspection or expose malformed facts', async () => {
+    const propertyTrap = new Proxy(new HarnessError('descriptor trapped', 'SERVER'), {
+      getOwnPropertyDescriptor(target, property) {
+        if (property === 'failure') throw new Error('SDK descriptor trap')
+        return Reflect.getOwnPropertyDescriptor(target, property)
+      },
+    })
+    const throwingFacts = Object.create(null) as Record<string, unknown>
+    Object.defineProperty(throwingFacts, 'message', {
+      get() { throw new Error('SDK fact getter trap') },
+    })
+    const carrying = (message: string, failure: unknown): HarnessError => Object.defineProperty(
+      new HarnessError(message, 'SERVER'),
+      'failure',
+      { value: failure },
+    )
+    const factGetter = carrying('fact getter failed', throwingFacts)
+    const malformed = carrying('malformed facts', { message: 'provider busy', code: 'SERVER', requestId: 1 })
+    const primitive = carrying('primitive facts', 1)
+    const nullFacts = carrying('null facts', null)
+    const mismatched = carrying('mismatched facts', { message: 'busy', code: 'RATE_LIMIT' })
+
+    for (const [original, expectedMessage] of [
+      [propertyTrap, 'descriptor trapped'],
+      [factGetter, 'fact getter failed'],
+      [malformed, 'malformed facts'],
+      [primitive, 'primitive facts'],
+      [nullFacts, 'null facts'],
+      [mismatched, 'mismatched facts'],
+    ] as const) {
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
+      const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
+
+      await expect((async () => {
+        for await (const _chunk of stream) { /* drain */ }
+      })()).rejects.toBe(original)
+      expect(llmFailureOf(stream, original)).toEqual({ message: expectedMessage, code: 'SERVER' })
+    }
+  })
+
+  it('retains a stable code from a HarnessError without requiring LlmError facts', async () => {
+    const original = new HarnessError('stable adapter failure', 'ADAPTER_STABLE')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['test-provider'], new ThrowingAdapter(original))
+    const stream = ctx.llm.stream({ provider: 'test-provider', model: 'test-model', messages: [] })
+
+    await expect((async () => {
+      for await (const _chunk of stream) { /* drain */ }
+    })()).rejects.toBe(original)
+    expect(llmFailureOf(stream, original)).toEqual({
+      message: 'stable adapter failure',
+      code: 'ADAPTER_STABLE',
+    })
+    expect(llmFailureOf(stream, 'not an Error')).toBeUndefined()
+    expect(llmFailureOf({ [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator]() }, original)).toBeUndefined()
   })
 
   it('keeps a nested adapter failure scoped to the nested model call', async () => {
@@ -439,7 +653,41 @@ describe('LlmService', () => {
     expect(ctx.llm.listProviders()).toEqual([{ id: 'plain', name: 'plain' }])
     await expect(ctx.llm.listModels('plain')).resolves.toEqual([])
     await expect(ctx.llm.listModels('missing')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
+    await expect(ctx.llm.resolveModelContext('plain', 'unlisted')).resolves.toBeUndefined()
+    await expect(ctx.llm.resolveModelContext('missing', 'm')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
   })
+
+  it('resolves detached model context independently of advisory catalog membership', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const source = { contextWindow: 32_000 }
+    ctx.llm.registerAdapter(['route'], new CatalogAdapter(
+      { id: 'route', name: 'Route' },
+      [],
+      { unlisted: source },
+    ))
+
+    const resolved = await ctx.llm.resolveModelContext('route', 'unlisted')
+    expect(resolved).toEqual({ contextWindow: 32_000 })
+    source.contextWindow = 64_000
+    expect(resolved).toEqual({ contextWindow: 32_000 })
+    await expect(ctx.llm.resolveModelContext('route', 'other')).resolves.toBeUndefined()
+  })
+
+  it.each([0, -1, 1.5, Number.NaN])(
+    'rejects invalid adapter model context %s',
+    async (contextWindow) => {
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      ctx.llm.registerAdapter(['route'], new CatalogAdapter(
+        { id: 'route', name: 'Route' },
+        [],
+        { model: { contextWindow } },
+      ))
+      await expect(ctx.llm.resolveModelContext('route', 'model'))
+        .rejects.toMatchObject({ code: 'INVALID_MODEL_CONTEXT' })
+    },
+  )
 
   it.each([
     [{ id: 1, name: 'Name' }, 'non-string id'],
@@ -489,13 +737,14 @@ describe('LlmService', () => {
       const inner = next()
       return (async function * () {
         yield { type: 'block-start', index: 99, blockType: 'text' } satisfies StreamChunk
+        yield { type: 'block-end', index: 99, block: { type: 'text', text: '' } } satisfies StreamChunk
         yield * inner
       })()
     })
 
     const chunks: StreamChunk[] = []
     for await (const chunk of ctx.llm.stream({ provider: 'test-model', model: 'dynamic-model', messages: [] })) chunks.push(chunk)
-    expect(chunks).toHaveLength(4)
+    expect(chunks).toHaveLength(6)
     expect(chunks[0]).toMatchObject({ index: 99 })
   })
 
@@ -584,6 +833,16 @@ describe('LlmService', () => {
     expect(err.name).toBe('LlmError')
     expect(err.message).toBe('something went wrong')
     expect(err.code).toBe('CUSTOM_CODE')
+  })
+
+  it('rejects non-serializable structured failure facts at construction', () => {
+    expect(() => new LlmError('busy', 'RATE_LIMIT', { status: 42 })).toThrow(/status/)
+    expect(() => new LlmError('busy', 'RATE_LIMIT', { providerRetryAfterMs: Number.NaN }))
+      .toThrow(/providerRetryAfterMs/)
+    expect(() => new LlmError('busy', 'RATE_LIMIT', { requestId: ProviderRequestId('') })).toThrow(/requestId/)
+    expect(() => new LlmError(1 as never, 'RATE_LIMIT')).toThrow(/message/)
+    expect(() => new LlmError('busy', 1 as never)).toThrow(/code/)
+    expect(() => new LlmError('busy', 'RATE_LIMIT', { requestId: 1 as never })).toThrow(/requestId/)
   })
 
   it('LlmError extends the shared HarnessError base', async () => {

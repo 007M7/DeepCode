@@ -101,6 +101,8 @@ describe('session-query exact reads', () => {
   it('classifies current, shadowed, and raw-log-only events through foldSurface', async () => {
     const ctx = await liveContext()
     const session = ctx.sessions.create(SessionId('surface'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
     const first = session.append(
       'user/message',
       { content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } },
@@ -117,13 +119,14 @@ describe('session-query exact reads', () => {
       { surfaceOp: { op: 'replace', start: first.seq, end: first.seq }, sourceEventSeqs: [first.seq] },
     )
 
-    expect((await ctx.sessionQuery.listEvents(session.id)).map(record => record.surface))
+    expect((await ctx.sessionQuery.listEvents(session.id)).slice(2).map(record => record.surface))
       .toEqual(['shadowed', 'log-only', 'current'])
   })
 
   it('returns a bounded detached raw-event window and validates the request', async () => {
     const ctx = await liveContext({ readWindowMax: 1 })
     const session = ctx.sessions.create(SessionId('window'), { meta: { cwd: '/work' } })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     for (const text of ['one', 'two', 'three']) {
       session.append(
         'user/message',
@@ -132,14 +135,14 @@ describe('session-query exact reads', () => {
       )
     }
 
-    const result = await ctx.sessionQuery.readEvent({ sessionId: session.id, seq: 1, before: 1, after: 1 })
-    expect([result.startSeq, result.endSeq, result.target.seq]).toEqual([0, 2, 1])
+    const result = await ctx.sessionQuery.readEvent({ sessionId: session.id, seq: 2, before: 1, after: 1 })
+    expect([result.startSeq, result.endSeq, result.target.seq]).toEqual([1, 3, 2])
     expect(result.session).toEqual(session.header)
     Object.assign(result.session, { createdAt: -1 })
     if (result.events[0]?.type !== 'user/message') throw new Error('expected user message')
     result.events[0].data.content = []
     expect(session.header.createdAt).not.toBe(-1)
-    expect(session.events[0]?.type === 'user/message' && session.events[0].data.content).toHaveLength(1)
+    expect(session.events[1]?.type === 'user/message' && session.events[1].data.content).toHaveLength(1)
 
     await expect(ctx.sessionQuery.readEvent({ sessionId: session.id, seq: 9 }))
       .rejects.toThrow(expectCode('SESSION_QUERY_EVENT_NOT_FOUND'))
@@ -161,6 +164,7 @@ describe('session-query exact reads', () => {
     ])
     const ctx = await liveContext()
     const live = ctx.sessions.create(shared.id, { meta: { createdAt: 3, cwd: '/same' } })
+    live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     live.append(
       'user/message',
       { content: [{ type: 'text', text: 'live' }], source: { kind: 'user' } },
@@ -170,7 +174,7 @@ describe('session-query exact reads', () => {
 
     expect((await ctx.sessionQuery.listSessions()).map(record => [record.header.id, record.live, record.persisted]))
       .toEqual([[shared.id, true, true], [durable.id, false, true]])
-    const liveRead = await ctx.sessionQuery.readEvent({ sessionId: shared.id, seq: 0 })
+    const liveRead = await ctx.sessionQuery.readEvent({ sessionId: shared.id, seq: 1 })
     expect(liveRead.target.type === 'user/message' && liveRead.target.data.content[0])
       .toMatchObject({ text: 'live' })
     await expect(ctx.sessionQuery.readEvent({ sessionId: durable.id, seq: 0 }))
@@ -189,6 +193,7 @@ describe('session-query exact reads', () => {
     TestPersistence.reset()
     const ctx = await liveContext()
     const live = ctx.sessions.create(SessionId('live'))
+    live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     live.append(
       'user/message',
       { content: [{ type: 'text', text: 'available' }], source: { kind: 'user' } },
@@ -198,8 +203,8 @@ describe('session-query exact reads', () => {
     TestPersistence.listFailure = new Error('list unavailable')
     TestPersistence.loadFailure = new Error('load unavailable')
 
-    await expect(ctx.sessionQuery.listEvents(live.id)).resolves.toHaveLength(1)
-    await expect(ctx.sessionQuery.readEvent({ sessionId: live.id, seq: 0 })).resolves.toMatchObject({ target: { seq: 0 } })
+    await expect(ctx.sessionQuery.listEvents(live.id)).resolves.toHaveLength(2)
+    await expect(ctx.sessionQuery.readEvent({ sessionId: live.id, seq: 1 })).resolves.toMatchObject({ target: { seq: 1 } })
     await expect(ctx.sessionQuery.listSessions()).rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
     await expect(ctx.sessionQuery.listEvents(SessionId('durable'))).rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
   })
@@ -228,19 +233,8 @@ describe('session-query exact reads', () => {
       .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))
   })
 
-  it('turns malformed surfaces and direct invalid config into typed errors', async () => {
+  it('turns persisted malformed surfaces and direct invalid config into typed errors', async () => {
     const ctx = await liveContext()
-    const session = ctx.sessions.create(SessionId('bad-surface'))
-    ;(session as unknown as { log: SessionEvent[] }).log.push({
-      type: 'assistant/message',
-      seq: 0,
-      time: 1,
-      data: { turn: 1, step: 1, content: [], provenance: { provider: 'mock', model: 'mock' } },
-      surfaceOp: { op: 'replace', start: 9, end: 9 },
-    })
-    await expect(ctx.sessionQuery.listEvents(session.id))
-      .rejects.toThrow(expectCode('SESSION_QUERY_INVALID_SURFACE'))
-
     const persisted = header('bad-persisted-surface')
     TestPersistence.reset([{
       meta: persisted,

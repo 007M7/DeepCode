@@ -27,10 +27,22 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../llm/token-meter"
+    },
+    {
+      "path": "../../llm/llm-retry"
+    },
+    {
       "path": "../../core/tools"
     },
     {
+      "path": "../commands"
+    },
+    {
       "path": "../user-interaction"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

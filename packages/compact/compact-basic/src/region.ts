@@ -5,20 +5,20 @@
  */
 
 import {
-  renderTranscript,
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
+import type { Message } from '@deepseek-ai/dsh-llm'
 import type { TokenMeasurement, TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { frameSummary } from './summarizer.ts'
-import type { SummaryResult } from './summarizer.ts'
+import type { SummarizationInput, SummaryResult } from './summarizer.ts'
 
 interface RegionDependencies {
   readonly meter: TokenMeterService
-  summarize(text: string, agent: Agent, signal?: AbortSignal): Promise<SummaryResult>
+  summarize(input: SummarizationInput, agent: Agent, signal?: AbortSignal): Promise<SummaryResult>
 }
 
 /**
@@ -122,8 +122,8 @@ export async function compactSurfaceRegion(
       throw new Error('compaction: selected surface changed before summarization began')
     }
     const shadowedTokenCount = selected.reduce((total, node) => total + node.tokens, 0)
-    const text = renderTranscript(session.events, shadowedSeqs)
-    const { summary, provider, model, maxTokens } = await dependencies.summarize(text, agent, signal)
+    const summarizationInput = buildSummarizationInput(session, shadowedSeqs)
+    const { summary, provider, model, maxTokens } = await dependencies.summarize(summarizationInput, agent, signal)
 
     const currentMeasurement = dependencies.meter.measure(session)
     if (currentMeasurement.logRevision !== lockedMeasurement.logRevision) {
@@ -170,6 +170,34 @@ export async function compactSurfaceRegion(
     const message = error instanceof Error ? error.message : String(error)
     session.append('compact/end', { turn: tail.turn, error: message })
     throw error
+  }
+}
+
+/**
+ * Reconstruct the last routed request's cacheable prefix for the shadowed
+ * region: its system prompt and tool schemas, then the request-only message
+ * prefix followed by the region's own derived messages in surface order. The
+ * summarizer appends only the compaction instruction after this, so the call
+ * is a genuine prefix of the conversation and reuses the provider's KV cache.
+ * @param session - session supplying the request header and per-node projection.
+ * @param shadowedSeqs - the surface-node seqs, in order, being compacted.
+ * @returns the replayed conversation prefix to condense.
+ */
+function buildSummarizationInput(
+  session: Session,
+  shadowedSeqs: readonly number[],
+): SummarizationInput {
+  const header = session.requestHeader()
+  const events = session.events
+  const regionMessages = shadowedSeqs
+    // shadowedSeqs are current surface seqs, so each is a valid log index.
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    .map(seq => session.deriveEventMessage(events[seq]!))
+    .filter((message): message is Message => message !== null)
+  return {
+    ...header?.system === undefined ? {} : { system: header.system },
+    ...header?.tools === undefined ? {} : { tools: header.tools },
+    messages: [...header?.messagePrefix ?? [], ...regionMessages],
   }
 }
 

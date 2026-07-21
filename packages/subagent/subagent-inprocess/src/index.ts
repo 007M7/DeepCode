@@ -12,7 +12,7 @@ import type { Context } from 'cordis'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
+import { assertSubagentMaxDepth, delegationDepthOf } from '@deepseek-ai/dsh-subagent'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import {
   attachStructuredRuntime,
@@ -23,27 +23,6 @@ export {
   STRUCTURED_OUTPUT_TOOL,
   STRUCTURED_OUTPUT_INSTRUCTION,
 } from './structured.ts'
-
-declare module '@deepseek-ai/dsh-agent' {
-  interface AgentOptions {
-    /** Delegation depth: zero for a top-level agent and parent depth + 1 for a child. */
-    subagentDepth?: number
-  }
-}
-
-/**
- * Read an agent's delegation depth, treating absence as top-level depth zero.
- * @param agent - the agent whose options carry the depth.
- * @returns its non-negative safe-integer depth.
- */
-function depthOf(agent: Agent): number {
-  const depth = agent.options.subagentDepth
-  if (depth === undefined) return 0
-  if (!Number.isSafeInteger(depth) || depth < 0 || Object.is(depth, -0)) {
-    throw new TypeError('agent subagentDepth must be a non-negative safe integer')
-  }
-  return depth
-}
 
 /** Thrown when starting a child would exceed the requested depth cap. */
 class SubagentDepthError extends Error {
@@ -96,7 +75,7 @@ export async function startInProcessRun(
   assertSubagentMaxDepth(request.maxDepth)
   if (request.signal.aborted) throw prePublicationAbort()
   const parent = request.parent
-  const childDepth = depthOf(parent) + 1
+  const childDepth = delegationDepthOf(parent) + 1
   if (!Number.isSafeInteger(childDepth)) {
     throw new RangeError('subagent child depth exceeds the safe-integer range')
   }
@@ -133,6 +112,8 @@ export async function startInProcessRun(
     meta: {
       ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
       parentSession: parentHeader.id,
+      // Durable: the recursion budget must survive persistence and resume.
+      delegationDepth: childDepth,
       ...seedLength > 0 ? { seedLength } : {},
     },
     ...options.seed !== undefined ? { seed: options.seed } : {},

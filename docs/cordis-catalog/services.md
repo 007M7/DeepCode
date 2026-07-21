@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:407`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:398`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:217`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:224`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -340,6 +340,47 @@ Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResu
 
 Source: [`packages/code-runtime/code-runtime/src/index.ts:30`](../../packages/code-runtime/code-runtime/src/index.ts)
 
+## `ctx.commands` — `CommandService`
+
+Human-command registry. Plain-context definitions are global; definitions registered through a command-injected child of an agent context shadow globals for that agent.
+
+```ts cordis-catalog
+/**
+ * Register a global or calling-agent-scoped command.
+ * @param definition - discovery metadata and direct UI handler.
+ * @returns the exact effect disposer that unregisters this definition.
+ */
+register(definition: CommandDefinition): () => void
+
+/**
+ * List the effective immutable command descriptors for one agent.
+ * @param agent - exact receiving agent and scoped-layer key.
+ * @returns name-sorted descriptors after scoped shadowing.
+ */
+list(agent: Agent): readonly CommandDescriptor[]
+
+/**
+ * Resolve one effective command definition.
+ * @param agent - exact receiving agent and scoped-layer key.
+ * @param name - command name without a slash.
+ * @returns the scoped shadow or global definition.
+ */
+find(agent: Agent, name: string): CommandDefinition | undefined
+
+/**
+ * Parse and execute a known command without sending it to the model.
+ * @param agent - exact receiving agent.
+ * @param line - complete slash-command line.
+ * @param signal - cancellation signal owned by the UI request.
+ * @returns a detached result, or `undefined` when syntax or name does not resolve.
+ */
+async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>
+```
+
+Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md) · [CommandResult](../core-data-structures/commands.md)
+
+Source: [`packages/ui/commands/src/index.ts:207`](../../packages/ui/commands/src/index.ts)
+
 ## `ctx.compact` — `CompactService` (abstract seam)
 
 Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
@@ -381,7 +422,7 @@ abstract compactRegion( start: number, end: number, agent: CompactAgentContext, 
 
 Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionTrigger](../core-data-structures/compaction.md)
 
-Source: [`packages/compact/compact/src/index.ts:40`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:39`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -485,6 +526,111 @@ Types: [FsDirEntry](../core-data-structures/filesystem.md) · [FsEditOutcome](..
 
 Source: [`packages/fs/fs/src/index.ts:81`](../../packages/fs/fs/src/index.ts)
 
+## `ctx.goals` — `GoalService`
+
+Goal service (`ctx.goals`) backed exclusively by the owning session log.
+
+```ts cordis-catalog
+/**
+ * Read the current goal for one exact live agent.
+ * @param agent - owning live agent.
+ * @returns a fresh view or `undefined` when no goal is current.
+ * @throws {@link GoalError} when the agent is not the registry's live instance.
+ */
+get(agent: Agent): GoalView | undefined
+
+/**
+ * Remove process-local continuation authority without changing durable goal
+ * phase or revision. Lifecycle owners use this before unloading a driver;
+ * a later human-authorized {@link resume} records the new activation edge.
+ * @param agent - owning live agent.
+ * @returns a fresh disarmed view, or `undefined` when no goal is current.
+ */
+disarm(agent: Agent): GoalView | undefined
+
+/**
+ * Create and arm a goal. A completed goal may be replaced; every other
+ * current phase must be cleared or resumed instead.
+ * @param agent - owning live agent.
+ * @param request - objective and optional round cap.
+ * @returns the created live view.
+ */
+create(agent: Agent, request: CreateGoalRequest): GoalView
+
+/**
+ * Edit objective and/or round cap without changing phase.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @param request - at least one replacement field.
+ * @returns the edited view.
+ */
+edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView
+
+/**
+ * Pause an active goal and disarm automatic continuation.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @returns the paused view.
+ */
+pause(agent: Agent, ref: GoalRef): GoalView
+
+/**
+ * Resume and arm a stopped goal, or rearm an active goal after a
+ * session-start edge, while its round budget still has capacity.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @returns the active view.
+ */
+resume(agent: Agent, ref: GoalRef): GoalView
+
+/**
+ * Mark a current non-complete goal complete and disarm it.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @returns the completed view.
+ */
+complete(agent: Agent, ref: GoalRef): GoalView
+
+/**
+ * Mark an active goal blocked and disarm it.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @param reason - policy-owned stable code and human-readable explanation.
+ * @returns the blocked view with its durable reason.
+ */
+block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView
+
+/**
+ * Clear the current goal while retaining a durable tombstone and history.
+ * @param agent - owning live agent.
+ * @param ref - expected current revision.
+ * @returns the tombstone ref whose revision is one past the cleared snapshot.
+ */
+clear(agent: Agent, ref: GoalRef): GoalRef
+```
+
+Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
+
+Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
+
+## `ctx.invariants` — `InvariantService`
+
+Package-owned invariant registry with global and regex-based selection.
+
+```ts cordis-catalog
+/**
+ * Register one package's invariant installer. The package name is reserved
+ * even when filtering disables its checks. Enabled installers run in a child
+ * fiber; failure disposes that fiber and releases the reservation.
+ * @param packageName - full npm package name that owns the contribution.
+ * @param installer - listener or startup-check installer for the child context.
+ * @returns an effect-scoped disposer for the registration.
+ */
+register(packageName: string, installer: InvariantInstaller): () => void
+```
+
+Source: [`packages/support/invariants/src/index.ts:94`](../../packages/support/invariants/src/index.ts)
+
 ## `ctx.llm` — `LlmService`
 
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
@@ -515,6 +661,16 @@ listProviders(): LlmProviderInfo[]
 async listModels(provider: string): Promise<LlmModelInfo[]>
 
 /**
+ * Resolve context capacity from the adapter that owns one exact route.
+ * This query is independent of the advisory model catalog: an unlisted model
+ * may return metadata, while `undefined` never rejects later routing.
+ * @param provider - registered provider route to inspect.
+ * @param model - exact model id passed to the adapter.
+ * @returns detached context metadata, or `undefined` when the adapter has none.
+ */
+async resolveModelContext( provider: string, model: string, ): Promise<LlmModelContext | undefined>
+
+/**
  * Stream one model call as raw chunks (token-level deltas). Throws
  * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
  * `options.provider`. Replay state is retained only when the same adapter
@@ -529,9 +685,9 @@ async listModels(provider: string): Promise<LlmModelInfo[]>
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelContext](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:97`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:159`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -718,9 +874,9 @@ Persistence is intentionally not implemented here — persistence plugins subscr
  * Create a session owned by the calling fiber: disposing that fiber stops
  * event notification and removes the session from the store. `options.seed`
  * populates the session with a copy of those events (replay/fork);
- * `options.meta` attaches creation metadata (validated absolute `cwd`,
- * `parentSession` lineage) as the immutable {@link SessionHeader} (the store
- * fills `version`/`id`/`createdAt`).
+ * `options.meta` attaches creation metadata (validated absolute `cwd`, seed
+ * and parent lineage, and delegation depth) as the immutable
+ * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).
  *
  * For an agent whose session must be torn down IN ORDER with its loop (so the
  * loop's final flush is captured before the store attachment ends), do NOT use this
@@ -832,7 +988,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:549`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:553`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -946,7 +1102,7 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 
 Types: [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:153`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:180`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.systemPrompt` — `SystemPrompt`
 
@@ -1118,7 +1274,7 @@ estimateMessage(message: Message): number
 
 Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
-Source: [`packages/llm/token-meter/src/index.ts:106`](../../packages/llm/token-meter/src/index.ts)
+Source: [`packages/llm/token-meter/src/index.ts:82`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.toolResultPrune` — `ToolResultPruneService`
 

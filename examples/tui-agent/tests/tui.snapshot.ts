@@ -9,11 +9,13 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import WorkerCodeRuntime from '@deepseek-ai/dsh-code-runtime-worker'
+import CommandService from '@deepseek-ai/dsh-commands'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SubagentService from '@deepseek-ai/dsh-subagent'
@@ -21,6 +23,7 @@ import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 import { createTuiChat } from '@deepseek-ai/dsh-tui'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -30,7 +33,7 @@ import { HeadlessTerminal } from '../../../packages/ui/tui/tests/headless-termin
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 // Keep pre-normalization layout widths identical across macOS and Linux.
 const SNAPSHOT_TMP_ROOT = process.platform === 'win32' ? tmpdir() : '/tmp'
-const PROVIDERS = [{ id: 'deepseek', models: [{ id: 'deepseek-v4-flash' }] }]
+const PROVIDERS = [{ id: 'deepseek', models: [{ id: 'deepseek-v4-flash', contextWindow: 128_000 }] }]
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 
 type SnapshotMode = 'replay' | 'record' | 'refresh'
@@ -168,6 +171,7 @@ async function mountScenarioContext(
     tools: { mode: scenario.composition === 'code' ? 'code' : scenario.composition === 'advanced' ? 'both' : 'native' },
     skills: { local: { agentsHome: join(cwd, '.agents') } },
   })
+  await ctx.plugin(TokenMeterService)
   await ctx.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await ctx.plugin(LocalFileSystem, { cwd: '/' })
   await ctx.plugin(FsPolicy)
@@ -179,6 +183,8 @@ async function mountScenarioContext(
   await ctx.plugin(ToolSubagent, { provider: 'spawn', toolName: 'subagent', enableRunInBackground: false })
   await ctx.plugin(WorkerWorkflowEngine, { provider: 'spawn' })
   await ctx.plugin(ToolWorkflow)
+  await ctx.plugin(ToolRalph)
+  await ctx.plugin(CommandService)
   if (scenario.composition === 'code' || scenario.composition === 'advanced') {
     await ctx.plugin(WorkerCodeRuntime, {})
   }
