@@ -12,6 +12,7 @@
         "echo-agent/src/*.ts",
         "headless-agent/tests/fixtures/cli-mock-llm.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"
       ],
