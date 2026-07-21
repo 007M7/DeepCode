@@ -1,10 +1,11 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_DSH_HOME_DISPLAY,
   DSH_HOME_DIR_NAME,
   defaultDshHome,
+  dshHomeDisplay,
   expandHomePath,
   resolveDshHome,
 } from '@deepseek-ai/dsh-paths'
@@ -24,11 +25,21 @@ describe('dsh path helpers', () => {
     expect(expandHomePath('~other/.dsh')).toBe('~other/.dsh')
   })
 
-  it('resolves explicit DSH home before environment and default locations', () => {
+  it('resolves explicit path before DSH_HOME and the default', () => {
     const envHome = join(homedir(), 'env-dsh')
 
-    expect(resolveDshHome(undefined, { DSH_HOME: '~/env-dsh' })).toBe(envHome)
     expect(resolveDshHome('/tmp/explicit-dsh', { DSH_HOME: '~/env-dsh' })).toBe('/tmp/explicit-dsh')
+    expect(resolveDshHome(undefined, { DSH_HOME: '~/env-dsh' })).toBe(envHome)
     expect(resolveDshHome(undefined, {})).toBe(defaultDshHome())
+  })
+
+  it('treats an empty or whitespace-only DSH_HOME as unset', () => {
+    expect(resolveDshHome(undefined, { DSH_HOME: '' })).toBe(defaultDshHome())
+    expect(resolveDshHome(undefined, { DSH_HOME: '   ' })).toBe(defaultDshHome())
+  })
+
+  it('labels a resolved home by whether it is the default root', () => {
+    expect(dshHomeDisplay(resolve(defaultDshHome()))).toBe('~/.dsh')
+    expect(dshHomeDisplay('/some/other/root')).toBe('$DSH_HOME')
   })
 })

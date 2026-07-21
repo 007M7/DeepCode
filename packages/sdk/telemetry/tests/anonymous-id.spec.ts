@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
+import { defaultDshHome } from '@deepseek-ai/dsh-paths'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   ANONYMOUS_ID_FILE_NAME,
@@ -23,37 +24,26 @@ afterEach(async () => {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 describe('globalConfigDir', () => {
-  it('prefers an explicit DSH_CONFIG_HOME override', () => {
-    expect(globalConfigDir({ env: { DSH_CONFIG_HOME: '/custom/dsh' } })).toBe('/custom/dsh')
+  it('prefers an explicit DSH_HOME override', () => {
+    expect(globalConfigDir({ env: { DSH_HOME: '/custom/dsh' } })).toBe('/custom/dsh')
   })
 
-  it('falls back to XDG_CONFIG_HOME under the harness namespace', () => {
-    expect(globalConfigDir({ env: { XDG_CONFIG_HOME: '/xdg' } })).toBe(join('/xdg', 'deepseek-harness'))
-  })
-
-  it('uses %APPDATA% on Windows', () => {
-    expect(globalConfigDir({ env: { APPDATA: 'C:/Users/x/AppData/Roaming' }, platform: 'win32' }))
-      .toBe(join('C:/Users/x/AppData/Roaming', 'deepseek-harness'))
-  })
-
-  it('falls back to ~/.config on Windows without APPDATA and on posix', () => {
-    const home = () => '/home/dev'
-    expect(globalConfigDir({ env: {}, platform: 'win32', homeDir: home }))
-      .toBe(join('/home/dev', '.config', 'deepseek-harness'))
-    expect(globalConfigDir({ env: {}, platform: 'linux', homeDir: home }))
-      .toBe(join('/home/dev', '.config', 'deepseek-harness'))
+  it('falls back to ~/.dsh when DSH_HOME is unset', () => {
+    expect(globalConfigDir({ env: {} })).toBe(resolve(defaultDshHome()))
   })
 
   it('reads process.env by default', () => {
     // No override supplied: the call must not throw and must return an absolute path.
-    expect(globalConfigDir()).toContain('deepseek-harness')
+    // The ambient DSH_HOME is unknown here, so assert only the invariant the
+    // resolver guarantees rather than a specific location.
+    expect(isAbsolute(globalConfigDir())).toBe(true)
   })
 })
 
 describe('getOrCreateAnonymousId', () => {
   it('creates, persists, and returns a UUID on first use', async () => {
     const dir = await tempDir()
-    const id = await getOrCreateAnonymousId({ env: { DSH_CONFIG_HOME: dir } })
+    const id = await getOrCreateAnonymousId({ env: { DSH_HOME: dir } })
     expect(id).toMatch(UUID)
     const stored: unknown = JSON.parse(await readFile(join(dir, ANONYMOUS_ID_FILE_NAME), 'utf8'))
     expect(stored).toEqual({ anonymousId: id })
@@ -61,15 +51,15 @@ describe('getOrCreateAnonymousId', () => {
 
   it('returns the same persisted id on subsequent calls', async () => {
     const dir = await tempDir()
-    const first = await getOrCreateAnonymousId({ env: { DSH_CONFIG_HOME: dir } })
-    const second = await getOrCreateAnonymousId({ env: { DSH_CONFIG_HOME: dir } })
+    const first = await getOrCreateAnonymousId({ env: { DSH_HOME: dir } })
+    const second = await getOrCreateAnonymousId({ env: { DSH_HOME: dir } })
     expect(second).toBe(first)
   })
 
   it('uses the injected UUID generator', async () => {
     const dir = await tempDir()
     const id = await getOrCreateAnonymousId({
-      env: { DSH_CONFIG_HOME: dir },
+      env: { DSH_HOME: dir },
       randomUUID: () => '00000000-0000-4000-8000-000000000000',
     })
     expect(id).toBe('00000000-0000-4000-8000-000000000000')
@@ -78,23 +68,23 @@ describe('getOrCreateAnonymousId', () => {
   it('regenerates when the stored file is corrupt JSON', async () => {
     const dir = await tempDir()
     await writeFile(join(dir, ANONYMOUS_ID_FILE_NAME), 'not json', 'utf8')
-    const id = await getOrCreateAnonymousId({ env: { DSH_CONFIG_HOME: dir } })
+    const id = await getOrCreateAnonymousId({ env: { DSH_HOME: dir } })
     expect(id).toMatch(UUID)
   })
 
   it('regenerates when the stored value is not a valid UUID or object', async () => {
     const dir = await tempDir()
     await writeFile(join(dir, ANONYMOUS_ID_FILE_NAME), JSON.stringify({ anonymousId: 'nope' }), 'utf8')
-    expect(await getOrCreateAnonymousId({ env: { DSH_CONFIG_HOME: dir } })).toMatch(UUID)
+    expect(await getOrCreateAnonymousId({ env: { DSH_HOME: dir } })).toMatch(UUID)
     await writeFile(join(dir, ANONYMOUS_ID_FILE_NAME), '123', 'utf8')
-    expect(await getOrCreateAnonymousId({ env: { DSH_CONFIG_HOME: dir } })).toMatch(UUID)
+    expect(await getOrCreateAnonymousId({ env: { DSH_HOME: dir } })).toMatch(UUID)
   })
 
   it('returns a usable id even when persistence fails', async () => {
     const dir = await tempDir()
     // A regular file where a directory is expected makes mkdir/writeFile fail.
     await writeFile(join(dir, 'blocker'), 'x', 'utf8')
-    const id = await getOrCreateAnonymousId({ env: { DSH_CONFIG_HOME: join(dir, 'blocker') } })
+    const id = await getOrCreateAnonymousId({ env: { DSH_HOME: join(dir, 'blocker') } })
     expect(id).toMatch(UUID)
   })
 })
