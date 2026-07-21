@@ -4,22 +4,33 @@ import { type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import * as Invariants from '@deepseek-ai/dsh-invariants'
+import InvariantService from '@deepseek-ai/dsh-invariants'
+import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
+async function mountInvariants(ctx: Context): Promise<void> {
+  await ctx.plugin(InvariantService)
+  await ctx.plugin(SessionInvariant)
+  await ctx.plugin(AgentInvariant)
+  await ctx.plugin(AgentLoopInvariant)
+}
+
 async function setup(script: Script) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(Invariants)
+  await mountInvariants(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
-  ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
+  const adapter = new MockAdapter(script)
+  ctx.llm.registerAdapter(['mock'], adapter)
   const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
-  return { ctx, parent }
+  return { ctx, parent, adapter }
 }
 
 function request(parent: Agent, signal = new AbortController().signal) {
@@ -123,12 +134,16 @@ describe('startInProcessRun', () => {
   })
 
   it('uses the request signal after publication and dispose as cancellation paths', async () => {
-    const { parent } = await setup(['hang', 'hang'])
+    const { parent, adapter } = await setup(['hang', 'hang'])
     const controller = new AbortController()
     const signalled = await startInProcessRun(request(parent, controller.signal), {})
     await new Promise(resolve => setTimeout(resolve, 30))
     controller.abort('stop child')
     await expect(signalled.result).resolves.toMatchObject({ stopReason: 'aborted' })
+    expect(adapter.requests[0]?.signal?.reason).toEqual({ kind: 'parent' })
+    const child = parent.ctx.agents.get(signalled.id)
+    const turnEnd = child?.session.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
     await signalled.dispose()
 
     const disposed = await startInProcessRun(request(parent), {})

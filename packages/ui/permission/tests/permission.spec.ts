@@ -12,7 +12,12 @@ async function mounted(options: {
   approvalDefault?: ApprovalPolicy | undefined
 } = {}): Promise<Context> {
   const ctx = new Context()
-  ctx.provide('bash', { sandboxMode: 'bashDefault' in options ? options.bashDefault : 'workspace-write' })
+  ctx.provide('bash', {
+    sandboxMode: 'bashDefault' in options ? options.bashDefault : 'workspace-write',
+    resolve() { throw new Error('permission tests do not execute bash') },
+    run() { throw new Error('permission tests do not execute bash') },
+    start() { throw new Error('permission tests do not execute bash') },
+  })
   ctx.provide('approval', { config: { policy: 'approvalDefault' in options ? options.approvalDefault : 'ask' } })
   await ctx.plugin(PermissionService, options.config ?? {})
   return ctx

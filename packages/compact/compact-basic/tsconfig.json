@@ -6,14 +6,35 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../../../vendor/cosmokit" },
-    { "path": "../../../vendor/cordis" },
-    { "path": "../../../vendor/schemastery" },
-    { "path": "../../llm/llm" },
-    { "path": "../../llm/token-meter" },
-    { "path": "../../core/session" },
-    { "path": "../../core/agent" },
-    { "path": "../compact" },
-    { "path": "../compact-tool-result-prune" }
+    {
+      "path": "../../../vendor/cosmokit"
+    },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../llm/token-meter"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../compact"
+    },
+    {
+      "path": "../../support/invariants"
+    },
+    {
+      "path": "../compact-tool-result-prune"
+    }
   ]
 }

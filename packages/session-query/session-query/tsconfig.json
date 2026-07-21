@@ -25,6 +25,9 @@
     },
     {
       "path": "../../session-persistence/session-persistence"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

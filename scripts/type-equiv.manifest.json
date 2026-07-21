@@ -9,10 +9,12 @@
     { "doc": "docs/core-data-structures/core.md", "symbol": "FinishReasonMap", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "LlmProviderInfo", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "LlmModelInfo", "source": "packages/llm/llm/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "LlmModelContext", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "GenerateOptions", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "ToolSchema", "source": "packages/llm/llm/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "LlmCallConfig", "source": "packages/llm/llm/src/call-config.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/core.md", "symbol": "AgentCancelCause", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "InjectOptions", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "Agent", "source": "packages/core/agent/src/types.ts" },
     { "doc": "docs/core-data-structures/core.md", "symbol": "HookContext", "source": "packages/core/agent/src/types.ts" },
@@ -97,6 +99,7 @@
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionToken", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionInput", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecution", "source": "packages/core/tools/src/index.ts" },
+    { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolDispatchExecution", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolExecutionMode", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolRunContext", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolGuard", "source": "packages/core/tools/src/index.ts" },
@@ -203,6 +206,17 @@
     { "doc": "docs/core-data-structures/workflow.md", "symbol": "WorkflowStartRequest", "source": "packages/workflow/workflow/src/types.ts" },
     { "doc": "docs/core-data-structures/workflow.md", "symbol": "WorkflowMeta", "source": "packages/workflow/workflow/src/types.ts" },
     { "doc": "docs/core-data-structures/workflow.md", "symbol": "WorkflowResult", "source": "packages/workflow/workflow/src/types.ts" },
-    { "doc": "docs/core-data-structures/workflow.md", "symbol": "WorkflowRun", "source": "packages/workflow/workflow/src/types.ts" }
+    { "doc": "docs/core-data-structures/workflow.md", "symbol": "WorkflowRun", "source": "packages/workflow/workflow/src/types.ts" },
+
+    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspOperation", "source": "packages/lsp/lsp/src/types.ts" },
+    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspPosition", "source": "packages/lsp/lsp/src/types.ts" },
+    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspRange", "source": "packages/lsp/lsp/src/types.ts" },
+    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspQueryRequest", "source": "packages/lsp/lsp/src/types.ts" },
+    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspProviderQuery", "source": "packages/lsp/lsp/src/types.ts" },
+    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspLocation", "source": "packages/lsp/lsp/src/types.ts" },
+    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspHover", "source": "packages/lsp/lsp/src/types.ts" },
+    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspQueryResult", "source": "packages/lsp/lsp/src/types.ts" },
+    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspProvider", "source": "packages/lsp/lsp/src/types.ts" },
+    { "doc": "docs/core-data-structures/lsp.md", "symbol": "LspService", "source": "packages/lsp/lsp/src/types.ts" }
   ]
 }

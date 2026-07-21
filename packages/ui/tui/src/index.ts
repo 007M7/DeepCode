@@ -13,12 +13,12 @@ import {
   Editor,
   Input,
   Key,
-  Loader,
   Markdown,
   Spacer,
   Text,
   TUI,
   ProcessTerminal,
+  SelectList,
   matchesKey,
   truncateToWidth,
   visibleWidth,
@@ -34,11 +34,23 @@ import {
 } from '@earendil-works/pi-tui'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import {
+  installAgentLlmTarget,
+  type Agent,
+  type AgentLlmTarget,
+  type AgentLlmTargetRef,
+  type AgentStatus,
+} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
+import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-commands'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type {
+  ContentBlock,
+  LlmModelInfo,
+  StreamChunk,
+  TokenUsage,
+} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
 import type {
@@ -57,20 +69,26 @@ import {
 } from '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'ui-tui'
-export const inject = ['agents', 'commands', 'userInteraction', 'tools']
+export const inject = ['agents', 'commands', 'userInteraction', 'tools', 'llm', 'systemPrompt', 'tokenMeter']
 
 /** Presentation settings for the pi-tui terminal mode. */
 export interface TuiConfig {
   /** Render model reasoning blocks. */
   showReasoning?: boolean
-  /** Maximum tool-output lines shown before the card is collapsed. */
+  /** Maximum tool-card body lines retained in its collapsed head/tail preview. */
   maxToolOutputLines?: number
-  /** Maximum options visible at once in a user-question dialog. */
+  /** Maximum options visible at once in a user-question panel. */
   maxQuestionOptions?: number
-  /** User-question dialog width in terminal columns. */
+  /** Maximum models visible at once in the model selector. */
+  maxModelOptions?: number
+  /** User-question panel width in terminal columns, clamped to the terminal. */
   questionDialogWidth?: number
-  /** User-question dialog maximum height in terminal rows. */
+  /** User-question panel maximum height in terminal rows. */
   questionDialogMaxHeight?: number
+  /** Model-selector width in terminal columns. */
+  modelDialogWidth?: number
+  /** Model-selector maximum height in terminal rows. */
+  modelDialogMaxHeight?: number
   /** Show the terminal's hardware cursor at the pi editor's IME marker. */
   showHardwareCursor?: boolean
   /** Apply the built-in ANSI color palette. */
@@ -80,10 +98,13 @@ export interface TuiConfig {
 }
 
 const showReasoningSchema = z.boolean().default(true)
-const maxToolOutputLinesSchema = z.number().step(1).min(1).default(12)
+const maxToolOutputLinesSchema = z.number().step(1).min(1).default(6)
 const maxQuestionOptionsSchema = z.number().step(1).min(1).default(8)
-const questionDialogWidthSchema = z.number().step(1).min(20).default(72)
+const maxModelOptionsSchema = z.number().step(1).min(1).default(8)
+const questionDialogWidthSchema = z.number().step(1).min(20).default(200)
 const questionDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
+const modelDialogWidthSchema = z.number().step(1).min(20).default(72)
+const modelDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
 const showHardwareCursorSchema = z.boolean().default(false)
 const colorSchema = z.boolean().default(true)
 const titleSchema = z.string().default('DeepSeek Harness')
@@ -93,8 +114,11 @@ export const TuiConfigSchema: z<TuiConfig> = z.object({
   showReasoning: showReasoningSchema,
   maxToolOutputLines: maxToolOutputLinesSchema,
   maxQuestionOptions: maxQuestionOptionsSchema,
+  maxModelOptions: maxModelOptionsSchema,
   questionDialogWidth: questionDialogWidthSchema,
   questionDialogMaxHeight: questionDialogMaxHeightSchema,
+  modelDialogWidth: modelDialogWidthSchema,
+  modelDialogMaxHeight: modelDialogMaxHeightSchema,
   showHardwareCursor: showHardwareCursorSchema,
   color: colorSchema,
   title: titleSchema,
@@ -114,8 +138,11 @@ export const Config: z<Config> = z.object({
   showReasoning: showReasoningSchema,
   maxToolOutputLines: maxToolOutputLinesSchema,
   maxQuestionOptions: maxQuestionOptionsSchema,
+  maxModelOptions: maxModelOptionsSchema,
   questionDialogWidth: questionDialogWidthSchema,
   questionDialogMaxHeight: questionDialogMaxHeightSchema,
+  modelDialogWidth: modelDialogWidthSchema,
+  modelDialogMaxHeight: modelDialogMaxHeightSchema,
   showHardwareCursor: showHardwareCursorSchema,
   color: colorSchema,
   title: titleSchema,
@@ -126,8 +153,11 @@ export interface ResolvedTuiConfig {
   showReasoning: boolean
   maxToolOutputLines: number
   maxQuestionOptions: number
+  maxModelOptions: number
   questionDialogWidth: number
   questionDialogMaxHeight: number
+  modelDialogWidth: number
+  modelDialogMaxHeight: number
   showHardwareCursor: boolean
   color: boolean
   title: string
@@ -139,6 +169,8 @@ export interface TuiRuntime {
   terminal: Terminal
   /** Exit hook used by terminal shutdown or a target-agent startup failure. */
   exit(code: number): void
+  /** Monotonic-enough wall clock for elapsed status rendering. Defaults to `Date.now`. */
+  now?(): number
 }
 
 /**
@@ -150,10 +182,13 @@ export interface TuiRuntime {
 export function resolveTuiConfig(config: TuiConfig | undefined): ResolvedTuiConfig {
   return {
     showReasoning: config?.showReasoning ?? true,
-    maxToolOutputLines: config?.maxToolOutputLines ?? 12,
+    maxToolOutputLines: config?.maxToolOutputLines ?? 6,
     maxQuestionOptions: config?.maxQuestionOptions ?? 8,
-    questionDialogWidth: config?.questionDialogWidth ?? 72,
+    maxModelOptions: config?.maxModelOptions ?? 8,
+    questionDialogWidth: config?.questionDialogWidth ?? 200,
     questionDialogMaxHeight: config?.questionDialogMaxHeight ?? 20,
+    modelDialogWidth: config?.modelDialogWidth ?? 72,
+    modelDialogMaxHeight: config?.modelDialogMaxHeight ?? 20,
     showHardwareCursor: config?.showHardwareCursor ?? false,
     color: config?.color ?? true,
     title: config?.title ?? 'DeepSeek Harness',
@@ -258,6 +293,13 @@ function selectTheme(palette: Palette): SelectListTheme {
   }
 }
 
+function dialogSelectTheme(palette: Palette): SelectListTheme {
+  return {
+    ...selectTheme(palette),
+    selectedText: text => palette.selected(palette.accent(text)),
+  }
+}
+
 function contentText(content: readonly ContentBlock[]): string {
   const parts: string[] = []
   for (const block of content) {
@@ -289,11 +331,52 @@ function textBlocks(content: readonly ContentBlock[], type: 'text' | 'reasoning'
     .join('\n\n')
 }
 
+interface ModelChoice extends AgentLlmTarget {
+  modelName: string
+  description?: string
+}
+
+function targetLabel(target: AgentLlmTarget): string {
+  return `${target.provider}/${target.model}`
+}
+
+function initialTarget(agent: Agent): AgentLlmTarget | undefined {
+  const logged = agent.session.requestHeader()?.config
+  if (logged !== undefined) return { provider: logged.provider, model: logged.model }
+  if (agent.options.provider === undefined || agent.options.model === undefined) return undefined
+  return { provider: agent.options.provider, model: agent.options.model }
+}
+
+async function readModelChoices(
+  ctx: Context,
+  current: AgentLlmTarget | undefined,
+): Promise<ModelChoice[]> {
+  const providers = ctx.llm.listProviders()
+  const groups = await Promise.all(providers.map(async (provider) => {
+    const advertised = await ctx.llm.listModels(provider.id)
+    const models: LlmModelInfo[] = [...advertised]
+    if (
+      current?.provider === provider.id
+      && !models.some(model => model.id === current.model)
+    ) {
+      models.push({ provider: provider.id, id: current.model, name: current.model })
+    }
+    return models.map((model): ModelChoice => ({
+      provider: provider.id,
+      model: model.id,
+      modelName: model.name,
+      ...model.description === undefined ? {} : { description: model.description },
+    }))
+  }))
+  return groups.flat()
+}
+
 class HeaderComponent implements Component {
   constructor(
     private readonly agent: Agent,
     private readonly welcome: string,
     private readonly palette: Palette,
+    private readonly currentModel: () => string | undefined,
   ) {}
 
   invalidate(): void {}
@@ -301,7 +384,7 @@ class HeaderComponent implements Component {
   render(width: number): string[] {
     const usable = Math.max(1, width - 4)
     const title = `${this.palette.bold(this.palette.accent('DEEPSEEK'))} ${this.palette.bold('HARNESS')}`
-    const model = displayText(this.agent.options.model ?? 'model unset')
+    const model = displayText(this.currentModel() ?? 'model unset')
     const detail = `${model}  •  ${displayText(this.agent.session.id)}`
     const top = this.palette.accent(`╭${'─'.repeat(Math.max(0, width - 2))}╮`)
     const bottom = this.palette.accent(`╰${'─'.repeat(Math.max(0, width - 2))}╯`)
@@ -513,9 +596,15 @@ class ToolCardComponent implements Component {
     const glyph = this.result === undefined ? this.palette.warning('◌') : isError ? this.palette.error('✕') : this.palette.success('✓')
     const body = this.renderBody()
     const title = truncateToWidth(`${glyph} ${displayText(this.title())}`, Math.max(1, width - 4), '')
+    const headLines = Math.ceil(this.maxOutputLines / 2)
+    const tailLines = this.maxOutputLines - headLines
     const visibleBody = this.expanded || body.length <= this.maxOutputLines
       ? body
-      : [...body.slice(0, this.maxOutputLines), this.palette.dim(`… ${body.length - this.maxOutputLines} more lines (Ctrl+O to expand)`)]
+      : [
+        ...body.slice(0, headLines),
+        this.palette.dim(`… +${body.length - this.maxOutputLines} lines (Ctrl+O to expand)`),
+        ...body.slice(body.length - tailLines),
+      ]
     const barFn = this.result === undefined
       ? this.palette.warning
       : isError ? this.palette.error : this.palette.success
@@ -652,25 +741,117 @@ class FooterComponent implements Component {
     private readonly toolsExpanded: () => boolean,
     private readonly showReasoning: () => boolean,
     private readonly tokens: () => { input: number; output: number },
+    private readonly currentModel: () => string | undefined,
+    private readonly contextPercent: () => number | undefined,
+    private readonly runningSeconds: () => number,
   ) {}
 
   invalidate(): void {}
 
   render(width: number): string[] {
+    if (this.agent.status === 'running') {
+      const interrupt = this.palette.dim('esc interrupt')
+      const activityAvailable = Math.max(0, width - visibleWidth(interrupt) - 1)
+      const activity = truncateToWidth(this.palette.accent(`◒ Working · ${this.runningSeconds()}s`), activityAvailable, '')
+      const gap = ' '.repeat(Math.max(0, width - visibleWidth(activity) - visibleWidth(interrupt)))
+      return [`${activity}${gap}${interrupt}`]
+    }
     const { input, output } = this.tokens()
-    const left = `${formatCwd(this.agent.session.header.cwd)}  ↑${formatTokens(input)} ↓${formatTokens(output)}`
-    const right = `${this.agent.status}  reasoning:${this.showReasoning() ? 'on' : 'off'}  tools:${this.toolsExpanded() ? 'expanded' : 'compact'}`
-    const leftStyled = this.palette.dim(left)
-    const available = Math.max(0, width - visibleWidth(left) - 2)
-    const rightClipped = truncateToWidth(right, available, '')
-    const gap = ' '.repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(rightClipped)))
-    return [truncateToWidth(`${leftStyled}${gap}${this.palette.dim(rightClipped)}`, width, '')]
+    const counters = `↑${formatTokens(input)} ↓${formatTokens(output)}`
+    const model = displayText(this.currentModel() ?? 'model unset')
+    const modelState = `${model}(reasoning:${this.showReasoning() ? 'on' : 'off'})`
+    const contextPercent = this.contextPercent()
+    const context = contextPercent === undefined ? 'context unknown' : `${contextPercent}% context`
+    const fullRight = `${context}  tools:${this.toolsExpanded() ? 'expanded' : 'compact'}  ${modelState}`
+    const compactRight = `${context}  ${modelState}`
+    if (visibleWidth(counters) + visibleWidth(compactRight) + 1 > width) {
+      const compact = truncateToWidth(compactRight, width, '')
+      return [`${' '.repeat(Math.max(0, width - visibleWidth(compact)))}${this.palette.dim(compact)}`]
+    }
+    const rightAvailable = width - visibleWidth(counters) - 1
+    const right = visibleWidth(fullRight) <= rightAvailable ? fullRight : compactRight
+    const rightClipped = truncateToWidth(right, rightAvailable, '')
+    const cwdAvailable = Math.max(0, width - visibleWidth(counters) - visibleWidth(rightClipped) - 3)
+    const cwd = truncateToWidth(formatCwd(this.agent.session.header.cwd), cwdAvailable, '')
+    const left = [cwd, counters].filter(Boolean).join('  ')
+    const gap = ' '.repeat(Math.max(0, width - visibleWidth(left) - visibleWidth(rightClipped)))
+    return [`${this.palette.dim(left)}${gap}${this.palette.dim(rightClipped)}`]
   }
 }
 
 interface QuestionSelection {
   selected: string[]
   custom?: string
+}
+
+function renderDialog(
+  title: string,
+  body: readonly string[],
+  width: number,
+  palette: Palette,
+): string[] {
+  const innerWidth = Math.max(1, width - 4)
+  const topLabel = ` ${displayText(title)} `
+  const top = `╭${topLabel}${'─'.repeat(Math.max(0, width - visibleWidth(topLabel) - 2))}╮`
+  const lines: string[] = [palette.accent(top)]
+  for (const line of body) {
+    const clipped = truncateToWidth(line, innerWidth, '')
+    lines.push(`${palette.accent('│')} ${clipped}${' '.repeat(Math.max(0, innerWidth - visibleWidth(clipped)))} ${palette.accent('│')}`)
+  }
+  lines.push(palette.accent(`╰${'─'.repeat(Math.max(0, width - 2))}╯`))
+  return lines
+}
+
+class ModelDialog implements Component {
+  private readonly list: SelectList
+
+  constructor(
+    choices: readonly ModelChoice[],
+    current: AgentLlmTarget | undefined,
+    maxVisible: number,
+    private readonly palette: Palette,
+    done: (choice: ModelChoice) => void,
+    cancel: () => void,
+  ) {
+    this.list = new SelectList(choices.map(choice => ({
+      value: targetLabel(choice),
+      label: displayText(targetLabel(choice)),
+      description: [
+        displayText(choice.modelName),
+        ...choice.description === undefined ? [] : [displayText(choice.description)],
+        ...current?.provider === choice.provider && current.model === choice.model ? ['current'] : [],
+      ].join(' — '),
+    })), maxVisible, dialogSelectTheme(palette))
+    const currentIndex = current === undefined
+      ? 0
+      : choices.findIndex(choice => choice.provider === current.provider && choice.model === current.model)
+    this.list.setSelectedIndex(currentIndex)
+    this.list.onSelect = (item) => {
+      const selected = choices.find(choice => targetLabel(choice) === item.value)
+      /* v8 ignore next -- SelectList only returns values built from `choices`. */
+      if (selected === undefined) return
+      done(selected)
+    }
+    this.list.onCancel = cancel
+  }
+
+  invalidate(): void {
+    this.list.invalidate()
+  }
+
+  handleInput(data: string): void {
+    this.list.handleInput(data)
+    this.invalidate()
+  }
+
+  render(width: number): string[] {
+    const innerWidth = Math.max(1, width - 4)
+    return renderDialog('Select model', [
+      ...this.list.render(innerWidth),
+      '',
+      this.palette.dim('↑/↓ navigate • Enter select • Esc cancel'),
+    ], width, this.palette)
+  }
 }
 
 class QuestionDialog implements Component, Focusable {
@@ -684,6 +865,9 @@ class QuestionDialog implements Component, Focusable {
 
   constructor(
     private readonly question: AskUserQuestionItem,
+    private readonly position: number,
+    private readonly total: number,
+    private readonly unanswered: number,
     private readonly maxVisible: number,
     private readonly palette: Palette,
     private readonly done: (selection: QuestionSelection) => void,
@@ -724,11 +908,11 @@ class QuestionDialog implements Component, Focusable {
     } else if (matchesKey(data, Key.enter)) {
       const indices = this.question.multiSelect ? [...this.selected].sort((a, b) => a - b) : [this.selectedIndex]
       if (indices.length === 0) {
-        this.error = 'Select at least one option, or press C for a custom answer.'
+        this.error = 'Select at least one option, or press Tab for a custom answer.'
         return
       }
       this.done({ selected: indices.map(index => options[index]?.label).filter((label): label is string => label !== undefined) })
-    } else if (data.toLowerCase() === 'c') {
+    } else if (matchesKey(data, Key.tab) || data.toLowerCase() === 'c') {
       this.mode = 'custom'
       this.error = ''
     } else if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) {
@@ -748,16 +932,13 @@ class QuestionDialog implements Component, Focusable {
   render(width: number): string[] {
     this.input.focused = this.focused
     const innerWidth = Math.max(1, width - 4)
-    const title = displayText(this.question.header ?? 'Question')
-    const topLabel = ` ${title} `
-    const top = `╭${topLabel}${'─'.repeat(Math.max(0, width - visibleWidth(topLabel) - 2))}╮`
-    const lines: string[] = [this.palette.accent(top)]
-    const push = (line: string): void => {
-      const clipped = truncateToWidth(line, innerWidth, '')
-      lines.push(`${this.palette.accent('│')} ${clipped}${' '.repeat(Math.max(0, innerWidth - visibleWidth(clipped)))} ${this.palette.accent('│')}`)
-    }
-    for (const line of wrapTextWithAnsi(this.palette.bold(displayText(this.question.question)), innerWidth)) push(line)
-    push('')
+    const header = `Question ${this.position}/${this.total} (${this.unanswered} unanswered)${this.question.header === undefined ? '' : ` · ${displayText(this.question.header)}`}`
+    const lines = [
+      this.palette.muted(header),
+      ...wrapTextWithAnsi(this.palette.text(displayText(this.question.question)), innerWidth),
+      '',
+    ]
+    const push = (line: string): void => { lines.push(line) }
     if (this.mode === 'custom') {
       for (const line of this.input.render(innerWidth)) push(line)
       push(this.palette.dim(this.options.length > 0 ? 'Enter submit • Esc options' : 'Enter submit • Esc cancel'))
@@ -768,27 +949,45 @@ class QuestionDialog implements Component, Focusable {
         options.length - this.maxVisible,
       ))
       const end = Math.min(options.length, start + this.maxVisible)
+      const optionRows = options.slice(start, end).map((option, offset) => {
+        const index = start + offset
+        const mark = this.question.multiSelect
+          ? this.selected.has(index) ? '[x] ' : '[ ] '
+          : ''
+        return `${index === this.selectedIndex ? '›' : ' '} ${index + 1}. ${mark}${displayText(option.label)}`
+      })
+      const descriptionColumn = Math.min(
+        Math.max(...optionRows.map(row => visibleWidth(row))) + 2,
+        Math.max(1, Math.floor(innerWidth * 0.55)),
+      )
       for (let index = start; index < end; index += 1) {
         // `index < end <= options.length`; the options array is borrowed immutably for this dialog.
         const option = options[index] as NonNullable<AskUserQuestionItem['options']>[number]
-        const cursor = index === this.selectedIndex ? this.palette.accent('›') : ' '
         const mark = this.question.multiSelect
-          ? this.selected.has(index) ? this.palette.success('[x]') : '[ ]'
-          : index === this.selectedIndex ? this.palette.accent('●') : this.palette.dim('○')
-        const description = option.description
-          ? this.palette.muted(` — ${displayText(option.description)}`)
+          ? this.selected.has(index) ? '[x] ' : '[ ] '
           : ''
-        const line = `${cursor} ${mark} ${displayText(option.label)}${description}`
-        push(index === this.selectedIndex ? this.palette.selected(line) : line)
+        const left = `${index === this.selectedIndex ? '›' : ' '} ${index + 1}. ${mark}${displayText(option.label)}`
+        const leftStyled = index === this.selectedIndex
+          ? this.palette.bold(this.palette.accent(left))
+          : left
+        const description = option.description === undefined
+          ? ''
+          : `${' '.repeat(Math.max(1, descriptionColumn - visibleWidth(left)))}${this.palette.muted(displayText(option.description))}`
+        push(`${leftStyled}${description}`)
       }
       if (options.length > this.maxVisible) push(this.palette.dim(`${this.selectedIndex + 1}/${options.length}`))
-      push(this.palette.dim(this.question.multiSelect
-        ? '↑↓ navigate • Space toggle • Enter submit • C custom • Esc cancel'
-        : '↑↓ navigate • Enter select • C custom • Esc cancel'))
+      const hint = this.palette.dim(this.question.multiSelect
+        ? 'Tab custom answer • ↑/↓ navigate • Space toggle • Enter submit • Esc interrupt'
+        : 'Tab custom answer • ↑/↓ navigate • Enter submit • Esc interrupt')
+      for (const line of wrapTextWithAnsi(hint, innerWidth)) push(line)
     }
-    if (this.error) push(this.palette.error(this.error))
-    lines.push(this.palette.accent(`╰${'─'.repeat(Math.max(0, width - 2))}╯`))
-    return lines
+    if (this.error) {
+      for (const line of wrapTextWithAnsi(this.palette.error(this.error), innerWidth)) push(line)
+    }
+    return ['', ...lines, ''].map((line) => {
+      const clipped = truncateToWidth(line, innerWidth, '')
+      return `  ${clipped}${' '.repeat(Math.max(0, innerWidth - visibleWidth(clipped)))}  `
+    })
   }
 }
 
@@ -844,7 +1043,6 @@ export function createTuiChat(
   const ui = new TUI(runtime.terminal, resolved.showHardwareCursor)
   const chat = new Container()
   const todoContainer = new Container()
-  const statusContainer = new Container()
   const editor = new Editor(ui, {
     borderColor: palette.dim,
     selectList: selectTheme(palette),
@@ -853,7 +1051,8 @@ export function createTuiChat(
   let showReasoning = resolved.showReasoning
   let toolsExpanded = false
   let streaming: StreamingAssistantComponent | undefined
-  let statusLoader: Loader | undefined
+  let runningStartedAt: number | undefined
+  let statusTicker: ReturnType<typeof setInterval> | undefined
   let disposed = false
   let shuttingDown: Promise<void> | undefined
   const tokens = sessionTokens(agent.session)
@@ -863,13 +1062,32 @@ export function createTuiChat(
   const questionQueue: PendingQuestion[] = []
   const commandControllers = new Set<AbortController>()
   let activeQuestion: PendingQuestion | undefined
+  let modelOverlay: OverlayHandle | undefined
+  const target: AgentLlmTargetRef = { current: initialTarget(agent), assembled: undefined }
+  let contextWindow: number | undefined
+  let contextResolution: Promise<
+    | { readonly kind: 'resolved'; readonly contextWindow: number | undefined }
+    | { readonly kind: 'error'; readonly error: unknown }
+  > | undefined
+  let modelCommands = Promise.resolve()
+  const now = (): number => runtime.now?.() ?? Date.now()
 
   const welcome = config.welcome ?? 'ready.'
-  const header = new HeaderComponent(agent, welcome, palette)
-  const footer = new FooterComponent(agent, palette, () => toolsExpanded, () => showReasoning, () => tokens)
+  const header = new HeaderComponent(agent, welcome, palette, () => target.current?.model)
+  const footer = new FooterComponent(
+    agent,
+    palette,
+    () => toolsExpanded,
+    () => showReasoning,
+    () => tokens,
+    () => target.current?.model,
+    () => contextWindow === undefined
+      ? undefined
+      : Math.min(100, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens / contextWindow * 100)),
+    () => runningStartedAt === undefined ? 0 : Math.max(0, Math.floor((now() - runningStartedAt) / 1_000)),
+  )
   ui.addChild(header)
   ui.addChild(chat)
-  ui.addChild(statusContainer)
   todoContainer.addChild(todo)
   ui.addChild(todoContainer)
   ui.addChild(editor)
@@ -889,10 +1107,120 @@ export function createTuiChat(
     requestRender()
   }
 
+  const disposeTargetListeners = installAgentLlmTarget(agent.ctx, target)
+
+  const resolveContextWindow = (selected: AgentLlmTarget | undefined): void => {
+    contextWindow = undefined
+    const resolution = selected === undefined
+      ? Promise.resolve({ kind: 'resolved', contextWindow: undefined } as const)
+      : ctx.llm.resolveModelContext(selected.provider, selected.model).then(
+        context => ({ kind: 'resolved', contextWindow: context?.contextWindow } as const),
+        (error: unknown) => ({ kind: 'error', error } as const),
+      )
+    contextResolution = resolution
+    void resolution.then((result) => {
+      if (contextResolution !== resolution) return
+      if (result.kind === 'error') {
+        appendNotice(`Could not resolve model context: ${errorChain(result.error)}`, 'error')
+        return
+      }
+      contextWindow = result.contextWindow
+      requestRender()
+    })
+  }
+  resolveContextWindow(target.current)
+
+  const selectModel = (selected: ModelChoice): void => {
+    if (target.current?.provider === selected.provider && target.current.model === selected.model) {
+      appendNotice(`Model is already ${targetLabel(selected)}.`)
+      return
+    }
+    target.current = { provider: selected.provider, model: selected.model }
+    resolveContextWindow(target.current)
+    appendNotice(`Model selected: ${targetLabel(selected)}. New steps will use it.`)
+  }
+
+  const showModelSelector = (choices: readonly ModelChoice[]): void => {
+    const current = target.current === undefined ? 'unset' : targetLabel(target.current)
+    if (choices.length === 0) {
+      appendNotice(`Current model: ${current}\nNo models are advertised by registered providers.`, 'warning')
+      return
+    }
+    modelOverlay?.hide()
+    modelOverlay = undefined
+    const close = (): void => {
+      modelOverlay?.hide()
+      modelOverlay = undefined
+      requestRender()
+    }
+    const dialog = new ModelDialog(
+      choices,
+      target.current,
+      resolved.maxModelOptions,
+      palette,
+      (selected) => {
+        close()
+        selectModel(selected)
+      },
+      close,
+    )
+    modelOverlay = ui.showOverlay(dialog, {
+      width: resolved.modelDialogWidth,
+      maxHeight: resolved.modelDialogMaxHeight,
+      anchor: 'center',
+      margin: 1,
+    })
+    requestRender()
+  }
+
+  const handleModelCommand = async (raw: string): Promise<void> => {
+    const choices = await readModelChoices(ctx, target.current)
+    if (disposed) return
+    const argument = raw.trim()
+    if (argument === '') {
+      showModelSelector(choices)
+      return
+    }
+    const parts = argument.split(/\s+/u)
+    if (parts.length > 2) {
+      appendNotice('Usage: /model [provider/]model', 'warning')
+      return
+    }
+
+    let matches: ModelChoice[]
+    if (parts.length === 2) {
+      matches = choices.filter(choice => choice.provider === parts[0] && choice.model === parts[1])
+    } else {
+      const value = argument
+      const qualified = choices.filter(choice => targetLabel(choice) === value)
+      matches = qualified.length > 0 ? qualified : choices.filter(choice => choice.model === value)
+    }
+    if (matches.length === 0) {
+      appendNotice(`Unknown model: ${argument}. Run /model to list available models.`, 'warning')
+      return
+    }
+    if (matches.length > 1) {
+      appendNotice(`Model "${argument}" is advertised by multiple providers; use /model <provider>/<model>.`, 'warning')
+      return
+    }
+    const selected = matches[0]
+    /* v8 ignore next -- a non-empty matches array always has index zero. */
+    if (selected === undefined) return
+    selectModel(selected)
+  }
+
+  const queueModelCommand = (raw: string): void => {
+    modelCommands = modelCommands.then(async () => {
+      await handleModelCommand(raw)
+    }).catch((error: unknown) => {
+      if (!disposed) appendNotice(`Could not read the model catalog: ${errorChain(error)}`, 'error')
+    })
+  }
+
   const clearStatus = (): void => {
-    statusLoader?.stop()
-    statusLoader = undefined
-    statusContainer.clear()
+    if (statusTicker !== undefined) clearInterval(statusTicker)
+    statusTicker = undefined
+    runningStartedAt = undefined
     runtime.terminal.setProgress(false)
   }
 
@@ -900,8 +1228,9 @@ export function createTuiChat(
     clearStatus()
     editor.borderColor = status === 'running' ? text => palette.accent(text) : text => palette.dim(text)
     if (status === 'running') {
-      statusLoader = new Loader(ui, text => palette.accent(text), text => palette.muted(text), 'Working — Enter sends steering, Esc cancels')
-      statusContainer.addChild(statusLoader)
+      runningStartedAt = now()
+      statusTicker = setInterval(requestRender, 1_000)
+      statusTicker.unref()
       runtime.terminal.setProgress(true)
     }
     requestRender()
@@ -1013,7 +1342,7 @@ export function createTuiChat(
             : event.data.reason.message
           if (!liveErrors.delete(key)) appendNotice(message, 'error')
         } else if (event.data.reason.kind === 'aborted') {
-          appendNotice(event.data.reason.reason ?? 'Turn cancelled.', 'warning')
+          appendNotice('Turn cancelled.', 'warning')
         } else if (event.data.reason.kind === 'max-tokens') {
           appendNotice('The model reached its output-token limit.', 'warning')
         } else if (event.data.reason.kind === 'rejected') {
@@ -1077,6 +1406,9 @@ export function createTuiChat(
       }
       const dialog = new QuestionDialog(
         question,
+        pending.index + 1,
+        pending.request.questions.length,
+        pending.request.questions.length - pending.answers.length,
         resolved.maxQuestionOptions,
         palette,
         (selection) => {
@@ -1095,8 +1427,8 @@ export function createTuiChat(
       pending.overlay = ui.showOverlay(dialog, {
         width: resolved.questionDialogWidth,
         maxHeight: resolved.questionDialogMaxHeight,
-        anchor: 'center',
-        margin: 1,
+        anchor: 'bottom-left',
+        margin: { bottom: 1 },
       })
       requestRender()
     }
@@ -1135,7 +1467,10 @@ export function createTuiChat(
   const shutdown = (exitProcess: boolean): Promise<void> => {
     shuttingDown ??= (async () => {
       disposed = true
+      contextResolution = undefined
       clearStatus()
+      modelOverlay?.hide()
+      modelOverlay = undefined
       for (const controller of commandControllers) controller.abort(new Error('TUI disposed'))
       commandControllers.clear()
       if (activeQuestion !== undefined) {
@@ -1154,7 +1489,7 @@ export function createTuiChat(
 
   const requestExit = (): void => {
     if (agent.status === 'running') {
-      agent.cancel('terminal exit requested')
+      agent.cancel({ kind: 'user' })
       appendNotice('Cancelling the active turn before exit…', 'warning')
       void agent.whenIdle().then(() => shutdown(true))
       return
@@ -1213,7 +1548,7 @@ export function createTuiChat(
     chat.addChild(new Text(palette.bold(palette.accent('Keyboard shortcuts')), 1, 0))
     chat.addChild(new Text([
       'Enter send • Shift/Alt+Enter newline • Up/Down prompt history',
-      'Esc cancel active turn • Ctrl+O expand tool cards • Ctrl+R toggle reasoning',
+      'Esc cancel active turn • Ctrl+O toggle tool cards • Ctrl+R toggle reasoning',
       'Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit',
       '',
       ...commandLines,
@@ -1243,6 +1578,15 @@ export function createTuiChat(
       handler: () => { showHelp(); return { kind: 'success' } },
     })
     commandCtx.commands.register({
+      name: 'model',
+      description: 'Show or switch this session\'s model',
+      input: { hint: '[[provider/]model]' },
+      handler: ({ rawInput }) => {
+        queueModelCommand(rawInput)
+        return { kind: 'success' }
+      },
+    })
+    commandCtx.commands.register({
       name: 'clear',
       description: 'Clear the transcript view (session history is unchanged)',
       handler: () => { chat.clear(); requestRender(); return { kind: 'success' } },
@@ -1252,7 +1596,7 @@ export function createTuiChat(
       description: 'Cancel the active turn',
       handler: () => {
         if (agent.status !== 'running') return { kind: 'error', text: 'The agent is already idle.' }
-        agent.cancel('cancelled from terminal')
+        agent.cancel({ kind: 'user' })
         return { kind: 'success', text: 'Cancellation requested.' }
       },
     })
@@ -1317,7 +1661,7 @@ export function createTuiChat(
   }
 
   const removeInputListener = ui.addInputListener((data) => {
-    if (activeQuestion !== undefined) return undefined
+    if (activeQuestion !== undefined || modelOverlay !== undefined) return undefined
     if (matchesKey(data, Key.ctrl('o'))) {
       toggleTools()
       return { consume: true }
@@ -1332,12 +1676,12 @@ export function createTuiChat(
       return { consume: true }
     }
     if (matchesKey(data, Key.escape) && agent.status === 'running') {
-      agent.cancel('cancelled from terminal')
+      agent.cancel({ kind: 'user' })
       return { consume: true }
     }
     if (matchesKey(data, Key.ctrl('c'))) {
       if (agent.status === 'running') {
-        agent.cancel('cancelled from terminal')
+        agent.cancel({ kind: 'user' })
       } else if (editor.getText() !== '') {
         editor.setText('')
       } else {
@@ -1388,6 +1732,7 @@ export function createTuiChat(
     disposeError()
     disposeAgent()
     disposeSchemeListener()
+    disposeTargetListeners()
   }
 
   rebuildTranscript(true)

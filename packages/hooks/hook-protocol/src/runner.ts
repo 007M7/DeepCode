@@ -27,8 +27,8 @@ export interface RunHookOptions {
   env?: Record<string, string>
   /** Working directory for the hook (defaults to the executor's own default when omitted). */
   cwd?: string
-  /** Abort signal — cancels the hook run when fired (the parent step aborts). */
-  signal?: AbortSignal
+  /** Explicit owning-operation signal; firing it cancels the hook run. */
+  readonly signal: AbortSignal
   /** Whether to append a trailing newline to the stdin payload (CC yes, Codex no). */
   trailingNewline: boolean
   /**
@@ -78,9 +78,9 @@ export async function runHook(
     command: hook.command,
     timeoutMs,
     stdin,
+    signal: options.signal,
     ...options.cwd !== undefined ? { workdir: options.cwd } : {},
     ...options.env !== undefined ? { env: options.env } : {},
-    ...options.signal ? { signal: options.signal } : {},
   }
 
   try {

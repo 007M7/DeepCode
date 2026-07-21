@@ -21,17 +21,15 @@ function mutableHeader(header: SessionHeader): MutableSessionHeader {
   return header
 }
 
-async function expectParallelFlushError(promise: Promise<unknown>, message: RegExp): Promise<void> {
+async function expectFlushError(promise: Promise<unknown>, message: RegExp): Promise<void> {
   try {
     await promise
   } catch (error) {
-    expect(error).toBeInstanceOf(AggregateError)
-    const [cause] = (error as AggregateError).errors as unknown[]
-    expect(cause).toBeInstanceOf(Error)
-    expect((cause as Error).message).toMatch(message)
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toMatch(message)
     return
   }
-  throw new Error('expected parallel flush to reject')
+  throw new Error('expected flush to reject')
 }
 
 async function freshRoot(): Promise<string> {
@@ -257,7 +255,7 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     appendClosedTurn(source)
 
     const child = ctx.sessions.fork(source, undefined, SessionId('persist-child'))
-    await ctx.parallel('session/flush', child)
+    await ctx.sessions.flush(child)
     const loaded = await ctx.sessionPersistence.load(child.id)
 
     expect(loaded.events).toEqual(source.events)
@@ -436,12 +434,14 @@ describe('SessionPersistenceJsonl: write path (session/event → flush)', () => 
 
     const a = ctx.sessions.create(SessionId('sa'))
     const b = ctx.sessions.create(SessionId('sb'))
+    a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    b.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     a.append('user/message', { content: [{ type: 'text', text: 'A' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     b.append('user/message', { content: [{ type: 'text', text: 'B' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     b.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.parallel('session/flush', a)
-    await ctx.parallel('session/flush', b)
+    await ctx.sessions.flush(a)
+    await ctx.sessions.flush(b)
 
     const la = await ctx.sessionPersistence.load(SessionId('sa'))
     const lb = await ctx.sessionPersistence.load(SessionId('sb'))
@@ -635,7 +635,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     }, { inject: ['sessions'] }))
     // Drain A, then dispose ITS fiber (the live session A is gone) while the
     // backend stays loaded.
-    for (const s of ctx.sessions.list()) await ctx.parallel('session/flush', s)
+    for (const s of ctx.sessions.list()) await ctx.sessions.flush(s)
     await sessFiberA.dispose()
 
     // A new Session object reuses the id. Object-keyed initialization must run independently,
@@ -703,7 +703,7 @@ describe('SessionPersistenceJsonl: edge cases', () => {
       a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
       a.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     }, { inject: ['sessions'] }))
-    for (const s of ctx.sessions.list()) await ctx.parallel('session/flush', s)
+    for (const s of ctx.sessions.list()) await ctx.sessions.flush(s)
     await firstFiber.dispose()
 
     let second!: Session
@@ -814,18 +814,19 @@ describe('SessionPersistenceJsonl: edge cases', () => {
     await ctx2.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
     const session = ctx2.sessions.create(SessionId('flush-fail'))
     // A full turn lands in the write-behind buffer.
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Make the durable materialize fail on the next flush.
     const backend = ctx2.sessionPersistence as unknown as { materialize: (...args: unknown[]) => Promise<void> }
     const origMat = backend.materialize.bind(backend)
     backend.materialize = () => Promise.reject(new Error('disk full'))
-    await expectParallelFlushError(ctx2.parallel('session/flush', session), /disk full/)
+    await expectFlushError(ctx2.sessions.flush(session), /disk full/)
     // The events are STILL buffered (not silently dropped): a retry persists them.
     backend.materialize = origMat
-    await ctx2.parallel('session/flush', session)
+    await ctx2.sessions.flush(session)
     const loaded = await ctx2.sessionPersistence.load(SessionId('flush-fail'))
-    expect(loaded.events.map(e => e.seq)).toEqual([0, 1])
+    expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2])
     await ctx2.fiber.dispose()
   })
 

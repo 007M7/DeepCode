@@ -7,11 +7,13 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentCapabilities, SubagentProvider, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { WorkflowRunId, WorkflowService } from '@deepseek-ai/dsh-workflow'
 import type { WorkflowResult, WorkflowRun, WorkflowStartRequest } from '@deepseek-ai/dsh-workflow'
 import * as toolRalph from '../src/index.ts'
+
+const testToolSignal = new AbortController().signal
 
 class StubEngine extends WorkflowService {
   requests: WorkflowStartRequest[] = []
@@ -19,11 +21,13 @@ class StubEngine extends WorkflowService {
   disposed = 0
   settle!: (result: WorkflowResult) => void
   startError: Error | undefined
+  onStart: (() => void) | undefined
 
   start(request: WorkflowStartRequest): WorkflowRun {
     if (this.startError !== undefined) throw this.startError
     this.requests.push(request)
     const result = new Promise<WorkflowResult>((resolve) => { this.settle = resolve })
+    this.onStart?.()
     return {
       id: WorkflowRunId(`ralph-${this.requests.length}`),
       meta: request.meta,
@@ -94,11 +98,11 @@ function execute(
   extra?: { agent?: Agent; signal?: AbortSignal },
 ): Promise<ToolExecutionResult> {
   return ctx.tools.execute({
+    signal: extra?.signal ?? testToolSignal,
     callId: CallId('ralph-call'),
     name: 'ralph',
     arguments: args,
     ...extra?.agent === undefined ? {} : { agent: extra.agent },
-    ...extra?.signal === undefined ? {} : { signal: extra.signal },
   })
 }
 
@@ -256,7 +260,7 @@ describe('dsh-tool-ralph', () => {
     expect(engine.disposed).toBe(4)
   })
 
-  it('bridges mid-flight and already-aborted parent signals to cancellation', async () => {
+  it('bridges mid-flight cancellation and skips dispatch for an already-aborted parent signal', async () => {
     const { ctx, engine, parent } = await setup()
     const controller = new AbortController()
     const pending = execute(ctx, { objective: 'Work.' }, { agent: parent, signal: controller.signal })
@@ -266,9 +270,24 @@ describe('dsh-tool-ralph', () => {
 
     const already = new AbortController()
     already.abort()
-    expect((await execute(ctx, { objective: 'Work.' }, { agent: parent, signal: already.signal })).isError).toBe(true)
-    expect(engine.cancels).toEqual(['parent step aborted', 'parent step aborted'])
-    expect(engine.disposed).toBe(2)
+    const skipped = await execute(ctx, { objective: 'Work.' }, { agent: parent, signal: already.signal })
+    expect(skipped.error?.code).toBe(TOOL_ABORTED_BEFORE_DISPATCH)
+    expect(engine.requests).toHaveLength(1)
+    expect(engine.cancels).toEqual(['parent step aborted'])
+    expect(engine.disposed).toBe(1)
+  })
+
+  it('bridges cancellation that arrives while the workflow is starting', async () => {
+    const { ctx, engine, parent } = await setup()
+    const controller = new AbortController()
+    engine.onStart = () => { controller.abort() }
+
+    const result = await execute(ctx, { objective: 'Work.' }, { agent: parent, signal: controller.signal })
+
+    expect(result.isError).toBe(true)
+    expect(engine.requests[0]?.signal).toBe(controller.signal)
+    expect(engine.cancels).toEqual(['parent step aborted'])
+    expect(engine.disposed).toBe(1)
   })
 
   it('rejects absent authority, empty objectives, bad round caps, and schema-invalid calls before start', async () => {

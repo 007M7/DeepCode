@@ -101,7 +101,8 @@ export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
  */
 export interface TurnEndReasonMap {
   completed: { kind: 'completed' }
-  aborted: { kind: 'aborted'; reason?: string }
+  /** A cancellation request interrupted the live turn. */
+  aborted: { kind: 'aborted' }
   /**
    * The turn failed: a step threw or the model reported a failure. `step` is the
    * step number the failure occurred on (the operational error's location — the

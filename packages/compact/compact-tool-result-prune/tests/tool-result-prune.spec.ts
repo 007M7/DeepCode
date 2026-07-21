@@ -4,7 +4,8 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
-import * as Invariants from '@deepseek-ai/dsh-invariants'
+import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import InvariantService from '@deepseek-ai/dsh-invariants'
 import ToolResultPruneService, {
   codePointLength,
   DEFAULTS,
@@ -225,7 +226,8 @@ describe('ToolResultPruneService session transaction', () => {
   it('runs under real invariants between closed steps but not outside a turn', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(Invariants)
+    await ctx.plugin(InvariantService)
+    await ctx.plugin(SessionInvariant)
     const prune = new ToolResultPruneService(ctx, SMALL)
     const session = ctx.sessions.create(SessionId('invariants'))
     appendToolStep(session, 1, 'a', [{ type: 'text', text: 'A'.repeat(100) }])

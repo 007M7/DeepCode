@@ -15,6 +15,6 @@
 {"type":"tool/call","seq":13,"time":1784437195078,"data":{"turn":1,"step":1,"callId":"call_wait","name":"bash","arguments":"{\"command\":\"node -e \\\"setInterval(() => {}, 1000)\\\"\",\"description\":\"Wait until cancellation\"}"}}
 {"type":"tool/result","seq":14,"time":1784437195089,"data":{"turn":1,"step":1,"callId":"call_wait","content":[{"type":"text","text":"Error: command aborted"}],"isError":true},"sourceEventSeqs":[13],"surfaceOp":"append"}
 {"type":"tool/call","seq":15,"time":1784437195089,"data":{"turn":1,"step":1,"callId":"call_skipped","name":"bash","arguments":"{\"command\":\"printf skipped > skipped.txt\",\"description\":\"Write skipped marker\"}"}}
-{"type":"tool/result","seq":16,"time":1784437195089,"data":{"turn":1,"step":1,"callId":"call_skipped","content":[{"type":"text","text":"Error: tool call skipped because the step was aborted before execution"}],"isError":true,"error":{"name":"AbortError","code":"ABORTED"}},"sourceEventSeqs":[15],"surfaceOp":"append"}
+{"type":"tool/result","seq":16,"time":1784437195089,"data":{"turn":1,"step":1,"callId":"call_skipped","content":[{"type":"text","text":"Error: tool call aborted before dispatch"}],"isError":true,"error":{"name":"AbortError","code":"ABORTED_BEFORE_DISPATCH"}},"sourceEventSeqs":[15],"surfaceOp":"append"}
 {"type":"step/end","seq":17,"time":1784437195090,"data":{"turn":1,"step":1}}
-{"type":"turn/end","seq":18,"time":1784437195090,"data":{"turn":1,"reason":{"kind":"aborted","reason":"session/cancel"}}}
+{"type":"turn/end","seq":18,"time":1784437195090,"data":{"turn":1,"reason":{"kind":"aborted"}}}

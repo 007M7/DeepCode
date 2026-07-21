@@ -19,7 +19,7 @@
           welcome: 'TUI Code Mode ready. Give it a multi-tool task.'
           ui:
             showReasoning: true
-            maxToolOutputLines: 12
+            maxToolOutputLines: 6
           persona: |
             You are a coding agent powered by the {{model}} model.
 

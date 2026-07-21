@@ -30,6 +30,28 @@ function provenanceEvent(seq: number, sourceEventSeqs: unknown): SessionEvent {
   } as unknown as SessionEvent
 }
 
+function toolResultEvent(
+  seq: number,
+  callId: string,
+  surfaceOp: SurfaceEvent['surfaceOp'] = 'append',
+  sourceEventSeqs?: number[],
+): SessionEvent {
+  return {
+    type: 'tool/result',
+    seq,
+    time: seq,
+    data: {
+      turn: 1,
+      step: 1,
+      callId: CallId(callId),
+      content: [{ type: 'text', text: `result ${seq}` }],
+      isError: false,
+    },
+    surfaceOp,
+    ...sourceEventSeqs === undefined ? {} : { sourceEventSeqs },
+  }
+}
+
 describe('foldSurface provenance', () => {
   it('accepts absent or valid provenance and complete replacement coverage', () => {
     const events = [
@@ -92,6 +114,33 @@ describe('foldSurface provenance', () => {
       expect(() => foldSurface(events as unknown as SessionEvent[])).toThrow(expected)
     },
   )
+})
+
+describe('foldSurface tool-result rewrites', () => {
+  it('rejects a replacement spanning multiple current nodes', () => {
+    const events = [
+      provenanceEvent(0, undefined),
+      provenanceEvent(1, undefined),
+      toolResultEvent(2, 'rewrite', { op: 'replace', start: 0, end: 1 }, [0, 1]),
+    ]
+    expect(() => foldSurface(events)).toThrow(/must rewrite exactly one current node/)
+  })
+
+  it('rejects a replacement targeting a non-result node', () => {
+    const events = [
+      provenanceEvent(0, undefined),
+      toolResultEvent(1, 'rewrite', { op: 'replace', start: 0, end: 0 }, [0]),
+    ]
+    expect(() => foldSurface(events)).toThrow(/must target a current tool\/result/)
+  })
+
+  it('rejects changes outside tool-result content', () => {
+    const events = [
+      toolResultEvent(0, 'original'),
+      toolResultEvent(1, 'changed', { op: 'replace', start: 0, end: 0 }, [0]),
+    ]
+    expect(() => foldSurface(events)).toThrow(/may change only content/)
+  })
 })
 
 describe('SurfaceManager', () => {
