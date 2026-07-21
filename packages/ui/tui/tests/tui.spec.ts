@@ -4,9 +4,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   createTuiChat,
   mountTui,
@@ -244,7 +246,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('live thought')
     result.terminal.send('\x12')
     await tick()
-    appendAssistant(result.session, [{ type: 'text', text: 'final live answer' }], { inputTokens: 500, outputTokens: 8 })
+    appendAssistant(
+      result.session,
+      [{ type: 'text', text: 'final live answer' }],
+      { inputTokens: 500, outputTokens: 8 },
+      { turn: 2, step: 0 },
+    )
     await tick()
 
     expect(result.terminal.output).toContain('Working')
@@ -274,6 +281,68 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
     expect(result.terminal.stopped).toBe(1)
     expect(result.terminal.drainInput).toHaveBeenCalledWith(100, 20)
+  })
+
+  it('counts failed and recovered request usage once per step', async () => {
+    const result = await setup()
+    result.session.append('assistant/chunk', {
+      turn: 1,
+      step: 1,
+      chunk: { type: 'usage', usage: { inputTokens: 10, outputTokens: 2 } },
+    })
+    result.session.append('llm/retry', {
+      turn: 1,
+      step: 1,
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 500,
+      failure: { message: 'temporary', code: 'SERVER' },
+    })
+    result.session.append('assistant/chunk', {
+      turn: 1,
+      step: 2,
+      chunk: { type: 'usage', usage: { inputTokens: 7, outputTokens: 3 } },
+    })
+    appendAssistant(
+      result.session,
+      [{ type: 'text', text: 'recovered' }],
+      { inputTokens: 7, outputTokens: 3 },
+      { turn: 1, step: 2 },
+    )
+    await tick()
+
+    expect(result.terminal.output).toContain('↑17 ↓5')
+    await dispose(result)
+  })
+
+  it('retracts a failed live stream and renders its durable retry status', async () => {
+    const result = await setup()
+    result.session.append('assistant/chunk', {
+      turn: 1,
+      step: 1,
+      chunk: { type: 'text-delta', index: 0, text: 'discarded partial answer' },
+    })
+    result.session.append('llm/retry', {
+      turn: 1,
+      step: 1,
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 500,
+      failure: { message: 'rate limited', code: 'RATE_LIMIT', status: 429 },
+    })
+    result.session.append('llm/retry', {
+      turn: 1,
+      step: 2,
+      retry: 2,
+      maxRetries: 2,
+      delayMs: 1_000,
+      failure: { message: 'failed before chunks', code: 'SERVER', status: 503 },
+    })
+    await tick()
+
+    expect(result.terminal.output).toContain('Retrying model request (1/2) in 500ms: rate limited')
+    expect(result.terminal.output).toContain('Retrying model request (2/2) in 1000ms: failed before chunks')
+    await dispose(result)
   })
 
   it('renders the ANSI palette and every markdown/content style', async () => {
@@ -431,6 +500,108 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(disposedAgent)
   })
 
+  it('discovers and executes plugin commands, then removes TUI-local commands on disposal', async () => {
+    const result = await setup()
+    const handler = vi.fn(({ rawInput }: CommandInvocation) => ({
+      kind: 'success' as const,
+      text: `PLUGIN:${rawInput}`,
+    }))
+    result.ctx.commands.register({
+      name: 'plugin-check',
+      description: 'Run a plugin command',
+      input: { hint: '<value>' },
+      handler,
+    })
+    result.ctx.commands.register({
+      name: 'plugin-fail',
+      description: 'Fail a plugin command',
+      handler: () => { throw new Error('plugin command exploded') },
+    })
+
+    result.terminal.send('/plugin-check  value  ')
+    result.terminal.send('\r')
+    await tick()
+
+    expect(handler).toHaveBeenCalledTimes(1)
+    const invocation = handler.mock.calls[0]?.[0]
+    expect(invocation?.agent).toBe(result.agent)
+    // pi-tui's Editor owns terminal-line normalization and removes trailing
+    // spaces before onSubmit; the registry preserves the adapter-delivered line.
+    expect(invocation?.rawInput).toBe('  value')
+    expect(result.terminal.output).toContain('PLUGIN:  value')
+    result.terminal.send('/plugin-fail')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Command failed: plugin command exploded')
+    result.terminal.send('/help')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('/plugin-check <value> — Run a plugin command')
+    expect(result.ctx.commands.list(result.agent).map(command => command.name)).toContain('help')
+
+    await result.controller.dispose()
+    expect(result.ctx.commands.list(result.agent).map(command => command.name)).toEqual([
+      'plugin-check',
+      'plugin-fail',
+    ])
+    await result.ctx.fiber.dispose()
+  })
+
+  it('aborts an in-flight plugin command during TUI disposal', async () => {
+    const result = await setup()
+    let started!: () => void
+    const ready = new Promise<void>((resolve) => { started = resolve })
+    let commandSignal: AbortSignal | undefined
+    result.ctx.commands.register({
+      name: 'wait-plugin',
+      description: 'Wait until disposal',
+      handler: ({ signal }) => {
+        commandSignal = signal
+        started()
+        return new Promise((resolve) => {
+          signal.addEventListener('abort', () => { resolve({ kind: 'error', text: 'late result' }) }, { once: true })
+        })
+      },
+    })
+
+    result.terminal.send('/wait-plugin')
+    result.terminal.send('\r')
+    await ready
+    await result.controller.dispose()
+
+    expect(commandSignal?.aborted).toBe(true)
+    expect(result.terminal.output).not.toContain('late result')
+    await result.ctx.fiber.dispose()
+  })
+
+  it('suppresses a successful plugin result that settles as TUI disposal starts', async () => {
+    const result = await setup()
+    let started!: () => void
+    const ready = new Promise<void>((resolve) => { started = resolve })
+    let resolveCommand!: (result: { kind: 'success'; text: string }) => void
+    result.ctx.commands.register({
+      name: 'late-success',
+      description: 'Resolve while the TUI closes',
+      handler: () => new Promise((resolve) => {
+        resolveCommand = resolve
+        started()
+      }),
+    })
+
+    result.terminal.send('/late-success')
+    result.terminal.send('\r')
+    await ready
+    resolveCommand({ kind: 'success', text: 'must not render after disposal' })
+    // Let the command boundary accept the result before disposal, but leave the
+    // TUI continuation queued so the success-side disposal guard owns the race.
+    await Promise.resolve()
+    await result.controller.dispose()
+    await tick()
+
+    expect(result.terminal.output).not.toContain('must not render after disposal')
+    await result.ctx.fiber.dispose()
+  })
+
   it('cancels before /exit while running and handles agent errors/disposal', async () => {
     const result = await setup({ status: 'running' })
     result.terminal.send('/exit')
@@ -453,10 +624,15 @@ describe('pi-tui chat lifecycle and transcript', () => {
     events.session.append('turn/end', { turn: 6, reason: { kind: 'max-tokens' } })
     events.session.append('turn/end', { turn: 7, reason: { kind: 'rejected', reason: 'policy' } })
     events.session.append('turn/end', { turn: 8, reason: { kind: 'interrupted' } })
+    events.session.append('turn/end', {
+      turn: 9,
+      reason: { kind: 'error', step: 1, failure: { message: 'structured provider failure', code: 'SERVER' } },
+    })
     events.ctx.emit('agent/disposed', events.agent)
     await tick()
     expect(events.terminal.output).toContain('live failure')
     expect(events.terminal.output).toContain('durable failure')
+    expect(events.terminal.output).toContain('structured provider failure')
     expect(events.terminal.output).toContain('stopped')
     expect(events.terminal.output).toContain('output-token limit')
     expect(events.terminal.output).toContain('Turn rejected')
@@ -808,6 +984,7 @@ describe('terminal mounting', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const session = ctx.sessions.create(SessionId('main'))
@@ -826,6 +1003,7 @@ describe('terminal mounting', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const terminal = new FakeTerminal()
@@ -854,6 +1032,7 @@ describe('terminal mounting', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const terminal = new FakeTerminal()
@@ -881,6 +1060,7 @@ describe('terminal mounting', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const terminal = new FakeTerminal()
@@ -901,6 +1081,7 @@ describe('terminal mounting', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const session = ctx.sessions.create(SessionId('failed-start-session'))
@@ -913,6 +1094,8 @@ describe('terminal mounting', () => {
 
     expect(() => createTuiChat(ctx, { sessionId: 'failed-start-session', color: false }, { terminal, exit: vi.fn() }))
       .toThrow('terminal startup failed')
+    await tick()
+    expect(ctx.commands.list(ctx.agents.get(SessionId('failed-start-session'))!)).toEqual([])
     expect(terminal.stopped).toBe(1)
     expect(terminal.progress).toEqual([false, true, false])
     await expect(ctx.userInteraction.ask({ questions: [{ id: 'late', question: 'Late?' }] }))
@@ -930,6 +1113,7 @@ describe('terminal mounting', () => {
   it('throws when createTuiChat is called without the configured agent', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const runtime: TuiRuntime = { terminal: new FakeTerminal(), exit: vi.fn() }

@@ -331,13 +331,18 @@ export class ReactLoopAgent implements Agent {
   }
 
   cancel(reason?: string): void {
+    const resolvedReason = reason ?? 'cancelled'
     // Arm only for current work; an idle marker would cancel the next prompt.
     if (this._status === 'running' || this.currentAbort !== undefined || this.#inbox.hasQueued || this.#inbox.hasSteering) {
       this.cancelRequested = true
       // Capture the resolved reason for the marker-only windows (pre-step /
       // continuation). The mid-step path reads it from abort.signal.reason
       // below; the marker path reads it via the LoopHandle's cancelReason().
-      this.cancelReason = reason ?? 'cancelled'
+      this.cancelReason = resolvedReason
+      // Coordination consumers must update their own state before this call
+      // clears the inbox or aborts the step. Notification failures are
+      // contained by the fused dispatcher and cannot veto cancellation.
+      agentEvents(this.loopCtx, this).emit('agent/cancel-requested', resolvedReason)
     }
     // Drop all pending queued + steering work (un-started prompts never run; the
     // cancelled turn's steering is not re-enqueued). Cleared directly even when
@@ -347,7 +352,7 @@ export class ReactLoopAgent implements Agent {
     // Interrupt an in-flight step immediately (the running turn observes the
     // abort and ends `aborted`). The marker covers the windows where no step is
     // running (pre-step, continuation).
-    this.currentAbort?.abort(reason ?? 'cancelled')
+    this.currentAbort?.abort(resolvedReason)
   }
 
   /**

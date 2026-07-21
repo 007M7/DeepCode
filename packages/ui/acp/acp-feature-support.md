@@ -10,7 +10,7 @@ Legend: ✅ supported · ⚠️ partial / fallback · ❌ not yet · — n/a. Th
 
 ## At a glance
 
-The bridge implements the **core prompt-turn loop** for N concurrent sessions: initialize, session new/load, prompt, cancel, streamed assistant/thought chunks, tool-call rendering (including Zed terminal cards), resumable session replay, one-shot permission prompts, per-session model selection, and permission presets. The largest **unbuilt** areas are **MCP passthrough**, **slash commands**, and **agent plans**, plus the client **filesystem** and **terminal** method families (which the adapters mostly do NOT drive either — see rows 43-49). See [Gap summary](#gap-summary).
+The bridge implements the **core prompt-turn loop** for N concurrent sessions: initialize, session new/load, prompt, cancel, streamed assistant/thought chunks, tool-call rendering (including Zed terminal cards), resumable session replay, slash commands, one-shot permission prompts, per-session model selection, and permission presets. The largest **unbuilt** areas are **MCP passthrough** and **agent plans**, plus the client **filesystem** and **terminal** method families (which the adapters mostly do NOT drive either — see rows 43-49). See [Gap summary](#gap-summary).
 
 ## 1. Agent methods (client → agent)
 
@@ -23,8 +23,8 @@ The bridge implements the **core prompt-turn loop** for N concurrent sessions: i
 | `session/load` | S | ✅ | ✅ | ✅ | Maps to `agents.resume` + full event-log replay; validates persisted `cwd` before constructing the agent. |
 | `session/resume` | S | ❌ | ✅ | ✅ | Reconnect WITHOUT replay; gated by `sessionCapabilities.resume`. Not advertised. |
 | `session/close` | S | ❌ | ✅ | ✅ | No `session/close` handler — the SDK dispatch returns `method_not_found`. The bridge tears sessions down on client disconnect / Cordis disposal (cross-cutting, see [§8](#8-cross-cutting)), but that is not the on-demand per-session method. |
-| `session/prompt` | S | ✅ | ✅ | ✅ | Maps to `agent.send`; one in-flight prompt per session; settles on the owning turn's end. |
-| `session/cancel` | S | ✅ | ✅ | ✅ | Queue-aware `agent.cancel`; settles the in-flight prompt `cancelled`, scoped to the one session. |
+| `session/prompt` | S | ✅ | ✅ | ✅ | A flattened prompt beginning with `/` dispatches through `ctx.commands` without a model request; ordinary input maps to `agent.send`. One request is in flight per session. |
+| `session/cancel` | S | ✅ | ✅ | ✅ | Aborts the exact direct command, or applies queue-aware `agent.cancel` and settles its prompt `cancelled`, scoped to one session. |
 | `session/set_mode` | S | ❌ | ✅ | ✅ | Session modes deliberately skipped: config options are the spec's replacement and modes are slated for removal in ACP v2 (see [§6](#6-session-modes--config-options--models)). |
 | `session/set_config_option` | S | ✅ | ✅ | ✅ | A provider/model select is present for a complete registered target; one `permission` select is added when `ctx.permission` is composed. Every response carries the complete refreshed state. |
 | model selection | S | ✅ | ✅ | ✅ | No distinct stable `session/set_model` — model is the `model`-category `session/set_config_option`. Values preserve the provider/model pair, catalogs come from `ctx.llm`, selection is per session, and `session/load` restores the last requested pair. Codex also supports the legacy `unstable_setSessionModel` ext method. |
@@ -84,7 +84,7 @@ These are capabilities the bridge would *drive* on the editor. The harness runs 
 | `tool_call` | S | ✅ | ✅ | ✅ | Tool-owned presentation (`presentCall`); see [§5](#5-tool-call-rendering). |
 | `tool_call_update` | S | ✅ | ✅ | ✅ | From appended `tool/result` via `presentResult`; replacement results rewrite model context and do not duplicate or overwrite execution presentation. |
 | `plan` | S | ❌ | ✅ | ✅ | No agent plan emitted. Both adapters emit real plan entries (Codex's `CodexEventHandler.updatePlan` maps `turn/plan/updated` → `{ sessionUpdate: 'plan', entries }`). |
-| `available_commands_update` | S | ❌ | ✅ | ✅ | No slash commands advertised. |
+| `available_commands_update` | S | ✅ | ✅ | ✅ | Full effective snapshot after create/load and registry changes; names, descriptions, and unstructured-input hints come from `ctx.commands`. |
 | `current_mode_update` | S | ❌ | ✅ | ✅ | No session modes. |
 | `config_option_update` | S | ❌ | ✅ | ✅ | Config options exist (advertised in `session/new`/`session/load`, switched via `session/set_config_option`), but the bridge never pushes agent-initiated changes — an operator default drift is narrated to the MODEL, not echoed to the editor. Future work in the [sandbox Agent Note § Per-session mode switching](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md). |
 | `usage_update` | S | ❌ | ✅ | ✅ | Token/cost reporting not surfaced (the harness records token usage internally on `assistant/message`). |
@@ -142,11 +142,10 @@ Ranked by how commonly the reference adapters ship them and how much UX they unl
 
 1. **Session lifecycle** — `session/list` + `session/delete` (the persistence layer already lists), then `session/resume` / `session/close`.
 2. **Agent plan** (`sessionUpdate: 'plan'`) — surface the loop's plan as structured entries.
-3. **Slash commands** (`available_commands_update`).
-4. **MCP passthrough** (`mcpServers` on `session/new` + `mcpCapabilities`).
-5. **Richer prompt content** — image / embedded `resource` blocks (needs a multimodal model path).
-6. **Usage reporting** (`usage_update`) — the harness already records token usage internally (on `assistant/message`).
-7. **Editor filesystem delegation** (`fs/read_text_file` / `fs/write_text_file`) — lets the agent see unsaved buffers; lower priority since the harness has direct disk access.
+3. **MCP passthrough** (`mcpServers` on `session/new` + `mcpCapabilities`).
+4. **Richer prompt content** — image / embedded `resource` blocks (needs a multimodal model path).
+5. **Usage reporting** (`usage_update`) — the harness already records token usage internally (on `assistant/message`).
+6. **Editor filesystem delegation** (`fs/read_text_file` / `fs/write_text_file`) — lets the agent see unsaved buffers; lower priority since the harness has direct disk access.
 
 ## Out of scope
 
