@@ -38,6 +38,10 @@ export const coverageShards = [
     packageRoots: ['llm', 'compact'],
   },
   {
+    name: 'session-title',
+    packageRoots: ['session-title'],
+  },
+  {
     name: 'integrations',
     packageRoots: ['hooks/hook-protocol', 'lsp', 'mcp', 'hooks/hooks-claude'],
   },
