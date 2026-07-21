@@ -20,6 +20,12 @@ const loaderUrl = pathToFileURL(resolve(root, 'vendor/loader/lib/index.js')).hre
 const failures = []
 const manifests = globSync('packages/*/*/package.json', { cwd: root }).sort()
 const stagingRoot = mkdtempSync(resolve(tmpdir(), 'dsh-built-package-invariants-'))
+const packArgs = ['pack', '--dry-run', '--json', '--ignore-scripts']
+// Windows cannot spawn npm's .cmd shim directly; setup-node installs this JS
+// entrypoint beside node.exe, so the probe stays shell-free on every runner.
+const npmInvocation = process.platform === 'win32'
+  ? [process.execPath, [resolve(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'), ...packArgs]]
+  : ['npm', packArgs]
 
 try {
   for (const [index, manifestPath] of manifests.entries()) {
@@ -31,7 +37,7 @@ try {
       continue
     }
 
-    const pack = spawnSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+    const pack = spawnSync(npmInvocation[0], npmInvocation[1], {
       cwd: packageDir,
       encoding: 'utf8',
     })
@@ -62,7 +68,11 @@ try {
     }
     const packageNodeModules = resolve(packageDir, 'node_modules')
     if (existsSync(packageNodeModules)) {
-      symlinkSync(packageNodeModules, resolve(stagedPackageDir, 'node_modules'), 'dir')
+      symlinkSync(
+        packageNodeModules,
+        resolve(stagedPackageDir, 'node_modules'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      )
     }
 
     const probe = `
