@@ -49,6 +49,7 @@
         "./packages/skill/*/src",
         "./packages/compact/*/src",
         "./packages/context/*/src",
+        "./packages/goal/*/src",
         "./packages/guard/*/src",
         "./packages/subagent/*/src",
         "./packages/tasks/*/src",

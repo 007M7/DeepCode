@@ -13,7 +13,7 @@ An adapter registry plus a single streaming call surface, interceptable via a wa
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` Discover the models one registered provider currently advertises.
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` Stream one model call as raw chunks (token-level deltas). Consumers assemble the chunks into blocks/messages with `BlockAssembler`.
 
-`LlmService` preserves errors from final adapter selection, synchronous dispatch, iterator construction, and iteration, and binds their provenance to the exact stream handle returned for that model call. `isLlmAdapterFailure(stream, value)` reports only errors from that call's final adapter boundary; nested model calls, `llm/stream` middleware, and downstream consumer failures remain unclassified for the outer call. Classification does not replace the adapter's original coded `Error`.
+`LlmService` preserves errors from final adapter selection, synchronous dispatch, iterator construction, and iteration, and binds their provenance to the exact stream handle returned for that model call. `isLlmAdapterFailure(stream, value)` reports only errors from that call's final adapter boundary; `llmFailureOf(stream, value)` returns the adjacent immutable `LlmFailure`. Nested model calls, `llm/stream` middleware, and downstream consumer failures remain unclassified for the outer call. Classification never replaces or mutates the adapter's original coded `Error`.
 
 Provider and model metadata is a discovery surface, not a routing whitelist. `registerAdapter()` still owns provider exclusivity, while an adapter may accept model ids absent from `listModels()`; consumers must not reject a request because its model is unlisted. Returned metadata is detached and invalid or duplicate adapter entries fail with `INVALID_ADAPTER` or `INVALID_CATALOG`.
 
@@ -21,12 +21,12 @@ Provider and model metadata is a discovery surface, not a routing whitelist. `re
 
 | Event | Mode | Purpose |
 |---|---|---|
-| `llm/stream` | waterfall | Intercept/wrap every streaming model call (retry, caching, routing) |
+| `llm/stream` | waterfall | Intercept/wrap every streaming model call for caching, logging, or routing |
 
 ### Extension points
 
 - Subclass `LlmAdapter` and call `ctx.llm.registerAdapter(providers, adapter)` to add one or more provider routes. `GenerateOptions.provider` selects the adapter; `GenerateOptions.model` is adapter-owned and may be resolved dynamically. Override `providerInfo()` and asynchronous `listModels()` to expose selector metadata; their defaults use the route id as its name and advertise no models.
-- Wrap `llm/stream` via `ctx.on()` waterfall listeners for caching, retry, logging, rate-limiting, etc.
+- Wrap `llm/stream` via `ctx.on()` waterfall listeners for caching, logging, or routing. A wrapper that retries after emitting a chunk has no durable attempt boundary; shipped agent retry policy therefore uses `agent/request-error` instead.
 
 ### Content-block vocabulary (`types.ts`)
 
@@ -47,9 +47,10 @@ Every product adapter sends application identity on provider HTTP requests. `att
 - `LlmAdapter` — abstract base class for provider adapters. The only required method is `stream()`.
 - `BlockAssembler` — incrementally assembles raw chunks into complete content blocks and an assistant message. The agent loop feeds it raw chunks (logging them for replay) while reading the assembled blocks/message for history.
 - `HarnessError` — base class for the harness error taxonomy: a stable `code` string (distinct from the human `message`) plus `cause` chaining. Lives here, in the leaf package every other imports, so a single base is shared without a new dependency edge. Per-package errors (`LlmError`, `ToolArgsError`, `InvariantError`, …) extend it. `isHarnessError(value)` narrows at seams.
-- `LlmError` — extends `HarnessError`; its stable `code` string (`NO_ADAPTER`, `DUPLICATE_ADAPTER`, and adapter codes like `AUTH`/`RATE_LIMIT`) is the programmatic failure contract.
+- `LlmError` — extends `HarnessError`; its stable `code` string (`NO_ADAPTER`, `DUPLICATE_ADAPTER`, and adapter codes like `AUTH`/`RATE_LIMIT`) matches its frozen serializable `failure.code`. The payload may also retain validated status, `Retry-After`, and branded provider request id facts; policy remains outside the error.
 - `errorChain(value)` — renders a thrown value with its full `cause` chain and AggregateError members for diagnostic surfaces (UI notices, logger lines, durable `turn/end` messages), so transport wrappers like undici's `TypeError: fetch failed` surface the underlying `ECONNREFUSED`/DNS/TLS detail instead of masking it. Rendering only — route on `code`, never by parsing the result.
 - `CONTEXT_WINDOW_EXCEEDED_CODE` — the provider-neutral code both DeepSeek adapters use when a request exceeds the model context window, regardless of thrown-HTTP versus in-band finish delivery. `isContextWindowExceededError(detail)` is their shared conservative classifier for OpenAI-compatible provider detail.
+- `QUOTA_EXCEEDED_CODE` — the non-transient provider-neutral code for exhausted account quota, balance, credits, budget, or usage limits. `isQuotaExceededError(detail)` keeps those failures distinct from request-rate limits.
 
 ### Real adapters
 
@@ -65,7 +66,7 @@ Pass-through; the registry preserves the assembled request prefix, while the sel
 
 ## Known Limitations and Deferred Work
 
-- **No default retry/caching/rate-limit policy ships in this service** — `llm/stream` remains the call-wrapper seam; the agent loop separately offers proven model-request failures to `agent/request-error`, whose default preserves the original failure.
+- **No default retry/caching/rate-limit policy ships in this service** — `llm/stream` remains a single-attempt call-wrapper seam; the agent loop separately offers proven model-request failures to `agent/request-error`, whose default preserves the original failure. `@deepseek-ai/dsh-llm-retry` is an optional policy plugin loaded by the shared example spine.
 - **`GenerateOptions` sampling is `temperature`/`maxTokens`/`stop` only** — no `tool_choice`, `top_p`, or penalty fields; the vocabulary grows when a producer lands ([dropped inert knobs](../../../.agents/notes/implemented/simplification/2026-07-04-drop-inert-request-knobs.md)).
 - **Producer-gated variants stay out until produced** — `prefill`, per-tool `strict`, block `cache` hints, and the `agent` message-source variant were pruned as producerless ([Agent Note](../../../.agents/notes/implemented/simplification/2026-07-04-prune-producerless-vocabulary-variants.md)).
 - **`BlockAssembler` handles core block kinds only** — a plugin-added block type whose stream is never closed by `block-end` makes `blocks()` throw.
