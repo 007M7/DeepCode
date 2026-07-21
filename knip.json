@@ -13,6 +13,7 @@
         "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",
         "headless-agent/tests/fixtures/time-context-driver.ts",
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
+        "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts",
@@ -43,6 +44,11 @@
     "packages/context/time-context": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/lsp/lsp-local": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts", "tests/fixture-server.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"],
+      "ignoreDependencies": ["typescript-language-server"]
     },
     "packages/sandbox/sandbox-local": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],

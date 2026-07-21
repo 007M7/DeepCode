@@ -139,6 +139,11 @@ flowchart TD
   subgraph group_guard["packages/guard"]
     pkg_repeat_tool_guard["repeat-tool-guard"]
   end
+  subgraph group_lsp["packages/lsp"]
+    pkg_lsp["lsp"]
+    pkg_lsp_local["lsp-local"]
+    pkg_tool_lsp["tool-lsp"]
+  end
   subgraph group_mcp["packages/mcp"]
     pkg_mcp_client["mcp-client"]
   end
@@ -177,6 +182,8 @@ flowchart TD
   pkg_system_prompt --> pkg_llm
   pkg_system_prompt --> pkg_scope
   pkg_web --> pkg_llm
+  pkg_lsp --> pkg_brand
+  pkg_lsp --> pkg_llm
   pkg_sandbox --> pkg_llm
   pkg_token_meter --> pkg_llm
   pkg_token_meter --> pkg_session
@@ -204,6 +211,10 @@ flowchart TD
   pkg_session_persistence --> pkg_session
   pkg_llm_replay --> pkg_llm
   pkg_llm_replay --> pkg_session
+  pkg_lsp_local --> pkg_brand
+  pkg_lsp_local --> pkg_llm
+  pkg_lsp_local --> pkg_lsp
+  pkg_lsp_local --> pkg_timeout
   pkg_sandbox_local --> pkg_llm
   pkg_sandbox_local --> pkg_sandbox
   pkg_sandbox_policy --> pkg_sandbox
@@ -390,6 +401,11 @@ flowchart TD
   pkg_workspace_context --> pkg_tools
   pkg_repeat_tool_guard --> pkg_agent
   pkg_repeat_tool_guard --> pkg_tools
+  pkg_tool_lsp --> pkg_llm
+  pkg_tool_lsp --> pkg_lsp
+  pkg_tool_lsp --> pkg_system_prompt
+  pkg_tool_lsp --> pkg_timeout
+  pkg_tool_lsp --> pkg_tools
   pkg_mcp_client --> pkg_llm
   pkg_mcp_client --> pkg_tools
   pkg_tool_tasks --> pkg_agent
@@ -534,6 +550,7 @@ flowchart TD
 | [`session`](../packages/core/session) | `core` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
 | [`system-prompt`](../packages/core/system-prompt) | `core` | [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
 | [`web`](../packages/web/web) | `web` | [`llm`](../packages/llm/llm) |
+| [`lsp`](../packages/lsp/lsp) | `lsp` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm) |
 | [`sandbox`](../packages/sandbox/sandbox) | `sandbox` | [`llm`](../packages/llm/llm) |
 | [`token-meter`](../packages/llm/token-meter) | `llm` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`agent`](../packages/core/agent) | `core` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
@@ -548,6 +565,7 @@ flowchart TD
 | [`spill`](../packages/spill/spill) | `spill` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`session-persistence`](../packages/session-persistence/session-persistence) | `session-persistence` | [`session`](../packages/core/session) |
 | [`llm-replay`](../packages/support/llm-replay) | `support` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`lsp-local`](../packages/lsp/lsp-local) | `lsp` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`timeout`](../packages/util/timeout) |
 | [`sandbox-local`](../packages/sandbox/sandbox-local) | `sandbox` | [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
 | [`sandbox-policy`](../packages/sandbox/sandbox-policy) | `sandbox` | [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session) |
 | [`llm-retry`](../packages/llm/llm-retry) | `llm` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
@@ -593,6 +611,7 @@ flowchart TD
 | [`tool-ask-user`](../packages/ui/tool-ask-user) | `ui` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools), [`user-interaction`](../packages/ui/user-interaction) |
 | [`workspace-context`](../packages/context/workspace-context) | `context` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`paths`](../packages/util/paths), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) | `guard` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools) |
+| [`tool-lsp`](../packages/lsp/tool-lsp) | `lsp` | [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`system-prompt`](../packages/core/system-prompt), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
 | [`mcp-client`](../packages/mcp/mcp-client) | `mcp` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-tasks`](../packages/tasks/tool-tasks) | `tasks` | [`agent`](../packages/core/agent), [`system-prompt`](../packages/core/system-prompt), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools) |
 | [`tool-workflow`](../packages/workflow/tool-workflow) | `workflow` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
