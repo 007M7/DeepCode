@@ -9,7 +9,11 @@ import z from 'schemastery'
 import { BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { deadline, MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { normalizeSessionTitle, SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
+import {
+  appendSessionTitleOutOfBand,
+  normalizeSessionTitle,
+  SessionTitleProviderId,
+} from '@deepseek-ai/dsh-session-title'
 import type {
   SessionTitleAutomaticMode,
   SessionTitleModelProvenance,
@@ -258,14 +262,14 @@ export async function generateSessionTitleWithLlm(
     sessionId: request.session.id,
     signal: callDeadline.signal,
   })
-  await ctx.sessions.appendOutOfBand(request.session, 'session/title-llm-request', {
+  await appendSessionTitleOutOfBand(ctx, request.session, 'session/title-llm-request', {
     titleProvider,
     messageSeqs: selectedMessages.map(message => message.seq),
     route,
     system,
     messages,
     maxTokens: config.maxOutputTokens,
-  }, { kind: 'session-title' })
+  }, callDeadline.signal)
   callDeadline.signal.throwIfAborted()
   const assembler = new BlockAssembler()
   for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)

@@ -2,12 +2,23 @@ import { Context, type Fiber } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionTitleService, {
+  appendSessionTitleOutOfBand,
   SessionTitleProviderId,
   type Config,
   type SessionTitleProvider,
   type SessionTitleProviderRequest,
   type SessionTitleProviderResult,
 } from '@deepseek-ai/dsh-session-title'
+
+declare module '@deepseek-ai/dsh-session' {
+  interface SessionEventMap {
+    'test/title-provider-request': { revision: number }
+  }
+
+  interface OutOfBandSessionEventMap {
+    'test/title-provider-request': true
+  }
+}
 
 const CONFIG = {
   fallbackMaxWords: 5,
@@ -245,6 +256,78 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     expect(olderError).toBeInstanceOf(Error)
     if (!(olderError instanceof Error)) throw new Error('expected older refresh to reject')
     expect(olderError.message).toMatch(/superseded/)
+  })
+
+  it('serializes a newer provider write after the superseded write', async () => {
+    const ctx = await setup()
+    const session = startSession(ctx, 'refresh-provider-write-order')
+    const source = appendPrompt(session, 'Serialize explicit provider writes')
+    await settle()
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const flushStarted = deferred<undefined>()
+    const releaseFlush = deferred<undefined>()
+    let flushCount = 0
+    ctx.on('session/flush', async (subject) => {
+      if (subject !== session || ++flushCount !== 1) return
+      flushStarted.resolve(undefined)
+      await releaseFlush.promise
+    })
+    let generation = 0
+    ctx.sessionTitle.register({
+      id: SessionTitleProviderId('refresh-provider-write-order'),
+      automatic: 'first-message',
+      async generate(request) {
+        generation += 1
+        const revision = generation
+        await appendSessionTitleOutOfBand(ctx, request.session, 'test/title-provider-request', {
+          revision,
+        }, request.signal)
+        return {
+          title: `Generated title ${revision}`,
+          messageSeqs: [source.seq],
+        }
+      },
+    })
+
+    const older = ctx.sessionTitle.refresh(session)
+    const olderOutcome = older.then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    await flushStarted.promise
+    const middle = ctx.sessionTitle.refresh(session)
+    const middleOutcome = middle.then(
+      value => value,
+      (error: unknown) => error,
+    )
+    await settle()
+
+    expect(generation).toBe(2)
+    expect(session.events.filter(event => event.type === 'test/title-provider-request'))
+      .toHaveLength(1)
+    const newer = ctx.sessionTitle.refresh(session)
+    const newerOutcome = newer.then(
+      value => value,
+      (error: unknown) => error,
+    )
+    await settle()
+    expect(generation).toBe(3)
+    expect(session.events.filter(event => event.type === 'test/title-provider-request'))
+      .toHaveLength(1)
+
+    releaseFlush.resolve(undefined)
+    const newerResult = await newerOutcome
+    expect(newerResult).toMatchObject({ title: 'Generated title 3' })
+    const olderError = await olderOutcome
+    expect(olderError).toBeInstanceOf(Error)
+    if (!(olderError instanceof Error)) throw new Error('expected older refresh to reject')
+    expect(olderError.message).toMatch(/superseded/)
+    const middleError = await middleOutcome
+    expect(middleError).toBeInstanceOf(Error)
+    if (!(middleError instanceof Error)) throw new Error('expected middle refresh to reject')
+    expect(middleError.message).toMatch(/superseded/)
+    expect(session.events.filter(event => event.type === 'test/title-provider-request').map(event => event.data.revision))
+      .toEqual([1, 3])
   })
 
   it('cancels a queued fallback when the session-title service unloads', async () => {
