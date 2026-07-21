@@ -16,6 +16,7 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   llm/         LLM seam + the DeepSeek adapters (hand-rolled + pi-ai design twin)
   bash/        bash executor seam + local impl + model-facing bash tools
   fs/          filesystem seam + local impl + policy gate + read/write/edit tools
+  lsp/         language-server seam + local stdio provider + model-facing lsp tool
   skill/       skill provider registry + local impl + catalog/loader tool
   web/         web seam + search/fetch providers + model-facing web tools
   compact/     compaction seam + basic backend
