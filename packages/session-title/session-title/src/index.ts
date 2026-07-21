@@ -266,6 +266,7 @@ interface ActiveProviderWork extends PendingAutomaticWork {
 /** Mutable concurrency state scoped to one live session. */
 interface SessionTitleWorkState {
   revision: number
+  fallback?: Promise<SessionTitleSnapshot | undefined>
   pending?: PendingAutomaticWork
   active?: ActiveProviderWork
 }
@@ -707,12 +708,19 @@ export class SessionTitleService extends Service {
       this.config.fallbackMaxBytes,
     )
     if (title.length === 0) return undefined
-    await appendSessionTitleOutOfBand(this.ctx, session, 'session/title', {
+    const state = this.stateFor(session)
+    if (state.fallback !== undefined) return state.fallback
+    const fallback = appendSessionTitleOutOfBand(this.ctx, session, 'session/title', {
       title,
       messageSeqs: [first.seq],
       source: { kind: 'fallback' },
-    }, this.lifetime.signal)
-    return this.get(session)
+    }, this.lifetime.signal).then(() => this.get(session))
+    state.fallback = fallback
+    try {
+      return await fallback
+    } finally {
+      delete state.fallback
+    }
   }
 }
 

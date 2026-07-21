@@ -204,6 +204,34 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     })
   })
 
+  it('shares one durable fallback across concurrent refreshes', async () => {
+    const ctx = await setup()
+    const seed = new Session(SessionId('fallback-concurrency-seed'))
+    seed.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    const source = appendPrompt(seed, 'Create exactly one fallback title')
+    seed.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const session = ctx.sessions.create(SessionId('fallback-concurrency'), { seed: seed.events })
+    let flushes = 0
+    ctx.on('session/flush', (subject) => {
+      if (subject === session) flushes += 1
+    })
+
+    const results = await Promise.all([
+      ctx.sessionTitle.refresh(session),
+      ctx.sessionTitle.refresh(session),
+    ])
+
+    expect(results[0]).toEqual(results[1])
+    expect(session.events.filter(event => event.type === 'session/title')).toHaveLength(1)
+    expect(session.events.filter(event => event.type === 'turn/start'
+      && event.data.trigger.kind === 'session-title')).toHaveLength(1)
+    expect(ctx.sessionTitle.get(session)?.messageSeqs).toEqual([source.seq])
+    expect(flushes).toBe(1)
+  })
+
   it('reserves overlapping refresh order before fallback durability settles', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
