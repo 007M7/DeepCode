@@ -52,6 +52,7 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
+import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type {
   FileDiff,
   TerminalCallView,
@@ -369,7 +370,7 @@ async function readModelChoices(
 class HeaderComponent implements Component {
   constructor(
     private readonly agent: Agent,
-    private readonly welcome: string,
+    private readonly subtitle: () => string,
     private readonly palette: Palette,
     private readonly currentModel: () => string | undefined,
   ) {}
@@ -383,7 +384,7 @@ class HeaderComponent implements Component {
     const detail = `${model}  •  ${displayText(this.agent.session.id)}`
     const top = this.palette.accent(`╭${'─'.repeat(Math.max(0, width - 2))}╮`)
     const bottom = this.palette.accent(`╰${'─'.repeat(Math.max(0, width - 2))}╯`)
-    const lines = [title, this.palette.muted(displayText(this.welcome)), this.palette.dim(detail)]
+    const lines = [title, this.palette.muted(displayText(this.subtitle())), this.palette.dim(detail)]
       .flatMap(line => wrapTextWithAnsi(line, usable))
       .map((line) => {
         const clipped = truncateToWidth(line, usable, '')
@@ -1068,7 +1069,8 @@ export function createTuiChat(
   const now = (): number => runtime.now?.() ?? Date.now()
 
   const welcome = config.welcome ?? 'ready.'
-  const header = new HeaderComponent(agent, welcome, palette, () => target.current?.model)
+  let sessionTitle = foldSessionTitle(agent.session.events)?.title
+  const header = new HeaderComponent(agent, () => sessionTitle ?? welcome, palette, () => target.current?.model)
   const footer = new FooterComponent(
     agent,
     palette,
@@ -1088,7 +1090,12 @@ export function createTuiChat(
   ui.addChild(editor)
   ui.addChild(footer)
   ui.setFocus(editor)
-  runtime.terminal.setTitle(displayText(resolved.title))
+  const updateTerminalTitle = (): void => {
+    runtime.terminal.setTitle(displayText(
+      sessionTitle === undefined ? resolved.title : `${sessionTitle} — ${resolved.title}`,
+    ))
+  }
+  updateTerminalTitle()
 
   const requestRender = (): void => {
     footer.invalidate()
@@ -1327,6 +1334,11 @@ export function createTuiChat(
       }
       case 'todo/write':
         todo.update(event.data.todos)
+        break
+      case 'session/title':
+        sessionTitle = event.data.title
+        header.invalidate()
+        updateTerminalTitle()
         break
       case 'turn/end':
         clearStreaming()

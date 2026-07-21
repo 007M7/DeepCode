@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
-import { markLoopRequest } from '../src/request-marker.ts'
+import { markAgentLoopRequest, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
@@ -18,7 +18,8 @@ function dispatch(ctx: Context, options: unknown): void {
 }
 
 function loopRequest<T extends object>(options: T): Readonly<T> {
-  return Object.freeze(markLoopRequest(options))
+  markAgentLoopRequest(options as GenerateOptions)
+  return Object.freeze(options)
 }
 
 async function requestSetup() {
@@ -94,8 +95,10 @@ describe('request-reconstruction invariant', () => {
 
   it('rejects malformed requests carrying the loop marker', async () => {
     const { ctx, session } = await requestSetup()
+    const messages: GenerateOptions['messages'] = []
+    Object.freeze(messages)
     expect(() => {
-      dispatch(ctx, markLoopRequest({ model: 'm', messages: Object.freeze([]), sessionId: session.id }))
+      dispatch(ctx, markAgentLoopRequest({ provider: 'p', model: 'm', messages, sessionId: session.id }))
     }).toThrow(/request must be frozen/)
     expect(() => {
       dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([]) }))

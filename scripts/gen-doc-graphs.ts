@@ -74,6 +74,7 @@ const GROUP_ORDER = [
   'hooks',
   'session-persistence',
   'session-query',
+  'session-title',
   'support',
   'ui',
 ]
@@ -135,6 +136,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Exact session-history reads and traces',
     mode: 'seam',
     note: 'Resolves live and optional persisted logs into one logical corpus for exact reads and relationship traces.',
+  },
+  {
+    key: 'sessionTitle',
+    pkg: 'session-title',
+    title: 'Log-backed session titles',
+    mode: 'seam',
+    implementations: ['session-title-first-message-llm', 'session-title-all-messages-llm'],
+    note: 'Owns the deterministic fallback, latest-title fold, and sole optional asynchronous provider registration.',
   },
   {
     key: 'systemPrompt',

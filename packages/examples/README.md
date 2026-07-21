@@ -4,7 +4,7 @@ Pre-composed plugin bundles a thin leaf `cordis.yml` loads instead of assembling
 
 | Package | npm name | Role |
 |---|---|---|
-| `agent-spine-demo/` | `@deepseek-ai/dsh-agent-spine-demo` | The executor-less/UI-less agent spine as one bundle plugin, with an opt-in persisted-goal stack |
+| `agent-spine-demo/` | `@deepseek-ai/dsh-agent-spine-demo` | The executor-less/UI-less agent spine as one bundle plugin, with fallback session titles and an opt-in persisted-goal stack |
 | `tui-demo/` | `@deepseek-ai/dsh-tui-demo` | Full-screen terminal app: the spine + persisted goals + `/goal` command + JSONL persistence + `dsh-tui` + a pre-created `main` agent, with a boot `bin` |
 | `cli-demo/` | `@deepseek-ai/dsh-cli-demo` | Headless one-shot app: the spine + JSONL persistence + a pre-created `main` agent, with text and DSH-native JSON output |
 | `acp-demo/` | `@deepseek-ai/dsh-acp-demo` | ACP server app: the spine + persisted goals + `/goal` command + JSONL persistence + the [`acp`](../ui/acp/README.md) bridge (no stdout logger), with a boot `bin` |

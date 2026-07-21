@@ -1,6 +1,6 @@
 terminal 100x36 buffer=normal length=36 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
-title "DSH TUI snapshot"
+title "Use the todo_write tool to — DSH TUI snapshot"
 cursor hidden column=1 viewportRow=33 bufferRow=33
 buffer
 0| "╭──────────────────────────────────────────────────────────────────────────────────────────────────╮"
@@ -10,7 +10,7 @@ buffer
   style 2-9 fg=bright-blue bold
   style 11-17 bold
   style 99-99 fg=bright-blue
-2| "│ Recorded replay: todo-plan                                                                       │"
+2| "│ Use the todo_write tool to                                                                       │"
   style 0-0 fg=bright-blue
   style 2-27 fg=bright-black
   style 99-99 fg=bright-blue
