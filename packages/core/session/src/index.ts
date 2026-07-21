@@ -13,7 +13,7 @@ import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, OutOfBandSessionEventType, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType, TurnTrigger } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
@@ -26,6 +26,27 @@ export { interruptedTurnClosers } from './repair.ts'
 export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
 export { foldSurface, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
+
+/**
+ * Find the latest closed message-triggered turn, excluding injection and
+ * plugin-owned zero-step turns.
+ * @param events - session events, or an owned suffix, to inspect.
+ * @returns the latest matching turn end, or `undefined`.
+ */
+export function findLastMessageTurnEnd(
+  events: readonly SessionEvent[],
+): SessionEvent<'turn/end'> | undefined {
+  const messageTurns = new Set<number>()
+  let latest: SessionEvent<'turn/end'> | undefined
+  for (const event of events) {
+    if (event.type === 'turn/start') {
+      if (event.data.trigger.kind === 'message') messageTurns.add(event.data.turn)
+      continue
+    }
+    if (event.type === 'turn/end' && messageTurns.delete(event.data.turn)) latest = event
+  }
+  return latest
+}
 
 declare module 'cordis' {
   interface Context {
@@ -227,6 +248,7 @@ interface SessionEntry {
   announced: boolean
   announcing: boolean
   appending: boolean
+  outOfBand: boolean
   detachRequested: boolean
   detach(): void
 }
@@ -401,7 +423,7 @@ export class Session {
     } finally {
       if (entry !== undefined) {
         entry.appending = false
-        if (entry.detachRequested && !entry.announcing) entry.detach()
+        if (entry.detachRequested && !entry.announcing && !entry.outOfBand) entry.detach()
       }
     }
   }
@@ -685,6 +707,7 @@ export class SessionStore extends Service {
       announced: false,
       announcing: false,
       appending: false,
+      outOfBand: false,
       detachRequested: false,
       detach: () => { this.detachEntered(entry) },
     }
@@ -697,7 +720,7 @@ export class SessionStore extends Service {
       // A lifecycle listener may own the advanced detach capability. Keep the
       // entry and its publication hooks live until synchronous creation or append
       // publication unwinds, then publish the paired disposal edge.
-      if (entry.announcing || entry.appending) {
+      if (entry.announcing || entry.appending || entry.outOfBand) {
         entry.detachRequested = true
         return
       }
@@ -751,7 +774,7 @@ export class SessionStore extends Service {
       }
     } finally {
       entry.announcing = false
-      if (entry.detachRequested && !entry.appending) entry.detach()
+      if (entry.detachRequested && !entry.appending && !entry.outOfBand) entry.detach()
     }
   }
 
@@ -793,6 +816,87 @@ export class SessionStore extends Service {
     }))
     const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
     if (failure !== undefined) throw failure.reason
+  }
+
+  /**
+   * Append one plugin-declared log-only event without borrowing the agent
+   * loop's lifecycle. An open turn receives the event directly and remains
+   * responsible for its ordinary checkpoint. A closed log receives one
+   * zero-step turn around the event, followed by an awaited flush.
+   *
+   * Once the synthetic `turn/start` commits, this method always attempts its
+   * matching `turn/end` and flush, including when the target append fails.
+   * Detachment requested by an event or flush listener is deferred until that
+   * sequence settles, so publication cannot switch from a live scoped session
+   * to an unobserved bare `Session` halfway through the update.
+   *
+   * @param session - exact live session that owns the target log.
+   * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.
+   * @param data - typed JSON payload for the target event.
+   * @param trigger - plugin-owned turn trigger used only when the log is closed.
+   * @returns the accepted target event with its assigned sequence and timestamp.
+   * @throws when the session is detached, another out-of-band append is active,
+   *   event acceptance fails, the synthetic turn cannot close, or flushing fails.
+   */
+  async appendOutOfBand<T extends OutOfBandSessionEventType>(
+    session: Session,
+    type: T,
+    data: SessionEventMap[T],
+    trigger: TurnTrigger,
+  ): Promise<SessionEvent<T>> {
+    const entry = this.liveEntryFor(session)
+    if (entry.outOfBand) {
+      throw new Error(`session "${session.id}" already has an out-of-band append in progress`)
+    }
+    entry.outOfBand = true
+    // `T` is excluded from SurfaceEventType by OutOfBandSessionEventType, but
+    // TypeScript does not reduce Session.append's conditional rest parameter
+    // through a generic intersection. Preserve that proven two-argument call
+    // shape without widening the public Session.append overload.
+    const appendLogOnly = session.append.bind(session) as unknown as <K extends OutOfBandSessionEventType>(
+      eventType: K,
+      eventData: SessionEventMap[K],
+    ) => SessionEvent<K>
+    try {
+      const lastBoundary = session.events.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
+      if (lastBoundary?.type === 'turn/start') {
+        return appendLogOnly(type, data)
+      }
+
+      const lastStart = session.events.findLast(event => event.type === 'turn/start')
+      const turn = (lastStart?.data.turn ?? 0) + 1
+      let accepted: SessionEvent<T> | undefined
+      let failure: unknown
+      let opened = false
+      try {
+        session.append('turn/start', { turn, trigger })
+        opened = true
+        accepted = appendLogOnly(type, data)
+      } catch (error: unknown) {
+        failure = error
+      } finally {
+        if (opened) {
+          // The only target types admitted by OutOfBandSessionEventMap are
+          // log-only plugin events, so the synthetic turn remains open here.
+          session.append('turn/end', { turn, reason: { kind: 'completed' } })
+          try {
+            await this.flush(session)
+          } catch (error: unknown) {
+            if (failure === undefined) failure = error
+          }
+        }
+      }
+      if (failure !== undefined) {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error -- preserve an arbitrary flush-listener rejection exactly
+        throw failure
+      }
+      /* v8 ignore next -- accepted is assigned unless an append failure was captured above. */
+      if (accepted === undefined) throw new Error('out-of-band append completed without an accepted event')
+      return accepted
+    } finally {
+      entry.outOfBand = false
+      if (entry.detachRequested && !entry.announcing && !entry.appending) entry.detach()
+    }
   }
 
   /** Return the exact live entry; detached/prepared objects reject. */

@@ -36,6 +36,7 @@ const GROUP_ORDER = [
   'hooks',
   'session-persistence',
   'session-query',
+  'session-title',
   'support',
   'ui',
 ]
