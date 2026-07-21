@@ -98,7 +98,7 @@ export function apply(ctx: Context) {
 | 产品功能 | 插件机制 |
 |---|---|
 | 钩子系统（用户级 + 项目级） | `agent/session-start`、`agent/prompt-submit`、`agent/request`、`agent/step-result`、`tools/pre-execute`、`tools/post-execute`、`agent/turn-continuation` 上的监听器——每个拦截 waterfall 返回一个类型化 Decision；`dsh-hooks-claude` / `dsh-hooks-codex` 桥接器将钩子配置文件映射到这些 seam 上 |
-| `/goal` | 通过 `agent/turn-continuation` 强制继续 + `steer()` 提醒 |
+| `/goal` | `ctx.goals` 管理持久状态，`dsh-goal-session` 通过公共 `Agent` 调度同会话回合，独立的命令/工具生产方分别提供人类/模型控制 |
 | `/loop` | 在 `turn/end` 会话事件上 `send()` 下一次迭代；或强制继续 |
 | 动态工作流 | `ctx.workflows` + worker-thread 引擎 + `workflow` 工具；结构化的进程内子任务通过作用域化的 prompt/工具注册、单调工具守卫、最终 `tools/result` 提交（包括外层 `run_code`）和终端 `agent/turn-stop` 来强制输出 |
 | 排队消息 + steering（中途引导） | 核心 `Agent.send()` / `Agent.steer()` |

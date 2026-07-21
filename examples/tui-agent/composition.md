@@ -43,6 +43,8 @@ flowchart LR
   cfg --> plugin_tui_workflow_workerthread
   plugin_tui_tool_workflow["tool-workflow<br/>@deepseek-ai/dsh-tool-workflow"]
   cfg --> plugin_tui_tool_workflow
+  plugin_tui_tool_ralph["tool-ralph<br/>@deepseek-ai/dsh-tool-ralph"]
+  cfg --> plugin_tui_tool_ralph
   plugin_tui_tool_todo["tool-todo<br/>@deepseek-ai/dsh-tool-todo"]
   cfg --> plugin_tui_tool_todo
   plugin_tui_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
@@ -77,6 +79,7 @@ flowchart LR
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
 | `workflow-workerthread` | `@deepseek-ai/dsh-workflow-workerthread` |
 | `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
+| `tool-ralph` | `@deepseek-ai/dsh-tool-ralph` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
