@@ -34,6 +34,9 @@
     },
     {
       "path": "../../ui/user-approval"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

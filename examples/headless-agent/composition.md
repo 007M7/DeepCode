@@ -21,6 +21,8 @@ flowchart LR
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
   bundle_agent_core --> spine_loop["ctx.agents + ctx.agentLoop"]
+  plugin_headless_token_meter["token-meter<br/>@deepseek-ai/dsh-token-meter"]
+  cfg --> plugin_headless_token_meter
   plugin_headless_compact_basic["compact-basic<br/>@deepseek-ai/dsh-compact-basic"]
   cfg --> plugin_headless_compact_basic
   plugin_headless_subagent["subagent<br/>@deepseek-ai/dsh-subagent"]
@@ -54,6 +56,7 @@ flowchart LR
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
 | `cli-agent` | `@deepseek-ai/dsh-cli-demo` |
+| `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `compact-basic` | `@deepseek-ai/dsh-compact-basic` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |

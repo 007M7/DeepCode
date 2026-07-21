@@ -31,7 +31,7 @@ buffer
   style 1-1 inverse
 10| "────────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-103 dim
-11| "/workspace/project  ↑0 ↓0                                              idle  reasoning:on  tools:compact"
+11| "/workspace/project  ↑0 ↓0                     0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
   style 0-24 dim
-  style 71-103 dim
+  style 46-103 dim
 12-29| <blank>

@@ -9,7 +9,7 @@ import type { ProjectProfile } from '../../project/types.ts'
 import { loadHelperTemplate } from '../../templates/template-assets.ts'
 import { FeatureOption, FixedFeature } from '../feature.ts'
 import { ProjectContribution } from '../resources.ts'
-import { npmCordisConfigEntry, requiredString } from './helpers.ts'
+import { cordisConfigEntry, npmCordisConfigEntry, requiredString } from './helpers.ts'
 
 const ID = featureId('spine')
 const PERSONA = loadHelperTemplate<Record<string, never>>('persona.txt.tpl').render({}).trimEnd()
@@ -37,6 +37,10 @@ class SpineOption extends FeatureOption {
       ...npmCordisConfigEntry(ID, { id: 'tools', name: '@deepseek-ai/dsh-tools' }, []),
       ...npmCordisConfigEntry(ID, { id: 'agent', name: '@deepseek-ai/dsh-agent' }),
       ...npmCordisConfigEntry(ID, { id: 'invariants', name: '@deepseek-ai/dsh-invariants' }),
+      cordisConfigEntry(ID, { id: 'session-invariant', name: '@deepseek-ai/dsh-session/invariant' }),
+      cordisConfigEntry(ID, { id: 'agent-invariant', name: '@deepseek-ai/dsh-agent/invariant' }),
+      ...npmCordisConfigEntry(ID, { id: 'scope-invariant', name: '@deepseek-ai/dsh-scope/invariant' }),
+      cordisConfigEntry(ID, { id: 'agent-loop-invariant', name: '@deepseek-ai/dsh-agent-loop/invariant' }),
       ...npmCordisConfigEntry(ID, {
         id: 'agent-loop',
         name: '@deepseek-ai/dsh-agent-loop',

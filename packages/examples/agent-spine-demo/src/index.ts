@@ -22,7 +22,11 @@ import GoalService, { type Config as GoalDomainConfig } from '@deepseek-ai/dsh-g
 import * as goalSession from '@deepseek-ai/dsh-goal-session'
 import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
 import TaskService from '@deepseek-ai/dsh-tasks'
-import * as invariants from '@deepseek-ai/dsh-invariants'
+import InvariantService, { type Config as InvariantConfig } from '@deepseek-ai/dsh-invariants'
+import * as sessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import * as agentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import * as scopeInvariant from '@deepseek-ai/dsh-scope/invariant'
+import * as agentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -63,8 +67,9 @@ export interface GoalConfig {
  * skill registry/local provider/tool consumer, `workspaceContext` to the
  * workspace-context loader, `llmRetry` to the bounded request-recovery policy,
  * and `toolBash`/`toolTasks` to the model-facing tool plugins this bundle owns.
- * `goals` opts into and configures the persisted goal
- * domain plus its model tool and same-session driver. Owner schemas supply defaults for optional input;
+ * `goals` opts into and configures the persisted goal domain plus its model tool
+ * and same-session driver; `invariants` configures global and package-filtered
+ * relational checks. Owner schemas supply defaults for optional input;
  * workspace context instead requires an explicit byte budget or `false` because
  * it changes model-visible input. Producer opt-in stays producer-local:
  * `toolBash` configures bash only; independently composed producers keep their
@@ -91,6 +96,8 @@ export interface Config {
   toolBash?: toolBash.Config
   /** Generic background-task controls; set false to keep the task service without model-facing task tools. */
   toolTasks?: toolTasks.Config | false
+  /** Global enablement and package-name filters for invariant companions. */
+  invariants?: InvariantConfig
   /** Opt-in persisted same-session goal stack; set false or omit to leave it unmounted. */
   goals?: GoalConfig | false
   /** Bounded transient model-request retry policy. */
@@ -131,9 +138,10 @@ export const Config = z.intersect([
     workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
     toolBash: ToolBashConfigSchema,
     toolTasks: z.union([z.const(false), ToolTasksConfigSchema]),
+    invariants: InvariantService.Config,
     goals: z.union([z.const(false), GoalConfigSchema]),
     llmRetry: LlmRetryConfigSchema,
-  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'goals' | 'llmRetry'>>,
+  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'invariants' | 'goals' | 'llmRetry'>>,
 ]) as unknown as z<Config>
 
 /**
@@ -152,6 +160,7 @@ export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'a
     ...config.skills !== undefined ? { skills: config.skills } : {},
     ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
     ...config.toolTasks !== undefined ? { toolTasks: config.toolTasks } : {},
+    ...config.invariants !== undefined ? { invariants: config.invariants } : {},
     ...config.goals !== undefined ? { goals: config.goals } : {},
     ...config.llmRetry !== undefined ? { llmRetry: config.llmRetry } : {},
   }
@@ -197,7 +206,11 @@ export function apply(ctx: Context, config: Config): void {
     ctx.plugin(goalSession)
   }
   ctx.plugin(TaskService)
-  ctx.plugin(invariants)
+  ctx.plugin(InvariantService, config.invariants ?? {})
+  ctx.plugin(sessionInvariant)
+  ctx.plugin(agentInvariant)
+  ctx.plugin(scopeInvariant)
+  ctx.plugin(agentLoopInvariant)
   ctx.plugin(toolBash, Object.assign({}, config.toolBash, { dshHome }))
   if (config.workspaceContext !== false) {
     ctx.plugin(workspaceContext, config.workspaceContext)
