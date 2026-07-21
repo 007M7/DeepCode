@@ -2,7 +2,7 @@
 
 import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-permission'
 
@@ -11,16 +11,24 @@ export const name = 'permission-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install validation that durable preset events remain resolvable. */
-const install: InvariantInstaller = Object.assign((ctx: Context, fail: (message: string) => never) => {
+/** Validate the package-owned event shape and ignore unrelated events. */
+function validateEvent(ctx: Context, event: SessionEvent, fail: InvariantFailure): void {
+  if (event.type === 'permission/preset' && !ctx.permission.names.includes(event.data.preset)) {
+    fail(`permission/preset names unknown preset ${JSON.stringify(event.data.preset)}`)
+  }
+}
+
+/** Install validation that loaded and newly appended preset events remain resolvable. */
+const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
+  for (const session of ctx.sessions.list()) {
+    for (const event of session.events) validateEvent(ctx, event, fail)
+  }
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const event = (args as [Session, SessionEvent])[1]
-    if (event.type === 'permission/preset' && !ctx.permission.names.includes(event.data.preset)) {
-      fail(`permission/preset names unknown preset ${JSON.stringify(event.data.preset)}`)
-    }
+    validateEvent(ctx, event, fail)
   }, { global: true })
-}, { inject: ['permission'] })
+}, { inject: ['permission', 'sessions'] })
 
 /**
  * Register the permission invariant companion.

@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionStore, { type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as TodoInvariant from '@deepseek-ai/dsh-tool-todo/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(InvariantService)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(InvariantService, { enabled: true })
   await ctx.plugin(TodoInvariant)
   return ctx
 }
@@ -49,5 +50,19 @@ describe('todo snapshot invariants', () => {
         type: 'turn/start', seq: 0, time: 0, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
       })
     }).not.toThrow()
+  })
+
+  it('rejects an invalid existing snapshot on late registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    ctx.sessions.create().append('todo/write', {
+      todos: [
+        { content: 'duplicate', status: 'pending' },
+        { content: 'duplicate', status: 'completed' },
+      ],
+    })
+    await ctx.plugin(InvariantService, { enabled: true })
+
+    await expect(ctx.plugin(TodoInvariant).then(() => undefined)).rejects.toThrow(/repeats content "duplicate"/)
   })
 })

@@ -19,10 +19,10 @@ export const name = 'time-context-invariant'
 export const inject = ['invariants']
 
 /** Derive the pre-step position at which a time-context reading may append. */
-function preparationPosition(session: Session, fail: InvariantFailure): { turn: number; step: number } {
+function preparationPosition(history: readonly SessionEvent[], fail: InvariantFailure): { turn: number; step: number } {
   const currentTurnEvents: SessionEvent[] = []
   let openTurn: number | undefined
-  for (const event of session.events.slice().reverse()) {
+  for (const event of history.slice().reverse()) {
     if (event.type === 'turn/end') {
       fail('time-context reading must be appended inside an open turn')
     }
@@ -47,7 +47,7 @@ function preparationPosition(session: Session, fail: InvariantFailure): { turn: 
 
 /** Validate one plugin-attributed time reading against its session position and timestamp. */
 function validateReading(
-  session: Session,
+  history: readonly SessionEvent[],
   event: SessionEvent<'context/message'>,
   fail: InvariantFailure,
 ): void {
@@ -62,7 +62,7 @@ function validateReading(
   if (!Number.isSafeInteger(turn) || turn < 1 || !Number.isSafeInteger(step) || step < 1) {
     fail('time-context turn and step must be positive safe integers')
   }
-  const expected = preparationPosition(session, fail)
+  const expected = preparationPosition(history, fail)
   if (turn !== expected.turn || step !== expected.step) {
     fail(`time-context reading names turn ${turn}/step ${step}, expected turn ${expected.turn}/step ${expected.step}`)
   }
@@ -80,17 +80,30 @@ function validateReading(
   }
 }
 
-/** Install validation for plugin-attributed context readings. */
-const install: InvariantInstaller = (ctx, fail) => {
+/* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
+/** Validate all package-owned readings already present in one session. */
+function validateSession(session: Session, fail: InvariantFailure): void {
+  for (const [index, event] of session.events.entries()) {
+    if (event.type !== 'context/message'
+      || event.data.source.kind !== 'plugin'
+      || event.data.source.plugin !== SOURCE_NAME) continue
+    validateReading(session.events.slice(0, index), event, fail)
+  }
+}
+
+/** Install validation for loaded and newly appended context readings. */
+const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
+  for (const session of ctx.sessions.list()) validateSession(session, fail)
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]
     if (event.type !== 'context/message'
       || event.data.source.kind !== 'plugin'
       || event.data.source.plugin !== SOURCE_NAME) return
-    validateReading(session, event, fail)
+    validateReading(session.events, event, fail)
   }, { global: true })
-}
+}, { inject: ['sessions'] })
+/* jscpd:ignore-end */
 
 /**
  * Register the time-context invariant companion.

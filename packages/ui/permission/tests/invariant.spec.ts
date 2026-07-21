@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context, Service } from 'cordis'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionStore, { type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as PermissionInvariant from '@deepseek-ai/dsh-permission/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 
@@ -14,8 +14,9 @@ class PermissionProbe extends Service {
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
+  await ctx.plugin(SessionStore)
   await ctx.plugin(PermissionProbe)
-  await ctx.plugin(InvariantService)
+  await ctx.plugin(InvariantService, { enabled: true })
   await ctx.plugin(PermissionInvariant)
   return ctx
 }
@@ -38,5 +39,15 @@ describe('permission invariants', () => {
     const ctx = await setup()
     expect(() => { ctx.emit('session/event', {} as Session, presetEvent('missing')) })
       .toThrow(/unknown preset "missing"/)
+  })
+
+  it('rejects an unknown preset already present on late registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(PermissionProbe)
+    ctx.sessions.create().append('permission/preset', { preset: 'missing' })
+    await ctx.plugin(InvariantService, { enabled: true })
+
+    await expect(ctx.plugin(PermissionInvariant).then(() => undefined)).rejects.toThrow(/unknown preset "missing"/)
   })
 })

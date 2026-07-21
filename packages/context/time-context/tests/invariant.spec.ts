@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import * as TimeInvariant from '@deepseek-ai/dsh-time-context/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 
@@ -9,7 +9,8 @@ const SECOND = Date.parse('2026-07-14T00:00:00Z')
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
-  await ctx.plugin(InvariantService)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(InvariantService, { enabled: true })
   await ctx.plugin(TimeInvariant)
   return ctx
 }
@@ -54,6 +55,13 @@ function preparing(turn: number, step: number): Session {
   return session
 }
 
+function appendReading(session: Session, text: string): void {
+  session.append('context/message', {
+    content: [{ type: 'text', text }],
+    source: { kind: 'plugin', plugin: 'time-context' },
+  }, { surfaceOp: 'append' })
+}
+
 describe('time-context invariants', () => {
   it('accepts a reading whose turn, step, baseline, and timestamp agree', async () => {
     const ctx = await setup()
@@ -67,6 +75,37 @@ describe('time-context invariants', () => {
     expect(() => {
       ctx.emit('session/event', preparing(1, 1), event(reading(), SECOND + 60_000))
     }).not.toThrow()
+  })
+
+  it('validates each existing reading against its preceding durable prefix', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('time-invariant-late-valid'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'prepare' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    appendReading(session, reading())
+    session.append('step/start', { turn: 1, step: 1 })
+
+    await ctx.plugin(InvariantService, { enabled: true })
+    await expect(ctx.plugin(TimeInvariant)).resolves.toBeDefined()
+  })
+
+  it('rejects an invalid existing reading on late registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('time-invariant-late-invalid'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'prepare' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    appendReading(session, reading('1', '2', 'step context'))
+
+    await ctx.plugin(InvariantService, { enabled: true })
+    await expect(ctx.plugin(TimeInvariant).then(() => undefined)).rejects.toThrow(/expected turn 1\/step 1/)
   })
 
   it.each([

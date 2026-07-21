@@ -33,14 +33,24 @@ function validateTodos(value: unknown, fail: InvariantFailure): void {
   if (active > 1) fail(`todo/write contains ${active} in-progress entries; at most one is allowed`)
 }
 
-/** Install validation for durable whole-list todo snapshots. */
-const install: InvariantInstaller = (ctx, fail) => {
+/* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
+/** Validate the package-owned event shape and ignore unrelated events. */
+function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
+  if (event.type === 'todo/write') validateTodos(event.data.todos, fail)
+}
+
+/** Install validation for loaded and newly appended whole-list todo snapshots. */
+const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
+  for (const session of ctx.sessions.list()) {
+    for (const event of session.events) validateEvent(event, fail)
+  }
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const event = (args as [Session, SessionEvent])[1]
-    if (event.type === 'todo/write') validateTodos(event.data.todos, fail)
+    validateEvent(event, fail)
   }, { global: true })
-}
+}, { inject: ['sessions'] })
+/* jscpd:ignore-end */
 
 /**
  * Register the todo invariant companion.

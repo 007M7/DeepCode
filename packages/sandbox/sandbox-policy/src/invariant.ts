@@ -2,7 +2,7 @@
 
 import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { SANDBOX_MODES } from './session-mode.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-sandbox-policy'
@@ -12,16 +12,26 @@ export const name = 'sandbox-policy-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Install validation for the durable sandbox-mode vocabulary. */
-const install: InvariantInstaller = (ctx, fail) => {
+/* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
+/** Validate the package-owned event shape and ignore unrelated events. */
+function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
+  if (event.type === 'sandbox/mode' && !SANDBOX_MODES.includes(event.data.mode)) {
+    fail(`sandbox/mode carries unknown mode ${JSON.stringify(event.data.mode)}`)
+  }
+}
+
+/** Install validation for loaded and newly appended sandbox modes. */
+const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
+  for (const session of ctx.sessions.list()) {
+    for (const event of session.events) validateEvent(event, fail)
+  }
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const event = (args as [Session, SessionEvent])[1]
-    if (event.type === 'sandbox/mode' && !SANDBOX_MODES.includes(event.data.mode)) {
-      fail(`sandbox/mode carries unknown mode ${JSON.stringify(event.data.mode)}`)
-    }
+    validateEvent(event, fail)
   }, { global: true })
-}
+}, { inject: ['sessions'] })
+/* jscpd:ignore-end */
 
 /**
  * Register this package's invariant companion.
