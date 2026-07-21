@@ -60,12 +60,21 @@ describe('snapshotCodeJsonValue', () => {
     class ExoticArray extends Array<number> {}
     const cyclic: Record<string, unknown> = {}
     cyclic.self = cyclic
+    const decorated = [1]
+    Object.defineProperty(decorated, 'extra', { value: true })
+    const compensatedSparse = new Array(1)
+    Object.defineProperty(compensatedSparse, 'extra', { value: true })
+    const symbolDecorated = [1]
+    Object.defineProperty(symbolDecorated, Symbol('extra'), { value: true })
 
     for (const value of [
       new ExoticObject(),
       new Map([['value', 1]]),
       new ExoticArray(1),
       new Array(1),
+      decorated,
+      compensatedSparse,
+      symbolDecorated,
       cyclic,
       [undefined],
       { value: undefined },
