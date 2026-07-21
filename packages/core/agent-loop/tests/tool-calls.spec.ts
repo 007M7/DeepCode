@@ -461,7 +461,7 @@ describe('tool-call scheduler: abort handling', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     ctx.on('session/event', (session, event) => {
       if (session === agent.session && event.type === 'assistant/message') {
-        ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('already aborted')
+        agent.cancel({ kind: 'user' })
       }
     })
 
@@ -492,7 +492,7 @@ describe('tool-call scheduler: abort handling', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
       if (exec.callId === CallId('c1')) {
-        ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('pre cancelled')
+        agent.cancel({ kind: 'user' })
       }
       return next()
     })
@@ -529,7 +529,7 @@ describe('tool-call scheduler: abort handling', () => {
 
     agent.send([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 2)
-    ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('stop now')
+    agent.cancel({ kind: 'user' })
     gated.release('1')
     gated.release('2')
     await waitForIdle(ctx, agent)
@@ -575,7 +575,7 @@ describe('tool-call scheduler: abort handling', () => {
 
     agent.send([{ type: 'text', text: 'go' }])
     await until(() => gated.started.length === 2)
-    ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('stop before barrier')
+    agent.cancel({ kind: 'user' })
     gated.release('1')
     gated.release('2')
     await waitForIdle(ctx, agent)

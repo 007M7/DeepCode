@@ -217,7 +217,7 @@ describe('in-process structured output', () => {
     ctx.on('agent/session-start', (child) => {
       if (child === parent) return
       wrapperInstalled = true
-      child.ctx.on('agent/turn-continuation', async (_subject, _turn, _decision, next): Promise<ContinuationDecision> => {
+      child.ctx.on('agent/turn-continuation', async (_subject, _turn, _decision, _signal, next): Promise<ContinuationDecision> => {
         const downstream = await next()
         expect(downstream).toEqual({ action: 'stop' })
         return { action: 'continue' }
@@ -243,7 +243,7 @@ describe('in-process structured output', () => {
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     ctx.on('agent/session-start', (child) => {
       if (child.id !== run.id) return
-      child.ctx.on('agent/turn-continuation', async (subject, _turn, _decision, next): Promise<ContinuationDecision> => {
+      child.ctx.on('agent/turn-continuation', async (subject, _turn, _decision, _signal, next): Promise<ContinuationDecision> => {
         const downstream = await next()
         expect(downstream).toEqual({ action: 'stop' })
         subject.steer([{ type: 'text', text: 'late steering after downstream stop' }])

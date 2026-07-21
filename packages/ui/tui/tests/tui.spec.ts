@@ -457,7 +457,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\x0f')
     result.terminal.send('/cancel')
     result.terminal.send('\r')
-    expect(result.agent.cancelled).toContain('cancelled from terminal')
+    expect(result.agent.cancelled).toContainEqual({ kind: 'user' })
 
     result.agent.status = 'idle'
     for (const command of ['/help', '/reasoning', '/tools', '/redraw']) {
@@ -607,7 +607,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('/exit')
     result.terminal.send('\r')
     await tick()
-    expect(result.agent.cancelled).toContain('terminal exit requested')
+    expect(result.agent.cancelled).toContainEqual({ kind: 'user' })
     expect(result.exit).toHaveBeenCalledWith(0)
 
     const events = await setup()
@@ -620,7 +620,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     events.ctx.emit('agent/error', events.agent, 3, 2, new Error('live failure'))
     events.session.append('turn/end', { turn: 3, reason: { kind: 'error', step: 2, message: 'live failure' } })
     events.session.append('turn/end', { turn: 4, reason: { kind: 'error', step: 1, message: 'durable failure' } })
-    events.session.append('turn/end', { turn: 5, reason: { kind: 'aborted', reason: 'stopped' } })
+    events.session.append('turn/end', { turn: 5, reason: { kind: 'aborted' } })
     events.session.append('turn/end', { turn: 6, reason: { kind: 'max-tokens' } })
     events.session.append('turn/end', { turn: 7, reason: { kind: 'rejected', reason: 'policy' } })
     events.session.append('turn/end', { turn: 8, reason: { kind: 'interrupted' } })
@@ -632,8 +632,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(events.terminal.output).toContain('live failure')
     expect(events.terminal.output).toContain('durable failure')
+    expect(events.terminal.output).toContain('Turn cancelled')
     expect(events.terminal.output).toContain('structured provider failure')
-    expect(events.terminal.output).toContain('stopped')
     expect(events.terminal.output).toContain('output-token limit')
     expect(events.terminal.output).toContain('Turn rejected')
     expect(events.terminal.output).toContain('previous process ended')

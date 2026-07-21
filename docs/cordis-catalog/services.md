@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:223`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:224`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -960,7 +960,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:553`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:570`](../../packages/core/session/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -1122,7 +1122,7 @@ async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 
 Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:209`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:213`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tasks` — `TaskService`
 

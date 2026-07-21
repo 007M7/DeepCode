@@ -96,7 +96,7 @@ export function attachStructuredRuntime(childCtx: Context, schema: StructuredOut
   // Stop the child's turn once its output is captured. This monotonic serial
   // checkpoint runs after the ordinary continuation waterfall, its reason,
   // and late-steering folding, so no ordering trick can resume a finished run.
-  childCtx.on('agent/turn-stop', function (this: unknown): ContinuationStop | undefined {
+  childCtx.on('agent/turn-stop', function (this: unknown, _agent, _turn, _signal): ContinuationStop | undefined {
     return captured === undefined ? undefined : { action: 'stop' }
   })
 

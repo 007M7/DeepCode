@@ -463,13 +463,16 @@ interface TurnTriggerMap {
 
 ## Why a turn ended: `TurnEndReasonMap`
 
+`aborted` is intentionally a coarse durable outcome: it records that cancellation interrupted the live turn, not which runtime caller requested it. The runtime-only caller vocabulary belongs to [`AgentCancelCause`](core.md#the-agent-handle); a future audit requirement would use a separate control-request event rather than overloading the terminal result.
+
 ```ts type-equiv
 /**
  * Why a turn ended. Merge-extensible sum type.
  */
 interface TurnEndReasonMap {
   completed: { kind: 'completed' }
-  aborted: { kind: 'aborted'; reason?: string }
+  /** A cancellation request interrupted the live turn. */
+  aborted: { kind: 'aborted' }
   /**
    * The turn failed: a step threw or the model reported a failure. `step` is the
    * step number the failure occurred on (the operational error's location — the

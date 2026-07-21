@@ -28,6 +28,7 @@ const FENCE = 'ts cordis-catalog'
  */
 export const LINK_MAP: Record<string, string> = {
   Agent: 'core.md',
+  AgentCancelCause: 'core.md',
   AgentOptions: 'core.md',
   AgentStatus: 'core.md',
   ContentBlock: 'core.md',

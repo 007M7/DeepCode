@@ -193,7 +193,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
       order.push('agent/created')
     })
     ctx.on('agent/session-start', (agent) => {
-      expect(() => { agent.cancel('now live') }).not.toThrow()
+      expect(() => { agent.cancel({ kind: 'user' }) }).not.toThrow()
       order.push('agent/session-start')
     })
 
