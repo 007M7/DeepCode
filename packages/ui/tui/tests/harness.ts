@@ -1,7 +1,7 @@
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, { type Agent, type AgentOptions, type AgentStatus } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -31,6 +31,7 @@ export interface TuiHarnessOptions {
     providers: LlmProviderInfo[]
     models: LlmModelInfo[]
     listModels?: (provider: string) => Promise<LlmModelInfo[]>
+    resolveModelContext?: (provider: string, model: string) => Promise<LlmModelContext | undefined>
   }
 }
 
@@ -75,9 +76,12 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       return catalog.listModels?.(provider)
         ?? Promise.resolve(catalog.models.filter(model => model.provider === provider).map(model => ({ ...model })))
     },
+    resolveModelContext(provider: string, model: string) {
+      return catalog.resolveModelContext?.(provider, model)
+        ?? Promise.resolve({ contextWindow: options.contextWindow ?? 128_000 })
+    },
   } as never)
   ctx.provide('tokenMeter', {
-    contextWindow: options.contextWindow ?? 128_000,
     measure() {
       return { totalTokens: options.contextTokens ?? 0 }
     },

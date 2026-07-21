@@ -341,6 +341,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Discover models advertised by one registered provider. Catalog membership\n * is advisory and never changes routing or request validation.\n * @param provider - registered provider route to inspect.\n * @returns detached model metadata in adapter-preferred order.\n */',
       },
       {
+        signature: 'async resolveModelContext( provider: string, model: string, ): Promise<LlmModelContext | undefined>',
+        jsDoc: '/**\n * Resolve context capacity from the adapter that owns one exact route.\n * This query is independent of the advisory model catalog: an unlisted model\n * may return metadata, while `undefined` never rejects later routing.\n * @param provider - registered provider route to inspect.\n * @param model - exact model id passed to the adapter.\n * @returns detached context metadata, or `undefined` when the adapter has none.\n */',
+      },
+      {
         signature: 'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
         jsDoc: '/**\n * Stream one model call as raw chunks (token-level deltas). Throws\n * `LlmError` with code `NO_ADAPTER` if no adapter is registered for\n * `options.provider`. Replay state is retained only when the same adapter\n * instance owns its historical provider and the target provider. Final\n * adapter selection, dispatch, and iteration failures retain their original\n * Error identity and are tagged in a call-local scope for narrow agent-loop\n * request recovery; middleware and nested-call failures remain untagged for\n * the outer call.\n * @param options - the full request; `options.provider` selects the adapter.\n * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.\n */',
       },
@@ -1365,6 +1369,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LlmFailure',
     declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n}',
+  },
+  {
+    name: 'LlmModelContext',
+    declaration: 'export interface LlmModelContext {\n    contextWindow: number;\n}',
   },
   {
     name: 'LlmModelInfo',

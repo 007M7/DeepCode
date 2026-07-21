@@ -115,7 +115,6 @@ async function dispose(setupResult: Awaited<ReturnType<typeof setup>>): Promise<
 
 function provideTokenMeter(ctx: Context): void {
   ctx.provide('tokenMeter', {
-    contextWindow: 128_000,
     measure() {
       return { totalTokens: 0 }
     },
@@ -540,8 +539,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
   })
 
   it('opens a keyboard selector and switches the session model without sending slash text to the agent', async () => {
+    const initialContext = Promise.withResolvers<{ contextWindow: number }>()
     const result = await setup({
       agentOptions: { provider: 'alpha', model: 'a1' },
+      contextTokens: 50,
       catalog: {
         providers: [{ id: 'alpha', name: 'Alpha' }, { id: 'beta', name: 'Beta' }],
         models: [
@@ -550,6 +551,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
           { provider: 'beta', id: 'b1', name: 'Beta One' },
           { provider: 'beta', id: 'shared', name: 'Beta Shared' },
         ],
+        resolveModelContext: (provider, model) => provider === 'alpha' && model === 'a1'
+          ? initialContext.promise
+          : Promise.resolve({ contextWindow: 200 }),
       },
     })
 
@@ -577,6 +581,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Model selected: beta/b1')
     expect(result.agent.sent).toEqual([])
     expect(result.agent.steered).toEqual([])
+    initialContext.resolve({ contextWindow: 100 })
+    await tick()
+    expect(result.terminal.output).not.toContain('50% context  tools:compact  b1(reasoning:on)')
 
     result.terminal.send('/model')
     result.terminal.send('\r')
@@ -587,7 +594,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.agent.status = 'idle'
     result.ctx.emit('agent/status', result.agent, 'idle')
     await tick()
-    expect(result.terminal.output).toContain('tools:compact  b1(reasoning:on)')
+    expect(result.terminal.output).toContain('25% context  tools:compact  b1(reasoning:on)')
 
     const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
     expect(assembly.variables).toMatchObject({ provider: 'beta', model: 'b1' })
@@ -623,6 +630,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       catalog: {
         providers: [{ id: 'alpha', name: 'Alpha' }],
         models: [{ provider: 'alpha', id: 'a1', name: 'Alpha One' }],
+        resolveModelContext: () => Promise.resolve(undefined),
       },
     })
     unset.terminal.send('/model')
@@ -631,6 +639,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     unset.terminal.send('\r')
     await tick()
     expect(unset.terminal.output).toContain('Model selected: alpha/a1')
+    expect(unset.terminal.output).toContain('context unknown  tools:compact  a1(reasoning:on)')
     await dispose(unset)
 
     const empty = await setup({ agentOptions: {}, catalog: { providers: [], models: [] } })
@@ -652,12 +661,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
         providers: [{ id: 'deepseek', name: 'DeepSeek' }],
         models: [],
         listModels: () => Promise.reject(new Error('catalog offline')),
+        resolveModelContext: () => Promise.reject(new Error('capacity offline')),
       },
     })
     failed.terminal.send('/model')
     failed.terminal.send('\r')
     await tick()
     expect(failed.terminal.output).toContain('Could not read the model catalog: catalog offline')
+    expect(failed.terminal.output).toContain('Could not resolve model context: capacity offline')
     await dispose(failed)
   })
 
@@ -693,6 +704,21 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(rejectedResult.terminal.output).not.toContain('late catalog failure')
     await rejectedResult.ctx.fiber.dispose()
+
+    const context = Promise.withResolvers<{ contextWindow: number }>()
+    const contextResult = await setup({
+      contextTokens: 99,
+      catalog: {
+        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        models: [],
+        resolveModelContext: () => context.promise,
+      },
+    })
+    await contextResult.controller.dispose()
+    context.resolve({ contextWindow: 100 })
+    await tick()
+    expect(contextResult.terminal.output).not.toContain('99% context')
+    await contextResult.ctx.fiber.dispose()
   })
 
   it('discovers and executes plugin commands, then removes TUI-local commands on disposal', async () => {
