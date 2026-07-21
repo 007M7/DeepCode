@@ -19,45 +19,128 @@ jobs:
   node-24:
     runs-on: ubuntu-latest
     name: node 24 / ${{ matrix.lane }}
+    timeout-minutes: 1
     env:
       DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
       DSH_PUBLINT_CONCURRENCY: ${{ matrix.publint_concurrency }}
+      DSH_ARTIFACT_SHARD: ${{ matrix.artifact_shard }}
       DSH_COVERAGE_MAX_WORKERS: ${{ matrix.coverage_max_workers }}
+      DSH_COVERAGE_SHARD: ${{ matrix.coverage_shard }}
+      DSH_STATIC_SHARD: ${{ matrix.static_shard }}
+      DSH_SNAPSHOT_PREBUILT: ${{ matrix.snapshot_prebuilt }}
+      DSH_SNAPSHOT_SHARD: ${{ matrix.snapshot_shard }}
       DSH_ESLINT_CACHE: ${{ matrix.eslint_cache }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - lane: static
+          - lane: static-foundation
             command: pnpm run check:ci:static
             gate_concurrency: '4'
-            publint_concurrency: '8'
-            coverage_max_workers: ''
-            eslint_cache: ''
+            static_shard: foundation
+          - lane: static-api-contracts
+            command: pnpm run check:ci:static
+            gate_concurrency: '4'
+            static_shard: api-contracts
+          - lane: static-catalogs
+            command: pnpm run check:ci:static
+            gate_concurrency: '4'
+            static_shard: catalogs
+          - lane: static-prose
+            command: pnpm run check:ci:static
+            gate_concurrency: '4'
+            static_shard: prose
+          - lane: static-site
+            command: pnpm run check:ci:static
+            gate_concurrency: '1'
+            static_shard: site
           - lane: lint
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
-            publint_concurrency: '8'
-            coverage_max_workers: ''
             eslint_cache: '1'
-          - lane: coverage
+          - lane: coverage-spine
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
-            publint_concurrency: '8'
             coverage_max_workers: '4'
-            eslint_cache: ''
-          - lane: snapshot
+            coverage_shard: spine
+          - lane: coverage-sdk
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: sdk
+          - lane: coverage-interfaces
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: interfaces
+          - lane: coverage-execution
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: execution
+          - lane: coverage-orchestration
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: orchestration
+          - lane: coverage-infrastructure
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: infrastructure
+          - lane: coverage-session-state
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: session-state
+          - lane: coverage-hooks-claude
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: hooks-claude
+          - lane: coverage-hooks-codex
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: hooks-codex
+          - lane: coverage-capabilities
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: capabilities
+          - lane: snapshot-1
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
-            publint_concurrency: '8'
-            coverage_max_workers: ''
-            eslint_cache: ''
-          - lane: artifacts
+            snapshot_prebuilt: '1'
+            snapshot_shard: '1/4'
+          - lane: snapshot-2
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_prebuilt: '1'
+            snapshot_shard: '2/4'
+          - lane: snapshot-3
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_prebuilt: '1'
+            snapshot_shard: '3/4'
+          - lane: snapshot-4
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_prebuilt: '1'
+            snapshot_shard: '4/4'
+          - lane: artifacts-metadata
             command: pnpm run check:ci:artifacts
             gate_concurrency: '3'
             publint_concurrency: '8'
-            coverage_max_workers: ''
-            eslint_cache: ''
+            artifact_shard: metadata
+          - lane: artifacts-smoke-1
+            command: pnpm run check:ci:artifacts
+            gate_concurrency: '1'
+            artifact_shard: smoke-1
+          - lane: artifacts-smoke-2
+            command: pnpm run check:ci:artifacts
+            gate_concurrency: '1'
+            artifact_shard: smoke-2
     steps:
       - uses: actions/checkout@v6
 
@@ -82,19 +165,30 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
-      # The snapshot lane REPLAYS the sandbox example's recorded scenarios,
+      # The snapshot lanes REPLAY the sandbox example's recorded scenarios,
       # re-executing their bash calls under a real runner. ubuntu-latest has
       # no bubblewrap preinstalled and no built Landlock launcher, so without
       # this the confined executions fail closed (SANDBOX_UNAVAILABLE). Same
       # install as sandbox.yml's bwrap leg (incl. the Ubuntu 24.04 AppArmor
-      # userns knob).
-      - name: Install bubblewrap (unrestrict userns)
-        if: matrix.lane == 'snapshot'
+      # userns knob). Building does not depend on bubblewrap, so overlap them.
+      - name: Prepare built snapshot runtime and bubblewrap
+        if: startsWith(matrix.lane, 'snapshot-')
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -yq bubblewrap
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
-            || echo "apparmor userns knob absent — the functional probe decides"
+          pnpm run build &
+          build_pid=$!
+          (
+            sudo apt-get update -q
+            sudo apt-get install -yq bubblewrap
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
+              || echo "apparmor userns knob absent — the functional probe decides"
+          ) &
+          sandbox_pid=$!
+          build_status=0
+          sandbox_status=0
+          wait "$build_pid" || build_status=$?
+          wait "$sandbox_pid" || sandbox_status=$?
+          if (( build_status != 0 )); then exit "$build_status"; fi
+          exit "$sandbox_status"
 
       - uses: actions/cache@v4
         if: matrix.lane == 'lint'
@@ -110,12 +204,20 @@ jobs:
   node-compat:
     runs-on: ubuntu-latest
     name: node ${{ matrix.node }}
+    timeout-minutes: 1
     env:
       DSH_GATE_CONCURRENCY: '2'
+      DSH_NODE_COMPAT_SKIP_TYPECHECK: ${{ matrix.skip_typecheck }}
     strategy:
       fail-fast: false
       matrix:
-        node: ['22.19', 24, 26]
+        include:
+          - node: '22.19'
+            skip_typecheck: '1'
+          - node: 24
+            skip_typecheck: ''
+          - node: 26
+            skip_typecheck: '1'
     steps:
       - uses: actions/checkout@v6
 
@@ -146,6 +248,7 @@ jobs:
   python-sdk:
     runs-on: ubuntu-latest
     name: python 3.10 / keyless SDK
+    timeout-minutes: 1
     steps:
       - uses: actions/checkout@v6
 
@@ -166,6 +269,7 @@ jobs:
   windows-build:
     runs-on: windows-2025
     name: windows / build
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v6
 
@@ -191,29 +295,54 @@ jobs:
     continue-on-error: true
     runs-on: windows-2025
     name: windows node 24 / ${{ matrix.lane }}
+    timeout-minutes: 3
     env:
       DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
       DSH_PUBLINT_CONCURRENCY: ${{ matrix.publint_concurrency }}
+      DSH_ARTIFACT_SHARD: ${{ matrix.artifact_shard }}
+      DSH_STATIC_SHARD: ${{ matrix.static_shard }}
       DSH_ESLINT_CACHE: ${{ matrix.eslint_cache }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - lane: static
+          - lane: static-foundation
             command: pnpm run check:ci:static
             gate_concurrency: '4'
-            publint_concurrency: '8'
-            eslint_cache: ''
+            static_shard: foundation
+          - lane: static-api-contracts
+            command: pnpm run check:ci:static
+            gate_concurrency: '4'
+            static_shard: api-contracts
+          - lane: static-catalogs
+            command: pnpm run check:ci:static
+            gate_concurrency: '4'
+            static_shard: catalogs
+          - lane: static-prose
+            command: pnpm run check:ci:static
+            gate_concurrency: '4'
+            static_shard: prose
+          - lane: static-site
+            command: pnpm run check:ci:static
+            gate_concurrency: '1'
+            static_shard: site
           - lane: lint
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
-            publint_concurrency: '8'
             eslint_cache: '1'
-          - lane: artifacts
+          - lane: artifacts-metadata
             command: pnpm run check:ci:artifacts
             gate_concurrency: '3'
             publint_concurrency: '8'
-            eslint_cache: ''
+            artifact_shard: metadata
+          - lane: artifacts-smoke-1
+            command: pnpm run check:ci:artifacts
+            gate_concurrency: '1'
+            artifact_shard: smoke-1
+          - lane: artifacts-smoke-2
+            command: pnpm run check:ci:artifacts
+            gate_concurrency: '1'
+            artifact_shard: smoke-2
     steps:
       - uses: actions/checkout@v6
 
@@ -271,6 +400,7 @@ jobs:
   all-checks-passed:
     name: all checks passed
     runs-on: ubuntu-latest
+    timeout-minutes: 1
     needs: [node-24, node-compat, python-sdk, windows-build]
     if: always()
     steps:
