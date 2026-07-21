@@ -178,7 +178,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 - **Concurrency policy is not an event seam** — `executionMode()` reads the resolved tool definition directly; plugins can only declare a classifier on definitions they own.
 - **`tools/pre-execute` deliberately cannot rewrite `exec.arguments`** — logged and rendered args would desync from what ran; the rewrite design is [a proposed Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md).
-- **`defineTool`'s schema DSL is a deliberate subset** — string/number/boolean/object/array with string-only `enum`; `validateArgs` tolerates extra keys and preserves `default` as a model-visible JSON Schema annotation without applying it during validation; dynamic Cordis mounts may supply defaults even though first-party definitions do not, while raw-registered JSON-Schema tools validate their own input.
+- **Caller-defined subagent and workflow structured outputs remain object-rooted** — this is a consumer-level guard; the shared schema vocabulary supports every JSON root.
 - **`timeoutMs` on a definition is declarative only** — the registry never enforces deadlines; enforcement requires the `@deepseek-ai/dsh-timeout-policy` wrapper.
 - **Code Mode is TypeScript-only and the presentation mode is service-wide** — `mode: code`/`both` rejects prompt assembly unless `ctx.codeRuntime.language === 'typescript'`; scoped restrictions/shadows still choose each agent's visible bindings, but one tool cannot be native-only while another is code-only.
 - **Code Mode bindings return text only** — non-text content blocks in a sub-call result collapse to `[<type> content]` placeholders.

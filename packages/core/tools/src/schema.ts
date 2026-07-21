@@ -197,7 +197,12 @@ function compilePropertyMap(
       if (Object.hasOwn(property, 'required') && property.required !== true) {
         authorError(`${path}.${key}.required must be true when present`)
       }
-      properties[key] = compileValueSchema(property, `${path}.${key}`, seen, true)
+      Object.defineProperty(properties, key, {
+        value: compileValueSchema(property, `${path}.${key}`, seen, true),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      })
       if (property.required === true) required.push(key)
     }
     return required.length > 0 ? { properties, required } : { properties }

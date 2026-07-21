@@ -160,6 +160,8 @@ describe('the enforced raw JSON Schema subset', () => {
       .toEqual(['schema.const must be a boolean value'])
     expect(violationsOf({ type: 'string', enum: undefined }))
       .toEqual(['schema.enum must be a non-empty array of string values'])
+    expect(violationsOf({ type: 'string', enum: ['a'], const: 'b' }))
+      .toEqual(['schema.const must be one of schema.enum when both are declared'])
   })
 
   it('validates annotation types and lossless JSON payloads', () => {
@@ -265,6 +267,21 @@ describe('validateJsonSchemaValue', () => {
       .toEqual(['"value" must be a lossless JSON object'])
     expect(validateJsonSchemaValue(asserted({ type: 'object' }), new Date(0)))
       .toEqual(['"value" must be an object'])
+  })
+
+  it('returns a violation instead of throwing for a container with a hostile getter', () => {
+    const value = Object.defineProperty({}, 'answer', {
+      enumerable: true,
+      get() { throw new Error('getter exploded') },
+    })
+    const schema = asserted({
+      type: 'object',
+      properties: { answer: { type: 'integer' } },
+      required: ['answer'],
+    })
+
+    expect(validateJsonSchemaValue(schema, value))
+      .toEqual(['"value" must be a lossless JSON value'])
   })
 
   it('validates dense arrays per index and rejects lossy arrays', () => {

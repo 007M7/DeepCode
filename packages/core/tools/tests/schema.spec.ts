@@ -62,6 +62,7 @@ describe('the unified author schema DSL', () => {
       { type: 'object' },
       { oneOf: [{ type: 'string' }] },
       { type: 'number', enum: ['1'] },
+      { type: 'string', enum: ['a'], const: 'b' },
       { type: 'integer', const: 1.5 },
       { type: 'json', default: undefined },
       { type: 'array', items: { type: 'string', required: true } },
@@ -89,6 +90,17 @@ describe('the unified author schema DSL', () => {
     const properties: Record<string, unknown> = {}
     properties.self = { type: 'object', additionalProperties: true, properties }
     expect(() => parameterSchemaSpecToJsonSchema(properties as ParameterSchemaSpec)).toThrow(/circular/)
+  })
+
+  it('preserves a property literally named __proto__ as schema data', () => {
+    const properties = Object.create(null) as ParameterSchemaSpec
+    properties.__proto__ = { type: 'string', required: true }
+
+    const schema = parameterSchemaSpecToJsonSchema(properties)
+
+    expect(Object.hasOwn(schema.properties, '__proto__')).toBe(true)
+    expect(schema.properties.__proto__).toEqual({ type: 'string' })
+    expect(schema.required).toEqual(['__proto__'])
   })
 
   it('infers scalar literals, arrays, objects, json, and exact-one unions', () => {
