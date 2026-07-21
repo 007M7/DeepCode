@@ -9,6 +9,7 @@
  */
 
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import { canonicalPath } from '@deepseek-ai/dsh-sandbox'
 
 /**
  * The session workspace cwd for this call, or `undefined` when none applies.
@@ -16,16 +17,18 @@ import type { ToolExecution } from '@deepseek-ai/dsh-tools'
  * @returns the calling agent's session cwd, or undefined for a non-agent caller (the backend then applies its own default).
  */
 export function sessionCwd(exec: ToolExecution): string | undefined {
-  return exec.agent?.session.header.cwd
+  const cwd = exec.agent?.session.header.cwd
+  return cwd === undefined ? undefined : canonicalPath(cwd)
 }
 
 /**
  * Resolution options shared by all model-facing filesystem tools.
  * @param exec - the tool-execution context supplying session cwd and cancellation.
+ * @param policyWorkspaceRoot - resolved per-call root, when a mutation carries sandbox policy.
  * @returns provider resolution options for the current tool call.
  */
-export function sessionResolveOptions(exec: ToolExecution): { cwd?: string; signal?: AbortSignal } {
-  const cwd = sessionCwd(exec)
+export function sessionResolveOptions(exec: ToolExecution, policyWorkspaceRoot?: string): { cwd?: string; signal?: AbortSignal } {
+  const cwd = policyWorkspaceRoot ?? sessionCwd(exec)
   return {
     ...cwd !== undefined ? { cwd } : {},
     ...exec.signal !== undefined ? { signal: exec.signal } : {},

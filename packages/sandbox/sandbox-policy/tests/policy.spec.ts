@@ -4,7 +4,9 @@
  * override kit (fold + write path) both enforcing families read.
  */
 
-import { resolve } from 'node:path'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -65,6 +67,28 @@ describe('SandboxPolicyService', () => {
       mode: 'workspace-write',
       workspaceRoot: resolve('/fallback'),
     })
+  })
+
+  it('resolves a symlink-sensitive session cwd with filesystem semantics', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-policy-cwd-'))
+    try {
+      const lexical = join(root, 'lexical')
+      const physical = join(root, 'physical')
+      const child = join(physical, 'child')
+      mkdirSync(lexical)
+      mkdirSync(child, { recursive: true })
+      const link = join(lexical, 'link')
+      symlinkSync(child, link, process.platform === 'win32' ? 'junction' : 'dir')
+      const cwd = `${link}${sep}..`
+      const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/fallback' })
+
+      expect(ctx.sandboxPolicy.resolve({ session: session('sess-symlink-parent', cwd) })).toEqual({
+        mode: 'workspace-write',
+        workspaceRoot: realpathSync.native(physical),
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('lets an approved mode outrank the session mode while retaining its root', async () => {

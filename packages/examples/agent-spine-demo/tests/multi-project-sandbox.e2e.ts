@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -145,5 +145,51 @@ describe('one-context multi-project sandbox', () => {
     expect(await readFile(join(projectB, 'b-owned.txt'), 'utf8')).toBe('b')
     await expectMissing(join(projectB, 'from-a.txt'))
     await expectMissing(join(projectA, 'from-b.txt'))
+  })
+
+  it.skipIf(!processSandboxUsable)('keeps symlink-sensitive session cwd semantics aligned across bash, fs, and policy', async () => {
+    const active = ctx as Context
+    const lexicalRoot = await projectDir('lexical-workspace')
+    const physicalRoot = await projectDir('physical-workspace')
+    const physicalChild = join(physicalRoot, 'child')
+    await mkdir(physicalChild)
+    const link = join(lexicalRoot, 'link')
+    await symlink(physicalChild, link, process.platform === 'win32' ? 'junction' : 'dir')
+    const sessionCwd = `${link}/..`
+    const handle = await active.agents.create({
+      sessionId: SessionId('symlink-parent-session'),
+      meta: { cwd: sessionCwd },
+    })
+
+    const [bashOwn, bashLexical, fsOwn, fsLexical] = await Promise.all([
+      active.tools.execute({
+        callId: CallId('bash-symlink-own'), name: 'bash', agent: handle.agent,
+        arguments: { command: 'printf bash > bash-owned.txt', description: 'Write physical workspace marker' },
+      }),
+      active.tools.execute({
+        callId: CallId('bash-symlink-lexical'), name: 'bash', agent: handle.agent,
+        arguments: { command: `printf escaped > ${join(lexicalRoot, 'bash-escaped.txt')}`, description: 'Attempt lexical workspace write' },
+      }),
+      active.tools.execute({
+        callId: CallId('fs-symlink-own'), name: 'write', agent: handle.agent,
+        arguments: { file_path: 'fs-owned.txt', content: 'fs' },
+      }),
+      active.tools.execute({
+        callId: CallId('fs-symlink-lexical'), name: 'write', agent: handle.agent,
+        arguments: { file_path: join(lexicalRoot, 'fs-escaped.txt'), content: 'escaped' },
+      }),
+    ])
+
+    expect(bashOwn.isError).toBe(false)
+    expect(resultText(bashOwn)).not.toContain('[sandbox:')
+    expect(bashLexical.isError).toBe(false)
+    expect(resultText(bashLexical)).toContain('[sandbox: file access denied under workspace-write mode]')
+    expect(fsOwn.isError).toBe(false)
+    expect(fsLexical.isError).toBe(true)
+    expect(resultText(fsLexical)).toContain('[sandbox: file access denied under workspace-write mode]')
+    expect(await readFile(join(physicalRoot, 'bash-owned.txt'), 'utf8')).toBe('bash')
+    expect(await readFile(join(physicalRoot, 'fs-owned.txt'), 'utf8')).toBe('fs')
+    await expectMissing(join(lexicalRoot, 'bash-escaped.txt'))
+    await expectMissing(join(lexicalRoot, 'fs-escaped.txt'))
   })
 })

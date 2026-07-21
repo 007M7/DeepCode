@@ -29,9 +29,13 @@ import type { SandboxExecutionPolicy } from './index.ts'
  */
 export function canonicalPath(path: string): string {
   try {
-    return realpathSync(path)
+    // Node's JavaScript realpath implementation lexically collapses `..`
+    // before resolving a preceding symlink on some platforms. The native
+    // implementation follows the filesystem's component-by-component lookup,
+    // matching chdir/spawn and the enforcement layers this identity feeds.
+    return realpathSync.native(path)
   } catch {
-    // realpathSync failed: the path (or a prefix) is missing or unreadable.
+    // realpathSync.native failed: the path (or a prefix) is missing or unreadable.
     return path
   }
 }

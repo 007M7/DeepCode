@@ -17,11 +17,16 @@
 import { resolve as resolvePath } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import { canonicalPath, type SandboxExecutionPolicy, type SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { effectiveSandboxMode } from './session-mode.ts'
 
 export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
+
+/** Resolve filesystem identity before lexical normalization can erase symlink-sensitive components. */
+function resolveWorkspaceRoot(path: string): string {
+  return resolvePath(canonicalPath(path))
+}
 
 declare module 'cordis' {
   interface Context {
@@ -80,7 +85,7 @@ export class SandboxPolicyService extends Service {
     // runtime fact. `workspaceRoot` has NO schema default, so its fallback to
     // the process cwd is real branching, resolved absolute either way.
     this.defaultMode = config.mode as SandboxMode
-    this.workspaceRoot = resolvePath(config.workspaceRoot ?? process.cwd())
+    this.workspaceRoot = resolveWorkspaceRoot(config.workspaceRoot ?? process.cwd())
   }
 
   /**
@@ -96,7 +101,7 @@ export class SandboxPolicyService extends Service {
     const { session } = request
     return {
       mode: request.mode ?? (session === undefined ? undefined : effectiveSandboxMode(session.events)) ?? this.defaultMode,
-      workspaceRoot: resolvePath(session?.header.cwd ?? this.workspaceRoot),
+      workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
     }
   }
 }

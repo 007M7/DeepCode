@@ -19,7 +19,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { ESCALATION_TARGETS, approveEscalation, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
 import type { DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
@@ -299,11 +299,18 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
 }
 
 /**
- * Resolve an explicit workdir first, making a relative one session-cwd-relative;
- * otherwise use the session cwd and leave executor defaulting as the fallback.
+ * Resolve an explicit workdir first, making a relative one session-workspace-relative;
+ * otherwise use the filesystem identity of the session cwd and leave executor
+ * defaulting as the fallback. A resolved sandbox-policy root wins so workdir
+ * and confinement use the exact same per-call identity.
  */
-function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent }): string | undefined {
-  const sessionCwd = exec.agent?.session.header.cwd
+function resolveWorkdir(
+  modelWorkdir: string | undefined,
+  exec: { agent?: Agent },
+  policyWorkspaceRoot?: string,
+): string | undefined {
+  const headerCwd = exec.agent?.session.header.cwd
+  const sessionCwd = policyWorkspaceRoot ?? (headerCwd === undefined ? undefined : canonicalPath(headerCwd))
   if (modelWorkdir === undefined) return sessionCwd
   if (sessionCwd !== undefined && !isAbsolute(modelWorkdir)) {
     return resolvePath(sessionCwd, modelWorkdir)
@@ -418,7 +425,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       const policy = approvedMode === undefined
         ? standingPolicy
         : { ...(standingPolicy as SandboxExecutionPolicy), mode: approvedMode }
-      const workdir = resolveWorkdir(args.workdir, exec)
+      const workdir = resolveWorkdir(args.workdir, exec, standingPolicy?.workspaceRoot)
       const dshEnv = bashEnv.collect(exec)
       const request = {
         command: args.command,
