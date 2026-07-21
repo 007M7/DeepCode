@@ -4,7 +4,7 @@ The **DeepSeek Harness SDK** builds on Cordis: **everything is a plugin**, inclu
 
 ## Overview
 
-Harnesses are [Cordis](cordis-primer.md) contexts whose packages contribute disposable services, events, and registrations.
+Harnesses are [Cordis](cordis-primer.md) contexts with disposable package services, events, and registrations.
 
 `packages/core/` groups the default agent flow.
 
@@ -58,7 +58,7 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 ## Default Loop Lifecycle
 
-The shipped loop drains prompt-to-checkpoint work through plugin-visible services and events.
+The shipped loop runs prompt-to-checkpoint work through plugin services and events.
 
 A **session** is an append-only log. Each ordinary **turn** claims one queued `send()` item; injection claims none. A claimed `send()` successor awaits the preceding claimed ordinary turn's checkpoint but may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)). A turn ends when model and plugins stop it. A **step** is one model request plus tools. Below ([sequence companion](agent-lifecycle.md)), quotes mark durable events; other names are extension points.
 
@@ -136,7 +136,7 @@ Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, re
 
 ### Session Log
 
-The session log is the source of truth. `deriveMessages()` projects session events into the `Message[]` sent to the model; raw `assistant/chunk` events stay in the log for replay and UI fidelity. Replay, fork, resume, transcript rendering, telemetry, and persistence all derive from the same event stream.
+The session log is authoritative. `deriveMessages()` projects its events into model `Message[]`; raw `assistant/chunk` events remain for replay and UI fidelity. Replay, fork, resume, transcript rendering, telemetry, and persistence derive from that stream.
 
 **Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, and headers by folding `request/header` — and the package-owned `dsh-agent-loop/invariant` can assert it through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
