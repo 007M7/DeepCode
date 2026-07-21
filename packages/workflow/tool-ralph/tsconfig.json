@@ -34,6 +34,9 @@
     },
     {
       "path": "../workflow"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

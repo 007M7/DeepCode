@@ -20,8 +20,8 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
-import type { Agent } from '@deepseek-ai/dsh-agent'
 
 const SIGNAL = new AbortController().signal
 const MODEL = 'test-model'
@@ -406,6 +406,7 @@ describe('compact configuration and defaults', () => {
     expect(() => resolveCompactSpec(invalidPressure, 1.5)).toThrow(/positive integer/)
     expect(() => resolveCompactSpec(invalidPressure, 0)).toThrow(/positive integer/)
   })
+
 })
 
 describe('pressure measurement and retention', () => {
@@ -1142,7 +1143,7 @@ describe('default one-shot summarizer', () => {
 
 describe('automatic listener and loader composition', () => {
   function postStep(ctx: Context, owner: Agent, signal = SIGNAL): Promise<unknown> {
-    return ctx.serial('agent/post-step', owner, 1, 1, signal)
+    return agentEvents(ctx, owner).serial('agent/post-step', 1, 1, signal)
   }
 
   function recover(
@@ -1155,7 +1156,9 @@ describe('automatic listener and loader composition', () => {
   ): Promise<{ action: 'fail' | 'retry' }> {
     const failure: LlmFailure = { message: error.message, code: error.code ?? 'UNKNOWN' }
     const priorFailures = Object.freeze(Array.from({ length: retryAttempt }, () => failure))
-    return ctx.waterfall('agent/request-error', owner, 1, 1, error, failure, priorFailures, signal, next)
+    return agentEvents(ctx, owner).waterfall(
+      'agent/request-error', 1, 1, error, failure, priorFailures, signal, next,
+    )
   }
 
   function overflow(message = 'provider overflow'): Error & { code: string } {
