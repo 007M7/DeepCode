@@ -269,7 +269,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
     if (this.disposed) throw new Error('dsh-code-runtime-worker: run() after disposal')
     const bindings = this.validateBindings(request)
     if (request.signal?.aborted) {
-      return { logs: [], error: { kind: 'abort', message: String(request.signal.reason) } }
+      return this.failureBeforeWorker({ kind: 'abort', message: String(request.signal.reason) })
     }
 
     let code: string
@@ -280,10 +280,15 @@ export class WorkerCodeRuntime extends CodeRuntime {
       // A program that does not survive the type-strip (syntax error,
       // non-erasable syntax like `enum`) is a program failure, reported the
       // same way a thrown exception would be — and no worker ever spawns.
-      return { logs: [], error: { kind: 'exception', message: messageOf(error) } }
+      return this.failureBeforeWorker({ kind: 'exception', message: messageOf(error) })
     }
 
     return await this.execute(request, code, bindings)
+  }
+
+  /** Apply the outer-output ledger to failures that occur before a worker owns one. */
+  private failureBeforeWorker(error: CodeRunFailure): CodeRunResult {
+    return new OutputLedger(this.config.maxOutputBytes).failure([], error)
   }
 
   /** Reject (seam misuse) malformed binding namespaces: non-identifier or reserved globals, duplicates, and the `console` collision. */
@@ -405,9 +410,19 @@ export class WorkerCodeRuntime extends CodeRuntime {
           reply({ type: 'reply', id: message.id, ok: false, message: `unknown binding ${JSON.stringify(`${message.global}.${message.name}`)}` })
           return
         }
+        let args: CodeJsonValue | undefined
+        try {
+          args = snapshotJsonValue(message.args) as CodeJsonValue | undefined
+        } catch {
+          args = undefined
+        }
+        if (args === undefined) {
+          reply({ type: 'reply', id: message.id, ok: false, message: 'binding arguments must be lossless JSON' })
+          return
+        }
         void (async () => {
           try {
-            const resolved = await fn(message.args)
+            const resolved = await fn(args)
             let value: CodeJsonValue | undefined
             try {
               value = snapshotJsonValue(resolved)
