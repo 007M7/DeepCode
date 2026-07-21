@@ -4,7 +4,7 @@ Runtime event-contract assertions intended for development diagnostics. This pur
 
 The plugin has no environment guard: it is active wherever it is registered. The default [`dsh-agent-spine-demo`](../../examples/agent-spine-demo/README.md) bundle mounts it unconditionally; a custom composition can omit it when the runtime cost is undesirable. It doubles as executable documentation of the event taxonomy — the assertions *are* the contract.
 
-Session itself owns immutable, surface-valid log storage in every composition: it takes one lossless JSON snapshot of each candidate, validates the complete surface transition, deep-freezes the accepted record, and exposes the log through immutable array snapshots. The invariants plugin checks the remaining cross-record and cross-seam rules that Session does not own.
+Session itself owns immutable, surface-valid log storage in every composition: it takes one lossless JSON snapshot of each candidate, validates complete provenance and positional replacement, restricts `tool/result` replacement to one current result's `content`, deep-freezes the accepted record, and exposes the log through immutable array snapshots. The invariants plugin checks the remaining cross-record and cross-seam rules that Session does not own.
 
 Session-log assertions run during Cordis `internal/dispatch`, while `Session.append()` is resolving the `session/event` callback snapshot but before it pushes the candidate into the log. A valid transition is staged by exact event identity and applied to the live trace only when that same committed event reaches the plugin's contained post-commit listener. A later internal dispatch check can therefore veto without advancing either the log or the invariant trace, while ordinary `session/event` observer failures remain observe-only.
 
@@ -31,8 +31,7 @@ Session log (per session):
 - **turns pair and nest** — `turn/start` opens a turn, `turn/end` closes the matching one; no overlapping turns.
 - **steps nest in turns** — `step/start` opens a step in the open turn; `step/end` closes the matching step.
 - **chunks belong to an open step** — `step/start` precedes its `assistant/chunk`s.
-- **a `tool/result` needs a prior `tool/call`** — but NOT the converse: a `tool/call` may have no result (a thrown tool-execution pipeline step ends the turn with no `tool/result`, which is legal).
-- **provenance sources are valid and unambiguous** — `sourceEventSeqs` contains unique earlier known seqs; only `assistant/message` may carry an explicit empty list, which denotes a known empty provider stream rather than absent legacy provenance.
+- **an appended `tool/result` needs a prior `tool/call`** — fresh `surfaceOp: 'append'` results name the open step and consume its pending call. A Session-validated replacement is a turn-enclosed rewrite, not another execution. A `tool/call` may still have no result when the execution pipeline throws.
 
 Agent status (per agent):
 

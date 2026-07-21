@@ -8,7 +8,7 @@
  * @module dsh-llm-pi-ai/stream
  */
 
-import { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, LlmError } from '@deepseek-ai/dsh-llm'
+import { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmError, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import { isContextOverflow } from '@earendil-works/pi-ai'
 import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '@earendil-works/pi-ai'
@@ -30,9 +30,15 @@ export function mapUsage(usage: PiUsage): TokenUsage {
 
 function classifyPiAiError(message: string): string {
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
+  if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
   if (/\b400\b|invalid.?request/i.test(message)) return 'INVALID_REQUEST'
   if (/\b5\d\d\b/.test(message)) return 'SERVER'
+  if (/\btime(?:d)?\s*out\b|timeout/i.test(message)) return 'TIMEOUT'
+  if (/\b(?:network|connection|socket|fetch)\b|\bECONN[A-Z]+\b/i.test(message)
+    || /\b(?:other side closed|HTTP2 request did not get a response|WebSocket closed unexpectedly)\b/i.test(message)) {
+    return 'TRANSPORT'
+  }
   return 'PI_AI_ERROR'
 }
 
@@ -52,8 +58,10 @@ export function mapStopReason(message: AssistantMessage, contextWindow?: number)
   if (piAiOverflow || harnessOverflow) {
     return {
       kind: 'error',
-      message: message.errorMessage ?? `pi-ai detected context overflow for model "${message.model}"`,
-      code: CONTEXT_WINDOW_EXCEEDED_CODE,
+      failure: {
+        message: message.errorMessage ?? `pi-ai detected context overflow for model "${message.model}"`,
+        code: CONTEXT_WINDOW_EXCEEDED_CODE,
+      },
     }
   }
 
@@ -61,10 +69,13 @@ export function mapStopReason(message: AssistantMessage, contextWindow?: number)
     case 'stop': return { kind: 'stop' }
     case 'length': return { kind: 'max-tokens' }
     case 'toolUse': return { kind: 'tool-calls' }
-    case 'aborted': return { kind: 'aborted' }
+    case 'aborted': return {
+      kind: 'aborted',
+      failure: { message: message.errorMessage ?? 'pi-ai stream aborted', code: 'ABORTED' },
+    }
     case 'error': {
       const text = message.errorMessage ?? 'pi-ai stream error'
-      return { kind: 'error', message: text, code: classifyPiAiError(text) }
+      return { kind: 'error', failure: { message: text, code: classifyPiAiError(text) } }
     }
   }
 }

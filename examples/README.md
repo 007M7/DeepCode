@@ -1,37 +1,18 @@
 # Examples
 
-Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: a `cordis.yml` that picks the swappable backends (an LLM adapter, a bash executor), loads one app package, and may add optional product tools or demo-only mocks. The composition — the spine, the front-door cluster, and the boot glue — lives in the app packages ([`@deepseek-ai/dsh-stdio-demo`](../packages/examples/stdio-demo), [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo)) and the [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle they share. There is no `start.ts`; the `demo:*` scripts invoke each app package's `bin`.
-
-## echo-agent
-
-A mock model + echo tool on the stdio chat app — the all-mock skeleton. The leaf swaps `dsh-stdio-demo`'s LLM backend to a local `mock-echo` adapter and adds a local `echo` tool. Demonstrates:
-
-- A thin leaf `cordis.yml` loading the `@deepseek-ai/dsh-stdio-demo` app
-- Registering a mock `LlmAdapter` (streaming scripted responses)
-- Registering a tool via `ctx.tools.register()`
-- "Swap the backend, keep the app" — the only difference from `repl-agent` is the adapter
-
-Run with: `pnpm run demo:echo`. When prompted, type "echo <something>" to trigger a tool call round-trip.
-
-## repl-agent
-
-A coding agent with DeepSeek V4, the `read`/`write`/`edit` filesystem tools, the bash tool suite, `subagent` delegation, and the `todo_write` task tracker on the `@deepseek-ai/dsh-stdio-demo` app's readline front door.
-
-Run with: `pnpm run demo:repl` (needs `DEEPSEEK_API_KEY` in the environment or a gitignored repo-root `.env`). See [repl-agent/README.md](repl-agent/README.md) for details.
-
-Run the Code Mode overlay with `pnpm run demo:code-mode`, or pass `acp` for the ACP example. See the [Code Mode example](repl-agent/README.md#code-mode) for its composition and a sample task.
+Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: a `cordis.yml` that picks swappable backends, loads one app package, and may add optional product tools. The composition and boot glue live in [`@deepseek-ai/dsh-tui-demo`](../packages/examples/tui-demo), [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo), and their shared [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle. There is no `start.ts`; the `demo:*` scripts invoke each app package's bin.
 
 ## headless-agent
 
 A non-interactive agent demo that accepts one positional task, runs one complete model/tool turn on the `@deepseek-ai/dsh-cli-demo` app, persists a fresh session, prints `text`, `json`, or `stream-json`, and exits.
 
-Run with: `pnpm run demo:headless -- "task"` (needs `DEEPSEEK_API_KEY`). See [headless-agent/README.md](headless-agent/README.md) for the output contract, safety boundaries, and snapshot suite.
+Run with: `pnpm run demo:headless "task"` (needs `DEEPSEEK_API_KEY`). See [headless-agent/README.md](headless-agent/README.md) for the output contract, safety boundaries, and snapshot suite.
 
 ## tui-agent
 
-The full-screen terminal sibling of `repl-agent`: it reuses the same coding backends and tools while forcing the shared terminal app to `dsh-tui`. It is the home of TUI PTY and snapshot scenarios.
+The interactive coding agent: DeepSeek V4, filesystem and bash tools, subagents, workflows, `todo_write`, compaction, and the full-screen TUI. It is also the home of TUI PTY and snapshot scenarios.
 
-Run with: `pnpm run demo:tui` (needs `DEEPSEEK_API_KEY`). See [tui-agent/README.md](tui-agent/README.md) for controls and composition.
+Run with: `pnpm run demo:tui` (needs `DEEPSEEK_API_KEY`). Run its Code Mode overlay with `pnpm run demo:code-mode`. See [tui-agent/README.md](tui-agent/README.md) for controls and composition.
 
 ## jsonrpc-agent
 

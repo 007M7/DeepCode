@@ -2,15 +2,17 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "exclude": ["duplicates"],
   "ignoreBinaries": ["bwrap", "python3", "sandbox-exec"],
-  "ignoreWorkspaces": ["vendor/*", "python/sdk-runtime", "website"],
+  "ignoreWorkspaces": ["vendor/*", "python/sdk-runtime"],
   "workspaces": {
     ".": {
       "project": ["scripts/**/*.ts"]
     },
     "examples": {
       "entry": [
-        "echo-agent/src/*.ts",
         "headless-agent/tests/fixtures/cli-mock-llm.ts",
+        "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",
+        "headless-agent/tests/fixtures/time-context-driver.ts",
+        "headless-agent/tests/fixtures/time-context-mock-llm.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
         "*/tests/**/*.e2e.ts",
@@ -18,6 +20,16 @@
       ],
       "project": ["**/*.ts"],
       "ignoreDependencies": ["@deepseek-ai/.+", "@cordisjs/.+"]
+    },
+    "website": {
+      "project": ["**/*.ts"],
+      "ignoreDependencies": [
+        "@braintree/sanitize-url",
+        "cytoscape",
+        "cytoscape-cose-bilkent",
+        "dayjs",
+        "debug"
+      ]
     },
     "packages/*/*": {
       "entry": ["tests/**/*.spec.ts"],
@@ -67,6 +79,18 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
+    "packages/goal/goal": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/goal/goal-session": {
+      "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/goal/tool-goal": {
+      "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
     "packages/code-runtime/code-runtime-worker": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
@@ -112,16 +136,16 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
-    "packages/examples/stdio-demo": {
-      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+    "packages/ui/commands": {
+      "entry": ["tests/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/examples/tui-demo": {
+      "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/examples/cli-demo": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"]
-    },
-    "packages/ui/stdio": {
-      "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/ui/tui": {
