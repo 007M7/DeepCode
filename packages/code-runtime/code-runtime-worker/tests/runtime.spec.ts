@@ -74,6 +74,26 @@ describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
     expect(calls).toEqual([{ n: 1 }])
   })
 
+  it('bridges a deeply nested lossless JSON argument, resolution, and completion', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: `
+        let value = 'leaf';
+        for (let depth = 0; depth < 3_000; depth++) value = [value];
+        return await tools.echo(value);
+      `,
+      bindings: tools({ echo: async args => args }),
+    })
+
+    expect(result.error).toBeUndefined()
+    let cursor = result.value
+    for (let depth = 0; depth < 3_000; depth++) {
+      expect(Array.isArray(cursor)).toBe(true)
+      cursor = Array.isArray(cursor) ? cursor[0] : undefined
+    }
+    expect(cursor).toBe('leaf')
+  })
+
   it('reports non-erasable syntax as an exception without spawning a worker', async () => {
     const { runtime } = await setup()
     const result = await runtime.run({ program: 'enum E { A }\nreturn 1', bindings: [] })
