@@ -219,6 +219,15 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
     expect(after.value).toBe('alive')
   }, 30_000)
 
+  it('reports a worker that exits before publishing a completion', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({ program: 'process.exit(7)', bindings: [] })
+    expect(result).toEqual({
+      logs: [],
+      error: { kind: 'worker-exit', message: 'worker exited with code 7 before completing' },
+    })
+  })
+
   it('fails runaway log output explicitly while retaining a bounded prefix', async () => {
     const { runtime } = await setup({ maxOutputBytes: 300 })
     const result = await runtime.run({

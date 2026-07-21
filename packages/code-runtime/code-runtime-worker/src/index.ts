@@ -122,6 +122,7 @@ function waitForPipeDrain(stream: Readable): Promise<void> {
     stream.once('error', done)
     // Close the event-registration race if termination finished between the
     // initial state check and the listeners above.
+    /* v8 ignore next -- this race cannot be scheduled deterministically between the adjacent state check and listener registration. */
     if (stream.readableEnded || stream.destroyed) done()
   })
 }
@@ -362,12 +363,13 @@ export class WorkerCodeRuntime extends CodeRuntime {
       // that were already queued; `finish` materializes the result only after
       // termination completes.
       const captureStray = (chunk: Buffer): void => {
+        /* v8 ignore next -- a second post-overflow chunk races immediate worker termination; the first overflow path is covered. */
         if (terminalOverride !== undefined) return
         const text = chunk.toString('utf8')
         if (!output.admit(text, strayLogs)) {
           const limited = output.limit([...logs, ...strayLogs, text])
           terminalOverride = limited
-          finish(() => limited)
+          finish(limited)
         }
       }
       worker.stdout.on('data', captureStray)
@@ -377,7 +379,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
       // logs captured before timeout, abort, or failure remain in the result.
       let finishResolve!: () => void
       const finished = new Promise<void>((done) => { finishResolve = done })
-      const finish = (finalize: () => CodeRunResult): void => {
+      const finish = (finalize: CodeRunResult | (() => CodeRunResult)): void => {
         if (settled) return
         settled = true
         clearInterval(eluTimer)
@@ -390,7 +392,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
           const stdoutDrained = waitForPipeDrain(worker.stdout)
           const stderrDrained = waitForPipeDrain(worker.stderr)
           await Promise.all([worker.terminate(), stdoutDrained, stderrDrained])
-          const result = terminalOverride ?? finalize()
+          const result = terminalOverride ?? (typeof finalize === 'function' ? finalize() : finalize)
           finishResolve()
           resolve(result)
         })
@@ -474,14 +476,12 @@ export class WorkerCodeRuntime extends CodeRuntime {
         if (!message) return
         if (message.type === 'log' && !settled && !output.admit(message.text, logs)) {
           const limited = output.limit([...logs, ...strayLogs, message.text])
-          terminalOverride = limited
-          finish(() => limited)
+          finish(limited)
           return
         }
         if (message.type === 'output-limit' && !settled) {
           const limited = output.limit([...logs, ...strayLogs])
-          terminalOverride = limited
-          finish(() => limited)
+          finish(limited)
           return
         }
         onCall(message)

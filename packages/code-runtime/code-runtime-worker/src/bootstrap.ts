@@ -7,6 +7,7 @@
 
 import { inspect } from 'node:util'
 import type { DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
+import { jsonValueBytesUpTo } from './output-json.ts'
 import { snapshotCodeJsonValue } from './worker-json.ts'
 
 /** The port surface the bootstrap needs — satisfied by `parentPort` and by the tests' fake. */
@@ -155,7 +156,7 @@ export function truncateUtf8Bytes(text: string, maxBytes: number): string {
  */
 export function prepareCompletion(value: unknown, maxOutputBytes: number): Omit<DoneMessage, 'type'> {
   if (value === undefined) return {}
-  let snapshot: unknown
+  let snapshot: ReturnType<typeof snapshotCodeJsonValue>
   try {
     snapshot = snapshotCodeJsonValue(value)
   } catch {
@@ -164,8 +165,7 @@ export function prepareCompletion(value: unknown, maxOutputBytes: number): Omit<
   if (snapshot === undefined) {
     return { error: { kind: 'invalid-output', message: 'program completion must be lossless JSON' } }
   }
-  const size = Buffer.byteLength(JSON.stringify(snapshot), 'utf8')
-  if (size > maxOutputBytes) {
+  if (jsonValueBytesUpTo(snapshot, maxOutputBytes) === undefined) {
     return { error: { kind: 'output-limit', message: `outer output exceeded ${maxOutputBytes} bytes` } }
   }
   return { value: snapshot }
