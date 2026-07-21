@@ -21,6 +21,7 @@ import SessionPersistenceJsonl, {
   JsonlCompressionSchema,
   type JsonlCompression,
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as sessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'acp-demo'
@@ -110,5 +111,6 @@ export function apply(ctx: Context, config: Config): void {
     root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
     ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
   })
+  ctx.plugin(sessionCheckpointPolicy)
   ctx.plugin(acp, { provider: config.provider, model: config.model })
 }

@@ -13,7 +13,7 @@ import { carrierKeyOf, isScopeCarrier } from '@deepseek-ai/dsh-scope'
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { CallId, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
-import { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, TOOL_NOT_STARTED, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { scopedSubjectResolverFor } from './scoped-events.generated.ts'
 
@@ -165,8 +165,8 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
       // A result needs a prior matching call in the same step. (The converse
       // does NOT hold: a call may have no result — a throwing tool-execution
       // pipeline step ends the turn with no tool/result, which is legal.)
-      const syntheticInterrupted = event.data.isError && event.data.error?.code === 'interrupted'
-      if (!trace.pendingCalls.has(event.data.callId) && !syntheticInterrupted) {
+      const syntheticNotStarted = event.data.isError && event.data.error?.code === TOOL_NOT_STARTED
+      if (!trace.pendingCalls.has(event.data.callId) && !syntheticNotStarted) {
         throw new InvariantError(`tool/result for ${event.data.callId} with no prior tool/call in this step`)
       }
       pendingCalls = { kind: 'delete', callId: event.data.callId }
@@ -174,11 +174,10 @@ function validateEvent(trace: SessionTrace, event: SessionEvent): SessionTraceTr
     }
     // Turn-enclosure (the turn-enclosure Agent Note): EVERY session event not handled by a boundary
     // case above must sit inside an open turn. The durable session log uses the
-    // turn as its commit/replay boundary (the JSONL backend treats anything
-    // after the last turn/end as a crash tail), so a bare event between turns is
-    // silently dropped on reload. The loop records queued user messages after
-    // turn/start, and an idle agent.inject() wraps its context/message in a
-    // one-shot turn. A `default`
+    // turn as its replay enclosure; recovery closes an interrupted open tail,
+    // so a bare event between turns has no valid resumed position. The loop
+    // records queued user messages after turn/start, and an idle agent.inject()
+    // wraps its context/message in a one-shot turn. A `default`
     // (not an enumerated list) is deliberate: SessionEventMap is
     // merge-extensible, so a PLUGIN-added event type appended while idle must
     // also fail here rather than fall through and be dropped on resume.

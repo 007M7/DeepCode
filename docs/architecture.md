@@ -84,7 +84,7 @@ forever:
       agent/pre-step
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> log request/header -> llm/stream (frozen)
+      agent/request (config only) -> log request/header -> checkpoint -> llm/stream (frozen)
       on final adapter-path or terminal in-band failure:
         'step/end'
         agent/request-error(original error, failure facts, immutable prior failures, signal)
@@ -96,10 +96,10 @@ forever:
         schedule tool calls by ctx.tools.executionMode:
           exclusive -> one-call barrier
           parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
-          each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+          each start -> 'tool/call' -> ordered tools/pre-execute -> checkpoint -> concurrent tools/execute
           each model-order result -> ordered tools/post-execute -> 'tool/result'
         append accepted tool-batch context after all recorded results, then steering
-        agent/post-step
+        agent/post-step -> checkpoint complete response/results
         'step/end'
         agent/turn-continuation
         agent/turn-stop (terminal policy)
@@ -138,7 +138,7 @@ The session log is the source of truth. `deriveMessages()` projects session even
 
 **Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, headers by folding `request/header` — and dev invariants assert this ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
-Durability is a plugin concern. Backends buffer synchronous `session/event` notifications; the loop awaits a turn-end checkpoint. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, with SQLite under one contract.
+Durability is a plugin concern. Backends buffer synchronous `session/event` notifications. The semantic checkpoint policy drains requests before adapter dispatch, recorded top-level calls before tool dispatch, and complete response/result batches at `agent/post-step`; the loop retains the final turn-end checkpoint. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, with SQLite under one contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
 
 ### Model Content
 

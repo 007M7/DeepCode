@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { createScope, scopeTarget } from '@deepseek-ai/dsh-scope'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId, TOOL_NOT_STARTED } from '@deepseek-ai/dsh-session'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
 import { InvariantError } from '@deepseek-ai/dsh-invariants'
 
@@ -217,7 +217,7 @@ describe('session-log invariants', () => {
         callId: CallId('crashed'),
         content: [{ type: 'text', text: 'interrupted' }],
         isError: true,
-        error: { name: 'InterruptedError', code: 'interrupted' },
+        error: { name: 'ToolNotStartedError', code: TOOL_NOT_STARTED },
       }, { surfaceOp: 'append' })
       session.append('step/end', { turn: 1, step: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })

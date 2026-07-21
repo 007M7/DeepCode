@@ -170,6 +170,9 @@ importers:
       '@deepseek-ai/dsh-sandbox-policy':
         specifier: workspace:^
         version: link:../packages/sandbox/sandbox-policy
+      '@deepseek-ai/dsh-session-checkpoint-policy':
+        specifier: workspace:*
+        version: link:../packages/session-persistence/session-checkpoint-policy
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:*
         version: link:../packages/session-persistence/session-persistence-jsonl
@@ -731,6 +734,9 @@ importers:
       '@deepseek-ai/dsh-commands':
         specifier: workspace:^
         version: link:../../ui/commands
+      '@deepseek-ai/dsh-session-checkpoint-policy':
+        specifier: workspace:^
+        version: link:../../session-persistence/session-checkpoint-policy
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:^
         version: link:../../session-persistence/session-persistence-jsonl
@@ -849,6 +855,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
+      '@deepseek-ai/dsh-session-checkpoint-policy':
+        specifier: workspace:^
+        version: link:../../session-persistence/session-checkpoint-policy
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:^
         version: link:../../session-persistence/session-persistence-jsonl
@@ -910,6 +919,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
+      '@deepseek-ai/dsh-session-checkpoint-policy':
+        specifier: workspace:^
+        version: link:../../session-persistence/session-checkpoint-policy
       '@deepseek-ai/dsh-session-persistence-jsonl':
         specifier: workspace:^
         version: link:../../session-persistence/session-persistence-jsonl
@@ -1607,6 +1619,42 @@ importers:
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+
+  packages/session-persistence/session-checkpoint-policy:
+    devDependencies:
+      '@cordisjs/plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-agent-loop':
+        specifier: workspace:^
+        version: link:../../core/agent-loop
+      '@deepseek-ai/dsh-agent-loop-testkit':
+        specifier: workspace:^
+        version: link:../../support/agent-loop-testkit
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-session-persistence':
+        specifier: workspace:^
+        version: link:../session-persistence
+      '@deepseek-ai/dsh-session-persistence-jsonl':
+        specifier: workspace:^
+        version: link:../session-persistence-jsonl
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@vendor+loader)
 
   packages/session-persistence/session-persistence:
     devDependencies:

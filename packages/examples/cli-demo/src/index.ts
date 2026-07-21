@@ -15,6 +15,7 @@ import SessionPersistenceJsonl, {
   JsonlCompressionSchema,
   type JsonlCompression,
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as sessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 
 const DEFAULT_PERSISTENCE_ROOT = './.sessions'
@@ -91,4 +92,5 @@ export function apply(ctx: Context, config: Config): void {
     root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
     ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
   })
+  ctx.plugin(sessionCheckpointPolicy)
 }

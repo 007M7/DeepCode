@@ -211,8 +211,8 @@ export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionE
     }
   })
 
-  // The last index (into eventEntries) that is a valid `turn/end` — the last
-  // fully-committed boundary (the loop flushes only at turn/end).
+  // The last index (into eventEntries) that is a valid `turn/end` — holes
+  // through a closed turn are always committed corruption.
   let lastTurnEnd = -1
   for (let i = parsed.length - 1; i >= 0; i--) {
     const p = parsed[i]

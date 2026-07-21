@@ -286,6 +286,20 @@ describe('bash tool', () => {
     expect(text(result)).toMatch(/aborted/)
   })
 
+  it('normalizes foreground cancellation that arrives before spawn', async () => {
+    const ctx = await setup()
+    const controller = new AbortController()
+    controller.abort('session/cancel')
+    const result = await ctx.tools.execute({
+      callId: CallId('call-pre-spawn-abort'),
+      name: 'bash',
+      arguments: { command: 'printf should-not-run', description: 'test command' },
+      signal: controller.signal,
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toBe('Error: command aborted')
+  })
+
   // Type and required-key violations are rejected by the harness
   // (defineTool validates against the SchemaSpec — the arg-validation Agent Note) before execute.
   it.each([

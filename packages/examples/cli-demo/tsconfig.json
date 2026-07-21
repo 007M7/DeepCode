@@ -16,6 +16,7 @@
     { "path": "../../core/system-prompt" },
     { "path": "../../core/tools" },
     { "path": "../agent-spine-demo" },
+    { "path": "../../session-persistence/session-checkpoint-policy" },
     { "path": "../../session-persistence/session-persistence-jsonl" },
     { "path": "../../ui/app-boot" }
   ]

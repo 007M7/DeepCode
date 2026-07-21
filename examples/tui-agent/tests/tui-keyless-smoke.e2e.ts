@@ -33,7 +33,10 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
       tsconfigPath,
       actions: [
         { waitFor: 'scripted TUI ready.', send: 'exercise the TUI\r' },
-        { waitFor: 'How should the scripted run proceed?', send: '\r' },
+        // The question text first appears in the streamed tool-call card. Wait
+        // for the dialog's input legend so Enter cannot arrive before it owns
+        // terminal input when pre-dispatch policy yields.
+        { waitFor: '↑↓ navigate • Enter select', send: '\r' },
         { waitFor: 'Decision received. Scripted TUI run complete.', send: '/exit\r' },
       ],
     })
