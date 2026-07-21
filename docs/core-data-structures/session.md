@@ -73,12 +73,13 @@ interface SessionEventMap {
    */
   'tool/call': { turn: number; step: number; callId: CallId; name: string; arguments: string }
   /**
-   * A completed tool call's model-facing result, canonical failure detail, and
-   * optional tool-private `meta` presentation payload. `meta` is opaque to the
-   * core (the producing tool owns its shape and reads it back in `presentResult`)
-   * but MUST be JSON-serializable: `Session.append` runtime-validates all event
-   * data with `isJsonValue`, so a non-serializable `meta` is rejected at the
-   * source, and the durable log reproduces the identical card on replay. Absent
+   * A completed tool call's model-facing result, optional internal failure
+   * identity, and optional tool-private `meta` presentation payload. `meta` is
+   * opaque to the core (the producing tool owns its shape and reads it back in
+   * `presentResult`) but MUST be JSON-serializable: `Session.append`
+   * runtime-validates all event data with `isJsonValue`, so a non-serializable
+   * `meta` is rejected at the source, and the durable log reproduces the
+   * identical card on replay. Absent
    * unless the tool attaches one (e.g. `dsh-tool-fs` carries its result-time
    * contextual diff here).
    */
@@ -88,7 +89,7 @@ interface SessionEventMap {
     callId: CallId
     content: ContentBlock[]
     isError: boolean
-    error?: { message: string; info?: { name: string; code: string } }
+    error?: { name: string; code: string }
     meta?: JsonValue
   }
   /** Steering content injected between steps of a running turn. */

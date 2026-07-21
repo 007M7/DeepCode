@@ -58,7 +58,7 @@ Durable values need one accepted representation, not a check followed by a secon
 
 `context/message` renders its `content` verbatim as a user-role message, and may attach JSON `meta` for replayable plugin state; metadata remains durable but is excluded from `deriveMessages()`.
 
-`tool/result` persists the model-facing content, canonical failure detail, and optional presentation metadata. A tool's successful canonical `value` is deliberately execution-local and never enters the session event, so replay reconstructs the Native/model presentation but cannot recover intermediate programmatic values. This does not change `SESSION_FORMAT_VERSION`: the persisted projection remains authoritative.
+`tool/result` persists the model-facing content, optional internal failure identity, and optional presentation metadata. A tool's successful canonical `value` and human-readable canonical failure message remain execution-local; rendered error content is the replay-authoritative message. This preserves the existing event shape and does not change `SESSION_FORMAT_VERSION`.
 
 ### Session event vocabulary (`types.ts`)
 

@@ -64,7 +64,7 @@ describe('interruptedTurnClosers', () => {
     expect(closers.map(e => e.seq)).toEqual([3, 4, 5])
     const result = closers[0]!
     expect(result.type === 'tool/result' && result.data).toMatchObject({
-      turn: 2, step: 1, callId: CallId('call-1'), isError: true, error: { info: { code: 'interrupted' } },
+      turn: 2, step: 1, callId: CallId('call-1'), isError: true, error: { code: 'interrupted' },
     })
   })
 

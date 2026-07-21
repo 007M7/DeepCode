@@ -217,7 +217,7 @@ describe('session-log invariants', () => {
         callId: CallId('crashed'),
         content: [{ type: 'text', text: 'interrupted' }],
         isError: true,
-        error: { message: 'interrupted', info: { name: 'InterruptedError', code: 'interrupted' } },
+        error: { name: 'InterruptedError', code: 'interrupted' },
       }, { surfaceOp: 'append' })
       session.append('step/end', { turn: 1, step: 1 })
       session.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })
@@ -500,7 +500,7 @@ describe('surface contract under the invariants composition', () => {
       callId: CallId('rewrite'),
       content: [{ type: 'text' as const, text: 'original' }],
       isError: true,
-      error: { message: 'exit 1', info: { name: 'ExitError', code: 'EXIT_1' } },
+      error: { name: 'ExitError', code: 'EXIT_1' },
       meta: { presentation: { kind: 'terminal', output: 'full output' } },
       futureField: { nested: ['preserve', 1] },
     }
@@ -585,7 +585,7 @@ describe('surface contract under the invariants composition', () => {
     ['callId', { callId: CallId('forged') }],
     ['turn', { turn: 2 }],
     ['step', { step: 2 }],
-    ['error', { error: { message: 'exit 1', info: { name: 'ExitError', code: 'DIFFERENT' } } }],
+    ['error', { error: { name: 'ExitError', code: 'DIFFERENT' } }],
     ['meta', { meta: { presentation: { kind: 'generic' } } }],
     ['future data', { futureField: { nested: ['changed'] } }],
   ])('rejects a content rewrite with altered %s', async (_label, altered) => {

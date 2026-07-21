@@ -138,6 +138,7 @@ export async function buildWindow(
       appendToLineBuffer(chunk.slice(startPos, newlinePos))
       flushLine()
       startPos = newlinePos + 1
+      if (acc.done) return finish(acc, request, displayPath)
     }
     appendToLineBuffer(chunk.slice(startPos))
   }

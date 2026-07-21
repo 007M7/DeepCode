@@ -63,12 +63,16 @@ describe('snapshotJsonValue', () => {
     expect(arrayReads).toBe(1)
   })
 
-  it('rejects exotic containers, sparse arrays, cycles, and invalid children', () => {
+  it('rejects exotic containers, sparse or decorated arrays, cycles, and invalid children', () => {
     class ExoticObject {
       readonly value = 1
     }
     class ExoticArray extends Array<number> {}
     const sparse = new Array<number>(1)
+    const decorated = [1]
+    Object.defineProperty(decorated, 'extra', { value: true })
+    const symbolDecorated = [1]
+    Object.defineProperty(symbolDecorated, Symbol('extra'), { value: true })
     const cyclic: Record<string, unknown> = {}
     cyclic.self = cyclic
 
@@ -76,6 +80,8 @@ describe('snapshotJsonValue', () => {
     expect(snapshotJsonValue(new Map([['value', 1]]))).toBeUndefined()
     expect(snapshotJsonValue(new ExoticArray(1))).toBeUndefined()
     expect(snapshotJsonValue(sparse)).toBeUndefined()
+    expect(snapshotJsonValue(decorated)).toBeUndefined()
+    expect(snapshotJsonValue(symbolDecorated)).toBeUndefined()
     expect(snapshotJsonValue(cyclic)).toBeUndefined()
     expect(snapshotJsonValue([undefined])).toBeUndefined()
     expect(snapshotJsonValue({ value: undefined })).toBeUndefined()
@@ -133,16 +139,21 @@ describe('isJsonValue', () => {
     expect(isJsonValue(nullPrototype)).toBe(true)
   })
 
-  it('rejects sparse arrays, invalid children, exotic objects, and cycles', () => {
+  it('rejects sparse or decorated arrays, invalid children, exotic objects, and cycles', () => {
     class Exotic {
       readonly value = 1
     }
     class ExoticArray extends Array<number> {}
     const sparse = new Array<number>(1)
+    const decorated = Object.assign([1], { extra: true })
+    const symbolDecorated = [1]
+    Object.defineProperty(symbolDecorated, Symbol('extra'), { value: true })
     const cyclic: Record<string, unknown> = {}
     cyclic.self = cyclic
 
     expect(isJsonValue(sparse)).toBe(false)
+    expect(isJsonValue(decorated)).toBe(false)
+    expect(isJsonValue(symbolDecorated)).toBe(false)
     expect(isJsonValue(new ExoticArray(1))).toBe(false)
     expect(isJsonValue([undefined])).toBe(false)
     expect(isJsonValue({ value: undefined })).toBe(false)

@@ -1297,7 +1297,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:449`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:468`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui`
 

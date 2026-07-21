@@ -235,13 +235,21 @@ function checkSchemaNode(node: unknown, path: string, violations: string[], seen
       case 'boolean':
       case 'null': {
         const allowed = node.enum
+        const enumValid = Array.isArray(allowed)
+          && allowed.length > 0
+          && allowed.every(entry => scalarMatches(schemaType, entry))
         if (Object.hasOwn(node, 'enum')) {
-          if (!Array.isArray(allowed) || allowed.length === 0 || !allowed.every(entry => scalarMatches(schemaType, entry))) {
+          if (!enumValid) {
             violations.push(`${path}.enum must be a non-empty array of ${schemaType} values`)
           }
         }
-        if (Object.hasOwn(node, 'const') && !scalarMatches(schemaType, node.const)) {
-          violations.push(`${path}.const must be a ${schemaType} value`)
+        const constValid = scalarMatches(schemaType, node.const)
+        if (Object.hasOwn(node, 'const')) {
+          if (!constValid) {
+            violations.push(`${path}.const must be a ${schemaType} value`)
+          } else if (enumValid && !allowed.includes(node.const as JsonSchemaScalar)) {
+            violations.push(`${path}.const must be one of ${path}.enum when both are declared`)
+          }
         }
         break
       }
@@ -300,8 +308,20 @@ function propertyPath(path: string, key: string): string {
   return path === '' ? key : `${path}.${key}`
 }
 
-/** Collect value violations for one trusted schema node. */
+/** Contain hostile getters/proxies so validation remains total for arbitrary values. */
 function checkValue(node: JsonSchemaNode, value: unknown, path: string): string[] {
+  if (node.type !== undefined && !(SCHEMA_TYPES as readonly unknown[]).includes(node.type)) {
+    return checkValueUnchecked(node, value, path)
+  }
+  try {
+    return checkValueUnchecked(node, value, path)
+  } catch {
+    return [`"${diagnosticPath(path)}" must be a lossless JSON value`]
+  }
+}
+
+/** Collect value violations for one trusted schema node after the exception boundary. */
+function checkValueUnchecked(node: JsonSchemaNode, value: unknown, path: string): string[] {
   if (node.oneOf !== undefined) {
     const matches = node.oneOf.filter(branch => checkValue(branch, value, path).length === 0).length
     return matches === 1 ? [] : [`"${diagnosticPath(path)}" must match exactly one oneOf branch (matched ${matches})`]

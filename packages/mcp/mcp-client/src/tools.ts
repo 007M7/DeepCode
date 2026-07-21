@@ -14,6 +14,8 @@
 
 import { createHash } from 'node:crypto'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { z } from 'zod'
 import type { Context } from 'cordis'
 import type { ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
 import { assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools'
@@ -46,6 +48,35 @@ const INVALID_NAME_CHARS = /[^A-Za-z0-9_-]/g
 /** Hex chars of the SHA-256 identity hash appended on lossy normalization. */
 const HASH_LENGTH = 12
 
+/** Raw result record: the bridge owns JSON-value validation after transport. */
+const RawCallToolResultSchema = z.record(z.string(), z.unknown())
+
+/** List without mutating the SDK's per-page output-validator cache. */
+function listToolsUncached(client: Client, cursor?: string) {
+  return client.request(
+    { method: 'tools/list', ...cursor === undefined ? {} : { params: { cursor } } },
+    ListToolsResultSchema,
+  )
+}
+
+/** Call without the SDK pre-validating an output schema the bridge may not support. */
+function callToolUncached(
+  client: Client,
+  rawName: string,
+  args: Record<string, unknown>,
+  exec: ToolExecution,
+  opts: ToolBridgeOptions,
+) {
+  return client.request(
+    { method: 'tools/call', params: { name: rawName, arguments: args } },
+    RawCallToolResultSchema,
+    {
+      ...exec.signal ? { signal: exec.signal } : {},
+      timeout: opts.toolCallTimeoutMs,
+    },
+  )
+}
+
 /**
  * Derive the model-facing public name for one MCP tool.
  *
@@ -73,7 +104,7 @@ export function publicToolName(serverName: string, rawName: string): string {
  *
  * Two phases keep the swap safe:
  *
- * 1. Fetch: drain `client.listTools()` pagination and build the full next
+ * 1. Fetch: drain uncached `tools/list` pagination and build the full next
  *    generation of `ToolDefinition`s under public names. Any failure here
  *    (network error, duplicate raw name in the server's list) rejects and
  *    leaves the previous generation registered untouched.
@@ -101,7 +132,7 @@ export async function syncTools(
   const definitions = new Map<string, ToolDefinition>()
   let cursor: string | undefined
   do {
-    const response = await client.listTools(cursor ? { cursor } : undefined)
+    const response = await listToolsUncached(client, cursor)
     for (const tool of response.tools) {
       const publicName = publicToolName(opts.serverName, tool.name)
       if (definitions.has(publicName)) {
@@ -114,7 +145,7 @@ export async function syncTools(
         description: tool.description ?? '',
         parameters: tool.inputSchema,
         output: createOutput(tool.name, supportedOutputSchema(tool.outputSchema)),
-        execute: createExecutor(client, tool.name, opts),
+        execute: createExecutor(client, tool.name, tool.execution?.taskSupport === 'required', opts),
       })
     }
     cursor = response.nextCursor
@@ -170,7 +201,7 @@ function createOutput(rawName: string, structuredSchema: JsonSchemaNode | undefi
         content: { type: 'array', items: {} },
         structuredContent: structuredSchema ?? {},
       },
-      required: ['content'],
+      required: structuredSchema === undefined ? ['content'] : ['content', 'structuredContent'],
       additionalProperties: false,
     },
     render(_args, value) {
@@ -182,9 +213,10 @@ function createOutput(rawName: string, structuredSchema: JsonSchemaNode | undefi
 
 /**
  * Create an execute function for one MCP tool. The executor closes over the
- * raw MCP tool name and calls `client.callTool` with it (never the public
- * name), with abort signal and timeout, then maps the result to harness
- * ContentBlocks.
+ * raw MCP tool name and sends an uncached `tools/call` request with it (never
+ * the public name), with abort signal and timeout, then maps the result to
+ * harness ContentBlocks. Owning the raw request prevents the SDK's internal
+ * per-page schema cache from pre-validating a different contract.
  *
  * When the MCP server returns `isError: true`, the executor throws so that
  * the ToolRegistry's catch path produces an `isError` result for the model.
@@ -192,33 +224,30 @@ function createOutput(rawName: string, structuredSchema: JsonSchemaNode | undefi
 function createExecutor(
   client: Client,
   rawName: string,
+  taskRequired: boolean,
   opts: ToolBridgeOptions,
 ): ToolDefinition['execute'] {
   return async (args: unknown, exec: ToolExecution) => {
+    if (taskRequired) {
+      throw new Error(`Tool "${rawName}" requires task-based execution, which this bridge does not support`)
+    }
     // The agent loop passes `JSON.parse(model_arguments)` which is usually an
     // object, but can be any JSON value if the model misbehaves (outputs a bare
     // string/number/null). Fallback to {} lets the MCP server produce a
     // specific "missing required param" error the model can learn from.
     const argsObj = (typeof args === 'object' && args !== null ? args : {}) as Record<string, unknown>
-    const result = await client.callTool(
-      { name: rawName, arguments: argsObj },
-      undefined,
-      {
-        ...exec.signal ? { signal: exec.signal } : {},
-        timeout: opts.toolCallTimeoutMs,
-      },
-    )
+    const result = await callToolUncached(client, rawName, argsObj, exec, opts)
 
     // The SDK may return a legacy `toolResult` shape; normalize to content array.
-    if (!('content' in result) || !Array.isArray(result.content)) {
+    if (!Array.isArray(result.content)) {
       const rendered: unknown = 'toolResult' in result
         ? JSON.stringify(result.toolResult)
         : '(no output)'
       const text = typeof rendered === 'string' ? rendered : '(no output)'
-      if ('isError' in result && result.isError === true) throw new Error(text)
+      if (result.isError === true) throw new Error(text)
       return {
         content: [{ type: 'text', text }],
-        ...'structuredContent' in result && result.structuredContent !== undefined
+        ...result.structuredContent !== undefined
           ? { structuredContent: result.structuredContent as JsonValue }
           : {},
       }
@@ -232,13 +261,13 @@ function createExecutor(
     const text = extractText(content, rawName)
 
     // MCP isError → throw so ToolRegistry produces an isError result for the model.
-    if ('isError' in result && result.isError === true) {
+    if (result.isError === true) {
       throw new Error(text)
     }
 
     return {
       content,
-      ...'structuredContent' in result && result.structuredContent !== undefined
+      ...result.structuredContent !== undefined
         ? { structuredContent: result.structuredContent as JsonValue }
         : {},
     }
