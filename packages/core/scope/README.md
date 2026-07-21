@@ -13,6 +13,8 @@ Scoped registration primitive. `createScope(ctx, key)` creates a tagged Cordis c
 - `Scoped<T>` The compile-time opaque carrier brand: scope-filtered events demand it as their `this` type, so dispatching with a bare subject is a compile error. The type parameter records the subject type but does not expose its properties.
 - `isScopeCarrier(value)` / `carrierKeyOf(value)` Runtime carrier marks, used by the dev invariants to assert every scope-filtered dispatch carries a carrier keyed to the subject its arguments name.
 
+The optional `@deepseek-ai/dsh-scope/invariant` companion owns that runtime assertion. It uses the generated `scoped-events.generated.ts` resolver map to require a carrier for every declared scoped event and, when the payload exposes its routing subject, require identity with the carrier key. The Program-backed generator derives the map from event declarations and real `scopeTarget(base, key)` calls.
+
 ## Design contract
 
 The registration context determines both visibility and ownership, preventing a registration from being visible in one scope but disposed with another. Scopes route trusted same-process plugins; they are not sandboxes or authority boundaries. See the [agent-scope Agent Note](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-explicit-non-goals) for rationale and security non-goals.

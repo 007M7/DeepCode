@@ -1,9 +1,15 @@
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { type Agent, type AgentStatus } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {
+  type Agent,
+  type AgentCancelCause,
+  type AgentOptions,
+  type AgentStatus,
+} from '@deepseek-ai/dsh-agent'
+import type { ContentBlock, LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { createTuiChat, type Config, type TuiRuntime } from '../src/index.ts'
@@ -12,7 +18,7 @@ interface FakeAgent extends Agent {
   status: AgentStatus
   sent: ContentBlock[][]
   steered: ContentBlock[][]
-  cancelled: string[]
+  cancelled: AgentCancelCause[]
 }
 
 export interface TuiHarnessOptions {
@@ -23,6 +29,16 @@ export interface TuiHarnessOptions {
   beforeMount?: (session: Session) => void
   cwd?: string | null
   formatCwd?: TuiRuntime['formatCwd']
+  agentOptions?: AgentOptions
+  contextWindow?: number
+  contextTokens?: number
+  now?: () => number
+  catalog?: {
+    providers: LlmProviderInfo[]
+    models: LlmModelInfo[]
+    listModels?: (provider: string) => Promise<LlmModelInfo[]>
+    resolveModelContext?: (provider: string, model: string) => Promise<LlmModelContext | undefined>
+  }
 }
 
 export interface TuiHarness<TerminalType extends Terminal, Exit extends (code: number) => void> {
@@ -51,6 +67,31 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(CommandService)
   await ctx.plugin(UserInteractionService)
+  const catalog = options.catalog ?? {
+    providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+    models: [
+      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
+      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+    ],
+  }
+  ctx.provide('llm', {
+    listProviders() {
+      return catalog.providers.map(provider => ({ ...provider }))
+    },
+    listModels(provider: string) {
+      return catalog.listModels?.(provider)
+        ?? Promise.resolve(catalog.models.filter(model => model.provider === provider).map(model => ({ ...model })))
+    },
+    resolveModelContext(provider: string, model: string) {
+      return catalog.resolveModelContext?.(provider, model)
+        ?? Promise.resolve({ contextWindow: options.contextWindow ?? 128_000 })
+    },
+  } as never)
+  ctx.provide('tokenMeter', {
+    measure() {
+      return { totalTokens: options.contextTokens ?? 0 }
+    },
+  } as never)
   if (options.configureContext === undefined) {
     const tools = options.tools ?? {}
     ctx.provide('tools', {
@@ -61,18 +102,24 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   } else {
     await options.configureContext(ctx)
   }
+  if (ctx.get('systemPrompt') === undefined) await ctx.plugin(SystemPrompt)
   const sessionId = SessionId('main-session')
   const session = ctx.sessions.create(
     sessionId,
     options.cwd === null ? undefined : { meta: { cwd: options.cwd ?? '/workspace' } },
   )
+  session.append('turn/start', {
+    turn: 1,
+    trigger: { kind: 'message', source: { kind: 'user' } },
+  })
+  session.append('step/start', { turn: 1, step: 1 })
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
   const steered: ContentBlock[][] = []
-  const cancelled: string[] = []
+  const cancelled: AgentCancelCause[] = []
   const agent: FakeAgent = {
     id: sessionId,
-    options: { model: 'deepseek-v4-flash' },
+    options: options.agentOptions ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
     session,
     status: options.status ?? 'idle',
     ctx,
@@ -86,8 +133,8 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       steered.push(content)
     },
     inject() {},
-    cancel(reason) {
-      cancelled.push(reason ?? '')
+    cancel(cause = { kind: 'user' }) {
+      cancelled.push(cause)
     },
     whenIdle() {
       return Promise.resolve()
@@ -101,6 +148,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   }, options.config), {
     terminal,
     exit,
+    now: options.now ?? (() => 0),
     ...(options.formatCwd === undefined ? {} : { formatCwd: options.formatCwd }),
   })
   return { ctx, session, agent, terminal, exit, controller }
@@ -127,11 +175,10 @@ export function appendAssistant(
   session: Session,
   content: ContentBlock[],
   usage?: { inputTokens: number; outputTokens: number },
-  position: { turn: number; step: number } = { turn: 1, step: 0 },
+  position: { turn: number; step: number } = { turn: 1, step: 1 },
 ): void {
   session.append('assistant/message', {
-    turn: position.turn,
-    step: position.step,
+    ...position,
     provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
     content,
     ...usage === undefined ? {} : { usage },

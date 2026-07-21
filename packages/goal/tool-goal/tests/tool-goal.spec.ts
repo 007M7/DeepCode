@@ -13,6 +13,8 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as toolGoal from '@deepseek-ai/dsh-tool-goal'
 
+const testToolSignal = new AbortController().signal
+
 interface StubAgent {
   readonly agent: Agent
   readonly session: Session
@@ -84,6 +86,7 @@ async function execute(
   initiator: Agent | undefined = agent,
 ): Promise<ToolExecutionResult> {
   const run = () => ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId(`call-${Math.random()}`),
     name,
     arguments: args,
@@ -113,7 +116,7 @@ describe('goal tool registration and presentation', () => {
     expect(['create_goal', 'get_goal', 'update_goal'].map(name => ctx.tools.get(name)?.name))
       .toEqual(['create_goal', 'get_goal', 'update_goal'])
     for (const name of ['create_goal', 'get_goal', 'update_goal']) {
-      expect(ctx.tools.executionMode({ callId: CallId(name), name, arguments: {} }))
+      expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId(name), name, arguments: {} }))
         .toEqual({ kind: 'exclusive' })
     }
     const section = (await ctx.systemPrompt.assemble()).sections.find(item => item.name === 'tool:goal')
@@ -197,6 +200,7 @@ describe('goal tool execution authority', () => {
 
     openTurn(root, { kind: 'user' })
     const driverless = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('call-driverless'),
       name: 'get_goal',
       arguments: {},
@@ -326,7 +330,7 @@ describe('goal tool state transitions', () => {
       goal_id: goal['id'], revision: goal['revision'], action: 'resume',
     }, root.agent))
     expect(goal).toMatchObject({ phase: 'active', revision: 4 })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', 1)).toBeUndefined()
+    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', 1, testToolSignal)).toBeUndefined()
   })
 
   it('terminal-stops an autonomous completion but leaves a human pause interactive', async () => {
@@ -337,7 +341,7 @@ describe('goal tool state transitions', () => {
       goal_id: created.id, revision: created.revision, action: 'pause',
     }, root.agent)
     expect(resultGoal(paused)).toMatchObject({ phase: 'paused' })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', humanTurn)).toBeUndefined()
+    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', humanTurn, testToolSignal)).toBeUndefined()
     const resumed = resultGoal(await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: 2, action: 'resume',
     }, root.agent))
@@ -350,8 +354,8 @@ describe('goal tool state transitions', () => {
       goal_id: created.id, revision: resumed['revision'], action: 'complete',
     }, root.agent)
     expect(resultGoal(complete)).toMatchObject({ phase: 'complete' })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', roundTurn)).toEqual({ action: 'stop' })
-    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', roundTurn)).toBeUndefined()
+    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', roundTurn, testToolSignal)).toEqual({ action: 'stop' })
+    expect(await agentEvents(ctx, root.agent).serial('agent/turn-stop', roundTurn, testToolSignal)).toBeUndefined()
   })
 
   it('rearms a restored active goal only after a new direct human prompt', async () => {

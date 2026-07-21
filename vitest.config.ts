@@ -17,6 +17,7 @@ export default defineConfig({
   // to source; native resolution would fall through to absent `lib/` outputs.
   plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
   test: {
+    setupFiles: ['./scripts/test-invariants.ts'],
     include: ['packages/*/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts', 'scripts/**/*.spec.ts'],
     exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
     coverage: {

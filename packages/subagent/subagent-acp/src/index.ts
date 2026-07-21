@@ -1,11 +1,14 @@
 /**
  * Out-of-process ACP subagent backend. Each child has its own process, session, model, and
- * tools, so it shares no Cordis context, ignores `request.parent`, and advertises no parent-
- * enforced start capabilities. This plugin uses named exports only; a default would hide its
+ * tools, so it shares no Cordis context and advertises no parent-enforced start capabilities;
+ * the ONE thing it reads off `request.parent` is the session's workspace cwd (see
+ * {@link resolveCwd}). This plugin uses named exports only; a default would hide its
  * loader metadata (see `docs/postmortem/0001-acp-default-export-drops-inject.md`).
  * @module @deepseek-ai/dsh-subagent-acp
  */
 
+import { accessSync, constants, statSync } from 'node:fs'
+import { isAbsolute, resolve } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
@@ -23,8 +26,11 @@ export interface Config {
   /** Arguments passed to {@link command}. */
   args: string[]
   /**
-   * Working directory for the child process and its ACP session. Defaults to
-   * the parent process's cwd when omitted.
+   * Working directory override for the child process and its ACP session.
+   * Must be non-empty; a relative path resolves against the harness launch
+   * directory at load, and the result must be an existing directory. When
+   * omitted, each child inherits its delegating parent session's cwd — and
+   * starting one from a parent session that has no cwd fails.
    */
   cwd?: string
   /**
@@ -72,6 +78,60 @@ function assertPositiveFinite(name: string, value: number): void {
 type ResolvedConfig = Required<Omit<Config, 'cwd'>> & Pick<Config, 'cwd'>
 
 /**
+ * Whether `path` names an existing directory the harness can ENTER. The
+ * search-permission probe matters: `statSync().isDirectory()` is true for a
+ * mode-600 directory, but a subprocess cwd needs `X_OK` or spawn fails EACCES.
+ */
+function isDirectory(path: string): boolean {
+  try {
+    if (!statSync(path).isDirectory()) return false
+    accessSync(path, constants.X_OK)
+    return true
+  } catch {
+    // statSync/accessSync throw only filesystem access errors here
+    // (ENOENT/EACCES/ENOTDIR/…), and every one of them means the path cannot
+    // serve as the child's cwd.
+    return false
+  }
+}
+
+/**
+ * Assert `cwd` can actually host the child: absolute (it doubles as the ACP
+ * session workspace, and a relative path would be re-anchored to the server
+ * process's launch directory) and an existing directory (fail here, before the
+ * process boundary, instead of as an ambiguous spawn ENOENT).
+ * @param label - which source supplied the value, for the diagnostic.
+ * @param cwd - the candidate working directory.
+ * @returns `cwd`, validated.
+ */
+function assertUsableCwd(label: string, cwd: string): string {
+  if (!isAbsolute(cwd)) {
+    throw new Error(`subagent-acp: ${label} must be an absolute path: ${cwd}`)
+  }
+  if (!isDirectory(cwd)) {
+    throw new Error(`subagent-acp: ${label} is not an accessible directory: ${cwd}`)
+  }
+  return cwd
+}
+
+/**
+ * Resolve the child's working directory: the deployment `cwd` override when
+ * configured (already validated at load), else the parent session's workspace
+ * cwd (validated here, its earliest resolvable point). Fails loud when neither
+ * exists — falling back to the harness process cwd would silently bind the
+ * child to the server's launch directory instead of the delegating session's
+ * workspace (one server process serves many sessions, each with its own cwd).
+ */
+function resolveCwd(configured: string | undefined, request: SubagentStartRequest): string {
+  if (configured !== undefined) return configured
+  const parentCwd = request.parent.session.header.cwd
+  if (parentCwd === undefined) {
+    throw new Error('subagent-acp: no working directory for the child — configure `cwd` or delegate from a parent session that has one')
+  }
+  return assertUsableCwd('parent session cwd', parentCwd)
+}
+
+/**
  * The ACP provider. Advertises NO start-time capabilities: an out-of-process
  * child cannot honor `outputSchema`/`maxDepth`/`toolFilter` (the service rejects
  * a request needing any of them before `start` runs).
@@ -87,7 +147,7 @@ class AcpProvider implements SubagentProvider {
     const spec: AcpRunSpec = {
       command: this.config.command,
       args: this.config.args,
-      cwd: this.config.cwd ?? process.cwd(),
+      cwd: resolveCwd(this.config.cwd, request),
       permission: this.config.permission,
       env: this.config.env,
       disposeEofGraceMs: this.config.disposeEofGraceMs,
@@ -107,5 +167,15 @@ export function apply(ctx: Context, config: Config): void {
   const resolved = config as ResolvedConfig
   assertPositiveFinite('disposeEofGraceMs', resolved.disposeEofGraceMs)
   assertPositiveFinite('disposeGraceMs', resolved.disposeGraceMs)
-  ctx.subagents.registerProvider(new AcpProvider(resolved.providerName, ctx, resolved))
+  // `path.resolve('')` is the process cwd — an empty string would silently
+  // reintroduce the launch-directory fallback this resolution removed.
+  if (resolved.cwd === '') {
+    throw new Error('subagent-acp: config cwd must not be empty — omit the key to inherit the parent session cwd')
+  }
+  // Interpret a relative configured cwd against the harness launch directory
+  // ONCE, at load, and fail a misconfigured directory here — not per start.
+  const validated: ResolvedConfig = resolved.cwd === undefined
+    ? resolved
+    : { ...resolved, cwd: assertUsableCwd('config cwd', resolve(resolved.cwd)) }
+  ctx.subagents.registerProvider(new AcpProvider(validated.providerName, ctx, validated))
 }

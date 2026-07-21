@@ -6,14 +6,35 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../../util/brand" },
-    { "path": "../../compact/compact-basic" },
-    { "path": "../../hooks/hooks-claude" },
-    { "path": "../../hooks/hooks-codex" },
-    { "path": "../../session-persistence/session-persistence-jsonl" },
-    { "path": "../../session-persistence/session-persistence-sqlite" },
-    { "path": "../../subagent/tool-subagent" },
-    { "path": "../../web/tool-web" },
-    { "path": "../../../vendor/cordis" }
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../compact/compact-basic"
+    },
+    {
+      "path": "../../hooks/hooks-claude"
+    },
+    {
+      "path": "../../hooks/hooks-codex"
+    },
+    {
+      "path": "../../session-persistence/session-persistence-jsonl"
+    },
+    {
+      "path": "../../session-persistence/session-persistence-sqlite"
+    },
+    {
+      "path": "../../subagent/tool-subagent"
+    },
+    {
+      "path": "../../web/tool-web"
+    },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../support/invariants"
+    }
   ]
 }

@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:223`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:225`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -422,7 +422,7 @@ abstract compactRegion( start: number, end: number, agent: CompactAgentContext, 
 
 Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionTrigger](../core-data-structures/compaction.md)
 
-Source: [`packages/compact/compact/src/index.ts:40`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:39`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -613,6 +613,24 @@ Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-d
 
 Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
 
+## `ctx.invariants` — `InvariantService`
+
+Package-owned invariant registry with global and regex-based selection.
+
+```ts cordis-catalog
+/**
+ * Register one package's invariant installer. The package name is reserved
+ * even when filtering disables its checks. Enabled installers run in a child
+ * fiber; failure disposes that fiber and releases the reservation.
+ * @param packageName - full npm package name that owns the contribution.
+ * @param installer - listener or startup-check installer for the child context.
+ * @returns an effect-scoped disposer for the registration.
+ */
+register(packageName: string, installer: InvariantInstaller): () => void
+```
+
+Source: [`packages/support/invariants/src/index.ts:94`](../../packages/support/invariants/src/index.ts)
+
 ## `ctx.llm` — `LlmService`
 
 The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.
@@ -643,6 +661,16 @@ listProviders(): LlmProviderInfo[]
 async listModels(provider: string): Promise<LlmModelInfo[]>
 
 /**
+ * Resolve context capacity from the adapter that owns one exact route.
+ * This query is independent of the advisory model catalog: an unlisted model
+ * may return metadata, while `undefined` never rejects later routing.
+ * @param provider - registered provider route to inspect.
+ * @param model - exact model id passed to the adapter.
+ * @returns detached context metadata, or `undefined` when the adapter has none.
+ */
+async resolveModelContext( provider: string, model: string, ): Promise<LlmModelContext | undefined>
+
+/**
  * Stream one model call as raw chunks (token-level deltas). Throws
  * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
  * `options.provider`. Replay state is retained only when the same adapter
@@ -657,9 +685,9 @@ async listModels(provider: string): Promise<LlmModelInfo[]>
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmModelContext](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:137`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:159`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -801,6 +829,13 @@ Live-preferred logical-corpus exact-read and relationship-tracing service.
 listSessions(): Promise<SessionRecord[]>
 
 /**
+ * Fold the latest log-backed title from one live-preferred logical session.
+ * @param sessionId - live or persisted session id to read.
+ * @returns latest title snapshot, or `undefined` when the log has no title event.
+ */
+async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>
+
+/**
  * List lightweight raw-log event records for one logical session.
  * @param sessionId - live-preferred session id to read.
  * @returns event records in ascending seq order.
@@ -831,9 +866,9 @@ async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
 
-Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventTrace](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md)
+Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventTrace](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-query/session-query/src/index.ts:38`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:40`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -930,6 +965,28 @@ announce(session: Session): void
 async flush(session: Session): Promise<void>
 
 /**
+ * Append one plugin-declared log-only event without borrowing the agent
+ * loop's lifecycle. An open turn receives the event directly and remains
+ * responsible for its ordinary checkpoint. A closed log receives one
+ * zero-step turn around the event, followed by an awaited flush.
+ *
+ * Once the synthetic `turn/start` commits, this method always attempts its
+ * matching `turn/end` and flush, including when the target append fails.
+ * Detachment requested by an event or flush listener is deferred until that
+ * sequence settles, so publication cannot switch from a live scoped session
+ * to an unobserved bare `Session` halfway through the update.
+ *
+ * @param session - exact live session that owns the target log.
+ * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.
+ * @param data - typed JSON payload for the target event.
+ * @param trigger - plugin-owned turn trigger used only when the log is closed.
+ * @returns the accepted target event with its assigned sequence and timestamp.
+ * @throws when the session is detached, another out-of-band append is active,
+ *   event acceptance fails, the synthetic turn cannot close, or flushing fails.
+ */
+async appendOutOfBand<T extends OutOfBandSessionEventType>( session: Session, type: T, data: SessionEventMap[T], trigger: TurnTrigger, ): Promise<SessionEvent<T>>
+
+/**
  * Look up a live session.
  * @param id - the session id to look up.
  * @returns the session, or undefined when no live session has that id.
@@ -958,9 +1015,43 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
+Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:553`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:592`](../../packages/core/session/src/index.ts)
+
+## `ctx.sessionTitle` — `SessionTitleService`
+
+Log-backed title fold plus asynchronous fallback generation.
+
+```ts cordis-catalog
+/**
+ * Read the latest folded title from one live or replayed session.
+ * @param session - session whose log is the title source of truth.
+ * @returns latest title snapshot, or `undefined` before eligible input.
+ */
+get(session: Session): SessionTitleSnapshot | undefined
+
+/**
+ * Explicitly retry the registered provider, or materialize the built-in
+ * fallback when no provider is registered.
+ * @param session - exact live session to refresh.
+ * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.
+ * @returns latest accepted title, or `undefined` when no eligible text exists.
+ */
+async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>
+
+/**
+ * Register the sole optional title provider. Disposal aborts its pending and
+ * active work before another provider may register.
+ * @param provider - provider identity, cadence, and generation function.
+ * @returns exact Cordis effect disposer, which settles after active calls quiesce.
+ */
+register(provider: SessionTitleProvider): () => Promise<void>
+```
+
+Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
+
+Source: [`packages/session-title/session-title/src/index.ts:282`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -1122,7 +1213,7 @@ async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 
 Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:209`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:213`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tasks` — `TaskService`
 
@@ -1246,7 +1337,7 @@ estimateMessage(message: Message): number
 
 Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
-Source: [`packages/llm/token-meter/src/index.ts:106`](../../packages/llm/token-meter/src/index.ts)
+Source: [`packages/llm/token-meter/src/index.ts:82`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.toolResultPrune` — `ToolResultPruneService`
 
@@ -1351,7 +1442,11 @@ executionMode(exec: ToolExecutionInput): ToolExecutionMode
  * Execute through pre-policy, guards, around-dispatch, post-policy, and final
  * notification. Tool and listener failures resolve as materialized error
  * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
- * the same lossless, frozen snapshot final observers receive.
+ * the same lossless, frozen snapshot final observers receive. Cancellation
+ * arriving after entry and before final result materialization skips a
+ * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a
+ * successful started outcome with `ABORTED`; already-started work is still
+ * drained and may retain a tool-owned structured error.
  * @param exec - the typed same-process call input. The registry assigns its
  *   correlation token before policy begins.
  * @returns the materialized final result.
@@ -1361,7 +1456,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:438`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:493`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

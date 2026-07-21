@@ -7,7 +7,15 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { GenerateOptions, LlmFailure, LlmModelInfo, LlmProviderInfo, Message, StreamChunk } from './types.ts'
+import type {
+  GenerateOptions,
+  LlmFailure,
+  LlmModelContext,
+  LlmModelInfo,
+  LlmProviderInfo,
+  Message,
+  StreamChunk,
+} from './types.ts'
 import type { ProviderRequestId } from './brand.ts'
 import { deepFreeze } from './call-config.ts'
 import { HarnessError } from './error.ts'
@@ -20,7 +28,7 @@ export * from './never.ts'
 export * from './error.ts'
 export * from './types.ts'
 export { BlockAssembler } from './assembler.ts'
-export { callConfigEquals, deepFreeze } from './call-config.ts'
+export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { LlmCallConfig } from './call-config.ts'
 export { isLlmAdapterFailure, llmFailureOf } from './adapter-failure.ts'
 
@@ -34,11 +42,11 @@ declare module 'cordis' {
      * Waterfall around every streaming model call (retry, replay, routing).
      * Bound to the {@link LlmService}; call `next()` to reach the resolved
      * adapter's stream, or yield your own chunks to short-circuit.
-     * @param options - the full request. A LOOP-built request arrives
-     *   deep-frozen (mutation throws): its content is a pure function of the
-     *   session log (the reconstructability Agent Note), so listeners read it, never
-     *   rewrite it. A hand-built one-shot (compaction summarize) is the
-     *   caller's own object and stays mutable here.
+     * @param options - the full request. A LOOP-built request carries the
+     *   process-local {@link markAgentLoopRequest} identity and arrives deep-frozen
+     *   (mutation throws): its content is a pure function of the session log (the
+     *   reconstructability Agent Note), so listeners read it, never rewrite it.
+     *   Hand-built calls own their mutability policy and do not carry that marker.
      * @mode waterfall
      */
     'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
@@ -120,6 +128,20 @@ export abstract class LlmAdapter {
    */
   listModels(_provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve([])
+  }
+
+  /**
+   * Resolve context capacity for one model accepted by this adapter. Absence
+   * means the adapter does not know the capacity, not that routing is invalid.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _model - exact model id passed to {@link GenerateOptions.model}.
+   * @returns provider-owned context metadata, or `undefined` when unavailable.
+   */
+  resolveModelContext(
+    _provider: string,
+    _model: string,
+  ): Promise<LlmModelContext | undefined> {
+    return Promise.resolve(undefined)
   }
 
   /**
@@ -215,6 +237,29 @@ export class LlmService extends Service {
         ...model.description === undefined ? {} : { description: model.description },
       }
     })
+  }
+
+  /**
+   * Resolve context capacity from the adapter that owns one exact route.
+   * This query is independent of the advisory model catalog: an unlisted model
+   * may return metadata, while `undefined` never rejects later routing.
+   * @param provider - registered provider route to inspect.
+   * @param model - exact model id passed to the adapter.
+   * @returns detached context metadata, or `undefined` when the adapter has none.
+   */
+  async resolveModelContext(
+    provider: string,
+    model: string,
+  ): Promise<LlmModelContext | undefined> {
+    const context = await this.registration(provider).adapter.resolveModelContext(provider, model)
+    if (context === undefined) return undefined
+    if (!Number.isInteger(context.contextWindow) || context.contextWindow <= 0) {
+      throw new LlmError(
+        `adapter returned invalid context metadata for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_CONTEXT',
+      )
+    }
+    return { contextWindow: context.contextWindow }
   }
 
   private registration(provider: string): { adapter: LlmAdapter; provider: LlmProviderInfo } {

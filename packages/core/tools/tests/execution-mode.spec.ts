@@ -11,6 +11,8 @@ import ToolRegistry, {
   type ToolExecutionMode,
 } from '@deepseek-ai/dsh-tools'
 
+const testToolSignal = new AbortController().signal
+
 async function setup() {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
@@ -19,7 +21,7 @@ async function setup() {
 }
 
 function exec(name: string, args: unknown): ToolExecutionInput {
-  return { callId: CallId('c1'), name, arguments: args }
+  return { signal: testToolSignal, callId: CallId('c1'), name, arguments: args }
 }
 
 describe('ToolRegistry.executionMode', () => {

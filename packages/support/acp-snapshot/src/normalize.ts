@@ -11,6 +11,7 @@ const CWD = '{{cwd}}'
 const SYSTEM = '{{system}}'
 const TOOLS = '{{tools}}'
 const MESSAGE_PREFIX = '{{messagePrefix}}'
+const UPDATED_AT = '{{updatedAt}}'
 
 /** A cwd-rooted path after volatile cwd replacement, through its last separator-delimited segment. */
 const CWD_ROOTED_PATH_RE = /\{\{cwd\}\}(?:[\\/][^\s<>"'`]+)+/g
@@ -123,6 +124,8 @@ export function normalizeStdout(
     if ('id' in frame && frame.id !== undefined && frame.id !== null) {
       frame.id = stableId(frame.id)
     }
+    const update = (frame.params as { update?: Record<string, unknown> } | undefined)?.update
+    if (update?.sessionUpdate === 'session_info_update') update.updatedAt = UPDATED_AT
     return scrubValue(frame, ctx, cwdPathMode) as Record<string, unknown>
   })
   return frames.map(f => JSON.stringify(f)).join('\n') + '\n'

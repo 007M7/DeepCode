@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
@@ -371,7 +371,7 @@ describe('approval policy (the approval/policy fold)', () => {
   }
 
   const preStep = (ctx: Context, agent: Agent): Promise<void> =>
-    ctx.serial('agent/pre-step', agent, 1, 1, new AbortController().signal)
+    agentEvents(ctx, agent).serial('agent/pre-step', 1, 1, new AbortController().signal)
 
   /** Append a `request/header` snapshot whose system text is exactly `system`. */
   function appendHeader(session: Session, system: string): void {

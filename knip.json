@@ -13,7 +13,10 @@
         "headless-agent/tests/fixtures/goal-domain/seed-goal.ts",
         "headless-agent/tests/fixtures/time-context-driver.ts",
         "headless-agent/tests/fixtures/time-context-mock-llm.ts",
+        "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
         "tui-agent/tests/fixtures/tui-scripted-llm.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
+        "acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts",
         "*/tests/**/*.e2e.ts",
         "*/tests/**/*.snapshot.ts"
       ],
@@ -42,28 +45,25 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
+    "packages/lsp/lsp-local": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts", "tests/fixture-server.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"],
+      "ignoreDependencies": ["typescript-language-server"]
+    },
     "packages/sandbox/sandbox-local": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/util/brand": {
-      "project": ["src/**/*.ts"],
-      "ignoreDependencies": ["cordis"]
-    },
-    "packages/util/home": {
-      "entry": ["tests/**/*.spec.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"],
-      "ignoreDependencies": ["cordis"]
+      "project": ["src/**/*.ts"]
     },
     "packages/util/timeout": {
       "entry": ["tests/**/*.spec.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"],
-      "ignoreDependencies": ["cordis"]
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/util/retention": {
       "entry": ["tests/**/*.spec.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"],
-      "ignoreDependencies": ["cordis"]
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/support/acp-snapshot": {
       "entry": ["tests/**/*.spec.ts", "tests/fixtures/fake-acp-agent.ts"],
@@ -71,8 +71,7 @@
     },
     "packages/support/loader-smoke": {
       "entry": ["tests/**/*.spec.ts", "tests/fixtures/*.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"],
-      "ignoreDependencies": ["cordis"]
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/core/agent-loop": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
@@ -102,14 +101,17 @@
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
+    "packages/session-title/session-title-first-message-llm": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
     "packages/context/workspace-context": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/util/paths": {
       "entry": ["tests/**/*.spec.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"],
-      "ignoreDependencies": ["cordis"]
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/web/web-search-exa": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
@@ -173,8 +175,7 @@
     },
     "packages/subagent/subagent-subprocess": {
       "entry": ["tests/**/*.spec.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"],
-      "ignoreDependencies": ["cordis"]
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/fs/tool-fs": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],

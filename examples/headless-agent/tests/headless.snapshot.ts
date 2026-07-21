@@ -4,7 +4,10 @@ import { fileURLToPath } from 'node:url'
 import {
   normalizeSessionLog,
   normalizeStdout,
+  refreshFixtureReplacements,
   scrubRequestHeaders,
+  stabilizeRefreshLog,
+  type HarvestedLog,
   type NormalizeContext,
 } from '@deepseek-ai/dsh-acp-snapshot'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
@@ -119,11 +122,12 @@ async function persistedLogs(cwd: string): Promise<PersistedLog[]> {
 describe('headless stream-json snapshots', () => {
   it('replays the advanced toolchain through the one-shot app', async () => {
     const prompt = await scenarioPrompt(advancedScenarioDir, 'advanced-toolchain')
-    const expectedSessions = await Promise.all([
+    const fixtureFiles = [
       advancedSessionFixture,
       join(advancedScenarioDir, 'session.1.jsonl'),
       join(advancedScenarioDir, 'session.2.jsonl'),
-    ].map(file => readFile(file, 'utf8')))
+    ]
+    let expectedSessions = await Promise.all(fixtureFiles.map(file => readFile(file, 'utf8')))
     let runCwd = ''
     const result = await runLoaderSmoke({
       label: 'advanced headless stream-json snapshot',
@@ -152,6 +156,27 @@ describe('headless stream-json snapshots', () => {
         const children = logs.filter(log => typeof log.header.parentSession === 'string')
           .sort((left, right) => Number(left.header.createdAt) - Number(right.header.createdAt))
         const actualSessions = [parent, ...children]
+        if (refreshing) {
+          const harvested = actualSessions.map((log): HarvestedLog => ({
+            id: String(log.header.id),
+            createdAt: Number(log.header.createdAt),
+            ...typeof log.header.parentSession === 'string'
+              ? { parentSession: log.header.parentSession }
+              : {},
+            content: log.content,
+          }))
+          const replacements = refreshFixtureReplacements(harvested, expectedSessions)
+          expectedSessions = await Promise.all(actualSessions.map(async (actual, index) => {
+            const existing = expectedSessions[index]
+            const file = fixtureFiles[index]
+            if (existing === undefined || file === undefined) {
+              throw new Error(`headless snapshot has no fixture for persisted log ${index}`)
+            }
+            const stable = stabilizeRefreshLog(actual.content, existing, replacements)
+            await writeFile(file, stable)
+            return stable
+          }))
+        }
         const actualContext = contextFromLogs(actualSessions.map(log => log.content))
         const expectedContext = contextFromLogs(expectedSessions)
         for (const [index, actual] of actualSessions.entries()) {

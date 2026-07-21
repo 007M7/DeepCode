@@ -17,7 +17,7 @@ import z from 'schemastery'
 import type Schema from 'schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
-import { resolveDshHome } from '@deepseek-ai/dsh-home'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import {
   isSkillName,
   type SkillCandidate,

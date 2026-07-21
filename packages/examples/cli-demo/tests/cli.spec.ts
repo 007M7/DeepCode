@@ -398,9 +398,9 @@ describe('runOneShot and executeCli', () => {
     await running
     abort.abort('received SIGINT')
     const output = await outcome
-    expect(JSON.parse(output.stdout)).toMatchObject({ success: false, reason: { kind: 'aborted', reason: 'received SIGINT' } })
+    expect(JSON.parse(output.stdout)).toMatchObject({ success: false, reason: { kind: 'aborted' } })
     expect(output.code).toBe(1)
-    expect(output.stderr).toContain('was aborted: received SIGINT')
+    expect(output.stderr).toContain('turn 1 was aborted')
     expect(agent.status).toBe('disposed')
   })
 
@@ -486,7 +486,7 @@ describe('formatTurnFailure', () => {
     const cases: [TurnEndReason, string][] = [
       [{ kind: 'completed' }, 'completed'],
       [{ kind: 'aborted' }, 'was aborted'],
-      [{ kind: 'aborted', reason: 'stop' }, 'was aborted: stop'],
+      [{ kind: 'aborted' }, 'was aborted'],
       [{ kind: 'error', step: 2, message: 'bad' }, 'failed at step 2: bad'],
       [{ kind: 'error', step: 3, failure: { message: 'provider bad', code: 'SERVER' } }, 'failed at step 3: provider bad'],
       [{ kind: 'disposed' }, 'was disposed'],

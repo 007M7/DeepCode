@@ -43,7 +43,7 @@ describe.each(['jsonl', 'sqlite'] as const)('%s retry-event persistence', (kind)
         delayMs: 750,
         failure: { message: 'provider busy', code: 'RATE_LIMIT', status: 429 },
       })
-      session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: 'cancelled in backoff' } })
+      session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
 
       expect(session.deriveMessages()).toEqual([])
       await ctx.sessions.flush(session)
