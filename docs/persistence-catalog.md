@@ -325,7 +325,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src
 'mode/set': { mode: string }
 ```
 
-Source: [`packages/mode/mode/src/index.ts:49`](../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:52`](../packages/mode/mode/src/index.ts)
 
 ### `permission/*`
 

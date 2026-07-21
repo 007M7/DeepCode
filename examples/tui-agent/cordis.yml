@@ -88,6 +88,12 @@
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
 
+# Session modes (the shipped `plan` definition): the TUI's command registry
+# gains the plugin-registered /mode command, and the exit review rides the
+# TUI's user-interaction provider.
+- id: mode
+  name: '@deepseek-ai/dsh-mode'
+
 - id: fs-local
   name: '@deepseek-ai/dsh-fs-local'
   config:

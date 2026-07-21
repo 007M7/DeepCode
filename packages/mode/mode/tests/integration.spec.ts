@@ -64,13 +64,16 @@ function findEvent<T extends SessionEvent['type']>(
 }
 
 describe('plan mode through the agent loop', () => {
-  it('seeds plan mode from AgentOptions: the FIRST header is already plan-shaped, and a non-shell call is guidance-constrained only', async () => {
+  it('a pre-turn set() makes the FIRST header plan-shaped, and a non-shell call is guidance-constrained only', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('call-1', 'write', {}, 'Writing during plan.'),
       textResponse('Noted in the plan.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('it-plan-seed'), { provider: 'mock', model: 'mock', mode: PLAN_MODE })
+    const agent = ctx.agentLoop.create(SessionId('it-plan-seed'), { provider: 'mock', model: 'mock' })
+    // Selected while idle (the ACP picker shape): the pending intent flushes at
+    // the first prompt-submit, BEFORE the first assembly.
+    ctx.modes.set(agent, PLAN_MODE)
 
     agent.send([{ type: 'text', text: 'explore the repo' }])
     await waitForIdle(ctx, agent)

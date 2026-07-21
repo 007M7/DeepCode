@@ -18,7 +18,11 @@ A mode does not gate execution, filter tools, or change sandbox or approval sett
 
 `list()` returns `default` followed by the configured definitions. `get(agent)` returns the folded mode, treating a removed definition as `default`, plus any pending intent. `set(agent, mode)` validates against that vocabulary and records a pending intent. The service flushes the intent on `agent/prompt-submit` before the first assembly, `agent/turn-continuation` before a normal successor step, or after a composed `agent/request-error` decision authorizes a retry. Each append is turn-enclosed and precedes the affected prompt assembly, including an automatic recovery step after asynchronous backoff. A changed user selection adds one coalesced `context/message` notice when the last logged request header described a different mode; a net-zero selection sequence adds nothing.
 
-`AgentOptions.mode` seeds an initial mode through the same pending-intent path. Forked sessions inherit mode state through their logged prefix.
+There is no creation-time mode option: a UI (or a plugin) selects through `set()` before the first turn, and a fork child needs no mechanism at all — the parent's `mode/set` is inside the seeded prefix.
+
+## The `/mode` command
+
+When a command registry (`@deepseek-ai/dsh-commands`) is composed, the plugin registers `/mode` for interactive front doors: bare `/mode` prints the current mode (plus any pending switch) and the available vocabulary; `/mode <name>` records the switch through `set()` and echoes that it applies from the next turn. Without a commands service the child never mounts and nothing else changes.
 
 ## `exit_plan_mode`
 
@@ -62,7 +66,7 @@ Within one mode, the section is stable. Entering or leaving a non-default mode c
 
 #### What the model sees
 
-A user-driven change whose previous request header described another mode appends either `The user switched this session to <mode> mode.` or `The user switched this session back to the default mode.` A logged mode removed from config reads as default and appends `Mode "<mode>" is no longer defined in this deployment's configuration; the session continues in the default mode.` once per removed name. Initial selection before the first header, net-zero selections, and the tool-driven exit add no notice.
+A user-driven change whose previous request header described another mode appends either `The user switched this session to <mode> mode.` or `The user switched this session back to the default mode.` A logged mode removed from config reads as default without a notice. Initial selection before the first header, net-zero selections, and the tool-driven exit add no notice.
 
 #### Token effect
 
@@ -70,7 +74,7 @@ Each qualifying transition adds one short conversation message once. The dynamic
 
 #### KV Cache effect
 
-The notice itself is append-only conversation growth. A real mode transition also changes the earlier order-50 section, so that section remains the limiting cache boundary; a dropped-definition notice with no section change preserves the prior request prefix and only extends it.
+The notice itself is append-only conversation growth. A real mode transition also changes the earlier order-50 section, so that section remains the limiting cache boundary.
 
 ### Exit tool schema and review exchange
 
@@ -96,6 +100,6 @@ The tool schema and generated SDK binding are byte-identical in `default`, `plan
 
 - A mode restrains by guidance only; pair it with independent enforcement knobs when a hard boundary is required. The [plan-mode Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-plan-mode.md) records the rejected enforcement shapes and the effects-metadata restart trigger.
 - A pending flip selected while idle is lost if the process exits before the next boundary; the UI must reapply it.
-- Forked children inherit the logged mode, while spawned children start in `default` unless their creator seeds `AgentOptions.mode`.
+- Forked children inherit the logged mode, while spawned children start in `default`; there is no creation-time mode option.
 
 Design: [plan-mode Agent Note](../../../.agents/notes/implemented/feature/2026-07-07-plan-mode.md).

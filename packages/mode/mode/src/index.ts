@@ -38,6 +38,9 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-user-interaction'
+// Type-only edge: resolves `ctx.commands` for the `/mode` command child below;
+// the child mounts only when a commands service is composed.
+import type {} from '@deepseek-ai/dsh-commands'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
@@ -47,17 +50,6 @@ declare module '@deepseek-ai/dsh-session' {
      * {@link foldMode}). A log with none folds to {@link DEFAULT_MODE}.
      */
     'mode/set': { mode: string }
-  }
-}
-
-declare module '@deepseek-ai/dsh-agent' {
-  interface AgentOptions {
-    /**
-     * Initial session mode for this agent. Applied as a pending intent flushed
-     * at the first turn boundary; an explicit option beats the logged baseline
-     * on create AND resume. An unknown name throws at agent creation.
-     */
-    mode?: string
   }
 }
 
@@ -122,11 +114,6 @@ const EXIT_DESCRIPTION
   + 'Send the COMPLETE plan as markdown, starting with a # heading that names it. '
   + 'The user may approve (carry out the plan from your next step) or keep '
   + 'planning — their feedback comes back in the tool result; revise and present again.'
-
-/** Durable notice text for a folded mode the current deployment no longer defines. */
-function droppedDefinitionNotice(name: string): string {
-  return `Mode "${name}" is no longer defined in this deployment's configuration; the session continues in the default mode.`
-}
 
 /** The plan's first markdown heading (any level), or `undefined` when it has none. */
 function firstHeading(plan: string): string | undefined {
@@ -228,9 +215,6 @@ export class ModesService extends Service {
    */
   private readonly pendingIntents = new WeakMap<Session, { mode: string; narrate: boolean }>()
 
-  /** Mode-plugin notice texts already present in each live session; hydrated once from the durable log. */
-  private readonly noticeTexts = new WeakMap<Session, Set<string>>()
-
   constructor(ctx: Context, config: ModeConfig = { modes: {} }) {
     super(ctx, 'modes')
     this.resolved = resolveConfig(config)
@@ -249,7 +233,7 @@ export class ModesService extends Service {
     // only when session.append rejects during teardown.
     ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
       try {
-        this.onBoundary(agent.session, true)
+        this.onBoundary(agent)
       } catch (error) {
         ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
       }
@@ -257,7 +241,7 @@ export class ModesService extends Service {
     })
     ctx.on('agent/turn-continuation', (agent, _turn, _decision, next) => {
       try {
-        this.onBoundary(agent.session, false)
+        this.onBoundary(agent)
       } catch (error) {
         ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
       }
@@ -279,7 +263,7 @@ export class ModesService extends Service {
       // owning plugin fiber has been disposed.
       if (disposed || decision.action !== 'retry') return decision
       try {
-        this.onBoundary(agent.session, false)
+        this.onBoundary(agent)
       } catch (error) {
         ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
       }
@@ -287,16 +271,37 @@ export class ModesService extends Service {
     }, { prepend: true })
     ctx.effect(() => () => { disposed = true }, 'dsh-mode: close boundary lifetime')
 
-    ctx.on('agent/created', (agent) => {
-      const seed = agent.options.mode
-      if (seed === undefined) return
-      this.set(agent, seed)
-    })
-
     ctx.systemPrompt.section({
       name: 'mode:policy',
       order: 50,
       text: context => (context.agent === undefined ? '' : this.activeDefinition(context.agent.session)?.definition.section ?? ''),
+    })
+
+    // The `/mode` command (show or switch the session mode) for interactive
+    // front doors, mounted only when a commands service is composed — the
+    // child plugin below activates on `ctx.commands` availability, so a
+    // commands-less deployment composes dsh-mode unchanged.
+    ctx.inject(['commands'], (commandCtx) => {
+      commandCtx.commands.register({
+        name: 'mode',
+        description: 'Show or switch the session mode',
+        input: { hint: '[name]' },
+        handler: ({ agent, rawInput }) => {
+          const target = rawInput.trim()
+          if (target === '') {
+            const { current, pending } = this.get(agent)
+            const pendingNote = pending === undefined ? '' : ` (pending: ${pending})`
+            return { kind: 'success', text: `mode: ${current}${pendingNote} — available: ${this.list().join(', ')}` }
+          }
+          try {
+            this.set(agent, target)
+            return { kind: 'success', text: `mode → ${target} (applies from the next turn)` }
+          } catch (error) {
+            // ModesService.set throws only Error (its unknown-name validation).
+            return { kind: 'error', text: (error as Error).message }
+          }
+        },
+      })
     })
 
     ctx.tools.register(defineTool({
@@ -419,17 +424,13 @@ export class ModesService extends Service {
   }
 
   /**
-   * One boundary pass (`turnStart` = prompt-submit, else a normal-successor or
-   * recovery-retry boundary): narrate a folded mode the config dropped (once
-   * per name, turn starts only), then flush the pending intent — append the
-   * `mode/set` (skipped when the fold already matches: a net-zero flip
-   * sequence) and the one coalesced notice when the flushed mode differs from
-   * what the last logged request header told the model. Idempotent per
-   * boundary, so the per-message prompt-submit dispatches of one batch flush
-   * once.
+   * One boundary pass for prompt submission, a normal successor, or a recovery
+   * retry: append a changed pending `mode/set` and one coalesced notice when the
+   * flushed mode differs from what the last logged request header told the
+   * model. Idempotent per boundary, so repeated dispatches flush once.
    */
-  private onBoundary(session: Session, turnStart: boolean): void {
-    if (turnStart) this.noticeDroppedDefinition(session)
+  private onBoundary(agent: Agent): void {
+    const session = agent.session
     const pending = this.pendingIntents.get(session)
     if (pending === undefined) return
     const target = pending.mode
@@ -438,10 +439,8 @@ export class ModesService extends Service {
       return
     }
     session.append('mode/set', { mode: target })
-    // Clear the intent only AFTER the append landed: if a backend rejects the
-    // write, the intent stays parked and the next boundary retries — the UI's
-    // optimistic picker state and the log re-converge instead of diverging
-    // forever on a swallowed one-shot.
+    // Clear the intent only after the append lands; a failed write remains
+    // pending so a later boundary can retry it.
     this.pendingIntents.delete(session)
     if (!pending.narrate) return
     const told = modeAtLastHeader(session.events)
@@ -453,30 +452,6 @@ export class ModesService extends Service {
       content: [{ type: 'text', text }],
       source: { kind: 'plugin', plugin: 'mode' },
     }, { surfaceOp: 'append' })
-  }
-
-  /** Narrate a folded mode name the current config no longer defines — the session reads as default plus this one notice. */
-  private noticeDroppedDefinition(session: Session): void {
-    const name = foldMode(session.events)
-    if (name === DEFAULT_MODE || this.resolved.definitions.has(name)) return
-    const text = droppedDefinitionNotice(name)
-    let noticed = this.noticeTexts.get(session)
-    if (noticed === undefined) {
-      noticed = new Set(session.events.flatMap(event => event.type === 'context/message'
-        && event.data.source.kind === 'plugin'
-        && event.data.source.plugin === 'mode'
-        && event.data.content.length === 1
-        && event.data.content[0]?.type === 'text'
-        ? [event.data.content[0].text]
-        : []))
-      this.noticeTexts.set(session, noticed)
-    }
-    if (noticed.has(text)) return
-    session.append('context/message', {
-      content: [{ type: 'text', text }],
-      source: { kind: 'plugin', plugin: 'mode' },
-    }, { surfaceOp: 'append' })
-    noticed.add(text)
   }
 }
 
