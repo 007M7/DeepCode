@@ -41,6 +41,8 @@ export {
 } from './normalize.ts'
 export {
   defineAcpSnapshotSuite,
+  refreshFixtureReplacements,
+  stabilizeRefreshLog,
   type Scenario,
   type SnapshotSuiteOptions,
 } from './suite.ts'

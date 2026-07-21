@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-title'
 import type { SessionNotification } from '@agentclientprotocol/sdk'
 import type { ToolDefinition, ToolRegistry as ToolRegistryType } from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -50,6 +51,23 @@ function evt<T extends SessionEvent['type']>(type: T, data: Extract<SessionEvent
 }
 
 describe('streamSessionEventUpdate', () => {
+  it('maps a title event to session_info_update with the event timestamp', () => {
+    expect(updatesFor({
+      type: 'session/title',
+      seq: 3,
+      time: 1_725_000_000_000,
+      data: {
+        title: 'Log-backed titles',
+        messageSeqs: [1],
+        source: { kind: 'fallback' },
+      },
+    })).toEqual([{
+      sessionUpdate: 'session_info_update',
+      title: 'Log-backed titles',
+      updatedAt: new Date(1_725_000_000_000).toISOString(),
+    }])
+  })
+
   it('maps assistant/chunk text-delta to agent_message_chunk', () => {
     expect(updatesFor(evt('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hi' } })))
       .toEqual([{ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi' } }])

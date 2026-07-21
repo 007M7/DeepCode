@@ -29,6 +29,7 @@ Swappable LLM, bash, filesystem, and other capability providers remain in the le
 | `toolOrder` | lexicographic | Explicit model-facing tool order |
 | `tools` | owner default | Tool presentation mode |
 | `dshHome` | owner default | Harness home used by bash and skills |
+| `sessionTitle` | spine example limits | Fallback title word/byte limits |
 | `skills` | owner defaults | Skill registry, local provider, and tool config |
 | `toolBash` | owner defaults | Model-facing bash tool config |
 | `toolTasks` | owner defaults | Background-task control-tool config, or `false` |

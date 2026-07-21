@@ -8,14 +8,13 @@
 import type { Context } from 'cordis'
 import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, LlmFailure, Message } from '@deepseek-ai/dsh-llm'
 import { isDeepStrictEqual } from 'node:util'
-import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorChain, llmFailureOf } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorChain, llmFailureOf, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import { agentEvents, agentInterruptReasonOf, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
 import type { TransmissionLog } from './request-log.ts'
-import { markLoopRequest } from './request-marker.ts'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -598,7 +597,7 @@ async function runStep(
   recordRequestHeader(session, transmission, header)
 
   // Freeze the logged header plus boundary snapshot; the prefix precedes derived history.
-  const request: GenerateOptions = deepFreeze(markLoopRequest({
+  const request: GenerateOptions = markAgentLoopRequest(deepFreeze({
     provider: header.config.provider,
     model: header.config.model,
     messages: [...header.messagePrefix ?? [], ...boundaryMessages],
