@@ -698,7 +698,7 @@ set(agent: Agent, mode: string): void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/mode/mode/src/index.ts:216`](../../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:211`](../../packages/mode/mode/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 

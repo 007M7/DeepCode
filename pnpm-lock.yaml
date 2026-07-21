@@ -1484,6 +1484,9 @@ importers:
       '@deepseek-ai/dsh-code-runtime':
         specifier: workspace:^
         version: link:../../code-runtime/code-runtime
+      '@deepseek-ai/dsh-commands':
+        specifier: workspace:^
+        version: link:../../ui/commands
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm

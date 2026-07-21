@@ -695,7 +695,7 @@ export interface ModeDefinition {
 }
 ```
 
-Source: [`packages/mode/mode/src/index.ts:104`](../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:99`](../packages/mode/mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 

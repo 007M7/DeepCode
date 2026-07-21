@@ -28,6 +28,9 @@
     },
     {
       "path": "../../ui/user-interaction"
+    },
+    {
+      "path": "../../ui/commands"
     }
   ]
 }

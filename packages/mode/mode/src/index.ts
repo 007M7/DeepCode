@@ -14,7 +14,10 @@
  *
  * The default mode is the absence of policy: no section, no extra tool. An
  * agent that never sees a `mode/set` behaves byte-identically to a deployment
- * that never loads this plugin, so it is safe to compose unconditionally.
+ * that never loads this plugin, so it is safe to compose unconditionally. The
+ * exit tool's per-agent visibility rides the tool registry's scoped
+ * restriction layer, so wire schemas, the Code Mode SDK section, and dispatch
+ * all resolve it through the one registry view.
  *
  * User flips go through {@link ModesService.set}: every session event is
  * turn-enclosed and an idle agent has no open turn, so `set()` records a
@@ -35,9 +38,12 @@
 import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { defineTool, renderToolsSdk, RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-user-interaction'
+// Type-only edge: resolves `ctx.commands` for the `/mode` command child below;
+// the child mounts only when a commands service is composed.
+import type {} from '@deepseek-ai/dsh-commands'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
@@ -47,17 +53,6 @@ declare module '@deepseek-ai/dsh-session' {
      * {@link foldMode}). A log with none folds to {@link DEFAULT_MODE}.
      */
     'mode/set': { mode: string }
-  }
-}
-
-declare module '@deepseek-ai/dsh-agent' {
-  interface AgentOptions {
-    /**
-     * Initial session mode for this agent. Applied as a pending intent flushed
-     * at the first turn boundary; an explicit option beats the logged baseline
-     * on create AND resume. An unknown name throws at agent creation.
-     */
-    mode?: string
   }
 }
 
@@ -227,8 +222,14 @@ export class ModesService extends Service {
    */
   private readonly pendingIntents = new WeakMap<Session, { mode: string; narrate: boolean }>()
 
-  /** The unknown folded-mode name already narrated per session (once per name). */
-  private readonly droppedNoticed = new WeakMap<Session, string>()
+  /**
+   * Per-agent deny-restriction disposer over the exit tool, present exactly
+   * while the agent's folded mode is NOT plan. The restriction lives on
+   * `agent.ctx` (the registry's scoped layer), so it fences wire schemas, the
+   * Code Mode SDK section, AND dispatch through the one registry view, and it
+   * unwinds with the agent. Entries die with their agents (WeakMap).
+   */
+  private readonly exitToolDenials = new WeakMap<Agent, () => void>()
 
   constructor(ctx: Context, config: ModeConfig = {}) {
     super(ctx, 'modes')
@@ -247,7 +248,7 @@ export class ModesService extends Service {
     // rejecting mid-teardown.
     ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
       try {
-        this.onBoundary(agent.session, true)
+        this.onBoundary(agent)
       } catch (error) {
         ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
       }
@@ -255,17 +256,19 @@ export class ModesService extends Service {
     })
     ctx.on('agent/turn-continuation', (agent, _turn, _decision, next) => {
       try {
-        this.onBoundary(agent.session, false)
+        this.onBoundary(agent)
       } catch (error) {
         ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
       }
       return next()
     })
 
+    // Seed the visibility restriction at creation: a fresh or resumed agent
+    // outside plan must not advertise (or dispatch) the exit tool. A throw
+    // here is a structural bug in this plugin, not a policy outcome, so it
+    // stays loud (it vetoes the creation, matching fail-loud misconfiguration).
     ctx.on('agent/created', (agent) => {
-      const seed = agent.options.mode
-      if (seed === undefined) return
-      this.set(agent, seed)
+      this.syncExitToolVisibility(agent)
     })
 
     ctx.systemPrompt.section({
@@ -274,39 +277,32 @@ export class ModesService extends Service {
       text: context => (context.agent === undefined ? '' : this.activeDefinition(context.agent.session)?.definition.section ?? ''),
     })
 
-    // prepend: the filter wraps OUTSIDE every append-registered listener
-    // regardless of load order, so their post-next() additions are filtered
-    // too. It hides exactly ONE thing: the always-registered exit tool, wherever
-    // the folded mode is not plan — which keeps a default-mode assembly
-    // byte-identical to a no-dsh-mode deployment (whose registry never saw the
-    // tool) and keeps custom modes from advertising a binding that only errors.
-    ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-      const result = await next()
-      const agent = context.agent
-      if (agent === undefined) return result
-      if (this.activeDefinition(agent.session)?.name === PLAN_MODE) return result
-      result.tools = result.tools.filter(tool => tool.name !== EXIT_PLAN_MODE)
-      // Code Mode's soft surface is the SDK section, not the wire schemas —
-      // section text resolves in assemble's base, so the outermost wrapper
-      // re-renders it under the same visibility rule the wire filter applies.
-      rerenderSdk(result, name => name !== EXIT_PLAN_MODE)
-      return result
-    }, { prepend: true })
-
-    /**
-     * Re-render the `tools:sdk` section (present only under the registry's
-     * Code Mode) from the registry schemas the given rule admits — minus
-     * `run_code` itself, mirroring the registry's own exclusion. A no-op when
-     * the section is absent (native mode).
-     */
-    function rerenderSdk(result: { sections: { name: string; text: string }[] }, include: (name: string) => boolean): void {
-      const sdkIndex = result.sections.findIndex(section => section.name === 'tools:sdk')
-      if (sdkIndex < 0) return
-      const sdkText = renderToolsSdk(ctx.tools.schemas().filter(schema =>
-        include(schema.name) && schema.name !== RUN_CODE_NAME))
-      result.sections = result.sections.map((section, index) =>
-        index === sdkIndex ? { ...section, text: sdkText } : section)
-    }
+    // The `/mode` command (show or switch the session mode) for interactive
+    // front doors, mounted only when a commands service is composed — the
+    // child plugin below activates on `ctx.commands` availability, so a
+    // commands-less deployment composes dsh-mode unchanged.
+    ctx.inject(['commands'], (commandCtx) => {
+      commandCtx.commands.register({
+        name: 'mode',
+        description: 'Show or switch the session mode',
+        input: { hint: '[name]' },
+        handler: ({ agent, rawInput }) => {
+          const target = rawInput.trim()
+          if (target === '') {
+            const { current, pending } = this.get(agent)
+            const pendingNote = pending === undefined ? '' : ` (pending: ${pending})`
+            return { kind: 'success', text: `mode: ${current}${pendingNote} — available: ${this.list().join(', ')}` }
+          }
+          try {
+            this.set(agent, target)
+            return { kind: 'success', text: `mode → ${target} (applies from the next turn)` }
+          } catch (error) {
+            // ModesService.set throws only Error (its unknown-name validation).
+            return { kind: 'error', text: (error as Error).message }
+          }
+        },
+      })
+    })
 
     ctx.tools.register(defineTool({
       name: EXIT_PLAN_MODE,
@@ -424,52 +420,66 @@ export class ModesService extends Service {
   }
 
   /**
-   * One boundary pass (`turnStart` = a prompt-submit flush, else a
-   * turn-continuation flush): narrate a folded mode the config dropped (once
-   * per name, turn starts only), then flush the pending intent — append the
-   * `mode/set` (skipped when the fold already matches: a net-zero flip
-   * sequence) and the one coalesced notice when the flushed mode differs from
-   * what the last logged request header told the model. Idempotent per
-   * boundary, so the per-message prompt-submit dispatches of one batch flush
-   * once.
+   * One boundary pass: flush the pending intent — append the `mode/set`
+   * (skipped when the fold already matches: a net-zero flip sequence) and the
+   * one coalesced notice when the flushed mode differs from what the last
+   * logged request header told the model — then reconcile the exit tool's
+   * visibility with the (possibly changed) fold. Idempotent per boundary, so
+   * the per-message prompt-submit dispatches of one batch flush once.
    */
-  private onBoundary(session: Session, turnStart: boolean): void {
-    if (turnStart) this.noticeDroppedDefinition(session)
-    const pending = this.pendingIntents.get(session)
-    if (pending === undefined) return
-    const target = pending.mode
-    if (target === foldMode(session.events)) {
+  private onBoundary(agent: Agent): void {
+    const session = agent.session
+    try {
+      const pending = this.pendingIntents.get(session)
+      if (pending === undefined) return
+      const target = pending.mode
+      if (target === foldMode(session.events)) {
+        this.pendingIntents.delete(session)
+        return
+      }
+      session.append('mode/set', { mode: target })
+      // Clear the intent only AFTER the append landed: if a backend rejects the
+      // write, the intent stays parked and the next boundary retries — the UI's
+      // optimistic picker state and the log re-converge instead of diverging
+      // forever on a swallowed one-shot.
       this.pendingIntents.delete(session)
-      return
+      if (!pending.narrate) return
+      const told = modeAtLastHeader(session.events)
+      if (told === undefined || told === target) return
+      const text = target === DEFAULT_MODE
+        ? 'The user switched this session back to the default mode.'
+        : `The user switched this session to ${target} mode.`
+      session.append('context/message', {
+        content: [{ type: 'text', text }],
+        source: { kind: 'plugin', plugin: 'mode' },
+      }, { surfaceOp: 'append' })
+    } finally {
+      // Reconcile even when the flush threw or nothing was pending: a foreign
+      // writer (a test, a future plugin) may have appended `mode/set` directly,
+      // and the fold — not the intent — is what visibility must track.
+      this.syncExitToolVisibility(agent)
     }
-    session.append('mode/set', { mode: target })
-    // Clear the intent only AFTER the append landed: if a backend rejects the
-    // write, the intent stays parked and the next boundary retries — the UI's
-    // optimistic picker state and the log re-converge instead of diverging
-    // forever on a swallowed one-shot.
-    this.pendingIntents.delete(session)
-    if (!pending.narrate) return
-    const told = modeAtLastHeader(session.events)
-    if (told === undefined || told === target) return
-    const text = target === DEFAULT_MODE
-      ? 'The user switched this session back to the default mode.'
-      : `The user switched this session to ${target} mode.`
-    session.append('context/message', {
-      content: [{ type: 'text', text }],
-      source: { kind: 'plugin', plugin: 'mode' },
-    }, { surfaceOp: 'append' })
   }
 
-  /** Narrate a folded mode name the current config no longer defines — the session reads as default plus this one notice. */
-  private noticeDroppedDefinition(session: Session): void {
-    const name = foldMode(session.events)
-    if (name === DEFAULT_MODE || this.resolved.definitions.has(name)) return
-    if (this.droppedNoticed.get(session) === name) return
-    this.droppedNoticed.set(session, name)
-    session.append('context/message', {
-      content: [{ type: 'text', text: `Mode "${name}" is no longer defined in this deployment's configuration; the session continues in the default mode.` }],
-      source: { kind: 'plugin', plugin: 'mode' },
-    }, { surfaceOp: 'append' })
+  /**
+   * Make the exit tool's registry visibility match the agent's folded mode:
+   * outside plan a scoped deny restriction on `agent.ctx` hides it from wire
+   * schemas, the Code Mode SDK section, and dispatch (an invisible tool
+   * reports `UNKNOWN_TOOL`), which keeps a default-mode agent byte-identical
+   * to a no-dsh-mode deployment; entering plan disposes the restriction.
+   * Idempotent — boundaries that change nothing install or dispose nothing.
+   */
+  private syncExitToolVisibility(agent: Agent): void {
+    const inPlan = this.activeDefinition(agent.session)?.name === PLAN_MODE
+    const denial = this.exitToolDenials.get(agent)
+    if (inPlan) {
+      if (denial === undefined) return
+      this.exitToolDenials.delete(agent)
+      denial()
+      return
+    }
+    if (denial !== undefined) return
+    this.exitToolDenials.set(agent, agent.ctx.tools.restrict({ deny: [EXIT_PLAN_MODE] }))
   }
 }
 
