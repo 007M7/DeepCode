@@ -2,9 +2,12 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context, Service, symbols } from 'cordis'
 import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {
+  agentEvents,
+  agentInterruptReasonOf,
+} from '@deepseek-ai/dsh-agent'
 
-import type { Agent, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentCancelCause, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 
 function stubAgent(rawId: string): Agent {
   const id = SessionId(rawId)
@@ -23,12 +26,12 @@ function stubAgent(rawId: string): Agent {
 }
 
 describe('AgentRegistry', () => {
-  it('keeps terminal stop decisions synchronous', () => {
+  it('allows terminal stop policy to cooperate asynchronously with turn cancellation', () => {
     type TurnStopListener = Events['agent/turn-stop']
     type AsyncTurnStopListener = () => Promise<ContinuationStop | undefined>
 
-    expectTypeOf<AsyncTurnStopListener>().not.toExtend<TurnStopListener>()
-    expectTypeOf<ReturnType<TurnStopListener>>().toEqualTypeOf<ContinuationStop | undefined>()
+    expectTypeOf<AsyncTurnStopListener>().toExtend<TurnStopListener>()
+    expectTypeOf<Awaited<ReturnType<TurnStopListener>>>().toEqualTypeOf<ContinuationStop | undefined>()
   })
 
   it('registers exact entries, emits lifecycle events, and unregisters on owner disposal', async () => {
@@ -179,6 +182,40 @@ describe('agentEvents()', () => {
       'agent event "agent/status" listener threw: Error: sync listener',
       'agent event "agent/status" listener rejected: Error: async listener',
     ])
+  })
+})
+
+describe('explicit cancellation helpers', () => {
+  it('exposes the closed typed cancellation cause at the Agent seam', () => {
+    expectTypeOf<Parameters<Agent['cancel']>[0]>().toEqualTypeOf<AgentCancelCause | undefined>()
+    expectTypeOf<Parameters<Events['agent/cancel-requested']>[1]>().toEqualTypeOf<AgentCancelCause>()
+  })
+
+  it('reads only supported reasons from an explicit signal', () => {
+    const read = (reason: unknown) => {
+      const controller = new AbortController()
+      controller.abort(reason)
+      return agentInterruptReasonOf(controller.signal)
+    }
+    const live = new AbortController()
+    expect(agentInterruptReasonOf(live.signal)).toBeUndefined()
+
+    expect(read({ kind: 'user' })).toEqual({ kind: 'user' })
+    expect(read({ kind: 'parent' })).toEqual({ kind: 'parent' })
+
+    const disposed = new AbortController()
+    disposed.abort(Object.assign(Object.create(null) as object, { kind: 'disposed' }))
+    const disposedReason = agentInterruptReasonOf(disposed.signal)
+    expect(disposedReason).toEqual({ kind: 'disposed' })
+    expect(Object.isFrozen(disposedReason)).toBe(true)
+
+    expect(read(null)).toBeUndefined()
+    expect(read([])).toBeUndefined()
+    expect(read('private runtime reason')).toBeUndefined()
+    expect(read(new Error('private runtime reason'))).toBeUndefined()
+    expect(read({ kind: 'user', detail: true })).toBeUndefined()
+    expect(read({ other: 'user' })).toBeUndefined()
+    expect(read({ kind: 'timeout' })).toBeUndefined()
   })
 })
 

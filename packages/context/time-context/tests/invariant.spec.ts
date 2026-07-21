@@ -119,7 +119,7 @@ describe('time-context invariants', () => {
   it('rejects a reading after cancellation closes the turn', async () => {
     const ctx = await setup()
     const session = preparing(1, 2)
-    session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: 'cancelled' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
     expect(() => { ctx.emit('session/event', session, event(reading('1', '2', 'step context'))) })
       .toThrow(/inside an open turn/)
   })

@@ -118,9 +118,9 @@ Pruning precedes summaries; overflow retries require durable progress. Bounded t
 
 ### Failure Boundaries
 
-The turn is the containment boundary. Adapter failures close the step, entering `agent/request-error` with the exact `Error`, `LlmFailure`, and retry history. Retry opens a numbered step; success clears history; exhaustion stores the failure on `turn/end`. Failed chunks commit no message or tool.
+The turn contains failures. Adapter failures close the step before `agent/request-error`, which receives exact `Error`, `LlmFailure`, and history. Retry opens another step; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit no message/tool.
 
-Other failures use `agent/error`. Cancellation beats recovery; undispatched calls get synthetic `ABORTED` results. Effective `cancel()` emits `agent/cancel-requested` before queue clearing or abort; observers cannot veto it, and idle calls emit nothing. Disposal awaits quiescence.
+Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched model tool calls get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. One turn signal retires before `turn/end`. Effective `cancel()` emits its typed `user | parent` cause before clearing queues and aborting; observers cannot veto, idle calls emit nothing, and durability records only `aborted`. Disposal awaits quiescence before unregistering ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
 Every session event is turn-enclosed. Reloading preserves an interrupted tail and closes it with a synthetic `interrupted` turn end. Failures after durable turn close report only through `agent/error` because no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
 
@@ -130,7 +130,7 @@ Every session event is turn-enclosed. Reloading preserves an interrupted tail an
 
 ### Agent Scope
 
-Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, receive only that agent's dispatches, and unwind with it; async effects such as background-task cleanup are awaited. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. Typed resolvers derive carrier checks from merged `Events` signatures and `scopeTarget` ([semantic gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition controls](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs drivers inside `ctx.agents.withInitiator()`; private orchestration derives `agent.session`; other identities stay explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
+Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, receive only that agent's dispatches, and unwind with it; async effects such as background-task cleanup are awaited. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. Typed resolvers derive carrier checks from merged `Events` signatures and `scopeTarget` ([semantic gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition controls](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs drivers inside `ctx.agents.withInitiator()`; private orchestration derives `agent.session`; turn, step, signal, cwd, and authority stay explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
 
 ## State
 

@@ -106,7 +106,12 @@ export function apply(ctx: Context, config: Config): void {
     point: string,
     matchQuery: string,
     payload: unknown,
-    opts: { agent?: Agent; turn?: number; signal?: AbortSignal; plainStdoutAsContext?: boolean },
+    opts: {
+      agent?: Agent
+      turn?: number
+      readonly signal: AbortSignal
+      plainStdoutAsContext?: boolean
+    },
   ): Promise<MergedHookOutcome> {
     const groups: MatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
@@ -129,7 +134,7 @@ export function apply(ctx: Context, config: Config): void {
           payload,
           defaultTimeoutMs,
           ...workdir !== undefined ? { cwd: workdir } : {},
-          ...opts.signal ? { signal: opts.signal } : {},
+          signal: opts.signal,
           trailingNewline: false, // Codex writes stdin without a trailing newline.
           // Discard a `hookSpecificOutput` block naming a different event.
           expectedEventName: point,
@@ -183,9 +188,9 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   // UserPromptSubmit → PromptDecision. Codex supports block, not allow or ask.
-  ctx.on('agent/prompt-submit', async (agent, content, _source, next): Promise<PromptDecision> => {
+  ctx.on('agent/prompt-submit', async (agent, content, _source, signal, next): Promise<PromptDecision> => {
     const turn = lastTurn(agent)
-    const merged = await runPoint('UserPromptSubmit', '', { ...turnBase(ctx, agent, 'UserPromptSubmit', model), prompt: blocksToText(content) }, { agent, turn, plainStdoutAsContext: true })
+    const merged = await runPoint('UserPromptSubmit', '', { ...turnBase(ctx, agent, 'UserPromptSubmit', model), prompt: blocksToText(content) }, { agent, turn, plainStdoutAsContext: true, signal })
     /* jscpd:ignore-start */
     if (merged.decision === 'deny') return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
     // Context alone is not a veto: DELEGATE so a later prompt-submit listener can
@@ -203,7 +208,7 @@ export function apply(ctx: Context, config: Config): void {
   // PreToolUse → PreToolDecision. Codex blocks only (no allow/ask honored).
   ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
     const turn = lastTurn(exec.agent)
-    const merged = await runPoint('PreToolUse', exec.name, preToolPayload(ctx, exec, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, ...exec.signal ? { signal: exec.signal } : {} })
+    const merged = await runPoint('PreToolUse', exec.name, preToolPayload(ctx, exec, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, signal: exec.signal })
     /* jscpd:ignore-end */
     if (merged.decision === 'deny') return { kind: 'deny', reason: merged.reason ?? 'blocked by PreToolUse hook' }
     return next()
@@ -213,7 +218,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
     const turn = lastTurn(exec.agent)
     /* jscpd:ignore-start */
-    const merged = await runPoint('PostToolUse', exec.name, postToolPayload(ctx, exec, result, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, ...exec.signal ? { signal: exec.signal } : {} })
+    const merged = await runPoint('PostToolUse', exec.name, postToolPayload(ctx, exec, result, model), { ...exec.agent ? { agent: exec.agent } : {}, turn, signal: exec.signal })
     const context = contextFrom(merged)
     if (merged.decision === 'deny') {
       return { kind: 'block', feedback: [{ type: 'text', text: merged.reason ?? 'blocked by PostToolUse hook' }], ...context ? { additionalContexts: [context] } : {} }
@@ -236,8 +241,8 @@ export function apply(ctx: Context, config: Config): void {
   // TODO(stop-loop-guard): Codex supplies `stop_hook_active` so a Stop hook can
   // avoid continuing the same turn indefinitely. It is always false here, so an
   // unconditionally blocking hook force-continues every step until it self-limits.
-  ctx.on('agent/turn-continuation', async (agent, turn, _default, next): Promise<ContinuationDecision> => {
-    const merged = await runPoint('Stop', '', { ...turnBase(ctx, agent, 'Stop', model), stop_hook_active: false, last_assistant_message: null }, { agent, turn })
+  ctx.on('agent/turn-continuation', async (agent, turn, _default, signal, next): Promise<ContinuationDecision> => {
+    const merged = await runPoint('Stop', '', { ...turnBase(ctx, agent, 'Stop', model), stop_hook_active: false, last_assistant_message: null }, { agent, turn, signal })
     /* jscpd:ignore-end */
     if (merged.decision === 'deny') {
       // A blocking Stop hook forces continuation; a block with no reason (exit 2,

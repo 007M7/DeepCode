@@ -15,24 +15,24 @@ Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `n
 
 ### `agent/cancel-requested` — emit
 
-Effective broad cancellation was requested, before queued/steering work is cleared or the active step is aborted. This observe-only notification cannot veto cancellation; listener failures are contained.
+Effective broad cancellation was requested, before queued/steering work is cleared or the active turn is aborted. This observe-only notification cannot veto cancellation; listener failures are contained.
 
 ```ts cordis-catalog
 /**
  * Effective broad cancellation was requested, before queued/steering work
- * is cleared or the active step is aborted. This observe-only notification
+ * is cleared or the active turn is aborted. This observe-only notification
  * cannot veto cancellation; listener failures are contained.
  * @param agent - the agent whose current work is being cancelled.
- * @param reason - resolved cancellation reason, including the default.
+ * @param cause - resolved typed cancellation cause, including the default.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/cancel-requested'(this: Scoped<Agent>, agent: Agent, reason: string): void
+'agent/cancel-requested'(this: Scoped<Agent>, agent: Agent, cause: AgentCancelCause): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../core-data-structures/core.md) · [AgentCancelCause](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:191`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:201`](../../packages/core/agent/src/types.ts)
 
 ### `agent/created` — emit
 
@@ -54,7 +54,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:153`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:163`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -74,7 +74,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence but bef
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:162`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:172`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -96,7 +96,7 @@ A step or turn errored. The loop reports a failure here (plus the logger) even w
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:328`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:346`](../../packages/core/agent/src/types.ts)
 
 ### `agent/post-step` — serial
 
@@ -119,7 +119,7 @@ Awaited serial checkpoint after the response, real or synthetic tool results, in
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:280`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:296`](../../packages/core/agent/src/types.ts)
 
 ### `agent/pre-step` — serial
 
@@ -142,28 +142,31 @@ Awaited serial checkpoint before `step/start`; appends land outside the pending 
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:220`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:230`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
-Allow, rewrite, or block one claimed prompt before it becomes a user message. Call `next()` for the unchanged default.
+Allow, rewrite, or block one claimed prompt before it becomes a user message. Call `next()` for the unchanged default. The signal controls only this turn; listeners may cooperate with it but must not retain it to control another turn.
 
 ```ts cordis-catalog
 /**
  * Allow, rewrite, or block one claimed prompt before it becomes a user
- * message. Call `next()` for the unchanged default.
+ * message. Call `next()` for the unchanged default. The signal controls only
+ * this turn; listeners may cooperate with it but must not retain it to
+ * control another turn.
  * @param agent - the agent whose turn claimed the message.
  * @param content - the claimed message's blocks, as queued.
  * @param source - the message's resolved source.
+ * @param signal - the current turn's explicit abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>
+'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md) · [PromptDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:230`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:243`](../../packages/core/agent/src/types.ts)
 
 ### `agent/queued` — emit
 
@@ -184,7 +187,7 @@ Detached, frozen content entered the agent's inbox. Source defaults have already
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:181`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:191`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -199,15 +202,17 @@ Replace the frozen call configuration. Model-visible content must use logged cha
  * @param turn - the open turn number.
  * @param step - the step whose request this is.
  * @param config - the config the loop would use (frozen); return a replacement to switch.
+ * @param signal - the current turn's explicit abort signal; ambient
+ * initiator identity does not imply liveness or cancellation authority.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:242`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:257`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
@@ -233,7 +238,7 @@ Recover a model-request failure after its failed step has closed. `retry` opens 
 
 Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:295`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:311`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-prefix` — waterfall
 
@@ -251,7 +256,7 @@ Compose request-only messages placed before derived history. The frozen result i
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @param agent - the agent whose session prefix is being composed.
  * @param prefix - the frozen seed; return an extended replacement.
- * @param signal - aborts composition when the step is torn down.
+ * @param signal - the current turn's explicit abort signal.
  * @mode waterfall
  */
 'agent/session-prefix'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>
@@ -259,7 +264,7 @@ Compose request-only messages placed before derived history. The frozen result i
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:257`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:272`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -281,7 +286,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:204`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:214`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -301,7 +306,7 @@ Agent status changed (`idle` ⇄ `running`, or → `disposed`). `send()` does no
 
 Types: [Agent](../core-data-structures/core.md) · [AgentStatus](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:171`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:181`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step-result` — waterfall
 
@@ -315,15 +320,16 @@ Waterfall: post-process the assembled assistant Message before tool dispatch (va
  * @param turn - the open turn number.
  * @param step - the step that produced the message.
  * @param message - the assistant message as assembled from the stream.
+ * @param signal - the current turn's explicit abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/step-result'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>
+'agent/step-result'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, signal: AbortSignal, next: () => Promise<Message>): Promise<Message>
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [Message](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:268`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:284`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-continuation` — waterfall
 
@@ -336,15 +342,16 @@ Override whether the turn continues. The default continues after tool calls or s
  * @param agent - the agent deciding whether to run another step.
  * @param turn - the turn being continued or stopped.
  * @param defaultDecision - what the loop would do absent an override.
+ * @param signal - the current turn's explicit abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/turn-continuation'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
+'agent/turn-continuation'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, signal: AbortSignal, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [ContinuationDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:305`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:322`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stop` — serial
 
@@ -357,15 +364,16 @@ Monotonic terminal-stop checkpoint after continuation and steering are folded; a
  * steering queued in that window is discarded, while ordinary sends survive.
  * @param agent - the agent whose composed continuation outcome may be stopped.
  * @param turn - the turn at its terminal-stop checkpoint.
+ * @param signal - the current turn's explicit abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode serial
  */
-'agent/turn-stop'(this: Scoped<Agent>, agent: Agent, turn: number): ContinuationStop | undefined
+'agent/turn-stop'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<ContinuationStop | undefined> | ContinuationStop | undefined
 ```
 
 Types: [Agent](../core-data-structures/core.md) · [ContinuationStop](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:315`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:333`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 
@@ -708,13 +716,15 @@ Source: [`packages/subagent/subagent/src/index.ts:130`](../../packages/subagent/
 
 ### `system-prompt/assemble` — waterfall
 
-Expert waterfall over the assembled sections, tools, and variables. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners receive only that scope's assemblies. The returned value is authoritative.
+Expert waterfall over the assembled sections, tools, and variables. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners receive only that scope's assemblies. The returned value is authoritative. A supplied signal controls only this explicit assembly request and must not be retained to control later turns.
 
 ```ts cordis-catalog
 /**
  * Expert waterfall over the assembled sections, tools, and variables.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners
  * receive only that scope's assemblies. The returned value is authoritative.
+ * A supplied signal controls only this explicit assembly request and must not
+ * be retained to control later turns.
  * @param assembly - the mutable assembly built from registered providers.
  * @param context - the caller's per-assembly context.
  * @mode waterfall
@@ -724,7 +734,7 @@ Expert waterfall over the assembled sections, tools, and variables. Scope-filter
 
 Types: [AssembleContext](../core-data-structures/system-prompt.md) · [Scoped](../core-data-structures/scope.md) · [SystemPrompt](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:27`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:29`](../../packages/core/system-prompt/src/index.ts)
 
 ### `system-prompt/change` — emit
 
@@ -739,7 +749,7 @@ Emitted when any prompt provider changes. This registry notification is unfilter
 'system-prompt/change'(): void
 ```
 
-Source: [`packages/core/system-prompt/src/index.ts:33`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:35`](../../packages/core/system-prompt/src/index.ts)
 
 ## `tools/*`
 
@@ -760,36 +770,41 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:116`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:123`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
-Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a normalized result; wrappers may change only `exec.signal`, while call identity remains immutable. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
+Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a normalized result; wrappers may change only `exec.signal`, while call identity remains immutable. The registry re-fuses the original caller signal before the body, so replacement cannot detach caller cancellation; wrappers must still restore their signal and reach quiescence. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
 ```ts cordis-catalog
 /**
  * Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns
  * a normalized result; wrappers may change only `exec.signal`, while call
- * identity remains immutable.
+ * identity remains immutable. The registry re-fuses the original caller
+ * signal before the body, so replacement cannot detach caller cancellation;
+ * wrappers must still restore their signal and reach quiescence.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
  * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).
  * @mode waterfall
  */
-'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
 ```
 
-Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
+Types: [Scoped](../core-data-structures/scope.md) · [ToolDispatchExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:89`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:93`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
-Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts it unchanged; thrown tools still reach this seam as errors. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
+Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts it unchanged; thrown tools still reach this seam as errors. Async listeners must observe `exec.signal`; after they settle, caller cancellation replaces only a successful accepted outcome with the code selected by whether the tool body was invoked. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
 ```ts cordis-catalog
 /**
  * Accept, replace, enrich, or block a normalized dispatch result. `next()`
- * accepts it unchanged; thrown tools still reach this seam as errors.
+ * accepts it unchanged; thrown tools still reach this seam as errors. Async
+ * listeners must observe `exec.signal`; after they settle, caller
+ * cancellation replaces only a successful accepted outcome with the code
+ * selected by whether the tool body was invoked.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
  * @param exec - the call that just ran (name, parsed arguments, caller agent).
  * @param result - the dispatch outcome a listener may accept, replace, or block.
@@ -800,16 +815,18 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 
 Types: [PostToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:98`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:105`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
-Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approval support turns `ask` into denial. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
+Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approval support turns `ask` into denial. Async gates must observe `exec.signal`; the registry rechecks cancellation after they settle but never abandons their promise. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
 
 ```ts cordis-catalog
 /**
  * Allow, deny, or ask before dispatch. `next()` delegates to allow; missing
- * approval support turns `ask` into denial.
+ * approval support turns `ask` into denial. Async gates must observe
+ * `exec.signal`; the registry rechecks cancellation after they settle but
+ * never abandons their promise.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
  * @param exec - the pending call (name, parsed arguments, caller agent).
  * @mode waterfall
@@ -819,7 +836,7 @@ Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approv
 
 Types: [PreToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:80`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:82`](../../packages/core/tools/src/index.ts)
 
 ### `tools/result` — emit
 
@@ -838,7 +855,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:106`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:113`](../../packages/core/tools/src/index.ts)
 
 ## `workflow/*`
 

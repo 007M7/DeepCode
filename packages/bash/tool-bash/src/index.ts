@@ -357,7 +357,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         agent: exec.agent,
         callId: exec.callId,
         toolName: 'bash',
-        ...exec.signal ? { signal: exec.signal } : {},
+        signal: exec.signal,
       },
     )
   }
@@ -422,8 +422,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (tasks === undefined) {
           throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
         }
-        // Reject pre-start cancellation; returned tasks use their own lifecycle.
-        if (exec.signal?.aborted) throw new Error('command aborted')
+        // The caller owns cancellation until TaskService commits detached ownership.
+        if (exec.signal.aborted) return []
         // Task preflight finishes before the starter can spawn a process.
         const id = tasks.start({
           kind: 'bash',
@@ -442,7 +442,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
       const result = await ctx.bash.run(ctx.bash.resolve({
         ...request,
-        ...exec.signal ? { signal: exec.signal } : {},
+        signal: exec.signal,
       }))
       if (result.aborted) throw new Error('command aborted')
       return [{ type: 'text', text: renderResult(result, escalationModes) }]

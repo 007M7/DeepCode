@@ -1,6 +1,11 @@
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { type Agent, type AgentOptions, type AgentStatus } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {
+  type Agent,
+  type AgentCancelCause,
+  type AgentOptions,
+  type AgentStatus,
+} from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
@@ -13,7 +18,7 @@ interface FakeAgent extends Agent {
   status: AgentStatus
   sent: ContentBlock[][]
   steered: ContentBlock[][]
-  cancelled: string[]
+  cancelled: AgentCancelCause[]
 }
 
 export interface TuiHarnessOptions {
@@ -110,7 +115,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
   const steered: ContentBlock[][] = []
-  const cancelled: string[] = []
+  const cancelled: AgentCancelCause[] = []
   const agent: FakeAgent = {
     id: sessionId,
     options: options.agentOptions ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
@@ -127,8 +132,8 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       steered.push(content)
     },
     inject() {},
-    cancel(reason) {
-      cancelled.push(reason ?? '')
+    cancel(cause = { kind: 'user' }) {
+      cancelled.push(cause)
     },
     whenIdle() {
       return Promise.resolve()
