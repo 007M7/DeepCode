@@ -133,7 +133,6 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
     auto: true,
     thresholdRatio: 0.5,
     retainTokens: 50,
-    summarizationModel: '',
     maxTokens: 8192,
     compactionRetries: 1,
   })

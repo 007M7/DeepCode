@@ -85,7 +85,7 @@ describe('real Loader composition', () => {
     context = new Context()
     await expect(context.plugin(TokenMeterService, {
       contextWindow: 4096,
-    })).rejects.toThrow(/TokenMeterConfig: unknown key "contextWindow"/)
+    } as never)).rejects.toThrow(/TokenMeterConfig: unknown key "contextWindow"/)
   })
 
   it('rejects stale compact-basic config after Schemastery normalization', async () => {
@@ -109,5 +109,20 @@ describe('real Loader composition', () => {
         thresholdRatio: 0.1,
       }],
     })).rejects.toThrow(/modelPolicies\[0\]: retainRatio \(0.2\).*thresholdRatio \(0.1\)/)
+  })
+
+  it('rejects an incomplete model-policy summarization pair during plugin load', async () => {
+    context = new Context()
+    await context.plugin(LlmService)
+    await context.plugin(TokenMeterService)
+    await expect(context.plugin(BasicCompactService, {
+      summarizationProvider: 'default-provider',
+      summarizationModel: 'default-model',
+      modelPolicies: [{
+        provider: 'test-provider',
+        model: 'test-model',
+        summarizationModel: '',
+      }],
+    })).rejects.toThrow(/modelPolicies\[0\].*must be set together/)
   })
 })

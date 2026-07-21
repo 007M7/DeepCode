@@ -80,7 +80,9 @@ declare module 'cordis' {
 
 /** Replay owner for one service-wide estimator and isolated per-session folds. */
 export class TokenMeterService extends Service {
-  static Config: z<TokenMeterConfig> = z.object({})
+  // Schemastery preserves untrusted loader keys on an empty object schema;
+  // the public type excludes settings while validateConfigKeys rejects them.
+  static Config: z<TokenMeterConfig> = z.object({}) as unknown as z<TokenMeterConfig>
 
   private readonly states = new WeakMap<Session, ReplayState>()
 

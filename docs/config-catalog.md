@@ -1059,7 +1059,7 @@ Source: [`packages/context/time-context/src/index.ts:19`](../packages/context/ti
 
 ```ts config-catalog
 /** Token-meter plugin configuration; the fixed estimator has no settings. */
-export type TokenMeterConfig = object
+export type TokenMeterConfig = Record<string, never>
 ```
 
 Source: [`packages/llm/token-meter/src/types.ts:10`](../packages/llm/token-meter/src/types.ts)

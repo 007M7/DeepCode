@@ -248,17 +248,29 @@ function validatePolicy(
     assertNonNegativeInteger(`${name}.maxOverflowRetries`, maxOverflowRetries)
   }
 
-  const summarizationProvider = config.summarizationProvider
-  const summarizationModel = config.summarizationModel
-  if (summarizationProvider !== undefined && typeof summarizationProvider !== 'string') {
+  validateSummarizationPair(config, name)
+}
+
+/** Require one scope to omit, clear, or replace the summarization target as a pair. */
+function validateSummarizationPair(
+  config: CompactPolicyConfig | Record<string, unknown>,
+  name: string,
+): void {
+  const provider = config.summarizationProvider
+  const model = config.summarizationModel
+  if (provider !== undefined && typeof provider !== 'string') {
     throw new Error(`${name}.summarizationProvider must be a string`)
   }
-  if (summarizationModel !== undefined && typeof summarizationModel !== 'string') {
+  if (model !== undefined && typeof model !== 'string') {
     throw new Error(`${name}.summarizationModel must be a string`)
   }
-  if (((summarizationProvider ?? '').length === 0)
-    !== ((summarizationModel ?? '').length === 0)) {
-    throw new Error(`${name}: summarizationProvider and summarizationModel must both be empty or both be non-empty`)
+  if (provider === undefined && model === undefined) return
+  if (provider === undefined || model === undefined
+    || (provider.length === 0) !== (model.length === 0)) {
+    throw new Error(
+      `${name}: summarizationProvider and summarizationModel must be set together `
+      + 'as an empty or non-empty pair',
+    )
   }
 }
 

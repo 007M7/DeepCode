@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message, TokenUsage } from '@deepseek-ai/dsh-llm'
@@ -87,10 +87,15 @@ function expectSurfaceTotal(measurement: TokenMeasurement): void {
 }
 
 describe('TokenMeterService configuration and registration', () => {
+  it('exposes an empty public configuration type', () => {
+    expectTypeOf<{}>().toExtend<TokenMeterConfig>()
+    expectTypeOf<{ contextWindow: number }>().not.toExtend<TokenMeterConfig>()
+  })
+
   it.each(['models', 'contextWindow', 'contextWidow'])(
     'rejects stale or unknown top-level config key %s',
     (key) => {
-      expect(() => meter({ [key]: {} }))
+      expect(() => meter({ [key]: {} } as unknown as TokenMeterConfig))
         .toThrow(`TokenMeterConfig: unknown key "${key}"`)
     },
   )

@@ -308,6 +308,41 @@ describe('compact configuration and defaults', () => {
     })
   })
 
+  it('inherits, clears, and replaces the summarization target as a pair', () => {
+    const config = resolveConfig({
+      summarizationProvider: 'default-provider',
+      summarizationModel: 'default-model',
+      modelPolicies: [
+        { provider: 'inherit-provider', model: MODEL },
+        {
+          provider: 'clear-provider',
+          model: MODEL,
+          summarizationProvider: '',
+          summarizationModel: '',
+        },
+        {
+          provider: 'replace-provider',
+          model: MODEL,
+          summarizationProvider: 'replacement-provider',
+          summarizationModel: 'replacement-model',
+        },
+      ],
+    })
+
+    expect(resolveTargetPolicy(config, { provider: 'inherit-provider', model: MODEL }))
+      .toMatchObject({
+        summarizationProvider: 'default-provider',
+        summarizationModel: 'default-model',
+      })
+    expect(resolveTargetPolicy(config, { provider: 'clear-provider', model: MODEL }))
+      .toMatchObject({ summarizationProvider: '', summarizationModel: '' })
+    expect(resolveTargetPolicy(config, { provider: 'replace-provider', model: MODEL }))
+      .toMatchObject({
+        summarizationProvider: 'replacement-provider',
+        summarizationModel: 'replacement-model',
+      })
+  })
+
   it('validates common values and pressure-policy invariants', () => {
     const bad = [
       [{ maxTokens: 0 }, /maxTokens/],
@@ -316,8 +351,10 @@ describe('compact configuration and defaults', () => {
       [{ auto: 'yes' }, /auto must be a boolean/],
       [{ summarizationProvider: 1 }, /summarizationProvider must be a string/],
       [{ summarizationModel: 1 }, /summarizationModel must be a string/],
-      [{ summarizationProvider: MODEL }, /must both be empty or both be non-empty/],
-      [{ summarizationModel: MODEL }, /must both be empty or both be non-empty/],
+      [{ summarizationProvider: MODEL }, /must be set together/],
+      [{ summarizationModel: MODEL }, /must be set together/],
+      [{ summarizationProvider: '' }, /must be set together/],
+      [{ summarizationModel: '' }, /must be set together/],
       [{ thresholdRatio: 0 }, /number in \(0, 1\]/],
       [{ thresholdRatio: 1.1 }, /number in \(0, 1\]/],
       [{ retainRatio: 0.9 }, /retainRatio \(0.9\) must be less than the resolved thresholdRatio \(0.8\)/],
@@ -333,6 +370,16 @@ describe('compact configuration and defaults', () => {
       [{ modelPolicies: [{ provider: MODEL, model: 1 }] }, /model must be a non-empty string/],
       [{ modelPolicies: [{ provider: MODEL, model: '' }] }, /model must be a non-empty string/],
       [{ modelPolicies: [{ provider: MODEL, model: MODEL, summarizationProvider: 1 }] }, /summarizationProvider must be a string/],
+      [{
+        summarizationProvider: 'default-provider',
+        summarizationModel: 'default-model',
+        modelPolicies: [{ provider: MODEL, model: MODEL, summarizationModel: '' }],
+      }, /modelPolicies\[0\].*must be set together/],
+      [{
+        summarizationProvider: 'default-provider',
+        summarizationModel: 'default-model',
+        modelPolicies: [{ provider: MODEL, model: MODEL, summarizationProvider: '' }],
+      }, /modelPolicies\[0\].*must be set together/],
       [{ modelPolicies: [{ provider: MODEL, model: MODEL, retainRatio: 0.2, retainTokens: 100 }] }, /mutually exclusive/],
       [
         { modelPolicies: [{ provider: MODEL, model: MODEL, thresholdRatio: 0.1 }] },
