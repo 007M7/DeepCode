@@ -1,5 +1,5 @@
 import type { Context } from 'cordis'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 
 const CONTROL_PROBE = '\u001b]2;MODEL_CONTROLLED\u0007\u001b[999CMODEL_CURSOR\u009b31mMODEL_C1'
@@ -18,7 +18,17 @@ function textChunks(text: string): StreamChunk[] {
 
 /** Keyless two-step adapter for the real-PTY TUI conversation test. */
 class ScriptedTuiAdapter extends LlmAdapter {
-  async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    return Promise.resolve([
+      { provider, id: 'tui-scripted-model', name: 'Scripted Base' },
+      { provider, id: 'tui-scripted-model-pro', name: 'Scripted Pro' },
+    ])
+  }
+
+  override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    if (options.model !== 'tui-scripted-model-pro' || !options.system?.includes('tui-scripted-model-pro')) {
+      throw new Error('the scripted TUI request did not apply the selected model to routing and prompt variables')
+    }
     const hasToolResult = options.messages.at(-1)?.content.some(block => block.type === 'tool-result') ?? false
     if (hasToolResult) {
       for (const chunk of textChunks(FINAL_TEXT)) yield chunk

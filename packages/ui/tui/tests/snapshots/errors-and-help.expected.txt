@@ -1,7 +1,7 @@
 terminal 92x32 buffer=normal length=32 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=25 bufferRow=25
+cursor hidden column=1 viewportRow=26 bufferRow=26
 buffer
 0| "╭──────────────────────────────────────────────────────────────────────────────────────────╮"
   style 0-91 fg=bright-blue
@@ -25,7 +25,7 @@ buffer
   style 1-18 fg=bright-blue bold
 7| " Enter send • Shift/Alt+Enter newline • Up/Down prompt history                              "
   style 1-61 fg=bright-black
-8| " Esc cancel active turn • Ctrl+O expand tool cards • Ctrl+R toggle reasoning                "
+8| " Esc cancel active turn • Ctrl+O toggle tool cards • Ctrl+R toggle reasoning                "
   style 1-75 fg=bright-black
 9| " Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit                  "
   style 1-73 fg=bright-black
@@ -38,28 +38,30 @@ buffer
   style 1-47 fg=bright-black
 14| " /help — Show keyboard shortcuts and commands                                               "
   style 1-44 fg=bright-black
-15| " /reasoning — Toggle reasoning blocks                                                       "
+15| " /model [[provider/]model] — Show or switch this session's model                            "
+  style 1-63 fg=bright-black
+16| " /reasoning — Toggle reasoning blocks                                                       "
   style 1-36 fg=bright-black
-16| " /redraw — Invalidate components and redraw the terminal                                    "
+17| " /redraw — Invalidate components and redraw the terminal                                    "
   style 1-55 fg=bright-black
-17| " /tools — Expand or collapse all tool cards                                                 "
+18| " /tools — Expand or collapse all tool cards                                                 "
   style 1-42 fg=bright-black
-18| <blank>
-19| " provider stream failed after partial output                                                "
+19| <blank>
+20| " provider stream failed after partial output                                                "
   style 1-43 fg=red
-20| <blank>
-21| " The previous process ended during this turn.                                               "
+21| <blank>
+22| " The previous process ended during this turn.                                               "
   style 1-44 fg=yellow
-22| <blank>
-23| " Unknown command: /unknown-advanced-command                                                 "
+23| <blank>
+24| " Unknown command: /unknown-advanced-command                                                 "
   style 1-42 fg=yellow
-24| "────────────────────────────────────────────────────────────────────────────────────────────"
+25| "────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-91 dim
-25| "                                                                                            "
+26| "                                                                                            "
   style 1-1 inverse
-26| "────────────────────────────────────────────────────────────────────────────────────────────"
+27| "────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-91 dim
-27| "/workspace/project  ↑0 ↓0                                  idle  reasoning:on  tools:compact"
+28| "/workspace/project  ↑0 ↓0         0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
   style 0-24 dim
-  style 59-91 dim
-28-31| <blank>
+  style 34-91 dim
+29-31| <blank>
