@@ -135,6 +135,7 @@ describe('Commander launcher arguments', () => {
     expect(parseDshSdkArgs(['start'])).toEqual({ command: 'start', forwarded: [], help: false })
     expect(parseDshSdkArgs(['dev', 'index.ts'])).toMatchObject({ command: 'dev', target: 'index.ts' })
     expect(parseDshSdkArgs(['-h'])).toMatchObject({ help: true })
+    expect(parseDshSdkArgs(['--help'])).toMatchObject({ help: true })
     expect(() => parseDshSdkArgs(['unknown'])).toThrow()
     expect(() => parseDshSdkArgs(['config', 'extra'])).toThrow()
     expect(() => parseDshSdkArgs(['config', '--', 'extra'])).toThrow('does not accept forwarded')

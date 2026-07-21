@@ -16,6 +16,9 @@
     },
     {
       "path": "../../ui/app-boot"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

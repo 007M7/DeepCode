@@ -501,7 +501,7 @@ interface TurnEndReasonMap {
 
 ## The turn-enclosure invariant
 
-Every session event lives **inside** a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See [the turn-enclosure invariant Agent Note](../../.agents/notes/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
+Every session event lives **inside** a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The optional `dsh-session/invariant` companion enforces it in dev through `ctx.invariants` (a message event outside an open turn throws). See [the turn-enclosure invariant Agent Note](../../.agents/notes/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
 
 ## Plugin-contributed log-only events
 
@@ -511,6 +511,6 @@ The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepse
 
 ## Durability contract
 
-What a persistence backend relies on: the durable log persists every event verbatim, **including** `assistant/chunk` — `seq` must stay contiguous, so chunks cannot be filtered out of the canonical log. All `event.data` must be JSON-serializable; `Session.append` enforces this at the source (throwing on non-serializable data), so a bad event never enters the log and `session.events` always equals what a backend can persist. Adding an event type that carries non-serializable data, or that breaks the turn/step nesting the invariants plugin checks, is a breaking change to the on-disk format.
+What a persistence backend relies on: the durable log persists every event verbatim, **including** `assistant/chunk` — `seq` must stay contiguous, so chunks cannot be filtered out of the canonical log. All `event.data` must be JSON-serializable; `Session.append` enforces this at the source (throwing on non-serializable data), so a bad event never enters the log and `session.events` always equals what a backend can persist. Adding an event type that carries non-serializable data, or that breaks the turn/step nesting checked by the session invariant companion, is a breaking change to the on-disk format.
 
 The backends that consume this contract are on [persistence.md](persistence.md).

@@ -215,6 +215,7 @@ function ciPrimaryGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
+    pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
     pnpmScript('typecheck', 'typecheck'),
     lintGate(),
@@ -230,6 +231,7 @@ function ciPrimaryGates(): Gate[] {
       label: 'node-next types',
       needs: ['build'],
     }),
+    builtPackageInvariantsGate(['build']),
     builtBinSmokeGate(),
   ]
 }
@@ -238,6 +240,7 @@ function ciStaticGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
+    pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
@@ -253,6 +256,7 @@ function ciArtifactGates(): Gate[] {
       label: 'node-next types',
       needs: ['build'],
     }),
+    builtPackageInvariantsGate(['build']),
     builtBinSmokeGate(),
   ]
 }
@@ -300,6 +304,13 @@ function snapshotGate(): Gate {
   })
 }
 
+function builtPackageInvariantsGate(needs?: string[]): Gate {
+  return pnpmScript('built-package-invariants', 'verify-built-package-invariants', {
+    label: 'built package invariants',
+    ...needs === undefined ? {} : { needs },
+  })
+}
+
 function positiveIntArg(envName: string, flag: string): string[] {
   const raw = process.env[envName]
   if (raw === undefined || raw === '') return []
@@ -316,6 +327,8 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
     pnpmScript('knip', 'knip'),
     pnpmScript('publint', 'publint', artifactOptions),
     pnpmScript('constraints', 'constraints'),
+    pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
+    builtPackageInvariantsGate(options.artifactNeeds),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
       ...artifactOptions,
