@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -14,6 +16,7 @@ interface MockTool {
   description?: string
   inputSchema: Record<string, unknown>
   outputSchema?: Record<string, unknown>
+  execution?: { taskSupport?: 'optional' | 'required' | 'forbidden' }
 }
 
 interface MockCallResult {
@@ -23,9 +26,26 @@ interface MockCallResult {
 }
 
 function createMockClient(tools: MockTool[], callResult: MockCallResult = { content: [{ type: 'text', text: 'ok' }] }) {
+  const listTools = vi.fn(async (
+    _params?: Record<string, unknown>,
+  ): Promise<{ tools: MockTool[]; nextCursor: string | undefined }> => ({ tools, nextCursor: undefined }))
+  const callTool = vi.fn(async (
+    _params?: Record<string, unknown>,
+    _compatibilitySchema?: unknown,
+    _options?: unknown,
+  ): Promise<Record<string, unknown>> => ({ ...callResult }))
   return {
-    listTools: vi.fn().mockResolvedValue({ tools, nextCursor: undefined }),
-    callTool: vi.fn().mockResolvedValue(callResult),
+    listTools,
+    callTool,
+    request: vi.fn(async (
+      request: { method: string; params?: Record<string, unknown> },
+      _schema: unknown,
+      options?: unknown,
+    ): Promise<unknown> => {
+      if (request.method === 'tools/list') return listTools(request.params)
+      if (request.method === 'tools/call') return callTool(request.params, undefined, options)
+      throw new Error(`unexpected MCP request: ${request.method}`)
+    }),
     setNotificationHandler: vi.fn(),
     connect: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
@@ -205,6 +225,80 @@ describe('syncTools', () => {
     expect(ctx.tools.get('mcp__srv__page1')).toBeDefined()
     expect(ctx.tools.get('mcp__srv__page2')).toBeDefined()
   })
+
+  it('owns output validation independently of the SDK per-page cache', async () => {
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    serverTransport.onmessage = (message) => {
+      if (!('id' in message) || !('method' in message)) return
+      const params = 'params' in message ? message.params : undefined
+      let result: Record<string, unknown>
+      if (message.method === 'initialize') {
+        const protocolVersion = params && 'protocolVersion' in params
+          ? params.protocolVersion
+          : '2025-11-25'
+        result = {
+          protocolVersion,
+          capabilities: { tools: {} },
+          serverInfo: { name: 'raw-test', version: '1' },
+        }
+      } else if (message.method === 'tools/list') {
+        const cursor = params && 'cursor' in params ? params.cursor : undefined
+        result = cursor === undefined
+          ? {
+            tools: [{
+              name: 'supported',
+              inputSchema: { type: 'object' },
+              outputSchema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: { answer: { type: 'integer' } },
+                required: ['answer'],
+              },
+            }],
+            nextCursor: 'page-2',
+          }
+          : {
+            tools: [{
+              name: 'future-schema',
+              inputSchema: { type: 'object' },
+              outputSchema: { type: 'object', patternProperties: { '^x-': { type: 'string' } } },
+            }],
+          }
+      } else if (message.method === 'tools/call') {
+        const name = params && 'name' in params ? params.name : undefined
+        result = name === 'supported'
+          ? { content: [{ type: 'text', text: 'missing structured content' }] }
+          : { content: [42, null], structuredContent: ['kept', { nested: true }] }
+      } else {
+        result = {}
+      }
+      void serverTransport.send({ jsonrpc: '2.0', id: message.id, result })
+    }
+    await serverTransport.start()
+    const client = new Client({ name: 'cache-independent-test', version: '1' })
+    await client.connect(clientTransport)
+
+    try {
+      await syncTools(client, ctx, defaultOpts, new Map())
+
+      const missing = await ctx.tools.execute({
+        callId: CallId('missing'), name: 'mcp__srv__supported', arguments: {},
+      })
+      expect(missing.error).toMatchObject({ info: { code: 'INVALID_TOOL_OUTPUT' } })
+      expect(missing.error?.message).toContain('structuredContent')
+
+      const fallback = await ctx.tools.execute({
+        callId: CallId('fallback'), name: 'mcp__srv__future-schema', arguments: {},
+      })
+      if (fallback.isError) throw new Error('unsupported schema must use the bridge fallback')
+      expect(fallback.value).toEqual({
+        content: [42, null],
+        structuredContent: ['kept', { nested: true }],
+      })
+    } finally {
+      await client.close()
+    }
+  })
 })
 
 describe('tool execution', () => {
@@ -358,6 +452,21 @@ describe('tool execution', () => {
     expect(result.isError).toBe(true)
     expect(result.content[0]).toEqual({ type: 'text', text: 'Error: something went wrong' })
     expect('value' in result).toBe(false)
+  })
+
+  it('rejects tools that require task-based execution', async () => {
+    const client = createMockClient([
+      { name: 'task-only', inputSchema: { type: 'object' }, execution: { taskSupport: 'required' } },
+    ])
+
+    await syncTools(client as never, ctx, defaultOpts, new Map())
+    const result = await ctx.tools.execute({
+      callId: CallId('task-only'), name: 'mcp__srv__task-only', arguments: {},
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.error?.message).toContain('requires task-based execution')
+    expect(client.callTool).not.toHaveBeenCalled()
   })
 
   it('passes abort signal to callTool', async () => {

@@ -391,6 +391,9 @@ describe('cordis_mount', () => {
     ['parameters: { value: { type: \'json\', default: () => 1 } }', 'parameters.value.default must be lossless JSON data'],
     ['parameters: { value: { type: \'json\', default: (() => { const v = {}; v.self = v; return v })() } }', 'parameters.value.default.self must be lossless JSON data'],
     ['parameters: { value: { type: \'json\', default: Array(2) } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: Object.assign([1], { extra: true }) } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: (() => { const v = Array(1); v.extra = true; return v })() } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: new (class DefaultValue { constructor() { this.ok = true } })() } }', 'parameters.value.default must be lossless JSON data'],
     ['parameters: { value: { type: \'json\', default: new Date(0) } }', 'parameters.value.default must be lossless JSON data'],
   ])('rejects a malformed ParameterSchemaSpec (%s) with a teaching error', async (parameters, message) => {
     const ctx = await setup()
@@ -413,6 +416,41 @@ describe('cordis_mount', () => {
     })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain(message)
+  })
+
+  it('preserves literal __proto__ keys in sandbox schemas and annotations', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'proto-schema',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'proto_schema_tool',
+              description: 'literal JSON keys',
+              parameters: {
+                ['__proto__']: { type: 'string', required: true },
+                value: { type: 'json', default: { ['__proto__']: { safe: true } } },
+              },
+              ${CONTENT_OUTPUT_CODE}
+              async execute() { return [] },
+            }))
+          },
+        }
+      `,
+    })
+
+    expect(result.isError).toBe(false)
+    const parameters = ctx.tools.schemas().find(schema => schema.name === 'proto_schema_tool')!.parameters as {
+      properties: Record<string, { default?: unknown }>
+      required?: string[]
+    }
+    expect(Object.hasOwn(parameters.properties, '__proto__')).toBe(true)
+    expect(parameters.required).toContain('__proto__')
+    const defaultValue = parameters.properties.value!.default as Record<string, unknown>
+    expect(Object.hasOwn(defaultValue, '__proto__')).toBe(true)
+    expect(defaultValue.__proto__).toEqual({ safe: true })
   })
 
   it('accepts a nested object/array ParameterSchemaSpec (the DSL recursion)', async () => {

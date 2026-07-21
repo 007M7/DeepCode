@@ -3,11 +3,12 @@
 /**
  * A value that round-trips losslessly through JSON: `null`, a boolean, a finite
  * number other than negative zero, a string, an array of such values, or a
- * plain object whose values are such values. TypeScript cannot distinguish
- * `-0` from `number`, so {@link isJsonValue} and {@link snapshotJsonValue}
- * enforce that last numeric detail at runtime. Use this type for a payload that
- * must survive session-log persistence and replay byte-identically — e.g. a
- * tool's private presentation `meta`.
+ * plain object whose values are such values. Arrays may carry only their dense
+ * indexed elements; extra own properties would be discarded by JSON. TypeScript
+ * cannot distinguish `-0` from `number`, so {@link isJsonValue} and
+ * {@link snapshotJsonValue} enforce these details at runtime. Use this type for
+ * a payload that must survive session-log persistence and replay byte-identically
+ * — e.g. a tool's private presentation `meta`.
  */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
@@ -47,6 +48,10 @@ export function snapshotJsonValue<T>(value: T): T | undefined {
       if (Array.isArray(current)) {
         if (Object.getPrototypeOf(current) !== Array.prototype) return undefined
         const length = current.length
+        // Every ordinary array owns `length`; dense indexed elements account
+        // for the remaining keys. Anything else would be lost by JSON and by
+        // structured clone, including symbols and non-enumerable properties.
+        if (Reflect.ownKeys(current).length !== length + 1) return undefined
         const snapshot: JsonValue[] = []
         for (let index = 0; index < length; index++) {
           if (!Object.prototype.hasOwnProperty.call(current, index)) return undefined
@@ -111,6 +116,7 @@ export function isJsonValue(value: unknown, seen: Set<object> = new Set()): bool
   try {
     if (Array.isArray(value)) {
       if (Object.getPrototypeOf(value) !== Array.prototype) return false
+      if (Reflect.ownKeys(value).length !== value.length + 1) return false
       // Reject sparse arrays: a hole is skipped by `every`/`forEach` but
       // JSON.stringify writes it as `null`, so `[1, , 3]` would round-trip
       // lossily. Require every index 0..length-1 to be an OWN property.

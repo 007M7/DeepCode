@@ -33,6 +33,7 @@ export function snapshotCodeJsonValue(value: unknown): CodeJsonValue | undefined
 
     if (Array.isArray(candidate)) {
       if (Object.getPrototypeOf(candidate) !== Array.prototype) return undefined
+      if (Reflect.ownKeys(candidate).length !== candidate.length + 1) return undefined
       return within(candidate, () => {
         const result: CodeJsonValue[] = []
         for (let index = 0; index < candidate.length; index++) {

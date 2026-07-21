@@ -190,7 +190,7 @@ describe('makeNamespaces', () => {
     await expect(tools['toString']?.({})).resolves.toBe('toString-ok')
   })
 
-  it('rejects a non-cloneable argument without leaking the pending entry', async () => {
+  it('rejects a postMessage clone failure without leaking the pending entry', async () => {
     let firstCall = true
     const throwingPort: BootstrapPort = {
       // First call throws an Error (the real DataCloneError shape), the
@@ -203,8 +203,8 @@ describe('makeNamespaces', () => {
     }
     const pending = new Map<number, PendingCall>()
     const [tools] = makeNamespaces({ namespaces: [{ global: 'tools', names: ['x'] }] }, throwingPort, pending, { value: 1 }) as [Record<string, (args: unknown) => Promise<unknown>>]
-    const first = await rejectionOf(tools.x?.(() => 1) ?? Promise.resolve())
-    const second = await rejectionOf(tools.x?.(() => 1) ?? Promise.resolve())
+    const first = await rejectionOf(tools.x?.({ first: true }) ?? Promise.resolve())
+    const second = await rejectionOf(tools.x?.({ second: true }) ?? Promise.resolve())
     expect(first).toMatchObject({ name: 'ToolCallError', toolName: 'x' })
     expect(second).toMatchObject({ name: 'ToolCallError', toolName: 'x' })
     expect(first).toBeInstanceOf(ToolCallError)
@@ -212,6 +212,32 @@ describe('makeNamespaces', () => {
     expect((first as Error).message).toMatch(/DataCloneError-ish/)
     expect((second as Error).message).toMatch(/raw-clone-failure/)
     expect(pending.size).toBe(0)
+  })
+
+  it('rejects lossy arguments before posting or allocating a call id', async () => {
+    let posts = 0
+    const port: BootstrapPort = { postMessage: () => { posts += 1 }, on: () => {} }
+    const pending = new Map<number, PendingCall>()
+    const nextId = { value: 1 }
+    const [tools] = makeNamespaces(
+      { namespaces: [{ global: 'tools', names: ['x'] }] }, port, pending, nextId,
+    ) as [Record<string, (args: unknown) => Promise<unknown>>]
+    const decorated = [1]
+    Object.defineProperty(decorated, 'extra', { value: true })
+    const throwing = Object.defineProperty({}, 'value', {
+      enumerable: true,
+      get: () => { throw new Error('getter exploded') },
+    })
+
+    for (const value of [() => 1, new Date(), decorated, throwing]) {
+      const failure = await rejectionOf(tools.x?.(value) ?? Promise.resolve())
+      expect(failure).toMatchObject({
+        name: 'ToolCallError', toolName: 'x', message: 'binding arguments must be lossless JSON',
+      })
+    }
+    expect(posts).toBe(0)
+    expect(pending.size).toBe(0)
+    expect(nextId.value).toBe(1)
   })
 
   it('uses ordinary Error for non-tools namespace failures', async () => {
@@ -226,9 +252,14 @@ describe('makeNamespaces', () => {
     expect(denied).toBeInstanceOf(Error)
     expect(denied).not.toBeInstanceOf(ToolCallError)
 
+    const invalid = await rejectionOf(helpers.x?.(() => 1) ?? Promise.resolve())
+    expect(invalid).toBeInstanceOf(Error)
+    expect(invalid).not.toBeInstanceOf(ToolCallError)
+    expect((invalid as Error).message).toBe('binding arguments must be lossless JSON')
+
     const clonePort: BootstrapPort = { postMessage: () => { throw new Error('clone failed') }, on: () => {} }
     const [cloneHelpers] = makeNamespaces({ namespaces: [{ global: 'helpers', names: ['x'] }] }, clonePort, new Map(), { value: 1 }) as [Record<string, (args: unknown) => Promise<unknown>>]
-    const cloneFailure = await rejectionOf(cloneHelpers.x?.(() => 1) ?? Promise.resolve())
+    const cloneFailure = await rejectionOf(cloneHelpers.x?.({}) ?? Promise.resolve())
     expect(cloneFailure).toBeInstanceOf(Error)
     expect(cloneFailure).not.toBeInstanceOf(ToolCallError)
   })

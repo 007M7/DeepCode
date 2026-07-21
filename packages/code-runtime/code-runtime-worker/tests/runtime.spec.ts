@@ -218,6 +218,19 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
     expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8')).toBeLessThan(300)
   })
 
+  it('retains a fitting prefix when one oversized log is the first output', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 96 })
+    const result = await runtime.run({
+      program: 'console.log(`start-${`😀"\\\\\\n`.repeat(100)}`); return null',
+      bindings: [],
+    })
+    expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 96 bytes' })
+    expect(result.logs).toHaveLength(1)
+    expect(result.logs[0]?.startsWith('start-')).toBe(true)
+    expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8')
+      + Buffer.byteLength(JSON.stringify(result.error?.message), 'utf8')).toBeLessThanOrEqual(96)
+  })
+
   it('fails an oversized return value without substituting a string', async () => {
     const { runtime } = await setup({ maxOutputBytes: 64 })
     const result = await runtime.run({ program: 'return "y".repeat(10_000)', bindings: [] })
@@ -304,7 +317,8 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
     })
     expect(result.error?.kind).toBe('output-limit')
     expect(result.logs).toContain('a'.repeat(20))
-    expect(result.logs).not.toContain('b'.repeat(100))
+    expect(result.logs[1]?.length).toBeGreaterThan(0)
+    expect('b'.repeat(100).startsWith(result.logs[1] ?? '')).toBe(true)
   }, 15_000)
 })
 
@@ -407,6 +421,32 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
       bindings: tools({ bad: async () => (() => 1) }),
     })
     expect(result.value).toEqual({ name: 'ToolCallError', toolName: 'bad', message: 'binding resolution must be lossless JSON' })
+  })
+
+  it('rejects lossy binding arguments in the worker before invoking the host binding', async () => {
+    const { runtime } = await setup()
+    let calls = 0
+    const result = await runtime.run({
+      program: `
+        const decorated = [1]; Object.defineProperty(decorated, 'extra', { value: true });
+        const values = [new Date(), decorated, () => 1];
+        const failures = [];
+        for (const value of values) {
+          try { await tools.never(value) } catch (error) {
+            failures.push({ typed: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message });
+          }
+        }
+        return failures;
+      `,
+      bindings: tools({ never: async () => { calls += 1; return null } }),
+    })
+    expect(calls).toBe(0)
+    expect(result.value).toEqual(new Array(3).fill({
+      typed: true,
+      name: 'ToolCallError',
+      toolName: 'never',
+      message: 'binding arguments must be lossless JSON',
+    }))
   })
 
   it('contains throwing getters while snapshotting binding resolutions', async () => {

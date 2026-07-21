@@ -149,7 +149,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         ])
         const synthetic = loaded.events.find(e => e.type === 'tool/result')
         expect(synthetic?.type === 'tool/result' && synthetic.data).toMatchObject({
-          callId: CallId('call-x'), isError: true, error: { info: { code: 'interrupted' } },
+          callId: CallId('call-x'), isError: true, error: { code: 'interrupted' },
         })
         // The synthetic result carries the SAME callId as the orphaned tool-call,
         // so deriveMessages() pairs them — no provider-invalid dangling call.

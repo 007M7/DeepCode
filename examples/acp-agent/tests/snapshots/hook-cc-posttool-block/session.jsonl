@@ -75,7 +75,7 @@
 {"type":"tool/call","seq":73,"time":1783962505993,"data":{"turn":1,"step":1,"callId":"call_00_VAByyMjsct4c7P6k1ysX9256","name":"bash","arguments":"{\"command\": \"echo HELLO\", \"description\": \"Echo HELLO to stdout\"}"}}
 {"type":"hook/invoked","seq":74,"time":1783962506001,"data":{"turn":1,"point":"PostToolUse","dialect":"claude","handlerId":"claude:PostToolUse:1","matcher":"bash"}}
 {"type":"hook/result","seq":75,"time":1783962506011,"data":{"turn":1,"point":"PostToolUse","handlerId":"claude:PostToolUse:1","decision":"block","exitCode":2,"stderrSummary":"tool output rejected by policy: retry once","durationMs":9.922291999999743}}
-{"type":"tool/result","seq":76,"time":1783962506011,"data":{"turn":1,"step":1,"callId":"call_00_VAByyMjsct4c7P6k1ysX9256","content":[{"type":"text","text":"tool output rejected by policy: retry once"}],"isError":true,"error":{"message":"tool output rejected by policy: retry once"}},"sourceEventSeqs":[73],"surfaceOp":"append"}
+{"type":"tool/result","seq":76,"time":1783962506011,"data":{"turn":1,"step":1,"callId":"call_00_VAByyMjsct4c7P6k1ysX9256","content":[{"type":"text","text":"tool output rejected by policy: retry once"}],"isError":true},"sourceEventSeqs":[73],"surfaceOp":"append"}
 {"type":"step/end","seq":77,"time":1783962506012,"data":{"turn":1,"step":1}}
 {"type":"step/start","seq":78,"time":1783962506012,"data":{"turn":1,"step":2}}
 {"type":"assistant/chunk","seq":79,"time":1783962507038,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}

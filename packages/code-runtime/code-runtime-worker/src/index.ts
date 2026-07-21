@@ -15,6 +15,7 @@ import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeBindingFunction, CodeJsonValue, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
+import { truncateJsonStringBytes } from './output-json.ts'
 
 /** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
 export interface Config {
@@ -174,16 +175,29 @@ class OutputLedger {
     return { logs, error }
   }
 
-  /** Build the explicit output-limit failure while retaining the fitting log prefix. */
+  /** Build the explicit output-limit failure while retaining a fitting prefix of the final log. */
   limit(logs: string[]): CodeRunResult {
     const fullMessage = `outer output exceeded ${this.maxBytes} bytes`
-    let retainedBytes = this.bytes
     const messageBytes = Buffer.byteLength(JSON.stringify(fullMessage), 'utf8')
-    while (logs.length > 0 && retainedBytes + messageBytes > this.maxBytes) {
-      const removed = logs.pop()
+    const retained = [...logs]
+    let retainedBytes = jsonBytes(retained)
+    const logBudget = this.maxBytes - messageBytes
+    while (retained.length > 0 && retainedBytes > logBudget) {
+      const removed = retained.pop()
       /* v8 ignore next -- the while guard proves pop cannot return undefined. */
       if (removed === undefined) throw new Error('output ledger lost its final log entry')
-      retainedBytes -= Buffer.byteLength(JSON.stringify(removed), 'utf8') + (logs.length > 0 ? 1 : 0)
+      const separatorBytes = retained.length > 0 ? 1 : 0
+      retainedBytes -= Buffer.byteLength(JSON.stringify(removed), 'utf8') + separatorBytes
+      const prefix = truncateJsonStringBytes(removed, logBudget - retainedBytes - separatorBytes)
+      if (prefix.length > 0) {
+        retained.push(prefix)
+        retainedBytes += Buffer.byteLength(JSON.stringify(prefix), 'utf8') + separatorBytes
+        break
+      }
+    }
+    if (logBudget < 2) {
+      retained.length = 0
+      retainedBytes = 2
     }
     const availableMessageBytes = this.maxBytes - retainedBytes
     // This fixed diagnostic is ASCII with no JSON escapes, so two bytes are
@@ -191,7 +205,7 @@ class OutputLedger {
     const message = messageBytes <= availableMessageBytes
       ? fullMessage
       : fullMessage.slice(0, availableMessageBytes - 2)
-    return { logs, error: { kind: 'output-limit', message } }
+    return { logs: retained, error: { kind: 'output-limit', message } }
   }
 }
 
@@ -326,7 +340,8 @@ export class WorkerCodeRuntime extends CodeRuntime {
       // a chunk flushing after settlement mutates only the discarded buffers,
       // and the ledger bounds that growth until the pipes close.
       const captureStray = (chunk: Buffer): void => {
-        if (!settled && !output.admit(chunk.toString('utf8'), strayLogs)) finish(output.limit([...logs, ...strayLogs]))
+        const text = chunk.toString('utf8')
+        if (!settled && !output.admit(text, strayLogs)) finish(output.limit([...logs, ...strayLogs, text]))
       }
       worker.stdout.on('data', captureStray)
       worker.stderr.on('data', captureStray)
@@ -416,7 +431,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
         const message = parseWorkerMessage(raw)
         if (!message) return
         if (message.type === 'log' && !settled && !output.admit(message.text, logs)) {
-          finish(output.limit([...logs, ...strayLogs]))
+          finish(output.limit([...logs, ...strayLogs, message.text]))
           return
         }
         if (message.type === 'output-limit' && !settled) {

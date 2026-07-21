@@ -188,6 +188,12 @@ export class ToolCallError extends Error {
   }
 }
 
+/** Create the namespace-specific rejection for one lossy binding argument. */
+function bindingArgumentFailure(global: string, name: string): Error {
+  const message = 'binding arguments must be lossless JSON'
+  return global === 'tools' ? new ToolCallError(name, message) : new Error(message)
+}
+
 /**
  * Route host replies into the pending-call map: each reply settles its call
  * at most once, and a reply for an unknown id (stray, or a duplicate answer
@@ -211,7 +217,8 @@ export function wireReplies(port: BootstrapPort, pending: Map<number, PendingCal
  * Build the binding namespace objects the program sees: one null-prototype global per
  * namespace, each declared name an own enumerable async function that bridges over the port
  * (`__proto__`/`constructor`/`toString` are ordinary keys, never prototype collisions).
- * Non-cloneable arguments and host failure replies reject only the corresponding call.
+ * Lossy arguments reject before posting; clone failures and host failure
+ * replies reject only the corresponding call.
  *
  * @param data - the boot payload's namespace declarations (globals + names).
  * @param port - the port binding calls are posted to.
@@ -230,22 +237,31 @@ export function makeNamespaces(
     for (const name of names) {
       Object.defineProperty(namespace, name, {
         enumerable: true,
-        value: (args: unknown): Promise<unknown> => new Promise((resolve, reject) => {
-          const id = nextId.value++
-          pending.set(id, {
-            resolve,
-            reject: (error) => {
-              reject(global === 'tools' ? new ToolCallError(name, error.message) : error)
-            },
-          })
+        value: (args: unknown): Promise<unknown> => {
+          let detached: unknown
           try {
-            port.postMessage({ type: 'call', id, global, name, args })
-          } catch (error: unknown) {
-            pending.delete(id)
-            const message = `binding arguments must be structured-cloneable: ${error instanceof Error ? error.message : String(error)}`
-            reject(global === 'tools' ? new ToolCallError(name, message) : new Error(message))
+            detached = snapshotCodeJsonValue(args)
+          } catch {
+            detached = undefined
           }
-        }),
+          if (detached === undefined) return Promise.reject(bindingArgumentFailure(global, name))
+          return new Promise((resolve, reject) => {
+            const id = nextId.value++
+            pending.set(id, {
+              resolve,
+              reject: (error) => {
+                reject(global === 'tools' ? new ToolCallError(name, error.message) : error)
+              },
+            })
+            try {
+              port.postMessage({ type: 'call', id, global, name, args: detached })
+            } catch (error: unknown) {
+              pending.delete(id)
+              const message = `binding arguments must be structured-cloneable: ${error instanceof Error ? error.message : String(error)}`
+              reject(global === 'tools' ? new ToolCallError(name, message) : new Error(message))
+            }
+          })
+        },
       })
     }
     return namespace

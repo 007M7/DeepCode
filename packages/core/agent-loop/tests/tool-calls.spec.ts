@@ -479,18 +479,12 @@ describe('tool-call scheduler: abort handling', () => {
       {
         callId: CallId('c1'),
         isError: true,
-        error: {
-          message: 'tool call skipped because the step was aborted before execution',
-          info: { name: 'AbortError', code: 'ABORTED' },
-        },
+        error: { name: 'AbortError', code: 'ABORTED' },
       },
       {
         callId: CallId('c2'),
         isError: true,
-        error: {
-          message: 'tool call skipped because the step was aborted before execution',
-          info: { name: 'AbortError', code: 'ABORTED' },
-        },
+        error: { name: 'AbortError', code: 'ABORTED' },
       },
     ])
   })
@@ -523,7 +517,7 @@ describe('tool-call scheduler: abort handling', () => {
     expect(events(agent).filter(e => e.type === 'tool/result').map(e => e.data.callId))
       .toEqual([CallId('c1'), CallId('c2')])
     expect(events(agent).filter(e => e.type === 'tool/result').at(-1)?.data)
-      .toMatchObject({ callId: CallId('c2'), isError: true, error: { info: { name: 'AbortError', code: 'ABORTED' } } })
+      .toMatchObject({ callId: CallId('c2'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } })
   })
 
   it('stops replenishing after abort, commits started results, and drains accepted additional contexts', async () => {
@@ -555,7 +549,7 @@ describe('tool-call scheduler: abort handling', () => {
     expect(events(agent).filter(e => e.type === 'tool/result').slice(-2).map(e => ({
       callId: e.data.callId,
       isError: e.data.isError,
-      errorInfo: e.data.error?.info,
+      errorInfo: e.data.error,
     })))
       .toEqual([
         { callId: CallId('c3'), isError: true, errorInfo: { name: 'AbortError', code: 'ABORTED' } },
@@ -601,6 +595,6 @@ describe('tool-call scheduler: abort handling', () => {
     expect(events(agent).filter(e => e.type === 'tool/call').map(e => e.data.callId))
       .toEqual([CallId('c1'), CallId('c2'), CallId('c3')])
     expect(events(agent).filter(e => e.type === 'tool/result').at(-1)?.data)
-      .toMatchObject({ callId: CallId('c3'), isError: true, error: { info: { name: 'AbortError', code: 'ABORTED' } } })
+      .toMatchObject({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: 'ABORTED' } })
   })
 })

@@ -29,7 +29,9 @@ type DynamicToolDefinition = ToolDefinition & { [DYNAMIC_TOOL]: true }
 type DynamicToolMarker = { [DYNAMIC_TOOL]?: unknown }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return Object.prototype.toString.call(value) === '[object Object]'
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const prototype: unknown = Object.getPrototypeOf(value)
+  return prototype === null || Object.getPrototypeOf(prototype) === null
 }
 
 /** Materialize realm-foreign lossless JSON without allowing JSON.stringify coercions. */
@@ -44,6 +46,9 @@ function cloneJson(value: unknown, path: string, seen = new Set<object>()): unkn
   seen.add(value)
   try {
     if (Array.isArray(value)) {
+      if (Reflect.ownKeys(value).length !== value.length + 1) {
+        throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
+      }
       const output: unknown[] = []
       for (let index = 0; index < value.length; index++) {
         if (!Object.hasOwn(value, index)) throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
@@ -53,7 +58,14 @@ function cloneJson(value: unknown, path: string, seen = new Set<object>()): unkn
     }
     if (!isPlainRecord(value)) throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
     const output: Record<string, unknown> = {}
-    for (const [key, entry] of Object.entries(value)) output[key] = cloneJson(entry, `${path}.${key}`, seen)
+    for (const [key, entry] of Object.entries(value)) {
+      Object.defineProperty(output, key, {
+        value: cloneJson(entry, `${path}.${key}`, seen),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      })
+    }
     return output
   } finally {
     seen.delete(value)
@@ -131,7 +143,12 @@ function normalizePropertyMap(
 ): Record<string, unknown> {
   const spec: Record<string, unknown> = {}
   for (const [key, prop] of Object.entries(entries)) {
-    spec[key] = normalizeValueSchema(prop, `${path}.${key}`, requiredNames.has(key), raw, true)
+    Object.defineProperty(spec, key, {
+      value: normalizeValueSchema(prop, `${path}.${key}`, requiredNames.has(key), raw, true),
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    })
   }
   return spec
 }
