@@ -333,6 +333,24 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
     expect(result.logs[1]?.length).toBeGreaterThan(0)
     expect('b'.repeat(100).startsWith(result.logs[1] ?? '')).toBe(true)
   }, 15_000)
+
+  it('drains pipe output queued before terminal worker teardown completes', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 200_000 })
+    const payload = `late-pipe-${'x'.repeat(100_000)}`
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        const write = (text) => Object.getPrototypeOf(process.stdout).write.call(process.stdout, text);
+        write('late-pipe-' + 'x'.repeat(100_000));
+        parentPort.postMessage({ type: 'done', value: 'done' });
+        for (;;) {}
+      `,
+      bindings: [],
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.value).toBe('done')
+    expect(result.logs.join('') === payload).toBe(true)
+  }, 15_000)
 })
 
 describe('WorkerCodeRuntime — hostile programs (real workers)', () => {

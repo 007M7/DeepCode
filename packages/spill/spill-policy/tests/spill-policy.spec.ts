@@ -16,7 +16,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import type { ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
+import type { PostToolDecision, ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
@@ -61,7 +61,11 @@ function exec(name: string, session = 's1'): ToolExecution {
  * Build a context with tools + the policy, and optionally a spill backend.
  * Returns the context and the backend handle (undefined when `withSpill` false).
  */
-async function setup(config: SpillPolicy.Config, withSpill = true): Promise<{ ctx: Context; spill?: StubStore; fiber: Awaited<ReturnType<Context['plugin']>> }> {
+async function setup(
+  config: SpillPolicy.Config,
+  withSpill = true,
+  beforePolicy?: (ctx: Context) => void,
+): Promise<{ ctx: Context; spill?: StubStore; fiber: Awaited<ReturnType<Context['plugin']>> }> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
@@ -70,6 +74,7 @@ async function setup(config: SpillPolicy.Config, withSpill = true): Promise<{ ct
     await ctx.plugin(StubStore)
     spill = ctx.spillStore as StubStore
   }
+  beforePolicy?.(ctx)
   const fiber = await ctx.plugin(SpillPolicy, config)
   return { ctx, fiber, ...spill ? { spill } : {} }
 }
@@ -272,6 +277,26 @@ describe('best-effort fallback', () => {
 })
 
 describe('composition', () => {
+  it('wraps an earlier tool-owned projection before applying the generic cap', async () => {
+    let downstreamDecision: PostToolDecision | undefined
+    const { ctx, spill } = await setup({ maxInlineBytes: 200 }, true, (target) => {
+      target.on('tools/post-execute', async (_exec, _result, next): Promise<PostToolDecision> => {
+        downstreamDecision = await next()
+        return {
+          kind: 'accept',
+          content: [{ type: 'text', text: `first page\n\nFull canonical result stored at /spill/search-results.txt.\n${'z'.repeat(500)}` }],
+        }
+      })
+    })
+    ctx.tools.register(textTool('search', 'initial capped page'))
+
+    const result = await ctx.tools.execute(exec('search'))
+
+    expect(downstreamDecision).toEqual({ kind: 'accept' })
+    expect(spill?.saves[0]?.content).toContain('Full canonical result stored at /spill/search-results.txt.')
+    expect(textOf(result.content)).toContain('Full formatted result stored at')
+  })
+
   it('bounds content a downstream post-execute listener replaced', async () => {
     const { ctx, spill } = await setup({ maxInlineBytes: 200 })
     // A later-registered listener replaces the (small) tool result with a big one;

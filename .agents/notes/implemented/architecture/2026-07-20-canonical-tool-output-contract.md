@@ -58,7 +58,7 @@ The first-party tools preserve their existing Native text while returning domain
 | `structured_output` | `{ recorded: true }` |
 | `run_code` | `{ logs: string[], result?: JsonValue }` |
 
-Provider and executor acquisition limits remain real limits on the canonical value. Formatting-only limits belong in `render`; `glob` and `grep`, for example, keep every acquired item in `value` while their Native projection retains and best-effort spills the configured first page. Filesystem mutations derive replayable diff metadata from `args` and the canonical before/after value rather than returning UI state from the body.
+Provider and executor acquisition limits remain real limits on the canonical value. Formatting-only limits belong in `render`; `glob` and `grep`, for example, keep every acquired item in `value` while their Native projection retains and best-effort spills the configured first page. Generic spill prepends and delegates its post-execute listener so an ordinary tool-owned asynchronous projection completes before generic byte bounding regardless of plugin load order. Filesystem mutations derive replayable diff metadata from `args` and the canonical before/after value rather than returning UI state from the body.
 
 MCP bridges preserve protocol blocks through `McpResult<{...}> = { content: JsonValue[]; structuredContent? }`. An advertised `outputSchema` is enforced when it belongs to the supported raw subset; unsupported schemas fall back to `JsonValue` rather than pretending to validate them. Native rendering still uses the existing MCP-to-`ContentBlock` projection, and MCP `isError` becomes a failed tool result.
 

@@ -26,10 +26,11 @@
  *   failure ⇒ log and return the original result. A spill failure must NEVER
  *   turn a successful tool call into an `isError` or hide the inline result.
  *
- * It COMPOSES with other post-execute listeners: it delegates via `next()` and
- * bounds the resulting content projection, so a hook that replaced content
- * still has its replacement bounded, while value replacements and `block`
- * decisions pass through unchanged.
+ * It COMPOSES with other post-execute listeners: its prepended listener
+ * delegates via `next()` and bounds the resulting content projection, so
+ * tool-owned asynchronous projection runs before generic bounding, a hook that
+ * replaced content still has its replacement bounded, and value replacements
+ * and `block` decisions pass through unchanged.
  *
  * @module @deepseek-ai/dsh-spill-policy
  */
@@ -176,5 +177,5 @@ export function apply(ctx: Context, config: Config): void {
     }
     const replaced: ContentBlock[] = [{ type: 'text', text: replacedText }]
     return { kind: 'accept', content: replaced, ...decision.additionalContexts ? { additionalContexts: decision.additionalContexts } : {} }
-  })
+  }, { prepend: true })
 }

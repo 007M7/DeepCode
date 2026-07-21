@@ -8,6 +8,7 @@
 
 import { Worker } from 'node:worker_threads'
 import { stripTypeScriptTypes } from 'node:module'
+import type { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import z from 'schemastery'
@@ -104,6 +105,25 @@ const WORKER_PATH = fileURLToPath(new URL(new URL(import.meta.url).pathname.ends
 /** Render an unknown thrown value as a message, `Error` or not. */
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** Resolve after a worker pipe emits all queued data, or closes/errors during termination. */
+function waitForPipeDrain(stream: Readable): Promise<void> {
+  if (stream.readableEnded || stream.destroyed) return Promise.resolve()
+  return new Promise((resolve) => {
+    const done = (): void => {
+      stream.off('end', done)
+      stream.off('close', done)
+      stream.off('error', done)
+      resolve()
+    }
+    stream.once('end', done)
+    stream.once('close', done)
+    stream.once('error', done)
+    // Close the event-registration race if termination finished between the
+    // initial state check and the listeners above.
+    if (stream.readableEnded || stream.destroyed) done()
+  })
 }
 
 /**
@@ -335,13 +355,20 @@ export class WorkerCodeRuntime extends CodeRuntime {
       const logs: string[] = []
       const strayLogs: string[] = []
       const output = new OutputLedger(this.config.maxOutputBytes)
+      let terminalOverride: CodeRunResult | undefined
 
-      // No settled guard: `finish` snapshots the arrays when it resolves, so
-      // a chunk flushing after settlement mutates only the discarded buffers,
-      // and the ledger bounds that growth until the pipes close.
+      // Pipe and message-port delivery are independent. Continue bounded pipe
+      // capture after a terminal message while worker termination drains bytes
+      // that were already queued; `finish` materializes the result only after
+      // termination completes.
       const captureStray = (chunk: Buffer): void => {
+        if (terminalOverride !== undefined) return
         const text = chunk.toString('utf8')
-        if (!settled && !output.admit(text, strayLogs)) finish(output.limit([...logs, ...strayLogs, text]))
+        if (!output.admit(text, strayLogs)) {
+          const limited = output.limit([...logs, ...strayLogs, text])
+          terminalOverride = limited
+          finish(() => limited)
+        }
       }
       worker.stdout.on('data', captureStray)
       worker.stderr.on('data', captureStray)
@@ -350,14 +377,20 @@ export class WorkerCodeRuntime extends CodeRuntime {
       // logs captured before timeout, abort, or failure remain in the result.
       let finishResolve!: () => void
       const finished = new Promise<void>((done) => { finishResolve = done })
-      const finish = (result: CodeRunResult): void => {
+      const finish = (finalize: () => CodeRunResult): void => {
         if (settled) return
         settled = true
         clearInterval(eluTimer)
         clearTimeout(wallTimer)
         request.signal?.removeEventListener('abort', onAbort)
         this.live.delete(live)
-        void worker.terminate().then(() => {
+        // Let the poll phase deliver pipe bytes already queued independently
+        // of the terminal port message before termination closes the streams.
+        void new Promise<void>((resume) => { setImmediate(resume) }).then(async () => {
+          const stdoutDrained = waitForPipeDrain(worker.stdout)
+          const stderrDrained = waitForPipeDrain(worker.stderr)
+          await Promise.all([worker.terminate(), stdoutDrained, stderrDrained])
+          const result = terminalOverride ?? finalize()
           finishResolve()
           resolve(result)
         })
@@ -365,22 +398,24 @@ export class WorkerCodeRuntime extends CodeRuntime {
 
       const onDone = (message: WorkerToHost): void => {
         if (message.type !== 'done') return
-        const captured = [...logs, ...strayLogs]
         if (message.error) {
-          finish(output.failure(captured, message.error))
+          const error = message.error
+          finish(() => output.failure([...logs, ...strayLogs], error))
           return
         }
         if (message.value === undefined) {
-          finish(output.success(captured))
+          finish(() => output.success([...logs, ...strayLogs]))
           return
         }
         // The worker-thread boundary has already structured-cloned this
         // hostile value, so accessors and proxies cannot survive to throw
         // during the lossless-JSON snapshot.
         const value = snapshotJsonValue(message.value) as CodeJsonValue | undefined
-        finish(value === undefined
-          ? output.failure(captured, { kind: 'invalid-output', message: 'program completion must be lossless JSON' })
-          : output.success(captured, value))
+        if (value === undefined) {
+          finish(() => output.failure([...logs, ...strayLogs], { kind: 'invalid-output', message: 'program completion must be lossless JSON' }))
+        } else {
+          finish(() => output.success([...logs, ...strayLogs], value))
+        }
       }
 
       const onCall = (message: WorkerToHost): void => {
@@ -438,21 +473,25 @@ export class WorkerCodeRuntime extends CodeRuntime {
         const message = parseWorkerMessage(raw)
         if (!message) return
         if (message.type === 'log' && !settled && !output.admit(message.text, logs)) {
-          finish(output.limit([...logs, ...strayLogs, message.text]))
+          const limited = output.limit([...logs, ...strayLogs, message.text])
+          terminalOverride = limited
+          finish(() => limited)
           return
         }
         if (message.type === 'output-limit' && !settled) {
-          finish(output.limit([...logs, ...strayLogs]))
+          const limited = output.limit([...logs, ...strayLogs])
+          terminalOverride = limited
+          finish(() => limited)
           return
         }
         onCall(message)
         onDone(message)
       })
       worker.on('error', (error: Error) => {
-        finish(output.failure([...logs, ...strayLogs], { kind: 'worker-exit', message: `worker error: ${error.message}` }))
+        finish(() => output.failure([...logs, ...strayLogs], { kind: 'worker-exit', message: `worker error: ${error.message}` }))
       })
       worker.on('exit', (exitCode: number) => {
-        finish(output.failure([...logs, ...strayLogs], { kind: 'worker-exit', message: `worker exited with code ${exitCode} before completing` }))
+        finish(() => output.failure([...logs, ...strayLogs], { kind: 'worker-exit', message: `worker exited with code ${exitCode} before completing` }))
       })
 
       // The compute budget reads the worker's own measured busy time, so a
@@ -461,21 +500,21 @@ export class WorkerCodeRuntime extends CodeRuntime {
       const eluTimer = setInterval(() => {
         const elu = worker.performance.eventLoopUtilization()
         if (elu.active > this.config.computeMs) {
-          finish(output.failure([...logs, ...strayLogs], { kind: 'timeout', message: `compute budget exhausted (${this.config.computeMs}ms busy)` }))
+          finish(() => output.failure([...logs, ...strayLogs], { kind: 'timeout', message: `compute budget exhausted (${this.config.computeMs}ms busy)` }))
         }
       }, ELU_POLL_INTERVAL_MS)
       const wallTimer = setTimeout(() => {
-        finish(output.failure([...logs, ...strayLogs], { kind: 'timeout', message: `wall-clock ceiling reached (${this.config.maxWallMs}ms)` }))
+        finish(() => output.failure([...logs, ...strayLogs], { kind: 'timeout', message: `wall-clock ceiling reached (${this.config.maxWallMs}ms)` }))
       }, this.config.maxWallMs)
       const onAbort = (): void => {
-        finish(output.failure([...logs, ...strayLogs], { kind: 'abort', message: String(request.signal?.reason) }))
+        finish(() => output.failure([...logs, ...strayLogs], { kind: 'abort', message: String(request.signal?.reason) }))
       }
       request.signal?.addEventListener('abort', onAbort, { once: true })
 
       const live: LiveRun = {
         worker,
         finished,
-        settle: (failure: CodeRunFailure) => { finish(output.failure([...logs, ...strayLogs], failure)) },
+        settle: (failure: CodeRunFailure) => { finish(() => output.failure([...logs, ...strayLogs], failure)) },
       }
       this.live.add(live)
     })
