@@ -101,7 +101,7 @@ describe('llm-retry invariants', () => {
     }).toThrow(/latest closed step is 1/)
 
     const closedTurn = closeStep(ctx, 'retry-invariant-closed-turn')
-    closedTurn.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: 'cancelled' } })
+    closedTurn.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
     expect(() => {
       closedTurn.append('llm/retry', {
         turn: 1, step: 1, retry: 1, maxRetries: 2, delayMs: 1, failure,

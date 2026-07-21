@@ -18,6 +18,7 @@ type Mode =
   | 'ci-artifacts'
   | 'node-compat'
   | 'pre-push'
+  | 'doc-sync'
 type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
 
 interface Gate {
@@ -87,21 +88,25 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-artifacts':
     case 'node-compat':
     case 'pre-push':
+    case 'doc-sync':
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | pre-push, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | pre-push | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
 
 function defaultConcurrency(selectedMode: Mode, total: number): ConcurrencyDefault {
   const available = availableParallelism()
-  const modeLimit = selectedMode === 'pre-push' ? Math.min(4, available) : available
+  // Local modes cap workers: several doc gates each build a full ts.Program,
+  // so an uncapped default on a large host trades wall clock for memory blowups.
+  const localCap = selectedMode === 'pre-push' || selectedMode === 'doc-sync'
+  const modeLimit = localCap ? Math.min(4, available) : available
   return {
     workers: Math.min(total, modeLimit),
-    source: selectedMode === 'pre-push'
-      ? `${available} available CPU(s), pre-push cap 4`
+    source: localCap
+      ? `${available} available CPU(s), ${selectedMode} cap 4`
       : `${available} available CPU(s)`,
   }
 }
@@ -201,6 +206,8 @@ function gatesForMode(selected: Mode): Gate[] {
         }),
         pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
       ]
+    case 'doc-sync':
+      return docSyncLeafGates()
   }
 }
 
@@ -339,6 +346,7 @@ function docSyncLeafGates(options: {
   return [
     pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions),
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
+    pnpmScript('cordis-api', 'verify-cordis-api', { label: 'cordis api' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
     pnpmScript('config-catalog', 'verify-config-catalog', { label: 'config catalog' }),

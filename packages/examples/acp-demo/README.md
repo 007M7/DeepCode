@@ -33,6 +33,7 @@ Because the package wires no logger entry, an ACP leaf has **nothing to get wron
 | `persona` | — | the deployment persona template (may reference `{{provider}}`/`{{model}}`/`{{cwd}}`), routed to `dsh-system-prompt` |
 | `toolOrder` | — | explicit model-facing tool order (a name list with one `'<unlisted-tools>'` rest entry; absent — lexicographic; an unregistered name fails each turn at prompt assembly), routed to `dsh-system-prompt` |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home exposed to model bash and used by local skill discovery |
+| `sessionTitle` | spine example limits | fallback title word/byte limits routed through `dsh-agent-spine-demo` |
 | `tools` | `{ mode: 'native' }` | tool-registry presentation config (`native` / `code` / `both`), routed through `dsh-agent-spine-demo` |
 | `workspaceContext` | (required) | workspace-instruction byte budget/config, or `false`; routed to the providerless-safe `dsh-workspace-context` plugin |
 | `skills` | owner defaults | registry-cache, local-provider, and model-facing skill-tool config, routed through `dsh-agent-spine-demo` |

@@ -52,6 +52,7 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
+import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type {
   FileDiff,
   TerminalCallView,
@@ -369,7 +370,7 @@ async function readModelChoices(
 class HeaderComponent implements Component {
   constructor(
     private readonly agent: Agent,
-    private readonly welcome: string,
+    private readonly subtitle: () => string,
     private readonly palette: Palette,
     private readonly currentModel: () => string | undefined,
   ) {}
@@ -383,7 +384,7 @@ class HeaderComponent implements Component {
     const detail = `${model}  •  ${displayText(this.agent.session.id)}`
     const top = this.palette.accent(`╭${'─'.repeat(Math.max(0, width - 2))}╮`)
     const bottom = this.palette.accent(`╰${'─'.repeat(Math.max(0, width - 2))}╯`)
-    const lines = [title, this.palette.muted(displayText(this.welcome)), this.palette.dim(detail)]
+    const lines = [title, this.palette.muted(displayText(this.subtitle())), this.palette.dim(detail)]
       .flatMap(line => wrapTextWithAnsi(line, usable))
       .map((line) => {
         const clipped = truncateToWidth(line, usable, '')
@@ -1068,7 +1069,8 @@ export function createTuiChat(
   const now = (): number => runtime.now?.() ?? Date.now()
 
   const welcome = config.welcome ?? 'ready.'
-  const header = new HeaderComponent(agent, welcome, palette, () => target.current?.model)
+  let sessionTitle = foldSessionTitle(agent.session.events)?.title
+  const header = new HeaderComponent(agent, () => sessionTitle ?? welcome, palette, () => target.current?.model)
   const footer = new FooterComponent(
     agent,
     palette,
@@ -1088,7 +1090,12 @@ export function createTuiChat(
   ui.addChild(editor)
   ui.addChild(footer)
   ui.setFocus(editor)
-  runtime.terminal.setTitle(displayText(resolved.title))
+  const updateTerminalTitle = (): void => {
+    runtime.terminal.setTitle(displayText(
+      sessionTitle === undefined ? resolved.title : `${sessionTitle} — ${resolved.title}`,
+    ))
+  }
+  updateTerminalTitle()
 
   const requestRender = (): void => {
     footer.invalidate()
@@ -1328,6 +1335,11 @@ export function createTuiChat(
       case 'todo/write':
         todo.update(event.data.todos)
         break
+      case 'session/title':
+        sessionTitle = event.data.title
+        header.invalidate()
+        updateTerminalTitle()
+        break
       case 'turn/end':
         clearStreaming()
         if (event.data.reason.kind === 'error') {
@@ -1337,7 +1349,7 @@ export function createTuiChat(
             : event.data.reason.message
           if (!liveErrors.delete(key)) appendNotice(message, 'error')
         } else if (event.data.reason.kind === 'aborted') {
-          appendNotice(event.data.reason.reason ?? 'Turn cancelled.', 'warning')
+          appendNotice('Turn cancelled.', 'warning')
         } else if (event.data.reason.kind === 'max-tokens') {
           appendNotice('The model reached its output-token limit.', 'warning')
         } else if (event.data.reason.kind === 'rejected') {
@@ -1484,7 +1496,7 @@ export function createTuiChat(
 
   const requestExit = (): void => {
     if (agent.status === 'running') {
-      agent.cancel('terminal exit requested')
+      agent.cancel({ kind: 'user' })
       appendNotice('Cancelling the active turn before exit…', 'warning')
       void agent.whenIdle().then(() => shutdown(true))
       return
@@ -1567,7 +1579,7 @@ export function createTuiChat(
       description: 'Cancel the active turn',
       handler: () => {
         if (agent.status !== 'running') return { kind: 'error', text: 'The agent is already idle.' }
-        agent.cancel('cancelled from terminal')
+        agent.cancel({ kind: 'user' })
         return { kind: 'success', text: 'Cancellation requested.' }
       },
     })
@@ -1647,12 +1659,12 @@ export function createTuiChat(
       return { consume: true }
     }
     if (matchesKey(data, Key.escape) && agent.status === 'running') {
-      agent.cancel('cancelled from terminal')
+      agent.cancel({ kind: 'user' })
       return { consume: true }
     }
     if (matchesKey(data, Key.ctrl('c'))) {
       if (agent.status === 'running') {
-        agent.cancel('cancelled from terminal')
+        agent.cancel({ kind: 'user' })
       } else if (editor.getText() !== '') {
         editor.setText('')
       } else {

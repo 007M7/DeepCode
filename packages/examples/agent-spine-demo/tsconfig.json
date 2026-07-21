@@ -24,6 +24,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session-title/session-title"
+    },
+    {
       "path": "../../core/system-prompt"
     },
     {
@@ -63,7 +66,7 @@
       "path": "../../support/invariants"
     },
     {
-      "path": "../../util/home"
+      "path": "../../util/paths"
     },
     {
       "path": "../../bash/tool-bash"

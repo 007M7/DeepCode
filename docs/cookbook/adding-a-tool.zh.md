@@ -25,7 +25,7 @@ export function apply(ctx: Context) {
     async execute(args, exec) {
       // args is TYPED from the schema: { path: string; limit?: number }
       // exec carries immutable identity + token; signal is the operational field
-      return [{ type: 'text', text: await readFile(args.path, 'utf8') }]
+      return [{ type: 'text', text: await readFile(args.path, { encoding: 'utf8', signal: exec.signal }) }]
     },
   }))
 }
@@ -37,7 +37,7 @@ export function apply(ctx: Context) {
 
 - **参数已为你校验。** `defineTool` 在 `execute` 运行前，会根据 `SchemaSpec` 校验模型生成的 `arguments`（类型、必填键、枚举成员、嵌套对象/数组——见[运行时参数校验](../../.agents/notes/implemented/architecture/2026-06-11-runtime-arg-validation.md)），因此 `execute` 内部的 args 已匹配 `InferArgs`。你仍需手动检查 DSL 无法表达的值约束（非空字符串、正数、跨字段规则），对这些情况抛出描述性 Error。直接注册的原始 JSON-Schema 工具（MCP）不由 harness 校验，它们自行校验输入。
 - **注册借用你的只读定义。** 类型化的同进程贡献不是序列化边界；注册后不要修改其 schema 或替换回调。`schemas()` 只物化显式的模型可见投影。如需热替换工具，请 dispose 其所属副作用并注册替代品；回调闭包内的可变状态仍是普通的插件状态。
-- **执行身份受保护。** 注册表在一次递归遍历中将 `arguments` 物化为分离的无损 JSON，在策略开始前冻结该值，并分配一个不透明的 `exec.token`；`callId`、`name`、`arguments`、`agent`、`token` 以及可选的外层传输 `parent` token 在整个分发过程中保持不可变。`parent` 仅用于身份标识，不暴露活跃的外层执行。请将 `args` 视为只读输入。around-dispatch 包装器只能添加、替换或移除 `exec.signal`，以施加取消或截止时间。
+- **执行身份受保护。** 注册表在一次递归遍历中将 `arguments` 物化为分离的无损 JSON，在策略开始前冻结该值，并分配一个不透明的 `exec.token`；`callId`、`name`、`arguments`、`agent`、`token`、必填且由调用方持有的 `signal`，以及可选的外层传输 `parent` token 在整个分发过程中保持不可变。`parent` 仅用于身份标识，不暴露活跃的外层执行。请将 `args` 视为只读输入。只有 around-dispatch 包装器会收到可变视图；它可以替换并恢复必填的 `exec.signal` 以施加截止时间，但不能移除该信号。
 - **抛出异常或返回非 JSON 数据意味着 `isError`。** 注册表捕获异常，并在观察者运行前物化最终结果。格式错误或非 JSON 的结果变为 `{ isError: true }`，防止出现无法记录的活跃成功。基础设施故障请抛异常；当模型需要解读领域失败时，请在结果文本中报告。
 - **遵守 `exec.signal`。** 信号触发时取消进行中的工作。
 - **使用 `meta` 附加持久化的卡片数据（可选）。** `execute` 可以返回 `{ content, meta }` 而非裸的 `ContentBlock[]`。`meta` 是 JSON 可序列化的载荷，核心将其视为不透明数据，持久化在 `tool/result` 事件上并回传给你的 `presentResult`（这样需要 `args` 之外信息的卡片——如 `write`/`edit` 的已应用 hunk diff——在会话回放中依然存活）。仅在此处放 UI 数据，绝不放入模型可见的 `content`。
@@ -45,7 +45,7 @@ export function apply(ctx: Context) {
 
 ## 长时间运行的工作
 
-通过 producer 配置控制 `run_in_background`，拒绝已预先中止的调用，然后使用 `ctx.tasks.start({ kind, label, owner: exec.agent, run })` 注册任务。运行时会在 `run()` 启动工作前校验 owner 和控制面是否可用，随后提供 id、会话围栏、通用控制工具、通知和 owner cleanup。
+通过 producer 配置控制 `run_in_background`，然后使用 `ctx.tasks.start({ kind, label, owner: exec.agent, run })` 注册任务。注册表会在进入 producer 主体前跳过已预先中止的调用；运行时会在 `run()` 启动工作前校验 owner 和控制面是否可用，随后提供 id、会话围栏、通用控制工具、通知和 owner cleanup。
 
 producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 `done`，以及可选的消费式 `readOutput`（负责有界输出的格式化）。返回 id 后，应使用 task 自有的取消信号，而不是 `exec.signal`。流式 producer 的示例和完整契约见[后台 task 运行时 Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md)与 `dsh-tool-bash`。
 

@@ -181,12 +181,12 @@ async function waitForStartupIdle(agent: Agent, signal?: AbortSignal): Promise<v
     return
   }
   if (signal.aborted) {
-    agent.cancel(interruptionReason(signal))
+    agent.cancel({ kind: 'user' })
     throw new CliInterruptedError(interruptionReason(signal))
   }
   await new Promise<void>((resolve, reject) => {
     const onAbort = (): void => {
-      agent.cancel(interruptionReason(signal))
+      agent.cancel({ kind: 'user' })
       reject(new CliInterruptedError(interruptionReason(signal)))
     }
     signal.addEventListener('abort', onAbort, { once: true })
@@ -243,7 +243,7 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
       options.onEvent(sessionId, event)
     } catch (error: unknown) {
       outputError = toError(error)
-      agent.cancel('stream output failed')
+      agent.cancel({ kind: 'user' })
     }
   }
 
@@ -273,7 +273,7 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
   let onAbort: (() => void) | undefined
   if (signal !== undefined) {
     onAbort = (): void => {
-      agent.cancel(interruptionReason(signal))
+      agent.cancel({ kind: 'user' })
       if (targetTurn === undefined) settleRejected(new CliInterruptedError(interruptionReason(signal)))
     }
     signal.addEventListener('abort', onAbort, { once: true })
@@ -370,7 +370,7 @@ async function bootInterruptibly(
 export function formatTurnFailure(reason: TurnEndReason): string {
   switch (reason.kind) {
     case 'completed': return 'completed'
-    case 'aborted': return reason.reason === undefined ? 'was aborted' : `was aborted: ${reason.reason}`
+    case 'aborted': return 'was aborted'
     case 'error': return `failed at step ${reason.step}: ${'failure' in reason ? reason.failure.message : reason.message}`
     case 'disposed': return 'was disposed'
     case 'max-tokens': return 'reached the model output-token limit'

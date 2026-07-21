@@ -21,6 +21,8 @@ import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 
+const testToolSignal = new AbortController().signal
+
 /** A stub spill backend recording its saves; `fail` exercises the best-effort fallback. */
 class StubStore extends SpillStore {
   saves: SaveTextSpill[] = []
@@ -51,7 +53,7 @@ function textTool(name: string, text: string) {
 function exec(name: string, session = 's1'): ToolExecution {
   // Only agent.session.header.id is read by the policy; a structural stub suffices.
   const agent = { session: { header: { id: SessionId(session) } } }
-  return { callId: CallId(`call-${name}`), name, arguments: {}, agent } as unknown as ToolExecution
+  return { callId: CallId(`call-${name}`), name, arguments: {}, agent, signal: testToolSignal } as unknown as ToolExecution
 }
 
 /**
@@ -209,7 +211,7 @@ describe('best-effort fallback', () => {
     const { ctx, spill } = await setup({ maxInlineBytes: 10 })
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     ctx.tools.register(textTool('big', 'x'.repeat(1000)))
-    const result = await ctx.tools.execute({ callId: CallId('c'), name: 'big', arguments: {} })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c'), name: 'big', arguments: {} })
     expect(textOf(result.content)).toBe('x'.repeat(1000))
     expect(spill?.saves).toHaveLength(0)
     expect(warn).toHaveBeenCalled()

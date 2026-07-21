@@ -36,12 +36,30 @@ export function expandHomePath(path: string): string {
 }
 
 /**
- * Resolve an explicitly configured, environment-selected, or default DSH home.
+ * Resolve the single-root DeepSeek Harness home.
+ *
+ * Precedence, highest first: an explicit configured path, `$DSH_HOME`, then
+ * `~/.dsh`. The harness keeps all user data under one root. An empty or
+ * whitespace-only `$DSH_HOME` is treated as unset, so a blank override never
+ * resolves the home to the current working directory.
  * @param configured - explicit harness-home override, which has highest precedence.
  * @param env - environment mapping used to read `DSH_HOME`.
  * @returns the normalized absolute harness home path.
  */
 export function resolveDshHome(configured?: string, env: Record<string, string | undefined> = process.env): string {
-  const selected = configured ?? env[DSH_HOME_ENV] ?? defaultDshHome()
+  const fromEnv = env[DSH_HOME_ENV]
+  const selected = configured ?? (fromEnv !== undefined && fromEnv.trim().length > 0 ? fromEnv : defaultDshHome())
   return resolve(expandHomePath(selected))
+}
+
+/**
+ * Describe a resolved harness home symbolically for user-facing display.
+ *
+ * It never returns an absolute machine path: the default home is labelled
+ * `~/.dsh`, and any configured home is labelled `$DSH_HOME`.
+ * @param resolvedHome - the absolute path returned by {@link resolveDshHome}.
+ * @returns `~/.dsh` for the default home, otherwise `$DSH_HOME`.
+ */
+export function dshHomeDisplay(resolvedHome: string): string {
+  return resolvedHome === resolve(defaultDshHome()) ? DEFAULT_DSH_HOME_DISPLAY : `$${DSH_HOME_ENV}`
 }

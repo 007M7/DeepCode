@@ -222,7 +222,7 @@ export function apply(ctx: Context, config: Config): void {
   // A user interjection changes the context; repetition across it is not a
   // loop. Pure reset hook: always delegates (attaching nothing, vetoing
   // nothing).
-  ctx.on('agent/prompt-submit', (agent, _content, _source, next): Promise<PromptDecision> => {
+  ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next): Promise<PromptDecision> => {
     chains.delete(agent)
     return next()
   })
