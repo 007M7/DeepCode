@@ -129,6 +129,30 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('forwards configurable fallback title limits to the bundled service', async () => {
+    const ctx = await mount({
+      workspaceContext: false,
+      sessionTitle: {
+        fallbackMaxWords: 1,
+        fallbackMaxBytes: 40,
+        maxTitleBytes: 80,
+      },
+    })
+    const session = ctx.sessions.create(SessionId('configured-title-limits'))
+    session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'One two three four' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(ctx.sessionTitle.get(session)?.title).toBe('One')
+    await ctx.fiber.dispose()
+  })
+
   it('opts into the configured persisted-goal domain, tools, and same-session driver', async () => {
     const ctx = await mount({
       workspaceContext: false,
@@ -455,6 +479,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       toolOrder: ['zulu'],
       tools: { mode: 'native' as const },
       dshHome: '/tmp/dsh-home',
+      sessionTitle: { fallbackMaxWords: 3, fallbackMaxBytes: 24, maxTitleBytes: 60 },
       workspaceContext: false as const,
       skills: { enabled: false },
       toolBash: { enableRunInBackground: false },
@@ -467,6 +492,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       toolOrder: appConfig.toolOrder,
       tools: appConfig.tools,
       dshHome: appConfig.dshHome,
+      sessionTitle: appConfig.sessionTitle,
       workspaceContext: false,
       skills: appConfig.skills,
       toolBash: appConfig.toolBash,

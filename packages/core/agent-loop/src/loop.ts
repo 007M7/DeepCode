@@ -8,7 +8,7 @@
 import type { Context } from 'cordis'
 import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, LlmFailure, Message } from '@deepseek-ai/dsh-llm'
 import { isDeepStrictEqual } from 'node:util'
-import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorChain, llmFailureOf } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorChain, llmFailureOf, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
@@ -619,7 +619,7 @@ async function runStep(
   recordRequestHeader(session, transmission, header)
 
   // Freeze the logged header plus boundary snapshot; the prefix precedes derived history.
-  const request: GenerateOptions = deepFreeze({
+  const request: GenerateOptions = markAgentLoopRequest(deepFreeze({
     provider: header.config.provider,
     model: header.config.model,
     messages: [...header.messagePrefix ?? [], ...boundaryMessages],
@@ -630,7 +630,7 @@ async function runStep(
     ...header.config.stop !== undefined ? { stop: header.config.stop } : {},
     sessionId: session.id,
     signal,
-  })
+  }))
 
   // --- Model call (streaming-first; raw chunks are the replay record) ---
   const assembler = new BlockAssembler()

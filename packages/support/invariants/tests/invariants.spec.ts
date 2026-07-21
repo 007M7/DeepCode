@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { createScope, scopeTarget } from '@deepseek-ai/dsh-scope'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import * as Invariants from '@deepseek-ai/dsh-invariants'
@@ -798,9 +799,14 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
     void ctx.waterfall('llm/stream', options as never, () => (async function* () {})() as never)
   }
 
+  /** Attach the same process-local identity as dsh-agent-loop. */
+  function loopRequest(options: unknown): GenerateOptions {
+    return markAgentLoopRequest(options as GenerateOptions)
+  }
+
   it('passes a frozen request that equals the boundary derivation + the folded header', async () => {
     const { ctx, session, boundary } = await requestSetup()
-    const options = Object.freeze({ model: 'm', messages: Object.freeze(boundary), sessionId: session.id })
+    const options = loopRequest(Object.freeze({ model: 'm', messages: Object.freeze(boundary), sessionId: session.id }))
     expect(() => { dispatch(ctx, options) }).not.toThrow()
   })
 
@@ -810,7 +816,7 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
     // belongs to the NEXT request. A current-surface comparison would
     // false-fire here; the seq-bounded rebuild must not.
     session.append('context/message', { content: [{ type: 'text', text: '[late]' }], source: { kind: 'plugin', plugin: 'x' } }, { surfaceOp: 'append' })
-    const options = Object.freeze({ model: 'm', messages: Object.freeze(boundary), sessionId: session.id })
+    const options = loopRequest(Object.freeze({ model: 'm', messages: Object.freeze(boundary), sessionId: session.id }))
     expect(() => { dispatch(ctx, options) }).not.toThrow()
   })
 
@@ -819,26 +825,26 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
     const prefix = { role: 'user' as const, content: [{ type: 'text' as const, text: '<system-reminder>catalog</system-reminder>' }] }
     session.append('request/header', { header: { config: { provider: 'mock', model: 'm' }, messagePrefix: [prefix] }, reason: 'change' })
     // The prefixed request matches the fold…
-    const prefixed = Object.freeze({ model: 'm', messages: Object.freeze([prefix, ...boundary]), sessionId: session.id })
+    const prefixed = loopRequest(Object.freeze({ model: 'm', messages: Object.freeze([prefix, ...boundary]), sessionId: session.id }))
     expect(() => { dispatch(ctx, prefixed) }).not.toThrow()
     // …a request that DROPPED the logged prefix diverges…
-    const bare = Object.freeze({ model: 'm', messages: Object.freeze([...boundary]), sessionId: session.id })
+    const bare = loopRequest(Object.freeze({ model: 'm', messages: Object.freeze([...boundary]), sessionId: session.id }))
     expect(() => { dispatch(ctx, bare) }).toThrow(/diverges from the boundary derivation/)
     // …and so does one that misplaced it (prefix sent after the history).
-    const misplaced = Object.freeze({ model: 'm', messages: Object.freeze([...boundary, prefix]), sessionId: session.id })
+    const misplaced = loopRequest(Object.freeze({ model: 'm', messages: Object.freeze([...boundary, prefix]), sessionId: session.id }))
     expect(() => { dispatch(ctx, misplaced) }).toThrow(/diverges from the boundary derivation/)
   })
 
   it('rejects a frozen request whose messages diverge from the boundary derivation', async () => {
     const { ctx, session, boundary } = await requestSetup()
     const messages = [...boundary, { role: 'user', content: [{ type: 'text', text: 'phantom' }] }]
-    const options = Object.freeze({ model: 'm', messages: Object.freeze(messages), sessionId: session.id })
+    const options = loopRequest(Object.freeze({ model: 'm', messages: Object.freeze(messages), sessionId: session.id }))
     expect(() => { dispatch(ctx, options) }).toThrow(/diverges from the boundary derivation/)
   })
 
   it('rejects a frozen request whose fields diverge from the folded header', async () => {
     const { ctx, session, boundary } = await requestSetup()
-    const options = Object.freeze({ model: 'other', messages: Object.freeze(boundary), sessionId: session.id })
+    const options = loopRequest(Object.freeze({ model: 'other', messages: Object.freeze(boundary), sessionId: session.id }))
     expect(() => { dispatch(ctx, options) }).toThrow(/diverges from the folded request header/)
   })
 
@@ -846,7 +852,7 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
     const { ctx } = await setup()
     const session = ctx.sessions.create(SessionId('req-bare'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const bare = Object.freeze({ model: 'm', messages: Object.freeze([]), sessionId: session.id })
+    const bare = loopRequest(Object.freeze({ model: 'm', messages: Object.freeze([]), sessionId: session.id }))
     expect(() => { dispatch(ctx, bare) }).toThrow(/no step\/start/)
 
     session.append('step/start', { turn: 1, step: 1 })
@@ -855,7 +861,7 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
 
   it('rejects a frozen request carrying an unfrozen messages array', async () => {
     const { ctx, session, boundary } = await requestSetup()
-    const options = Object.freeze({ model: 'm', messages: [...boundary], sessionId: session.id })
+    const options = loopRequest(Object.freeze({ model: 'm', messages: [...boundary], sessionId: session.id }))
     expect(() => { dispatch(ctx, options) }).toThrow(/frozen messages array/)
   })
 
@@ -866,10 +872,32 @@ describe('request-reconstruction cross-check (llm/stream)', () => {
     expect(() => { dispatch(ctx, options) }).not.toThrow()
   })
 
+  it('skips frozen auxiliary requests that were not built by the loop', async () => {
+    const { ctx, session } = await requestSetup()
+    const options = Object.freeze({
+      model: 'title-model',
+      messages: Object.freeze([{ role: 'user', content: [{ type: 'text', text: 'title this session' }] }]),
+      sessionId: session.id,
+    })
+    expect(() => { dispatch(ctx, options) }).not.toThrow()
+  })
+
+  it('rejects a marked loop request without its frozen envelope or session identity', async () => {
+    const { ctx } = await requestSetup()
+    expect(() => {
+      dispatch(ctx, loopRequest({ model: 'm', messages: Object.freeze([]) }))
+    }).toThrow(/frozen envelope/)
+    expect(() => {
+      dispatch(ctx, loopRequest(Object.freeze({ model: 'm', messages: Object.freeze([]) })))
+    }).toThrow(/sessionId/)
+  })
+
   it('skips requests without a sessionId or with an unknown session', async () => {
     const { ctx } = await requestSetup()
     expect(() => { dispatch(ctx, Object.freeze({ model: 'm', messages: Object.freeze([]) })) }).not.toThrow()
-    expect(() => { dispatch(ctx, Object.freeze({ model: 'm', messages: Object.freeze([]), sessionId: SessionId('ghost') })) }).not.toThrow()
+    expect(() => {
+      dispatch(ctx, loopRequest(Object.freeze({ model: 'm', messages: Object.freeze([]), sessionId: SessionId('ghost') })))
+    }).not.toThrow()
   })
 })
 
@@ -888,11 +916,11 @@ describe('request cross-check ordering (prepend)', () => {
     session.append('step/start', { turn: 1, step: 1 })
     session.append('request/header', { header: { config: { provider: 'mock', model: 'm' } }, reason: 'initial' })
 
-    const divergent = Object.freeze({
+    const divergent = markAgentLoopRequest(Object.freeze({
       model: 'm',
       messages: Object.freeze([{ role: 'user', content: [{ type: 'text', text: 'phantom' }] }]),
       sessionId: session.id,
-    })
+    }) as unknown as GenerateOptions)
     expect(() => {
       void ctx.waterfall('llm/stream', divergent as never, () => (async function* () {})() as never)
     }).toThrow(/diverges from the boundary derivation/)

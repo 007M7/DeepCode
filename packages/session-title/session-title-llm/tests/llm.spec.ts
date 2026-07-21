@@ -1,6 +1,6 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
-import LlmService, { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, isAgentLoopRequest, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
@@ -139,6 +139,7 @@ describe('generateSessionTitleWithLlm', () => {
     const options = adapter.requests[0]!
     expect(Object.isFrozen(options)).toBe(true)
     expect(Object.isFrozen(options.messages)).toBe(true)
+    expect(isAgentLoopRequest(options)).toBe(false)
     expect(options).toMatchObject({
       provider: 'current-route',
       model: 'current-model',

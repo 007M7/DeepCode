@@ -1,6 +1,6 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
-import LlmService, { deepFreeze } from '@deepseek-ai/dsh-llm'
+import LlmService, { deepFreeze, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionTitleService, {
   SessionTitleProviderId,
@@ -303,12 +303,12 @@ describe('SessionTitleService provider lifecycle', () => {
     const second = appendHumanPrompt(session, 'Second prompt on the same route')
     await settle()
     session.append('step/start', { turn: 2, step: 1 })
-    void ctx.llm.stream(deepFreeze({
+    void ctx.llm.stream(markAgentLoopRequest(deepFreeze({
       provider: 'main-route',
       model: 'chat-model',
       messages: session.deriveMessages(),
       sessionId: session.id,
-    }))
+    })))
     await settle()
 
     expect(session.events.filter(event => event.type === 'request/header')).toHaveLength(1)
@@ -339,9 +339,9 @@ describe('SessionTitleService provider lifecycle', () => {
     const options = { provider: 'main-route', model: 'chat-model', messages: [] }
 
     void ctx.llm.stream(deepFreeze(options))
-    void ctx.llm.stream(deepFreeze({ ...options, sessionId: SessionId('missing') }))
+    void ctx.llm.stream(markAgentLoopRequest(deepFreeze({ ...options, sessionId: SessionId('missing') })))
     const quiet = ctx.sessions.create(SessionId('quiet'))
-    void ctx.llm.stream(deepFreeze({ ...options, sessionId: quiet.id }))
+    void ctx.llm.stream(markAgentLoopRequest(deepFreeze({ ...options, sessionId: quiet.id })))
     const pending = ctx.sessions.create(SessionId('unmatched-boundary'))
     pending.append('turn/start', {
       turn: 1,
@@ -349,7 +349,7 @@ describe('SessionTitleService provider lifecycle', () => {
     })
     appendHumanPrompt(pending, 'Wait for a matching request boundary')
     await settle()
-    void ctx.llm.stream(deepFreeze({ ...options, sessionId: pending.id }))
+    void ctx.llm.stream(markAgentLoopRequest(deepFreeze({ ...options, sessionId: pending.id })))
     await settle()
 
     expect(generate).not.toHaveBeenCalled()

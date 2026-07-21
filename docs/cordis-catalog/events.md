@@ -524,11 +524,11 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
  * Waterfall around every streaming model call (retry, replay, routing).
  * Bound to the {@link LlmService}; call `next()` to reach the resolved
  * adapter's stream, or yield your own chunks to short-circuit.
- * @param options - the full request. A LOOP-built request arrives
- *   deep-frozen (mutation throws): its content is a pure function of the
- *   session log (the reconstructability Agent Note), so listeners read it, never
- *   rewrite it. A hand-built one-shot (compaction summarize) is the
- *   caller's own object and stays mutable here.
+ * @param options - the full request. A LOOP-built request carries the
+ *   process-local {@link markAgentLoopRequest} identity and arrives deep-frozen
+ *   (mutation throws): its content is a pure function of the session log (the
+ *   reconstructability Agent Note), so listeners read it, never rewrite it.
+ *   Hand-built calls own their mutability policy and do not carry that marker.
  * @mode waterfall
  */
 'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>

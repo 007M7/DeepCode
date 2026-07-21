@@ -10,7 +10,7 @@
 
 import type { Context } from 'cordis'
 import { carrierKeyOf, isScopeCarrier } from '@deepseek-ai/dsh-scope'
-import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
+import { assertNever, HarnessError, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import type { CallId, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
@@ -341,8 +341,8 @@ export function apply(ctx: Context): void {
   }, { global: true })
 
   // Request-reconstruction cross-check (the reconstructability Agent Note): a
-  // loop-built request — frozen envelope + live sessionId is the marker; a
-  // hand-built one-shot (compaction summarize) is unfrozen and skipped — must
+  // loop-built request — identified by dsh-agent-loop's process-local marker;
+  // frozen auxiliary calls remain outside this loop-only equation — must
   // be EXACTLY what the session log reconstructs:
   //
   // - messages: the folded header's session prefix (messagePrefix — the
@@ -366,7 +366,13 @@ export function apply(ctx: Context): void {
   // (cordis unshift) — which is fine: correctness rests on the seq-bounded
   // fold below, never on listener timing.
   ctx.on('llm/stream', (options: GenerateOptions, next) => {
-    if (options.sessionId === undefined || !Object.isFrozen(options)) return next()
+    if (!isAgentLoopRequest(options)) return next()
+    if (!Object.isFrozen(options)) {
+      throw new InvariantError('a loop-built request must carry a frozen envelope')
+    }
+    if (options.sessionId === undefined) {
+      throw new InvariantError('a loop-built request must carry a sessionId')
+    }
     // GenerateOptions types sessionId as Branded<'SessionId'>, which IS
     // SessionId (dsh-llm cannot import it without a cycle) — no cast needed.
     const session = ctx.sessions.get(options.sessionId)

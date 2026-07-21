@@ -6,7 +6,7 @@
 import { Context, FiberState, Service, type Fiber } from 'cordis'
 import z from 'schemastery'
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import { deepFreeze } from '@deepseek-ai/dsh-llm'
+import { deepFreeze, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { fallbackSessionTitle, normalizeSessionTitle } from './normalize.ts'
@@ -413,9 +413,9 @@ export class SessionTitleService extends Service {
     this.startPending(session, state, pending, route)
   }
 
-  /** Start unchanged-route work from the frozen loop request after its header fold is current. */
+  /** Start unchanged-route work from the marked loop request after its header fold is current. */
   private onMainRequest(options: GenerateOptions): void {
-    if (!this.serviceActive() || options.sessionId === undefined || !Object.isFrozen(options)) return
+    if (!this.serviceActive() || options.sessionId === undefined || !isAgentLoopRequest(options)) return
     const session = this.ctx.sessions.get(options.sessionId)
     const state = session === undefined ? undefined : this.work.get(session)
     const pending = state?.pending

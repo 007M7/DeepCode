@@ -13,7 +13,7 @@ import Timer from '@cordisjs/plugin-timer'
 import z from 'schemastery'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
-import SessionTitleService from '@deepseek-ai/dsh-session-title'
+import SessionTitleService, { type Config as SessionTitleConfig } from '@deepseek-ai/dsh-session-title'
 import SystemPrompt, { type Config as SystemPromptConfig } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import SkillService, { type Config as SkillRegistryConfig } from '@deepseek-ai/dsh-skill'
@@ -33,6 +33,13 @@ import * as llmRetry from '@deepseek-ai/dsh-llm-retry'
 import { resolveDshHome } from '@deepseek-ai/dsh-home'
 
 export const name = 'agent-spine-demo'
+
+/** Overridable example policy used when a bundle consumer omits `sessionTitle`. */
+const EXAMPLE_SESSION_TITLE_CONFIG: SessionTitleConfig = {
+  fallbackMaxWords: 5,
+  fallbackMaxBytes: 40,
+  maxTitleBytes: 80,
+}
 
 /** Skill bundle config forwarded to the registry, local provider, and model-facing consumer. */
 export interface SkillConfig {
@@ -60,7 +67,8 @@ export interface GoalConfig {
  * bridge, simply omits it), `persona` and `toolOrder` to the system-prompt
  * plugin (the deployment's persona section and the explicit model-facing tool
  * order), the `tools` object to the tool registry (its presentation `mode`),
- * `dshHome` to bash environment and local skill discovery, `skills` to the
+ * `dshHome` to bash environment and local skill discovery, `sessionTitle` to
+ * the fallback title service, `skills` to the
  * skill registry/local provider/tool consumer, `workspaceContext` to the
  * workspace-context loader, `llmRetry` to the bounded request-recovery policy,
  * and `toolBash`/`toolTasks` to the model-facing tool plugins this bundle owns.
@@ -84,6 +92,8 @@ export interface Config {
   tools?: ToolsConfig
   /** DeepSeek Harness home directory shared by shell context and local skill discovery. */
   dshHome?: string
+  /** Deterministic fallback and accepted-title limits; omission uses the bundle's example policy. */
+  sessionTitle?: SessionTitleConfig
   /** Workspace-context loader controls with an explicit byte budget; set `false` for hermetic prompts. */
   workspaceContext: workspaceContext.Config | false
   /** Skill registry, local provider, and model-facing consumer config. */
@@ -105,6 +115,10 @@ export const SkillConfigSchema: z<SkillConfig> = z.object({
   local: SkillLocal.Config,
   tool: toolSkill.Config,
 })
+
+/** The session-title config schema with the shared bundle's overridable example limits. */
+export const SessionTitleConfigSchema: z<SessionTitleConfig> = SessionTitleService.Config
+  .default(EXAMPLE_SESSION_TITLE_CONFIG)
 
 /** The bash-tool config schema exported for app packages that forward `toolBash`. */
 export const ToolBashConfigSchema: z<toolBash.Config> = toolBash.Config
@@ -128,13 +142,14 @@ export const Config = z.intersect([
   z.object({
     tools: ToolRegistry.Config,
     dshHome: z.string(),
+    sessionTitle: SessionTitleConfigSchema,
     skills: SkillConfigSchema,
     workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
     toolBash: ToolBashConfigSchema,
     toolTasks: z.union([z.const(false), ToolTasksConfigSchema]),
     goals: z.union([z.const(false), GoalConfigSchema]),
     llmRetry: LlmRetryConfigSchema,
-  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'goals' | 'llmRetry'>>,
+  }) as unknown as z<Pick<Config, 'tools' | 'dshHome' | 'sessionTitle' | 'skills' | 'workspaceContext' | 'toolBash' | 'toolTasks' | 'goals' | 'llmRetry'>>,
 ]) as unknown as z<Config>
 
 /**
@@ -149,6 +164,7 @@ export function pickSpineConfig(config: Omit<Config, 'agents'>): Omit<Config, 'a
     ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
     ...config.tools !== undefined ? { tools: config.tools } : {},
     ...config.dshHome !== undefined ? { dshHome: config.dshHome } : {},
+    ...config.sessionTitle !== undefined ? { sessionTitle: config.sessionTitle } : {},
     workspaceContext: config.workspaceContext,
     ...config.skills !== undefined ? { skills: config.skills } : {},
     ...config.toolBash !== undefined ? { toolBash: config.toolBash } : {},
@@ -179,11 +195,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(Timer)
   ctx.plugin(LlmService)
   ctx.plugin(SessionStore)
-  ctx.plugin(SessionTitleService, {
-    fallbackMaxWords: 5,
-    fallbackMaxBytes: 40,
-    maxTitleBytes: 80,
-  })
+  ctx.plugin(SessionTitleService, config.sessionTitle ?? EXAMPLE_SESSION_TITLE_CONFIG)
   // Owner schemas resolve defaults; forward toolOrder only when explicitly set.
   ctx.plugin(SystemPrompt, {
     persona: config.persona ?? '',

@@ -39,7 +39,7 @@ Agent status (per agent):
 
 Model requests (on `llm/stream`):
 
-- **a loop-built request is exactly what the log reconstructs** — a frozen request with a live `sessionId` (the loop-built marker; hand-built one-shots like compaction's summarize are unfrozen and skipped) must carry frozen `messages` deep-equal to the derivation over the log prefix strictly before the in-flight step's `step/start` (rebuilt through a FRESH `Session`, so the live cache cannot vouch for itself — and boundary-correct: content logged after `step/start` legitimately belongs to the next request), and every non-content field must equal the latest logged `request/header` (see [the reconstructability Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)). Registered with `prepend: true` so a short-circuiting `llm/stream` listener (the replay adapter) cannot silence it; prepend orders it against append-registered listeners only — correctness rests on the seq-bounded rebuild, never listener timing.
+- **a loop-built request is exactly what the log reconstructs** — a request carrying dsh-agent-loop's process-local identity must have a frozen envelope, live `sessionId`, frozen `messages` deep-equal to the derivation over the log prefix strictly before the in-flight step's `step/start` (rebuilt through a FRESH `Session`, so the live cache cannot vouch for itself — and boundary-correct: content logged after `step/start` legitimately belongs to the next request), and every non-content field must equal the latest logged `request/header` (see [the reconstructability Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)). Frozen auxiliary calls remain outside this loop-only equation. Registered with `prepend: true` so a short-circuiting `llm/stream` listener (the replay adapter) cannot silence it; prepend orders it against append-registered listeners only — correctness rests on the seq-bounded rebuild, never listener timing.
 
 On any violation it throws `InvariantError` (`code: 'INVARIANT'`).
 
@@ -61,5 +61,5 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **The request-reconstructability assertion covers loop-built requests only** — hand-built one-shots (e.g. compaction's summarize call) carry no live `sessionId` marker and are skipped.
+- **The request-reconstructability assertion covers loop-built requests only** — hand-built and auxiliary calls carry no process-local loop marker and are skipped even when they are immutable or session-associated.
 - **Merge-extended event families get no family-specific assertions** — `compact/*` lock pairing and `hook/*` invoked/result pairing are not checked here; only the core turn/step/chunk/tool-result contract is.
