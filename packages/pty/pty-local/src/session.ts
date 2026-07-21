@@ -148,6 +148,7 @@ export class LocalPtySession implements PtyBackendSession {
   private activeTimer: NodeJS.Timeout | undefined
   private activeAbort: (() => void) | undefined
   private promptSeen = false
+  private initializing = false
   private lastOutputAt = Date.now()
   private closePromise: Promise<void> | undefined
 
@@ -171,13 +172,19 @@ export class LocalPtySession implements PtyBackendSession {
   /**
    * Capture startup output through the same readiness contract as later sends.
    * @param signal - optional cancellation while the shell reaches its first prompt.
-   * @returns Resolves after startup readiness; rejects if the shell exits.
+   * @returns Resolves after startup readiness; rejects on exit or readiness timeout.
    */
   async initialize(signal?: AbortSignal): Promise<void> {
-    const operation = this.startSend({ text: '', submit: false, ...signal !== undefined ? { signal } : {} })
-    const result = await operation.done
-    if (result.waitReason === 'session_exit') throw new Error('PTY shell exited during startup')
-    this.motd = result.viewport
+    this.initializing = true
+    try {
+      const operation = this.startSend({ text: '', submit: false, ...signal !== undefined ? { signal } : {} })
+      const result = await operation.done
+      if (result.waitReason === 'session_exit') throw new Error('PTY shell exited during startup')
+      if (result.waitReason === 'timeout') throw new Error('PTY shell did not reach readiness before startup timeout')
+      this.motd = result.viewport
+    } finally {
+      this.initializing = false
+    }
   }
 
   startSend(request: PtySendRequest): PtySendOperation {
@@ -289,14 +296,15 @@ export class LocalPtySession implements PtyBackendSession {
       return
     }
     const elapsed = Date.now() - operation.startedAt
-    if (elapsed >= this.config.exactProbeAfterMs) {
+    const startupHasOutput = !this.initializing || this.scrollback.snapshot().text.length > 0
+    if (startupHasOutput && elapsed >= this.config.exactProbeAfterMs) {
       const pgid = this.inspector.foregroundPgid(this.pid)
       if (pgid !== undefined && this.inspector.isStdinWaiting(pgid)) {
         this.settleActive('stdin_read')
         return
       }
     }
-    if (Date.now() - this.lastOutputAt >= this.config.idleSilenceMs) {
+    if (startupHasOutput && Date.now() - this.lastOutputAt >= this.config.idleSilenceMs) {
       this.settleActive('inferred_idle')
       return
     }

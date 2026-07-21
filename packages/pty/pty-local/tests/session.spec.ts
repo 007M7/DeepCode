@@ -219,6 +219,25 @@ describe('LocalPtySession readiness and output', () => {
     expect(cancellable.cancel()).toBe(true)
     await expect(cancellable.done).rejects.toThrow('write failed')
   })
+
+  it('does not treat zero-output startup silence as readiness and fails on startup timeout', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal.asPty(), new FakeInspector(), config())
+    let settled = false
+    const initializing = session.initialize().then(() => { settled = true })
+    await vi.advanceTimersByTimeAsync(60)
+    expect(settled).toBe(false)
+    terminal.emitData('\x1b]133;D;0\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    await initializing
+
+    const timeoutTerminal = new FakeTerminal()
+    const timeout = new LocalPtySession(timeoutTerminal.asPty(), new FakeInspector(), config())
+    const timedOut = expect(timeout.initialize()).rejects.toThrow('startup timeout')
+    await vi.advanceTimersByTimeAsync(100)
+    await timedOut
+  })
 })
 
 describe('LocalPtySession bounds, signals, and teardown', () => {
