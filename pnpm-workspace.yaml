@@ -31,6 +31,8 @@ allowBuilds:
   '@google/genai': false
   protobufjs: false
   node-addon-require-builtin: false
+  # Persistent PTY backend: compiles/downloads the reviewed native forkpty addon.
+  node-pty: true
 
 # The Landlock launcher family is our own sibling-repo release, consumed
 # fresh (hours old at each coordinated bump) — the release-age quarantine

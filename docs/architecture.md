@@ -1,6 +1,6 @@
 # DeepSeek Harness Architecture
 
-The **DeepSeek Harness SDK** builds agent harnesses on Cordis. The principle is simple: **everything is a plugin**. The shipped loop is one plugin, not a privileged kernel.
+The **DeepSeek Harness SDK** builds agent harnesses on Cordis; **everything, including the shipped loop, is a plugin**.
 
 ## Overview
 
@@ -26,6 +26,7 @@ A harness is one [Cordis](cordis-primer.md) context. Packages add services (`ctx
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | singleton replay-aware request/surface pressure |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
+| `ctx.pty` | [`pty/`](../packages/pty/README.md) | owner-scoped persistent terminal sessions |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
@@ -151,7 +152,7 @@ Streaming uses raw chunks (`block-start` through `finish`) and `BlockAssembler`.
 
 A swappable capability usually splits into **interface / implementation / consumer**: the interface owns its `ctx` key and events, an implementation registers a backend, and a consumer exposes model behavior through tools or prompts. Bash is the reference; the [capability graph](capability-seams.md) shows every family.
 
-Some seams bend the template deliberately: LLM combines interface and consumer because adapters implement it; filesystem wraps provider primitives with policy; web keeps search/fetch provider registries behind one service; skills and subagents use named providers. Subagents spawn fresh, fork a completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
+Exceptions combine layers deliberately: LLM joins interface and consumer; filesystem wraps providers with policy; web unifies search/fetch registries; skills and subagents use named providers. Subagents spawn fresh, fork a completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
 
 `dsh-workspace-context` composes baselines on `agent/session-prefix` and appends `ctx.fs`-discovered nested changes on `tools/post-execute`; its [decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md) records isolation. `dsh-paths` owns shared paths.
 
@@ -168,6 +169,7 @@ New behavior should attach to a documented extension point; changing the shipped
 | Add a model provider | register an adapter on `ctx.llm` |
 | Add a model-facing capability | register a tool on `ctx.tools`; schemas flow into prompt assembly |
 | Add command execution | implement and register a `ctx.bash` backend |
+| Add persistent terminal execution | register a `ctx.pty` backend and `dsh-tool-pty` |
 | Add a long-running/background capability | register the work on `ctx.tasks`; the generic `task_*` tools collect/stop it |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |
 | Confine spawned processes | a `ctx.sandbox` backend; consumers wrap their argv before spawning |

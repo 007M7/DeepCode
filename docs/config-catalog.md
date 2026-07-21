@@ -624,6 +624,44 @@ Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMod
 
 Source: [`packages/ui/permission/src/index.ts:83`](../packages/ui/permission/src/index.ts)
 
+## `@deepseek-ai/dsh-pty-local`
+
+Requires: `pty` · `sandbox` · `sandboxPolicy`
+
+```ts config-catalog
+/** Public plugin configuration. */
+export interface Config {
+  /** Backend registry type (default: `shell`). */
+  backendType?: string
+  /** Interactive shell executable (default: `/bin/bash`). */
+  shellPath?: string
+  /** Shell arguments (default: `--noprofile --norc -i`). */
+  shellArgs?: string[]
+  /** Terminal rows. */
+  rows?: number
+  /** Terminal columns. */
+  cols?: number
+  /** Maximum retained logical lines. */
+  scrollbackLines?: number
+  /** Maximum retained UTF-8 bytes. */
+  scrollbackMaxBytes?: number
+  /** Maximum bytes returned by one read or settled viewport. */
+  maxReadBytes?: number
+  /** Readiness polling interval. */
+  pollIntervalMs?: number
+  /** Delay before Linux exact syscall probes. */
+  exactProbeAfterMs?: number
+  /** Silence duration that yields `inferred_idle`. */
+  idleSilenceMs?: number
+  /** Absolute send wait bound. */
+  timeoutMs?: number
+  /** Grace before teardown escalates to `SIGKILL`. */
+  disposeGraceMs?: number
+}
+```
+
+Source: [`packages/pty/pty-local/src/config.ts:6`](../packages/pty/pty-local/src/config.ts)
+
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 
 ```ts config-catalog
@@ -1502,11 +1540,13 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))
 - `@deepseek-ai/dsh-invariants` — requires `sessions` ([`packages/support/invariants/src/index.ts`](../packages/support/invariants/src/index.ts))
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
+- `@deepseek-ai/dsh-pty` ([`packages/pty/pty/src/index.ts`](../packages/pty/pty/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-tasks` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
+- `@deepseek-ai/dsh-tool-pty` — requires `pty` · `tools` · `systemPrompt` ([`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
 

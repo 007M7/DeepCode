@@ -63,6 +63,10 @@
       "link": "/zh-CN/api/harness/permission"
     },
     {
+      "text": "ctx.pty",
+      "link": "/zh-CN/api/harness/pty"
+    },
+    {
       "text": "ctx.sandbox",
       "link": "/zh-CN/api/harness/sandbox"
     },

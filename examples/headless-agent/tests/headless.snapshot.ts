@@ -15,6 +15,10 @@ const scenarioDir = join(snapshotsDir, 'advanced-toolchain')
 const sessionFixture = join(scenarioDir, 'session.jsonl')
 const streamExpected = join(scenarioDir, 'stream-json.expected.jsonl')
 const configPath = fileURLToPath(new URL('../advanced.cordis.snapshot.yml', import.meta.url))
+const ptyScenarioDir = join(snapshotsDir, 'pty-tools')
+const ptySessionFixture = join(ptyScenarioDir, 'session.jsonl')
+const ptyStreamExpected = join(ptyScenarioDir, 'stream-json.expected.jsonl')
+const ptyConfigPath = fileURLToPath(new URL('../pty.cordis.snapshot.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
@@ -136,5 +140,44 @@ describe('headless stream-json snapshots', () => {
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
     if (refreshing) await writeFile(streamExpected, normalized)
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('replays persistent PTY tools through the one-shot app', async () => {
+    const input = JSON.parse(await readFile(join(ptyScenarioDir, 'input.json'), 'utf8')) as {
+      steps?: { op?: unknown; text?: unknown }[]
+    }
+    const prompt = input.steps?.find(step => step.op === 'prompt')?.text
+    if (typeof prompt !== 'string') throw new Error('pty-tools input has no prompt step')
+    const expectedSession = await readFile(ptySessionFixture, 'utf8')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'headless persistent PTY snapshot',
+      tempDirPrefix: 'headless-snapshot-pty-',
+      binScript,
+      configPath: ptyConfigPath,
+      binArgs: ['--config', ptyConfigPath, '--output-format', 'stream-json', prompt],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        DSH_SNAPSHOT_FILE: ptySessionFixture,
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        expect(logs).toHaveLength(1)
+        const actual = logs[0]
+        if (actual === undefined) throw new Error('headless PTY snapshot did not persist its session')
+        const actualContext = contextFromLogs([actual.content])
+        const expectedContext = contextFromLogs([expectedSession])
+        expect(scrubRequestHeaders(normalizeSessionLog(actual.content, actualContext)))
+          .toBe(scrubRequestHeaders(normalizeSessionLog(expectedSession, expectedContext)))
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(ptyStreamExpected, normalized)
+    expect(normalized).toBe(await readFile(ptyStreamExpected, 'utf8'))
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

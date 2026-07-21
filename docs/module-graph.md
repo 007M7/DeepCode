@@ -134,6 +134,11 @@ flowchart TD
   subgraph group_mcp["packages/mcp"]
     pkg_mcp_client["mcp-client"]
   end
+  subgraph group_pty["packages/pty"]
+    pkg_pty["pty"]
+    pkg_pty_local["pty-local"]
+    pkg_tool_pty["tool-pty"]
+  end
   subgraph group_sandbox["packages/sandbox"]
     pkg_sandbox["sandbox"]
     pkg_sandbox_local["sandbox-local"]
@@ -230,6 +235,8 @@ flowchart TD
   pkg_user_interaction --> pkg_agent
   pkg_user_interaction --> pkg_llm
   pkg_time_context --> pkg_agent
+  pkg_pty --> pkg_agent
+  pkg_pty --> pkg_brand
   pkg_tasks --> pkg_agent
   pkg_tasks --> pkg_brand
   pkg_tasks --> pkg_session
@@ -258,6 +265,9 @@ flowchart TD
   pkg_permission --> pkg_sandbox_policy
   pkg_permission --> pkg_session
   pkg_permission --> pkg_user_approval
+  pkg_pty_local --> pkg_pty
+  pkg_pty_local --> pkg_sandbox
+  pkg_pty_local --> pkg_sandbox_policy
   pkg_agent_loop --> pkg_agent
   pkg_agent_loop --> pkg_llm
   pkg_agent_loop --> pkg_scope
@@ -353,6 +363,12 @@ flowchart TD
   pkg_repeat_tool_guard --> pkg_tools
   pkg_mcp_client --> pkg_llm
   pkg_mcp_client --> pkg_tools
+  pkg_tool_pty --> pkg_agent
+  pkg_tool_pty --> pkg_llm
+  pkg_tool_pty --> pkg_pty
+  pkg_tool_pty --> pkg_system_prompt
+  pkg_tool_pty --> pkg_tasks
+  pkg_tool_pty --> pkg_tools
   pkg_tool_tasks --> pkg_agent
   pkg_tool_tasks --> pkg_system_prompt
   pkg_tool_tasks --> pkg_tasks
@@ -514,12 +530,14 @@ flowchart TD
 | [`user-approval`](../packages/ui/user-approval) | `ui` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`user-interaction`](../packages/ui/user-interaction) | `ui` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm) |
 | [`time-context`](../packages/context/time-context) | `context` | [`agent`](../packages/core/agent) |
+| [`pty`](../packages/pty/pty) | `pty` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand) |
 | [`tasks`](../packages/tasks/tasks) | `tasks` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`workflow`](../packages/workflow/workflow) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`tools`](../packages/core/tools) | `core` | [`agent`](../packages/core/agent), [`code-runtime`](../packages/code-runtime/code-runtime), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`user-approval`](../packages/ui/user-approval) |
 | [`bash-sandbox`](../packages/bash/bash-sandbox) | `bash` | [`bash`](../packages/bash/bash), [`bash-local`](../packages/bash/bash-local), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy) |
 | [`fs-sandbox`](../packages/fs/fs-sandbox) | `fs` | [`fs`](../packages/fs/fs), [`fs-local`](../packages/fs/fs-local), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy) |
 | [`permission`](../packages/ui/permission) | `ui` | [`bash`](../packages/bash/bash), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`user-approval`](../packages/ui/user-approval) |
+| [`pty-local`](../packages/pty/pty-local) | `pty` | [`pty`](../packages/pty/pty), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy) |
 | [`agent-loop`](../packages/core/agent-loop) | `core` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-bash`](../packages/bash/tool-bash) | `bash` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`home`](../packages/util/home), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session-persistence`](../packages/session-persistence/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval) |
 | [`tool-fs`](../packages/fs/tool-fs) | `fs` | [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/ui/user-approval) |
@@ -538,6 +556,7 @@ flowchart TD
 | [`workspace-context`](../packages/context/workspace-context) | `context` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`paths`](../packages/util/paths), [`session`](../packages/core/session), [`tools`](../packages/core/tools) |
 | [`repeat-tool-guard`](../packages/guard/repeat-tool-guard) | `guard` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools) |
 | [`mcp-client`](../packages/mcp/mcp-client) | `mcp` | [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
+| [`tool-pty`](../packages/pty/tool-pty) | `pty` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`pty`](../packages/pty/pty), [`system-prompt`](../packages/core/system-prompt), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools) |
 | [`tool-tasks`](../packages/tasks/tool-tasks) | `tasks` | [`agent`](../packages/core/agent), [`system-prompt`](../packages/core/system-prompt), [`tasks`](../packages/tasks/tasks), [`tools`](../packages/core/tools) |
 | [`tool-workflow`](../packages/workflow/tool-workflow) | `workflow` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
 | [`subagent-acp`](../packages/subagent/subagent-acp) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subagent-subprocess`](../packages/subagent/subagent-subprocess) |

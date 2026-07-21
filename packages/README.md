@@ -11,6 +11,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`core/`](core/README.md) | Product API spine: sessions, prompts, tools, agent services, and the concrete loop | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: the executor seam, a local impl, and the model-facing tool | Product — stable surface |
+| [`pty/`](pty/README.md) | Persistent PTY capability family: owner-scoped sessions, local implementation, and model-facing tools | Product — stable surface |
 | [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: the abstract runtime seam for model-written programs + a worker-thread backend | Product — stable surface |
 | [`sandbox/`](sandbox/README.md) | Process-confinement seam; bwrap/Landlock/Seatbelt backends | Product — stable surface |
 | [`fs/`](fs/README.md) | Filesystem capability family: the abstract seam, a local impl, the model-facing file tools, and the bash-backed discovery tools | Product — stable surface |

@@ -21,6 +21,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect`, `cordis_mount`, `cordis_unmount` | `ctx.tools` | `tool/call`, `tool/result`, `live plugin-tree mutations (mount/unmount)` | - | Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes. |
 | `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after successful file operations`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. |
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.bash`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
+| `@deepseek-ai/dsh-tool-pty` | `pty_kill`, `pty_list`, `pty_read`, `pty_send`, `pty_signal`, `pty_spawn` | `ctx.tools`, `ctx.pty`, `ctx.systemPrompt`, `ctx.tasks at call time for run_in_background` | `tool/call`, `tool/result` | - | The six PTY tools are opt-in and complement one-shot bash/filesystem tools. `pty_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema. |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.skills` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/repl-agent/cordis.yml` and `examples/acp-agent/cordis.yml`. |
 | `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`. |
@@ -392,6 +393,169 @@ Search file contents with a ripgrep regular expression. Returns matching lines w
 Source: [`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
 
 glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.
+
+## `@deepseek-ai/dsh-tool-pty`
+
+### `pty_kill`
+
+Close one persistent PTY and wait until its captured owned process tree is gone.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "PTY session id."
+    }
+  },
+  "required": [
+    "sessionId"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `pty_list`
+
+List persistent PTY sessions owned by the current agent.
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `pty_read`
+
+Read a bounded page of retained output from a persistent PTY without sending input.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "PTY session id."
+    },
+    "offset": {
+      "type": "number",
+      "description": "Newest-relative line offset (default 0)."
+    },
+    "count": {
+      "type": "number",
+      "description": "Requested line count (default 500; backend caps apply)."
+    }
+  },
+  "required": [
+    "sessionId"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `pty_send`
+
+Send text to a persistent PTY. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit. Background mode returns a task id for task_output/task_kill.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "PTY session id returned by pty_spawn or pty_list."
+    },
+    "text": {
+      "type": "string",
+      "description": "UTF-8 text to write to the terminal."
+    },
+    "submit": {
+      "type": "boolean",
+      "description": "Submit Enter after text (default true). Set false for control characters or incomplete REPL input."
+    },
+    "run_in_background": {
+      "type": "boolean",
+      "description": "Return a task id immediately; collect with task_output or stop with task_kill."
+    }
+  },
+  "required": [
+    "sessionId",
+    "text"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `pty_signal`
+
+Send an allowed signal to the current foreground process group of a persistent PTY.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "PTY session id."
+    },
+    "signal": {
+      "type": "string",
+      "description": "Signal to deliver. Shell-targeted SIGKILL is rejected; use pty_kill.",
+      "enum": [
+        "SIGINT",
+        "SIGTERM",
+        "SIGKILL",
+        "SIGTSTP",
+        "SIGHUP"
+      ]
+    }
+  },
+  "required": [
+    "sessionId",
+    "signal"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `pty_spawn`
+
+Create a persistent, owner-isolated PTY session from a registered backend type. Use this for shell or REPL state that must survive across tool calls.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "description": "Registered PTY backend type, usually \"shell\"."
+    },
+    "name": {
+      "type": "string",
+      "description": "Optional owner-local display name such as \"main\" or \"gdb\"."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Initial working directory. Defaults to the deployment workspace root."
+    }
+  },
+  "required": [
+    "type"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+The six PTY tools are opt-in and complement one-shot bash/filesystem tools. `pty_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema.
 
 ## `@deepseek-ai/dsh-tool-skill`
 
