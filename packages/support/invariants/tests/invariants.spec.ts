@@ -933,6 +933,7 @@ describe('scoped-dispatch invariants', () => {
       'agent/disposed': [agent],
       'agent/status': [agent, 'idle'],
       'agent/queued': [agent, [], { source: { kind: 'user' }, steering: false }],
+      'agent/cancel-requested': [agent, { kind: 'user' }],
       'agent/session-start': [agent, 'startup'],
       'agent/pre-step': [agent, 1, 1, signal],
       'agent/post-step': [agent, 1, 1, signal],
@@ -948,6 +949,7 @@ describe('scoped-dispatch invariants', () => {
     const rows: [string, unknown[]][] = [
       ...Object.entries(agentRows),
       ['approval/request', [{ agent, toolName: 'echo' }, () => Promise.resolve('unavailable')]],
+      ['goal/changed', [agent, { operation: 'create', ref: { id: 'goal-a', revision: 1 } }]],
       ['tools/pre-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ kind: 'allow' })]],
       ['tools/execute', [{ callId: 'c', name: 't', arguments: {}, agent }, () => Promise.resolve({ content: [], isError: false })]],
       ['tools/post-execute', [{ callId: 'c', name: 't', arguments: {}, agent }, { content: [], isError: false }, () => Promise.resolve({ kind: 'accept' })]],

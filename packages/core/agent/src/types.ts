@@ -25,7 +25,10 @@ export interface AgentOptions {
   model?: string
 }
 
-/** Message options; an omitted source resolves to `{ kind: 'user' }`, so plugins must label their own content. */
+/**
+ * Message options. An omitted source attests direct human input as `{ kind: 'user' }`
+ * and may authorize policy consumers, so non-human producers must label their content.
+ */
 export interface SendOptions {
   source?: MessageSource
 }
@@ -130,10 +133,11 @@ export interface Agent {
 
   /**
    * Clear all queued and steering work, including items waiting to start, and
-   * abort the active turn. The first cause wins for that turn, and `whenIdle()`
-   * resolves after cancellation reaches quiescence. Omission means
-   * `{ kind: 'user' }`. Idle cancellation is a no-op and does not arm a later
-   * cancel. The active turn snapshots and freezes the typed cause.
+   * abort the active turn. An effective call first emits
+   * `agent/cancel-requested` with the resolved typed cause. The first cause wins
+   * for the active turn, and `whenIdle()` resolves after cancellation reaches
+   * quiescence. Omission means `{ kind: 'user' }`. Idle cancellation is a no-op
+   * and does not arm later work. The active turn snapshots and freezes the cause.
    * @param cause - the stable caller intent carried by the current turn signal.
    */
   cancel(cause?: AgentCancelCause): void
@@ -185,6 +189,16 @@ declare module 'cordis' {
      * @mode emit
      */
     'agent/queued'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
+    /**
+     * Effective broad cancellation was requested, before queued/steering work
+     * is cleared or the active turn is aborted. This observe-only notification
+     * cannot veto cancellation; listener failures are contained.
+     * @param agent - the agent whose current work is being cancelled.
+     * @param cause - resolved typed cancellation cause, including the default.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode emit
+     */
+    'agent/cancel-requested'(this: Scoped<Agent>, agent: Agent, cause: AgentCancelCause): void
 
     // ---- session lifecycle (emit) ----
     /**

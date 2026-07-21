@@ -325,16 +325,20 @@ export class ReactLoopAgent implements Agent {
   }
 
   cancel(cause?: AgentCancelCause): void {
-    const reason = cause ?? { kind: 'user' }
+    const resolvedCause = cause ?? { kind: 'user' }
     const cancellation = this.turnCancellation
     const preRun = cancellation === undefined && (this.#inbox.hasQueued || this.#inbox.hasSteering)
-    if (preRun) {
-      this.preRunCancelled = true
+    if (cancellation !== undefined || preRun) {
+      if (preRun) this.preRunCancelled = true
+      // Coordination consumers must update their own state before this call
+      // clears the inbox or aborts the turn. Notification failures are
+      // contained by the fused dispatcher and cannot veto cancellation.
+      agentEvents(this.loopCtx, this).emit('agent/cancel-requested', resolvedCause)
     }
     // Clear work already present before abort observers run. A replacement
     // synchronously enqueued by an observer belongs to the next turn.
     this.#inbox.clear()
-    cancellation?.request(reason)
+    cancellation?.request(resolvedCause)
   }
 
   /**

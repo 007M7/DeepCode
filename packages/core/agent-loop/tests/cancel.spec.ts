@@ -6,7 +6,7 @@
  * @module dsh-agent-loop/tests/cancel
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -54,6 +54,33 @@ function userTexts(agent: Agent): string[] {
 }
 
 describe('Agent.cancel()', () => {
+  it('notifies every observer before clearing work and contains listener failures', async () => {
+    const adapter = new MockAdapter([textResponse('must remain unused')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('cancel-event'), { provider: 'mock', model: 'mock' })
+    const warned = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const seen: string[] = []
+    ctx.on('agent/cancel-requested', (subject, cause) => {
+      if (subject !== agent) return
+      seen.push(`first:${cause.kind}`)
+      subject.send([{ type: 'text', text: 'queued by cancel observer' }])
+      throw new Error('observer failed')
+    })
+    ctx.on('agent/cancel-requested', (subject, cause) => {
+      if (subject === agent) seen.push(`second:${cause.kind}`)
+    })
+
+    send(agent, 'drop me')
+    agent.cancel()
+    await new Promise(resolve => setTimeout(resolve, 30))
+    agent.cancel({ kind: 'parent' })
+
+    expect(seen).toEqual(['first:user', 'second:user'])
+    expect(userTexts(agent)).toEqual([])
+    expect(adapter.requests).toHaveLength(0)
+    expect(warned).toHaveBeenCalledWith(expect.stringContaining('agent/cancel-requested'))
+  })
+
   it('cancel() on an idle agent with nothing queued is a no-op; the next prompt runs (F2 leak guard)', async () => {
     const adapter = new MockAdapter([textResponse('reply')])
     const ctx = await harness(adapter)
@@ -519,7 +546,7 @@ describe('Agent.cancel()', () => {
     dispose()
 
     // No step streamed (the model never ran), and the turn ended aborted with
-    // the CALLER's reason — the marker carries `cancel(reason)` through even
+    // the caller's cause — the marker carries `cancel(cause)` through even
     // though no AbortController observed it in this window.
     expect(streamed).toBe(false)
     expect(reasons).toEqual([{ kind: 'aborted' }])
@@ -786,7 +813,11 @@ describe('Agent.cancel()', () => {
     const flushStarted = Promise.withResolvers<undefined>()
     const releaseFlush = Promise.withResolvers<undefined>()
     let abortedDuringTurnEnd: boolean | undefined
+    let cancelNotifications = 0
 
+    ctx.on('agent/cancel-requested', (subject) => {
+      if (subject === agent) cancelNotifications += 1
+    })
     ctx.on('session/event', (session, event) => {
       if (session !== agent.session || event.type !== 'turn/end') return
       const signal = adapter.requests[0]?.signal
@@ -809,6 +840,7 @@ describe('Agent.cancel()', () => {
 
     expect(abortedDuringTurnEnd).toBe(false)
     expect(signal.aborted).toBe(false)
+    expect(cancelNotifications).toBe(0)
     expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
       data: { reason: { kind: 'completed' } },
     })

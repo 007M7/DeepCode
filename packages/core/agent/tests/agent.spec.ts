@@ -188,6 +188,7 @@ describe('agentEvents()', () => {
 describe('explicit cancellation helpers', () => {
   it('exposes the closed typed cancellation cause at the Agent seam', () => {
     expectTypeOf<Parameters<Agent['cancel']>[0]>().toEqualTypeOf<AgentCancelCause | undefined>()
+    expectTypeOf<Parameters<Events['agent/cancel-requested']>[1]>().toEqualTypeOf<AgentCancelCause>()
   })
 
   it('reads only supported reasons from an explicit signal', () => {
