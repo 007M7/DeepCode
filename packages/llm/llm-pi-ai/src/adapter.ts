@@ -15,7 +15,7 @@ import type {
   SimpleStreamOptions,
 } from '@earendil-works/pi-ai'
 import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelContext, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { resolveProfiles } from './config.ts'
 import type { PiAiProviderProfile, ResolvedPiAiProviderProfile } from './config.ts'
@@ -87,6 +87,22 @@ export class PiAiAdapter extends LlmAdapter {
       id: model.id,
       name: model.name,
     })))
+  }
+
+  override resolveModelContext(
+    provider: string,
+    model: string,
+  ): Promise<LlmModelContext | undefined> {
+    const profile = this.profiles.get(provider)
+    if (profile === undefined) {
+      return Promise.reject(new LlmError(
+        `pi-ai adapter does not own provider "${provider}"`,
+        'NO_ADAPTER',
+      ))
+    }
+    return Promise.resolve().then(() => ({
+      contextWindow: resolveModel(profile, model).contextWindow,
+    }))
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {

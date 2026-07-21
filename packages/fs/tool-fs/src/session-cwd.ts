@@ -28,6 +28,6 @@ export function sessionResolveOptions(exec: ToolExecution): { cwd?: string; sign
   const cwd = sessionCwd(exec)
   return {
     ...cwd !== undefined ? { cwd } : {},
-    ...exec.signal !== undefined ? { signal: exec.signal } : {},
+    signal: exec.signal,
   }
 }

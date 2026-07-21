@@ -193,7 +193,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
       order.push('agent/created')
     })
     ctx.on('agent/session-start', (agent) => {
-      expect(() => { agent.cancel('now live') }).not.toThrow()
+      expect(() => { agent.cancel({ kind: 'user' }) }).not.toThrow()
       order.push('agent/session-start')
     })
 
@@ -425,7 +425,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
       seed,
       meta: { cwd: '/w', parentSession: SessionId('parent-sess'), seedLength: seed.length, delegationDepth: 1 },
     })
-    await ctx1.parallel('session/flush', forked)
+    await ctx1.sessions.flush(forked)
     await ctx1.fiber.dispose()
 
     // Lifecycle 2: resume it; the parentSession + seedLength header survives the
@@ -485,7 +485,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     a1.send([{ type: 'text', text: 'q' }], { source: { kind: 'user' } })
     await waitForIdle(ctx1, a1)
     a1.inject([{ type: 'text', text: 'background task 42 finished' }], { source: { kind: 'plugin', plugin: 'tool-bash' } })
-    await ctx1.parallel('session/flush', a1.session)
+    await ctx1.sessions.flush(a1.session)
     await ctx1.fiber.dispose()
 
     // Lifecycle 2: resume; the injected context is still in the derived history.

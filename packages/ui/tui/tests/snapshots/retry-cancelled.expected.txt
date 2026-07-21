@@ -34,15 +34,15 @@ buffer
 11| " Retrying model request (1/2) in 1000ms: temporary transport failure                            "
   style 1-67 fg=yellow
 12| <blank>
-13| " cancelled during retry delay                                                                   "
-  style 1-28 fg=yellow
+13| " Turn cancelled.                                                                                "
+  style 1-15 fg=yellow
 14| "────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-95 dim
 15| "                                                                                                "
   style 1-1 inverse
 16| "────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-95 dim
-17| "/workspace/project  ↑0 ↓0                                      idle  reasoning:on  tools:compact"
+17| "/workspace/project  ↑0 ↓0             0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
   style 0-24 dim
-  style 63-95 dim
+  style 38-95 dim
 18-35| <blank>

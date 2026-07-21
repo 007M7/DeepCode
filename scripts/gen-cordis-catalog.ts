@@ -28,6 +28,7 @@ const FENCE = 'ts cordis-catalog'
  */
 export const LINK_MAP: Record<string, string> = {
   Agent: 'core.md',
+  AgentCancelCause: 'core.md',
   AgentOptions: 'core.md',
   AgentStatus: 'core.md',
   ContentBlock: 'core.md',
@@ -35,6 +36,7 @@ export const LINK_MAP: Record<string, string> = {
   ContinuationStop: 'core.md',
   GenerateOptions: 'core.md',
   LlmCallConfig: 'core.md',
+  LlmModelContext: 'core.md',
   LlmFailure: 'llm-streaming.md',
   LlmModelInfo: 'core.md',
   LlmProviderInfo: 'core.md',
@@ -127,6 +129,7 @@ export const LINK_MAP: Record<string, string> = {
   PreToolDecision: 'tools.md',
   ToolDefinition: 'tools.md',
   ToolExecution: 'tools.md',
+  ToolDispatchExecution: 'tools.md',
   ToolExecutionInput: 'tools.md',
   ToolExecutionMode: 'tools.md',
   ToolExecutionResult: 'tools.md',
@@ -168,6 +171,8 @@ const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   BashEnvVariableInfo: 'service-local metadata type is owned by packages/bash/tool-bash/src/index.ts',
   CompactAgentContext: 'compaction service input is owned by packages/compact/compact/src/index.ts',
   CreateAgentOptions: 'agent creation contract is owned by packages/core/agent/README.md',
+  InvariantInstaller: 'service-local contribution contract is owned by packages/support/invariants/README.md',
+  InvariantRegistration: 'service-local lifecycle handle is owned by packages/support/invariants/README.md',
   PresetOption: 'deployment menu metadata is owned by packages/ui/permission/README.md',
   PresetSpec: 'deployment preset composition is owned by packages/ui/permission/README.md',
   PromptAssembly: 'assembly result is owned by packages/core/system-prompt/README.md',

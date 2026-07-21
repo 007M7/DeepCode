@@ -137,6 +137,7 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
     throw new Error(`seed event at index ${index} has an invalid event envelope`)
   }
   assertCurrentLlmShape(event, index)
+  assertCurrentTurnEndShape(event, index)
 }
 
 /** Reject pre-provider request headers and assistant messages at the seed/load boundary. */
@@ -151,6 +152,22 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
   }
   if (event['type'] === 'assistant/message' && !hasProviderModel(record['provenance'])) {
     throw new Error(`seed assistant/message at index ${index} lacks provider/model provenance`)
+  }
+}
+
+/** Reject legacy aborted outcomes that persisted caller-owned reason detail. */
+function assertCurrentTurnEndShape(event: Record<string, unknown>, index: number): void {
+  if (event['type'] !== 'turn/end') return
+  const data = event['data']
+  /* v8 ignore next -- this migration recognizes only the legacy object shape; format-wide payload validation is separate. */
+  if (typeof data !== 'object' || data === null) return
+  const reason = (data as Record<string, unknown>)['reason']
+  /* v8 ignore next -- non-object reasons cannot carry the legacy aborted detail this migration removes. */
+  if (typeof reason !== 'object' || reason === null || Array.isArray(reason)) return
+  const record = reason as Record<string, unknown>
+  if (record['kind'] === 'aborted'
+    && (Object.keys(record).length !== 1 || !Object.hasOwn(record, 'kind'))) {
+    throw new Error(`seed turn/end at index ${index} uses unsupported reason-bearing aborted format`)
   }
 }
 

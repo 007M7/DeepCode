@@ -49,36 +49,19 @@ buffer
 19| "▌ Unsafe description \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                  "
   style 0-0 fg=green
   style 2-65 fg=bright-black
-20| "▌ /unsafe/\\x1b╭ Unsafe header \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m ─────────╮              "
+20| "▌ /unsafe/\\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                             "
   style 0-0 fg=green
-  style 2-13 dim
-  style 14-85 fg=bright-blue
-21| "▌ Unsafe outpu│ Unsafe question \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m        │              "
+  style 2-54 dim
+21| "▌ Unsafe output \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                       "
   style 0-0 fg=green
-  style 14-14 fg=bright-blue
-  style 16-76 bold
-  style 85-85 fg=bright-blue
-22| "▌ [signal SIG\\│                                                                      │              "
+22| "▌ [signal SIG\\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m]                                         "
   style 0-0 fg=green
-  style 2-13 fg=red
-  style 14-14 fg=bright-blue
-  style 85-85 fg=bright-blue
-23| "▌             │ › ● Unsafe option \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m — Un │              "
+  style 2-58 fg=red
+23| "▌ "
   style 0-0 fg=green
-  style 14-14 fg=bright-blue
-  style 16-16 fg=bright-blue inverse
-  style 17-17 inverse
-  style 18-18 fg=bright-blue inverse
-  style 19-78 inverse
-  style 79-83 fg=bright-black inverse
-  style 85-85 fg=bright-blue
-24| "              │ ↑↓ navigate • Enter select • C custom • Esc cancel                   │              "
-  style 14-14 fg=bright-blue
-  style 16-65 dim
-  style 85-85 fg=bright-blue
-25| " Context · uns╰──────────────────────────────────────────────────────────────────────╯              "
-  style 1-13 dim
-  style 14-85 fg=bright-blue
+24| <blank>
+25| " Context · unsafe-\\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                     "
+  style 1-62 dim
 26| " Unsafe context \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                       "
   style 1-60 fg=bright-black
 27| <blank>
@@ -88,19 +71,17 @@ buffer
 30| " Unsafe turn error \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                    "
   style 1-63 fg=red
 31| <blank>
-32| " Unsafe live error \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                    "
-  style 1-63 fg=red
-33| <blank>
-34| "Plan"
-  style 0-3 fg=bright-blue bold
-35| "  ● Unsafe todo \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m"
-  style 2-2 fg=yellow
-36| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-37| "                                                                                                    "
-  style 1-1 inverse
-38| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-39| "/workspace/project  ↑0 ↓0                                          idle  reasoning:on  tools:compact"
+32| "                                                                                                    "
+33| "  Question 1/1 (1 unanswered) · Unsafe header \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m         "
+  style 2-90 fg=bright-black
+34| "  Unsafe question \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                     "
+35| "                                                                                                    "
+36| "  › 1. Unsafe option \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m Unsafe detail \\x1b]2;snapshot-c  "
+  style 2-65 fg=bright-blue bold
+  style 67-97 fg=bright-black
+37| "  Tab custom answer • ↑/↓ navigate • Enter submit • Esc interrupt                                   "
+  style 2-64 dim
+38| "                                                                                                    "
+39| "/workspace/project  ↑0 ↓0                 0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
   style 0-24 dim
-  style 67-99 dim
+  style 42-99 dim

@@ -1,0 +1,52 @@
+terminal 92x32 buffer=normal length=32 base=0 viewport=0
+lifecycle started=1 stopped=0 progress=inactive
+title "DSH snapshot"
+cursor hidden column=0 viewportRow=31 bufferRow=31
+buffer
+0| "╭──────────────────────────────────────────────────────────────────────────────────────────╮"
+  style 0-91 fg=bright-blue
+1| "│ DEEPSEEK HARNESS                                                                         │"
+  style 0-0 fg=bright-blue
+  style 2-9 fg=bright-blue bold
+  style 11-17 bold
+  style 91-91 fg=bright-blue
+2| "│ Snapshot agent ready.                                                                    │"
+  style 0-0 fg=bright-blue
+  style 2-22 fg=bright-black
+  style 91-91 fg=bright-blue
+3| "│ deepseek-v4-flash  •  main-session                                                       │"
+  style 0-0 fg=bright-blue
+  style 2-35 dim
+  style 91-91 fg=bright-blue
+4| "╰──────────────────────────────────────────────────────────────────────────────────────────╯"
+  style 0-91 fg=bright-blue
+5| "────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-91 dim
+6| "                                                                                            "
+  style 1-1 inverse
+7| "────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-91 dim
+8| "/workspace/project  ↑0 ↓0         0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
+  style 0-24 dim
+  style 34-91 dim
+9-12| <blank>
+13| "          ╭ Select model ────────────────────────────────────────────────────────╮          "
+  style 10-81 fg=bright-blue
+14| "          │ → deepseek/deepseek-v4-flash      DeepSeek V4 Flash — current        │          "
+  style 10-10 fg=bright-blue
+  style 12-72 fg=bright-blue inverse
+  style 81-81 fg=bright-blue
+15| "          │   deepseek/deepseek-v4-pro        DeepSeek V4 Pro                    │          "
+  style 10-10 fg=bright-blue
+  style 38-60 fg=bright-black
+  style 81-81 fg=bright-blue
+16| "          │                                                                      │          "
+  style 10-10 fg=bright-blue
+  style 81-81 fg=bright-blue
+17| "          │ ↑/↓ navigate • Enter select • Esc cancel                             │          "
+  style 10-10 fg=bright-blue
+  style 12-51 dim
+  style 81-81 fg=bright-blue
+18| "          ╰──────────────────────────────────────────────────────────────────────╯          "
+  style 10-81 fg=bright-blue
+19-31| <blank>

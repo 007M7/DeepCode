@@ -16,9 +16,11 @@ import { join } from 'node:path'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+
+const testToolSignal = new AbortController().signal
 
 const hasRg = spawnSync('rg', ['--version'], { encoding: 'utf8' }).status === 0
 
@@ -28,6 +30,7 @@ let ctx: Context
 let callCounter = 0
 function call(name: string, args: unknown, agentObj?: object) {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId(`it-${++callCounter}`),
     name,
     arguments: args,
@@ -165,8 +168,8 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
     })
   })
 
-  describe('bash-start infrastructure failures stay in the SEARCH_* taxonomy', () => {
-    it('a pre-aborted exec.signal (real executor rejects before spawn) is SEARCH_ABORTED', async () => {
+  describe('pre-dispatch cancellation and bash-start failures', () => {
+    it('a pre-aborted registry call is ABORTED_BEFORE_DISPATCH', async () => {
       const controller = new AbortController()
       controller.abort()
       const result = await ctx.tools.execute({
@@ -176,7 +179,7 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
         signal: controller.signal,
       })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_ABORTED' })
+      expect(result.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
     })
 
     it('an unusable session cwd (spawn failure) is SEARCH_FAILED', async () => {

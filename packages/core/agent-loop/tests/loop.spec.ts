@@ -231,7 +231,7 @@ describe('agent loop', () => {
       assembly.variables['model'] = 'mock'
       return next()
     })
-    ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, config, _signal, _next) => {
       return { ...config, provider: 'mock', model: 'mock' }
     })
     const agent = ctx.agentLoop.create(SessionId('a-late-model'), {})
@@ -527,7 +527,7 @@ describe('agent loop', () => {
 
     let steps = 0
     ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
-    ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, next) => {
+    ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, _signal, next) => {
       if (steps < 3) return { action: 'continue' as const }
       return next()
     })
@@ -566,7 +566,7 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, config, _signal, _next) => {
       // The seed is frozen — config is not a mutable per-call knob; a switch
       // is proposed by returning a replacement, and the loop logs it.
       expect(Object.isFrozen(config)).toBe(true)
@@ -692,10 +692,10 @@ describe('agent loop', () => {
     // wait until the stream is hanging, then cancel
     await new Promise(r => setTimeout(r, 30))
     expect(agent.status).toBe('running')
-    agent.cancel('user interrupt')
+    agent.cancel({ kind: 'user' })
     await waitForIdle(ctx, agent)
 
-    expect(reasons).toEqual([{ kind: 'aborted', reason: 'user interrupt' }])
+    expect(reasons).toEqual([{ kind: 'aborted' }])
   })
 
   it('surfaces max-tokens as the turn-end reason when the last step is cut off', async () => {
@@ -732,7 +732,7 @@ describe('agent loop', () => {
     ctx.on('session/event', (_session, event) => { if (event.type === 'step/end') steps++ })
     // Force exactly one continuation (step 1 → step 2), then defer to default
     // (step 2 is a plain stop with no tool calls → stops).
-    ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, next) => {
+    ctx.on('agent/turn-continuation', async (_agent, _turn, _defaultDecision, _signal, next) => {
       if (steps < 2) return { action: 'continue' as const }
       return next()
     })
@@ -884,7 +884,7 @@ describe('agent loop', () => {
     ]])
     const ctx = await harness(adapter)
     let stepResults = 0
-    ctx.on('agent/step-result', async (_agent, _turn, _step, message, next) => {
+    ctx.on('agent/step-result', async (_agent, _turn, _step, message, _signal, next) => {
       stepResults += 1
       expect(message.content).toEqual([{ type: 'text', text: 'partial text' }])
       return next()

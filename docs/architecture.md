@@ -4,9 +4,9 @@ The **DeepSeek Harness SDK** builds on Cordis: **everything is a plugin**, inclu
 
 ## Overview
 
-Harnesses are [Cordis](cordis-primer.md) contexts. Packages contribute services (`ctx.llm`, `ctx.tools`, `ctx.sessions`), typed events (`agent/request`, `tools/pre-execute`, `session/event`), and disposable prompts, tools, providers, adapters, and listeners.
+Harnesses are [Cordis](cordis-primer.md) contexts whose packages contribute disposable services, events, and registrations.
 
-`packages/core/` groups the default flow; capabilities remain plugins.
+`packages/core/` groups the default agent flow.
 
 ### Default Services
 
@@ -30,16 +30,18 @@ Harnesses are [Cordis](cordis-primer.md) contexts. Packages contribute services 
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
 | `ctx.fs` | [`fs/`](../packages/fs/README.md) | filesystem provider primitives and policy events |
+| `ctx.lsp` | [`lsp/`](../packages/lsp/README.md) | semantic navigation registry |
 | `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry and progressive disclosure |
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
 | `ctx.compact`, `ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | summary compaction; optional model-free result pruning |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
-| `ctx.modes` | [`mode/`](../packages/mode/README.md) | session modes |
-| `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
+| `ctx.modes` | [`mode/`](../packages/mode/README.md) | logged session modes |
+| `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background tasks + generic `task_*` control tools |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable storage for session logs |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred logical-corpus exact reads and relationship traces |
+| `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | package-owned runtime checks registry |
 
 ## Event
 
@@ -117,9 +119,9 @@ Pruning precedes summaries; overflow retries require durable progress. Bounded t
 
 ### Failure Boundaries
 
-The turn is the containment boundary. Adapter failures close the step, entering `agent/request-error` with the exact `Error`, `LlmFailure`, and retry history. Retry opens a numbered step; success clears history; exhaustion stores the failure on `turn/end`. Failed chunks commit no message or tool.
+The turn contains failures. Adapter failures close the step before `agent/request-error`, which receives exact `Error`, `LlmFailure`, and history. Retry opens another step; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit no message/tool.
 
-Other failures use `agent/error`. Cancellation beats recovery; undispatched calls get synthetic `ABORTED` results. Effective `cancel()` emits `agent/cancel-requested` before queue clearing or abort; observers cannot veto it, and idle calls emit nothing. Disposal awaits quiescence.
+Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched model tool calls get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. One turn signal retires before `turn/end`. Effective `cancel()` emits its typed `user | parent` cause before clearing queues and aborting; observers cannot veto, idle calls emit nothing, and durability records only `aborted`. Disposal awaits quiescence before unregistering ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
 Every session event is turn-enclosed. Reloading preserves an interrupted tail and closes it with a synthetic `interrupted` turn end. Failures after durable turn close report only through `agent/error` because no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
 
@@ -129,7 +131,7 @@ Every session event is turn-enclosed. Reloading preserves an interrupted tail an
 
 ### Agent Scope
 
-Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, receive only that agent's dispatches, and unwind with it; async effects such as background-task cleanup are awaited. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. Typed resolvers derive carrier checks from merged `Events` signatures and `scopeTarget` ([semantic gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition controls](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs drivers inside `ctx.agents.withInitiator()`; private orchestration derives `agent.session`; other identities stay explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
+Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, receive only that agent's dispatches, and unwind with it; async effects such as background-task cleanup are awaited. `CreateAgentOptions.setup(agentCtx)` composes the scope before publication. Typed resolvers derive carrier checks from merged `Events` signatures and `scopeTarget` ([semantic gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition controls](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs drivers inside `ctx.agents.withInitiator()`; private orchestration derives `agent.session`; turn, step, signal, cwd, and authority stay explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
 
 ## State
 
@@ -137,7 +139,7 @@ Every live agent owns a scoped `agent.ctx`. Its registrations shadow globals, re
 
 The session log is the source of truth. `deriveMessages()` projects session events into the `Message[]` sent to the model; raw `assistant/chunk` events stay in the log for replay and UI fidelity. Replay, fork, resume, transcript rendering, telemetry, and persistence all derive from the same event stream.
 
-**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, headers by folding `request/header` — and dev invariants assert this ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, and headers by folding `request/header` — and the package-owned `dsh-agent-loop/invariant` can assert it through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
 Durability is a plugin concern. Backends buffer synchronous `session/event` notifications; the loop awaits a turn-end checkpoint. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, with SQLite under one contract.
 

@@ -4,6 +4,8 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import { cordisHarness, waitForIdle } from './harness.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
+const testToolSignal = new AbortController().signal
+
 /**
  * With-key smoke for the self-referential cordis tools: a REAL model drives
  * cordis_mount/cordis_unmount against the live context the test observes.
@@ -51,6 +53,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     // the mounted listener through the tagged sandbox console.
     expect(taggedCalls(log).length).toBeGreaterThan(0)
     const mid = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('verify-mounted'), name: 'cordis_inspect', arguments: { what: 'dynamic' },
     })
     expect(resultText(mid)).toContain('dyn-')
@@ -59,6 +62,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     await waitForIdle(ctx, agent)
 
     const after = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('verify-unmounted'), name: 'cordis_inspect', arguments: { what: 'dynamic' },
     })
     expect(resultText(after)).toContain('(no dynamic plugins mounted)')
@@ -148,6 +152,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     expect(ctx.get('shouter')).toBeUndefined()
     expect(ctx.tools.get('shout_text')).toBeUndefined()
     const after = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('verify-parked'), name: 'cordis_inspect', arguments: { what: 'dynamic' },
     })
     expect(resultText(after)).toContain('waiting for: shouter')

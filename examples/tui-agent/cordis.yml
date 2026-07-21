@@ -31,7 +31,7 @@
     welcome: 'TUI agent ready. Give it a coding task.'
     ui:
       showReasoning: true
-      maxToolOutputLines: 12
+      maxToolOutputLines: 6
     persona: |
       You are a coding agent powered by the {{model}} model.
 

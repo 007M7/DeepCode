@@ -63,11 +63,11 @@ async function boundary(ctx: Context, agent: Agent & { session: Session }, type:
   const events = agentEvents(ctx, agent)
   if (type === 'turn/start') {
     agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    await events.waterfall('agent/prompt-submit', [{ type: 'text', text: 'boundary probe' }], { kind: 'user' }, () => Promise.resolve({ kind: 'allow' }))
+    await events.waterfall('agent/prompt-submit', [{ type: 'text', text: 'boundary probe' }], { kind: 'user' }, new AbortController().signal, () => Promise.resolve({ kind: 'allow' }))
     return
   }
   agent.session.append('step/end', { turn: 1, step: 1 })
-  await events.waterfall('agent/turn-continuation', 1, { action: 'stop' }, () => Promise.resolve({ action: 'stop' }))
+  await events.waterfall('agent/turn-continuation', 1, { action: 'stop' }, new AbortController().signal, () => Promise.resolve({ action: 'stop' }))
 }
 
 /** Dispatch the closed-step recovery seam with one terminal decision. */
@@ -116,6 +116,7 @@ function execute(ctx: Context, name: string, agent?: Agent) {
     callId: CallId(`call-${++callCounter}`),
     name,
     arguments: {},
+    signal: new AbortController().signal,
     ...agent ? { agent } : {},
   })
 }
@@ -586,6 +587,7 @@ describe('exit_plan_mode', () => {
       callId: CallId(`call-exit-${++callCounter}`),
       name: EXIT_PLAN_MODE,
       arguments: { plan },
+      signal: new AbortController().signal,
       ...agent ? { agent } : {},
     })
   }
@@ -690,6 +692,7 @@ describe('exit_plan_mode', () => {
       callId: CallId(`call-exit-${++callCounter}`),
       name: RUN_CODE_NAME,
       arguments: { code: `return await tools.${EXIT_PLAN_MODE}({ plan: ${JSON.stringify(plan)} })` },
+      signal: new AbortController().signal,
       agent,
     })
 

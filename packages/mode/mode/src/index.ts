@@ -231,7 +231,7 @@ export class ModesService extends Service {
     // flushed mode therefore lands before the prompt that should reflect it.
     // Contained: policy must never block a prompt or turn; onBoundary can throw
     // only when session.append rejects during teardown.
-    ctx.on('agent/prompt-submit', (agent, _content, _source, next) => {
+    ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) => {
       try {
         this.onBoundary(agent)
       } catch (error) {
@@ -239,7 +239,7 @@ export class ModesService extends Service {
       }
       return next()
     })
-    ctx.on('agent/turn-continuation', (agent, _turn, _decision, next) => {
+    ctx.on('agent/turn-continuation', (agent, _turn, _decision, _signal, next) => {
       try {
         this.onBoundary(agent)
       } catch (error) {
@@ -335,7 +335,7 @@ export class ModesService extends Service {
             ],
           }],
           agent,
-          ...exec.signal ? { signal: exec.signal } : {},
+          signal: exec.signal,
         })
         const reviewItems = answer.answers.filter(entry => entry.id === 'plan-review')
         const item = reviewItems.length === 1 ? reviewItems[0] : undefined

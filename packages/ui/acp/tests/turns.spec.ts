@@ -325,6 +325,10 @@ describe('acp bridge — turn outcomes', () => {
     await harness.client.cancel({ sessionId })
     const res = await promptDone
     expect(res.stopReason).toBe('cancelled')
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+    await agent.whenIdle()
+    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
   })
 
   it('cancel right after prompt settles cancelled and leaves the agent idle, no leaked turn', async () => {
