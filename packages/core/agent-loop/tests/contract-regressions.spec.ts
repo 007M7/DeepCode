@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, ContentBlock, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, ContentBlock, MessageSource, ProviderRequestId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool, type PostToolDecision } from '@deepseek-ai/dsh-tools'
@@ -523,7 +523,7 @@ describe('steering from late extension points is never stranded', () => {
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('one more thing')
   })
 
-  it('steer() from a step/end session-event listener forces a SAME-TURN next step (/goal pattern)', async () => {
+  it('steer() from a step/end session-event listener forces a SAME-TURN next step', async () => {
     // Assert the same-turn shape; content alone cannot distinguish re-enqueue.
     const adapter = new MockAdapter([
       textResponse('no tools, would stop'),
@@ -632,15 +632,20 @@ describe('plugin exceptions are contained', () => {
     expect(agent.status).toBe('idle')
   })
 
-  it('a rejecting session/flush listener is reported but does not kill the agent', async () => {
+  it('a rejecting first-turn flush settles before the queued tail starts', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    let rejectedOnce = false
-    ctx.on('session/flush', async () => {
-      if (!rejectedOnce) {
-        rejectedOnce = true
+    const firstFlush = Promise.withResolvers<undefined>()
+    const releaseFirstFlush = Promise.withResolvers<undefined>()
+    let flushes = 0
+    ctx.on('session/flush', async (session) => {
+      if (session !== agent.session) return
+      flushes += 1
+      if (flushes === 1) {
+        firstFlush.resolve(undefined)
+        await releaseFirstFlush.promise
         throw new Error('disk full')
       }
     })
@@ -648,18 +653,25 @@ describe('plugin exceptions are contained', () => {
     const errors: Error[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
 
+    const idle = waitForIdle(ctx, agent)
     send(agent, 'first')
-    await waitForIdle(ctx, agent)
-    expect(errors.map(e => e.message)).toEqual(['disk full'])
-
     send(agent, 'second')
-    await waitForIdle(ctx, agent)
+
+    await firstFlush.promise
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+
+    releaseFirstFlush.resolve(undefined)
+    await idle
+
+    expect(errors.map(e => e.message)).toEqual(['disk full'])
     expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
   })
 })
 
 describe('disposed status is part of the agent/status contract', () => {
-  it('disposing the fiber emits agent/status(disposed) and ends the turn with reason disposed', async () => {
+  it('disposing the fiber ends the active turn and never starts its queued tail', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
 
@@ -675,11 +687,19 @@ describe('disposed status is part of the agent/status contract', () => {
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
+    send(agent, 'queued tail')
     await fiber.dispose()
     await driverDone(agent)
 
     expect(statuses).toEqual(['running', 'disposed'])
     expect(reasons).toEqual([{ kind: 'disposed' }])
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    const messages = agent.session.events
+      .filter(event => event.type === 'user/message')
+      .flatMap(event => event.data.content)
+      .flatMap(block => block.type === 'text' ? [block.text] : [])
+    expect(messages).toEqual(['go'])
+    expect(adapter.requests).toHaveLength(1)
   })
 
   it('a throwing agent/status listener cannot break disposal or leak the registry entry', async () => {
@@ -925,8 +945,15 @@ describe('discriminated SessionEvent narrows without casts', () => {
 describe('a finish-error stream chunk ends the turn as error, not completed', () => {
   it('translates finish {kind:error} into a turn error with a logged error event', async () => {
     // A finish-error chunk must not produce a completed assistant turn.
+    const failure = {
+      message: 'provider 401',
+      code: 'AUTH',
+      status: 401,
+      providerRetryAfterMs: 2_000,
+      requestId: ProviderRequestId('finish-request-1'),
+    }
     const errorStream: StreamChunk[] = [
-      { type: 'finish', reason: { kind: 'error', message: 'provider 401', code: 'AUTH' } },
+      { type: 'finish', reason: { kind: 'error', failure } },
     ]
     const adapter = new MockAdapter([errorStream])
     const ctx = await harness(adapter)
@@ -938,20 +965,20 @@ describe('a finish-error stream chunk ends the turn as error, not completed', ()
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(reasons).toEqual([{ kind: 'error', step: 1, message: 'provider 401', code: 'AUTH' }])
+    expect(reasons).toEqual([{ kind: 'error', step: 1, failure }])
 
     const events = [...agent.session.events]
     // The durable failure lives on turn/end.reason (with the failing step), not
     // a standalone error event.
     const turnEnd = events.find(event => event.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'error', step: 1, message: 'provider 401', code: 'AUTH' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'error', step: 1, failure })
     // A failed step must not synthesize an assistant message.
     expect(events.some(event => event.type === 'assistant/message')).toBe(false)
   })
 
   it('translates finish {kind:aborted} into a turn error coded ABORTED', async () => {
     const abortedStream: StreamChunk[] = [
-      { type: 'finish', reason: { kind: 'aborted' } },
+      { type: 'finish', reason: { kind: 'aborted', failure: { message: 'model stream aborted', code: 'ABORTED' } } },
     ]
     const adapter = new MockAdapter([abortedStream])
     const ctx = await harness(adapter)
@@ -963,13 +990,13 @@ describe('a finish-error stream chunk ends the turn as error, not completed', ()
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(reasons).toEqual([{ kind: 'error', step: 1, message: 'model stream aborted', code: 'ABORTED' }])
+    expect(reasons).toEqual([{ kind: 'error', step: 1, failure: { message: 'model stream aborted', code: 'ABORTED' } }])
     expect([...agent.session.events].some(event => event.type === 'assistant/message')).toBe(false)
   })
 
   it('handles a finish error without a code (code key omitted)', async () => {
     const errorStream: StreamChunk[] = [
-      { type: 'finish', reason: { kind: 'error', message: 'codeless failure' } },
+      { type: 'finish', reason: { kind: 'error', failure: { message: 'codeless failure', code: 'UNKNOWN' } } },
     ]
     const adapter = new MockAdapter([errorStream])
     const ctx = await harness(adapter)
@@ -981,7 +1008,7 @@ describe('a finish-error stream chunk ends the turn as error, not completed', ()
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(reasons).toEqual([{ kind: 'error', step: 1, message: 'codeless failure' }])
+    expect(reasons).toEqual([{ kind: 'error', step: 1, failure: { message: 'codeless failure', code: 'UNKNOWN' } }])
   })
 })
 
@@ -1101,7 +1128,7 @@ describe('turn and step boundary recovery', () => {
   })
 
   it('a one-shot turn/end validation failure preserves the earlier turn error on retry', async () => {
-    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider failed' } }]
+    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider failed', code: 'UNKNOWN' } } }]
     const adapter = new MockAdapter([errorStream])
     const ctx = await balancedHarness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-turnend-veto'), { provider: 'mock', model: 'mock' })
@@ -1131,7 +1158,7 @@ describe('turn and step boundary recovery', () => {
     const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toMatchObject({
       kind: 'error',
-      message: 'provider failed',
+      failure: { message: 'provider failed', code: 'UNKNOWN' },
     })
   })
 
@@ -1167,7 +1194,7 @@ describe('turn and step boundary recovery', () => {
 
   it('a throwing agent/error listener during a step-error path still balances the turn, loop survives', async () => {
     // Listener failure cannot interrupt error finalization or the next turn.
-    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider 500' } }]
+    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider 500', code: 'SERVER' } } }]
     const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
     const ctx = await balancedHarness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-errorlistener'), { provider: 'mock', model: 'mock' })
@@ -1183,7 +1210,11 @@ describe('turn and step boundary recovery', () => {
     expect(c.turnStart).toBe(1)
     expect(c.turnEnd).toBe(1)
     expect(c.stepStart).toBe(c.stepEnd)
-    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toMatchObject({ kind: 'error', step: 1, message: 'provider 500' })
+    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toMatchObject({
+      kind: 'error',
+      step: 1,
+      failure: { message: 'provider 500', code: 'SERVER' },
+    })
 
     // loop survives: a second turn runs to completion (invariants oracle would
     // throw on its turn/start if turn 1 had been left open).
@@ -1328,7 +1359,7 @@ describe('turn and step boundary recovery', () => {
 
   it('a throwing step/end observer cannot interrupt error finalization', async () => {
     // Observer failure after step/end commit cannot interrupt turn finalization.
-    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider 500' } }]
+    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider 500', code: 'SERVER' } } }]
     const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-stependthrow'), { provider: 'mock', model: 'mock' })

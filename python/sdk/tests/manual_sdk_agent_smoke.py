@@ -83,15 +83,12 @@ def run_smoke(repo_root: Path, keep_sessions: bool) -> None:
         assert request["authorization"] == "Bearer sdk-smoke-key"
         assert request["body"]["model"] == "sdk-smoke-model"
 
-        jsonl_files = sorted(session_root.rglob("*.jsonl"))
-        assert jsonl_files, f"no jsonl sessions were written under {session_root}"
-        print("session_jsonl_files:")
+        jsonl_files = sorted(session_root.rglob("*.jsonl.zstd"))
+        assert jsonl_files, f"no Zstandard JSONL sessions were written under {session_root}"
+        print("session_jsonl_zstd_files:")
         for path in jsonl_files:
             print(f"  {path} bytes={path.stat().st_size}")
-            with path.open("r", encoding="utf-8") as handle:
-                first_line = handle.readline().strip()
-            if first_line:
-                print(f"  first_line={first_line[:500]}")
+            assert path.read_bytes().startswith(bytes.fromhex("28b52ffd"))
     finally:
         server.shutdown()
         server.server_close()

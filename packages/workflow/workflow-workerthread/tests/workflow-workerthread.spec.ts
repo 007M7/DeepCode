@@ -6,7 +6,7 @@ import Loader from '@cordisjs/plugin-loader'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentCapabilities, SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import type { WorkflowMeta, WorkflowResult, WorkflowResultInfo, WorkflowRunInfo } from '@deepseek-ai/dsh-workflow'
+import type { WorkflowMeta, WorkflowResult, WorkflowResultInfo, WorkflowRun, WorkflowRunInfo } from '@deepseek-ai/dsh-workflow'
 import * as workerEngineModule from '../src/index.ts'
 import WorkerWorkflowEngine, { type Config } from '../src/index.ts'
 import { HostToWorkerType, WorkerToHostType } from '../src/protocol.ts'
@@ -232,6 +232,97 @@ describe('dsh-workflow-workerthread', () => {
       expect(provider.runs[0]!.request.agentOptions).toEqual({ provider: 'openai' })
     })
 
+    it('a start-request provider override selects every child without changing the engine default', async () => {
+      const { ctx, parent, provider } = await setup()
+      const selected = new StubProvider('selected', () => text('selected reply'))
+      ctx.subagents.registerProvider(selected)
+
+      const overridden = ctx.workflows.start({
+        ...scripted("return await agent('route this run')"),
+        parent,
+        subagentProvider: 'selected',
+      })
+      expect((await overridden.result).value).toBe('selected reply')
+      await overridden.dispose()
+      expect(selected.runs).toHaveLength(1)
+      expect(provider.runs).toHaveLength(0)
+
+      const ordinary = await run(ctx, parent, scripted("return await agent('use the default')"))
+      expect(ordinary.value).toBe('stub reply')
+      expect(provider.runs).toHaveLength(1)
+    })
+
+    it('rejects invalid start-request provider routes before publishing a run', async () => {
+      const { ctx, parent } = await setup()
+      let starts = 0
+      ctx.on('workflow/start', () => { starts += 1 })
+      const messages: string[] = []
+      for (const subagentProvider of ['', 'missing']) {
+        let run: WorkflowRun | undefined
+        let thrown: unknown
+        try {
+          run = ctx.workflows.start({
+            ...scripted("return 'must not start'"),
+            parent,
+            subagentProvider,
+          })
+        } catch (error: unknown) {
+          thrown = error
+        }
+        await run?.dispose()
+        messages.push(thrown instanceof Error ? thrown.message : '')
+      }
+
+      expect(messages).toEqual([
+        'workflow subagentProvider must be a non-empty normalized string',
+        'no subagent provider registered for "missing"',
+      ])
+      expect(starts).toBe(0)
+    })
+
+    it('rejects invalid per-run total-agent caps before publishing a run', async () => {
+      const { ctx, parent } = await setup({ config: { maxTotalAgents: 2 } })
+      let starts = 0
+      ctx.on('workflow/start', () => { starts += 1 })
+      const errors: unknown[] = []
+      for (const maxTotalAgents of [0, 1.5, Number.NaN, 3]) {
+        try {
+          const handle = ctx.workflows.start({
+            ...scripted("return 'must not start'"),
+            parent,
+            maxTotalAgents,
+          })
+          await handle.dispose()
+        } catch (error: unknown) {
+          errors.push(error)
+        }
+      }
+
+      expect(errors.slice(0, 3)).toEqual(Array(3).fill(expect.objectContaining({
+        code: 'INVALID_ARGUMENT',
+        message: 'workflow maxTotalAgents must be a positive safe integer',
+      })))
+      expect(errors[3]).toMatchObject({
+        code: 'INVALID_ARGUMENT',
+        message: 'workflow maxTotalAgents 3 exceeds the engine ceiling 2',
+      })
+      expect(starts).toBe(0)
+    })
+
+    it('enforces a per-run total-agent cap below the engine ceiling', async () => {
+      const { ctx, parent } = await setup({ config: { maxTotalAgents: 2 } })
+      const handle = ctx.workflows.start({
+        ...scripted("await agent('first'); await agent('second'); return 'unreachable'"),
+        parent,
+        maxTotalAgents: 1,
+      })
+      const result = await handle.result
+      expect(result.stopReason).toBe('error')
+      expect(result.agentsStarted).toBe(1)
+      expect(result.error).toContain('total agent cap (1)')
+      await handle.dispose()
+    })
+
     it('a fatal hook error inside the worker kills the script and reports the error', async () => {
       const { ctx, parent } = await setup()
       const result = await run(ctx, parent, scripted("return await parallel([() => agent('x', { isolation: 'worktree' })])"))
@@ -239,11 +330,18 @@ describe('dsh-workflow-workerthread', () => {
       expect(result.error).toContain('"isolation" is deferred')
     })
 
-    it('a provider start failure crosses back as a fatal AGENT_START error', async () => {
+    it('rejects an unregistered configured provider before publishing a run', async () => {
       const { ctx, parent } = await setup({ config: { provider: 'nonexistent' } })
-      const result = await run(ctx, parent, scripted("return await pipeline([1], () => agent('p'))"))
-      expect(result.stopReason).toBe('error')
-      expect(result.error).toContain('agent() could not start a child')
+      let thrown: unknown
+      try {
+        ctx.workflows.start({ ...scripted("return 'must not start'"), parent })
+      } catch (error: unknown) {
+        thrown = error
+      }
+      expect(thrown).toMatchObject({
+        code: 'AGENT_START',
+        message: 'no subagent provider registered for "nonexistent"',
+      })
     })
 
     it('waits for async provider start before announcing a result that settled early', async () => {

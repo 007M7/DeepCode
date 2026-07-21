@@ -139,6 +139,21 @@ describe('normalizeSessionLog', () => {
     expect(out).not.toContain('/tmp/dsh-acp-snapshot-spill')
   })
 
+  it('scrubs scenario-owned snapshot spill paths', () => {
+    const ev = JSON.stringify({
+      type: 'tool/result', seq: 2, time: 5,
+      data: {
+        content: [{
+          type: 'text',
+          text: 'Full formatted result stored at: /tmp/dsh-acp-snap-012345678/session-c22bc3f1d2af/8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.',
+        }],
+      },
+    })
+    const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
+    expect(out).toContain('{{spillLocator:bash.txt}}')
+    expect(out).not.toContain('/tmp/dsh-acp-snap-012345678')
+  })
+
   it('scrubs the session id in the header', () => {
     const out = normalizeSessionLog(`${header({ id: ctx.sessionIds[0] })}\n`, ctx)
     expect(out).toContain('{{sessionId}}')

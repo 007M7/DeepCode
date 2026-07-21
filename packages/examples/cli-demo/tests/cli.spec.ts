@@ -70,6 +70,15 @@ function toolResponse(usage: TokenUsage): StreamChunk[] {
   ]
 }
 
+function failedResponse(usage: TokenUsage): StreamChunk[] {
+  return [
+    { type: 'block-start', index: 0, blockType: 'text' },
+    { type: 'text-delta', index: 0, text: 'discarded' },
+    { type: 'usage', usage },
+    { type: 'finish', reason: { kind: 'error', failure: { message: 'temporary', code: 'SERVER' } } },
+  ]
+}
+
 function reasoningResponse(text: string): StreamChunk[] {
   return [
     { type: 'block-start', index: 0, blockType: 'reasoning' },
@@ -98,6 +107,7 @@ async function harness(script: readonly ScriptEntry[]): Promise<Harness> {
     persistenceRoot: root,
     skills: { local: { dshHome: join(skillHome, '.dsh'), agentsHome: join(skillHome, '.agents') } },
     workspaceContext: false,
+    llmRetry: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
   })
   await new Promise(resolve => setTimeout(resolve, 80))
   ctx.llm.registerAdapter(['mock'], new ScriptedAdapter(script))
@@ -303,7 +313,7 @@ describe('runOneShot and executeCli', () => {
     expect(output).toEqual({ code: 0, stdout: 'final answer\n', stderr: '' })
     expect(agent.status).toBe('disposed')
     const files = await readdir(persistenceRoot, { recursive: true })
-    expect(files.some(file => file.endsWith('.jsonl'))).toBe(true)
+    expect(files.some(file => file.endsWith('.jsonl.zstd'))).toBe(true)
   })
 
   it('sums usage across tool steps and selects the last text-bearing assistant message', async () => {
@@ -320,6 +330,21 @@ describe('runOneShot and executeCli', () => {
       cacheReadTokens: 6,
       cacheWriteTokens: 1,
       reasoningTokens: 6,
+    })
+  })
+
+  it('counts a failed retry attempt once even though it has no assistant message', async () => {
+    const failed = { inputTokens: 11, outputTokens: 2, cacheReadTokens: 3 }
+    const recovered = { inputTokens: 7, outputTokens: 5, reasoningTokens: 4 }
+    const { ctx } = await harness([failedResponse(failed), textResponse('done', recovered)])
+
+    const result = await runOneShot(ctx, { task: 'task' })
+
+    expect(result.usage).toEqual({
+      inputTokens: 18,
+      outputTokens: 7,
+      cacheReadTokens: 3,
+      reasoningTokens: 4,
     })
   })
 
@@ -463,6 +488,7 @@ describe('formatTurnFailure', () => {
       [{ kind: 'aborted' }, 'was aborted'],
       [{ kind: 'aborted', reason: 'stop' }, 'was aborted: stop'],
       [{ kind: 'error', step: 2, message: 'bad' }, 'failed at step 2: bad'],
+      [{ kind: 'error', step: 3, failure: { message: 'provider bad', code: 'SERVER' } }, 'failed at step 3: provider bad'],
       [{ kind: 'disposed' }, 'was disposed'],
       [{ kind: 'max-tokens' }, 'output-token limit'],
       [{ kind: 'rejected', reason: 'policy' }, 'was rejected: policy'],
