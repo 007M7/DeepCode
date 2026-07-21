@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import { serializeMessages, serializeRequest } from '@deepseek-ai/dsh-llm-deepseek'
+import { serializeMessages, serializeRequest } from '../src/serialize.ts'
 
 function request(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
-  return { model: 'deepseek-v4-flash', messages: [], ...overrides }
+  return { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [], ...overrides }
 }
 
 describe('serializeMessages', () => {
@@ -187,7 +187,7 @@ describe('serializeRequest', () => {
   })
 })
 
-describe('review fixes: assistant content shapes', () => {
+describe('assistant empty and tool-call content shapes', () => {
   it('serializes a content-less, tool-call-less assistant message as null content', () => {
     // Aborted/empty assistant turns: no text, no calls → null (the wire
     // accepts it; "" is reserved for tool-call turns per the samples).

@@ -21,6 +21,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../llm/llm-retry"
+    },
+    {
       "path": "../../core/session"
     },
     {
@@ -28,6 +31,9 @@
     },
     {
       "path": "../../core/tools"
+    },
+    {
+      "path": "../commands"
     },
     {
       "path": "../user-interaction"
@@ -39,10 +45,16 @@
       "path": "../user-approval"
     },
     {
+      "path": "../permission"
+    },
+    {
       "path": "../../sandbox/sandbox"
     },
     {
       "path": "../../bash/bash"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

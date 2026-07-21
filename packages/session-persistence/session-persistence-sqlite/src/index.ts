@@ -1,32 +1,21 @@
 /**
- * SQLite durable session-persistence backend (`@deepseek-ai/dsh-session-persistence-sqlite`).
- *
- * A SECOND {@link SessionPersistence} implementation, built to validate that the
- * abstract seam + the shared `runPersistenceContract` suite are genuinely
- * backend-agnostic: the same append-only / contiguous-seq / lazy-materialization
- * / interrupted-turn-close-on-load semantics the JSONL backend expresses over
- * file bytes, expressed here over `node:sqlite` rows. Each `SessionEvent` maps
- * 1:1 onto a row `(session_id, seq, type, time, data, source_event_seqs, surface_op)`.
- *
- * Like the JSONL backend it supplies ONLY the storage primitives (the
- * {@link PersistenceBackend} hooks below — INSERT/DELETE/SELECT inside
- * transactions); all the write-path orchestration lives in the backend-agnostic
- * {@link PersistenceCoordinator} this class composes. The four public
- * {@link SessionPersistence} methods delegate to the coordinator.
- *
+ * SQLite durable session-persistence backend. It maps each session header and
+ * event to rows, and delegates write-path orchestration to
+ * {@link PersistenceCoordinator}. It has no independent per-session artifact,
+ * so its locator returns `undefined`.
  * @module @deepseek-ai/dsh-session-persistence-sqlite
  */
 
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type StoredPrefix,
+  type PersistenceBackend, type SessionLocation, type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
-import type { Session, SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   type JournalMode, openDatabase, rowToMeta, scanRows, type EventRow, type SessionRow,
 } from './schema.ts'
@@ -46,12 +35,32 @@ function surfaceBindings(event: SessionEvent): [string | null, string | null] {
   ]
 }
 
+/**
+ * Exclusively create a missing database file with owner-only permissions.
+ * Existing files retain their modes, and errors other than `EEXIST` propagate.
+ * `DatabaseSync` reopens by path, so this does not protect confidentiality or
+ * integrity when another principal can replace the database entry in its parent
+ * directory.
+ */
+async function createDatabaseFile(path: string): Promise<void> {
+  try {
+    const handle = await open(path, 'wx', 0o600)
+    await handle.close()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
+}
+
 /** Plugin configuration. */
 export interface Config {
   /**
    * Filesystem path to the SQLite database file. The special value `:memory:`
-   * opens an in-process database (tests); a file path is created (with parent
-   * dirs) on construction.
+   * opens an in-process database (tests). On filesystems with POSIX modes,
+   * missing directories and databases are created owner-only; existing path
+   * modes are preserved. Filesystem setup errors other than an existing database
+   * fail initialization. The backend does not protect confidentiality or
+   * integrity when another principal can replace the database entry in its
+   * parent directory.
    */
   path: string
   /**
@@ -89,10 +98,8 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
-    // Open the database asynchronously (the parent directory may need creating);
-    // every hook awaits `ready` first. Opening synchronously would force a sync
-    // mkdir and block plugin apply. schemastery (static Config) has already
-    // filled `journalMode`; the cast records that runtime fact.
+    // Open asynchronously so directory creation does not block plugin apply;
+    // every storage hook awaits the same readiness promise.
     this.ready = this.openDb(config.path, (config as Required<Config>).journalMode)
     this.coordinator = new PersistenceCoordinator<number>(this.ctx, this)
   }
@@ -101,6 +108,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     if (path !== ':memory:') {
       const abs = resolve(path)
       await mkdir(dirname(abs), { recursive: true, mode: 0o700 })
+      await createDatabaseFile(abs)
       this.db = openDatabase(abs, journalMode)
     } else {
       this.db = openDatabase(path, journalMode)
@@ -108,6 +116,11 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   }
 
   // --- SessionPersistence service surface (delegated to the coordinator) ---
+
+  /** SQLite has one database, not an independent local artifact per session. */
+  locate(_meta: SessionHeader): SessionLocation | undefined {
+    return undefined
+  }
 
   create(meta: SessionHeader): Promise<void> {
     return this.coordinator.create(meta)
@@ -121,18 +134,8 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return this.coordinator.load(id)
   }
 
-  // `list` is BOTH the public service method and the PersistenceBackend hook —
-  // one method (the SELECT below). The coordinator adds no orchestration for
-  // listing, so routing it through the coordinator would just recurse. Defined
-  // once, in the "PersistenceBackend hooks" section.
-
-  /**
-   * The per-session init promises, exposed for white-box tests that await a
-   * specific session's onCreated (there is no public API to await one init).
-   */
-  get inits(): Map<Session, Promise<void>> {
-    return this.coordinator.inits
-  }
+  // One method serves both public `list` and the backend hook; delegating it to
+  // the coordinator would call this hook recursively.
 
   // --- PersistenceBackend hooks (the SQLite storage primitives) ---
 
@@ -250,14 +253,15 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
    */
   private writeRow(meta: SessionHeader): void {
     this.db.prepare(`
-      INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length, delegation_depth)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         version = excluded.version,
         created_at = excluded.created_at,
         cwd = excluded.cwd,
         parent_session = excluded.parent_session,
-        seed_length = excluded.seed_length
+        seed_length = excluded.seed_length,
+        delegation_depth = excluded.delegation_depth
     `).run(
       meta.id,
       meta.version,
@@ -265,6 +269,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       meta.cwd ?? null,
       meta.parentSession ?? null,
       meta.seedLength ?? null,
+      meta.delegationDepth ?? null,
     )
   }
 }

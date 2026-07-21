@@ -1,19 +1,11 @@
 /**
- * Local-filesystem implementation of the `ctx.fs` provider seam.
- * {@link LocalFileSystem} subclasses {@link FileSystem} and backs the seven
- * text-storage primitives with the host filesystem via
- * {@link module:@deepseek-ai/dsh-fs-local/fsio}. Path resolution uses
- * `realpath`, so the stable `targetKey` is the real file identity (two input
- * paths reaching the same file through symlinks share one key, and writes land
- * on the link target — preserving the link).
- *
- * Future sandboxed/remote/virtual backends are sibling packages implementing
- * the same interface; loading this one populates `ctx.fs`.
- *
+ * Host-filesystem implementation of `ctx.fs`. Realpath-derived target identity makes aliases
+ * share stale guards, and writes through a symlink update its target without replacing the link.
  * @module @deepseek-ai/dsh-fs-local
  */
 
 import { Context } from 'cordis'
+import { resolve } from 'node:path'
 import z from 'schemastery'
 import { FileSystem, FsError, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
@@ -21,6 +13,7 @@ import type {
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
+  FsPathInfo,
   FsTarget,
   FsWriteIntent,
   FsWriteOutcome,
@@ -30,6 +23,7 @@ import {
   listDirectory,
   normalizeLineEndings,
   probe,
+  probeNoFollow,
   readForEdit,
   readTextForDiff,
   readWholeText,
@@ -39,20 +33,6 @@ import {
   writeFileAtomic,
 } from './fsio.ts'
 import type { FsIoInternals } from './fsio.ts'
-
-export {
-  applyLiteralEdit,
-  listDirectory,
-  probe,
-  readForEdit,
-  readTextForDiff,
-  readWholeText,
-  resolveLocalTarget,
-  restoreLineEndings,
-  streamWholeText,
-  writeFileAtomic,
-} from './fsio.ts'
-export type { FsIoInternals, LineEndings, LocalDirEntry, LocalTarget, PathInfo } from './fsio.ts'
 
 /** Configuration for the local filesystem backend. */
 export interface Config {
@@ -65,7 +45,7 @@ type ResolvedConfig = Required<Config>
 /**
  * The host-filesystem backend. Reads resolve relative paths from {@link Config.cwd}
  * (a resolution default, NOT a containment boundary — see the filesystem
- * capability-seam RFC); enforce
+ * capability-seam Agent Note); enforce
  * containment with a stricter backend or a `tools/execute` permission plugin.
  */
 export class LocalFileSystem extends FileSystem {
@@ -103,14 +83,26 @@ export class LocalFileSystem extends FileSystem {
     }
   }
 
-  override async resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget> {
+  override async resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget> {
+    if (opts?.signal?.aborted) throw new FsError('resolve aborted', 'FS_ABORTED')
     const local = await resolveLocalTarget(opts?.cwd ?? this.config.cwd, path)
+    if (opts?.signal?.aborted) throw new FsError('resolve aborted', 'FS_ABORTED')
     return { targetKey: local.targetKey, displayPath: local.displayPath }
   }
 
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     if (signal?.aborted) throw new FsError('stat aborted', 'FS_ABORTED')
     const info = await probe(target.targetKey)
+    if (signal?.aborted) throw new FsError('stat aborted', 'FS_ABORTED')
+    if (!info) return undefined
+    return { version: info.version, type: info.type, size: info.size }
+  }
+
+  override async lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined> {
+    if (signal?.aborted) throw new FsError('lstat aborted', 'FS_ABORTED')
+    if (path.trim().length === 0) throw new FsError('file_path must be a non-empty string', 'FS_NOT_FOUND')
+    const info = await probeNoFollow(resolve(opts?.cwd ?? this.config.cwd, path))
+    if (signal?.aborted) throw new FsError('lstat aborted', 'FS_ABORTED')
     if (!info) return undefined
     return { version: info.version, type: info.type, size: info.size }
   }
@@ -156,18 +148,10 @@ export class LocalFileSystem extends FileSystem {
         // createIfAbsent onto an existing file: a blind overwrite — require a read first.
         throw new FsError(`cannot overwrite existing "${target.displayPath}" without reading it first`, 'FS_NOT_OBSERVED')
       }
-      // expected === undefined: unconditional create-or-overwrite (the bare
-      // provider) — no version guard, no read-first requirement. Still atomic
-      // (the per-target lock is unconditional), so the write is never torn.
+      // No expectation means an unconditional but still atomic write.
 
-      // Capture the prior text (the before/after diff basis) BEFORE the write.
-      // `null` for a create (no existing file) OR an existing-but-undiffable
-      // file (binary/invalid-UTF-8) — a null `before` gives no contextual-hunk
-      // basis, so a consumer falls back to a whole-file diff (the tool still
-      // renders a result-time diff card, not the raw result text).
-      // TODO(overwrite-diff-bound): this reads the whole prior file into memory
-      // for a UI-only diff; bound the pre-read and fall back to no contextual
-      // basis above a size threshold (see the applied-hunk-diffs RFC non-goals).
+      // Preserve prior text for contextual diffs; null falls back to a whole-file diff.
+      // TODO(overwrite-diff-bound): cap this UI-only pre-read for large files.
       const before = existing ? await readTextForDiff(target.targetKey, signal) : null
       await writeFileAtomic(target.targetKey, content, existing?.mode, signal, this.internals)
       const after = await probe(target.targetKey)
@@ -191,10 +175,9 @@ export class LocalFileSystem extends FileSystem {
   ): Promise<FsEditOutcome> {
     return this.withLock(target.targetKey, async () => {
       const existing = await probe(target.targetKey)
-      // Stale guard BEFORE literal matching: an edit based on an old read reports
+      // Stale guard before literal matching: an edit based on an old read reports
       // FS_STALE_VERSION, not FS_EDIT_NOT_FOUND/FS_AMBIGUOUS_EDIT against newer content.
-      // A missing target reports FS_STALE_VERSION on BOTH paths (guarded and
-      // unconditional) — one "cannot edit this target now" code.
+      // Missing targets use the same stale code on guarded and unconditional edit paths.
       if (!existing) throw new FsError(`cannot edit "${target.displayPath}": file changed since it was read`, 'FS_STALE_VERSION')
       if (existing.type !== 'file') throw new FsError(`cannot edit "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
       // expected === undefined: unconditional edit of the current content — no

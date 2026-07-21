@@ -1,25 +1,12 @@
 /**
- * The model-facing `workflow` tool: run a JavaScript orchestration script that
- * fans out subagents, and return the script's final value. Pure schema +
- * lifecycle shaping — script parsing, execution, caps, and cancellation live
- * behind `ctx.workflows` (`@deepseek-ai/dsh-workflow`), so a hardened engine
- * swaps in without touching what the model sees.
- *
- * Collection is SYNCHRONOUS this cut (like `dsh-tool-subagent`): `execute`
- * starts a run and awaits `run.result` inside a `try/finally` that always
- * disposes the run, so the script and its children are torn down on every
- * path. A non-`completed` stop reason maps to an `isError` tool result (by
- * throwing) rather than returning partial output as success. Background
- * collection is deferred to the cross-tool background redesign.
- *
- * Render intent (decided up front, per the render-intent RFC): a `generic`
- * card whose title carries the workflow's `meta.name`, read directly from the
- * call's `meta` parameter — presentation is a pure function of `args`.
- *
- * Usage policy ships with the tool as a `tool:<toolName>` system-prompt
- * section (explicit-ask-only guidance) — tool guidance lives in tool plugins,
- * never in the deployment persona.
- *
+ * The model-facing `workflow` tool: run a JavaScript orchestration script that fans out
+ * subagents, and return the script's final value. Pure schema + lifecycle shaping — script
+ * parsing, execution, caps, and cancellation live behind `ctx.workflows`
+ * (`@deepseek-ai/dsh-workflow`), so a hardened engine swaps in without touching what the model
+ * sees. Execution awaits `run.result` and always disposes the run; non-completed reasons become tool
+ * errors, and background collection remains deferred. Presentation is an args-only generic card
+ * titled from `meta.name`. Explicit-ask usage guidance is registered as the tool's own prompt
+ * section rather than deployment persona prose.
  * @module @deepseek-ai/dsh-tool-workflow
  */
 
@@ -57,10 +44,10 @@ type ResolvedConfig = Required<Config>
  */
 const DESCRIPTION = `Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.
 
-The workflow's identity rides the \`meta\` parameter as JSON: required \`name\` (short kebab-case) and \`description\` strings, optional \`whenToUse\` string and \`phases\` array (\`{title, detail?, model?}\`). The \`script\` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO \`export const meta\` statement — meta is a parameter, not code), running with top-level await; end with \`return <value>\` — the value must be JSON-serializable and is this tool's result.
+The workflow's identity rides the \`meta\` parameter as JSON: required \`name\` (short kebab-case) and \`description\` strings, optional \`whenToUse\` string and \`phases\` array (\`{title, detail?, provider?, model?}\`). The \`script\` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO \`export const meta\` statement — meta is a parameter, not code), running with top-level await; end with \`return <value>\` — the value must be JSON-serializable and is this tool's result.
 
 Script-body hooks:
-- \`agent(prompt, opts?): Promise<any>\` — run one subagent to completion. Without \`opts.schema\` it resolves to the child's final text; with \`opts.schema\` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const — no oneOf/pattern/format/numeric bounds) it resolves to the validated object. Resolves \`null\` when the child fails (filter with \`.filter(Boolean)\`). Other opts: \`label\` (display), \`phase\` (progress group), \`model\` (override). Anything else (\`effort\`/\`isolation\`/\`agentType\`) is rejected loudly.
+- \`agent(prompt, opts?): Promise<any>\` — run one subagent to completion. Without \`opts.schema\` it resolves to the child's final text; with \`opts.schema\` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const — no oneOf/pattern/format/numeric bounds) it resolves to the validated object. Resolves \`null\` when the child fails (filter with \`.filter(Boolean)\`). Other opts: \`label\` (display), \`phase\` (progress group), and independent \`provider\`/\`model\` LLM target overrides (either may be provided alone). Anything else (\`effort\`/\`isolation\`/\`agentType\`) is rejected loudly.
 - \`pipeline(items, ...stages): Promise<any[]>\` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives \`(prev, item, index)\`. An ordinary stage throw drops that ITEM to \`null\` and skips its remaining stages.
 - \`parallel(thunks): Promise<any[]>\` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to \`null\`.
 - \`phase(title)\` — start a progress phase; \`log(message)\` — narrate progress; \`args\` — the tool call's \`args\` input, verbatim.
@@ -71,7 +58,12 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
 
 type WorkflowCallArgs = {
   script: string
-  meta: { name: string; description: string; whenToUse?: string; phases?: { title: string; detail?: string; model?: string }[] }
+  meta: {
+    name: string
+    description: string
+    whenToUse?: string
+    phases?: { title: string; detail?: string; provider?: string; model?: string }[]
+  }
   args?: Record<string, unknown>
 }
 
@@ -153,6 +145,7 @@ export function apply(ctx: Context, config: Config): void {
               properties: {
                 title: { type: 'string', required: true, description: 'The phase title phase() calls match by exact string.' },
                 detail: { type: 'string', description: 'Optional one-line description of the phase.' },
+                provider: { type: 'string', description: 'Optional provider override this phase is expected to use.' },
                 model: { type: 'string', description: 'Optional model override this phase is expected to use.' },
               },
             },
@@ -181,18 +174,14 @@ export function apply(ctx: Context, config: Config): void {
         meta: args.meta,
         ...args.args !== undefined ? { args: args.args } : {},
         parent,
-        ...exec.signal ? { signal: exec.signal } : {},
+        signal: exec.signal,
       })
 
-      // Bridge the tool's abort signal to the run: if the parent step is
-      // aborted while the script is in flight, cancel the whole run. The
-      // engine also receives `signal` directly, but an explicit bridge keeps
-      // the tool's contract local (and covers an engine that ignores it).
+      // Bridge the tool's abort signal to the run: if the parent step is aborted while the
+      // script is in flight, cancel the whole run. The signal also enters the engine directly, but
+      // this local bridge preserves the tool contract even if an implementation ignores it.
       const onAbort = (): void => { run.cancel('parent step aborted') }
-      exec.signal?.addEventListener('abort', onAbort, { once: true })
-      // `addEventListener` does NOT fire for a signal already aborted before
-      // this line — cancel explicitly in that case.
-      if (exec.signal?.aborted) run.cancel('parent step aborted')
+      exec.signal.addEventListener('abort', onAbort, { once: true })
 
       try {
         const result = await run.result
@@ -204,7 +193,7 @@ export function apply(ctx: Context, config: Config): void {
         }
         return [{ type: 'text', text: renderResult(run, result, maxResultChars) }]
       } finally {
-        exec.signal?.removeEventListener('abort', onAbort)
+        exec.signal.removeEventListener('abort', onAbort)
         // Always reach run quiescence — never leak a live script or children.
         await run.dispose()
       }

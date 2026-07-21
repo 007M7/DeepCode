@@ -1,23 +1,13 @@
 /**
- * Negative-path tests for the cordis catalog generator (`scripts/gen-cordis-catalog.ts`).
- *
- * The generated catalog is frozen by a regenerate-and-diff freshness gate, so
- * the freshness half is exercised by `pnpm run verify-cordis-catalog` in CI.
- * What a freshness diff CANNOT prove is that the generator REJECTS malformed
- * source the way it promises to — a missing `@mode` tag, a tag that
- * contradicts the signature shape, or a JSDoc-completeness violation (missing
- * prose, an undocumented parameter, a stale `@param`, a missing `@returns`, an
- * unannotated return type). These tests drive `collectEvents()` /
- * `collectServices()` against synthetic fixture packages to prove each guard
- * fires (and that well-formed declarations pass), mirroring the drift-guard
- * negative tests for verify-type-equiv.
+ * Contract and negative-path tests for the cordis catalog generator
+ * (`scripts/gen-cordis-catalog.ts`).
  */
 
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { collectEvents, collectServices } from '../../../../scripts/gen-cordis-catalog.ts'
+import { collectEvents, collectServices, renderEvents, renderServices } from '../../../../scripts/gen-cordis-catalog.ts'
 
 /** Write a fixture package exposing one `interface Events` block and return the
  * scan root to hand `collectEvents`. */
@@ -69,6 +59,8 @@ describe('gen-cordis-catalog collectEvents', () => {
     ))
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ name: 'fix/happened', scope: 'fix', mode: 'emit', doc: 'A thing happened.' })
+    expect(events[0]?.jsDoc).toBe('/**\n * A thing happened.\n * @param id - which thing.\n * @mode emit\n */')
+    expect(renderEvents(events)).toContain("```ts cordis-catalog\n/**\n * A thing happened.\n * @param id - which thing.\n * @mode emit\n */\n'fix/happened'(id: string): void\n```")
   })
 
   it('classifies a trailing-next signature as a waterfall', () => {
@@ -83,6 +75,33 @@ describe('gen-cordis-catalog collectEvents', () => {
       '    /**\n     * Flush.\n     * @mode parallel\n     */\n    \'fix/flush\'(): Promise<void> | void',
     ))
     expect(events[0]?.mode).toBe('parallel')
+  })
+
+  it('accepts linked, foundation, generic-parameter, and explicitly exempt signature types', () => {
+    const events = collectEvents(make(
+      '    /**\n     * Carry linked and foundation types.\n     * @param value - the linked value.\n     * @param preset - deployment metadata outside the core catalog.\n     * @param signal - cancellation.\n     * @mode parallel\n     */\n    \'fix/typed\'<T extends SessionEvent>(value: Readonly<T>, preset: PresetSpec, signal: AbortSignal): Promise<T>',
+    ))
+    expect(events).toHaveLength(1)
+    expect(renderEvents(events)).toContain('Types: [SessionEvent](../core-data-structures/core.md)')
+    expect(renderEvents(events)).not.toContain('[PresetSpec]')
+  })
+
+  it('aggregates every unclassified signature type with its source and remediation', () => {
+    const expected = new RegExp([
+      '2 signature type-link coverage violation\\(s\\)',
+      'fix/one',
+      'packages/group/fix/src/index.ts',
+      'MissingOne',
+      'fix/two',
+      'packages/group/fix/src/index.ts',
+      'missingTwo',
+      'Add it to LINK_MAP',
+      'FOUNDATION_TYPE_NAMES',
+      'TYPE_LINK_EXEMPTIONS',
+    ].join('[\\s\\S]*'))
+    expect(() => collectEvents(make(
+      '    /**\n     * First.\n     * @param value - first value.\n     * @mode emit\n     */\n    \'fix/one\'(value: MissingOne): void\n    /**\n     * Second.\n     * @param value - second value.\n     * @mode emit\n     */\n    \'fix/two\'(value: missingTwo): void',
+    ))).toThrow(expected)
   })
 
   it('hard-errors when an event is missing its @mode tag', () => {
@@ -169,6 +188,17 @@ export class FixService {
     expect(services).toHaveLength(1)
     expect(services[0]).toMatchObject({ key: 'fix', type: 'FixService', abstract: false, doc: 'Fixture service.' })
     expect(services[0]?.methods).toHaveLength(3)
+    expect(services[0]?.methods[0]).toEqual({
+      signature: 'run(id: string): string',
+      jsDoc: '/**\n * Do the thing.\n * @param id - which thing to do.\n * @returns the outcome of doing it.\n */',
+    })
+    expect(renderServices(services)).toContain('```ts cordis-catalog\n/**\n * Do the thing.\n * @param id - which thing to do.\n * @returns the outcome of doing it.\n */\nrun(id: string): string\n\n/** Fire and forget (void needs no @returns). */\npoke(): void')
+  })
+
+  it('hard-errors on an unclassified service-method signature type', () => {
+    expect(() => collectServices(makeService(
+      '/** Fixture service. */\nexport class FixService {\n  /**\n   * Use an unknown value.\n   * @param value - the value.\n   */\n  run(value: MissingServiceType): void {}\n}',
+    ))).toThrow(/service method ctx\.fix\.run .* references unclassified type 'MissingServiceType'/)
   })
 
   it('hard-errors on a public method with no JSDoc at all', () => {

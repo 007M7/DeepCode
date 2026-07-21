@@ -1,29 +1,21 @@
 /**
- * Worker-thread implementation of the code-execution seam: one fresh Node
- * worker per run, executing the model's TypeScript after a host-side
- * type-strip, with bindings bridged over the message port. Containment, not
- * a security boundary (bash-equivalent trust — see the Code Mode RFC's
- * trust-posture section): the worker gets an EMPTY environment, a heap cap,
- * and two independent budgets — `computeMs` metered on the worker's
- * measured event-loop busy time (a hot loop cannot hide behind a pending
- * binding call) and a never-pausing `maxWallMs` ceiling — all funneling
- * into `worker.terminate()`, which ends hot synchronous loops too.
- *
+ * Worker-thread code runtime: a fresh worker runs each host-type-stripped TypeScript program
+ * and bridges bindings over its message port. This is containment, not a security boundary:
+ * model code has bash-equivalent trust despite an empty environment, a heap cap, measured
+ * event-loop busy-time and wall-time budgets, and termination that also stops synchronous loops.
  * @module @deepseek-ai/dsh-code-runtime-worker
  */
 
 import { Worker } from 'node:worker_threads'
 import { stripTypeScriptTypes } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
-import type { CodeBindingFunction, CodeLogEntry, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import type { CodeBindingFunction, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { prepareValue, truncateUtf8Bytes } from './bootstrap.ts'
 import { logTruncationMarker } from './protocol.ts'
 import type { ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
-
-export type { BootstrapPort, PatchableStream } from './bootstrap.ts'
-export type { CallMessage, DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 
 /** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
 export interface Config {
@@ -98,25 +90,24 @@ interface LiveRun {
 }
 
 /**
- * The worker entry module. Source runs unbuilt (`src/worker.ts`, loadable
+ * The worker entry path. Source runs unbuilt (`src/worker.ts`, loadable
  * directly on this repo's Node range via native type stripping — the file
  * is erasable-only with type-only relative imports); the built package
- * ships it as a sibling bundle (`lib/worker.js`, its own tsdown entry).
+ * ships it as a sibling CommonJS bundle (`lib/worker.cjs`, its own tsdown
+ * entry) because pkg's VFS Worker hook compiles string-path entries as
+ * CommonJS.
  * The URL *pathname*'s extension says which world this module is in —
  * pathname, because dev-time module runners (vitest) may suffix
- * `import.meta.url` with a query string; relative resolution drops it.
+ * `import.meta.url` with a query string; relative resolution drops it. Worker
+ * receives a filesystem string so pkg's VFS Worker hook can resolve it.
  */
-/* v8 ignore next -- the './worker.js' arm is the built-lib world, unreachable unbuilt by construction; the built-lib e2e pins it. */
-const WORKER_URL = new URL(new URL(import.meta.url).pathname.endsWith('.ts') ? './worker.ts' : './worker.js', import.meta.url)
+/* v8 ignore next -- the './worker.cjs' arm is the built-lib world, unreachable unbuilt by construction; the built-lib e2e pins it. */
+const WORKER_PATH = fileURLToPath(new URL(new URL(import.meta.url).pathname.endsWith('.ts') ? './worker.ts' : './worker.cjs', import.meta.url))
 
 /** Render an unknown thrown value as a message, `Error` or not. */
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
-
-/** The log sources / console levels the seam vocabulary admits, as runtime sets for inbound-message validation. */
-const LOG_SOURCES = new Set<string>(['console', 'stdout', 'stderr'])
-const LOG_LEVELS = new Set<string>(['log', 'info', 'warn', 'error', 'debug'])
 
 /**
  * Runtime shape gate for inbound port traffic. The peer runs MODEL CODE and
@@ -136,20 +127,8 @@ function parseWorkerMessage(raw: unknown): WorkerToHost | undefined {
       return { type: 'call', id: m.id, global: m.global, name: m.name, args: m.args }
     }
     case 'log': {
-      const entry = m.entry
-      if (typeof entry !== 'object' || entry === null) return undefined
-      const e = entry as Record<string, unknown>
-      if (typeof e.text !== 'string') return undefined
-      if (typeof e.source !== 'string' || !LOG_SOURCES.has(e.source)) return undefined
-      if (e.level !== undefined && (typeof e.level !== 'string' || !LOG_LEVELS.has(e.level))) return undefined
-      return {
-        type: 'log',
-        entry: {
-          source: e.source as CodeLogEntry['source'],
-          ...e.level !== undefined ? { level: e.level as Exclude<CodeLogEntry['level'], undefined> } : {},
-          text: e.text,
-        },
-      }
+      if (typeof m.text !== 'string') return undefined
+      return { type: 'log', text: m.text }
     }
     case 'done': {
       if (m.error === undefined) return { type: 'done', ...m.value !== undefined ? { value: m.value } : {} }
@@ -273,16 +252,14 @@ export class WorkerCodeRuntime extends CodeRuntime {
       maxLogBytes: this.config.maxLogBytes,
       maxValueBytes: this.config.maxValueBytes,
     }
-    const worker = new Worker(WORKER_URL, {
+    const worker = new Worker(WORKER_PATH, {
       workerData: bootData,
       // Model code gets NO ambient environment — stronger than the scrubbed
       // env the defensive-patterns rule requires for spawned commands.
       env: {},
-      // Hermetic flags too: without this the worker inherits the host
-      // process's execArgv (a test runner's or tsx's loader hooks), which a
-      // bare isolate with an empty environment cannot satisfy. The entry
-      // needs nothing beyond native type stripping, on this repo's whole
-      // Node range.
+      // Hermetic flags too: without this the worker inherits the host process's execArgv (a
+      // test runner's or tsx's loader hooks), which a bare isolate with an empty environment
+      // cannot satisfy.
       execArgv: [],
       resourceLimits: { maxOldGenerationSizeMb: this.config.maxOldGenerationSizeMb },
       // Backstop capture: the bootstrap patches JS-level writes into its own
@@ -295,43 +272,36 @@ export class WorkerCodeRuntime extends CodeRuntime {
     return new Promise<CodeRunResult>((resolve) => {
       let settled = false
       const answered = new Set<number>()
-      const logs: CodeLogEntry[] = []
-      const strayLogs: CodeLogEntry[] = []
+      const logs: string[] = []
+      const strayLogs: string[] = []
 
-      // ONE host-side ledger for everything that lands in `logs`/`strayLogs`,
-      // whatever the path: honest port entries, FORGED port entries (model
-      // code posting `log` messages directly, bypassing the worker-side
-      // LogBuffer), and stray pipe bytes. On the first overflow it emits the
-      // same in-band marker the worker's LogBuffer would and drops the rest,
-      // so the documented cap is one shared `maxLogBytes` however it is hit.
+      // One host-side budget covers normal, forged, and stray-pipe log entries. The first
+      // overflow emits the shared in-band marker and drops everything after it.
       let logBudget = this.config.maxLogBytes
       let logsTruncated = false
-      const admit = (entry: CodeLogEntry, sink: CodeLogEntry[]): void => {
+      const admit = (text: string, sink: string[]): void => {
         if (logsTruncated) return
-        const cost = Buffer.byteLength(entry.text, 'utf8')
+        const cost = Buffer.byteLength(text, 'utf8')
         if (cost > logBudget) {
           logsTruncated = true
-          sink.push({ source: 'stderr', text: logTruncationMarker(this.config.maxLogBytes) })
+          sink.push(logTruncationMarker(this.config.maxLogBytes))
           return
         }
         logBudget -= cost
-        sink.push(entry)
+        sink.push(text)
       }
 
       // No settled guard: `finish` snapshots the arrays when it resolves, so
       // a chunk flushing after settlement mutates only the discarded buffers,
       // and the ledger bounds that growth until the pipes close.
-      const captureStray = (source: 'stdout' | 'stderr') => (chunk: Buffer) => {
-        admit({ source, text: chunk.toString('utf8') }, strayLogs)
+      const captureStray = (chunk: Buffer): void => {
+        admit(chunk.toString('utf8'), strayLogs)
       }
-      worker.stdout.on('data', captureStray('stdout'))
-      worker.stderr.on('data', captureStray('stderr'))
+      worker.stdout.on('data', captureStray)
+      worker.stderr.on('data', captureStray)
 
-      // Settlement: exactly one outcome wins; every path funnels through
-      // here, cleans up the timers/listeners, terminates the worker, and
-      // resolves only after the worker actually exited (quiescence). Logs
-      // streamed eagerly before the settlement are kept — a timed-out or
-      // killed program still shows the model what it printed.
+      // Exactly one outcome wins. Every path cleans up, terminates, and awaits the worker;
+      // logs captured before timeout, abort, or failure remain in the result.
       let finishResolve!: () => void
       const finished = new Promise<void>((done) => { finishResolve = done })
       const finish = (result: Omit<CodeRunResult, 'logs'>): void => {
@@ -349,11 +319,8 @@ export class WorkerCodeRuntime extends CodeRuntime {
 
       const onDone = (message: WorkerToHost): void => {
         if (message.type !== 'done') return
-        // Re-cap the completion value HOST-side: the honest path already
-        // capped it in the worker (prepareValue there), but a forged done
-        // message bypasses the bootstrap entirely — without this, model code
-        // could flood the host past maxValueBytes. Honest values pass
-        // unchanged (see VALUE_RENDER_SLACK); the error text is bounded too.
+        // Re-cap forged completion traffic at the hostile boundary. Honest worker-capped values
+        // pass unchanged via VALUE_RENDER_SLACK; error text is bounded too.
         finish({
           ...prepareValue(message.value, this.config.maxValueBytes + VALUE_RENDER_SLACK),
           ...message.error ? { error: { kind: 'exception' as const, message: truncateUtf8Bytes(message.error.message, this.config.maxValueBytes) } } : {},
@@ -400,7 +367,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
         // this listener would crash the host process. Junk drops silently.
         const message = parseWorkerMessage(raw)
         if (!message) return
-        if (message.type === 'log' && !settled) admit(message.entry, logs)
+        if (message.type === 'log' && !settled) admit(message.text, logs)
         onCall(message)
         onDone(message)
       })

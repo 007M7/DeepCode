@@ -54,6 +54,16 @@ function chunkEvent(seq: number, turn: number, step: number, chunk: StreamChunk)
 let dir: string
 let file: string
 
+/** Write a session log file and return its path. */
+function writeSession(filename: string, header: { id: string; createdAt: number }, calls: StreamChunk[][]): string {
+  let seq = 1
+  const events: SessionEvent[] = []
+  calls.forEach((chunks, step) => { for (const c of chunks) events.push(chunkEvent(seq++, 1, step + 1, c)) })
+  const path = join(dir, filename)
+  writeFileSync(path, sessionJsonl(events, header), 'utf8')
+  return path
+}
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'llm-replay-spec-'))
   file = join(dir, 'session.jsonl')
@@ -132,7 +142,7 @@ describe('deriveReplayScript', () => {
   it('keeps a finish-error chunk in the derived entry (replays naturally)', () => {
     const errChunks: StreamChunk[] = [
       { type: 'block-start', index: 0, blockType: 'text' },
-      { type: 'finish', reason: { kind: 'error', message: 'boom', code: 'X' } },
+      { type: 'finish', reason: { kind: 'error', failure: { message: 'boom', code: 'X' } } },
     ]
     const events = errChunks.map((c, i) => chunkEvent(i + 1, 1, 1, c))
     expect(deriveReplayScript(events)).toEqual([{ kind: 'chunks', chunks: errChunks }])
@@ -165,7 +175,7 @@ describe('loadReplayScript', () => {
   it('uses the sidecar override when present, ignoring the JSONL', () => {
     writeFileSync(file, sessionJsonl([]), 'utf8')
     const overrideFile = join(dir, 'replay.override.json')
-    const override: ReplayEntry[] = [{ kind: 'throw', chunks: [], message: '401', code: 'AUTH', status: 401 }]
+    const override: ReplayEntry[] = [{ kind: 'throw', chunks: [], message: '401', code: 'AUTH' }]
     writeFileSync(overrideFile, JSON.stringify(override), 'utf8')
     expect(loadReplayScript({ file, overrideFile })).toEqual(override)
   })
@@ -188,7 +198,7 @@ describe('loadReplayScript', () => {
   })
 })
 
-describe('installLlmReplay (through the real waterfall)', () => {
+describe('installLlmReplay (through the real LlmService)', () => {
   function writeLog(...calls: StreamChunk[][]): void {
     let seq = 1
     const events: SessionEvent[] = []
@@ -204,7 +214,45 @@ describe('installLlmReplay (through the real waterfall)', () => {
     await ctx.plugin(LlmService)
     // No adapter registered for 'm' — replay must not reach it.
     installLlmReplay(ctx, { file })
-    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+  })
+
+  it('registers a replay-only provider catalog when configured', async () => {
+    writeLog(TEXT_CHUNKS)
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const dispose = installLlmReplay(ctx, {
+      file,
+      providers: [
+        {
+          id: 'deepseek',
+          name: 'DeepSeek',
+          models: [
+            { id: 'flash', contextWindow: 128_000 },
+            { id: 'pro', name: 'Pro', description: 'Larger model' },
+          ],
+        },
+        { id: 'empty' },
+      ],
+    })
+
+    expect(ctx.llm.listProviders()).toEqual([
+      { id: 'deepseek', name: 'DeepSeek' },
+      { id: 'empty', name: 'empty' },
+    ])
+    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
+      { provider: 'deepseek', id: 'flash', name: 'flash' },
+      { provider: 'deepseek', id: 'pro', name: 'Pro', description: 'Larger model' },
+    ])
+    await expect(ctx.llm.listModels('empty')).resolves.toEqual([])
+    await expect(ctx.llm.resolveModelContext('deepseek', 'flash')).resolves.toEqual({ contextWindow: 128_000 })
+    await expect(ctx.llm.resolveModelContext('deepseek', 'pro')).resolves.toBeUndefined()
+    await expect(ctx.llm.resolveModelContext('deepseek', 'unlisted')).resolves.toBeUndefined()
+    await expect(ctx.llm.resolveModelContext('empty', 'unlisted')).resolves.toBeUndefined()
+    expect(await drain(ctx.llm.stream({ provider: 'deepseek', model: 'pro', messages: [] }))).toEqual(TEXT_CHUNKS)
+
+    dispose()
+    expect(ctx.llm.listProviders()).toEqual([])
   })
 
   it('serves the Nth call the Nth derived entry (positional)', async () => {
@@ -217,16 +265,16 @@ describe('installLlmReplay (through the real waterfall)', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     installLlmReplay(ctx, { file })
-    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
-    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(second)
+    expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(second)
   })
 
-  it('replays a sidecar throw-entry as an LlmError with code/status, after its prefix chunks', async () => {
+  it('replays a sidecar throw-entry as an LlmError with its stable code, after its prefix chunks', async () => {
     writeFileSync(file, sessionJsonl([]), 'utf8')
     const overrideFile = join(dir, 'replay.override.json')
     const partial: StreamChunk[] = [{ type: 'block-start', index: 0, blockType: 'text' }]
     writeFileSync(overrideFile, JSON.stringify([
-      { kind: 'throw', chunks: partial, message: 'unauthorized', code: 'AUTH', status: 401 },
+      { kind: 'throw', chunks: partial, message: 'unauthorized', code: 'AUTH' },
     ]), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -234,8 +282,8 @@ describe('installLlmReplay (through the real waterfall)', () => {
 
     const seen: StreamChunk[] = []
     await expect((async () => {
-      for await (const c of ctx.llm.stream({ model: 'm', messages: [] })) seen.push(c)
-    })()).rejects.toMatchObject({ message: 'unauthorized', code: 'AUTH', status: 401 })
+      for await (const c of ctx.llm.stream({ provider: 'm', model: 'm', messages: [] })) seen.push(c)
+    })()).rejects.toMatchObject({ message: 'unauthorized', code: 'AUTH' })
     expect(seen).toEqual(partial)
   })
 
@@ -248,7 +296,7 @@ describe('installLlmReplay (through the real waterfall)', () => {
     installLlmReplay(ctx, { file, overrideFile })
 
     const controller = new AbortController()
-    const iterator = ctx.llm.stream({ model: 'm', messages: [], signal: controller.signal })[Symbol.asyncIterator]()
+    const iterator = ctx.llm.stream({ provider: 'm', model: 'm', messages: [], signal: controller.signal })[Symbol.asyncIterator]()
     // Deterministically consume the two pre-hang chunks (no sleep), then abort
     // and assert the next pull rejects — event-driven, per the no-sleeps rule.
     expect((await iterator.next()).value).toMatchObject({ type: 'block-start' })
@@ -262,8 +310,8 @@ describe('installLlmReplay (through the real waterfall)', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     installLlmReplay(ctx, { file })
-    await drain(ctx.llm.stream({ model: 'm', messages: [] }))
-    await expect(drain(ctx.llm.stream({ model: 'm', messages: [] }))).rejects.toThrow(/exhausted/)
+    await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))
+    await expect(drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).rejects.toThrow(/exhausted/)
   })
 
   it('aborts mid-replay when the signal is already set', async () => {
@@ -273,7 +321,7 @@ describe('installLlmReplay (through the real waterfall)', () => {
     installLlmReplay(ctx, { file })
     const controller = new AbortController()
     controller.abort()
-    await expect(drain(ctx.llm.stream({ model: 'm', messages: [], signal: controller.signal })))
+    await expect(drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [], signal: controller.signal })))
       .rejects.toThrow('aborted')
   })
 
@@ -295,11 +343,11 @@ describe('installLlmReplay (through the real waterfall)', () => {
     }, { inject: ['llm'] }))
 
     // While installed, replay short-circuits to the derived fixture ('hi').
-    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
 
     await fiber.dispose()
     // After dispose the listener is gone; the call reaches the real adapter.
-    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] })))
+    expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] })))
       .toEqual([{ type: 'finish', reason: { kind: 'stop' } }])
   })
 
@@ -311,7 +359,7 @@ describe('installLlmReplay (through the real waterfall)', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     installLlmReplay(ctx, { file, overrideFile })
-    await expect(drain(ctx.llm.stream({ model: 'm', messages: [] })))
+    await expect(drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] })))
       .rejects.toThrow(/llm-replay replay entry/)
   })
 
@@ -323,7 +371,7 @@ describe('installLlmReplay (through the real waterfall)', () => {
     await ctx.plugin(LlmService)
     installLlmReplay(ctx, { file, overrideFile })
     const controller = new AbortController()
-    const iterator = ctx.llm.stream({ model: 'm', messages: [], signal: controller.signal })[Symbol.asyncIterator]()
+    const iterator = ctx.llm.stream({ provider: 'm', model: 'm', messages: [], signal: controller.signal })[Symbol.asyncIterator]()
     // Consume the two pre-hang chunks, then start the third pull so the generator
     // is parked inside the await (signal NOT yet aborted — exercises the
     // addEventListener('abort') registration), and only THEN abort.
@@ -340,7 +388,7 @@ describe('installLlmReplay (through the real waterfall)', () => {
     const overrideFile = join(dir, 'replay.override.json')
     const partial: StreamChunk[] = [{ type: 'block-start', index: 0, blockType: 'text' }]
     writeFileSync(overrideFile, JSON.stringify([
-      { kind: 'throw', chunks: partial, message: 'unauthorized', code: 'AUTH', status: 401 },
+      { kind: 'throw', chunks: partial, message: 'unauthorized', code: 'AUTH' },
     ]), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -349,7 +397,7 @@ describe('installLlmReplay (through the real waterfall)', () => {
     controller.abort()
     // Already aborted: the throw-entry's prefix loop surfaces 'aborted' before
     // it can reach the recorded LlmError.
-    await expect(drain(ctx.llm.stream({ model: 'm', messages: [], signal: controller.signal })))
+    await expect(drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [], signal: controller.signal })))
       .rejects.toThrow('aborted')
   })
 
@@ -363,7 +411,7 @@ describe('installLlmReplay (through the real waterfall)', () => {
     const controller = new AbortController()
     controller.abort()
     // The two pre-hang chunks still flow; the abort surfaces at the await.
-    const iterator = ctx.llm.stream({ model: 'm', messages: [], signal: controller.signal })[Symbol.asyncIterator]()
+    const iterator = ctx.llm.stream({ provider: 'm', model: 'm', messages: [], signal: controller.signal })[Symbol.asyncIterator]()
     await iterator.next()
     await iterator.next()
     await expect(iterator.next()).rejects.toThrow('aborted')
@@ -391,16 +439,6 @@ describe('parseSessionHeader', () => {
 })
 
 describe('loadSessionScripts', () => {
-  /** Write a session log file and return its path. */
-  function writeSession(filename: string, header: { id: string; createdAt: number }, calls: StreamChunk[][]): string {
-    let seq = 1
-    const events: SessionEvent[] = []
-    calls.forEach((chunks, step) => { for (const c of chunks) events.push(chunkEvent(seq++, 1, step + 1, c)) })
-    const path = join(dir, filename)
-    writeFileSync(path, sessionJsonl(events, header), 'utf8')
-    return path
-  }
-
   it('returns one primary script for a single-session scenario', () => {
     const f = writeSession('session.jsonl', { id: 'p', createdAt: 100 }, [TEXT_CHUNKS])
     const scripts: SessionScript[] = loadSessionScripts({ file: f })
@@ -427,11 +465,8 @@ describe('loadSessionScripts', () => {
   })
 
   it('derives a FORK child script from its OWN events only (skips the seeded parent prefix)', () => {
-    // A fork child's log begins with the seeded parent prefix — the parent's
-    // events, INCLUDING its assistant/chunk events. Deriving the child script
-    // from the whole log would replay the PARENT's recorded responses as the
-    // child's model calls. With seedLength recorded, the child script must
-    // contain only the child's OWN chunks (those after the boundary).
+    // A fork log includes the parent's assistant chunks before `seedLength`. Deriving from the
+    // whole log would replay parent responses as child calls, so only child-owned chunks qualify.
     const parentChunk: StreamChunk = { type: 'text-delta', index: 0, text: 'PARENT-RESPONSE' }
     const childChunks: StreamChunk[] = [{ type: 'text-delta', index: 0, text: 'CHILD-RESPONSE' }, { type: 'finish', reason: { kind: 'stop' } }]
     const f = writeSession('session.jsonl', { id: 'parent', createdAt: 100 }, [TEXT_CHUNKS])
@@ -488,11 +523,8 @@ describe('loadSessionScripts', () => {
   })
 
   it('keeps the primary first even when a child sorts BEFORE it in input order', () => {
-    // The primary is appended first internally but the child has an EARLIER
-    // createdAt — the primary must still win on the tie-break against a
-    // later-but-equal child, and lose only to a genuinely earlier child via
-    // createdAt (here the child is earlier, so order is child-then-primary only
-    // if createdAt strictly less; equal createdAt keeps primary first).
+    // The primary is appended first internally. A strictly earlier child sorts before it, while
+    // equal creation times preserve primary-first order regardless of input order.
     const f = writeSession('session.jsonl', { id: 'parent', createdAt: 100 }, [TEXT_CHUNKS])
     const earlier = writeSession('session.1.jsonl', { id: 'early', createdAt: 100 }, [TEXT_CHUNKS])
     const scripts = loadSessionScripts({ file: f, childFiles: [earlier] })
@@ -508,18 +540,8 @@ describe('installLlmReplay (per-session keying)', () => {
     { type: 'finish', reason: { kind: 'stop' } },
   ]
 
-  /** Write a session log file and return its path. */
-  function writeSession(filename: string, header: { id: string; createdAt: number }, calls: StreamChunk[][]): string {
-    let seq = 1
-    const events: SessionEvent[] = []
-    calls.forEach((chunks, step) => { for (const c of chunks) events.push(chunkEvent(seq++, 1, step + 1, c)) })
-    const path = join(dir, filename)
-    writeFileSync(path, sessionJsonl(events, header), 'utf8')
-    return path
-  }
-
   const live = (id: string): GenerateOptions =>
-    ({ model: 'm', messages: [], sessionId: id as NonNullable<GenerateOptions['sessionId']> })
+    ({ provider: 'm', model: 'm', messages: [], sessionId: id as NonNullable<GenerateOptions['sessionId']> })
 
   it('routes each live session to its own script by FIRST-CALL order', async () => {
     const parentFile = writeSession('session.jsonl', { id: 'rec-parent', createdAt: 100 }, [TEXT_CHUNKS])
@@ -556,7 +578,7 @@ describe('installLlmReplay (per-session keying)', () => {
     await ctx.plugin(LlmService)
     installLlmReplay(ctx, { file: parentFile })
     // No sessionId at all — the legacy single-session path.
-    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
   })
 
   it('fails loud when more distinct live sessions call than were recorded', async () => {
@@ -590,12 +612,13 @@ describe('apply (the plugin entry)', () => {
     expect(inject).toEqual(['llm'])
   })
 
-  it('installs replay from an explicit config.file', async () => {
+  it('installs replay and its catalog from explicit config', async () => {
     writeFileSync(file, sessionJsonl(TEXT_CHUNKS.map((c, i) => chunkEvent(i + 1, 1, 1, c))), 'utf8')
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    apply(ctx, { file })
-    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+    apply(ctx, { file, providers: [{ id: 'm', models: [{ id: 'm' }] }] })
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'm', name: 'm' }])
+    expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
   })
 
   it('falls back to $DSH_SNAPSHOT_FILE / $DSH_SNAPSHOT_OVERRIDE when config is empty', async () => {
@@ -607,7 +630,7 @@ describe('apply (the plugin entry)', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     apply(ctx)
-    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
   })
 
   it('uses only the file when no override path is configured or in the env', async () => {
@@ -617,7 +640,7 @@ describe('apply (the plugin entry)', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     apply(ctx)
-    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
   })
 
   it('throws when no fixture path is given by config or env', async () => {
@@ -647,7 +670,7 @@ describe('apply (the plugin entry)', () => {
     await ctx.plugin(LlmService)
     apply(ctx, { file, childFiles: [childFile] })
     const live = (id: string): GenerateOptions =>
-      ({ model: 'm', messages: [], sessionId: id as NonNullable<GenerateOptions['sessionId']> })
+      ({ provider: 'm', model: 'm', messages: [], sessionId: id as NonNullable<GenerateOptions['sessionId']> })
     expect(await drain(ctx.llm.stream(live('A')))).toEqual(TEXT_CHUNKS)
     expect(await drain(ctx.llm.stream(live('B')))).toEqual(childSecond)
   })
@@ -667,7 +690,7 @@ describe('apply (the plugin entry)', () => {
     await ctx.plugin(LlmService)
     apply(ctx)
     const live = (id: string): GenerateOptions =>
-      ({ model: 'm', messages: [], sessionId: id as NonNullable<GenerateOptions['sessionId']> })
+      ({ provider: 'm', model: 'm', messages: [], sessionId: id as NonNullable<GenerateOptions['sessionId']> })
     expect(await drain(ctx.llm.stream(live('A')))).toEqual(TEXT_CHUNKS)
     expect(await drain(ctx.llm.stream(live('B')))).toEqual(childChunks)
   })
@@ -679,6 +702,6 @@ describe('apply (the plugin entry)', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     apply(ctx)
-    expect(await drain(ctx.llm.stream({ model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
+    expect(await drain(ctx.llm.stream({ provider: 'm', model: 'm', messages: [] }))).toEqual(TEXT_CHUNKS)
   })
 })

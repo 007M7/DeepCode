@@ -1,11 +1,6 @@
 /**
- * Consumer-surface tests for the filesystem tools as the EXECUTOR. They run the
- * REAL `@deepseek-ai/dsh-fs-policy` gate plugin (the genuine policy
- * collaborator, per the prefer-the-real-implementation rule) over a fake
- * `ctx.fs` provider, so they verify schemas, argument validation, result
- * formatting, FsError→isError propagation, and that each tool dispatches the
- * `fs/*` waterfalls + records observed-state through the gate (read authorizes a
- * later edit) — not just that it moved bytes.
+ * Consumer-surface tests over a fake provider and the real policy collaborator: schemas,
+ * validation, formatting, typed errors, intent dispatch, and observation-driven authorization.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -19,14 +14,20 @@ import type {
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
+  FsPathInfo,
   FsTarget,
   FsWriteIntent,
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
-import { formatReadOutput, STREAM_MIN_SIZE } from '@deepseek-ai/dsh-tool-fs'
-import type { FileReadOutcome } from '@deepseek-ai/dsh-tool-fs'
+import { STREAM_MIN_SIZE } from '../src/read.ts'
+import { formatReadOutput } from '../src/read-render.ts'
+import type { FileReadOutcome } from '../src/read-render.ts'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+
+const testToolSignal = new AbortController().signal
 
 /** An in-memory fake provider; a test can arm a rejection on any primitive. */
 class FakeFs extends FileSystem {
@@ -45,6 +46,11 @@ class FakeFs extends FileSystem {
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     this.throwIfArmed()
     const content = this.files.get(target.targetKey)
+    if (content === undefined) return undefined
+    return { version: FsVersion('v1'), type: 'file', size: content.length }
+  }
+  override async lstat(path: string): Promise<FsPathInfo | undefined> {
+    const content = this.files.get(`key:${path}`)
     if (content === undefined) return undefined
     return { version: FsVersion('v1'), type: 'file', size: content.length }
   }
@@ -89,6 +95,7 @@ async function setup() {
 let callCounter = 0
 function call(ctx: Context, name: string, args: unknown, agent?: object) {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId(`call-${++callCounter}`),
     name,
     arguments: args,
@@ -104,6 +111,16 @@ describe('registration', () => {
   it('registers read, write, and edit', async () => {
     const { ctx } = await setup()
     expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['edit', 'read', 'write'])
+  })
+
+  it('declares read parallel-safe while write/edit remain exclusive', async () => {
+    const { ctx } = await setup()
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('read-safe'), name: 'read', arguments: { file_path: 'a.txt' } }))
+      .toEqual({ kind: 'parallel' })
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('write-exclusive'), name: 'write', arguments: { file_path: 'a.txt', content: 'x' } }))
+      .toEqual({ kind: 'exclusive' })
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('edit-exclusive'), name: 'edit', arguments: { file_path: 'a.txt', old_string: 'x', new_string: 'y' } }))
+      .toEqual({ kind: 'exclusive' })
   })
 
   it('registers prompt sections for each tool', async () => {
@@ -409,9 +426,8 @@ describe('tool-owned presentation (pure presentCall)', () => {
 })
 
 describe('result-time contextual diff (meta + presentResult)', () => {
-  // An edit records the applied contextual hunk on `tool/result` meta, and the
-  // tool's presentResult narrows it back into a `diff` result card the bridge
-  // renders. Drive execute end-to-end so the meta is the REAL computed hunk.
+  // An edit records the applied contextual hunk on `tool/result` meta, and the tool's
+  // presentResult narrows it back into a `diff` result card the bridge renders.
   const withContext = 'a\nb\nc\nOLD\nd\ne\nf\n'
 
   it('edit: execute attaches the applied hunk as meta { diffs }', async () => {
@@ -452,10 +468,9 @@ describe('result-time contextual diff (meta + presentResult)', () => {
   })
 
   it('write CREATE: no before-version → no meta, but presentResult still renders a whole-file diff card', async () => {
-    // A create has no prior content (no `meta`), yet the completed card must be a
-    // `diff` — an ACP tool_call_update.content REPLACES the call's content, so a
-    // non-diff result would clobber the pending new-file diff. The whole-file diff
-    // is derived from the args (oldText:null), replay-safe.
+    // A create has no prior content (no `meta`), yet the completed card must be a `diff` — an
+    // ACP tool_call_update.content REPLACES the call's content, so a non-diff result would
+    // clobber the pending new-file diff.
     const { ctx } = await setup()
     const session = { header: {} }
     const result = await call(ctx, 'write', { file_path: 'new.txt', content: 'fresh\n' }, { session })
@@ -568,5 +583,165 @@ describe('read caps are plugin config', () => {
 
   it('has no default export (namespace plugin export shape)', () => {
     expect('default' in ToolFs).toBe(false)
+  })
+})
+
+describe('sandbox escalation surface (write/edit)', () => {
+  /** A confining fake `ctx.fs`: reports a default mode, records the per-call mode stamped, and can arm a sandbox denial. */
+  class SandboxingFakeFs extends FakeFs {
+    stamped: (SandboxMode | undefined)[] = []
+    override get sandboxMode(): SandboxMode {
+      return 'workspace-write'
+    }
+    override async writeText(
+      target: FsTarget,
+      content: string,
+      expected?: FsWriteIntent,
+      _signal?: AbortSignal,
+      sandboxMode?: SandboxMode,
+    ): Promise<FsWriteOutcome> {
+      this.stamped.push(sandboxMode)
+      return super.writeText(target, content, expected)
+    }
+    override async editText(
+      target: FsTarget,
+      edit: FsEditRequest,
+      expected?: { version: FsVersion },
+      _signal?: AbortSignal,
+      sandboxMode?: SandboxMode,
+    ): Promise<FsEditOutcome> {
+      this.stamped.push(sandboxMode)
+      return super.editText(target, edit, expected)
+    }
+  }
+
+  async function setupConfining(opts: { approval?: boolean } = {}) {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SandboxingFakeFs)
+    await ctx.plugin(FsPolicy)
+    if (opts.approval === true) await ctx.plugin(ApprovalService)
+    await ctx.plugin(ToolFs)
+    return { ctx, fs: ctx.fs as SandboxingFakeFs }
+  }
+
+  /** A fake agent whose session records appends (the approval audit surface), mid-turn, carrying the given events for the fold. */
+  function escalationAgent(events: Array<{ type: string; data?: Record<string, unknown> }> = []): object {
+    return {
+      id: 'agent-fs-esc',
+      session: {
+        header: { version: 0, id: 'sess-fs-esc', createdAt: 0 },
+        events: [{ type: 'turn/start' }, ...events],
+        append: (type: string, data: Record<string, unknown>) => { events.push({ type, data }) },
+      },
+    }
+  }
+
+  function fsSchema(ctx: Context, name: 'write' | 'edit') {
+    const schema = ctx.tools.schemas().find(s => s.name === name)
+    if (!schema) throw new Error(`${name} tool not registered`)
+    return schema as unknown as { parameters: { properties: Record<string, { enum?: string[] }> } }
+  }
+
+  it('advertises no escalation fields under a non-confining backend', async () => {
+    const { ctx } = await setup()
+    expect(ctx.fs.sandboxMode).toBeUndefined()
+    for (const name of ['write', 'edit'] as const) {
+      const props = fsSchema(ctx, name).parameters.properties
+      expect(props['sandbox_permissions']).toBeUndefined()
+      expect(props['justification']).toBeUndefined()
+    }
+  })
+
+  it('advertises the closed target vocabulary on write and edit under a confining backend', async () => {
+    const { ctx } = await setupConfining()
+    for (const name of ['write', 'edit'] as const) {
+      const props = fsSchema(ctx, name).parameters.properties
+      expect(props['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
+      expect(props['justification']).toBeDefined()
+    }
+  })
+
+  it('a plain write stamps nothing (backend default) and no session override folds without one', async () => {
+    const { ctx, fs } = await setupConfining()
+    await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
+    expect(fs.stamped).toEqual([undefined])
+  })
+
+  it('a standing session override folds onto the stamp', async () => {
+    const { ctx, fs } = await setupConfining()
+    await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'read-only' } }]))
+    expect(fs.stamped).toEqual(['read-only'])
+  })
+
+  it('a denied write maps to the shared marker plus the escalation hint (isError)', async () => {
+    const { ctx, fs } = await setupConfining()
+    fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('[sandbox: file access denied under workspace-write mode]')
+    expect(text(result)).toContain('retry this exact operation once with sandbox_permissions')
+  })
+
+  it('a non-FS_SANDBOX_DENIED provider error passes through unchanged', async () => {
+    const { ctx, fs } = await setupConfining()
+    fs.rejectWith = new FsError('boom', 'FS_IO_ERROR')
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('boom')
+    expect(text(result)).not.toContain('[sandbox:')
+  })
+
+  it('an approved escalation stamps the granted mode onto that write', async () => {
+    const { ctx, fs } = await setupConfining({ approval: true })
+    ctx.on('approval/request', () => Promise.resolve('allowed-once' as const))
+    // Pass a signal so the escalation ask forwards it to the approval request
+    // (the request rides the tool-execution abort signal).
+    await ctx.tools.execute({
+      callId: CallId('call-fs-esc-grant'),
+      name: 'write',
+      arguments: { file_path: 'a.txt', content: 'x', sandbox_permissions: 'danger-full-access', justification: 'the test needs it' },
+      agent: escalationAgent() as never,
+      signal: new AbortController().signal,
+    })
+    expect(fs.stamped).toEqual(['danger-full-access'])
+  })
+
+  it('a rejected escalation fails closed with its own text and never mutates', async () => {
+    const { ctx, fs } = await setupConfining({ approval: true })
+    ctx.on('approval/request', () => Promise.resolve('rejected' as const))
+    const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'x', new_string: 'y', sandbox_permissions: 'danger-full-access', justification: 'the test needs it' }, escalationAgent())
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('the user rejected escalating this operation to "danger-full-access"')
+    expect(fs.stamped).toEqual([])
+  })
+
+  it('escalation without an approval service fails closed', async () => {
+    const { ctx } = await setupConfining()
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'danger-full-access', justification: 'why' }, escalationAgent())
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('no approval service is composed')
+  })
+
+  it('escalation with an approval service but no agent fails closed', async () => {
+    const { ctx } = await setupConfining({ approval: true })
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'danger-full-access', justification: 'why' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('no agent to route it through')
+  })
+
+  it('rejects the escalation argument pairing (one field without the other)', async () => {
+    const { ctx } = await setupConfining()
+    const missing = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write' }, escalationAgent())
+    expect(missing.isError).toBe(true)
+    expect(text(missing)).toContain('sandbox_permissions requires a justification')
+  })
+
+  it('sandbox_permissions under a non-confining backend fails closed (unadvertised field still reaches execute)', async () => {
+    const { ctx } = await setup()
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write', justification: 'why' }, escalationAgent())
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('not available in this composition')
   })
 })

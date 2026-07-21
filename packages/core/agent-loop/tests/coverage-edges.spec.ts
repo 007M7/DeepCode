@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId, LlmError, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { TurnEndReason } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+
+function driverDone(agent: Agent): Promise<void> {
+  return (agent as Agent & { done: Promise<void> }).done
+}
 
 async function harness(adapter: MockAdapter) {
   const ctx = new Context()
@@ -21,7 +26,7 @@ async function harness(adapter: MockAdapter) {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -32,7 +37,7 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function send(agent: ReactLoopAgent, text: string) {
+function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
@@ -40,7 +45,7 @@ describe('inbox acceptance', () => {
   it('rejects non-serializable content or source synchronously before notification or enqueue', async () => {
     const adapter = new MockAdapter([textResponse('turn 1')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     let queued = 0
     ctx.on('agent/queued', () => { queued += 1 })
 
@@ -80,7 +85,7 @@ describe('tool JSON parse', () => {
         return [{ type: 'text', text: typeof args === 'string' ? `raw: ${args}` : JSON.stringify(args) }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'use tool')
     await waitForIdle(ctx, agent)
@@ -113,7 +118,7 @@ describe('tool JSON parse', () => {
         return [{ type: 'text', text: 'ran with empty args' }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'use tool')
     await waitForIdle(ctx, agent)
@@ -126,7 +131,7 @@ describe('toError normalization', () => {
   it('normalizes non-Error throws from pre-commit dispatch validation via the runLoop backstop', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
     ctx.on('internal/dispatch', (_mode, name, args) => {
@@ -141,21 +146,31 @@ describe('toError normalization', () => {
     const errors: Error[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
 
-    send(agent, 'go')
+    send(agent, 'fails before turn start')
+    send(agent, 'survives as the next item')
     await waitForIdle(ctx, agent)
     expect(errors).toHaveLength(1)
     expect(errors[0]).toMatchObject({ message: 'naked string error', code: 'UNKNOWN' })
-    expect(adapter.requests).toEqual([])
-    expect(agent.session.events.some(event => event.type === 'turn/start' || event.type === 'turn/end')).toBe(false)
+    expect(adapter.requests).toHaveLength(1)
+    const starts = agent.session.events.filter(event => event.type === 'turn/start')
+    const ends = agent.session.events.filter(event => event.type === 'turn/end')
+    const messages = agent.session.events.filter(event => event.type === 'user/message')
+    expect(starts).toHaveLength(1)
+    expect(starts[0]?.type === 'turn/start' && starts[0].data.turn).toBe(1)
+    expect(ends).toHaveLength(1)
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.type === 'user/message' && messages[0].data.content).toEqual([
+      { type: 'text', text: 'survives as the next item' },
+    ])
   })
 
   it('normalizes non-Error throws from agent/request waterfall via inline toError in runStep catch', async () => {
     const adapter = new MockAdapter([textResponse('irrelevant')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _options, _next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, _options, _signal, _next) => {
       if (!threwOnce) {
         threwOnce = true
         throw { code: 500 } // non-Error throw, goes through runStep catch
@@ -172,7 +187,9 @@ describe('toError normalization', () => {
     // String() of { code: 500 } is '[object Object]'
     expect(errors[0]!.message).toBe('[object Object]')
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error' && turnEnd.data.reason.code).toBe('UNKNOWN')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
+      && ('failure' in turnEnd.data.reason ? turnEnd.data.reason.failure.code : turnEnd.data.reason.code))
+      .toBe('UNKNOWN')
   })
 })
 
@@ -180,10 +197,10 @@ describe('coded error data emission', () => {
   it('errorData includes code when a coded error (LlmError) is thrown from a plugin', async () => {
     const adapter = new MockAdapter([textResponse('turn 1')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _options, next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, _options, _signal, next) => {
       if (!threwOnce) {
         threwOnce = true
         throw new LlmError('server overloaded', 'RATE_LIMIT')
@@ -203,7 +220,8 @@ describe('coded error data emission', () => {
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd).toBeDefined()
     if (turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error') {
-      expect(turnEnd.data.reason.code).toBe('RATE_LIMIT')
+      expect('failure' in turnEnd.data.reason ? turnEnd.data.reason.failure.code : turnEnd.data.reason.code)
+        .toBe('RATE_LIMIT')
     }
   })
 })
@@ -212,9 +230,9 @@ describe('disposed vs aborted branching', () => {
   it('handles dispose during model streaming producing reason "disposed"', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('scoped'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
@@ -223,16 +241,14 @@ describe('disposed vs aborted branching', () => {
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     await fiber.dispose() // dispose during hang
-    await agent.done
+    await driverDone(agent)
 
-    // The review-fixes test for 'HIGH: disposed status' already covers
-    // this assertion path. The reason is 'disposed' because isDisposed() is
-    // checked before the abort signal check in the error path.
+    // Disposal wins abort classification because the error path checks it first.
     expect(reasons).toContainEqual({ kind: 'disposed' })
   })
 })
 
-describe('structured tool error propagation (the runtime-validation RFC, part 2)', () => {
+describe('structured tool error propagation (the runtime-validation Agent Note, part 2)', () => {
   it('forwards a tool HarnessError onto the tool/result session event', async () => {
     const { HarnessError } = await import('@deepseek-ai/dsh-llm')
     // First model turn calls the tool; second turn (after the tool result is
@@ -242,7 +258,7 @@ describe('structured tool error propagation (the runtime-validation RFC, part 2)
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     ctx.tools.register(defineTool({
       name: 'boom',
       description: 'always fails',

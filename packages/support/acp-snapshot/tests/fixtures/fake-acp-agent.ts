@@ -1,23 +1,12 @@
 /**
- * Scripted fake ACP agent bin for `dsh-acp-snapshot`'s unit specs. Speaks
- * newline-delimited JSON-RPC on stdio like the real `dsh-acp-agent` bin, but
- * every behavior — how prompts settle, whether session/new rejects, which
- * session logs get persisted, what filesystem noise to leave — comes from a
- * `behavior.json` sitting NEXT to the `$DSH_SNAPSHOT_FILE` fixture, so a spec
- * scripts a whole subprocess run from data. The specs launch it through the
- * REAL `runScenario` spawn path (tsx loader, temp cwd, env plumbing), so the
- * harness plumbing is exercised for real; only the agent behind the protocol
- * is scripted.
- *
- * The specs (not the golden tier) own this bin: it asserts nothing, echoes
- * observable facts into `session/update` text chunks (env probe, permission
- * outcome, seeded-workspace listing) for the spec to read off `rawStdout`, and
- * exits 0 on stdin EOF after writing the scripted logs — mirroring the real
- * bin's dispose-flush-exit shape.
+ * Scripted ACP agent for snapshot-kit tests. A fixture-adjacent `behavior.json` controls the
+ * subprocess reached through the real harness path; the bin reports observations over ACP and
+ * writes scripted logs before exiting on stdin EOF.
  */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { readdirSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
@@ -36,12 +25,18 @@ interface ScriptedLog {
 
 /** The whole scripted behavior for one run. Every field defaults to the least surprising choice. */
 interface Behavior {
+  /** Exit during startup after writing any configured stderr note. */
+  failOnBoot?: boolean
   /** Reject every `session/new` (exercises the expect-error step without extra dirs). */
   rejectNewSession?: boolean
   /** Reject `session/new` only when `additionalDirectories` is non-empty (the real bridge's rule). */
   rejectExtraDirs?: boolean
   /** How `session/prompt` settles: a clean response, a JSON-RPC error, or a hang until `session/cancel`. */
   prompt?: 'respond' | 'error' | 'hang-until-cancel'
+  /** Emit a tool call instead of a message chunk before parking a cancellable prompt. */
+  cancelAtToolCall?: boolean
+  /** Emit the parked tool call's terminal update after answering cancellation. */
+  cancelToolCallUpdate?: boolean
   /** Before responding to a prompt, send a `session/request_permission` request and echo its outcome as a chunk. */
   permissionProbe?: boolean
   /** Echo the `DSH_SNAPSHOT_*` env the harness set as a chunk (spec-side env-plumbing assertions). */
@@ -50,6 +45,8 @@ interface Behavior {
   echoWorkspace?: boolean
   /** Write a line to stderr on boot (spec-side stderr-capture assertions). */
   stderrNote?: string
+  /** Let a short-lived descendant retain stdio and emit one final ACP update plus stderr line after this parent exits. */
+  lateInheritedOutput?: boolean
   /** Session logs to persist on stdin EOF. */
   logs?: ScriptedLog[]
   /** Leave a stray FILE directly under the sessions root (harvest must skip it). */
@@ -74,6 +71,7 @@ const behavior: Behavior = fixtureFile === ''
   : JSON.parse(readFileSync(join(dirname(fixtureFile), 'behavior.json'), 'utf8')) as Behavior
 
 if (behavior.stderrNote !== undefined) process.stderr.write(`${behavior.stderrNote}\n`)
+if (behavior.failOnBoot === true) process.exit(7)
 
 let nextOutboundId = 1000
 let sessionId = ''
@@ -132,12 +130,29 @@ async function handlePrompt(id: number | string): Promise<void> {
       params: { sessionId, update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'mulling' } } },
     })
   }
-  chunk('thinking about it')
+  if (behavior.cancelAtToolCall === true) {
+    send({
+      method: 'session/update',
+      params: {
+        sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'call_fake_1',
+          title: 'fake tool',
+          kind: 'execute',
+          status: 'in_progress',
+        },
+      },
+    })
+  } else {
+    chunk('thinking about it')
+  }
   if (behavior.echoEnv === true) {
     chunk(`env:${JSON.stringify({
       mode: process.env.DSH_SNAPSHOT,
       override: process.env.DSH_SNAPSHOT_OVERRIDE ?? null,
       childFiles: process.env.DSH_SNAPSHOT_CHILD_FILES ?? null,
+      spillRoot: process.env.DSH_SNAPSHOT_SPILL_ROOT ?? null,
     })}`)
   }
   if (behavior.echoWorkspace === true) {
@@ -235,6 +250,19 @@ function handleFrame(frame: Record<string, unknown>): void {
         const parked = parkedPromptId
         parkedPromptId = null
         respond(parked, { stopReason: 'cancelled' })
+        if (behavior.cancelToolCallUpdate === true) {
+          send({
+            method: 'session/update',
+            params: {
+              sessionId,
+              update: {
+                sessionUpdate: 'tool_call_update',
+                toolCallId: 'call_fake_1',
+                status: 'failed',
+              },
+            },
+          })
+        }
       }
       return
     default:
@@ -256,6 +284,24 @@ function flushLogsAndExit(): void {
     writeFileSync(join(sessionsRoot, 'bucket-noise', 'notes.txt'), 'not a session log\n')
   }
   if (behavior.deleteSessionsRoot === true) rmSync(sessionsRoot, { recursive: true, force: true })
+  if (behavior.lateInheritedOutput === true) {
+    const frame = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'late inherited stdout' },
+        },
+      },
+    })
+    const code = [
+      `setTimeout(() => process.stdout.write(${JSON.stringify(`${frame}\n`)}), 50)`,
+      `setTimeout(() => process.stderr.write(${JSON.stringify('late inherited stderr\n')}), 75)`,
+    ].join(';')
+    spawn(process.execPath, ['-e', code], { stdio: ['ignore', 1, 2] }).unref()
+  }
   process.exit(0)
 }
 

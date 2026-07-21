@@ -1,21 +1,13 @@
 /**
- * `PerplexitySearchProvider`: a `WebSearchProvider` backed by the Perplexity
- * search API (an OpenAI-compatible `POST /chat/completions`). Maps the generated
- * answer (`choices[0].message.content`) into `content`, and prefers the
- * structured `search_results[]` for `sources[]`, falling back to the URL-only
- * `citations[]` when `search_results` is absent.
- *
- * Network requests use platform-native `fetch` at the repo's Node floor, mirroring
- * `@deepseek-ai/dsh-llm-deepseek`'s adapter. The OpenAI-compatible request shape
- * is a provider-private detail and does NOT make this provider depend on
+ * Perplexity search over its OpenAI-compatible chat-completions endpoint. The generated answer
+ * becomes `content`; sources prefer structured `search_results[]` and fall back to URL-only
+ * `citations[]`. The wire format and native `fetch` client are provider-private and do not use
  * `ctx.llm`.
- *
  * @module @deepseek-ai/dsh-web-search-perplexity/provider
  */
 
 import { WebError } from '@deepseek-ai/dsh-web'
 import type {
-  WebProviderStatus,
   WebSearchProvider,
   WebSearchRequest,
   WebSearchResult,
@@ -43,7 +35,7 @@ const USER_AGENT = 'deepseek-harness/0.0.1'
 
 /** Resolved provider options (the plugin's `apply` supplies env-var and constant defaults). */
 export interface PerplexitySearchProviderOptions {
-  /** Perplexity API key. Empty/absent → `status()` reports `missing-credential`. */
+  /** Perplexity API key. Empty/absent makes the provider unavailable. */
   apiKey: string
   /** Endpoint base; `/chat/completions` is appended. */
   baseURL: string
@@ -75,42 +67,43 @@ export function mapPerplexityResult(result: PerplexitySearchResult): WebSearchSo
  * structured `search_results[]`; falls back to URL-only `citations[]` (those
  * sources carry just a `url`) only when `search_results` is absent.
  *
- * @param query - the original request query, echoed on the result.
  * @param response - the parsed chat-completions response body.
  * @returns the normalized result; `content` is omitted when the answer is empty.
  */
-export function mapPerplexityResponse(query: string, response: PerplexityResponse): WebSearchResult {
+export function mapPerplexityResponse(response: PerplexityResponse): WebSearchResult {
   const content = response.choices?.[0]?.message?.content
   const sources: WebSearchSource[] = response.search_results !== undefined
     ? response.search_results.map(mapPerplexityResult)
     : (response.citations ?? []).map(url => ({ url }))
   return {
-    providerId: PERPLEXITY_PROVIDER_ID,
-    query,
     ...content != null && content.length > 0 ? { content } : {},
     sources,
     truncated: false,
   }
 }
 
-/** The Perplexity-backed search provider. */
+/** The Perplexity-backed search provider; HTTP redirects fail as `WEB_PROVIDER_ERROR`. */
 export class PerplexitySearchProvider implements WebSearchProvider {
   readonly id = PERPLEXITY_PROVIDER_ID
 
   constructor(private readonly options: PerplexitySearchProviderOptions) {}
 
-  status(): WebProviderStatus {
-    if (this.options.apiKey.length === 0) return { available: false, reason: 'missing-credential' }
-    if (!URL.canParse(this.options.baseURL)) return { available: false, reason: 'misconfigured' }
-    if (!isPositiveInteger(this.options.maxTokens)) return { available: false, reason: 'misconfigured' }
-    return { available: true }
+  // Availability checks stay beside each provider's distinct config contract;
+  // a shared base class would obscure which fields make this backend usable.
+  /* jscpd:ignore-start */
+  available(): boolean {
+    return this.options.apiKey.length > 0
+      && URL.canParse(this.options.baseURL)
+      && isPositiveInteger(this.options.maxTokens)
   }
+  /* jscpd:ignore-end */
 
-  async search(request: WebSearchRequest, exec?: { readonly signal?: AbortSignal }): Promise<WebSearchResult> {
+  async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
     let response: Response
     try {
       response = await fetch(`${this.options.baseURL}/chat/completions`, {
         method: 'POST',
+        redirect: 'error',
         headers: {
           'authorization': `Bearer ${this.options.apiKey}`,
           'content-type': 'application/json',
@@ -123,7 +116,7 @@ export class PerplexitySearchProvider implements WebSearchProvider {
           messages: [{ role: 'user', content: request.query }],
           ...this.options.searchRecency !== undefined ? { search_recency_filter: this.options.searchRecency } : {},
         }),
-        ...exec?.signal ? { signal: exec.signal } : {},
+        ...signal !== undefined ? { signal } : {},
       })
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('Perplexity search aborted', 'WEB_ABORTED', { cause: error })
@@ -151,7 +144,7 @@ export class PerplexitySearchProvider implements WebSearchProvider {
 
     try {
       const payload = await response.json() as PerplexityResponse
-      return mapPerplexityResponse(request.query, payload)
+      return mapPerplexityResponse(payload)
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('Perplexity search aborted', 'WEB_ABORTED', { cause: error })
       throw new WebError(`Perplexity returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
@@ -159,6 +152,9 @@ export class PerplexitySearchProvider implements WebSearchProvider {
   }
 }
 
+// These two predicates are intentionally local: exporting generic internals
+// from the public web seam would cost more API surface than these pure checks.
+/* jscpd:ignore-start */
 /** True for a fetch/`AbortSignal` abort, surfaced as `WEB_ABORTED`. */
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
@@ -168,3 +164,4 @@ function isAbortError(error: unknown): boolean {
 function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0
 }
+/* jscpd:ignore-end */

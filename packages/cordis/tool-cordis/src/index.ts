@@ -1,37 +1,9 @@
 /**
- * The self-referential cordis toolset: three model-facing tools that let the
- * agent inspect and MODIFY the live cordis runtime it is running inside.
- *
- * - `cordis_inspect` — read-only: provided services, the flat plugin list
- *   with lifecycle states, registered tools, the dynamic mounts, and the
- *   catalog-backed `api` / `events` references.
- * - `cordis_mount` — evaluate model-written code in a `node:vm` sandbox; the
- *   code returns a cordis plugin, which is mounted as a child of a dedicated
- *   `cordis-dynamic` group fiber and tracked under an id (`dyn-1`, `dyn-2`, …).
- * - `cordis_unmount` — dispose one dynamic mount by id, awaiting quiescence.
- *
- * Everything the model's plugin registers (listeners via `ctx.on`, tools via
- * `harness.registerTool`, services via `ctx.provide`) is an effect on the
- * dynamic fiber, so unmounting — or disposing this plugin itself (HMR) — cleans
- * it all up through the ordinary cordis lifecycle. The group fiber exists
- * exactly so the dynamic mounts form ONE subtree, disposed as a unit with
- * this plugin. Design home:
- * docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
- *
- * The vm sandbox guards against ACCIDENTAL global pollution only, and the `ctx`
- * a mounted plugin's `apply` receives is a WHITELIST façade (register a tool,
- * observe events, provide/consume services, use timers — framework internals
- * withheld; see the guard module). Neither is a security boundary: the verbs
- * the façade DOES expose reach the real runtime unsandboxed (a mounted tool can
- * shell out through `ctx.bash`), so a deployment loads this plugin as
- * deliberately as it grants a bash tool. Design home:
- * docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
- *
- * Plugin export shape: named exports, NO default. The cordis Loader's
- * `unwrapExports` does `exports.default ?? exports`, so a stray default would
- * collapse the module to the bare `apply` and drop `inject`, crashing at load
- * (see docs/postmortem/0001).
- *
+ * Self-referential runtime tools: inspect live services/plugins/tools, mount a returned plugin
+ * under an owned dynamic fiber, and unmount it to quiescence. Registrations are fiber effects,
+ * so plugin disposal removes the entire dynamic subtree. The VM and context façade prevent
+ * accidental misuse, not hostile code: an allowed service such as `ctx.bash` reaches the real
+ * runtime. Named exports preserve loader injection metadata.
  * @module @deepseek-ai/dsh-tool-cordis
  */
 
@@ -40,9 +12,9 @@ import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { STATE_LABELS } from './fiber-state.ts'
 import { isPlugin, pluginName } from './guard.ts'
+import { EVENT_API, INHERITED_CTX_API, SERVICE_API, TYPE_API } from './api-catalog.ts'
 import { describeApi, describeDynamic, describeEvents, describePlugins, describeServices, describeTools } from './inspect.ts'
-import { missingServices, mountDynamic } from './mount.ts'
-import type { DynamicMount } from './mount.ts'
+import { missingServices, mountDynamic, type DynamicMount } from './mount.ts'
 import { presentInspectCall, presentMountCall, presentUnmountCall } from './present.ts'
 import { createSandbox, evaluateMountCode } from './sandbox.ts'
 
@@ -54,7 +26,7 @@ export interface Config {
   /**
    * Milliseconds the SYNCHRONOUS portion of mount code may run in the vm
    * before evaluation is aborted (default 5000). An async body escapes this
-   * bound — see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md for the trust stance.
+   * bound — see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md for the trust stance.
    */
   vmTimeoutMs?: number
 }
@@ -75,9 +47,7 @@ type ResolvedConfig = Required<Config>
  */
 export function apply(ctx: Context, config: Config): void {
   const { vmTimeoutMs } = config as ResolvedConfig
-  // The one group fiber every dynamic mount hangs under. Mounted here (a child
-  // of this plugin's fiber) so disposing tool-cordis cascades over the whole
-  // dynamic subtree — the ordinary parent→child fiber lifecycle, nothing extra.
+  // The one group fiber every dynamic mount hangs under.
   const group = ctx.plugin({ name: 'cordis-dynamic', apply: () => {} })
 
   const mounts = new Map<string, DynamicMount>()
@@ -93,15 +63,23 @@ export function apply(ctx: Context, config: Config): void {
       + '`dynamic` (plugins you mounted via cordis_mount: id, name, state, provided services, awaited services), '
       + '`api` (method signatures AND argument/return type shapes for every LIVE service — read this before writing plugin code that calls a service), '
       + '`events` (every harness event with its dispatch mode and exact signature — pick listener targets here). '
-      + 'Omit `what` to get all six sections.',
+      + 'Omit `what` to get all six sections. With `what:"api"` or `what:"events"`, pass an exact `name` '
+      + 'to narrow to one service/event and include its original source JSDoc.',
     parameters: {
       what: {
         type: 'string',
         enum: ['services', 'plugins', 'tools', 'dynamic', 'api', 'events'],
         description: 'Limit the report to one section. Omit for all sections.',
       },
+      name: {
+        type: 'string',
+        description: 'Exact service key or event name whose original JSDoc to include; valid only with what:"api" or what:"events".',
+      },
     },
     execute(args, exec): Promise<{ type: 'text'; text: string }[]> {
+      if (args.name !== undefined && args.what !== 'api' && args.what !== 'events') {
+        throw new Error('name is valid only with what:"api" or what:"events"')
+      }
       const sections: [heading: string, body: () => string[]][] = [
         ['services', () => describeServices(ctx)],
         ['plugins', () => describePlugins(ctx)],
@@ -109,8 +87,8 @@ export function apply(ctx: Context, config: Config): void {
         // globals absent — "what you can call", not the global registry.
         ['tools', () => describeTools(ctx, exec.agent)],
         ['dynamic', () => describeDynamic(ctx, mounts)],
-        ['api', () => describeApi(ctx)],
-        ['events', () => describeEvents()],
+        ['api', () => describeApi(ctx, SERVICE_API, INHERITED_CTX_API, TYPE_API, args.name)],
+        ['events', () => describeEvents(EVENT_API, args.name)],
       ]
       const selected = sections.filter(([heading]) => args.what === undefined || args.what === heading)
       const text = selected

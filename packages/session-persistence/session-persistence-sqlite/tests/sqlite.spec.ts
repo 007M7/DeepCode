@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
@@ -13,6 +13,17 @@ import { runCoordinatorContract, type CoordinatorFixture } from '../../session-p
 
 const dirs: string[] = []
 afterEach(async () => { for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true }) })
+
+async function expectFlushError(promise: Promise<unknown>, message: RegExp): Promise<void> {
+  try {
+    await promise
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toMatch(message)
+    return
+  }
+  throw new Error('expected flush to reject')
+}
 
 async function freshDbPath(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-sqlite-'))
@@ -28,8 +39,7 @@ async function backend(path = ':memory:'): Promise<{ ctx: Context; dispose: () =
   return { ctx, dispose: () => fiber.dispose() }
 }
 
-// The payoff: the SAME backend-agnostic contract the JSONL backend runs, now
-// proving the SQLite backend satisfies identical semantics.
+// Run the same backend-agnostic contract as JSONL to pin identical semantics.
 runPersistenceContract('sqlite', async () => {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -40,11 +50,8 @@ runPersistenceContract('sqlite', async () => {
   }
 })
 
-// Run the shared coordinator orchestration suite against the real SQLite backend.
-// A FILE-backed db (not :memory:) is the shared storage scope so two mounted
-// instances see the same rows (HMR/reload). `corruptTail` INSERTs a row past the
-// committed seq whose `data` is invalid JSON — a never-committed torn tail that
-// drives the coordinator's commitRepair-with-tornMarker branch over real db rows.
+// A file-backed database lets two mounts share rows across reload. `corruptTail` inserts invalid
+// JSON past the committed seq, exercising coordinator repair against real database rows.
 runCoordinatorContract('sqlite', async (): Promise<CoordinatorFixture> => {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-sqlite-coord-'))
   const path = join(dir, 'sessions.db')
@@ -66,9 +73,9 @@ runCoordinatorContract('sqlite', async (): Promise<CoordinatorFixture> => {
 })
 
 describe('scanRows', () => {
-  // scanRows works off EventRows (data is a JSON string column); build them from
-  // SessionEvents so the unit tests read in terms of the event vocabulary. Surface
-  // fields are serialized to their nullable columns so a round trip is faithful.
+  // scanRows works off EventRows (data is a JSON string column); build them from SessionEvents
+  // so the unit tests read in terms of the event vocabulary. Surface metadata is serialized to
+  // its nullable columns so the conversion remains faithful.
   const rows = (events: SessionEvent[]): EventRow[] =>
     events.map((e) => {
       const se = e as SessionEvent<SurfaceEventType>
@@ -144,6 +151,48 @@ describe('scanRows', () => {
 })
 
 describe('SessionPersistenceSqlite: durability and crash semantics', () => {
+  it('rejects a stored v0 log containing a legacy request/header-delta event', async () => {
+    const path = await freshDbPath()
+    const m = meta('legacy-header-delta', '/legacy')
+    const db = openDatabase(path, 'wal')
+    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length) VALUES (?, ?, ?, ?, NULL, NULL)')
+      .run(m.id, m.version, m.createdAt, m.cwd ?? null)
+    const insert = db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
+    insert.run(m.id, 0, 'turn/start', 1, JSON.stringify({ turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } }))
+    insert.run(m.id, 1, 'request/header-delta', 2, JSON.stringify({ config: { model: 'legacy' } }))
+    insert.run(m.id, 2, 'turn/end', 3, JSON.stringify({ turn: 1, reason: { kind: 'completed' } }))
+    db.close()
+
+    const mounted = await backend(path)
+    await expect(mounted.ctx.sessionPersistence.load(m.id)).rejects.toThrow(/unsupported legacy request\/header-delta event at seq 1/)
+    await mounted.dispose()
+  })
+
+  it('rejects a stored v0 full header carrying the legacy fallback reason', async () => {
+    const path = await freshDbPath()
+    const m = meta('legacy-header-fallback', '/legacy')
+    const db = openDatabase(path, 'wal')
+    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length) VALUES (?, ?, ?, ?, NULL, NULL)')
+      .run(m.id, m.version, m.createdAt, m.cwd ?? null)
+    db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
+      .run(m.id, 0, 'request/header', 1, JSON.stringify({
+        header: { config: { model: 'legacy' } },
+        reason: 'fallback',
+      }))
+    db.close()
+
+    const mounted = await backend(path)
+    await expect(mounted.ctx.sessionPersistence.load(m.id))
+      .rejects.toThrow(/unsupported legacy request\/header reason "fallback" at seq 0/)
+    await mounted.dispose()
+  })
+
+  it('has no independent per-session log location', async () => {
+    const { ctx, dispose } = await backend()
+    expect(ctx.sessionPersistence.locate(meta('sqlite-location'))).toBeUndefined()
+    await dispose()
+  })
+
   it('an interrupted turn (rows after the last turn/end) is PRESERVED and closed during load', async () => {
     const path = await freshDbPath()
     const m = meta('crash')
@@ -256,11 +305,9 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('rejects a sibling v3 database (the merge-collided version) rather than opening it against missing columns', async () => {
-    // Two unmerged branches each shipped a DISTINCT layout under user_version 3
-    // (one added only `seed_length`, the other only the surface columns). The
-    // merged build is v4; an on-disk v3 is ambiguous and is missing at least one
-    // of this build's columns, so it MUST be rejected, not opened. Stamp a v3
-    // database and confirm the version check refuses it.
+    // Two unmerged branches each shipped a DISTINCT layout under user_version 3 (one added only
+    // `seed_length`, the other only the surface columns). The merged v4 cannot interpret that
+    // ambiguous, incomplete layout and must reject it.
     const path = await freshDbPath()
     openDatabase(path, 'wal').close() // creates + stamps user_version = SCHEMA_VERSION (4)
     const db = openDatabase(path, 'wal')
@@ -277,11 +324,9 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await b1.ctx.sessionPersistence.append(m.id, oneTurnLog()) // committed: seqs 0..5
     await b1.dispose()
 
-    // Hand-insert a torn tail row (seq 6, no closing turn/end) whose `data` is
-    // invalid JSON. The contract: only a parse error in the COMMITTED region is
-    // unloadable; a torn tail must be discarded. scanRows finds the last
-    // turn/end on the seq+type columns (never parsing tail `data`), so the
-    // unparsable row after it bounds the preserved prefix and is deleted by load.
+    // A torn row after the last committed turn has invalid JSON. `scanRows` locates the boundary
+    // from seq/type columns without parsing the tail, preserves the committed prefix, and load
+    // deletes the row; invalid JSON inside the committed region would remain fatal.
     const db = openDatabase(path, 'wal')
     db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, 6, ?, 7, ?)')
       .run(m.id, 'turn/start', '{not valid json')
@@ -338,11 +383,66 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(4)
+    expect(SCHEMA_VERSION).toBe(5)
   })
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
+  it('creates a new database and WAL sidecars with owner-only modes without changing its parent mode', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    const dir = dirname(path)
+    await chmod(dir, 0o755)
+
+    const b = await backend(path)
+    await b.ctx.sessionPersistence.list()
+
+    expect((await stat(dir)).mode & 0o777).toBe(0o755)
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-wal`)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-shm`)).mode & 0o777).toBe(0o600)
+    await b.dispose()
+  })
+
+  it('creates a persistent rollback journal with owner-only mode', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path, journalMode: 'persist' })
+    const m = meta('persist-permissions')
+
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-journal`)).mode & 0o777).toBe(0o600)
+    await fiber.dispose()
+  })
+
+  it('preserves the mode of an existing database file', async () => {
+    if (process.platform === 'win32') return
+    const path = await freshDbPath()
+    await writeFile(path, '', { mode: 0o644 })
+    await chmod(path, 0o644)
+
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionPersistenceSqlite, { path, journalMode: 'delete' })
+    await ctx.sessionPersistence.list()
+
+    expect((await stat(path)).mode & 0o777).toBe(0o644)
+    await fiber.dispose()
+  })
+
+  it('surfaces an invalid database path during pre-creation', async () => {
+    const path = await freshDbPath()
+    const b = await backend(`${path}\0`)
+
+    await expect(b.ctx.sessionPersistence.list()).rejects.toMatchObject({ code: 'ERR_INVALID_ARG_VALUE' })
+    await b.dispose()
+  })
+
   it('append rolls back and rethrows when an event INSERT fails inside the transaction', async () => {
     const path = await freshDbPath()
     const m = meta('rollback-insert')
@@ -400,7 +500,7 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     const b1 = await backend(path)
     const s1 = b1.ctx.sessions.create(SessionId('hmr-collide'))
     appendLog(s1, oneTurnLog())
-    await b1.ctx.parallel('session/flush', s1)
+    await b1.ctx.sessions.flush(s1)
     await b1.dispose()
 
     // A fresh context with an UNRELATED live session reusing the id meets a
@@ -411,9 +511,9 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     await ctx.plugin(Object.assign((inner: Context) => {
       session = inner.sessions.create(SessionId('hmr-collide'))
     }, { inject: ['sessions'] }))
-    session.append('turn/start', { turn: 9, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     await ctx.plugin(SessionPersistenceSqlite, { path })
-    await expect(ctx.parallel('session/flush', session)).rejects.toThrow(/id collision/)
+    await expectFlushError(ctx.sessions.flush(session), /id collision/)
     await ctx.fiber.dispose()
   })
 })
@@ -465,18 +565,20 @@ describe('surface field round-trip', () => {
     const fiber = await ctx.plugin(SessionPersistenceSqlite, { path: ':memory:' })
     const session = ctx.sessions.create(SessionId('roundtrip-surface'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [0] })
+    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append', sourceEventSeqs: [2] })
+    session.append('step/end', { turn: 1, step: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.parallel('session/flush', session)
+    await ctx.sessions.flush(session)
     const loaded = await ctx.sessionPersistence.load(SessionId('roundtrip-surface'))
-    expect(loaded.events).toHaveLength(4)
-    const um = loaded.events[1]!
+    expect(loaded.events).toHaveLength(6)
+    const um = loaded.events[2]!
     expect((um as SurfaceEvent).surfaceOp).toBe('append')
     expect((um as SurfaceEvent).sourceEventSeqs).toBeUndefined()
-    const am = loaded.events[2]!
+    const am = loaded.events[3]!
     expect((am as SurfaceEvent).surfaceOp).toBe('append')
-    expect((am as SurfaceEvent).sourceEventSeqs).toEqual([0])
+    expect((am as SurfaceEvent).sourceEventSeqs).toEqual([2])
     await fiber.dispose()
   })
 
@@ -488,7 +590,7 @@ describe('surface field round-trip', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('steering/message', { turn: 1, content: [], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    await ctx.parallel('session/flush', session)
+    await ctx.sessions.flush(session)
     const loaded = await ctx.sessionPersistence.load(SessionId('surface-noseq'))
     expect((loaded.events[1]! as SurfaceEvent).surfaceOp).toBe('append')
     expect((loaded.events[1]! as SurfaceEvent).sourceEventSeqs).toBeUndefined()

@@ -29,12 +29,12 @@ describe('BlockAssembler', () => {
     expect(assembler.message().role).toBe('assistant')
   })
 
-  it('returns the completed block from push() on block-end', () => {
+  it('records the completed block from block-end', () => {
     const assembler = new BlockAssembler()
-    expect(assembler.push({ type: 'block-start', index: 0, blockType: 'text' })).toBeUndefined()
-    expect(assembler.push({ type: 'text-delta', index: 0, text: 'hi' })).toBeUndefined()
-    const block = assembler.push({ type: 'block-end', index: 0, block: { type: 'text', text: 'hi' } })
-    expect(block).toEqual({ type: 'text', text: 'hi' })
+    assembler.push({ type: 'block-start', index: 0, blockType: 'text' })
+    assembler.push({ type: 'text-delta', index: 0, text: 'hi' })
+    assembler.push({ type: 'block-end', index: 0, block: { type: 'text', text: 'hi' } })
+    expect(assembler.blocks()).toEqual([{ type: 'text', text: 'hi' }])
   })
 
   it('tolerates deltas without explicit block-start/end', () => {
@@ -57,16 +57,14 @@ describe('BlockAssembler', () => {
     // push a delta first to guarantee the partial exists
     assembler.push({ type: 'text-delta', index: 0, text: 'hi' })
     // block-end's ensure() must find the existing partial (the second branch path)
-    const block = assembler.push({ type: 'block-end', index: 0, block: { type: 'text', text: 'hi' } })
-    expect(block).toEqual({ type: 'text', text: 'hi' })
+    assembler.push({ type: 'block-end', index: 0, block: { type: 'text', text: 'hi' } })
+    expect(assembler.blocks()).toEqual([{ type: 'text', text: 'hi' }])
   })
 
   it('throws from assemble() when a partial has an unhandled blockType', () => {
     const assembler = new BlockAssembler()
-    // A partial whose blockType is not text/reasoning/tool-call cannot be
-    // assembled without its block-end. A plugin-added block type (here
-    // 'video', via the merge-extensible ContentBlockMap) opened by a
-    // block-start with no closing block-end exercises that throw.
+    // Unknown declaration-merged block types cannot be assembled from partial deltas. Opening a
+    // plugin-added `video` block without its required `block-end` exercises that failure.
     assembler.push({ type: 'block-start', index: 0, blockType: 'video' } as unknown as StreamChunk)
     expect(() => assembler.blocks()).toThrow('cannot assemble incomplete block of type "video"')
   })
@@ -130,42 +128,20 @@ describe('assertNever', () => {
 
   it('BlockAssembler.push rejects chunks outside the closed StreamChunk union', () => {
     const assembler = new BlockAssembler()
-    expect(() => assembler.push({ type: 'rogue-chunk' } as unknown as StreamChunk))
+    expect(() => { assembler.push({ type: 'rogue-chunk' } as unknown as StreamChunk) })
       .toThrow('unreachable variant in BlockAssembler.push')
   })
 })
 
-describe('BlockAssembler regressions (property-test findings)', () => {
+describe('BlockAssembler duplicate-close contract', () => {
   it('first block-end wins: a duplicate block-end for a closed index is ignored', () => {
-    // Found by fast-check (the property-testing RFC): two block-ends at the same index made the
-    // streamed prefix (first block) disagree with final blocks() (second
-    // block). The first close must win — same straggler rule as post-close
-    // deltas — so the prefix returned incrementally by push() and the final
-    // blocks() stay identical.
+    // The first close wins so streamed and final output cannot disagree.
     const chunks: StreamChunk[] = [
       { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'first' } },
       { type: 'block-end', index: 0, block: { type: 'text', text: 'second' } },
     ]
-    const streaming = new BlockAssembler()
-    const closed = []
-    for (const chunk of chunks) {
-      const block = streaming.push(chunk)
-      if (block) closed.push(block)
-    }
-
-    const oneShot = new BlockAssembler()
-    for (const chunk of chunks) oneShot.push(chunk)
-
-    expect(closed).toEqual([{ type: 'reasoning', text: 'first' }])
-    expect(oneShot.blocks()).toEqual([{ type: 'reasoning', text: 'first' }])
-    expect(closed).toEqual(oneShot.blocks())
-  })
-
-  it('push returns undefined for a duplicate block-end (it closed nothing)', () => {
-    const a = new BlockAssembler()
-    expect(a.push({ type: 'block-end', index: 0, block: { type: 'text', text: 'x' } }))
-      .toEqual({ type: 'text', text: 'x' })
-    expect(a.push({ type: 'block-end', index: 0, block: { type: 'text', text: 'y' } }))
-      .toBeUndefined()
+    const assembler = new BlockAssembler()
+    for (const chunk of chunks) assembler.push(chunk)
+    expect(assembler.blocks()).toEqual([{ type: 'reasoning', text: 'first' }])
   })
 })

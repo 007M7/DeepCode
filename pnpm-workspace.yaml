@@ -1,6 +1,17 @@
 packages:
   - vendor/*
   - packages/*/*
+  - website
+  # The runnable demo leaves join as ONE workspace member: examples/package.json
+  # declares the union of every leaf's cordis.yml plugins as workspace:*, so a
+  # plain-node (`:lib`) boot of any leaf (examples/<leaf>/cordis.yml) resolves its
+  # plugins through real package `exports`→lib by walking up to examples/node_modules.
+  # Members for DEPENDENCY RESOLUTION only — NOT build targets: tsdown's explicit
+  # globs (vendor/*, packages/*/*) exclude them. See the example-execute-over-tsx Agent Note.
+  - examples
+  # Deploy root of the single-exe build: a pure dependency manifest whose
+  # closure is what the exe bundles and what the Python runtime distributes.
+  - python/sdk-runtime
 
 peerDependencyRules:
   allowedVersions:
@@ -14,11 +25,14 @@ peerDependencyRules:
 allowBuilds:
   esbuild: true
   lefthook: true
+  # Cross-platform PTY boundary for the TUI process smoke, including ConPTY on Windows.
+  node-pty: true
   # Pulled in by @earendil-works/pi-ai (optional LLM API backend). pnpm lists
   # them only because they ship lifecycle scripts, but those are no-ops we don't
   # need, so we deny them — install still succeeds.
   '@google/genai': false
   protobufjs: false
+  node-addon-require-builtin: false
 
 # The Landlock launcher family is our own sibling-repo release, consumed
 # fresh (hours old at each coordinated bump) — the release-age quarantine
@@ -28,3 +42,7 @@ minimumReleaseAgeExclude:
   - node-addon-landlock-run
   - node-addon-landlock-run-linux-arm64
   - node-addon-landlock-run-linux-x64
+  # Cordis release candidates are source-vendored and pinned in vendor/README.md
+  # during the same-day sync that updates package manifests and the lockfile.
+  - '@cordisjs/plugin-loader@1.0.0-rc.5'
+  - cordis@4.0.0-rc.7

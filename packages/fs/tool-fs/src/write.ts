@@ -1,13 +1,7 @@
 /**
- * The model-facing `write` tool: create or fully replace a UTF-8 text file. The
- * tool is the executor: it dispatches the `fs/write-intent` waterfall to
- * obtain the optional version guard, calls `ctx.fs.writeText` directly, and
- * emits `fs/observed`. The default thunk returns `undefined` (unconditional
- * create-or-overwrite — the bare provider); a policy plugin
- * (`@deepseek-ai/dsh-fs-policy`) occupies the single decision slot and
- * returns `createIfAbsent`/`replaceIfVersion` instead. The tool stats ZERO
- * times either way.
- *
+ * Model-facing full-file write. It obtains an optional intent from the single policy slot, calls
+ * `ctx.fs.writeText` without a stat, then records the resulting version; no policy means an
+ * unconditional atomic create-or-overwrite.
  * @module @deepseek-ai/dsh-tool-fs/src/write
  */
 
@@ -19,7 +13,8 @@ import type { FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { computeHunkDiffs, diffsFromMeta, type FsDiffMeta } from './diff.ts'
-import { sessionCwd } from './session-cwd.ts'
+import { sessionResolveOptions } from './session-cwd.ts'
+import type { FsSandboxSurface } from './sandbox.ts'
 
 /**
  * Validate value constraints the schema DSL can't express: only a non-blank
@@ -48,10 +43,23 @@ ${verb} file
 }
 
 /**
+ * The `write` tool's validated argument shape: the base parameters plus the
+ * two escalation fields, advertised only under a confining `ctx.fs` (absent
+ * from the schema otherwise, so the validator rejects them before `execute`).
+ */
+interface WriteToolArgs {
+  file_path: string
+  content: string
+  sandbox_permissions?: string
+  justification?: string
+}
+
+/**
  * Register the `write` tool and its system-prompt guidance.
  * @param ctx - the plugin context; registrations are effects scoped to it, and execution uses its `fs` service.
+ * @param sandbox - the shared sandbox-escalation surface (advertisement, mode stamping, denial mapping).
  */
-export function applyWriteTool(ctx: Context): void {
+export function applyWriteTool(ctx: Context, sandbox: FsSandboxSurface): void {
   ctx.systemPrompt.section({
     name: 'tool:write',
     order: 101,
@@ -64,31 +72,39 @@ export function applyWriteTool(ctx: Context): void {
     parameters: {
       file_path: { type: 'string', required: true, description: 'Path to write, resolved by the filesystem backend.' },
       content: { type: 'string', required: true, description: 'Full UTF-8 text content to write.' },
+      ...sandbox.escalationModes.length > 0 ? sandbox.schemaFields() : {},
     },
-    async execute(args, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
+    async execute(args: WriteToolArgs, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
       const input = parseWriteArgs(args)
-      const cwd = sessionCwd(exec)
-      const target = await ctx.fs.resolve(input.filePath, cwd !== undefined ? { cwd } : undefined)
+      // Resolve the per-call sandbox mode (escalation grant > session override
+      // > backend default) BEFORE anything executes; an escalating call
+      // resolves approval here and throws its distinct text on any non-grant.
+      const sandboxMode = await sandbox.stampMode('write', args, exec)
+      const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec))
       // Single-slot decision: the policy plugin produces createIfAbsent/
       // replaceIfVersion; the bare default is undefined (unconditional). No stat.
       const intent = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)
-      const outcome = await ctx.fs.writeText(target, input.content, intent, exec.signal)
+      let outcome: FsWriteOutcome
+      try {
+        outcome = await ctx.fs.writeText(target, input.content, intent, exec.signal, sandboxMode)
+      } catch (error: unknown) {
+        // A sandbox denial becomes the shared [sandbox: …] marker (the model
+        // recognizes it from bash); any other error passes through.
+        throw sandbox.mapError(error, sandboxMode)
+      }
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
-      // Attach a contextual hunk as `meta` ONLY for an overwrite (a before-version
-      // exists). A create has no "before" — `outcome.before` is null — so it
-      // carries no `meta`; `presentResult` then renders a whole-file diff from the
-      // args, so the completed card is still a diff (never the result text).
+      // Overwrites carry applied hunks. Creates have no prior text, so result presentation uses
+      // the args-derived whole-file diff instead.
       const diffs = outcome.before !== null ? computeHunkDiffs(input.filePath, outcome.before, outcome.after) : []
       return {
         content: [{ type: 'text', text: formatWriteOutput(target.displayPath, outcome) }],
         ...diffs.length > 0 ? { meta: { diffs } } : {},
       }
     },
-    // Pure display: a diff card (an editor renders write as a new-file / full-
-    // replace diff). `oldText: null` — a call-time presenter has no access to the
-    // file's prior content, so even an overwrite renders new-file style, matching
-    // claude-agent-acp. A follow-along location points at the written file.
+    // Pure display: a diff card (an editor renders write as a new-file / full- replace diff).
+    // `oldText: null` — a call-time presenter has no access to the file's prior content, so
+    // even an overwrite renders new-file style, matching claude-agent-acp.
     presentCall(args): DiffCallView {
       return {
         card: 'diff',
@@ -97,14 +113,10 @@ export function applyWriteTool(ctx: Context): void {
         locations: [{ path: args.file_path }],
       }
     },
-    // Result-time display: a `diff` card so the completed `tool_call_update`
-    // re-installs the diff rather than the model-facing result text (an ACP
-    // `tool_call_update.content` REPLACES the call's content, so a text result
-    // would clobber the pending diff card). An OVERWRITE uses the applied
-    // contextual hunks on `meta`; a CREATE has no `meta` (no prior content), so
-    // its whole-file new-file diff is derived from `args.content` (replay-safe,
-    // matching the call-time card). An error falls through to generic rendering
-    // so its message shows.
+    // Result-time display: a `diff` card so the completed `tool_call_update` re-installs the
+    // diff rather than the model-facing result text (an ACP `tool_call_update.content` REPLACES
+    // the call's content, so a text result would clobber the pending diff card). Overwrites use
+    // applied metadata; creates and identical overwrites use the replay-safe args fallback.
     presentResult(args, result: ToolResult): DiffResultView | undefined {
       if (result.isError) return undefined
       const diffs = diffsFromMeta(result.meta)

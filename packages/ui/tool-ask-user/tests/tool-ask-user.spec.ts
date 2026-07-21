@@ -7,6 +7,8 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 
+const testToolSignal = new AbortController().signal
+
 interface OptionSchemaShape {
   properties: {
     questions: {
@@ -75,6 +77,7 @@ describe('ask_user_question tool', () => {
     })
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ask-1'),
       name: 'ask_user_question',
       arguments: {
@@ -110,6 +113,7 @@ describe('ask_user_question tool', () => {
     })
 
     await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ask-recommended'),
       name: 'ask_user_question',
       arguments: {
@@ -144,6 +148,7 @@ describe('ask_user_question tool', () => {
     })
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ask-multi'),
       name: 'ask_user_question',
       arguments: {
@@ -198,6 +203,7 @@ describe('ask_user_question tool', () => {
     const agent = { id: 'main' } as unknown as Agent
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ask-3'),
       name: 'ask_user_question',
       arguments: { questions: [{ id: 'continue', header: 'Confirm', question: 'Continue?' }] },
@@ -212,6 +218,7 @@ describe('ask_user_question tool', () => {
     const ctx = await setup()
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ask-no-provider'),
       name: 'ask_user_question',
       arguments: { questions: [{ id: 'continue', question: 'Continue?' }] },
@@ -227,6 +234,7 @@ describe('ask_user_question tool', () => {
     const ctx = await setup()
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ask-empty'),
       name: 'ask_user_question',
       arguments: { questions: [] },

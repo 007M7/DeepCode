@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write
+2026-07-15-replay-token-meter-service.md: 4bedbb0cb9fa383108a688dbbb32546c7f39bd20
+2026-07-15-replay-token-meter-service.zh.md: ccf1b014cd86d16ef498b4209818e78be562e66f

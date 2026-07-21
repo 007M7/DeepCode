@@ -1,53 +1,23 @@
 /**
- * Doc-sync gate: verify that every relative Markdown cross-link resolves to a
- * file that exists. Docs in this repo link to each other by relative path
- * (`[topic](../implemented/2026-…-….md)`, `[the cookbook](adding-a-tool.md)`);
- * a rename or a move silently breaks those links, and nothing caught it before
- * review. The RFC tree reorganization (one `docs/rfc/` with proposed/
- * implemented/ rejected/ subfolders, every file renamed to a dated slug) is the
- * motivating case: ~40 inter-doc links were rewritten by hand, and a single
- * fat-fingered path would have shipped a dead link.
- *
- * Detection is AST-based, mirroring verify-md-wrap: parse each file with
- * mdast-util-from-markdown + GFM, then walk every `link`, `image`, and
- * `definition` node. A target is checked when it is a RELATIVE path; these are
- * skipped because they are not ours to verify:
- *   - absolute URLs with a scheme (`https:`, `http:`, `mailto:`, …),
- *   - protocol-relative URLs (`//host/path`),
- *   - root-absolute paths (`/foo` — no stable base in a repo checkout),
- *   - pure in-page anchors (`#section`).
- * For a relative target the `#fragment` and `?query` are stripped, the path is
- * resolved against the linking file's directory, and the result must exist on
- * disk. This is checker, not fixer: it reports and never rewrites.
- *
- * Scope is the other doc-sync gates' set plus example Markdown, AGENTS.md
- * files in those checked trees, AND the repo-authored agent-skill Markdown under
- * `.agents/skills/` — those skill files cross-link into the docs tree (e.g. the
- * dsh-code-review skill cites the RFC index), so a rename must not silently
- * break them either: README.md, docs/** /*.md, packages/* /README.md,
- * examples/** /*.md, AGENTS.md, packages/AGENTS.md, .agents/skills/** /*.md.
- * The root, packages/, and examples/ CLAUDE.md files are symlinks to the
- * AGENTS.md files, so they are deduped by real path.
- *
- * Run: `tsx scripts/verify-md-links.ts`.
+ * Verify that relative Markdown links, images, and definitions resolve. URL,
+ * root-absolute, and in-page targets are excluded; query strings and fragments
+ * do not affect resolution against the source file. The checker never rewrites,
+ * and symlinked instruction files are deduped.
  */
 
-import { existsSync, globSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
-import { fromMarkdown } from 'mdast-util-from-markdown'
-import { gfmFromMarkdown } from 'mdast-util-gfm'
-import { gfm } from 'micromark-extension-gfm'
 import type { Nodes } from 'mdast'
+import { parseMarkdown, visitMarkdown } from './markdown.ts'
+import { uniqueRepoFiles } from './repo-files.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
-/**
- * Files to check: doc-typecheck's scope, example Markdown, the AGENTS.md pair,
- * and repo-authored agent-skill Markdown.
- */
+/** Repo-authored Markdown checked for relative links. */
 const PATTERNS = [
   'README.md',
   'README.zh.md',
+  '.agents/notes/**/*.md',
   'docs/**/*.md',
   'packages/*/*.md',
   'packages/*/*/*.md',
@@ -103,7 +73,7 @@ function findViolations(absPath: string): Violation[] {
   const file = relative(root, absPath)
   const dir = dirname(absPath)
   const source = readFileSync(absPath, 'utf8')
-  const tree = fromMarkdown(source, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] })
+  const tree = parseMarkdown(source)
   const out: Violation[] = []
 
   const check = (url: string, node: Nodes): void => {
@@ -117,33 +87,17 @@ function findViolations(absPath: string): Violation[] {
     }
   }
 
-  const visit = (node: Nodes): void => {
+  visitMarkdown(tree, (node: Nodes): void => {
     if ((node.type === 'link' || node.type === 'image' || node.type === 'definition') && 'url' in node) {
       check(node.url, node)
     }
-    if ('children' in node) {
-      for (const child of node.children) visit(child)
-    }
-  }
-  visit(tree)
+  })
   return out
 }
 
-const seen = new Set<string>()
-const all: Violation[] = []
-let checked = 0
-for (const pattern of PATTERNS) {
-  for (const match of globSync(pattern, { cwd: root })) {
-    const abs = resolve(root, match)
-    // CLAUDE.md symlinks resolve onto AGENTS.md; dedupe by real path so a file
-    // matched twice (or via symlink) is checked once.
-    const real = realpathSync(abs)
-    if (seen.has(real)) continue
-    seen.add(real)
-    checked++
-    all.push(...findViolations(abs))
-  }
-}
+const files = uniqueRepoFiles(root, PATTERNS)
+const all = files.flatMap(file => findViolations(file.abs))
+const checked = files.length
 
 if (all.length === 0) {
   console.log(`verify-md-links: ${checked} file(s) checked, all relative cross-links resolve.`)

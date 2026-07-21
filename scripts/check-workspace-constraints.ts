@@ -61,6 +61,9 @@ function readJson(path: string): PackageManifest {
   return JSON.parse(readFileSync(path, 'utf8')) as PackageManifest
 }
 
+const rootManifest = readJson(join(root, 'package.json'))
+const repositoryVersion = rootManifest.version
+
 /** Repo-relative dirs holding a package.json, walked to the configured depth. */
 function packageDirs(base: string, depth: number): string[] {
   if (depth === 1) {
@@ -78,7 +81,7 @@ function packageDirs(base: string, depth: number): string[] {
 
 function workspaceManifests(): WorkspaceManifest[] {
   const manifests: WorkspaceManifest[] = [
-    { dir: '.', manifest: readJson(join(root, 'package.json')) },
+    { dir: '.', manifest: rootManifest },
   ]
 
   for (const { dir: base, depth } of workspaceGlobs) {
@@ -90,40 +93,33 @@ function workspaceManifests(): WorkspaceManifest[] {
   return manifests
 }
 
-const dshPackageFiles = [
-  'lib/index.js',
-  'lib/types/**/*.d.ts',
-  'lib/types/**/*.d.ts.map',
-  'src',
-] as const
-
-const dshBinPackageFiles = [
-  'lib/index.js',
-  'lib/bin.js',
-  'lib/types/**/*.d.ts',
-  'lib/types/**/*.d.ts.map',
-  'src',
-] as const
-
-const dshWorkerPackageFiles = [
-  'lib/index.js',
-  'lib/worker.js',
-  'lib/types/**/*.d.ts',
-  'lib/types/**/*.d.ts.map',
-  'src',
-] as const
+const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/dsh-helper': ['lib/assets'],
+  '@deepseek-ai/dsh-scripts': [
+    'lib/dev/tsdown-config.js',
+    'lib/local-plugin-loader-hooks.js',
+    'lib/assets',
+  ],
+}
 
 function sameStringList(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
   return !!actual && actual.length === expected.length && actual.every((value, index) => value === expected[index])
 }
 
 function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
-  if (manifest.bin) return dshBinPackageFiles
-  // A declared "./worker" subpath export sanctions the one extra runtime
-  // bundle a worker-thread entry needs (and NodeNext/publint then validate
-  // that subpath's targets like any other export).
-  if (manifest.exports?.['./worker']) return dshWorkerPackageFiles
-  return dshPackageFiles
+  const extras = manifest.name ? packageFileExtras[manifest.name] ?? [] : []
+  return [
+    'lib/index.js',
+    // Every package publishes its invariant ownership companion as a separate
+    // bundle; the package-invariant gate validates the companion itself.
+    'lib/invariant.js',
+    ...manifest.bin ? ['lib/bin.js'] : [],
+    ...manifest.exports?.['./worker'] ? ['lib/worker.cjs'] : [],
+    ...extras,
+    'lib/types/**/*.d.ts',
+    'lib/types/**/*.d.ts.map',
+    'src',
+  ]
 }
 
 function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
@@ -147,8 +143,8 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     if (peer && dev && peer !== dev) {
       errors.push(`${label}: cordis peer (${peer}) and dev (${dev}) ranges must match`)
     }
-    if (manifest.version !== '0.0.1') {
-      errors.push(`${label}: package.json must set "version": "0.0.1"`)
+    if (manifest.version !== repositoryVersion) {
+      errors.push(`${label}: package.json version must match root version ${repositoryVersion ?? '(missing)'}`)
     }
     if (manifest.type !== 'module') {
       errors.push(`${label}: package.json must set "type": "module"`)
@@ -165,6 +161,16 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     if (manifest.exports?.['.']?.default !== './lib/index.js') {
       errors.push(`${label}: package.json exports["."].default must be "./lib/index.js"`)
     }
+    const invariantExport = manifest.exports?.['./invariant']
+    if (invariantExport?.types !== undefined && invariantExport.types !== './lib/types/invariant.d.ts') {
+      errors.push(`${label}: package.json exports["./invariant"].types must be "./lib/types/invariant.d.ts"`)
+    }
+    if (invariantExport?.default !== undefined && invariantExport.default !== './lib/invariant.js') {
+      errors.push(`${label}: package.json exports["./invariant"].default must be "./lib/invariant.js"`)
+    }
+    if (invariantExport && (invariantExport.types === undefined || invariantExport.default === undefined)) {
+      errors.push(`${label}: package.json exports["./invariant"] must declare both types and default targets`)
+    }
     const expectedFiles = expectedDshPackageFiles(manifest)
     if (!sameStringList(manifest.files, expectedFiles)) {
       errors.push(`${label}: package.json files must be ${JSON.stringify(expectedFiles)}`)
@@ -175,13 +181,8 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
 }
 
 /**
- * Enforce the packages/ hierarchy SHAPE: every package lives at exactly
- * `packages/<group>/<pkg>`. A group dir is a pure container — it holds packages,
- * never sources of its own — so it must NOT carry a package.json, and a package
- * must NOT sit directly at the `packages/` root (the old flat layout) nor nest a
- * level deeper. The group NAMES are open on purpose: a new group may be added
- * without touching this gate, but the depth-2 shape is fixed. This is what keeps
- * a stray flat package or an over-nested one from regressing the hierarchy.
+ * Enforce `packages/<group>/<pkg>`: groups are open-named containers without a
+ * package.json, and packages may be neither flat nor more deeply nested.
  */
 function checkHierarchyShape(): string[] {
   const errors: string[] = []
@@ -205,7 +206,16 @@ function checkHierarchyShape(): string[] {
   return errors
 }
 
-const errors = [...workspaceManifests().flatMap(checkWorkspace), ...checkHierarchyShape()]
+function checkRepositoryVersion(): string[] {
+  if (repositoryVersion && /^\d+\.\d+\.\d+$/.test(repositoryVersion)) return []
+  return ['package.json: version must be stable X.Y.Z']
+}
+
+const errors = [
+  ...checkRepositoryVersion(),
+  ...workspaceManifests().flatMap(checkWorkspace),
+  ...checkHierarchyShape(),
+]
 if (errors.length > 0) {
   console.error(errors.join('\n'))
   process.exitCode = 1

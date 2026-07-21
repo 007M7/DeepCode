@@ -1,21 +1,7 @@
 /**
- * Vocabulary for the filesystem provider seam (`ctx.fs`): the opaque
- * target/version identities, the metadata `stat` returns, the write-intent
- * and outcome shapes, the literal-edit request/outcome, and the typed error
- * taxonomy.
- *
- * These types are shared by every backend (`@deepseek-ai/dsh-fs-local` and
- * future sandboxed/remote backends) and by the policy layer
- * (`@deepseek-ai/dsh-fs-policy`). They are deliberately a *text-storage*
- * vocabulary half a level above byte-level fsspec: `readText`/`streamText` hand
- * back decoded text, never raw bytes. Host-path assumptions stay out — `targetKey`
- * and `version` are opaque branded tokens, and `displayPath` is the only field a
- * consumer may show.
- *
- * Model-facing concepts (line windows, numbered lines, observed-state) do NOT
- * live here; they belong to the consumer tool and the policy plugin
- * (`@deepseek-ai/dsh-tool-fs` / `@deepseek-ai/dsh-fs-policy`).
- *
+ * Vocabulary for the filesystem provider seam (`ctx.fs`): the opaque target/version
+ * identities, the metadata `stat` returns, the write-intent and outcome shapes, the
+ * literal-edit request/outcome, and the typed error taxonomy.
  * @module @deepseek-ai/dsh-fs/types
  */
 
@@ -41,16 +27,17 @@ export function FsTargetKey(key: string): FsTargetKey {
 
 /**
  * Opaque file-version token — the freshness token a write/edit guards against.
- * The local backend derives it from mtime+size; a remote backend might use a
- * revision id. The policy layer records it for stale checks; consumers may
- * display related metadata but MUST NOT interpret this token.
+ * The local backend derives it from high-resolution stat identity and freshness
+ * fields; a remote backend might use a revision id. The policy layer records it
+ * for stale checks; consumers may display related metadata but MUST NOT
+ * interpret this token.
  */
 export type FsVersion = Branded<'FsVersion'>
 
 /**
  * Brand a string as an {@link FsVersion}. For backend use only — a consumer
  * never manufactures a version, it receives one from `stat`/write/edit outcomes.
- * @param v - the backend's raw version string (the local backend derives it from mtime+size).
+ * @param v - the backend's raw version string.
  * @returns the same string, branded; no validation is performed.
  */
 export function FsVersion(v: string): FsVersion {
@@ -87,6 +74,21 @@ export interface FsInfo {
 }
 
 /**
+ * Metadata about a path without following the final path component when it is a
+ * symbolic link. Unlike {@link FsInfo}, this path-level probe can report
+ * `symlink` so consumers with trust-boundary rules can reject repository-owned
+ * links before resolving a target.
+ */
+export interface FsPathInfo {
+  /** Opaque freshness token of the path entry right now. */
+  version: FsVersion
+  /** Whether the path entry is a regular file, directory, symlink, or other. */
+  type: 'file' | 'directory' | 'symlink' | 'other'
+  /** Byte size of the path entry, when the backend can report it. */
+  size?: number
+}
+
+/**
  * One direct child returned by {@link FileSystem.listDir}. Listing returns
  * metadata and resolved targets only; it must not read file contents.
  */
@@ -104,17 +106,10 @@ export interface FsDirEntry {
 }
 
 /**
- * The explicit intent of a guarded {@link FileSystem.writeText} call.
- * `createIfAbsent` creates a missing target and rejects an existing one with
- * `FS_NOT_OBSERVED` (the path the policy plugin uses when the owner has no prior
- * read). `replaceIfVersion` replaces only when the target exists at the observed
- * version; a missing target or a version mismatch throws `FS_STALE_VERSION`.
- *
- * `writeText` takes this OPTIONALLY: omitting `expected` is the third,
- * unconstrained state — an unconditional create-or-overwrite (the bare
- * provider). The union itself carries only the two GUARDED intents; "no guard"
- * is expressed by omission, so the write and edit mutations share one symmetric
- * shape (`expected?`: omit = unconditional, present = guarded).
+ * Guarded write intent. `createIfAbsent` rejects an existing target with
+ * `FS_NOT_OBSERVED`; `replaceIfVersion` rejects absence or mismatch with
+ * `FS_STALE_VERSION`. Omitting the intent from `writeText` means unconditional
+ * create-or-overwrite, not a third union arm.
  */
 export type FsWriteIntent =
   | { kind: 'createIfAbsent' }
@@ -173,6 +168,7 @@ export type FsErrorCode =
   | 'FS_NOT_TEXT'
   | 'FS_NOT_REGULAR_FILE'
   | 'FS_PERMISSION_DENIED'
+  | 'FS_SANDBOX_DENIED'
   | 'FS_IO_ERROR'
   | 'FS_STALE_VERSION'
   | 'FS_NOT_OBSERVED'

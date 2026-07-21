@@ -1,16 +1,8 @@
 /**
- * Integration tests: the real local backend (`dsh-fs-local`) plus the model
- * tools (`dsh-tool-fs`) as the executor, exercised through `ctx.tools.execute()`
- * so nothing bypasses the tool registry. Two deployments:
- *
- *  - DEFAULT — with the real `dsh-fs-policy` policy gate plugin: read-before-
- *    write/edit, version-guarded mutation, FS_NOT_OBSERVED for unread edits.
- *  - BARE — WITHOUT the policy plugin: every `fs/*` waterfall falls through to
- *    its undefined default, so write/edit are unconditional. This proves the
- *    tool carries no dependency on the policy plugin.
- *
- * These verify the WORLD — files are read back from disk and asserted
- * byte-for-byte — not the tool's self-report.
+ * End-to-end tool-registry tests against the real local backend. The policy deployment verifies
+ * observed-state and guarded mutation; the bare deployment proves unconditional tools have no
+ * policy-service dependency. Assertions read files back byte-for-byte rather than trusting tool
+ * messages.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -20,22 +12,23 @@ import { join } from 'node:path'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 
+const testToolSignal = new AbortController().signal
+
 let dir: string
 let ctx: Context
 let fiber: Awaited<ReturnType<Context['plugin']>>
-// A stable session object stands in for an agent session (the file-state
-// owner). It carries a `header` (no `cwd`) so `sessionCwd(exec)` resolves to
-// `undefined` and the backend falls back to its configured cwd (= `dir`).
+// No header cwd: sessionCwd returns undefined and the provider's configured test dir applies.
 const session = { header: {} }
 
 let callCounter = 0
 function call(name: string, args: unknown) {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId(`call-${++callCounter}`),
     name,
     arguments: args,
@@ -290,13 +283,9 @@ describe('bare provider (no dsh-fs-policy)', () => {
   })
 })
 
-// --------------------------------------------------------------------------
-// Per-session cwd: a relative file_path resolves against the CALLING session's
-// workspace (`exec.agent.session.header.cwd`), NOT the backend's config.cwd —
-// so an ACP editor's per-session dir wins, matching dsh-tool-bash. The regression
-// this guards: before the seam fix the tool passed no cwd, so a relative write
-// landed in config.cwd instead of the session dir.
-// --------------------------------------------------------------------------
+// Per-session cwd: a relative file_path resolves against the calling session's workspace
+// (`exec.agent.session.header.cwd`), not the backend's config.cwd — so an ACP editor's
+// per-session dir wins, matching dsh-tool-bash.
 describe('per-session cwd', () => {
   let sessionDir: string
   beforeEach(async () => {
@@ -313,6 +302,7 @@ describe('per-session cwd', () => {
 
   const callIn = (sessionObj: object, name: string, args: unknown) =>
     ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId(`call-${++callCounter}`),
       name,
       arguments: args,
@@ -358,26 +348,25 @@ describe('signal, concurrency, and the fs/observed contract', () => {
   const callSig = (signal: AbortSignal, name: string, args: unknown) =>
     ctx.tools.execute({ callId: CallId(`c-${++callCounter}`), name, arguments: args, agent: { session } as never, signal })
   const callOwned = (name: string, args: unknown) =>
-    ctx.tools.execute({ callId: CallId(`c-${++callCounter}`), name, arguments: args, agent: { session } as never })
+    ctx.tools.execute({ signal: testToolSignal, callId: CallId(`c-${++callCounter}`), name, arguments: args, agent: { session } as never })
 
-  it('a pre-aborted signal makes read/write/edit return isError FS_ABORTED', async () => {
+  it('a pre-aborted registry call skips read/write/edit with ABORTED_BEFORE_DISPATCH', async () => {
     await writeFile(join(dir, 'a.txt'), 'hello')
     const read = await callSig(AbortSignal.abort(), 'read', { file_path: 'a.txt' })
     expect(read.isError).toBe(true)
-    expect(read.error).toMatchObject({ code: 'FS_ABORTED' })
+    expect(read.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
 
     const write = await callSig(AbortSignal.abort(), 'write', { file_path: 'new.txt', content: 'x' })
     expect(write.isError).toBe(true)
-    expect(write.error).toMatchObject({ code: 'FS_ABORTED' })
+    expect(write.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
     await expect(readFile(join(dir, 'new.txt'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
 
     // Read first (un-aborted, SAME session owner) so the edit clears the
-    // observation gate; then the aborted edit fails on the signal, not on
-    // FS_NOT_OBSERVED.
+    // observation gate; then the registry skips the aborted edit before its body.
     expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
     const edit = await callSig(AbortSignal.abort(), 'edit', { file_path: 'a.txt', old_string: 'hello', new_string: 'bye' })
     expect(edit.isError).toBe(true)
-    expect(edit.error).toMatchObject({ code: 'FS_ABORTED' })
+    expect(edit.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello') // unchanged
   })
 
@@ -398,10 +387,36 @@ describe('signal, concurrency, and the fs/observed contract', () => {
     expect(onDisk === 'ONE value here' || onDisk === 'base TWO here').toBe(true)
   })
 
+  it('a stale observed version from an older read fails closed at edit CAS', async () => {
+    await writeFile(join(dir, 'a.txt'), 'older content\n')
+    const target = await ctx.fs.resolve('a.txt')
+    const firstInfo = await ctx.fs.stat(target)
+    if (!firstInfo) throw new Error('expected first stat')
+
+    expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
+
+    await writeFile(join(dir, 'a.txt'), 'newer current content\n')
+    const secondInfo = await ctx.fs.stat(target)
+    if (!secondInfo) throw new Error('expected second stat')
+    expect(secondInfo.version).not.toBe(firstInfo.version)
+    expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
+
+    // Reproduce an older concurrent read winning the observation race.
+    ctx.emit('fs/observed', target, firstInfo.version, { agent: { session } })
+
+    const edit = await callOwned('edit', {
+      file_path: 'a.txt',
+      old_string: 'newer',
+      new_string: 'edited',
+    })
+    expect(edit.isError).toBe(true)
+    expect(edit.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('newer current content\n')
+  })
+
   it('a throwing fs/observed listener surfaces as isError, but the mutation already hit disk', async () => {
-    // fs/observed is a plain ctx.emit AFTER the write succeeded; a throwing
-    // listener cannot roll the write back — it only turns the tool result into
-    // isError. The file must still carry the written bytes.
+    // fs/observed is a plain ctx.emit after the write succeeded; a throwing listener cannot
+    // roll the write back — it only turns the tool result into isError.
     ctx.on('fs/observed', () => { throw new Error('recording bug') })
     const result = await callOwned('write', { file_path: 'w.txt', content: 'durable' })
     expect(result.isError).toBe(true)

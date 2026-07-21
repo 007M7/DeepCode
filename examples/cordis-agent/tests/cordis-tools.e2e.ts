@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { cordisHarness, waitForIdle } from './harness.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
+
+const testToolSignal = new AbortController().signal
 
 /**
  * With-key smoke for the self-referential cordis tools: a REAL model drives
@@ -38,7 +40,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
   it('mounts a status listener whose tagged output actually fires, then unmounts it', async () => {
     ctx = await cordisHarness()
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const agent = ctx.agentLoop.create(AgentId('cordis-e2e-listener'), { model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('cordis-e2e-listener'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',
@@ -51,6 +53,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     // the mounted listener through the tagged sandbox console.
     expect(taggedCalls(log).length).toBeGreaterThan(0)
     const mid = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('verify-mounted'), name: 'cordis_inspect', arguments: { what: 'dynamic' },
     })
     expect(resultText(mid)).toContain('dyn-')
@@ -59,6 +62,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     await waitForIdle(ctx, agent)
 
     const after = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('verify-unmounted'), name: 'cordis_inspect', arguments: { what: 'dynamic' },
     })
     expect(resultText(after)).toContain('(no dynamic plugins mounted)')
@@ -66,7 +70,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
 
   it('builds itself a reverse_text tool and actually calls it', async () => {
     ctx = await cordisHarness()
-    const agent = ctx.agentLoop.create(AgentId('cordis-e2e-selftool'), { model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('cordis-e2e-selftool'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',
@@ -78,10 +82,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     }])
     await waitForIdle(ctx, agent)
 
-    // World checks: the tool exists in the registry, was invoked as a real
-    // tool call, and its RESULT (the self-made execute actually running) is the
-    // reversed string. The model's prose is not asserted — the tool result is
-    // the world; the summary sentence is just the self-report.
+    // World checks: the tool exists in the registry, was invoked as a real tool call, and its
+    // RESULT (the self-made execute actually running) is the reversed string. Model prose is only
+    // self-report and is deliberately not asserted.
     expect(ctx.tools.get('reverse_text')).toBeDefined()
     const events = [...agent.session.events]
     const calls = events.filter(event => event.type === 'tool/call')
@@ -114,7 +117,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
 
   it('composes two mounts through provide/inject, and unmounting the provider parks the consumer', async () => {
     ctx = await cordisHarness()
-    const agent = ctx.agentLoop.create(AgentId('cordis-e2e-compose'), { model: 'deepseek-v4-flash' })
+    const agent = ctx.agentLoop.create(SessionId('cordis-e2e-compose'), { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     agent.send([{
       type: 'text',
@@ -149,6 +152,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('cordis tools: a real model modif
     expect(ctx.get('shouter')).toBeUndefined()
     expect(ctx.tools.get('shout_text')).toBeUndefined()
     const after = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('verify-parked'), name: 'cordis_inspect', arguments: { what: 'dynamic' },
     })
     expect(resultText(after)).toContain('waiting for: shouter')

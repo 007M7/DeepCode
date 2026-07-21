@@ -11,6 +11,11 @@ describe('presenters', () => {
   it('cordis_inspect renders a generic read card titled with the section', () => {
     expect(presentInspectCall({})).toEqual({ card: 'generic', kind: 'read', title: 'Inspect cordis runtime' })
     expect(presentInspectCall({ what: 'api' })).toEqual({ card: 'generic', kind: 'read', title: 'Inspect cordis runtime: api' })
+    expect(presentInspectCall({ what: 'events', name: 'tools/change' })).toEqual({
+      card: 'generic',
+      kind: 'read',
+      title: 'Inspect cordis runtime: events: tools/change',
+    })
   })
 
   it('cordis_mount renders a generic execute card carrying the code as raw input', () => {
@@ -32,6 +37,9 @@ describe('presenters', () => {
       card: 'generic',
       kind: 'read',
       title: 'Inspect cordis runtime: tools',
+    })
+    expect(ctx.tools.get('cordis_inspect')!.presentCall!({ what: 'api', name: 'tools' })).toMatchObject({
+      title: 'Inspect cordis runtime: api: tools',
     })
     expect(ctx.tools.get('cordis_mount')!.presentCall!({ code: 'return 1' })).toMatchObject({ kind: 'execute' })
     expect(ctx.tools.get('cordis_unmount')!.presentCall!({ id: 'dyn-2' })).toMatchObject({ title: 'Unmount dyn-2' })

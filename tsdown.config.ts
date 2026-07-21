@@ -1,21 +1,23 @@
 import { defineConfig } from 'tsdown'
 
 /**
- * JS bundling for all workspace packages (vendor and the packages hierarchy).
+ * JS bundling for vendored Cordis and Harness TypeScript packages.
  * TypeScript source is compiled first by `tsc -b tsconfig.build.json`; tsdown
- * reads only the emitted JS under lib/types and writes lib/index.* runtime
- * bundles. Declarations are NOT produced here, hence `dts: false`.
+ * reads only the emitted JS under lib/types and writes the package root and
+ * invariant companion runtime bundles. Declarations are NOT produced here,
+ * hence `dts: false`.
  *
  * Per-package shape overrides live in `<package>/tsdown.config.ts`
  * (schemastery: dual ESM+CJS; logger-console: extra browser entry).
  */
 export default defineConfig({
-  // Explicit globs: `workspace: true` would also discover examples (any
-  // package.json), but only vendor and the packages hierarchy are pnpm
-  // workspaces. The Landlock launcher platform packages ship a prebuilt
-  // native binary and no JavaScript — nothing to bundle.
+  // Explicit globs keep bundling to vendored Cordis and the TypeScript package tree;
+  // `workspace: true` would discover package manifests outside that bundle set. Landlock
+  // platform packages contain only a prebuilt native binary, so they have no JS entry.
   workspace: ['vendor/*', 'packages/*/*'],
-  entry: ['lib/types/index.js'],
+  // The brace glob admits the package companion when present while retaining the
+  // index-only build for vendored Cordis packages outside the Harness package tree.
+  entry: ['lib/types/{index,invariant}.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',

@@ -5,27 +5,18 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 /**
- * BUILT-ARTIFACT smoke for the published package (the real-load-path guard
- * from docs/testing.md): the unit suite runs `src/` under vitest, where the
- * worker entry resolves to `src/worker.ts` — a consumer runs `lib/index.js`
- * under plain `node`, where it must resolve the sibling `lib/worker.js`
- * bundle instead. This spawns plain `node` (NOT tsx) from inside the package
- * directory and imports the package BY NAME, so resolution flows through the
- * real `exports` map exactly as it would from a downstream install; the
- * program exercises the type-strip, the worker spawn, the binding bridge,
- * and log capture end-to-end through the built bundles.
- *
- * It build-gates: SKIPS when the built artifacts are absent (suite run
- * without `pnpm run build`); CI runs it after the build step. KEYLESS — no
- * model is involved.
+ * Keyless built-artifact smoke: plain Node imports the package by name through its exports map,
+ * then exercises type stripping, sibling `worker.cjs` loading, bindings, and logs. Unit tests use
+ * `src/worker.ts`; this pins the downstream `lib/index.js` path. It skips when `lib/` is absent,
+ * and CI runs it after the build.
  */
 
 const pkgDir = fileURLToPath(new URL('..', import.meta.url))
-const built = ['lib/index.js', 'lib/worker.js'].every(file => existsSync(join(pkgDir, file)))
+const built = ['lib/index.js', 'lib/worker.cjs'].every(file => existsSync(join(pkgDir, file)))
   && existsSync(join(pkgDir, '../code-runtime/lib/index.js'))
 
 describe.skipIf(!built)('built lib real load path (plain node)', () => {
-  it('runs a TypeScript program with a binding through lib/index.js and its lib/worker.js entry', async () => {
+  it('runs a TypeScript program with a binding through lib/index.js and its lib/worker.cjs entry', async () => {
     const script = `
       const { Context } = await import('cordis')
       const { WorkerCodeRuntime } = await import('@deepseek-ai/dsh-code-runtime-worker')
@@ -47,9 +38,9 @@ describe.skipIf(!built)('built lib real load path (plain node)', () => {
 
     expect(exitCode, `stderr:\n${stderr}`).toBe(0)
     const lastLine = stdout.trim().split('\n').at(-1) ?? ''
-    const result = JSON.parse(lastLine) as { value?: unknown; logs: { source: string; level?: string; text: string }[]; error?: unknown }
+    const result = JSON.parse(lastLine) as { value?: unknown; logs: string[]; error?: unknown }
     expect(result.error).toBeUndefined()
     expect(result.value).toBe(42)
-    expect(result.logs).toContainEqual({ source: 'console', level: 'log', text: 'halfway 42' })
+    expect(result.logs).toContain('halfway 42')
   })
 })

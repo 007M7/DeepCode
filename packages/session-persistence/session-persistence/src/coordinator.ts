@@ -1,45 +1,18 @@
 /**
- * The backend-agnostic write-path orchestration shared by every first-party
- * {@link SessionPersistence} backend.
- *
- * Every durable backend needs the same orchestration: the in-memory bookkeeping
- * (the per-id state, the write-behind buffers, the per-id serialization chains,
- * the per-session init promises), the `session/event` → buffer → `session/flush`
- * drain, lazy materialization, crash-tail repair on load, the four
- * `session/created` adoption cases (new / HMR-adopt / collision /
- * ownerless-claim), and dispose-time quiescence. Only the STORAGE primitives are
- * backend-specific (file bytes for `dsh-session-persistence-jsonl`, `node:sqlite`
- * rows for `dsh-session-persistence-sqlite`). {@link PersistenceCoordinator} owns
- * the orchestration; a backend supplies the storage primitives as a small
- * {@link PersistenceBackend} hook object.
- *
- * The abstract {@link SessionPersistence} service's public API is independent of
- * this: a backend IS a `SessionPersistence` (its four public methods delegate to
- * a coordinator it composes), so a third-party backend MAY implement the service
- * directly without using the coordinator at all.
- *
- * See the write-coordinator RFC (docs/rfc/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md)
- * for the design rationale (composition over inheritance, the opaque torn marker).
- *
+ * Shared buffering, serialization, adoption, repair, and disposal orchestration
+ * for first-party backends. Third-party backends may implement the public
+ * persistence seam directly.
  * @module @deepseek-ai/dsh-session-persistence/coordinator
  */
 
 import { Context } from 'cordis'
 import { interruptedTurnClosers, SESSION_FORMAT_VERSION, snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
-import { seedCoversPrefix } from './index.ts'
 
 /**
- * A stored session's durable prefix as read back from a backend: its
- * {@link SessionHeader}, the preserved (seq-contiguous, parseable) event prefix,
- * and an OPAQUE `tornMarker` that is present iff a never-committed torn tail must
- * be truncated before further writes.
- *
- * The coordinator NEVER inspects `tornMarker`'s value — it only tests
- * `!== undefined` (is there a tail to repair?) and passes the value back to
- * {@link PersistenceBackend.commitRepair}. Each backend chooses its own marker
- * type: the JSONL backend uses the byte offset to truncate to, the SQLite
- * backend uses the seq to delete from (both happen to be `number`).
+ * A stored session's header, valid contiguous event prefix, and optional opaque
+ * torn-tail marker. The coordinator only checks marker presence and returns its
+ * value to {@link PersistenceBackend.commitRepair}; each backend owns the type.
  */
 export interface StoredPrefix<TornMarker = unknown> {
   meta: SessionHeader
@@ -112,16 +85,9 @@ interface SessionState {
   /** The next seq the backend expects to append (the stored log length). */
   cursor: number
   /**
-   * Whether the backend has physically written this session (a JSONL file /
-   * SQLite row exists). `create()` registers state LAZILY — cursor 0,
-   * materialized false, nothing on disk — so an empty session leaves no
-   * artifact and the FIRST `appendBatch` writes the header + its events in ONE
-   * transaction (the "a row exists ⇔ it has events" invariant `list`
-   * relies on; a separate up-front materialize could crash leaving a row with
-   * zero events). The flag is the only signal that distinguishes a session
-   * registered-but-never-written from one durably present, which the reclaim
-   * path needs (an abandoned id with no artifact AND no buffered events is free
-   * to reuse; a materialized one is a real collision).
+   * Whether lazy creation has produced a durable artifact. The first append
+   * atomically materializes the header with events; reclaim logic uses this to
+   * distinguish an unused id from a persisted collision.
    */
   materialized: boolean
   /**
@@ -143,6 +109,29 @@ async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unkn
   return errors
 }
 
+/** Whether a live session seed reproduces a persisted prefix exactly. */
+function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly SessionEvent[]): boolean {
+  return prefix.length <= seed.length
+    && prefix.every((event, index) => {
+      const seedEvent = seed[index]
+      return seedEvent !== undefined && JSON.stringify(seedEvent) === JSON.stringify(event)
+    })
+}
+
+/** Reject events from an obsolete v0 vocabulary that this build cannot replay. */
+function assertSupportedEvents(events: readonly SessionEvent[], id: SessionId): void {
+  const legacyType: string = 'request/header-delta'
+  const legacy = events.find(event => event.type === legacyType)
+  if (legacy !== undefined) {
+    throw new Error(`session "${id}" contains unsupported legacy request/header-delta event at seq ${legacy.seq}`)
+  }
+  const fallback = events.find(event => event.type === 'request/header'
+    && (event.data as { reason?: string }).reason === 'fallback')
+  if (fallback !== undefined) {
+    throw new Error(`session "${id}" contains unsupported legacy request/header reason "fallback" at seq ${fallback.seq}`)
+  }
+}
+
 /**
  * Owns the backend-agnostic session write-path orchestration. A backend
  * constructs one (`new PersistenceCoordinator(ctx, this)`), implements
@@ -151,7 +140,8 @@ async function settledErrors(promises: Iterable<Promise<unknown>>): Promise<unkn
  *
  * All per-id operations are serialized (a per-id promise chain) so concurrent
  * flushes / a flush racing a load never interleave storage writes. The
- * constructor installs the write-path listeners and the dispose effect.
+ * constructor installs the write-path listeners, per-session retirement, and
+ * the backend dispose effect.
  *
  * @typeParam TornMarker - the backend's opaque torn-tail repair token.
  */
@@ -166,16 +156,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    */
   private chains = new Map<SessionId, Promise<unknown>>()
   /**
-   * Per-session init promise (onCreated). Keyed by the LIVE Session OBJECT, not
-   * its id: a disposed fiber's session can be replaced by a different live
-   * Session reusing the same id (HMR, an ACP reconnect), and an id-keyed cache
-   * would hand the new object the old object's init promise.
-   *
-   * Public (readonly) so a backend can expose it for white-box tests that await
-   * a specific session's init (there is no public API to await one init); the
-   * coordinator itself only ever mutates it internally.
+   * Init promises keyed by live session object, preventing an id-reusing
+   * replacement from inheriting stale initialization. Flush is the public
+   * observation boundary; callers do not inspect this bookkeeping directly.
    */
-  readonly inits = new Map<Session, Promise<void>>()
+  private inits = new Map<Session, Promise<void>>()
+  /** Final drains started by fire-and-forget session disposal notifications. */
+  private retirements = new Set<Promise<void>>()
 
   constructor(private ctx: Context, private backend: PersistenceBackend<TornMarker>) {
     this.installWritePath()
@@ -184,16 +171,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   // --- public surface (the backend's service methods delegate here) ---
 
   /**
-   * Register a new session's metadata (lazy: no physical write until the first
-   * {@link append}). Rejects if the id is already tracked or already persisted.
-   * @param meta - the header (id, version, cwd, lineage) to record; materialized
-   *   as a detached lossless-JSON snapshot at call time.
+   * Register detached session metadata for lazy creation on the first append.
+   * @param meta - header to snapshot; duplicate tracked or persisted ids reject.
    */
   create(meta: SessionHeader): Promise<void> {
-    // Snapshot the metadata at call time: the op runs later (behind the
-    // per-session chain) and the snapshot is stored as the lazy state, so keeping
-    // the caller's object by reference would let a later mutation of `id`/`cwd`
-    // register under one key but materialize under a different path/header.
+    // Snapshot before queueing so caller mutation cannot diverge the key and header.
     const snapshot = snapshotJsonValue(meta)
     if (snapshot === undefined) {
       return Promise.reject(new TypeError('session metadata must be losslessly JSON-serializable'))
@@ -239,6 +221,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   private async appendCore(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+    // Every append route converges here: the public service, live write-behind
+    // drains, and HMR seed/suffix adoption. Keep vocabulary rejection at that
+    // shared boundary so a stale JavaScript plugin cannot persist an event that
+    // this same backend will refuse to load.
+    assertSupportedEvents(events, id)
     if (events.length === 0) return
     let state = this.states.get(id)
     if (state === undefined) state = await this.adopt(id) // calls loadCore, not load
@@ -273,33 +260,22 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     const { meta, events, tornMarker } = stored
     this.assertVersion(meta)
+    assertSupportedEvents(events, id)
 
-    // Crash-recovery: if the log ended mid-turn (real, preserved events but no
-    // closing turn/end), close it durably DURING load so disk, the returned log,
-    // and the cursor all agree. The interrupted turn's real events are preserved,
-    // never truncated (a turn can be huge — the session-persistence RFC); only a
-    // never-fully-written torn tail fragment is discarded.
+    // Preserve complete interrupted events and synthesize only missing closers.
     const closers = interruptedTurnClosers(events)
     const balanced = [...events, ...closers]
 
-    // Make the repair durable (truncate the torn tail + append the synthetic
-    // closers) BEFORE recording state — commitRepair takes `meta` directly, so
-    // there is no state-path ordering dependency (uniform across backends).
+    // Repair storage before publishing coordinator state.
     if (tornMarker !== undefined || closers.length > 0) {
       await this.backend.commitRepair(meta, tornMarker, closers)
     }
-    // The state keeps its OWN copy of the meta; the returned value is separate so
-    // a consumer mutating loaded.meta cannot corrupt the backend's metadata.
+    // Keep coordinator metadata detached from the returned record.
     this.states.set(id, { meta: { ...meta }, cursor: balanced.length, materialized: true })
     return { meta, events: balanced }
   }
 
-  // NOTE: there is deliberately no coordinator `list()`. Listing needs none of
-  // the coordinator's orchestration (no per-id serialization, no cursor, no
-  // in-memory state) — it is a pure read of stored metadata. A backend's public
-  // `list()` IS the {@link PersistenceBackend.list} hook (one method); routing it
-  // through the coordinator would only forward to that same hook, so the
-  // coordinator stays out of the listing path entirely.
+  // Listing is a direct backend read and needs no coordinator state.
 
   // --- per-id serialization + adoption helpers ---
 
@@ -314,7 +290,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const next = prior.then(op, op)
     // Keep the chain alive but swallow this op's rejection for the NEXT waiter
     // (the caller still sees the real rejection via `next`).
-    this.chains.set(id, next.then(() => undefined, () => undefined))
+    const tail = next.then(() => undefined, () => undefined)
+    this.chains.set(id, tail)
+    // Settled tails carry no serialization value. Delete only the exact tail
+    // installed above: a later operation may already have replaced it.
+    void tail.then(() => {
+      if (this.chains.get(id) === tail) this.chains.delete(id)
+    })
     return next
   }
 
@@ -340,27 +322,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private installWritePath(): void {
     const ctx = this.ctx
 
-    // Capture the header on creation; persist a fork's seed once. Record the init
-    // promise so flush/dispose can await it (onCreated is async).
-    ctx.on('session/created', (session) => { void this.initFor(session) })
-
-    // Session emits an owned frozen event. Keep a persistence-owned copy anyway
-    // so the write-behind queue owns exactly the record it will flush rather than
-    // retaining a product-layer record by identity. Serializability is guaranteed
-    // at the source, so structuredClone is safe.
-    ctx.on('session/event', (session, event) => {
-      let buffer = this.buffers.get(session)
-      if (!buffer) this.buffers.set(session, buffer = [])
-      buffer.push(structuredClone(event))
-    })
-
-    // Drain to the backend at the durability checkpoint.
-    ctx.on('session/flush', session => this.flush(session))
-
-    // Dispose must reach quiescence: await every init + final drain BEFORE
-    // returning, then close the backend's own resources (AFTER the drain), so no
-    // write lands after teardown and a close failure never MASKS a drain error.
+    // Register the disposer BEFORE the listeners. Cordis tears effects down in
+    // reverse registration order, so event admission closes before this final
+    // drain reaches quiescence and closes the backend.
     ctx.effect(() => async () => {
+      await this.awaitRetirements()
+
       let disposeError: unknown
       try {
         const errors = [
@@ -388,9 +355,61 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       }
     }, `${this.backend.name} write path`)
 
+    // Capture the header on creation; persist a fork's seed once. Record the init
+    // promise so flush/dispose can await it (onCreated is async).
+    ctx.on('session/created', (session) => { void this.initFor(session) })
+
+    // Session emits an owned frozen event. Keep a persistence-owned copy anyway
+    // so the write-behind queue owns exactly the record it will flush rather than
+    // retaining a product-layer record by identity. Serializability is guaranteed
+    // at the source, so structuredClone is safe.
+    ctx.on('session/event', (session, event) => {
+      let buffer = this.buffers.get(session)
+      if (!buffer) this.buffers.set(session, buffer = [])
+      buffer.push(structuredClone(event))
+    })
+
+    // Drain to the backend at the durability checkpoint.
+    ctx.on('session/flush', session => this.flush(session))
+
+    // Session disposal is observe-only, so the coordinator observes the
+    // detached task itself and backend teardown awaits quiescence.
+    ctx.on('session/disposed', (session) => { this.retire(session) })
+
     // HMR: a hot reload does not replay session/created, so seed existing live
     // sessions (mirrors dsh-invariants).
     for (const session of ctx.sessions.list()) void this.initFor(session)
+  }
+
+  /** Start, observe, and track one disposed session's final drain. */
+  private retire(session: Session): void {
+    const task = this.retireCore(session)
+    this.retirements.add(task)
+    const settled = (): void => { this.retirements.delete(task) }
+    void task.then(settled, (error: unknown) => {
+      settled()
+      this.ctx.logger.warn(`${this.backend.name}: session "${session.id}" retirement failed: ${String(error)}`)
+    })
+  }
+
+  /** Drain and release state owned by one exact disposed Session lifecycle. */
+  private async retireCore(session: Session): Promise<void> {
+    await this.inits.get(session)
+
+    const id = session.header.id
+    await this.serialize(id, async () => {
+      await this.drain(session)
+      this.buffers.delete(session)
+      this.inits.delete(session)
+      if (this.states.get(id)?.owner === session) this.states.delete(id)
+    })
+  }
+
+  /** Await every retirement admitted before listener teardown. */
+  private async awaitRetirements(): Promise<void> {
+    while (this.retirements.size > 0) {
+      await Promise.allSettled([...this.retirements])
+    }
   }
 
   /** Start (once) the async init for a session and remember its promise. */
@@ -510,6 +529,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private async adoptLivePrefix(session: Session, seed: readonly SessionEvent[], stored: StoredPrefix<TornMarker>): Promise<void> {
     const { meta, events, tornMarker } = stored
     this.assertVersion(meta)
+    assertSupportedEvents(events, session.header.id)
     if (!seedCoversPrefix(seed, events)) {
       throw new Error(`session "${session.header.id}" already has a persisted log on disk that does not match this live session (id collision)`)
     }

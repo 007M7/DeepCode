@@ -1,28 +1,13 @@
 /**
- * `DeepSeekSearchProvider`: a `WebSearchProvider` backed by DeepSeek's
- * Anthropic-compatible Messages API with the native `web_search_20250305` server
- * tool enabled.
- *
- * Unlike a dedicated search endpoint (Exa's `POST /search`, Perplexity's
- * `/chat/completions`), this issues a FULL Messages model call carrying a server
- * tool, so a search costs a complete model turn in latency and tokens. In return
- * DeepSeek runs the search server-side and returns STRUCTURED
- * `web_search_tool_result` blocks — this provider parses those blocks and never
- * scrapes URLs out of model prose. Strict mode: if the response carries no
- * `web_search_tool_result` block (native search did not trigger), it throws
- * `WEB_PROVIDER_ERROR` rather than degrading to prose-scraping.
- *
- * Network requests use platform-native `fetch` at the repo's Node floor, mirroring
- * `@deepseek-ai/dsh-llm-deepseek`'s adapter — not a cordis HTTP-client service.
- * The Anthropic wire shape is a provider-private detail and does NOT make this
- * provider depend on `ctx.llm`.
- *
+ * DeepSeek search through an Anthropic-compatible Messages model call with the native
+ * `web_search_20250305` server tool. Each search costs a model turn, but returns structured
+ * result blocks; absence of those blocks is an error rather than a prose-scraping fallback.
+ * The wire format and native `fetch` client are provider-private and do not use `ctx.llm`.
  * @module @deepseek-ai/dsh-web-search-deepseek/provider
  */
 
 import { WebError } from '@deepseek-ai/dsh-web'
 import type {
-  WebProviderStatus,
   WebSearchProvider,
   WebSearchRequest,
   WebSearchResult,
@@ -64,7 +49,7 @@ const USER_AGENT = 'deepseek-harness/0.0.1'
 
 /** Resolved provider options (the plugin's `apply` supplies env-var and constant defaults). */
 export interface DeepSeekSearchProviderOptions {
-  /** DeepSeek API key. Empty/absent → `status()` reports `missing-credential`. */
+  /** DeepSeek API key. Empty/absent makes the provider unavailable. */
   apiKey: string
   /** Endpoint base; `/messages` is appended. */
   baseURL: string
@@ -101,21 +86,17 @@ export function citationSnippets(blocks: readonly ContentBlock[]): Map<string, s
 }
 
 /**
- * Map a DeepSeek Anthropic Messages response to a normalized search result.
- * Walks `web_search_tool_result` blocks for citeable `web_search_result` items,
- * joins each to its citation excerpt as `snippet`, and dedupes by `url` (a
- * `max_uses > 1` request can surface the same URL across searches). The seam
- * owns the final `maxResults` truncation, so `truncated` is always `false` here.
+ * Map a DeepSeek Anthropic Messages response to a normalized search result. Walks
+ * `web_search_tool_result` blocks for citeable `web_search_result` items, joins each to its
+ * citation excerpt as `snippet`, and dedupes by `url` (a `max_uses > 1` request can surface
+ * the same URL across searches). The seam owns the final `maxResults` truncation, so
+ * `truncated` is always `false` here.
  *
- * Throws `WEB_PROVIDER_ERROR` (strict mode) when no `web_search_tool_result`
- * block is present — native search did not trigger, and prose-scraping is not a
- * fallback.
- *
- * @param query - the original request query, echoed on the result.
  * @param response - the parsed Messages response body.
  * @returns the normalized result with deduped, snippet-joined sources.
+ * @throws {@link WebError} when native search produced no result block.
  */
-export function mapAnthropicResponse(query: string, response: AnthropicResponse): WebSearchResult {
+export function mapAnthropicResponse(response: AnthropicResponse): WebSearchResult {
   const blocks = response.content ?? []
   const resultBlocks = blocks.filter(
     (block): block is WebSearchToolResultBlock => block.type === 'web_search_tool_result',
@@ -143,27 +124,28 @@ export function mapAnthropicResponse(query: string, response: AnthropicResponse)
       })
     }
   }
-  return { providerId: DEEPSEEK_PROVIDER_ID, query, sources, truncated: false }
+  return { sources, truncated: false }
 }
 
-/** The DeepSeek-backed search provider. */
+/** The DeepSeek-backed search provider; HTTP redirects fail as `WEB_PROVIDER_ERROR`. */
 export class DeepSeekSearchProvider implements WebSearchProvider {
   readonly id = DEEPSEEK_PROVIDER_ID
 
   constructor(private readonly options: DeepSeekSearchProviderOptions) {}
 
-  status(): WebProviderStatus {
-    if (this.options.apiKey.length === 0) return { available: false, reason: 'missing-credential' }
-    if (!URL.canParse(this.options.baseURL)) return { available: false, reason: 'misconfigured' }
-    if (!isPositiveInteger(this.options.maxTokens) || !isPositiveInteger(this.options.maxUses)) return { available: false, reason: 'misconfigured' }
-    return { available: true }
+  available(): boolean {
+    return this.options.apiKey.length > 0
+      && URL.canParse(this.options.baseURL)
+      && isPositiveInteger(this.options.maxTokens)
+      && isPositiveInteger(this.options.maxUses)
   }
 
-  async search(request: WebSearchRequest, exec?: { readonly signal?: AbortSignal }): Promise<WebSearchResult> {
+  async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
     let response: Response
     try {
       response = await fetch(`${this.options.baseURL}/messages`, {
         method: 'POST',
+        redirect: 'error',
         headers: {
           // Official DeepSeek expects `x-api-key`; an Anthropic-compatible proxy
           // may expect `Authorization: Bearer` — send both so either resolves.
@@ -183,7 +165,7 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
           }],
           tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: this.options.maxUses }],
         }),
-        ...exec?.signal ? { signal: exec.signal } : {},
+        ...signal !== undefined ? { signal } : {},
       })
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('DeepSeek search aborted', 'WEB_ABORTED', { cause: error })
@@ -211,7 +193,7 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
 
     try {
       const payload = await response.json() as AnthropicResponse
-      return mapAnthropicResponse(request.query, payload)
+      return mapAnthropicResponse(payload)
     } catch (error: unknown) {
       if (isAbortError(error)) throw new WebError('DeepSeek search aborted', 'WEB_ABORTED', { cause: error })
       if (error instanceof WebError) throw error

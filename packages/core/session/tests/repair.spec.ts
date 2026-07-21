@@ -56,7 +56,7 @@ describe('interruptedTurnClosers', () => {
       { type: 'assistant/message', seq: 2, time: 2, data: { turn: 2, step: 1, content: [
         { type: 'text', text: 'calling a tool' },
         { type: 'tool-call', id: CallId('call-1'), name: 'bash', arguments: '{}' },
-      ] } },
+      ], provenance: { provider: 'mock', model: 'mock' } } },
     ]
     const closers = interruptedTurnClosers(events)
     // tool/result (for the orphaned call) → step/end → turn/end, contiguous seqs.
@@ -74,7 +74,7 @@ describe('interruptedTurnClosers', () => {
       { type: 'step/start', seq: 1, time: 1, data: { turn: 2, step: 1 } },
       { type: 'assistant/message', seq: 2, time: 2, data: { turn: 2, step: 1, content: [
         { type: 'tool-call', id: CallId('call-1'), name: 'bash', arguments: '{}' },
-      ] } },
+      ], provenance: { provider: 'mock', model: 'mock' } } },
       { type: 'tool/result', seq: 3, time: 3, data: { turn: 2, step: 1, callId: CallId('call-1'), content: [{ type: 'text', text: 'ok' }], isError: false } },
     ]
     // The call is answered, so only the open step + turn need closing.
@@ -88,7 +88,7 @@ describe('interruptedTurnClosers', () => {
       { type: 'step/start', seq: 1, time: 1, data: { turn: 2, step: 1 } },
       { type: 'assistant/message', seq: 2, time: 2, data: { turn: 2, step: 1, content: [
         { type: 'tool-call', id: CallId('call-1'), name: 'bash', arguments: '{}' },
-      ] } },
+      ], provenance: { provider: 'mock', model: 'mock' } } },
       { type: 'step/end', seq: 3, time: 3, data: { turn: 2, step: 1 } },
     ]
 
@@ -105,7 +105,7 @@ describe('interruptedTurnClosers', () => {
       { type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 } },
       { type: 'assistant/message', seq: 2, time: 2, data: { turn: 1, step: 1, content: [
         { type: 'tool-call', id: CallId('old-call'), name: 'bash', arguments: '{}' },
-      ] } },
+      ], provenance: { provider: 'mock', model: 'mock' } } },
       { type: 'tool/result', seq: 3, time: 3, data: { turn: 1, step: 1, callId: CallId('old-call'), content: [], isError: false } },
       { type: 'step/end', seq: 4, time: 4, data: { turn: 1, step: 1 } },
       { type: 'turn/end', seq: 5, time: 5, data: { turn: 1, reason: { kind: 'completed' } } },
@@ -113,7 +113,7 @@ describe('interruptedTurnClosers', () => {
       { type: 'step/start', seq: 7, time: 7, data: { turn: 2, step: 1 } },
       { type: 'assistant/message', seq: 8, time: 8, data: { turn: 2, step: 1, content: [
         { type: 'tool-call', id: CallId('new-call'), name: 'bash', arguments: '{}' },
-      ] } },
+      ], provenance: { provider: 'mock', model: 'mock' } } },
     ]
     const closers = interruptedTurnClosers(events)
     expect(closers.map(e => e.type)).toEqual(['tool/result', 'step/end', 'turn/end'])
@@ -128,7 +128,7 @@ describe('interruptedTurnClosers', () => {
       { type: 'assistant/message', seq: 2, time: 2, data: { turn: 1, step: 1, content: [
         { type: 'tool-call', id: CallId('call-a'), name: 'bash', arguments: '{}' },
         { type: 'tool-call', id: CallId('call-b'), name: 'bash', arguments: '{}' },
-      ] } },
+      ], provenance: { provider: 'mock', model: 'mock' } } },
       // call-a got answered before the crash; call-b did not.
       { type: 'tool/result', seq: 3, time: 3, data: { turn: 1, step: 1, callId: CallId('call-a'), content: [], isError: false } },
     ]
@@ -144,7 +144,7 @@ describe('interruptedTurnClosers', () => {
       { type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 } },
       { type: 'assistant/message', seq: 2, time: 2, data: { turn: 1, step: 1, content: [
         { type: 'tool-call', id: CallId('call-1'), name: 'bash', arguments: '{}' },
-      ] } },
+      ], provenance: { provider: 'mock', model: 'mock' } } },
       { type: 'tool/call', seq: 3, time: 3, data: { turn: 1, step: 1, callId: CallId('call-1'), name: 'bash', arguments: '{}' } },
     ]
     const closers = interruptedTurnClosers(events)
@@ -155,11 +155,8 @@ describe('interruptedTurnClosers', () => {
   })
 
   it('handles tool/call without a matching assistant/message entry gracefully', () => {
-    // A tool/call event exists in the log but no assistant/message registered
-    // the callId in pendingCalls (e.g., a plugin appended it directly, or the
-    // assistant/message from a prior step didn't have this call). The repair
-    // should still close the turn — it just won't synthesize a result for this
-    // call (there's nothing to answer).
+    // A raw tool/call with no assistant-registered pending call has nothing to
+    // answer; repair still closes the step and turn without synthesizing a result.
     const events: SessionEvent[] = [
       userTurnStart(1, 0),
       { type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 } },

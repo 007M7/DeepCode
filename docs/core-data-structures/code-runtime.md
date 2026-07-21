@@ -1,6 +1,6 @@
 # Code Runtime
 
-The code-execution seam — a [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md) whose interface ([dsh-code-runtime](../../packages/code-runtime/code-runtime), `ctx.codeRuntime`) runs one model-written program against host-provided async bindings and reports what it printed and returned. Code execution is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). Backends differ by execution substrate and source language, both readonly descriptors on the service; the worker-thread backend and the tool-registry consumer (Code Mode) are specified in the [Code Mode RFC](../rfc/implemented/feature/2026-06-15-code-mode.md).
+The code-execution seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) whose interface ([dsh-code-runtime](../../packages/code-runtime/code-runtime), `ctx.codeRuntime`) runs one model-written program against host-provided async bindings and reports what it printed and returned. Code execution is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). Backends differ by execution substrate and source language, both readonly descriptors on the service; the worker-thread backend and the tool-registry consumer (Code Mode) are specified in the [Code Mode Agent Note](../../.agents/notes/implemented/feature/2026-06-15-code-mode.md).
 
 Source: [`packages/code-runtime/code-runtime/src/types.ts`](../../packages/code-runtime/code-runtime/src/types.ts)
 
@@ -9,6 +9,12 @@ Source: [`packages/code-runtime/code-runtime/src/types.ts`](../../packages/code-
 A `CodeRunRequest` carries **everything the runtime acts on** — per the "explicit > implicit at package seams" rule, defaulting (time budgets, output caps) is the implementation's validated config, never a hidden `??` inside `run()`:
 
 ```ts type-equiv
+/**
+ * One run: the program source plus everything the runtime acts on. Per the
+ * explicit-over-implicit convention, defaulting (time budgets, output caps)
+ * is the implementation's validated config — a request carries no optional
+ * tuning knobs for a hidden `??` to fill in.
+ */
 interface CodeRunRequest {
   /**
    * The program source, in the runtime's {@link ../index.ts | language}. It
@@ -31,6 +37,11 @@ interface CodeRunRequest {
 The result reports an error as a **field**, never a rejection of `run()` — reporting a failed program is the caller's job, not an exception path (mirroring `BashExecutor.run`'s resolve-on-failure contract):
 
 ```ts type-equiv
+/**
+ * The outcome of one run. An error is a FIELD on a resolved result, never a
+ * rejection of `run()` — reporting a failed program is the caller's job, not
+ * an exception path.
+ */
 interface CodeRunResult {
   /**
    * The program's completion value (its top-level `return`), when it ran to
@@ -39,8 +50,8 @@ interface CodeRunResult {
    * or value-less run leaves this absent.
    */
   value?: unknown
-  /** Everything the program emitted, in order (capped by the implementation). */
-  logs: CodeLogEntry[]
+  /** Text the program emitted, in order (capped by the implementation). */
+  logs: string[]
   /** Present iff the run failed; see {@link CodeRunFailure} for the taxonomy. */
   error?: CodeRunFailure
 }
@@ -51,6 +62,13 @@ interface CodeRunResult {
 Each `CodeBindingNamespace` becomes one global object of async callables inside the program (the Code Mode consumer passes one: `tools`). Arguments and resolutions must be structured-cloneable — a runtime may bridge calls across a serialization boundary — and a runtime treats binding names as hostile input (`__proto__` is an ordinary own property, never a prototype collision):
 
 ```ts type-equiv
+/**
+ * A named group of {@link CodeBindingFunction}s the runtime exposes to the
+ * program as one global object (e.g. `tools`). Function names are arbitrary
+ * strings — a runtime must treat names like `__proto__` or `constructor` as
+ * ordinary own properties (null-prototype construction), never as prototype
+ * collisions.
+ */
 interface CodeBindingNamespace {
   /** The global identifier the program sees (must be a valid JS identifier). */
   global: string
@@ -60,27 +78,34 @@ interface CodeBindingNamespace {
 ```
 
 ```ts type-equiv
+/**
+ * One host-side function exposed to the program as an async callable. The
+ * runtime bridges calls to it (possibly across a serialization boundary), so
+ * `args` and the resolution value MUST be structured-cloneable; a runtime
+ * rejects a non-cloneable value with a descriptive error rather than
+ * corrupting the run. A rejection of this function surfaces inside the
+ * program as a rejection of the corresponding call.
+ */
 type CodeBindingFunction = (args: unknown) => Promise<unknown>
 ```
 
 ## Captured output and the failure taxonomy
 
-Logs arrive in emission order, attributed to their channel (the runtime's `console` shim, or stray writes to the underlying streams):
-
-```ts type-equiv
-interface CodeLogEntry {
-  /** Which channel produced the text. */
-  source: 'console' | 'stdout' | 'stderr'
-  /** The console method used; present only when `source` is `'console'`. */
-  level?: 'log' | 'info' | 'warn' | 'error' | 'debug'
-  /** The captured text (possibly truncated by the implementation's caps, marked in-band). */
-  text: string
-}
-```
+Logs are plain strings in emission order. The runtime captures the program's console and stream output, but channel and console-method metadata are not part of the seam because consumers render only the text. Implementations cap the aggregate output and mark truncation in-band.
 
 Failure kinds are **orthogonal outcomes reported independently** (per [defensive-patterns](../defensive-patterns.md)): a budget expiry is not an exception, an abort is not a timeout, and a substrate death (e.g. OOM) is neither:
 
 ```ts type-equiv
+/**
+ * Why a run failed. The kinds are orthogonal outcomes reported independently
+ * (per docs/defensive-patterns.md): a budget expiry is not an exception, an
+ * abort is not a timeout, and a substrate death is neither.
+ *
+ * - `'exception'` — the program threw or failed to parse/transform.
+ * - `'timeout'` — an implementation-owned budget expired; the message says which.
+ * - `'abort'` — {@link CodeRunRequest.signal} fired.
+ * - `'worker-exit'` — the execution substrate died without settling (e.g. OOM).
+ */
 interface CodeRunFailure {
   /** The failure class (see the interface doc for each kind's meaning). */
   kind: 'exception' | 'timeout' | 'abort' | 'worker-exit'

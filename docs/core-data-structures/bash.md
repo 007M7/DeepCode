@@ -1,20 +1,47 @@
 # Bash Executor
 
-The bash execution seam — the canonical [capability seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md) example, split across three packages: interface ([dsh-bash](../../packages/bash/bash), `ctx.bash`), implementation ([dsh-bash-local](../../packages/bash/bash-local), local subprocesses), and consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash`/`bash_output`/`bash_kill` tool schemas). Bash is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A sandboxed, containerized, or remote backend is a sibling package implementing the same interface.
+The bash execution seam is split across interface ([dsh-bash](../../packages/bash/bash), `ctx.bash`), implementations ([dsh-bash-local](../../packages/bash/bash-local) and [dsh-bash-sandbox](../../packages/bash/bash-sandbox)), and consumer ([dsh-tool-bash](../../packages/bash/tool-bash), the `bash` schema). Generic background-task ids, ownership, and controls live in [tasks.md](tasks.md); this seam returns a task-free process handle.
 
 Source: [`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
-## Request vs. spec: the `resolve()` split
+## Managed shell environment namespace
 
-The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`, filled from config) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory came from.
+`DSH_*` variables are Harness-owned child-process facts. The model-facing bash tool collects them through `ctx.bashEnv` and passes them through `BashExecRequest.dshEnv`; executors remove inherited `DSH_*` names before merging the current snapshot.
 
 ```ts type-equiv
+/** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
+type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
+```
+
+```ts type-equiv
+/** Trusted DeepSeek Harness variables for one bash execution. */
+type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
+```
+
+## Request vs. spec: the `resolve()` split
+
+The seam separates the **model-/plugin-facing request** (optional `workdir`/`timeoutMs`/`stdoutMaxBytes`, filled from config or request policy) from the **fully-resolved spec** the executor acts on (those fields required). The tool layer calls `ctx.bash.resolve(request)` between them — this is the repo's "explicit > implicit at package seams" rule made concrete: the reader of a `BashExecSpec` never wonders where the working directory or output budget came from.
+
+```ts type-equiv
+/**
+ * A caller's execution REQUEST: `workdir` and `timeoutMs` are optional and
+ * filled by {@link BashExecutor.resolve} from the implementation's config.
+ * This is the model-/plugin-facing shape; pass it to `resolve()` to obtain a
+ * fully-resolved {@link BashExecSpec}.
+ */
 interface BashExecRequest {
   command: string
   /** Working directory override (default: implementation-configured). */
   workdir?: string | undefined
   /** Timeout override in milliseconds (implementations cap it). */
   timeoutMs?: number | undefined
+  /**
+   * Foreground stdout capture budget in bytes. Absent uses the executor's
+   * default output cap. Trusted in-process consumers use this when they must
+   * parse complete stdout up to their own bounded limit; the model-facing bash
+   * tool does not expose it as a parameter.
+   */
+  stdoutMaxBytes?: number | undefined
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
@@ -26,115 +53,92 @@ interface BashExecRequest {
    */
   stdin?: string | undefined
   /**
-   * Extra environment entries for the command, merged AFTER the
-   * implementation's credential scrub (so an explicit entry here is honored even
-   * when its name matches the scrub pattern — the caller named a value it holds,
-   * not the harness's ambient secret). Set by in-process plugins (the hooks
-   * bridges set `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing
-   * bash tool does not expose it as a parameter (a model that needs an env var
-   * uses shell syntax like `FOO=bar cmd`).
+   * Ordinary environment entries for the command, merged after the credential
+   * scrub. `DSH_*` is reserved for {@link dshEnv} and implementations reject it
+   * here. Set by in-process plugins (the hooks bridges set
+   * `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing bash tool
+   * does not expose it as a parameter.
    */
   env?: Record<string, string> | undefined
   /**
-   * Opaque OWNER token for a background task — the consumer's isolation key
-   * (the tool layer passes the owning agent's `session.header.id`). The
-   * executor stores it on the task and exposes it via {@link BashExecutor.ownerOf};
-   * the executor itself NEVER interprets it (no access policy lives in the
-   * seam — that is the consumer's job). Absent for foreground runs and for an
-   * ownerless background start (a non-agent caller).
+   * Harness-owned `DSH_*` variables for this execution. Executors discard
+   * ambient `DSH_*` entries before merging this snapshot, so an unavailable
+   * current fact cannot inherit a stale value from the harness process, and
+   * reject non-`DSH_*` names supplied through this managed channel.
    */
-  owner?: OwnerToken | undefined
-  /**
-   * Explicit per-call sandbox-policy input, overriding the executor's
-   * configured default mode for THIS call. Never a silent default: a
-   * consumer sets it only from an explicit policy source — an
-   * `'allowed-once'` grant a human just issued through `ctx.approval` (the
-   * escalation flow in the sandbox RFC § Escalation, which outranks), or the
-   * session's standing override folded from its own `bash/sandbox-mode`
-   * events (the sandbox RFC § Per-session mode switching — the user's recorded per-session
-   * choice). A sandboxing executor confines THIS call under the given mode;
-   * a non-sandboxing executor carries the field and confines nothing (the
-   * tool layer stamps neither escalation nor overrides without a sandboxing
-   * executor — see {@link BashExecutor.sandboxMode}).
-   */
+  dshEnv?: DshEnvironment | undefined
+  /** Explicit per-call sandbox mode override. */
   sandboxMode?: SandboxMode | undefined
 }
 ```
 
 ```ts type-equiv
+/**
+ * A resolved execution spec. {@link BashExecutor.resolve} fills and caps the
+ * required fields; {@link BashExecutor.start} ignores `timeoutMs` because
+ * background processes have no executor timeout.
+ */
 interface BashExecSpec {
   command: string
   workdir: string
   timeoutMs: number
+  /**
+   * Resolved foreground stdout capture budget in bytes. `run()` uses it for
+   * stdout; background tasks and stderr keep the executor's own output cap.
+   */
+  stdoutMaxBytes: number
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
-  /**
-   * Bytes to write to the command's stdin (then close it), carried through
-   * verbatim from {@link BashExecRequest.stdin}. OPTIONAL on the resolved spec
-   * (unlike `owner`): it has no config default, so a missing one means "no
-   * stdin" — the safe, ordinary case — not a silent footgun, so it stays a
-   * plain optional rather than required-but-nullable (see the request field).
-   */
+  /** Bytes to write to stdin before closing it; absent means no stdin. */
   stdin?: string | undefined
   /**
-   * Extra environment entries, carried through verbatim from
-   * {@link BashExecRequest.env} and merged by the implementation AFTER its
-   * credential scrub (an explicit entry wins even when its name matches the
-   * scrub pattern). OPTIONAL on the spec for the same reason as `stdin` — no
-   * config default, absent means "no extra env".
+   * Ordinary environment entries carried through from
+   * {@link BashExecRequest.env}. `DSH_*` remains reserved for {@link dshEnv}.
+   * OPTIONAL on the spec for the same reason as `stdin`: absent means no
+   * ordinary extra environment.
    */
   env?: Record<string, string> | undefined
-  /**
-   * Opaque owner token, REQUIRED-but-nullable (mirrors `workdir`/`timeoutMs`
-   * being required on the resolved spec): {@link BashExecutor.resolve} carries
-   * the request's `owner` through, defaulting a missing one to `undefined`. A
-   * required field makes a forgotten owner a VISIBLE `undefined` rather than a
-   * silently-absent property that yields an unowned (cross-session-readable)
-   * task. `start()` stores it; `run()` (foreground) ignores it.
-   */
-  owner: OwnerToken | undefined
-  /**
-   * The sandbox mode this call executes under, REQUIRED-but-nullable for the
-   * same visibility reason as `owner`. A sandboxing executor's `resolve()`
-   * stamps the effective mode (the request's explicit override, else its
-   * configured default) so `run()`/`start()` read the spec, never the config;
-   * a non-sandboxing executor carries the request value through verbatim and
-   * ignores it (`undefined` under such an executor means what its README says:
-   * unconfined execution).
-   */
+  /** Managed `DSH_*` snapshot; implementations reject ordinary names. */
+  dshEnv?: DshEnvironment | undefined
+  /** Resolved sandbox mode; ignored by executors that do not confine. */
   sandboxMode: SandboxMode | undefined
 }
 ```
 
-The `owner` token is the isolation key: the executor stores it but never interprets it (access policy is the consumer's job), so a background task started by one agent isn't readable cross-session. A required-but-nullable field makes a forgotten owner a visible `undefined` rather than a silently-unowned task.
+`stdin` and `env` are trusted in-process plugin inputs and are not exposed by `dsh-tool-bash`. The local executor scrubs ambient credentials before merging explicit caller-supplied env. See [the bash-stdin-env Agent Note](../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
 
-`stdin` and `env` are set by in-process plugins (the hooks bridges, native plugins) to feed a hook command its JSON payload on stdin and its `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` env. The model-facing `dsh-tool-bash` tool does not expose them as parameters — its request is built from `command`/`workdir`/`timeoutMs`/`signal`/`owner` only — because a model already has equivalent power through shell syntax (`FOO=bar cmd`, a heredoc), so duplicating them as tool params would be redundant. This is NOT a security boundary: the credential scrub in `dsh-bash-local` is what stops the harness's ambient secrets reaching a spawned command, and it works regardless of these fields (a model cannot read a value the scrub removed, and tool-call args are static JSON, never shell-evaluated). A guard test asserts the tool doesn't forward model `env`/`stdin` — to catch a future `...args` spread, not to defend a trust wall. `env` is merged AFTER the scrub so an explicit caller entry (a value it already holds) wins even on a credential-shaped name. See [the bash-stdin-env RFC](../rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
-
-Both ids the seam handles are [branded](core.md) (zero-cost `string` brands, the same machinery as `SessionId`/`AgentId`): `BashTaskId` (a tracked background task, generated `bash-N` by the local executor) and `OwnerToken` (the opaque isolation key). `OwnerToken` is deliberately a DISTINCT brand from `SessionId`, not an alias: the bash seam is a capability seam that must not know what an owner token *means*, so it never imports `dsh-session`'s vocabulary — the `dsh-tool-bash` consumer is the single boundary that casts the owning agent's `SessionId` into an `OwnerToken`. Branding both stops a raw `string` (or a `BashTaskId` where an `OwnerToken` is expected, or vice versa) from slipping through the type checker on the model-facing `task_id` path.
+`stdoutMaxBytes` is also trusted-plugin-only. It lets a foreground consumer request complete stdout up to a bounded parser budget without changing stderr, background tasks, or the model-facing bash tool's ordinary output cap.
 
 ## Foreground runs: `BashRunResult`
 
 The outcome of one completed (or killed) foreground run. Orthogonal outcomes are reported **independently** — a process can both time out AND exit 0 because it trapped the signal — so `timedOut`, `aborted`, `signal`, and `exitCode` are each their own field; a caller never reads a cut-short run as a clean success.
 
 ```ts type-equiv
+/** The outcome of one completed (or killed) foreground run. */
 interface BashRunResult {
   /** Exit code; null when the process died from a signal. */
   exitCode: number | null
   /** Terminating signal (e.g. 'SIGTERM'); null on normal exit. */
   signal: NodeJS.Signals | null
-  /** True when the executor's own timeout killed the command. */
+  /**
+   * True when the executor's own timeout was the FIRST cause to cut the command
+   * short. Mutually exclusive with {@link aborted}: one fused deadline drives
+   * both the timeout and the caller's cancellation, so a timeout and an abort
+   * racing before process close report the single first-abort cause, not both
+   * (see the [timeout-library Agent Note](../../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)).
+   */
   timedOut: boolean
-  /** True when the caller's AbortSignal killed the command. */
+  /**
+   * True when the caller's `AbortSignal` was the FIRST cause to kill the command
+   * (and it was not the executor's own timeout). Mutually exclusive with
+   * {@link timedOut} — see there for the first-cause classification.
+   */
   aborted: boolean
   /** The effective timeout applied to this run (after defaulting/capping). */
   timeoutMs: number
   stdout: CollectedOutput
   stderr: CollectedOutput
-  /**
-   * Sandbox facts, present iff a sandboxing executor ran the command — an
-   * unsandboxed executor (e.g. `dsh-bash-local`) never sets it. See
-   * {@link BashSandboxInfo} for the `denied` classification semantics.
-   */
+  /** Sandbox execution facts, absent for an unsandboxed executor. */
   sandbox?: BashSandboxInfo
 }
 ```
@@ -142,6 +146,7 @@ interface BashRunResult {
 Each stream is a `CollectedOutput` — the (possibly truncated) text plus recovery info. When truncated, `text` is the **tail** and the complete stream spills to a private file:
 
 ```ts type-equiv
+/** One captured stream: the (possibly truncated) text plus recovery info. */
 interface CollectedOutput {
   /** Collected text — the TAIL of the stream when truncated. */
   text: string
@@ -154,80 +159,70 @@ interface CollectedOutput {
 
 ## File sandbox: `BashSandboxInfo`
 
-A sandbox-consuming executor (`dsh-bash-sandbox`) exposes its configured fallback through `BashExecutor.sandboxMode`. The tool layer folds each agent session's durable `bash/sandbox-mode` override, stamps the effective mode onto the request, states it in the per-agent prompt, and may replace it for one user-approved strictly wider call. The mode/enforcement vocabulary is owned and cataloged by the [`@deepseek-ai/dsh-sandbox` seam](sandbox.md), whose provider wraps the executor's argv; modes govern FILE effects only, not network or process visibility.
+A sandbox-consuming executor exposes its configured fallback through `BashExecutor.sandboxMode`. The tool layer folds each session's durable `sandbox/mode` override (owned by [`@deepseek-ai/dsh-sandbox-policy`](../../packages/sandbox/sandbox-policy/README.md)) and may replace it for one user-approved strictly wider call. The mode/enforcement vocabulary is owned by the [`@deepseek-ai/dsh-sandbox` seam](sandbox.md); modes govern file effects only.
 
-A sandboxed run always reports the facts it executed under on `BashRunResult.sandbox`: `denied` is the executor's conservative classification of a failure as sandbox-caused (a failed exit whose stderr carries a filesystem-permission signature — never a clean exit or a signal kill), read from the collected stderr tail; `enforcement` reports how completely the selected backend governs the mode's file effects (`SandboxEnforcement = 'full' | 'partial'` — `partial` when an older Landlock ABI governs only a subset of the requested accesses; absent under `danger-full-access`, where nothing is confined); `runnerFailed` marks the opposite of a denial — the sandbox RUNNER itself failed and the command never ran (stamped only on settled background tasks; a foreground run surfaces the same condition as the thrown `SANDBOX_UNAVAILABLE` error):
+A sandboxed run reports its mode, conservative denial classification, and enforcement completeness. `runnerFailed` marks a sandbox runner failure before the command ran; foreground execution throws `SANDBOX_UNAVAILABLE`, while a settled background process has only its facts channel.
 
 ```ts type-equiv
+/**
+ * Sandbox facts for one run, present iff a sandboxing executor handled it.
+ * Facts are reported independently of process exit status so callers can
+ * distinguish command failures from policy denials and runner failures.
+ */
 interface BashSandboxInfo {
   /** The mode the command actually ran under. */
   mode: SandboxMode
-  /**
-   * True when the executor classifies this run's failure as the sandbox
-   * denying a file operation. The classification is CONSERVATIVE (a failed
-   * exit whose stderr carries a filesystem-permission signature) and reads
-   * the COLLECTED stderr — the bounded in-memory tail per
-   * {@link CollectedOutput} semantics, so a signature that survives only in a
-   * spill file is missed toward `denied: false`. A plain command failure
-   * keeps `denied: false` even under a sandboxed mode.
-   */
+  /** Whether the sandbox denied a file operation. */
   denied: boolean
-  /**
-   * How completely the runner enforced `mode`'s file effects — see
-   * {@link SandboxEnforcement}. Absent exactly when `mode` is
-   * `danger-full-access`: nothing is confined, so there is no enforcement to
-   * report.
-   */
+  /** How completely the selected runner enforced the requested mode. */
   enforcement?: SandboxEnforcement
-  /**
-   * True when the executor classifies this failure as the SANDBOX RUNNER
-   * itself failing (missing binary, refused profile, fail-closed refusal
-   * before exec) — the command NEVER RAN; this is a sandbox failure, not a
-   * task failure, and it outranks `denied` (a runner's own error text can
-   * contain denial words). Only ever stamped on settled BACKGROUND tasks: a
-   * foreground run surfaces the same condition as the thrown
-   * `SANDBOX_UNAVAILABLE` error instead (the foreground path has an error
-   * channel; a settled task's facts are its only channel).
-   */
+  /** Whether the sandbox runner failed before the command could run. */
   runnerFailed?: boolean
 }
 ```
 
-One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (owned by the [sandbox seam](sandbox.md)) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend. A selected runner refusing its profile reaches the same fail-closed foreground error; a settled background task records `runnerFailed`. The model sees the current effective mode in the prompt, receives denial/runner facts in results, and can request a one-shot strictly wider retry through `sandbox_permissions` plus `justification`; `ctx.approval` must grant that exact call before anything executes. The complete policy and switching design is the [sandbox RFC](../rfc/implemented/feature/2026-07-06-sandbox.md).
+One more piece completes the vocabulary: the `SANDBOX_UNAVAILABLE` error code (owned by the [sandbox seam](sandbox.md)) is what the `ctx.sandbox` provider throws — and the executor propagates — when a confined mode has no usable backend. A selected runner refusing its profile reaches the same fail-closed foreground error; a settled background task records `runnerFailed`. The model receives denial/runner facts in results, learns the effective mode only when a denial marker names it, and can request a one-shot strictly wider retry through `sandbox_permissions` plus `justification`; `ctx.approval` must grant that exact call before anything executes. The complete policy and switching design is the [sandbox Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md).
 
-## Background tasks: `BashTask`
+## Background processes: `BashProcess`
 
-A long-running command started with `start()` is tracked as a `BashTask`. `BashTaskStatus` is `'running' | 'completed' | 'killed'`; `done` resolves when the underlying process closes and never rejects. A sandboxing executor stamps `sandbox` once the task settles — classification runs against the settled task's collected stderr — so the field is absent while running and under an unsandboxed executor.
+`start()` returns a handle with no id or owner. `dsh-tool-bash` adapts it into `ctx.tasks.start()` hooks; the generic runtime then owns task identity and lifecycle. `done` resolves when the process closes and never rejects, reads remain valid after settlement, and sandbox facts are stamped before `done` resolves.
 
 ```ts type-equiv
-interface BashTask {
-  readonly id: BashTaskId
-  readonly command: string
-  status: BashTaskStatus
+/**
+ * A background process handle returned by {@link BashExecutor.start}. It is the
+ * only access path; buffered output remains readable after exit. Executor
+ * disposal kills running processes and awaits {@link done}.
+ */
+interface BashProcess {
+  /** Process lifecycle state (settled exactly once). */
+  status: BashProcessStatus
   /** Exit code once finished (null = killed by signal / still running). */
   exitCode: number | null
   /** Terminating signal name, when signal-killed. */
   signal: NodeJS.Signals | null
-  /** Resolves when the underlying process closes (never rejects). */
+  /** Resolves when the underlying process closes (never rejects — a spawn failure settles as `killed` with the error on stderr). */
   readonly done: Promise<void>
-  /**
-   * Sandbox facts for this task's execution, stamped by a sandboxing executor
-   * once the task settles and BEFORE completion listeners are notified — an
-   * `onTaskDone` consumer and a `done` awaiter both see it. Denial
-   * classification runs against the settled task's collected stderr, so the
-   * field cannot exist earlier: absent while the task is running and under an
-   * executor that does not sandbox. See {@link BashSandboxInfo} for the
-   * `denied` semantics.
-   */
+  /** Sandbox facts, stamped once a confined process settles. */
   sandbox?: BashSandboxInfo
+  /**
+   * Read output produced since the previous read (consuming — consecutive
+   * reads never re-deliver). Reads that lost data flag `lossy` and point at
+   * full-stream spill files when available.
+   */
+  readOutput(): BashProcessRead
+  /**
+   * Kill the process group. Returns false when it had already finished
+   * (no-op); idempotent.
+   */
+  kill(): boolean
 }
 ```
 
-`readOutput()` returns an incremental `BashTaskRead` — the output produced since the previous read, with a `lossy` flag when truncation dropped unread bytes:
+`readOutput()` returns the incremental delta and spill recovery facts:
 
 ```ts type-equiv
-interface BashTaskRead {
-  task: BashTask
+/** One incremental {@link BashProcess.readOutput} read. */
+interface BashProcessRead {
   /** Output produced since the previous read (stderr in a marked section). */
   delta: string
   /** True when truncation dropped unread bytes the delta cannot include. */
@@ -241,4 +236,4 @@ interface BashTaskRead {
 
 ## The service
 
-`BashExecutor` (`ctx.bash`, abstract — defined in [`packages/bash/bash/src/index.ts`](../../packages/bash/bash/src/index.ts)) mirrors the `LlmService`/`LlmAdapter` split: `resolve` (request → spec), `run` (foreground), `start` (background), `get`/`ownerOf`/`list`/`readOutput`/`kill`, and `onTaskDone` (a `BashTaskListener` completion callback). Spawned commands get a **scrubbed env** (dropping `*KEY*`/`*SECRET*`/`*TOKEN*`) and spill files use a private 0700 dir with random names and owner-only opens — model output never gets the ambient environment or a predictable path. The implementation that provides all this is `dsh-bash-local`; the model-facing `bash`/`bash_output`/`bash_kill` schemas that call it are in `dsh-tool-bash` (and present as terminals via the [tool-presentation vocabulary](tools.md#tool-presentation-ui-vocabulary)).
+`BashExecutor` owns `resolve`, foreground `run`, background-process `start`, and the `sandboxMode` capability fact. `dsh-bash-local` owns process groups, timeout/abort handling, bounded collectors, spill files, credential scrubbing, and disposal quiescence. `dsh-tool-bash` owns model-facing rendering and adapts background handles into the [generic task runtime](tasks.md).

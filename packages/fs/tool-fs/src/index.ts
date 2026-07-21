@@ -1,42 +1,18 @@
 /**
- * The model-facing filesystem tool suite (`read`, `write`, `edit`) over the
- * `ctx.fs` provider seam. This single plugin registers all three tools.
- *
- * ## The tool is the executor; policy is an event gate
- *
- * The tool reads/writes/edits through `ctx.fs` DIRECTLY and owns model-facing
- * concerns only — tool names, JSON schemas, argument validation, prompt
- * sections, read windowing, result formatting. It does NOT inject a policy
- * service. Instead, on each write/edit it dispatches a single-slot waterfall
- * (`fs/write-intent`/`fs/edit-intent`) to obtain the OPTIONAL version guard, and
- * after every read/write/edit it emits `fs/observed` with a plain (unguarded)
- * `ctx.emit`. A policy plugin (`@deepseek-ai/dsh-fs-policy`) occupies the
- * decision slot and listens for `fs/observed` to add observed-state +
- * read-before-edit + version-guarded write/edit; a deployment that loads these
- * tools is expected to also load it. With no policy plugin the waterfalls fall
- * through to their `undefined` default (the unconstrained bare provider) and
- * `fs/observed` is unheard — the tool still functions. This package never
- * imports `node:fs`, `node:path`, or an `@deepseek-ai/dsh-fs-local`
- * implementation.
- *
+ * Model-facing read, write, and edit tools over `ctx.fs`. This package owns schemas, validation,
+ * read windows, formatting, and observation events, never a concrete provider. An optional
+ * event policy supplies mutation guards; without one the tools use unconditional provider calls.
  * @module @deepseek-ai/dsh-tool-fs
  */
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import type {} from '@deepseek-ai/dsh-user-approval'
 import { applyReadTool, READ_LIMIT, STREAM_MIN_SIZE } from './read.ts'
 import { applyWriteTool } from './write.ts'
 import { applyEditTool } from './edit.ts'
 import { READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from './read-render.ts'
-
-export { READ_LIMIT, STREAM_MIN_SIZE, applyReadTool, parseReadArgs } from './read.ts'
-export type { ReadToolCaps } from './read.ts'
-export { applyWriteTool, formatWriteOutput, parseWriteArgs } from './write.ts'
-export { applyEditTool, formatEditOutput, parseEditArgs } from './edit.ts'
-export { READ_MAX_BYTES, READ_MAX_LINE_LENGTH, buildWindow, formatReadOutput } from './read-render.ts'
-export type { FileReadOutcome, FileTextLine, ReadWindow, WindowResult } from './read-render.ts'
-export { DIFF_CONTEXT, computeHunkDiffs, diffsFromMeta } from './diff.ts'
-export type { FsDiffMeta } from './diff.ts'
+import { FsSandboxSurface } from './sandbox.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-fs'
@@ -87,6 +63,10 @@ export function apply(ctx: Context, config: Config): void {
     maxBytes: resolved.readMaxBytes,
     streamMinSize: resolved.readStreamMinSize,
   })
-  applyWriteTool(ctx)
-  applyEditTool(ctx)
+  // One escalation surface shared by both mutating tools: advertisement gating,
+  // per-call mode stamping, and denial-marker mapping, all keyed off whether
+  // the mounted ctx.fs confines (ctx.fs.sandboxMode).
+  const sandbox = new FsSandboxSurface(ctx)
+  applyWriteTool(ctx, sandbox)
+  applyEditTool(ctx, sandbox)
 }

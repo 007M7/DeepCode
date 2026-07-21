@@ -4,7 +4,7 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import WebService from '@deepseek-ai/dsh-web'
-import type { WebSearchProvider, WebSearchResult, WebProviderStatus } from '@deepseek-ai/dsh-web'
+import type { WebSearchProvider, WebSearchResult } from '@deepseek-ai/dsh-web'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import {
   formatSearchOutput,
@@ -18,10 +18,12 @@ import {
   WEB_SEARCH_MAX_RESULTS,
 } from '@deepseek-ai/dsh-tool-web'
 
-const available: WebProviderStatus = { available: true }
+const testToolSignal = new AbortController().signal
 
-function searchProvider(result: WebSearchResult, status: WebProviderStatus = available): WebSearchProvider {
-  return { id: 'stub-search', status: () => status, search: () => Promise.resolve(result) }
+const available = true
+
+function searchProvider(result: WebSearchResult, isAvailable = available): WebSearchProvider {
+  return { id: 'stub-search', available: () => isAvailable, search: () => Promise.resolve(result) }
 }
 
 /** Mount the real registry, seam, and tool-web; return an executor helper. */
@@ -39,14 +41,14 @@ async function mountTools(opts: {
   if (opts.fetchProvider) ctx.web.registerFetchProvider(opts.fetchProvider)
   const fiber = await ctx.plugin(ToolWeb, opts.config ?? {})
   let counter = 0
-  const call = (name: string, args: unknown) => ctx.tools.execute({ callId: CallId(`call-${++counter}`), name, arguments: args }) as never
+  const call = (name: string, args: unknown) => ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++counter}`), name, arguments: args }) as never
   return { ctx, fiber, call }
 }
 
 describe('search formatting', () => {
   it('renders content, sources with titles/hostnames, snippets, and a citation reminder', () => {
     const out = formatSearchOutput({
-      providerId: 'p', query: 'q', content: 'an answer', truncated: false,
+      content: 'an answer', truncated: false,
       sources: [
         { url: 'https://a.test/x', title: 'A', snippet: 'about a', publishedAt: '2026-01-01' },
         { url: 'https://b.test/y' },
@@ -59,19 +61,19 @@ describe('search formatting', () => {
   })
 
   it('reports no results when there is neither content nor sources', () => {
-    expect(formatSearchOutput({ providerId: 'p', query: 'q', sources: [], truncated: false }))
+    expect(formatSearchOutput({ sources: [], truncated: false }))
       .toContain('No results found.')
   })
 
   it('renders content alone when there are no sources', () => {
-    const out = formatSearchOutput({ providerId: 'p', query: 'q', content: 'just an answer', sources: [], truncated: false })
+    const out = formatSearchOutput({ content: 'just an answer', sources: [], truncated: false })
     expect(out).toContain('just an answer')
     expect(out).not.toContain('No results found.')
     expect(out).not.toContain('Sources:')
   })
 
   it('notes truncation', () => {
-    const out = formatSearchOutput({ providerId: 'p', query: 'q', sources: [{ url: 'https://a.test' }], truncated: true })
+    const out = formatSearchOutput({ sources: [{ url: 'https://a.test' }], truncated: true })
     expect(out).toContain('Showing the first 1 sources')
   })
 
@@ -88,7 +90,7 @@ describe('search formatting', () => {
 describe('fetch formatting', () => {
   it('renders an html body to markdown text with a status header', () => {
     const out = formatFetchOutput({
-      providerId: 'p', url: 'https://a.test', statusCode: 200, truncated: false,
+      url: 'https://a.test', statusCode: 200, truncated: false,
       body: { kind: 'html', content: '<h1>Title</h1><p>Body text</p>' },
     })
     expect(out).toContain('Fetched https://a.test (HTTP 200)')
@@ -98,7 +100,7 @@ describe('fetch formatting', () => {
 
   it('passes a text body through and notes truncation', () => {
     const out = formatFetchOutput({
-      providerId: 'p', url: 'https://a.test', statusCode: 200, truncated: true,
+      url: 'https://a.test', statusCode: 200, truncated: true,
       body: { kind: 'text', content: 'plain' },
     })
     expect(out).toContain('plain')
@@ -155,7 +157,7 @@ describe('htmlToMarkdown', () => {
   })
 
   it('falls back to the raw URL as a source label when the URL is unparseable', () => {
-    const out = formatSearchOutput({ providerId: 'p', query: 'q', truncated: false, sources: [{ url: 'not a url' }] })
+    const out = formatSearchOutput({ truncated: false, sources: [{ url: 'not a url' }] })
     expect(out).toContain('[not a url](not a url)')
   })
 })
@@ -166,6 +168,10 @@ describe('tool-web registration', () => {
     const names = ctx.tools.schemas().map(s => s.name)
     expect(names).toContain('web_search')
     expect(names).toContain('web_fetch')
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('search-safe'), name: 'web_search', arguments: { query: 'q' } }))
+      .toEqual({ kind: 'parallel' })
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('fetch-safe'), name: 'web_fetch', arguments: { url: 'https://a.test' } }))
+      .toEqual({ kind: 'parallel' })
     await fiber.dispose()
     expect(ctx.tools.schemas().map(s => s.name)).not.toContain('web_search')
   })
@@ -209,7 +215,7 @@ describe('tool-web registration', () => {
 describe('tool-web execution through the real registry', () => {
   it('executes web_search and formats the result', async () => {
     const result: WebSearchResult = {
-      providerId: 'stub-search', query: 'q', content: 'answer', truncated: false,
+      content: 'answer', truncated: false,
       sources: [{ url: 'https://a.test', title: 'A', snippet: 'snip' }],
     }
     const { fiber, call } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: searchProvider(result) })
@@ -228,8 +234,8 @@ describe('tool-web execution through the real registry', () => {
   })
 
   it('surfaces WEB_PROVIDER_AMBIGUOUS for multiple unconfigured providers', async () => {
-    const { ctx, fiber, call } = await mountTools({ search: searchProvider({ providerId: 'stub-search', query: 'q', sources: [], truncated: false }) })
-    ctx.web.registerSearchProvider({ id: 'other', status: () => available, search: () => Promise.resolve({ providerId: 'other', query: 'q', sources: [], truncated: false }) })
+    const { ctx, fiber, call } = await mountTools({ search: searchProvider({ sources: [], truncated: false }) })
+    ctx.web.registerSearchProvider({ id: 'other', available: () => available, search: () => Promise.resolve({ sources: [], truncated: false }) })
     const out = await call('web_search', { query: 'q' })
     expect(out.isError).toBe(true)
     expect(out.error?.code).toBe('WEB_PROVIDER_AMBIGUOUS')
@@ -237,7 +243,7 @@ describe('tool-web execution through the real registry', () => {
   })
 
   it('rejects invalid arguments with a structured INVALID_ARGS error', async () => {
-    const { fiber, call } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: searchProvider({ providerId: 'stub-search', query: 'q', sources: [], truncated: false }) })
+    const { fiber, call } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: searchProvider({ sources: [], truncated: false }) })
     const out = await call('web_search', { query: 123 })
     expect(out.isError).toBe(true)
     expect(out.error?.code).toBe('INVALID_ARGS')
@@ -249,14 +255,14 @@ describe('tool-web execution through the real registry', () => {
   })
 
   it('executes web_fetch, forwarding the url (no timeout param) and the abort signal to the seam', async () => {
-    const seen: { request?: { url: string; timeoutMs?: number }; signal?: AbortSignal | undefined } = {}
+    const seen: { request?: { url: string }; signal?: AbortSignal | undefined } = {}
     const fetchProvider = {
       id: 'stub-fetch',
-      status: () => available,
-      fetch: (request: { url: string; timeoutMs?: number }, exec?: { signal?: AbortSignal }) => {
+      available: () => available,
+      fetch: (request: { url: string }, signal?: AbortSignal) => {
         seen.request = request
-        seen.signal = exec?.signal
-        return Promise.resolve({ providerId: 'stub-fetch', url: request.url, statusCode: 200, body: { kind: 'text' as const, content: 'ok' }, truncated: false })
+        seen.signal = signal
+        return Promise.resolve({ url: request.url, statusCode: 200, body: { kind: 'text' as const, content: 'ok' }, truncated: false })
       },
     }
     const { ctx, fiber } = await mountTools({ webConfig: { fetchProvider: 'stub-fetch' }, fetchProvider })
@@ -270,23 +276,22 @@ describe('tool-web execution through the real registry', () => {
     await fiber.dispose()
   })
 
-  it('executes web_fetch with no caller signal (forwards undefined to the seam)', async () => {
-    const seen: { signal?: AbortSignal | undefined; passedExec?: boolean } = {}
+  it('forwards the required caller signal to web_fetch', async () => {
+    const seen: { signal?: AbortSignal | undefined; passedSignal?: boolean } = {}
     const fetchProvider = {
       id: 'stub-fetch',
-      status: () => available,
-      fetch: (request: { url: string }, exec?: { signal?: AbortSignal }) => {
-        seen.passedExec = exec !== undefined
-        seen.signal = exec?.signal
-        return Promise.resolve({ providerId: 'stub-fetch', url: request.url, statusCode: 200, body: { kind: 'text' as const, content: 'ok' }, truncated: false })
+      available: () => available,
+      fetch: (request: { url: string }, signal?: AbortSignal) => {
+        seen.passedSignal = signal !== undefined
+        seen.signal = signal
+        return Promise.resolve({ url: request.url, statusCode: 200, body: { kind: 'text' as const, content: 'ok' }, truncated: false })
       },
     }
     const { ctx, fiber } = await mountTools({ webConfig: { fetchProvider: 'stub-fetch' }, fetchProvider })
-    // No signal on the execution: the tool passes `undefined` (not `{ signal: undefined }`).
-    const out = await ctx.tools.execute({ callId: CallId('fetch-2'), name: 'web_fetch', arguments: { url: 'https://a.test' } })
+    const out = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('fetch-2'), name: 'web_fetch', arguments: { url: 'https://a.test' } })
     expect(out.isError).toBe(false)
-    expect(seen.passedExec).toBe(false)
-    expect(seen.signal).toBeUndefined()
+    expect(seen.passedSignal).toBe(true)
+    expect(seen.signal).toBe(testToolSignal)
     await fiber.dispose()
   })
 
@@ -294,8 +299,8 @@ describe('tool-web execution through the real registry', () => {
     const seen: { signal?: AbortSignal | undefined } = {}
     const provider: WebSearchProvider = {
       id: 'stub-search',
-      status: () => available,
-      search: (_request, exec) => { seen.signal = exec?.signal; return Promise.resolve({ providerId: 'stub-search', query: 'q', sources: [], truncated: false }) },
+      available: () => available,
+      search: (_request, signal) => { seen.signal = signal; return Promise.resolve({ sources: [], truncated: false }) },
     }
     const { ctx, fiber } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: provider })
     const controller = new AbortController()
@@ -310,8 +315,8 @@ describe('searchMaxResults is plugin config', () => {
     const seen: { maxResults?: number | undefined } = {}
     const provider: WebSearchProvider = {
       id: 'stub-search',
-      status: () => available,
-      search: (request) => { seen.maxResults = request.maxResults; return Promise.resolve({ providerId: 'stub-search', query: 'q', sources: [], truncated: false }) },
+      available: () => available,
+      search: (request) => { seen.maxResults = request.maxResults; return Promise.resolve({ sources: [], truncated: false }) },
     }
     const { fiber, call } = await mountTools({ webConfig: { searchProvider: 'stub-search' }, search: provider })
     await call('web_search', { query: 'q' })
@@ -323,8 +328,8 @@ describe('searchMaxResults is plugin config', () => {
     const sources = Array.from({ length: 5 }, (_, i) => ({ url: `https://s${i}.test` }))
     const provider: WebSearchProvider = {
       id: 'stub-search',
-      status: () => available,
-      search: request => Promise.resolve({ providerId: 'stub-search', query: request.query, sources, truncated: false }),
+      available: () => available,
+      search: () => Promise.resolve({ sources, truncated: false }),
     }
     const { fiber, call } = await mountTools({ config: { searchMaxResults: 2 }, webConfig: { searchProvider: 'stub-search' }, search: provider })
     const out = await call('web_search', { query: 'q' })

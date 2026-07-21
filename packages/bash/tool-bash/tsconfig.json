@@ -15,6 +15,9 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
@@ -24,7 +27,16 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../session-persistence/session-persistence"
+    },
+    {
       "path": "../../bash/bash"
+    },
+    {
+      "path": "../../util/home"
+    },
+    {
+      "path": "../../tasks/tasks"
     },
     {
       "path": "../../core/system-prompt"
@@ -34,6 +46,12 @@
     },
     {
       "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../support/invariants"
+    },
+    {
+      "path": "../../sandbox/sandbox-policy"
     }
   ]
 }

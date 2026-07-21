@@ -1,26 +1,25 @@
 /**
- * Provider-neutral message and streaming vocabulary.
- *
- * This is the canonical language spoken by the agent loop, session logs, and
- * every plugin. Adapters translate it to provider wire formats (DeepSeek V4
- * first); nothing outside an adapter should ever see a provider-specific
- * shape.
- *
- * Extensibility: the unions in this file are derived from interfaces
- * (`ContentBlockMap`, `MessageSourceMap`, `FinishReasonMap`) so that plugins
- * can extend them via declaration merging:
- *
- * ```ts
- * declare module '@deepseek-ai/dsh-llm' {
- *   interface ContentBlockMap {
- *     video: { type: 'video'; url: string }
- *   }
- * }
- * ```
+ * Canonical provider-neutral message and streaming vocabulary for the loop,
+ * session log, and plugins. Adapters alone translate provider wire shapes;
+ * mapped interfaces make the content, source, and finish unions extensible.
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { CallId } from './brand.ts'
+import type { CallId, ProviderRequestId } from './brand.ts'
+
+/** Serializable provider-boundary facts; policy decides whether they are retryable. */
+export interface LlmFailure {
+  /** Human-readable provider or transport failure. */
+  readonly message: string
+  /** Stable provider-neutral machine-routing code. */
+  readonly code: string
+  /** HTTP status observed at the provider boundary, when available. */
+  readonly status?: number
+  /** Provider-requested delay in milliseconds, when valid and available. */
+  readonly providerRetryAfterMs?: number
+  /** Opaque provider-issued request identifier for diagnostics. */
+  readonly requestId?: ProviderRequestId
+}
 
 /** Plain text visible to the end user. */
 export interface TextBlock {
@@ -53,15 +52,8 @@ export interface ToolResultBlock {
 }
 
 /**
- * All known content block shapes, keyed by their `type` tag.
- * Merge-extensible: plugins add new block types via declaration merging.
- *
- * The core set is deliberately limited to blocks every shipping path honors.
- * Multimodal content (images, audio, …) has no core block type: a feature
- * that needs one adds it via declaration merging in the same coordinated
- * change that maps it in the adapters, surfaces it in the UI bridges, and
- * prices it in compaction — a producer never lands without its consumers
- * (see docs/rfc/implemented/simplification/2026-07-04-drop-image-content-block.md).
+ * Merge-extensible content blocks keyed by `type`. New core blocks must land
+ * with adapter, UI, and compaction support.
  */
 export interface ContentBlockMap {
   'text': TextBlock
@@ -75,10 +67,29 @@ export type ContentBlockType = keyof ContentBlockMap
 /** Any known content block, derived from {@link ContentBlockMap}; switch on `type` and fall through unknowns (merge-extensible). */
 export type ContentBlock = ContentBlockMap[ContentBlockType]
 
-/** A single message in a conversation history. */
+/** Provider ownership and adapter-private replay data for an assistant message. */
+export interface AssistantProvenance {
+  /** Provider route that produced the message. */
+  provider: string
+  /** Provider model id that produced the message. */
+  model: string
+  /**
+   * Lossless-JSON adapter state needed to replay the provider response.
+   * `LlmService` exposes it to a target adapter only when that adapter instance
+   * currently owns both this historical provider and the target provider.
+   */
+  replayState?: unknown
+}
+
+/**
+ * A single message in a conversation history. Loop-derived assistant messages
+ * always carry provenance; callers may omit it on hand-built foreign history.
+ */
 export interface Message {
   role: 'system' | 'user' | 'assistant'
   content: ContentBlock[]
+  /** Present only on assistant messages produced by a routed adapter. */
+  provenance?: AssistantProvenance
 }
 
 /**
@@ -101,8 +112,8 @@ export interface FinishReasonMap {
   'stop': { kind: 'stop' }
   'tool-calls': { kind: 'tool-calls' }
   'max-tokens': { kind: 'max-tokens' }
-  'aborted': { kind: 'aborted' }
-  'error': { kind: 'error'; message: string; code?: string }
+  'aborted': { kind: 'aborted'; failure: LlmFailure }
+  'error': { kind: 'error'; failure: LlmFailure }
 }
 
 /** Any known finish reason, derived from {@link FinishReasonMap}; switch on `kind` and fall through unknowns (merge-extensible). */
@@ -124,27 +135,38 @@ export interface TokenUsage {
   reasoningTokens?: number
 }
 
+/** Display metadata for one registered provider route. */
+export interface LlmProviderInfo {
+  /** Provider route key used by {@link GenerateOptions.provider}. */
+  id: string
+  /** Human-readable provider name for selectors and diagnostics. */
+  name: string
+}
+
+/** One adapter-discovered model; catalog membership is advisory, not request validation. */
+export interface LlmModelInfo {
+  /** Provider route that owns this model entry. */
+  provider: string
+  /** Model id passed to {@link GenerateOptions.model}. */
+  id: string
+  /** Human-readable model name for selectors. */
+  name: string
+  /** Optional user-facing distinction from otherwise similar models. */
+  description?: string
+}
+
+/** Provider-owned context capacity for one exact provider/model route. */
+export interface LlmModelContext {
+  /** Maximum combined request and response context in tokens. */
+  contextWindow: number
+}
+
 /**
  * Raw streaming protocol emitted by adapters.
- *
- * A streaming response interleaves several typed blocks (text, reasoning,
- * multiple tool calls); `index` ties each delta to its block, and `block-end`
- * carries the fully-assembled ContentBlock so consumers don't have to
- * re-assemble deltas themselves (use {@link BlockAssembler} when they do).
- *
- * Adapter contract — every adapter MUST obey these, and every consumer may
- * rely on them:
- * - Emit `usage` BEFORE `finish`, and nothing after `finish` (defer both to
- *   the provider's end-of-stream marker so trailing usage-only chunks can't
- *   violate this).
- * - Tool-call `arguments` stay RAW JSON strings end-to-end; partial fragments
- *   stream via `argumentsDelta` (providers that hand back parsed objects
- *   re-stringify at `block-end`).
- * - Failures may either THROW from `stream()` (transport/protocol errors) or
- *   end the stream with `finish {kind:'error'|'aborted'}` (provider in-band
- *   errors, for adapters that can't throw mid-stream); consumers must handle
- *   both. The agent loop translates a finish-error/aborted into a turn error —
- *   it never logs a normal completed assistant message for a failed step.
+ * Block indexes correlate interleaved deltas, and `block-end` carries the
+ * assembled block. Adapters emit usage before the terminal finish and nothing
+ * afterward; tool arguments remain raw JSON strings. Failures either throw or
+ * end with `error`/`aborted`, and consumers must handle both paths.
  */
 export type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
@@ -153,7 +175,12 @@ export type StreamChunk =
   | { type: 'tool-call-delta'; index: number; id: CallId; name?: string; argumentsDelta: string }
   | { type: 'block-end'; index: number; block: ContentBlock }
   | { type: 'usage'; usage: TokenUsage }
-  | { type: 'finish'; reason: FinishReason }
+  | {
+    type: 'finish'
+    reason: FinishReason
+    /** Adapter-private lossless-JSON state for replaying a successful response. */
+    replayState?: unknown
+  }
 
 /**
  * JSON-schema description of a tool, as sent to the model.
@@ -171,6 +198,8 @@ export interface ToolSchema {
 
 /** A single model request, fully assembled. */
 export interface GenerateOptions {
+  /** Registered provider route selecting the adapter instance. */
+  provider: string
   model: string
   /**
    * Ordered conversation messages, exactly as the provider sees them (after
@@ -193,17 +222,8 @@ export interface GenerateOptions {
   stop?: string[]
   signal?: AbortSignal
   /**
-   * The id of the session this request belongs to — stamped by the agent loop
-   * from `agent.session.id`. Adapters ignore it; it lets an `llm/stream` listener
-   * route a call by WHICH session issued it (the replay adapter keys its per-call
-   * cursor by session, so a parent and its in-process subagent — each with its
-   * own session on one context — replay from their own recorded scripts).
-   *
-   * Typed as `Branded<'SessionId'>` rather than importing `SessionId` from
-   * `dsh-session`: that package imports `Message` from here, so importing its
-   * `SessionId` back would cycle. `SessionId` IS `Branded<'SessionId'>`, so a
-   * real session id assigns with no cast. (A future ids package could own the
-   * brand and dissolve this note.)
+   * Session identity stamped by the loop for listener routing. Adapters ignore
+   * it; replay uses it to keep concurrent parent and child cursors independent.
    */
   sessionId?: Branded<'SessionId'>
 }

@@ -1,44 +1,20 @@
 /**
- * The model-facing `subagent` tool: delegate a task to a child agent and return
- * its final output. Pure schema + lifecycle shaping — every transport concern
- * lives behind the `ctx.subagents` provider registry
- * (`@deepseek-ai/dsh-subagent`), so an in-process, ACP, or future A2A backend
- * swaps in without touching what the model sees.
- *
- * Provider selection is config, not model-facing: this plugin is bound to
- * EXACTLY ONE provider name (`Config.provider`). To expose more than one
- * transport, load the plugin more than once, each bound to a different provider
- * — there is no provider/type parameter in the model-facing schema. The model
- * sees only `{ description, prompt }`.
- *
- * The tool DESCRIPTION is derived from the bound provider's conversation-history
- * descriptor ({@link providerWording}): a fresh-conversation provider (spawn,
- * ACP) gets the standalone-prompt wording, while a seeded-conversation provider
- * (fork) tells the model the child already sees the conversation's completed
- * turns. This descriptor says nothing about Cordis scope, services, tools, or
- * authority. The tool MIRRORS the
- * provider's lifecycle via `subagent/provider-added`/`-removed` — it registers
- * when the provider is (or becomes) available and unregisters when the
- * provider goes away — so no load-order requirement exists and an HMR reload
- * of the backend re-derives the wording from the fresh provider.
- *
- * Collection is SYNCHRONOUS this cut: `execute` starts a run and awaits
- * `run.result` inside a `try/finally` that always disposes the run, so the
- * owned child agent/session is torn down on every path (success, error, abort)
- * and never leaks as a live idle child. A non-`completed` stop reason maps to an
- * `isError` tool result (by throwing) rather than returning partial output as
- * success.
- *
+ * Model-facing delegation through one configured `ctx.subagents` provider.
+ * Provider lifecycle controls tool registration and context-sensitive schema
+ * wording. Foreground calls always dispose the run after collection; background
+ * calls use an independent cancellation signal and settle a final-output task
+ * only after child disposal.
  * @module @deepseek-ai/dsh-tool-subagent
  */
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import type { TaskOutcome } from '@deepseek-ai/dsh-tasks'
 
 export const name = 'tool-subagent'
 export const inject = ['tools', 'subagents']
@@ -48,34 +24,28 @@ export interface Config {
   /** The `ctx.subagents` provider name to start runs on (e.g. `spawn`, `acp`). */
   provider: string
   /**
-   * The model-facing tool name to register (default `subagent`). To expose more
-   * than one transport, load this plugin once per provider — each load MUST set
-   * a distinct `toolName` (the tool registry rejects a duplicate name), e.g.
-   * `{ provider: 'spawn', toolName: 'subagent' }` and
-   * `{ provider: 'acp', toolName: 'subagent_acp' }`.
+   * Model-facing tool name (default `subagent`). Each loaded instance must use
+   * a distinct name.
    */
   toolName?: string
   /**
-   * Default per-child agent options (model) applied to every spawned child.
-   * Omitted fields fall back to the child loop's own defaults.
+   * Expose `run_in_background` (default true). Disabled instances omit the
+   * parameter and reject forced background calls.
+   */
+  enableRunInBackground?: boolean
+  /**
+   * Agent options applied to every child; omitted fields use child-loop defaults.
    */
   agentOptions?: AgentOptions
   /**
-   * Per-child persona applied to every child this tool spawns: a scoped
-   * `deployment:persona` section shadowing the deployment's persona for the
-   * child alone. Requires the bound provider's `persona` capability
-   * (in-process backends support it; a request against one that doesn't is
-   * rejected at start). Omitted ⇒ the child renders the deployment persona.
+   * Per-child persona that shadows `deployment:persona`. Requires the
+   * provider's `persona` capability; omission preserves the deployment persona.
    */
   persona?: string
   /**
-   * Tool scoping applied to every child this tool spawns (see
-   * `SubagentStartRequest.toolFilter`): the named global tools vanish from
-   * the child's prompt AND refuse to execute. Requires the provider's
-   * `toolFilter` capability. Unknown names fail the spawn loudly. Note the
-   * child otherwise sees every global tool — including this delegation tool
-   * itself; `deny`-listing it (or setting `maxDepth`) is how a deployment
-   * bounds recursion.
+   * Tool filter applied to every child. Filtered tools disappear from its
+   * prompt and reject execution. Requires the provider's `toolFilter`
+   * capability; unknown names fail startup.
    */
   toolFilter?: {
     /** Global tool names the child keeps; everything else is removed. */
@@ -84,49 +54,39 @@ export interface Config {
     deny?: string[]
   }
   /**
-   * Recursion cap applied to every child this tool spawns (see
-   * `SubagentStartRequest.maxDepth`): a spawn whose child would sit deeper
-   * than this in the delegation tree is rejected. Requires the provider's
-   * `depthLimit` capability. Must be a non-negative safe integer and is
-   * validated when the plugin loads. Omitted ⇒ unbounded (bound it in
-   * deployments that expose this tool to children).
+   * Maximum child depth: a non-negative safe integer (default `3`; `0` forbids
+   * delegation entirely), or `'provider-managed'` to send no cap. A numeric cap
+   * requires the provider's `depthLimit` capability (mount fails loud
+   * otherwise). The provider checks the calling agent's current depth at every
+   * start; the tool remains model-visible so runtime policy owns rejection.
+   * `'provider-managed'` is for an out-of-process provider (ACP) whose
+   * recursion budget belongs to the child harness's own deployment.
    */
-  maxDepth?: number
+  maxDepth?: number | 'provider-managed'
 }
 
 export const Config: z<Config> = z.object({
   provider: z.string().required(),
   toolName: z.string().default('subagent'),
-  // Omitted-object discipline (see the toolFilter note below): without the
-  // forced default an omitted `agentOptions` materializes `{}`, which reads as
-  // present — the request would carry `agentOptions: {}` and the presence
-  // check in execute() could never be false through config.
+  enableRunInBackground: z.boolean().default(true),
+  // Prevent Schemastery from materializing omitted agentOptions as `{}`.
   agentOptions: z.object({
+    provider: z.string(),
     model: z.string(),
-  }).default(undefined as unknown as { model: string }),
+  }).default(undefined as unknown as { provider: string; model: string }),
   persona: z.string(),
-  // A schemastery object materializes {} (with [] for nested arrays) when the
-  // key is omitted — for toolFilter that would mean an EMPTY ALLOW-LIST, i.e.
-  // deny-everything, silently. Force the omitted key to stay absent (the same
-  // shape discipline as SystemPrompt's toolOrder); the cast is needed because
-  // .default() expects the object type.
-  // The NESTED arrays get the same treatment as the object itself: a partial
-  // filter ({deny: […]}) must not materialize allow: [] beside it — an empty
-  // allow-list means deny-EVERYTHING, so the materialized default would turn
-  // a deny-one config into deny-all. An EXPLICIT allow: [] (grant-only
-  // children) survives, since only the omitted key defaults to undefined.
+  // Preserve omission; Schemastery's `{ allow: [] }` default would deny every tool.
   toolFilter: z.object({
     allow: z.array(z.string()).default(undefined as unknown as string[]),
     deny: z.array(z.string()).default(undefined as unknown as string[]),
   }).default(undefined as unknown as { allow: string[]; deny: string[] }),
-  maxDepth: z.natural().max(Number.MAX_SAFE_INTEGER),
+  maxDepth: z.union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed' as const)]).default(3),
 })
 
 /**
  * Flatten a child's final output blocks to text for the tool result. The child
- * may return non-text blocks; this cut surfaces the text content (the common
- * case) and drops the rest, which is acceptable for a synchronous summary —
- * the structured path (`outputSchema`) is the channel for non-text results.
+ * may return non-text blocks; this path returns only text. Structured results
+ * use `outputSchema`.
  */
 function outputText(blocks: ContentBlock[]): string {
   return blocks
@@ -156,22 +116,66 @@ function stopReasonError(result: SubagentResult): string | undefined {
 }
 
 /**
+ * Map a child result to the task outcome: completed carries final text,
+ * aborted is killed, and every other reason is failed without partial output.
+ * @param result - child terminal result.
+ * @returns outcome for the `ctx.tasks` registration.
+ */
+export function runOutcome(result: SubagentResult): TaskOutcome {
+  switch (result.stopReason) {
+    case 'completed':
+      return { status: 'completed', output: outputText(result.output) }
+    case 'aborted':
+      return { status: 'killed' }
+    case 'error':
+    case 'max-tokens':
+    case 'refusal':
+      return { status: 'failed', detail: result.stopReason }
+    // Merge-extensible reasons remain failures with their raw detail.
+    default:
+      return { status: 'failed', detail: String(result.stopReason) }
+  }
+}
+
+/**
+ * Await the child result, dispose the run, then return its task outcome. Result
+ * and disposal failures become `failed`; when both fail, both details survive.
+ * @param run - live run to settle and release.
+ * @returns outcome after child resources are released.
+ */
+export async function settleRun(run: SubagentRun): Promise<TaskOutcome> {
+  let outcome: TaskOutcome
+  try {
+    outcome = runOutcome(await run.result)
+  } catch (error: unknown) {
+    outcome = { status: 'failed', detail: String(error) }
+  }
+  try {
+    await run.dispose()
+  } catch (error: unknown) {
+    const prefix = outcome.detail === undefined ? '' : `${outcome.detail}; `
+    return { status: 'failed', detail: `${prefix}dispose failed: ${String(error)}` }
+  }
+  return outcome
+}
+
+/**
  * Model-facing wording from the provider's conversation-history descriptor
  * ({@link SubagentProvider.inheritsParentContext}).
  * A fresh child needs a standalone prompt; a forked child already sees the
  * conversation's completed turns — telling the model to restate everything
  * (or, worse, that the child "does not see this conversation") would be false
- * for a fork. Exported for tests.
+ * for a fork.
  * @param inheritsConversation - whether the child's conversation is seeded
  *   with the parent's completed turns; this says nothing about tool, service,
  *   scope, or authority inheritance.
  * @returns the tool `description` and the `prompt` parameter description.
  */
-export function providerWording(inheritsConversation: boolean): { description: string; promptDescription: string } {
+function providerWording(inheritsConversation: boolean): { description: string; promptDescription: string } {
   if (inheritsConversation) {
     return {
       description:
-        'Delegate a task to a subagent that INHERITS this conversation: a child agent seeded with all '
+        'Delegate a task to a subagent that inherits this conversation: a child agent seeded with all '
         + 'completed turns so far (it does not see the current in-flight turn), returning only its final '
         + 'result. Use this when the subtask builds on this conversation\'s context — a follow-up analysis, '
         + 'a review, a continuation — without consuming this conversation\'s context for the work itself. '
@@ -194,30 +198,58 @@ export function providerWording(inheritsConversation: boolean): { description: s
   }
 }
 
+function startRequest(config: Config, prompt: string, parent: Agent, signal: AbortSignal): SubagentStartRequest {
+  const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined
+  return {
+    prompt: [{ type: 'text', text: prompt }],
+    parent,
+    signal,
+    ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
+    ...config.persona !== undefined ? { persona: config.persona } : {},
+    ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
+    ...maxDepth !== undefined ? { maxDepth } : {},
+  }
+}
+
+/** Settle pending startup without rejecting the task producer contract. */
+async function settleStart(start: Promise<SubagentRun>, signal: AbortSignal): Promise<TaskOutcome> {
+  try {
+    return await settleRun(await start)
+  } catch (error: unknown) {
+    return signal.aborted
+      ? { status: 'killed' }
+      : { status: 'failed', detail: String(error) }
+  }
+}
+
 export function apply(ctx: Context, config: Config): void {
-  // Keep misconfiguration at plugin load even when a caller invokes apply()
-  // directly and bypasses Schemastery's natural/max metadata.
-  assertSubagentMaxDepth(config.maxDepth)
-  // Misconfiguration fails loud AT LOAD (the check is self-contained): an
-  // explicit `toolFilter: {}` would otherwise pass the capability gate and
-  // kill every delegation later, in the child-setup `restrict({})` throw.
+  // Direct apply() bypasses Schemastery's numeric constraints. A direct-apply
+  // omission stays capless (the schema default only runs through the loader).
+  if (config.maxDepth !== 'provider-managed') assertSubagentMaxDepth(config.maxDepth)
+  // Reject an empty explicit filter at load instead of failing every delegation.
   if (config.toolFilter !== undefined && config.toolFilter.allow === undefined && config.toolFilter.deny === undefined) {
     throw new Error('tool-subagent: `toolFilter` is configured but names neither `allow` nor `deny` — remove the key or fill the filter')
   }
-  // The tool MIRRORS its provider's lifecycle instead of assuming load order:
-  // the cordis Loader starts sibling entries concurrently, so "backend listed
-  // first in cordis.yml" does not guarantee "provider registered first", and
-  // an HMR reload of the backend replaces the provider while this fiber stays
-  // loaded. Register the tool when the bound provider is (or becomes)
-  // available — deriving the wording from THAT provider — and unregister it
-  // when the provider goes away, so the description can never outlive or
-  // predate the provider it describes.
+  // Mirror provider lifecycle because sibling load order and HMR replacement
+  // can change provider availability while this fiber remains active.
   let disposeTool: (() => void) | undefined
   const mount = (provider: SubagentProvider): void => {
+    // A numeric cap the provider cannot enforce is a misconfiguration — fail at
+    // mount (the earliest point the provider's capabilities are known), not on
+    // the first delegation.
+    if (typeof config.maxDepth === 'number' && !provider.capabilities.depthLimit) {
+      throw new Error(
+        `tool-subagent: provider "${provider.name}" cannot enforce maxDepth (no depthLimit capability) — `
+        + 'set maxDepth: \'provider-managed\' to leave the recursion budget to the provider',
+      )
+    }
     const wording = providerWording(provider.inheritsParentContext)
+    const backgroundEnabled = config.enableRunInBackground !== false
     disposeTool = ctx.tools.register(defineTool({
       name: config.toolName ?? 'subagent',
-      description: wording.description,
+      description: wording.description + (backgroundEnabled
+        ? ' Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.'
+        : ''),
       parameters: {
         description: {
           type: 'string',
@@ -229,25 +261,59 @@ export function apply(ctx: Context, config: Config): void {
           required: true,
           description: wording.promptDescription,
         },
+        ...backgroundEnabled ? {
+          run_in_background: {
+            type: 'boolean' as const,
+            description: 'Run as a background task and return its id; collect with task_output or stop with task_kill.',
+          },
+        } : {},
       },
       async execute(args, exec): Promise<ContentBlock[]> {
         const parent = exec.agent
         if (!parent) {
-          // The loop sets `exec.agent` for every model-driven call; its absence
-          // means a non-agent caller invoked the tool directly, which has no
-          // parent to attribute the child to. Fail loud rather than guess.
+          // Non-agent callers provide no parent for delegation ownership.
           throw new Error('subagent tool requires a calling agent (exec.agent was undefined)')
         }
 
-        const request: SubagentStartRequest = {
-          prompt: [{ type: 'text', text: args.prompt }],
-          parent,
-          signal: exec.signal ?? new AbortController().signal,
-          ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
-          ...config.persona !== undefined ? { persona: config.persona } : {},
-          ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
-          ...config.maxDepth !== undefined ? { maxDepth: config.maxDepth } : {},
+        if (args.run_in_background === true) {
+          // The validator permits undeclared keys, so schema omission also needs
+          // execution-time enforcement.
+          if (!backgroundEnabled) {
+            throw new Error('run_in_background is disabled for this tool instance (enableRunInBackground: false)')
+          }
+          const tasks = ctx.get('tasks')
+          if (tasks === undefined) {
+            throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
+          }
+          // Task preflight finishes before the starter can spawn a child.
+          const id = tasks.start({
+            kind: 'subagent',
+            label: args.description,
+            owner: parent,
+            run: () => {
+              const controller = new AbortController()
+              const start = ctx.subagents.start(
+                config.provider,
+                startRequest(config, args.prompt, parent, controller.signal),
+              )
+              return {
+                cancel: (reason?: string) => {
+                  controller.abort(reason ?? 'background subagent task killed')
+                },
+                done: settleStart(start, controller.signal),
+                // No readOutput: the child session owns intermediate detail.
+              }
+            },
+          })
+          return [{ type: 'text', text: `started background subagent task ${id}` }]
         }
+
+        const request = startRequest(
+          config,
+          args.prompt,
+          parent,
+          exec.signal,
+        )
 
         const run: SubagentRun = await ctx.subagents.start(config.provider, request)
 
@@ -255,29 +321,22 @@ export function apply(ctx: Context, config: Config): void {
           const result = await run.result
           const error = stopReasonError(result)
           if (error !== undefined) {
-            // Map a non-clean finish to an isError result (the registry turns a
-            // throw into an isError). Report the reason, not partial output.
+            // The registry converts this throw to isError; partial output is not success.
             throw new Error(error)
           }
           return [{ type: 'text', text: outputText(result.output) }]
         } finally {
-          // Always reach child quiescence — never leak a live idle child/session.
+          // Dispose before returning so no child session outlives the call.
           await run.dispose()
         }
       },
     }))
   }
 
-  // Listeners first, then the presence check: both run synchronously, so no
-  // registration can slip between them; the `disposeTool === undefined` guard
-  // makes a same-tick added-event after a successful mount a no-op.
+  // Register listeners before checking presence so no synchronous change is missed.
   // TODO(subagent-dup-toolname): two WAITING fibers configured with the same
-  // toolName collide only when their provider finally arrives — the duplicate
-  // tool-name throw then propagates through `subagent/provider-added` and
-  // rolls back the PROVIDER registration, so an invalid config blasts the
-  // backend's fiber instead of the misconfigured tool's. Config-time detection
-  // would need a cross-fiber registry of intended tool names; revisit if a
-  // real deployment ever hits it.
+  // toolName collide when their provider appears, and the duplicate-name throw
+  // rolls back the provider registration. Add an intent registry if this occurs.
   ctx.on('subagent/provider-added', (provider) => {
     if (provider.name === config.provider && disposeTool === undefined) mount(provider)
   })
@@ -290,9 +349,7 @@ export function apply(ctx: Context, config: Config): void {
   if (present !== undefined) {
     mount(present)
   } else {
-    // Not an error: the backend's fiber may simply activate after this one.
-    // The tool appears the moment the provider registers; a typo'd provider
-    // name shows up as this note plus a tool that never materializes.
+    // A backend fiber may activate later; a misspelled provider remains visible in this log.
     ctx.logger.info(`subagent provider "${config.provider}" not registered yet; the "${config.toolName ?? 'subagent'}" tool will register when it appears`)
   }
 }

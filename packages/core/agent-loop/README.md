@@ -1,6 +1,6 @@
 # dsh-agent-loop
 
-THE concrete agent plugin: `ReactLoopAgent` and the loop driver. Implements the `Agent` interface and drives the session/turn/step lifecycle.
+THE concrete agent plugin and loop driver. Its package-internal implementation satisfies the `Agent` interface and drives the session/turn/step lifecycle.
 
 This is the only package in the harness that contains concrete loop logic. Everything else is an abstract service or a plugin against extension seams — new behavior goes into plugins, not here.
 
@@ -12,14 +12,14 @@ Creation and resume are one rollback-covered transaction: construct a private se
 
 The caller fiber and the AgentLoop provider are co-owners. `AgentFactory.createAgent(ownerCtx, options)` and `resume(ownerCtx, options)` receive caller ownership explicitly, while the factory keeps its own dependency context for `sessions`/`llm`/`tools`/`systemPrompt`; this lets a caller inject only `agents` without shrinking the new agent's service surface. Caller unload, handle disposal, or provider unload converge on one memoized quiescence boundary. Provider shutdown waits both resource teardown and the public create/resume wrapper that observed deactivation, so no continuation can publish after dependencies disappear.
 
-IDs are caller-chosen and assumed globally unique; accidental UUID collisions are outside the supported model. Two concurrent operations with the same agent or session id may both prepare, but the final `enter()` calls arbitrate publication and every loser rolls its private resources back. Each detach is bound to the exact entered object, so a stale disposer cannot remove a later same-id replacement. A detach requested during a synchronous creation notification waits for that dispatch to unwind, preserving created/disposed pairing. Teardown runs stop and drain (including outstanding idle-injection flushes) → detach agent → detach session → unwind scope; IDs become reusable at detach even if private scope cleanup is still finishing. Ordinary non-vetoing `agent/*` notifications go through `agentEvents(ctx, agent)`, per-step assembly goes through `assembleContextFor(agent)`, and turn-end durability checkpoints go through `ctx.sessions.flush(session)`.
+Each agent and its session share one caller-chosen `SessionId`, assumed globally unique; accidental UUID collisions are outside the supported model. Two concurrent operations with the same id may both prepare, but the final `enter()` calls arbitrate publication and every loser rolls its private resources back. Each detach is bound to the exact entered object, so a stale disposer cannot remove a later same-id replacement. A detach requested during a synchronous creation notification waits for that dispatch to unwind, preserving created/disposed pairing. Teardown runs stop and drain (including outstanding idle-injection flushes) → detach agent → detach session → unwind scope; the id becomes reusable at detach even if private scope cleanup is still finishing. Ordinary non-vetoing `agent/*` notifications go through `agentEvents(ctx, agent)`, per-step assembly goes through `assembleContextFor(agent)`, and turn-end durability checkpoints go through `ctx.sessions.flush(session)`.
 
-- `ctx.agentLoop.create(id: string, options?: AgentOptions, meta?: { cwd?: string }): ReactLoopAgent` — synchronous no-setup create, used directly by programs and by `cordis.yml`-configured agents. It creates a fresh per-run session id `${id}-session-<uuid>` with optional metadata; the uuid avoids colliding with a prior durable log. Each call is a new session (a deliberate demo simplification — a real resume-or-create policy is a TODO). Disposed with the calling fiber.
+- `ctx.agentLoop.create(id: SessionId, options?: AgentOptions, meta?: { cwd?: string }): Agent` — synchronous no-setup create under the exact shared agent/session id, disposed with the calling fiber. Declarative config treats `agents[].id` as a stable label and normally mints `${label}-session-<uuid>` before calling this boundary. An app may instead supply a stable exact `sessionId`: first use creates it, while a remount with persistence already present resumes its materialized history. `resumeSessionId` requires and loads an existing persisted id and is mutually exclusive with `sessionId`. This keeps default fresh restarts collision-free without retaining a second live routing identity.
 
 `AgentLoop` also implements the `AgentFactory` seam and registers itself via `ctx.agents.setFactory(this)`, so plugins create/resume agents through `ctx.agents` (the interface):
 
-- `ctx.agents.create({ agentId, sessionId, meta?, seed?, agentOptions?, setup?, signal? }): Promise<AgentHandle>` — programmatic create on a caller-supplied `sessionId`, NOT `${id}-session`. It awaits the unpublished setup transaction before returning; `meta` carries cwd/lineage/seed-boundary metadata and `seed` reconstructs a forked child prefix after the session boundary validates and snapshots the durable values. `signal` applies only until this promise settles. The resolved [`AgentHandle`](../agent/README.md) owns exact teardown.
-- `ctx.agents.resume({ agentId, resumeSessionId, agentOptions?, setup?, signal? }): Promise<AgentHandle>` — load a persisted session via `ctx.sessionPersistence` ([session persistence](../../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md)), reconstruct its history, then await setup against a fresh unpublished agent scope before rollback-covered publication. The live session id is the resumed id; turn numbering and derived history continue from the loaded log. Requires a session-persistence backend (NOT hard-injected — non-persistent demos still work; `resume` rejects with a clear error when persistence is absent). `signal` is creation-only. Returns an `AgentHandle`.
+- `ctx.agents.create({ sessionId, meta?, seed?, agentOptions?, setup?, signal? }): Promise<AgentHandle>` — programmatic create under the caller-supplied shared id. It awaits the unpublished setup transaction before returning; `meta` carries cwd/lineage/seed-boundary metadata and `seed` reconstructs a forked child prefix after the session boundary validates and snapshots the durable values. `signal` applies only until this promise settles. The resolved [`AgentHandle`](../agent/README.md) owns exact teardown.
+- `ctx.agents.resume({ resumeSessionId, agentOptions?, setup?, signal? }): Promise<AgentHandle>` — load a persisted session via `ctx.sessionPersistence` ([session persistence](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)), register the agent under that same id, reconstruct its history, then await setup against a fresh unpublished agent scope before rollback-covered publication. Turn numbering and derived history continue from the loaded log. Requires a session-persistence backend (NOT hard-injected — non-persistent demos still work; `resume` rejects with a clear error when persistence is absent). `signal` is creation-only. Returns an `AgentHandle`.
 
 The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loop fiber (it discards the handle). For a programmatic agent, the handle holder is the only consumer-facing teardown capability; AgentLoop provider unload is the independent structural teardown edge, not another handle exposed to application code.
 
@@ -27,12 +27,18 @@ The config-driven `ctx.agentLoop.create()` path keeps its agent owned by the loo
 
 `agents`, `sessions`, `llm`, `tools`, `systemPrompt` — all five interface services.
 
+### Invariant companion
+
+The optional `@deepseek-ai/dsh-agent-loop/invariant` companion registers request reconstruction with `ctx.invariants`. The loop marks each request with an internal non-enumerable identity before freezing it; the companion then requires a live session and independently rebuilds the message boundary and folded request header from the log. Direct one-shot calls remain outside this contract even when callers freeze them or attach a session id.
+
 ### Configuration (schemastery)
 
 ```ts
 interface Config {
+  maxParallelToolCalls?: number // default 10; 1 is serial
   agents: Array<{
     id: string                 // required
+    provider?: string
     model?: string
     resumeSessionId?: string   // load this persisted session instead of creating one
     cwd?: string               // optional workspace cwd for the fresh session
@@ -40,70 +46,82 @@ interface Config {
 }
 ```
 
-Agents listed in config are auto-created at startup. `cwd` applies only to fresh config-created sessions; `resumeSessionId` keeps the persisted session header. Config agents have no per-agent persona field: they use `dsh-system-prompt`'s deployment default, while programmatic factory callers can register an agent-scoped `deployment:persona` shadow in `setup`. The plugin registers the built-in `model`/`cwd` prompt variables on `ctx.systemPrompt`, resolved per step from `assembleContextFor(agent)` — the helper couples the typed agent with its matching scope selector. These are runtime facts of the agents THIS loop drives, unlike the `harness:identity` and default `deployment:persona` sections, which live on `dsh-system-prompt` so they survive a swapped loop plugin.
+Configured agents start automatically. A model call requires both `provider` and `model`; `agent/request` may supply a missing pair before dispatch. `maxParallelToolCalls` bounds every agent's rolling pool for parallel-safe calls and defaults to `10`. `cwd` applies only to fresh sessions, while `resumeSessionId` retains persisted metadata. Configured agents use the deployment persona, and programmatic setup can shadow it per agent. This plugin supplies the per-agent `provider`, `model`, and `cwd` prompt variables; harness identity and deployment persona belong to `dsh-system-prompt`.
 
-### Exported concrete class
+### Internal concrete driver
 
-- `ReactLoopAgent` — the concrete `Agent` implementation. Its inbox is a JavaScript native-private field, and one prepared session can be claimed by only one concrete driver. Everything observable happens through session events and the `agent/*` event taxonomy.
+The concrete `Agent` class, its `Inbox`, `runLoop`, and instance-bound publication/start controls are package-internal. The package root exports only the plugin/service/config contract, and the package exports map exposes no `./src/*` escape hatch; lifecycle owners create agents through `ctx.agents` rather than naming, constructing, or starting driver internals. One prepared session can be claimed by only one concrete driver, and everything observable happens through session events and the `agent/*` event taxonomy.
 
-`Inbox`, `runLoop`, and the instance-bound publication/start controls are package-internal. The package root does not export them, and the package exports map exposes no `./src/*` escape hatch; lifecycle owners create agents through `ctx.agents` rather than constructing or starting the driver internals. `ReactLoopAgent.send()` and running `steer()` materialize content plus resolved source once as detached, deeply frozen lossless JSON, then share that accepted record between `agent/queued` and the inbox; malformed data throws before either boundary.
+Each concrete `send()` materializes content plus resolved source once as a detached, deeply frozen lossless-JSON FIFO item. If claimed, it is the sole ordinary message in its turn; a successor waits for the preceding ordinary turn's checkpoint to settle, while cancellation, disposal, or a pre-start failure may drop it without a turn. Running `steer()` enters the steering FIFO: an open turn records it at the next steering checkpoint before a request or continuation decision, but policy can still stop before another step; steering left after turn close and its checkpoint becomes later queued input unless terminal turn policy, cancellation, or disposal discards it. Open-turn `inject()` uses the same accepted-value boundary but defers in a FIFO while the current step executes assistant tool calls; successful batches place it after all results, and interrupted batches drain it before turn close. Malformed data throws before enqueue or append.
 
 ### Loop lifecycle (`loop.ts`)
 
-The internal loop driver runs one agent for its whole lifetime:
+The driver owns one agent for its lifetime and runs inside `ctx.agents.withInitiator(agent, ...)`. Package-private orchestration entry points recover the exact Agent, derive `agent.session` once, and let operation-local helpers capture it instead of forwarding the concrete driver or per-operation `Session` through shallow interfaces. A helper keeps an explicit `Session` when that is its actual interface, while creation, persistence load, unpublished setup, services, workers, processes, persistence, and wire protocols retain their explicit identities. The [agent service](../agent/README.md#initiating-agent-scope) owns propagation, teardown, and detached-work rules.
 
-```
-create agent → emit agent/session-start(source)   ⟵ once, before turn 1
-forever:
-  wait for queued messages (idle)
-  TURN (error-contained):
-    'turn/start'
-    each queued: waterfall agent/prompt-submit → allow (→ session('user/message'),
-      inject additionalContext) | block (→ session('prompt/blocked'), drop)
-    if every prompt blocked: 'turn/end'(rejected), no step  ⟵ zero-step turn
-    STEP loop:
-      drain steering
-      assembly = await systemPrompt.assemble(assembleContextFor(agent))
-                                                ⟵ renderPrompt(assembly) IS the full prompt
-      prefix ??= waterfall agent/session-prefix   ⟵ once per instance (first step): frozen
-                                                session prefix; on the header, never history
-      await serial agent/pre-step(…, prefix)  ⟵ surface mutation (compaction) outside the step;
-                                                pressure gates see the prefix the request carries
-      boundary = session.deriveMessages()   ⟵ reconstruction boundary: same sync frame,
-      session('step/start')                     strictly before step/start
-      config = waterfall agent/request       ⟵ frozen seed; return a replacement to switch
-      session('request/header'[-delta])      ⟵ the header event this request owes the log
-      stream llm.stream(freeze({header..., messages: prefix+boundary})) → session('assistant/chunk')
-      message = waterfall agent/step-result
-      session('assistant/message')
-      each tool-call: session('tool/call')
-        → tools.execute() [pre waterfall → monotonic guards → around dispatch → post waterfall → final notification]
-        → session('tool/result')
-      append buffered post-execute additionalContext as session('context/message')(s)
-      drain steering → session('steering/message')
-      cont = waterfall agent/turn-continuation → ContinuationDecision
-        ({action:'continue', reason?} records reason as next-step steering)
-      pending steering can override an ordinary stop
-      terminal = serial agent/turn-stop → ContinuationStop | undefined
-        (after ordinary decision/reason/steering folding)
-      if terminal stop, or ordinary action==stop with no pending steering: break
-    session('turn/end')
-    await session/flush
-    terminal turn: discard steering added before/during close and flush; keep ordinary queued sends
-    ordinary turn: re-enqueue leftover steering as queued
-  idle unless more queued
-```
+Every provider call that reaches a successful finish appends exactly one `assistant/message` completion anchor, including content-less calls and `max-tokens` finishes. A successful `agent/step-result` stores its transformed content; a rejected result records empty content before the original failure continues. The anchor retains exact chunk provenance (`[]` for a stream with no chunks) and usage when available, while empty content stays out of derived message history.
 
-Error containment: a throwing plugin ends the **turn**, never the loop. A throwing `agent/turn-stop` policy likewise fails the turn closed. A successful terminal stop stays authoritative through `turn/end` and `session/flush`, preventing their listeners from resurrecting steering through the late fallback. Dispose mid-turn emits `agent/status('disposed')` and ends with reason `disposed`. A step that hits the model's output-token ceiling makes the turn end `max-tokens` (the rule: any `max-tokens` step in the turn surfaces as `max-tokens`; `disposed`/`aborted`/`error` still take precedence) — distinct from a clean `completed` stop.
+Plugin failure ends the current turn, not the loop. Only final adapter dispatch/iteration failures and terminal in-band error or aborted finishes enter `agent/request-error`; middleware, result processing, tools, and `agent/post-step` remain ordinary turn failures. Recovery receives the exact live error, immutable provider facts, and immutable prior failures after the failed step closes. A retry rebuilds from the durable log in a new numbered step, success clears the consecutive history, and exhaustion records the structured failure once on `turn/end`. AgentLoop privately owns one cancellation holder whose explicit signal spans prompt policy, assembly, every step, model and tool work, recovery, continuation, and terminal stop; it retires the holder immediately before publishing `turn/end`, while the driver may remain `running` through the durability flush. An effective `cancel()` emits the typed runtime-only `user | parent` cause before clearing pending work and cooperatively aborting the holder; notification failures cannot veto cancellation, work queued by a notification observer is cleared, work queued by a later abort observer belongs to the next turn, and idle cancellation emits nothing. Durable `turn/end` remains coarse `aborted`; undispatched model tool calls receive synthetic `tool/call` and `ABORTED_BEFORE_DISPATCH` result pairs. Disposal wins terminal classification, and work that ignores the signal must settle before quiescence. The [explicit-cancellation decision](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md) owns the lifecycle and race contract. Terminal continuation stops remain authoritative through turn close and durability flush.
 
-Cancellation: `agent.cancel()` is the single public stop primitive — it clears the queued + steering FIFOs, aborts the in-flight step, and drives a turn-scoped marker the driver checks at every point a turn could start or continue (right after the idle wait, after the `running` flip, before each step, and at the continuation gate) so a turn about to start is dropped. A cancelled turn ends `aborted`; a queued-but-not-started prompt never runs and cannot be batched into the cancelled turn. The marker is reset once per loop iteration, so a cancel governs exactly one turn and never leaks onto a later prompt. (The loop still aborts its own per-step `AbortController` directly on disposal and from `cancel()`; that controller is loop-internal, not a public verb.)
+Within a step, exclusive calls form barriers; parallel-safe calls use a bounded rolling pool and are reclassified before start. Only dispatch/body overlaps. Policy, durable results, and result context remain model-ordered. Abort stops new calls, drains started results, then drains accepted batch context before the turn closes through the normal abort path.
 
-### What is NOT here
+### What belongs to plugins
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
 - Hooks and policy: the relevant `agent/*` checkpoints plus the guarded `tools/pre-execute` → `tools/execute` → `tools/post-execute` → `tools/result` pipeline; exact signatures and modes live in the [generated event catalog](../../../docs/cordis-catalog/events.md)
-- Compaction: `agent/pre-step`
+- Compaction: pressure on `agent/post-step`; canonical context overflow on `agent/request-error`
+- Transient model recovery: `dsh-llm-retry` on `agent/request-error`, with finite code-specific budgets and non-surface `llm/retry` status events
 - Sandbox, permission, plan mode: `tools/pre-execute` for extensible deny/ask, `tools.guard()` for monotonic owner policy, `tools/post-execute` for result decisions, and `tools/result` for final observation
-- Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while child streaming/progress and background/poll collection remain deferred.
+- Sub-agents: implemented outside the loop as `ctx.subagents` providers; in-process providers use `ctx.agents.create()` and owned `AgentHandle` teardown, while generic [`ctx.tasks`](../../tasks/tasks/) plus [`dsh-tool-subagent`](../../subagent/tool-subagent/) own background collection.
 - Persistence: `session/event` + `session/flush`
 - UI: `session/event` (assistant token stream, boundaries, tool activity) + `agent/*` control events (`agent/status`, `agent/created`/`agent/disposed`)
+
+## Model Experience
+
+### Complete conversation request
+
+#### What the model sees
+
+For each step, the loop sends the rendered per-agent system prompt, visible tool schemas, the frozen session prefix, and the session's derived messages. It supplies `model` and `cwd` variable values but no additional fixed prose.
+
+#### Token effect
+
+System text, schemas, and prefix are paid again on every step. Per-agent scoping chooses the initial contributions, while the authoritative assembly waterfall can alter the final request and makes its listener responsible for protocol coherence.
+
+#### KV Cache effect
+
+Append-only only while system text, schemas, session prefix, and earlier history remain byte-identical under the same provider and model route. A token-bearing assembly rewrite or composition change may invalidate reuse from the first altered request token.
+
+### Retained message history
+
+#### What the model sees
+
+Accepted user messages, assistant messages, tool calls and results, injected context, and steering are logged and sent on later steps. Raw stream chunks, lifecycle boundaries, and other log-only events are excluded.
+
+#### Token effect
+
+Input grows with every surface message until a compaction replacement shadows older nodes; a multi-step tool turn resends the accumulated prefix and history each step.
+
+#### KV Cache effect
+
+Ordinary history growth is append-only and preserves reusable entries. A surface replacement or compaction invalidates reuse from the first shadowed history token.
+
+### Undispatched calls after cancellation
+
+#### What the model sees
+
+If a later request replays an aborted step, each tool call that cancellation prevented from dispatching has error code `ABORTED_BEFORE_DISPATCH` and result text `Error: tool call aborted before dispatch`.
+
+#### Token effect
+
+One fixed error result per skipped call remains in history until compaction shadows it.
+
+#### KV Cache effect
+
+Append-only; each synthetic result follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
+## Known Limitations and Deferred Work
+
+- **Classification is unary** — calls whose safety depends on comparing siblings or resources must remain exclusive ([rationale](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)).
+- **Config labels are fresh by default** — omitting `sessionId` creates a fresh `${id}-session-<uuid>` on every startup; exact resume-or-create behavior requires an explicit stable `sessionId`, while `resumeSessionId` requires existing persisted history.
+- **Config agents have no per-agent persona field or setup hook** — they use the deployment persona; scoped persona/tool composition is available only through the programmatic `ctx.agents.create()` / `resume()` factory options.
+- **No built-in turn budget** — the default continuation is `continue` whenever a step had tool calls or steering; bounding a runaway turn requires an `agent/turn-continuation` force-stop plugin.

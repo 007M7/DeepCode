@@ -15,10 +15,17 @@
  *                        `dispose()` must still kill the process.
  * - `MOCK_PERMISSION`  — if `1`, the agent calls `session/request_permission`
  *                        before answering, to exercise the client's auto-answer.
+ * - `MOCK_ECHO_CWD`    — if `1`, ignore MOCK_TEXT and stream two lines instead:
+ *                        the agent PROCESS's `process.cwd()` and the `cwd` the
+ *                        client announced in `session/new` — so a test can assert
+ *                        where the child actually ran and what workspace it was
+ *                        told it has.
  * - `MOCK_READY_FILE`  — if set, the path the agent touches once its `prompt`
  *                        handler is in flight (it has streamed its chunk). A test
  *                        polls for this file to cancel on a CONDITION rather than
  *                        an arbitrary timeout (subprocess cold-start is variable).
+ * - `MOCK_MISSING_SESSION_ID` — if `1`, return a malformed empty `session/new`
+ *                        response to exercise startup rollback.
  * - `MOCK_FLUSH_ON_EOF` — if set, on stdin EOF the agent takes an async beat
  *                         (MOCK_FLUSH_DELAY_MS, default 150) simulating the real
  *                         acp-agent's EOF-driven quiesce+flush, then touches this
@@ -34,10 +41,9 @@
  *                         grace, before the SIGKILL escalation). Touches
  *                         MOCK_READY_FILE once armed.
  *
- * It is NOT a test spec (no `describe`/`it`) — it is spawned BY the specs as the
- * child process the ACP backend drives. Kept as a `.ts` run under tsx by the
- * spec (which passes its own tsconfig), mirroring how the snapshot harness boots
- * the real example.
+ * It is not a test spec: the specs launch this protocol-only fixture through
+ * the mode-aware example resolver (tsx in source mode, Node type stripping in
+ * built mode). It imports no harness code or workspace paths.
  *
  * @module @deepseek-ai/dsh-subagent-acp/tests/mock-acp-server
  */
@@ -62,6 +68,7 @@ import {
 } from '@agentclientprotocol/sdk'
 
 const TEXT = process.env.MOCK_TEXT ?? 'mock child answer'
+const ECHO_CWD = process.env.MOCK_ECHO_CWD === '1'
 const STOP = (process.env.MOCK_STOP ?? 'end_turn') as StopReason
 const HANG = process.env.MOCK_HANG === '1'
 const WANT_PERMISSION = process.env.MOCK_PERMISSION === '1'
@@ -82,6 +89,8 @@ function makeAgent(conn: AgentSideConnection): Agent {
   // Pending cancel resolver for the HANG path: a `session/cancel` resolves the
   // prompt with `cancelled`.
   let resolveCancel: ((reason: StopReason) => void) | undefined
+  // The cwd the client announced in `session/new`, echoed under MOCK_ECHO_CWD.
+  let sessionCwd: string | undefined
 
   return {
     initialize(_params: InitializeRequest): Promise<InitializeResponse> {
@@ -91,7 +100,8 @@ function makeAgent(conn: AgentSideConnection): Agent {
         authMethods: [],
       })
     },
-    async newSession(_params: NewSessionRequest): Promise<NewSessionResponse> {
+    async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+      sessionCwd = params.cwd
       // Optionally signal "newSession reached" and block until released, so a
       // test can cancel DURING newSession (the early-cancel race window) on a
       // condition rather than a timeout.
@@ -99,7 +109,8 @@ function makeAgent(conn: AgentSideConnection): Agent {
         writeFileSync(NEWSESSION_GATE.ready, 'at-newSession')
         while (!existsSync(NEWSESSION_GATE.go)) await new Promise(r => setTimeout(r, 10))
       }
-      return { sessionId: randomUUID() }
+      if (process.env.MOCK_MISSING_SESSION_ID === '1') return {} as NewSessionResponse
+      return { sessionId: process.env.MOCK_SESSION_ID ?? randomUUID() }
     },
     authenticate(_params: AuthenticateRequest): Promise<void> {
       // No auth methods advertised; nothing to do.
@@ -134,10 +145,14 @@ function makeAgent(conn: AgentSideConnection): Agent {
           update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'thinking…' } },
         })
       }
-      // Stream the canned assistant text as one chunk.
+      // Stream the canned assistant text as one chunk (or, under MOCK_ECHO_CWD,
+      // the observable process cwd + announced session cwd).
       await conn.sessionUpdate({
         sessionId: params.sessionId,
-        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: TEXT } },
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: ECHO_CWD ? `${process.cwd()}\n${sessionCwd ?? ''}` : TEXT },
+        },
       })
       // Signal "prompt is in flight" by touching the readiness file, so a test
       // can wait on a CONDITION (file exists) rather than an arbitrary timeout

@@ -10,17 +10,29 @@ flowchart LR
   cfg["examples/acp-agent<br/>cordis.yml"]
   plugin_acp_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_acp_llm_deepseek
-  plugin_acp_bash["bash<br/>@deepseek-ai/dsh-bash-local"]
+  plugin_acp_sandbox["sandbox<br/>@deepseek-ai/dsh-sandbox-local"]
+  cfg --> plugin_acp_sandbox
+  plugin_acp_sandbox_policy["sandbox-policy<br/>@deepseek-ai/dsh-sandbox-policy"]
+  cfg --> plugin_acp_sandbox_policy
+  plugin_acp_bash["bash<br/>@deepseek-ai/dsh-bash-sandbox"]
   cfg --> plugin_acp_bash
-  plugin_acp_acp_agent["acp-agent<br/>@deepseek-ai/dsh-acp-agent"]
+  plugin_acp_approval["approval<br/>@deepseek-ai/dsh-user-approval"]
+  cfg --> plugin_acp_approval
+  plugin_acp_permission["permission<br/>@deepseek-ai/dsh-permission"]
+  cfg --> plugin_acp_permission
+  plugin_acp_acp_agent["acp-agent<br/>@deepseek-ai/dsh-acp-demo"]
   cfg --> plugin_acp_acp_agent
-  plugin_acp_acp_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-core"]
+  plugin_acp_acp_agent --> bundle_agent_core["@deepseek-ai/dsh-agent-spine-demo"]
   plugin_acp_acp_agent --> bundle_jsonl["@deepseek-ai/dsh-session-persistence-jsonl"]
   plugin_acp_acp_agent --> frontdoor_acp["@deepseek-ai/dsh-acp<br/>JSON-RPC stdio bridge<br/>sessions created by client"]
   bundle_agent_core --> spine_llm["ctx.llm"]
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
   bundle_agent_core --> spine_loop["ctx.agents + ctx.agentLoop"]
+  plugin_acp_token_meter["token-meter<br/>@deepseek-ai/dsh-token-meter"]
+  cfg --> plugin_acp_token_meter
+  plugin_acp_compact_basic["compact-basic<br/>@deepseek-ai/dsh-compact-basic"]
+  cfg --> plugin_acp_compact_basic
   plugin_acp_subagent["subagent<br/>@deepseek-ai/dsh-subagent"]
   cfg --> plugin_acp_subagent
   plugin_acp_subagent_spawn["subagent-spawn<br/>@deepseek-ai/dsh-subagent-spawn"]
@@ -35,12 +47,14 @@ flowchart LR
   cfg --> plugin_acp_workflow_workerthread
   plugin_acp_tool_workflow["tool-workflow<br/>@deepseek-ai/dsh-tool-workflow"]
   cfg --> plugin_acp_tool_workflow
+  plugin_acp_tool_ralph["tool-ralph<br/>@deepseek-ai/dsh-tool-ralph"]
+  cfg --> plugin_acp_tool_ralph
   plugin_acp_tool_todo["tool-todo<br/>@deepseek-ai/dsh-tool-todo"]
   cfg --> plugin_acp_tool_todo
   plugin_acp_repeat_tool_guard["repeat-tool-guard<br/>@deepseek-ai/dsh-repeat-tool-guard"]
   cfg --> plugin_acp_repeat_tool_guard
-  plugin_acp_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
-  cfg --> plugin_acp_fs_local
+  plugin_acp_fs_sandbox["fs-sandbox<br/>@deepseek-ai/dsh-fs-sandbox"]
+  cfg --> plugin_acp_fs_sandbox
   plugin_acp_fs_policy["fs-policy<br/>@deepseek-ai/dsh-fs-policy"]
   cfg --> plugin_acp_fs_policy
   plugin_acp_tool_fs["tool-fs<br/>@deepseek-ai/dsh-tool-fs"]
@@ -54,8 +68,14 @@ flowchart LR
 | Plugin id | Package / module |
 | --- | --- |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
-| `bash` | `@deepseek-ai/dsh-bash-local` |
-| `acp-agent` | `@deepseek-ai/dsh-acp-agent` |
+| `sandbox` | `@deepseek-ai/dsh-sandbox-local` |
+| `sandbox-policy` | `@deepseek-ai/dsh-sandbox-policy` |
+| `bash` | `@deepseek-ai/dsh-bash-sandbox` |
+| `approval` | `@deepseek-ai/dsh-user-approval` |
+| `permission` | `@deepseek-ai/dsh-permission` |
+| `acp-agent` | `@deepseek-ai/dsh-acp-demo` |
+| `token-meter` | `@deepseek-ai/dsh-token-meter` |
+| `compact-basic` | `@deepseek-ai/dsh-compact-basic` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |
@@ -63,9 +83,10 @@ flowchart LR
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
 | `workflow-workerthread` | `@deepseek-ai/dsh-workflow-workerthread` |
 | `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
+| `tool-ralph` | `@deepseek-ai/dsh-tool-ralph` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
 | `repeat-tool-guard` | `@deepseek-ai/dsh-repeat-tool-guard` |
-| `fs-local` | `@deepseek-ai/dsh-fs-local` |
+| `fs-sandbox` | `@deepseek-ai/dsh-fs-sandbox` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
 | `tool-fs` | `@deepseek-ai/dsh-tool-fs` |
 | `hooks-claude` | `@deepseek-ai/dsh-hooks-claude` |

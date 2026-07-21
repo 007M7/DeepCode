@@ -35,7 +35,7 @@ interface FakeHost {
 
 interface FakeHostOptions {
   /** Auto-respond to child-start: reply started + settled per child index. Omit a reply to leave the child pending. */
-  reply?: (request: { prompt: string; schema?: unknown; model?: string }, index: number) => ChildResult | undefined
+  reply?: (request: { prompt: string; schema?: unknown; provider?: string; model?: string }, index: number) => ChildResult | undefined
   /** Reject the start instead (child-start-error) when returning a string. */
   refuse?: (index: number) => string | undefined
   /** Auto-send `go` on `ready` (default true). */
@@ -140,6 +140,17 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     const start = host.ofType(WorkerToHostType.ChildStart)[0]!
     expect(start.request.schema).toEqual({ type: 'object', properties: { files: { type: 'array', items: { type: 'string' } } } })
     expect(start.request.model).toBe('deepseek-v4-pro')
+    host.close()
+  })
+
+  it('agent({provider}) forwards a provider without inventing a model', async () => {
+    const host = fakeHost({ reply: () => text('ok') })
+    void runWorkerSession(host.port, init("return await agent('route me', { provider: 'openai' })"))
+    const result = await host.result()
+    expect(result.value).toBe('ok')
+    const start = host.ofType(WorkerToHostType.ChildStart)[0]!
+    expect(start.request.provider).toBe('openai')
+    expect(start.request.model).toBeUndefined()
     host.close()
   })
 
@@ -330,7 +341,7 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
       ["return await agent('p', { label: 3 })", '"label" must be a string'],
       ["return await agent('p', { get label() { throw new Error('read failed') } })", 'options must be plain JSON data'],
       ["return await agent('p', { bogus: true })", '"bogus" is not recognized'],
-      ["return await agent('p', { effort: 'high' })", '"effort" is deferred'],
+      ["return await agent('p', { effort: 'high' })", '"effort" is deferred and not supported by this engine (supported: label, phase, schema, provider, model)'],
       ["return await agent('p', { schema: { type: 'object', oneOf: [] } })", 'outside the supported subset'],
       ['return await parallel([() => 1, () => 2, () => 3])', 'over the per-call cap (2)'],
       ['return await pipeline([1, 2, 3], (x) => x)', 'maxItemsPerCall'],
@@ -381,6 +392,7 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     const result = await host.result()
     expect(result.stopReason).toBe('error')
     expect(result.error).toContain('total agent cap (2)')
+    expect(result.error).toContain('applicable maxTotalAgents limit')
     expect(result.agentsStarted).toBe(2)
     host.close()
   })
@@ -437,10 +449,7 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     void runWorkerSession(host.port, init("return await agent('p')"))
     await vi.waitFor(() => { expect(host.ofType(WorkerToHostType.ChildStart).length).toBe(1) })
     const callId = host.ofType(WorkerToHostType.ChildStart)[0]!.callId
-    // Cancel FIRST, then the (stale) started reply: the worker processes them
-    // in order, so the agent() continuation resumes already-cancelled — the
-    // window the real host cannot produce (it refuses starts once cancelled)
-    // but a teardown race can.
+    // Simulate a teardown race by delivering cancellation before a stale start reply.
     host.send({ type: HostToWorkerType.Cancel, reason: 'raced the start' })
     host.send({ type: HostToWorkerType.ChildStarted, callId, childId: 'child-0' })
     const result = await host.result()
@@ -448,7 +457,7 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     await vi.waitFor(() => {
       expect(host.ofType(WorkerToHostType.ChildDispose).map(m => m.callId)).toContain(callId)
     })
-    // The child never became an agent-start: it was wound down pre-lifecycle.
+    // The unpublished child is disposed without a lifecycle announcement.
     expect(host.ofType(WorkerToHostType.AgentStart)).toEqual([])
     host.close()
   })

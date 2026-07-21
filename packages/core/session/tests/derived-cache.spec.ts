@@ -1,10 +1,7 @@
 /**
- * Derived-message cache tests: the session projects each surface node exactly
- * once (O(new nodes) per call), rebuilds on a surface rewrite (replace /
- * invalidate — the replaceGeneration signal), returns a fresh array snapshot
- * per call over shared frozen messages, and stays deep-equal to a from-scratch
- * replay derivation at every step — the incremental==scratch property the
- * reconstructability RFC's invariant enforces in dev at request time.
+ * Derived-message cache contract against a scratch oracle: project new nodes
+ * once, rebuild on surface replacements, return fresh arrays over shared
+ * frozen messages, and remain value-equal to replay at every step.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -26,10 +23,9 @@ describe('derived-message cache', () => {
     userText(session, 'one')
     expect(session.deriveMessages()).toEqual(scratch(session))
     userText(session, 'two')
-    session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'reply' }] }, { surfaceOp: 'append' })
+    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'reply' }] }, { surfaceOp: 'append' })
     expect(session.deriveMessages()).toEqual(scratch(session))
-    // An empty-content assistant/message (usage host) projects to nothing.
-    session.append('assistant/message', { turn: 1, step: 2, content: [], usage: { inputTokens: 1, outputTokens: 0 } }, { surfaceOp: 'append' })
+    session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 2, content: [], usage: { inputTokens: 1, outputTokens: 0 } }, { surfaceOp: 'append' })
     expect(session.deriveMessages()).toEqual(scratch(session))
   })
 
@@ -44,11 +40,10 @@ describe('derived-message cache', () => {
     const nodes = session.surface.nodes
     session.append('context/message', {
       content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
-    }, { surfaceOp: { op: 'replace', start: nodes[0]!.seq, end: nodes[1]!.seq }, sourceEventSeqs: [nodes[0]!.seq, nodes[1]!.seq] })
+    }, { surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! }, sourceEventSeqs: [nodes[0]!, nodes[1]!] })
 
     expect(session.deriveMessages()).toHaveLength(1)
     expect(session.deriveMessages()).toEqual(scratch(session))
-    // The array a caller took before the replace is untouched.
     expect(beforeReplace).toHaveLength(2)
   })
 
@@ -61,22 +56,11 @@ describe('derived-message cache', () => {
     const second = session.deriveMessages()
     expect(first).toHaveLength(1)
     expect(second).toHaveLength(2)
-    // Shared projection objects: the same frozen message instance, once ever.
+    // Array snapshots share their frozen message projections.
     expect(second[0]).toBe(first[0])
     expect(Object.isFrozen(first[0])).toBe(true)
   })
 
-  it('rebuilds after surface.invalidate() (the generation covers wholesale rebuilds too)', () => {
-    const session = new Session(SessionId('cache-invalidate'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    userText(session, 'one')
-    const before = session.deriveMessages()
-    session.surface.invalidate()
-    const after = session.deriveMessages()
-    expect(after).toEqual(before)
-    // A rebuild re-projects: fresh objects, same values.
-    expect(after[0]).not.toBe(before[0])
-  })
 })
 
 describe('Session.deriveEventMessage — the per-event projection', () => {
@@ -84,8 +68,7 @@ describe('Session.deriveEventMessage — the per-event projection', () => {
     const session = new Session(SessionId('per-event'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     const event = session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    // The fold path (deriveMessages) and the per-event path share the
-    // projection, so an external reconstructor cannot disagree with the cache.
+    // Full and per-event derivation share one projection.
     expect(session.deriveEventMessage(event)).toEqual(session.deriveMessages().at(-1))
   })
 
@@ -106,7 +89,7 @@ describe('Session.deriveEventMessage — the per-event projection', () => {
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     const boundary = session.append('step/start', { turn: 1, step: 1 })
     expect(session.deriveEventMessage(boundary)).toBeNull()
-    const empty = session.append('assistant/message', { turn: 1, step: 1, content: [] }, { surfaceOp: 'append' })
+    const empty = session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [] }, { surfaceOp: 'append' })
     expect(session.deriveEventMessage(empty)).toBeNull()
   })
 })

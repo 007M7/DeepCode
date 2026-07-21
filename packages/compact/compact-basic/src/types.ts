@@ -1,101 +1,76 @@
 /**
- * Configuration vocabulary for the basic compaction backend.
- *
- * Every tunable lives here, in the implementation — the abstract contract
- * (`@deepseek-ai/dsh-compact`) carries no config, because thresholds and
- * retention policy are HOW decisions a different backend would make
- * differently.
+ * Configuration vocabulary for the replay-aware basic compaction backend.
  *
  * @module @deepseek-ai/dsh-compact-basic/types
  */
 
-/**
- * Backend configuration. Every knob is REQUIRED except `auto` and
- * `charsPerToken`: there is no concrete data yet to justify default
- * thresholds/budgets, so a consumer must state each value explicitly rather
- * than inherit a guessed default. `auto` alone defaults to `true`
- * (auto-compaction is the intended posture), and `charsPerToken` defaults to
- * the English-text heuristic its estimator was calibrated on.
- */
-export interface BasicCompactConfig {
-  /** Context window size in tokens. */
-  contextWindow: number
-  /** Compact when estimated token usage exceeds this fraction of context window. */
-  thresholdRatio: number
-  /** Number of tokens of recent context to retain during compaction. */
-  retainTokens: number
-  /** Model to use for summarization (`''` — uses the agent's model). */
-  summarizationModel: string
-  /** Provider generation cap for the summarization call. */
-  maxTokens: number
-  /** Extra compaction attempts when the first compacted surface is still over threshold. */
-  compactionRetries: number
-  /** Enable automatic compaction on the `agent/pre-step` seam (default true). */
+import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
+
+/** Policy fields shared by the default policy and exact model overrides. */
+export interface CompactPolicyConfig {
+  /** Compact at this fraction of the model's context window. Defaults to `0.8`. */
+  thresholdRatio?: number
+  /** Recent context retained as a fraction of the model's window. Defaults to `0.16`. */
+  retainRatio?: number
+  /** Absolute recent-context budget; mutually exclusive with `retainRatio`. */
+  retainTokens?: number
+  /** Summary provider; set together with `summarizationModel`, or inherit the conversation target. */
+  summarizationProvider?: string
+  /** Summary model; set together with `summarizationProvider`, or inherit the conversation target. */
+  summarizationModel?: string
+  /** Provider generation cap for summarization. Defaults to `8192`. */
+  maxTokens?: number
+  /** Extra attempts after the first compaction when pressure remains above threshold. Defaults to `1`. */
+  compactionRetries?: number
+  /** Maximum retries after canonical context overflow; `0` disables recovery. Defaults to `1`. */
+  maxOverflowRetries?: number
+}
+
+/** Exact provider/model override merged over the default compaction policy. */
+export interface ModelCompactPolicyConfig extends CompactPolicyConfig {
+  /** Registered provider route to match. */
+  provider: string
+  /** Exact routed model id to match within `provider`. */
+  model: string
+}
+
+/** Basic compaction configuration with an optional exact-target policy table. */
+export interface BasicCompactConfig extends CompactPolicyConfig {
+  /** Exact provider/model overrides; duplicate targets fail plugin load. */
+  modelPolicies?: ModelCompactPolicyConfig[]
+  /** Enable automatic post-step pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
-  /**
-   * Text density for the token estimator: estimated tokens = chars /
-   * `charsPerToken`. Defaults to 4 (typical English text). A CJK-heavy
-   * deployment should set ~1-2 — CJK runs at roughly 1-2 chars per token, so
-   * the default UNDERestimates several-fold and compaction fires far too late.
-   * May be fractional.
-   */
-  charsPerToken?: number
 }
 
-/** Resolved config with `auto` and `charsPerToken` defaulted. */
-export type ResolvedConfig = Required<BasicCompactConfig>
+/** Exactly one validated retention form. */
+export type ResolvedRetention =
+  | { readonly retainRatio: number; readonly retainTokens?: never }
+  | { readonly retainRatio?: never; readonly retainTokens: number }
 
-/**
- * Default `auto`/`charsPerToken` when unset and reject nonsensical numeric knobs.
- *
- * Convergence is not a static config invariant: provider generation caps can be
- * spent on hidden or surfaced reasoning tokens, and the model may emit a summary
- * of unpredictable size. The backend instead enforces convergence dynamically:
- * each committed summary must be smaller than the content it shadows, and
- * `compactIfNeeded` may re-compact up to `compactionRetries` extra times before
- * throwing if the surface still exceeds the threshold.
- *
- * @param config - the raw, unresolved backend config.
- * @returns the validated config with `auto` and `charsPerToken` defaulted.
- */
-export function resolveConfig(config: BasicCompactConfig): ResolvedConfig {
-  const resolved: ResolvedConfig = { auto: true, charsPerToken: 4, ...config }
-
-  assertPositiveInteger('contextWindow', resolved.contextWindow)
-  assertRatio('thresholdRatio', resolved.thresholdRatio)
-  assertNonNegativeInteger('retainTokens', resolved.retainTokens)
-  assertPositiveInteger('maxTokens', resolved.maxTokens)
-  assertNonNegativeInteger('compactionRetries', resolved.compactionRetries)
-  assertPositiveFinite('charsPerToken', resolved.charsPerToken)
-  if (typeof resolved.summarizationModel !== 'string') {
-    throw new Error('BasicCompactConfig: summarizationModel must be a string.')
-  }
-  if (typeof resolved.auto !== 'boolean') {
-    throw new Error('BasicCompactConfig: auto must be a boolean.')
-  }
-  return resolved
+/** Validated policy fields shared before and after exact-target matching. */
+interface ResolvedPolicyFields {
+  readonly thresholdRatio: number
+  readonly summarizationProvider: string
+  readonly summarizationModel: string
+  readonly maxTokens: number
+  readonly compactionRetries: number
+  readonly maxOverflowRetries: number
 }
 
-function assertPositiveInteger(name: string, value: number): void {
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`BasicCompactConfig: ${name} (${value}) must be a positive integer.`)
-  }
+/** Validated immutable config whose target-specific defaults remain unresolved. */
+export type ResolvedConfig = ResolvedPolicyFields & ResolvedRetention & {
+  readonly modelPolicies: readonly Readonly<ModelCompactPolicyConfig>[]
+  readonly auto: boolean
 }
 
-function assertNonNegativeInteger(name: string, value: number): void {
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`BasicCompactConfig: ${name} (${value}) must be a non-negative integer.`)
-  }
+/** Fully merged policy for one routed conversation target, before capacity scaling. */
+export type ResolvedTargetPolicy = ResolvedPolicyFields & ResolvedRetention & {
+  readonly target: Pick<LlmCallConfig, 'provider' | 'model'>
 }
 
-function assertPositiveFinite(name: string, value: number): void {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
-    throw new Error(`BasicCompactConfig: ${name} (${value}) must be a positive finite number.`)
-  }
-}
-
-function assertRatio(name: string, value: number): void {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > 1) {
-    throw new Error(`BasicCompactConfig: ${name} (${value}) must be a number in (0, 1].`)
-  }
+/** One routed model's concrete pressure and retention budget. */
+export type ResolvedCompactSpec = Omit<ResolvedTargetPolicy, 'retainRatio' | 'retainTokens'> & {
+  readonly contextWindow: number
+  readonly thresholdTokens: number
+  readonly retainTokens: number
 }

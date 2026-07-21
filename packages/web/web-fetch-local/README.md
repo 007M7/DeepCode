@@ -8,7 +8,9 @@ This is an **implementation** package: it registers a provider into `ctx.web`, i
 
 The provider owns **safe resource retrieval**: URL validation, HTTP transport, redirect policy, a resource-backstop timeout, abort propagation, byte caps, charset decoding, content-type classification, and binary rejection. `@deepseek-ai/dsh-tool-web` owns **presentation** (HTML→markdown, truncation formatting). A non-2xx HTTP response is a *result* (status code + decoded body), not an error; `WebError` is reserved for failures to safely retrieve or represent the resource.
 
-The provider's `timeoutMs`/`maxTimeoutMs` is a **resource backstop** for direct `ctx.web.fetch()` callers and misconfigured deployments — it is NOT the model-facing tool-call budget. The tool-call budget for `web_fetch` is deployment policy owned by [`@deepseek-ai/dsh-timeout-policy`](../../timeout/timeout-policy/README.md), which arms a per-call deadline on `exec.signal`. A shipped web-tool deployment sets the provider backstop **above** the `tool-timeout` budget, so the tool-call policy normally wins for model calls (returning `TOOL_TIMEOUT`); when the outer deadline signal reaches this provider first, it classifies as `WEB_ABORTED` and the outer wrapper replaces the result with `TOOL_TIMEOUT`. The provider's own `WEB_FETCH_TIMEOUT` only fires for a direct seam caller whose own budget elapsed.
+The provider's `timeoutMs` is a resource backstop for direct `ctx.web.fetch()` callers and misconfigured deployments, not the model-facing tool-call budget. [`dsh-timeout-policy`](../../timeout/timeout-policy/README.md) owns the `web_fetch` tool-call budget by arming `exec.signal`.
+
+A shipping web-tool deployment sets the provider backstop above the tool budget, so model calls normally return `TOOL_TIMEOUT`. If the outer deadline reaches the provider first, the provider reports `WEB_ABORTED` and the outer policy replaces it with `TOOL_TIMEOUT`. `WEB_FETCH_TIMEOUT` therefore identifies a direct seam caller whose provider budget elapsed.
 
 ## Transport hygiene
 
@@ -26,13 +28,22 @@ The provider's `timeoutMs`/`maxTimeoutMs` is a **resource backstop** for direct 
 | `maxUrlLength` | `2048` | Maximum accepted request URL length. |
 | `maxResponseBytes` | `5_000_000` | Maximum response body size in bytes. |
 | `maxBodyChars` | `100_000` | Maximum decoded body length in characters. |
-| `timeoutMs` | `30_000` | Default fetch timeout — a resource backstop for direct `ctx.web.fetch()` callers, not the model-facing tool-call budget (that is `dsh-timeout-policy`). |
-| `maxTimeoutMs` | `120_000` | Upper bound for a per-request timeout override (direct callers). |
+| `timeoutMs` | `30_000` | Fetch timeout within Node's timer range — a resource backstop for direct `ctx.web.fetch()` callers, not the model-facing tool-call budget (that is `dsh-timeout-policy`). |
 | `maxRedirects` | `5` | Maximum same-origin redirect hops (`0` follows none). |
 | `userAgent` | `deepseek-harness/…` | `User-Agent` header. |
 
 The numeric limits are validated at plugin construction: every cap except `maxRedirects` must be a positive finite number, and `maxRedirects` must be a non-negative integer. An invalid value throws rather than silently constructing a provider with nonsensical limits.
 
-## Security note
+## Model Experience
 
-SSRF / private-network protection (blocking private, loopback, link-local, multicast, and otherwise non-public destinations, with DNS-resolve-then-validate and per-hop re-validation) is **deferred** — see the [web capability seam RFC](../../../docs/rfc/implemented/architecture/2026-06-24-web-capability-seam.md). Until it lands, this provider is an SSRF primitive and **must not be enabled** in a deployment that can reach sensitive internal network targets.
+Indirectly, through [`dsh-tool-web`](../tool-web/README.md), which places this provider's `maxBodyChars`-bounded decoded text or markdown-shaped HTML under its fetch-result wrapper and retains provider failures while redirects, headers, and transport mechanics remain hidden.
+
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
+## Known Limitations and Deferred Work
+
+- **SSRF / private-network protection is deferred** — no blocking of private, loopback, link-local, multicast, or otherwise non-public destinations, no DNS-resolve-then-validate, no per-hop re-validation (see [the web capability seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md)). Until it lands, this provider is an SSRF primitive and **must not be enabled** in a deployment that can reach sensitive internal network targets.
+- **Only textual content decodes** — html/xhtml and `text/*`-plus-JSON/XML families; a missing `Content-Type` or any binary type throws `WEB_UNSUPPORTED_CONTENT_TYPE`, and text-extractable PDF decoding is named deferred work.
+- **Charset comes only from the `Content-Type` header** (UTF-8 default) — an HTML `<meta charset>` declaration is ignored, and a declared-but-unrecognized charset label throws rather than falling back.

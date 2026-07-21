@@ -1,18 +1,11 @@
 /**
- * Code Mode: the `run_code` tool and its dispatch bridge. The model writes a
- * TypeScript program; the bridge hands it to `ctx.codeRuntime` with one async
- * binding per end capability visible to the calling agent, then serializes
- * every binding call through a per-run queue onto `ToolRegistry.execute()`.
- * Sub-calls therefore traverse the complete pre/guard/around/post/final-result
- * pipeline exactly like native calls and carry the outer execution's opaque
- * token for correlation. The bridge logs each sub-dispatch as a
- * `tool/code-dispatch` session event and returns only the program's curated
- * output. The registry itself decides WHEN this tool exists (its `mode`
- * config); this module owns only the tool and the bridge.
- *
+ * Code Mode `run_code` transport. Programs call the registry's agent-visible
+ * tools through nested, sequential executions; each sub-dispatch is logged for
+ * reconstruction, while only the outer curated result enters model history.
  * @module @deepseek-ai/dsh-tools/src/code-mode
  */
 
+import { parse } from 'node:path'
 import { inspect } from 'node:util'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -29,7 +22,10 @@ declare module '@deepseek-ai/dsh-session' {
      * (`<parent>:code:<n>`), the tool `name` with its JSON-normalized
      * `arguments` — the exact value dispatched, normalized BEFORE dispatch,
      * so this append can never fail on payload shape — whether the sub-call
-     * errored, and a bounded `resultSummary` of its model-facing text.
+     * errored, and a bounded `resultSummary` of its model-facing text. Before
+     * bounding, occurrences of a non-root session workspace path are
+     * normalized to `.` so host-specific absolute path lengths cannot change
+     * the summary.
      * Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter
      * model context; persistence and UIs get every call. Appended inside the
      * parent `run_code`'s execution (the bridge drains its queue before
@@ -83,22 +79,20 @@ function textOf(content: ContentBlock[]): string {
     .join('\n')
 }
 
-/** Bound a sub-call's model-facing text for the log event's `resultSummary`. */
-function summarize(text: string): string {
-  return text.length > SUMMARY_MAX_CHARS ? `${text.slice(0, SUMMARY_MAX_CHARS)}…` : text
+/** Normalize workspace paths, then bound a sub-call's model-facing text for its durable log summary. */
+function summarize(text: string, cwd: string | undefined): string {
+  const stableText = cwd === undefined || cwd === parse(cwd).root
+    ? text
+    : text.replaceAll(cwd, '.')
+  return stableText.length > SUMMARY_MAX_CHARS ? `${stableText.slice(0, SUMMARY_MAX_CHARS)}…` : stableText
 }
 
 /**
- * JSON-normalize one binding call's argument into TWO independent parses of
- * the same canonical text: `dispatched` goes to the tool, `logged` to the
- * `tool/code-dispatch` event — identical by construction (the runtime's
- * structured-clone boundary is wider than JSON; the session log accepts only
- * JSON), and separate objects, so a tool mutating its args can neither
- * desync the log from what was dispatched nor re-poison the append. A value
- * that does not survive the round-trip (`undefined` — the log rejects it as
- * event data — `BigInt`, a circular structure, a bare function) rejects that
- * one call BEFORE dispatch with a model-correctable error: nothing ever
- * executes unlogged.
+ * JSON-normalize one binding call's argument into TWO independent parses of the same canonical
+ * text: `dispatched` goes to the tool, `logged` to the `tool/code-dispatch` event — identical
+ * by construction (the runtime's structured-clone boundary is wider than JSON; the session log
+ * accepts only JSON), and separate objects, so a tool mutating its args can neither desync the
+ * log from what was dispatched nor re-poison the append.
  */
 function jsonNormalizeArgs(value: unknown): { dispatched: unknown; logged: unknown } {
   if (value === undefined) {
@@ -126,20 +120,19 @@ function renderValue(value: unknown): string {
 /** The run_code result's `meta` payload (JSON-serializable; `presentResult` narrows it back). */
 interface RunCodeMeta {
   logs: CodeRunResult['logs']
-  dispatches: number
 }
 
 /** Soft-narrow a result `meta` back to {@link RunCodeMeta} (replay may carry older shapes; presentation must not throw). */
 function asRunCodeMeta(meta: unknown): RunCodeMeta | undefined {
   if (typeof meta !== 'object' || meta === null) return undefined
   const m = meta as Record<string, unknown>
-  if (!Array.isArray(m.logs) || typeof m.dispatches !== 'number') return undefined
+  if (!Array.isArray(m.logs) || !m.logs.every(log => typeof log === 'string')) return undefined
   return m as unknown as RunCodeMeta
 }
 
 /**
  * Build the `run_code` {@link ToolDefinition}: one required `code` parameter,
- * executed through the dispatch bridge described in the module doc. The
+ * executed through the dispatch bridge described above. The
  * registry reserves it as presentation infrastructure under non-native modes,
  * outside the filterable global/scoped capability layers.
  * @param registry - the owning registry (sub-calls go through its `execute`,
@@ -167,16 +160,13 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       // (its executor kills on this signal) instead of orphaned, and
       // queued-unstarted dispatches are abandoned.
       const runController = new AbortController()
-      const onOuterAbort = (): void => { runController.abort(exec.signal?.reason) }
-      if (exec.signal?.aborted) onOuterAbort()
-      exec.signal?.addEventListener('abort', onOuterAbort, { once: true })
+      const onOuterAbort = (): void => { runController.abort(exec.signal.reason) }
+      exec.signal.addEventListener('abort', onOuterAbort, { once: true })
 
       let dispatches = 0
-      // The per-run serialization queue: every binding call chains onto the
-      // tail, so even `Promise.all` executes the underlying tool calls one at
-      // a time in submission order (the tool contract carries no
-      // concurrency-safety metadata yet). The fold keeps the tail non-rejecting
-      // so one failed dispatch never poisons the chain.
+      // The per-run serialization queue: every binding call chains onto the tail, so even
+      // `Promise.all` executes the underlying tool calls one at a time in submission order (the
+      // tool contract carries no concurrency-safety metadata yet).
       let queue: Promise<void> = Promise.resolve()
       const enqueue = <T>(task: () => Promise<T>): Promise<T> => {
         const turn = queue.then(() => {
@@ -210,12 +200,10 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             parent: exec.token,
             signal: runController.signal,
           })
+          for (const context of result.additionalContexts ?? []) {
+            exec.deferContext(context)
+          }
           const text = textOf(result.content)
-          // Sub-call `additionalContext` is deliberately DROPPED here: the
-          // loop's buffering (append after the step's tool/results) has no
-          // safe analogue from inside a running run_code — injecting now
-          // would break tool-call/result adjacency. Deferred until a real
-          // hook needs it through Code Mode.
           exec.agent?.session.append('tool/code-dispatch', {
             parentCallId: exec.callId,
             subCallId,
@@ -225,7 +213,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             // this record from what it actually received.
             arguments: normalized.logged,
             isError: result.isError,
-            resultSummary: summarize(text),
+            resultSummary: summarize(text, exec.agent.session.header.cwd),
           })
           return { text, isError: result.isError }
         })
@@ -266,44 +254,28 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             signal: runController.signal,
           })
         } finally {
-          // Quiescence before returning, whether the runtime fulfilled or
-          // REJECTED (a backend that starts a binding call and then throws
-          // must not leak a live sub-dispatch past this settlement): fire
-          // the run-scoped abort (cancelling an in-flight sub-dispatch,
-          // abandoning queued ones), then await the queue's drain — an
-          // aborted sub-call still settles and logs its event INSIDE the
-          // open turn; nothing can append after we return. `queue` is the
-          // FOLDED tail (every link swallows its rejection into undefined),
-          // so this await cannot itself reject — an abandoned queued call
-          // can never mask the runtime's own failure, returned or thrown;
-          // rejections surface only on the per-call promises the program
-          // holds.
+          // Abort sub-dispatches and drain the folded queue before closing the turn.
+          // Binding failures remain observable through their individual promises.
           runController.abort('run_code settled')
           await queue
         }
 
         if (result.error) {
-          const logsText = result.logs.length > 0 ? `\nCaptured output:\n${result.logs.map(entry => entry.text).join('\n')}` : ''
+          const logsText = result.logs.length > 0 ? `\nCaptured output:\n${result.logs.join('\n')}` : ''
           throw new CodeRunFailedError(`code run failed (${result.error.kind}): ${result.error.message}${logsText}`)
         }
         const rendered = renderValue(result.value)
-        const parts = [result.logs.map(entry => entry.text).join('\n'), rendered].filter(part => part.length > 0)
-        const meta: RunCodeMeta = { logs: result.logs, dispatches }
+        const parts = [result.logs.join('\n'), rendered].filter(part => part.length > 0)
+        const meta: RunCodeMeta = { logs: result.logs }
         return {
           content: [{ type: 'text', text: parts.length > 0 ? parts.join('\n') : '(run_code completed with no output)' }],
           meta,
         }
       } finally {
-        exec.signal?.removeEventListener('abort', onOuterAbort)
+        exec.signal.removeEventListener('abort', onOuterAbort)
       }
     },
-    // The program IS the title, the way command tools title their cards with
-    // the command: an execute-card's title is the one slot an ACP client
-    // always shows (Zed's execute cards render no body content and no raw
-    // input without a real terminal attached), so anywhere else the code
-    // would be invisible. Multi-line titles are the execute-card idiom —
-    // capable clients render them whole; others truncate to the first line
-    // and still hold the full program in rawInput.
+    // ACP execute cards use the program as their visible title.
     presentCall: args => ({
       card: 'generic',
       title: args.code,
@@ -316,7 +288,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
     presentResult: (_args, result) => {
       const meta = asRunCodeMeta(result.meta)
       if (!meta) return undefined
-      const output = meta.logs.map(entry => entry.text).join('\n')
+      const output = meta.logs.join('\n')
       return {
         card: 'generic',
         ...output.length > 0 ? { content: [{ type: 'text' as const, text: output }] } : {},

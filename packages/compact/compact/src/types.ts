@@ -1,17 +1,9 @@
 /**
  * Compaction vocabulary: the result type and the `compact/*` session events.
- *
- * Extends {@link SessionEventMap} with `compact/*` event types via declaration
- * merging. {@link SurfaceEventType} is deliberately NOT extended — `compact/*`
- * events are log-only markers (lock + provenance); only the five
- * surface-eligible types can carry `surfaceOp`. The actual surface mutation is
- * performed by a separate `user/message` event carrying the summary (see the
- * [compaction capability-seam RFC](../../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md)).
- *
- * Configuration lives in the backend, not here: the contract states WHAT
- * compaction produces, while every tunable (context window, thresholds,
- * retention budget) is a HOW decision owned by the implementation.
- *
+ * Those declaration-merged events are log-only lock/provenance markers, not
+ * surface events; a separate replacement `user/message` carries the summary.
+ * Backend packages own configuration and retention policy; see
+ * `.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md`.
  * @module @deepseek-ai/dsh-compact/types
  */
 
@@ -32,11 +24,13 @@ declare module '@deepseek-ai/dsh-session' {
       shadowedRange: { start: number; end: number }
       shadowedSeqs: number[]
       shadowedTokenCount: number
+      /** The provider route that wrote the summary. */
+      provider: string
       /**
        * The model that wrote the summary — the summarize call's envelope,
        * reported by the backend that made the call, logged so the one-shot
        * request is reconstructable from log + code and "which model wrote
-       * this summary" has a durable answer (the reconstructability RFC).
+       * this summary" has a durable answer (the reconstructability Agent Note).
        */
       model: string
       /** The generation cap the summarize call sent, when one applied. */

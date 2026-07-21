@@ -1,6 +1,8 @@
 # @deepseek-ai/dsh-bash-local
 
-Local-subprocess implementation of the `@deepseek-ai/dsh-bash` executor seam: `LocalBashExecutor` spawns `bash -c <command>` per call in its own process group, collects bounded output with full-stream spill files, and escalates kills SIGTERM→SIGKILL across the whole group.
+Local-subprocess implementation of the `@deepseek-ai/dsh-bash` executor seam: `LocalBashExecutor` spawns `bash -c <command>` per call in its own process group, collects bounded output with size-limited full-stream spill files, and escalates kills SIGTERM→SIGKILL across the whole group.
+
+The package root exports the default and named `LocalBashExecutor` plugin plus its `Config`; subprocess plumbing stays internal to the implementation package.
 
 ## Config
 
@@ -12,7 +14,8 @@ Local-subprocess implementation of the `@deepseek-ai/dsh-bash` executor seam: `L
     timeoutMs: 120000          # default foreground timeout
     maxTimeoutMs: 600000       # cap for per-call overrides
     maxOutputBytes: 64000      # per-stream in-memory cap; overflow spills to disk
-    graceMs: 3000              # SIGTERM→SIGKILL escalation grace on kills
+    maxSpillBytes: 67108864    # per-stream full-output spill cap
+    graceMs: 3000              # kill escalation and post-exit pipe-drain grace
 ```
 
 ## Behavior (and where it came from)
@@ -20,11 +23,25 @@ Local-subprocess implementation of the `@deepseek-ai/dsh-bash` executor seam: `L
 Design surveyed against the bash tools of Claude Code, OpenCode, Codex, and pi; the notable choices:
 
 - **Spawn per call, no shell state** — every call is a fresh non-login `bash -c` (deterministic; no rc files). All four surveyed tools spawn per call. `XXX(stateful-shell)` in `src/run.ts` records the two proven stateful designs (Claude Code's cwd-only persistence; Codex's PTY exec sessions) for when real workflows demand them.
-- **Process-group kills with escalation** — children are spawned `detached` (own process group); kills send SIGTERM to the group, then SIGKILL after the `graceMs` grace (default 3s — OpenCode's escalation; pipelines and subshells die with the parent). ESRCH is tolerated; daemons that re-parent away from the group can still survive — same caveat as the surveyed tools.
-- **Tail-keep truncation + spill files** — output beyond `maxOutputBytes` keeps the in-memory TAIL (errors/results cluster at the end — pi/OpenCode rationale) while the FULL stream is appended to a temp file whose path is reported when available. If the final spill close reports a delayed writeback failure, the executor still returns the tail but withholds the path rather than advertising a possibly incomplete file.
-- **Model-friendly env + credential scrub** — `process.env` minus credential-shaped vars (`*KEY*`/`*SECRET*`/`*TOKEN*`), then `NO_COLOR=1 TERM=dumb PAGER=cat GIT_PAGER=cat` (Codex's hardcoded set) so pagers and ANSI color don't garble results. This scrub is the security control that keeps the harness's *ambient* credentials out of a spawned command. A spec's `env` is merged LAST (after the scrub), so a caller's explicit entry — a value it already holds — wins even on a credential-shaped name. The spec's `stdin`, when supplied, is written to the child and closed; with none supplied, fd 0 is `/dev/null` — the exact pre-seam default, so a command that probes stdin's file type is unaffected. Both `env`/`stdin` are set by in-process plugins (the hooks bridges); the model-facing tool doesn't expose them. See [the bash-stdin-env RFC](../../../docs/rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
-- **Background tasks** — `start()` returns immediately, no timeout applies (Claude Code detaches timeouts when backgrounding), `readOutput()` is incremental with whole-stream byte offsets, and disposal kills everything. The spec's opaque `owner` token is stored on the tracked task and returned by `ownerOf(id)` — the executor never interprets it (the consumer's access policy does), and because it lives with the task here it survives a `tool-bash` HMR reload.
+- **Process-group kills with escalation** — children are spawned `detached` (own process group); kills send SIGTERM to the group, then SIGKILL after the `graceMs` grace (default 3s — OpenCode's escalation; pipelines and subshells die with the parent). After the main shell exits, inherited stdout/stderr pipes receive the same bounded drain grace so a surviving descendant cannot hold the command open indefinitely. ESRCH is tolerated; daemons that re-parent away from the group can still survive — same caveat as the surveyed tools.
+- **Tail-keep truncation + bounded spill files** — output beyond `maxOutputBytes` keeps the in-memory TAIL (errors/results cluster at the end — pi/OpenCode rationale) while the FULL stream is appended to a temp file whose path is reported when available. A foreground `BashExecRequest.stdoutMaxBytes` can raise stdout's capture budget for one trusted caller; stderr and background tasks still use `maxOutputBytes`. A stream larger than `maxSpillBytes` discards its now-incomplete spill and returns only the marked truncated tail. If the final spill close reports a delayed writeback failure, the executor likewise withholds the path rather than advertising an incomplete file.
+- **Model-friendly env + credential scrub** — `process.env` minus credential-shaped vars (`*KEY*`/`*SECRET*`/`*TOKEN*`) and all ambient `DSH_*` names, then `NO_COLOR=1 TERM=dumb PAGER=cat GIT_PAGER=cat` (Codex's hardcoded set) so pagers and ANSI color don't garble results. A spec's ordinary `env` is merged after the scrub but rejects `DSH_*`; managed `dshEnv` rejects ordinary names and merges last, preventing stale nested-harness identity. Supplied stdin is written and closed; otherwise fd 0 is `/dev/null`. See the [stdin/env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) and [managed environment Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.md).
+- **Background processes** — `start()` returns a live `BashProcess` handle immediately, no timeout applies (Claude Code detaches timeouts when backgrounding), the handle's `readOutput()` is incremental with whole-stream byte offsets, and disposal kills every running process and awaits its exit. Everything task-shaped (ids, ownership, polling, notices) lives in the generic [`ctx.tasks` runtime](../../tasks/tasks/README.md), which the tool layer registers the handle with — this executor never sees a session or a registry.
 
-## Sandboxing
+## Model Experience
 
-Execution policy does NOT belong in this package: this executor always runs commands unconfined. Confinement is [`dsh-bash-sandbox`](../bash-sandbox/README.md), which extends this executor verbatim and confines commands under the `ctx.sandbox` seam's bwrap/Landlock/Seatbelt backends ([sandbox RFC](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md)); per-call allow/deny/ask policy belongs on the `tools/pre-execute` gate.
+Indirectly, through `dsh-tool-bash`, which renders this executor's bounded stdout/stderr tails, background-process deltas, spill-file paths, and infrastructure failures.
+
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
+## Known Limitations and Deferred Work
+
+- **Unconfined by itself** — this executor always runs commands with the harness process's authority; deployments needing confinement compose [`dsh-bash-sandbox`](../bash-sandbox/README.md), while per-call allow/deny/ask policy belongs on `tools/pre-execute`.
+- **No persistent shell or PTY** — every call starts a fresh non-login `bash -c`; cwd-only persistence and interactive terminal sessions remain deferred until a real workflow requires them.
+- **POSIX-only** — the `bash` binary, detached process groups, group kills, and SIGTERM→SIGKILL escalation are hardcoded; Windows is unsupported.
+- **The credential scrub is a name heuristic** — `*KEY*`/`*SECRET*`/`*TOKEN*` only; differently-named secrets (e.g. `*PASSWORD*`) pass through, and a whitelist for over-scrubbed vars is noted future work.
+- **Completed spill files are not deleted** — bounded full-output recovery files (and the private per-process spill dir) accumulate under the OS tmpdir until something external cleans them; oversize incomplete spills are discarded and deletion is attempted immediately, but a cleanup failure can leave a bounded file behind.
+
+The raw process handling lives in `src/run.ts`; `src/index.ts` is the service wiring.

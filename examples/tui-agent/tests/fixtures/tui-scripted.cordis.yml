@@ -1,0 +1,29 @@
+# Real Loader composition for the keyless conversational PTY test. The app
+# bundle supplies the production agent/TUI/user-question stack; only the model
+# is scripted so the terminal interaction is deterministic and network-free.
+- id: scripted-llm
+  name: './tui-scripted-llm.ts'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.cwd()
+
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: tui-agent
+  name: '@deepseek-ai/dsh-tui-demo'
+  config:
+    provider: tui-scripted
+    model: tui-scripted-model
+    persistenceRoot: './.sessions'
+    workspaceContext:
+      maxBytes: 65536
+    welcome: 'scripted TUI ready.'
+    persona: 'Scripted model {{model}}.'
+    ui:
+      showReasoning: true

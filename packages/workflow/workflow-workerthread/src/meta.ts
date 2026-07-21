@@ -1,13 +1,8 @@
 /**
- * Meta validation: check the caller-provided {@link WorkflowMeta} DATA against
- * the shape contract and reject everything else loud, every violation named.
- * Meta arrives as plain JSON through the seam (the model-facing tool carries
- * it as a schema-validated object parameter) — the engine never evaluates
- * script text to obtain it, so no script-controlled code can run on the host
- * here (an evaluated meta literal could smuggle getters that spin the host
- * outside any vm timeout, the exact escape the worker thread exists to
- * prevent).
- *
+ * Meta validation: check the caller-provided {@link WorkflowMeta} DATA against the shape
+ * contract and reject everything else loud, every violation named. Meta arrives as schema-checked
+ * JSON data, never evaluated script text; evaluating it on the host could run getters outside the
+ * worker timeout that exists to isolate model-written code.
  * @module @deepseek-ai/dsh-workflow-workerthread/meta
  */
 
@@ -40,15 +35,17 @@ function validateMetaShape(meta: unknown): { meta?: WorkflowMeta; violations: st
         }
         const entry = phase as Record<string, unknown>
         for (const key of Object.keys(entry)) {
-          if (!['title', 'detail', 'model'].includes(key)) violations.push(`meta.phases[${index}].${key} is not a recognized field`)
+          if (!['title', 'detail', 'provider', 'model'].includes(key)) violations.push(`meta.phases[${index}].${key} is not a recognized field`)
         }
         if (typeof entry.title !== 'string' || entry.title.length === 0) violations.push(`meta.phases[${index}].title must be a non-empty string`)
         if (entry.detail !== undefined && typeof entry.detail !== 'string') violations.push(`meta.phases[${index}].detail must be a string`)
+        if (entry.provider !== undefined && typeof entry.provider !== 'string') violations.push(`meta.phases[${index}].provider must be a string`)
         if (entry.model !== undefined && typeof entry.model !== 'string') violations.push(`meta.phases[${index}].model must be a string`)
         if (violations.length === 0) {
           phases.push({
             title: entry.title as string,
             ...entry.detail !== undefined ? { detail: entry.detail as string } : {},
+            ...entry.provider !== undefined ? { provider: entry.provider as string } : {},
             ...entry.model !== undefined ? { model: entry.model as string } : {},
           })
         }

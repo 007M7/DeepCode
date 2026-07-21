@@ -1,15 +1,8 @@
 /**
- * Run one configured command hook through the `ctx.bash` executor seam and parse
- * its outcome into a {@link HookOutput}. This is where the wire protocol's
- * EXECUTION half lives: feed the hook its JSON payload on stdin, hand it the
- * dialect's env vars, honor its timeout, capture stdout/stderr/exit, and decode.
- *
- * It runs hooks through `ctx.bash` (not a bespoke `spawn`) deliberately — the
- * bash seam already provides the scrubbed-but-overridable env, process-group
- * kills, and timeout the protocol needs, and `dsh-bash`'s `stdin`/`env` fields
- * are the trusted-plugin surface (added for exactly this) that a hook bridge —
- * an in-process plugin, not model output — is allowed to use.
- *
+ * Execute command hooks through `ctx.bash`, using its credential scrub,
+ * process-group cancellation, and timeout machinery. The bridge supplies the
+ * trusted stdin payload and dialect environment, then this module decodes the
+ * captured outcome.
  * @module @deepseek-ai/dsh-hook-protocol/runner
  */
 
@@ -34,8 +27,8 @@ export interface RunHookOptions {
   env?: Record<string, string>
   /** Working directory for the hook (defaults to the executor's own default when omitted). */
   cwd?: string
-  /** Abort signal — cancels the hook run when fired (the parent step aborts). */
-  signal?: AbortSignal
+  /** Explicit owning-operation signal; firing it cancels the hook run. */
+  readonly signal: AbortSignal
   /** Whether to append a trailing newline to the stdin payload (CC yes, Codex no). */
   trailingNewline: boolean
   /**
@@ -61,15 +54,10 @@ export interface RunHookResult {
 }
 
 /**
- * Run `hook` via `bash` with `options.payload` serialized to its stdin, then
- * decode the result into a {@link HookOutput}. The hook's configured
- * `timeoutSec` (wire unit: seconds) overrides `options.defaultTimeoutMs`.
- * The command runs with the dialect's `env` merged after the executor's
- * credential scrub (the trusted-plugin path). NEVER throws: an infrastructure
- * failure (the executor rejecting) is surfaced as a {@link HookOutput} with
- * `exitCode: undefined`, so the caller's merge logic treats it as a
- * non-blocking error rather than crashing the turn. `now` is injected for
- * testable durations.
+ * Run `hook` with serialized stdin and decode its outcome. A hook-specific
+ * timeout in seconds overrides the default; trusted environment entries merge
+ * after the executor scrub. Infrastructure rejection becomes an outcome with
+ * no exit code, so this function never throws or crashes the calling turn.
  * @param bash - the executor seam the command runs through.
  * @param hook - the configured command; its `timeoutSec` (wire unit: seconds) overrides the default timeout.
  * @param options - the invocation's payload, env, cwd, signal, stdin framing, and default timeout.
@@ -90,9 +78,9 @@ export async function runHook(
     command: hook.command,
     timeoutMs,
     stdin,
+    signal: options.signal,
     ...options.cwd !== undefined ? { workdir: options.cwd } : {},
     ...options.env !== undefined ? { env: options.env } : {},
-    ...options.signal ? { signal: options.signal } : {},
   }
 
   try {

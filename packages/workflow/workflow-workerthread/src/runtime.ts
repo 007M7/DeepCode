@@ -1,45 +1,20 @@
 /**
- * Per-run execution state for the engine's THREAD side: the script's vm
- * context and its injected hooks (`agent`/`parallel`/`pipeline`/`phase`/
- * `log`/`args`), the concurrency semaphore and caps, cancellation, and the
- * drive loop that turns a script settlement into a {@link WorkflowResult}.
- * Children are started by RPC to the host through a {@link ChildPort}, so
- * this module never touches a cordis context — it runs inside the worker
- * thread.
+ * Per-run worker-side vm hooks, child RPC, concurrency/caps, cancellation, and result shaping; it
+ * never touches Cordis. Script values leaving the realm are materialized as plain JSON before
+ * messaging. Values entering the trusted model-written realm are passed directly; `args` alone is
+ * cloned so script mutation cannot alter initialization data. See `./realm.ts` for the trust model.
  *
- * Value boundary (the trust premise lives in ./realm.ts): values ENTERING the
- * worker-side host code from the script (hook options, schemas, the return
- * value) are materialized by `materializeFromRealm` — a plain walk that
- * rejects loud everything JSON cannot carry, which also makes every value
- * safe for the later postMessage hop. Values ENTERING the realm (`args`,
- * `agent()` results, hook promises and their failures, combinator arrays) are
- * handed over DIRECTLY as worker-realm values: the script is model-written
- * and trusted, so outer prototypes are not a leak. `args` is cloned once at
- * start so a script scribbling on it cannot mutate the session's init object
- * (a benign-bug guard; the postMessage clone already isolated the caller).
- *
- * Failure discipline: fatal {@link WorkflowError}s (bad hook arguments,
- * unsupported options/schemas, tripped caps, synchronous start refusal,
- * provider-start failure, ready-child result rejection, and
- * cancellation) ALWAYS propagate through
- * `parallel`/`pipeline` — recognized by `instanceof` against this realm's
- * class, which a script inside the vm context cannot forge — and the per-item
- * `null` is reserved for child-run failures and ordinary in-stage script
- * errors. Every hook-returned promise gets a no-op rejection consumer, so a
- * dropped promise cannot surface an unhandled rejection (which would kill the
- * worker and read as an engine fault).
- *
- * There is deliberately NO worker-side abandon channel: a script that never
- * settles after a cancel simply never posts a result, and the HOST enforces
- * the settles-within-grace guarantee by force-settling `cancelled` and
- * terminating the worker — the real kill an in-process engine could not have.
- *
+ * Fatal workflow errors—bad hook arguments, unsupported schemas/options, caps, start failures, and
+ * cancellation—propagate through combinators. Only child failures and ordinary stage errors become
+ * per-item nulls. Every returned promise has a rejection consumer so dropped script promises cannot
+ * kill the worker. A cancelled script that never settles emits nothing; the host force-settles the
+ * run within grace and terminates the thread.
  * @module @deepseek-ai/dsh-workflow-workerthread/runtime
  */
 
 import * as vm from 'node:vm'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { assertSupportedOutputSchema, OutputSchemaError } from '@deepseek-ai/dsh-tools'
 import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
 import { isFatalWorkflowError, WorkflowError } from '@deepseek-ai/dsh-workflow'
@@ -61,7 +36,7 @@ export interface ExecutionObserver {
 }
 
 /** The `agent()` options the script may pass; everything else rejects loud. */
-const SUPPORTED_AGENT_OPTIONS = new Set(['label', 'phase', 'schema', 'model'])
+const SUPPORTED_AGENT_OPTIONS = new Set(['label', 'phase', 'schema', 'provider', 'model'])
 /** Deferred Claude Code options we name explicitly in the rejection message. */
 const DEFERRED_AGENT_OPTIONS = new Set(['effort', 'isolation', 'agentType'])
 
@@ -280,7 +255,7 @@ export class WorkflowExecution {
     const opts = this.readAgentOptions(rawOpts)
     if (this.started >= this.limits.maxTotalAgents) {
       throw new WorkflowError(
-        `this run reached its total agent cap (${this.limits.maxTotalAgents}) — a runaway-loop backstop; raise maxTotalAgents in the engine config if the scale is intentional`,
+        `this run reached its total agent cap (${this.limits.maxTotalAgents}) — a runaway-loop backstop; raise the applicable maxTotalAgents limit if the scale is intentional`,
         'AGENT_CAP',
       )
     }
@@ -302,6 +277,7 @@ export class WorkflowExecution {
         run = await this.children.startAgent({
           prompt: rawPrompt,
           ...opts.schema !== undefined ? { schema: opts.schema } : {},
+          ...opts.provider !== undefined ? { provider: opts.provider } : {},
           ...opts.model !== undefined ? { model: opts.model } : {},
         })
       } catch (error: unknown) {
@@ -319,7 +295,7 @@ export class WorkflowExecution {
         await run.dispose()
         throw this.cancelledError()
       }
-      const info: WorkflowAgentInfo = { seq, label, ...phase !== undefined ? { phase } : {}, childId: AgentId(run.id) }
+      const info: WorkflowAgentInfo = { seq, label, ...phase !== undefined ? { phase } : {}, childId: SessionId(run.id) }
       this.observer.agentStart(info)
       try {
         let result
@@ -369,7 +345,13 @@ export class WorkflowExecution {
   }
 
   /** Materialize + validate the `agent()` options bag from the realm. */
-  private readAgentOptions(rawOpts: unknown): { label?: string; phase?: string; model?: string; schema?: StructuredOutputSchema } {
+  private readAgentOptions(rawOpts: unknown): {
+    label?: string
+    phase?: string
+    provider?: string
+    model?: string
+    schema?: StructuredOutputSchema
+  } {
     if (rawOpts === undefined) return {}
     let opts: unknown
     try {
@@ -386,11 +368,11 @@ export class WorkflowExecution {
     for (const key of Object.keys(record)) {
       if (SUPPORTED_AGENT_OPTIONS.has(key)) continue
       if (DEFERRED_AGENT_OPTIONS.has(key)) {
-        throw new WorkflowError(`agent() option "${key}" is deferred and not supported by this engine (supported: label, phase, schema, model)`, 'UNSUPPORTED_OPTION')
+        throw new WorkflowError(`agent() option "${key}" is deferred and not supported by this engine (supported: label, phase, schema, provider, model)`, 'UNSUPPORTED_OPTION')
       }
-      throw new WorkflowError(`agent() option "${key}" is not recognized (supported: label, phase, schema, model)`, 'UNSUPPORTED_OPTION')
+      throw new WorkflowError(`agent() option "${key}" is not recognized (supported: label, phase, schema, provider, model)`, 'UNSUPPORTED_OPTION')
     }
-    for (const key of ['label', 'phase', 'model'] as const) {
+    for (const key of ['label', 'phase', 'provider', 'model'] as const) {
       if (record[key] !== undefined && typeof record[key] !== 'string') {
         throw new WorkflowError(`agent() option "${key}" must be a string`, 'INVALID_ARGUMENT')
       }
@@ -409,6 +391,7 @@ export class WorkflowExecution {
     return {
       ...record.label !== undefined ? { label: record.label as string } : {},
       ...record.phase !== undefined ? { phase: record.phase as string } : {},
+      ...record.provider !== undefined ? { provider: record.provider as string } : {},
       ...record.model !== undefined ? { model: record.model as string } : {},
       ...schema !== undefined ? { schema } : {},
     }

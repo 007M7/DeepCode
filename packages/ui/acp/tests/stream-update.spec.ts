@@ -30,6 +30,21 @@ function registryOf(...tools: ToolDefinition[]): Pick<ToolRegistryType, 'get'> {
   return { get: name => map.get(name) }
 }
 
+function updatesWith(presenter: ToolPresenter, ...events: SessionEvent[]): SessionNotification['update'][] {
+  const out: SessionNotification['update'][] = []
+  for (const event of events) streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update), presenter)
+  return out
+}
+
+async function fsCtx(): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(FsLocal)
+  await ctx.plugin(ToolFs)
+  return ctx
+}
+
 function evt<T extends SessionEvent['type']>(type: T, data: Extract<SessionEvent, { type: T }>['data']): SessionEvent {
   return { type, seq: 0, time: 0, data } as SessionEvent
 }
@@ -48,6 +63,37 @@ describe('streamSessionEventUpdate', () => {
   it('produces no update for a non-text/reasoning chunk (e.g. block-start)', () => {
     expect(updatesFor(evt('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } })))
       .toEqual([])
+  })
+
+  it('marks retry and terminal model failure boundaries but not ordinary turn errors', () => {
+    expect(updatesFor(evt('llm/retry', {
+      turn: 1,
+      step: 1,
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 500,
+      failure: { message: 'backend busy', code: 'SERVER' },
+    }))).toEqual([{
+      sessionUpdate: 'agent_message_chunk',
+      content: {
+        type: 'text',
+        text: '\n\n[Previous model attempt discarded; retrying 1/2 in 500ms: backend busy]\n\n',
+      },
+    }])
+    expect(updatesFor(evt('turn/end', {
+      turn: 1,
+      reason: { kind: 'error', step: 2, failure: { message: 'still busy', code: 'SERVER' } },
+    }))).toEqual([{
+      sessionUpdate: 'agent_message_chunk',
+      content: {
+        type: 'text',
+        text: '\n\n[Model attempt failed; any partial output above is discarded: still busy]\n\n',
+      },
+    }])
+    expect(updatesFor(evt('turn/end', {
+      turn: 1,
+      reason: { kind: 'error', step: 2, message: 'post-step failed' },
+    }))).toEqual([])
   })
 
   it('maps tool/call to an in_progress tool_call with kind other and parsed rawInput (generic fallback, no presenter)', () => {
@@ -88,6 +134,22 @@ describe('streamSessionEventUpdate', () => {
     }])
     const failed = updatesFor(evt('tool/result', { turn: 1, step: 1, callId: CallId('c2'), content: [], isError: true }))
     expect((failed[0] as { status: string }).status).toBe('failed')
+  })
+
+  it('emits no execution update for a tool-result surface replacement', () => {
+    const replacement = {
+      ...evt('tool/result', {
+        turn: 1,
+        step: 1,
+        callId: CallId('c1'),
+        content: [{ type: 'text', text: '[... tool result middle pruned ...]' }],
+        isError: false,
+      }),
+      seq: 2,
+      surfaceOp: { op: 'replace', start: 1, end: 1 },
+      sourceEventSeqs: [1],
+    } as SessionEvent
+    expect(updatesFor(replacement)).toEqual([])
   })
 
   it('drops non-text tool-result content (text-only)', () => {
@@ -179,12 +241,6 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
       card: 'generic',
       content: [{ type: 'text', text: `wrapped:${result.content.length}` }],
     }),
-  }
-
-  function updatesWith(presenter: ToolPresenter, ...events: SessionEvent[]): SessionNotification['update'][] {
-    const out: SessionNotification['update'][] = []
-    for (const event of events) streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update), presenter)
-    return out
   }
 
   it('tool/call uses the tool: description→title, command→rawInput, tool kind', () => {
@@ -288,10 +344,9 @@ describe('ToolPresenter (tool-owned presentation via the tool registry)', () => 
   })
 
   it('a THROWING presentCall/presentResult is contained: generic fallback + onError, never propagates', () => {
-    // A buggy tool whose display callbacks throw must NOT fail a live turn or a
-    // session/load replay (docs/defensive-patterns.md "contain callback exceptions at the
-    // boundary"). The presenter swallows the throw, reports via onError, and
-    // falls back to the generic presentation.
+    // A buggy tool whose display callbacks throw must not fail a live turn or a session/load
+    // replay (docs/defensive-patterns.md "contain callback exceptions at the boundary"). The
+    // presenter reports the error and falls back to generic rendering.
     const boom: ToolDefinition = {
       name: 'boom',
       description: 'b',
@@ -442,6 +497,16 @@ describe('terminal-card mapping (capability-gated)', () => {
 
   const callEvent = evt('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'bash', arguments: JSON.stringify({ command: 'echo hi', description: 'Greet' }) })
   const resultEvent = evt('tool/result', { turn: 1, step: 1, callId: CallId('c1'), content: [{ type: 'text', text: 'hi\n' }], isError: false })
+  const prunedResultEvent = {
+    ...resultEvent,
+    seq: 2,
+    data: {
+      ...resultEvent.data,
+      content: [{ type: 'text', text: '[... tool result middle pruned ...]' }],
+    },
+    surfaceOp: { op: 'replace', start: 1, end: 1 },
+    sourceEventSeqs: [1],
+  } as SessionEvent
 
   function termUpdates(tool: ToolDefinition, enabled: boolean, cwd: string | undefined, ...events: SessionEvent[]): SessionNotification['update'][] {
     const presenter = new ToolPresenter(registryOf(tool))
@@ -466,6 +531,27 @@ describe('terminal-card mapping (capability-gated)', () => {
       toolCallId: 'c1',
       status: 'completed',
       _meta: { terminal_output: { terminal_id: 'c1', data: 'hi\n' }, terminal_exit: { terminal_id: 'c1', exit_code: 0 } },
+    })
+  })
+
+  it('live/replay translation preserves the original terminal completion across a pruning rewrite', () => {
+    const updates = termUpdates(
+      termTool({ card: 'terminal' }, { output: 'hi\n', exitCode: 0 }),
+      true,
+      '/work/proj',
+      callEvent,
+      resultEvent,
+      prunedResultEvent,
+    )
+    expect(updates).toHaveLength(2)
+    expect(updates[1]).toEqual({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'c1',
+      status: 'completed',
+      _meta: {
+        terminal_output: { terminal_id: 'c1', data: 'hi\n' },
+        terminal_exit: { terminal_id: 'c1', exit_code: 0 },
+      },
     })
   })
 
@@ -621,38 +707,42 @@ describe('diff-card mapping', () => {
 })
 
 describe('result-time diff card (REAL fs edit tool → tool_call_update diff blocks)', () => {
-  // Drive the SHIPPING fs edit tool through the bridge: the pending tool/call
-  // installs the call-time snippet, then the tool/result carries the tool's
-  // computed applied-hunk `meta`, which presentResult narrows into a `diff`
-  // result card the bridge forwards as `{ type: 'diff' }` content blocks. Uses
-  // the REAL tool (not a stand-in) per the anti-mock convention, mirroring the
-  // call-side diff test above.
-  async function fsCtx(): Promise<Context> {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(FsLocal)
-    await ctx.plugin(ToolFs)
-    return ctx
-  }
-
-  function updatesWith(presenter: ToolPresenter, ...events: SessionEvent[]): SessionNotification['update'][] {
-    const out: SessionNotification['update'][] = []
-    for (const event of events) streamSessionEventUpdate(SessionId('s1'), event, n => out.push(n.update), presenter)
-    return out
-  }
-
-  it('forwards the applied-hunk meta onto the wire as tool_call_update diff content', async () => {
+  // Drive the SHIPPING fs edit tool through the bridge: the pending tool/call installs the
+  // call-time snippet, then the tool/result carries the tool's computed applied-hunk `meta`,
+  // which presentResult narrows into a `diff` result card the bridge forwards as `{ type:
+  // 'diff' }` content blocks. The real tool is required because its result metadata is the contract.
+  it('live/replay translation keeps the applied diff when a pruning rewrite follows', async () => {
     const ctx = await fsCtx()
     const presenter = new ToolPresenter(ctx.tools)
     const args = JSON.stringify({ file_path: 'src/b.ts', old_string: 'OLD', new_string: 'NEW' })
     // The applied hunk the tool would compute and persist on the result meta.
     const meta = { diffs: [{ path: 'src/b.ts', oldText: 'a\nOLD\nb', newText: 'a\nNEW\nb' }] }
-    const [, resultUpdate] = updatesWith(
+    const originalResult = evt('tool/result', {
+      turn: 1,
+      step: 1,
+      callId: CallId('e1'),
+      content: [{ type: 'text', text: 'ok' }],
+      isError: false,
+      meta,
+    })
+    const replacement = {
+      ...originalResult,
+      seq: 3,
+      data: {
+        ...originalResult.data,
+        content: [{ type: 'text', text: '[... tool result middle pruned ...]' }],
+      },
+      surfaceOp: { op: 'replace', start: 2, end: 2 },
+      sourceEventSeqs: [2],
+    } as SessionEvent
+    const updates = updatesWith(
       presenter,
       evt('tool/call', { turn: 1, step: 1, callId: CallId('e1'), name: 'edit', arguments: args }),
-      evt('tool/result', { turn: 1, step: 1, callId: CallId('e1'), content: [{ type: 'text', text: 'ok' }], isError: false, meta }),
+      originalResult,
+      replacement,
     )
+    expect(updates).toHaveLength(2)
+    const resultUpdate = updates[1]
     expect(resultUpdate).toEqual({
       sessionUpdate: 'tool_call_update',
       toolCallId: 'e1',
@@ -678,11 +768,10 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
   })
 
   it('the completed diff TITLE relativizes against the session cwd (the result title replaces the card header)', async () => {
-    // A `tool_call_update.title` replaces the card header, so the result-side
-    // diff must relativize its title exactly as the pending card did — otherwise
-    // a completed absolute-path edit flips `Edit src/b.ts` back to the raw
-    // absolute path. The diff/location paths stay absolute (the editor opens the
-    // real path). Drive the REAL fs edit tool with an absolute in-workspace path.
+    // A `tool_call_update.title` replaces the card header, so the result-side diff must
+    // relativize its title exactly as the pending card did — otherwise a completed
+    // absolute-path edit flips `Edit src/b.ts` back to the raw absolute path. Diff and location
+    // paths remain absolute so the editor can open the real file.
     const ctx = await fsCtx()
     const presenter = new ToolPresenter(ctx.tools)
     const args = JSON.stringify({ file_path: '/work/proj/src/b.ts', old_string: 'OLD', new_string: 'NEW' })
@@ -704,11 +793,8 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
   })
 
   it('a diff result with an EMPTY diffs array and no title omits both keys (nothing to send)', () => {
-    // A synthetic tool whose presentResult yields a `diff` card with no hunks and
-    // no title — the shipping fs tools never emit this (edit always has a hunk;
-    // write always falls back to a whole-file diff), so a stand-in is the only way
-    // to exercise the empty-content AND absent-title branches of the result-side
-    // diff arm.
+    // Shipping edit always has a hunk and write falls back to a whole-file diff, so a synthetic
+    // tool is required to cover both absent-title and empty-content result branches.
     const emptyDiffTool: ToolDefinition = {
       name: 'writer',
       description: 'writes a file',
@@ -734,19 +820,9 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
 })
 
 describe('relative-path display titles (bridge relativizes the title against the session cwd)', () => {
-  // The bridge relativizes a file card's TITLE against the session workspace cwd
-  // (mirroring the reference adapter's toDisplayPath), while leaving locations/
-  // diff paths RAW. Drive it with the REAL fs tools so the title/locations come
-  // from the shipping presentCall, and pass an ABSOLUTE file path (which a real
-  // editor forwards). The presenter is pure/args-only; the cwd is known only here.
-  async function fsCtx(): Promise<Context> {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(FsLocal)
-    await ctx.plugin(ToolFs)
-    return ctx
-  }
+  // The bridge relativizes a file card's TITLE against the session workspace cwd (mirroring the
+  // reference adapter's `toDisplayPath`), while leaving location/diff paths raw. Use real fs tools
+  // and the absolute paths an editor supplies; presentation itself is args-only and lacks cwd.
   function callUpdate(ctx: Context, sessionCwd: string | undefined, name: string, args: unknown): SessionNotification['update'] {
     const presenter = new ToolPresenter(ctx.tools)
     const out: SessionNotification['update'][] = []
@@ -789,10 +865,9 @@ describe('relative-path display titles (bridge relativizes the title against the
   })
 
   it('an in-workspace file whose relative form starts with `..` chars (a sibling name) still relativizes', async () => {
-    // `/work/proj/..cache/x` is INSIDE the workspace — its relative form
-    // `..cache/x` begins with the chars `..` but is NOT a parent segment. The
-    // guard tests for a `..` SEGMENT, so this relativizes (matching the reference
-    // adapter, which accepts any target under `cwd + sep`).
+    // `/work/proj/..cache/x` is inside the workspace — its relative form `..cache/x` begins
+    // with the chars `..` but is not a parent segment. Segment-aware guarding must relativize it,
+    // matching targets under `cwd + sep` in the reference adapter.
     const ctx = await fsCtx()
     const update = callUpdate(ctx, '/work/proj', 'read', { file_path: '/work/proj/..cache/x.ts' })
     expect((update as { title: string }).title).toBe('Read ..cache/x.ts')
@@ -818,5 +893,6 @@ describe('agentOptions', () => {
   it('includes only the fields present in config', () => {
     expect(agentOptions({})).toEqual({})
     expect(agentOptions({ model: 'm' })).toEqual({ model: 'm' })
+    expect(agentOptions({ provider: 'p', model: 'm' })).toEqual({ provider: 'p', model: 'm' })
   })
 })

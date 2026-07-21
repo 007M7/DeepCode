@@ -1,23 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId, type Message } from '@deepseek-ai/dsh-llm'
-import SessionStore, { type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, {
-  AgentId,
-  type ContinuationDecision,
-  type PromptDecision,
-  type SessionStartSource,
-} from '@deepseek-ai/dsh-agent'
-import AgentLoop, { type ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import AgentRegistry, { type Agent, type ContinuationDecision, type PromptDecision, type SessionStartSource } from '@deepseek-ai/dsh-agent'
+
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 /**
  * The interception seams introduced by the hooks taxonomy: `agent/prompt-submit`,
  * `agent/session-start`, the reshaped `agent/turn-continuation`
  * ({@link ContinuationDecision}), and the `tools/pre-execute` / `tools/post-execute`
- * split with `additionalContext` buffering. These verify the canonical event
+ * split with `additionalContexts` buffering. These verify the canonical event
  * surface a hook bridge (or a native plugin) programs against, WITHOUT any
  * external protocol — a native plugin uses the typed decisions directly.
  */
@@ -34,7 +30,7 @@ async function harness(adapter: MockAdapter) {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -45,11 +41,11 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function send(agent: ReactLoopAgent, text: string) {
+function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
-function events(agent: ReactLoopAgent): SessionEvent[] {
+function events(agent: Agent): SessionEvent[] {
   return [...agent.session.events]
 }
 
@@ -57,10 +53,10 @@ describe('agent/prompt-submit', () => {
   it('allow (default via next) records the user/message unchanged', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const seen: string[] = []
-    ctx.on('agent/prompt-submit', async (_agent, content, _source, next) => {
+    ctx.on('agent/prompt-submit', async (_agent, content, _source, _signal, next) => {
       seen.push(content.map(b => (b.type === 'text' ? b.text : '')).join(''))
       return next()
     })
@@ -76,7 +72,7 @@ describe('agent/prompt-submit', () => {
   it('allow with content REWRITES the prompt before it is recorded', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({ kind: 'allow', content: [{ type: 'text', text: 'REWRITTEN' }] }))
@@ -91,15 +87,20 @@ describe('agent/prompt-submit', () => {
     expect(JSON.stringify(adapter.requests[0]!.messages)).not.toContain('original')
   })
 
-  it('allow with additionalContext injects a separate context/message into the turn', async () => {
+  it('allow with additionalContexts injects separate context/message events into the turn', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
+    const meta = { kind: 'prompt-context', version: 1 }
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({
         kind: 'allow',
-        additionalContext: { content: [{ type: 'text', text: 'extra ctx' }], source: { kind: 'plugin', plugin: 'test' } },
+        additionalContexts: [{
+          content: [{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }],
+          source: { kind: 'plugin', plugin: 'test' },
+          meta,
+        }],
       }))
 
     send(agent, 'go')
@@ -109,35 +110,25 @@ describe('agent/prompt-submit', () => {
     const userMsg = log.find(e => e.type === 'user/message')
     const ctxMsg = log.find(e => e.type === 'context/message')
     expect(userMsg).toBeDefined()
-    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: 'extra ctx' }])
+    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.content).toEqual([{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }])
     expect(ctxMsg?.type === 'context/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'test' })
-    // both the prompt and the injected context reach the model
+    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.meta).toEqual(meta)
     const sent = JSON.stringify(adapter.requests[0]!.messages)
     expect(sent).toContain('extra ctx')
   })
 
-  it('a prompt-submit rewrite + additionalContext is VISIBLE to the agent/pre-step seam (merged ordering)', async () => {
-    // The merge of the interception seams with master's compaction seam pins one
-    // ordering: `agent/prompt-submit` runs (rewriting the prompt and injecting
-    // context) BEFORE the step loop, and `agent/pre-step` fires INSIDE the step
-    // before the single deriveMessages(). So a compaction listener on
-    // `agent/pre-step` must observe the surface AFTER the prompt rewrite/inject —
-    // otherwise it would measure/compact stale history. This cross-test proves
-    // the two seams compose in the right order (each is covered in isolation
-    // elsewhere; this asserts they see each other's effects on the same turn).
+  it('runs pre-step after prompt rewrites and injected context become durable', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({
         kind: 'allow',
         content: [{ type: 'text', text: 'REWRITTEN prompt' }],
-        additionalContext: { content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' } },
+        additionalContexts: [{ content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' } }],
       }))
 
-    // The pre-step seam (where compaction lives) derives the surface it would act
-    // on. Capture what it sees on the first step.
     let preStepDerived: string | undefined
     ctx.on('agent/pre-step', (subject, _turn, step) => {
       if (subject === agent && step === 1) preStepDerived = JSON.stringify(subject.session.deriveMessages())
@@ -146,8 +137,6 @@ describe('agent/prompt-submit', () => {
     send(agent, 'ORIGINAL prompt')
     await waitForIdle(ctx, agent)
 
-    // The pre-step seam ran and saw BOTH the rewrite (not the original) and the
-    // injected context — i.e. the prompt-submit effects landed before it.
     expect(preStepDerived).toBeDefined()
     expect(preStepDerived).toContain('REWRITTEN prompt')
     expect(preStepDerived).toContain('injected ctx')
@@ -157,7 +146,7 @@ describe('agent/prompt-submit', () => {
   it('block drops the (only) prompt → zero-step turn ends rejected, model never called', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
       ({ kind: 'block', reason: 'blocked by policy' }))
@@ -188,15 +177,12 @@ describe('agent/prompt-submit', () => {
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'rejected', reason: 'blocked by policy' })
   })
 
-  it('a mixed batch records a prompt/blocked for the vetoed prompt while the allowed one runs', async () => {
-    // Two prompts queued into ONE turn: block "secret", allow "safe". The turn is
-    // NOT rejected (a prompt was allowed), so without a durable prompt/blocked the
-    // vetoed prompt and its reason would vanish from the log entirely.
+  it('adjacent blocked and allowed prompts keep independent turn outcomes', async () => {
     const adapter = new MockAdapter([textResponse('ran once')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/prompt-submit', async (_agent, content, _source, next): Promise<PromptDecision> => {
+    ctx.on('agent/prompt-submit', async (_agent, content, _source, _signal, next): Promise<PromptDecision> => {
       const text = content.map(b => (b.type === 'text' ? b.text : '')).join('')
       return text === 'secret' ? { kind: 'block', reason: 'policy: no secrets' } : next()
     })
@@ -204,13 +190,13 @@ describe('agent/prompt-submit', () => {
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
-    // both sends land before the loop drains → one batched turn
+    // Both sends land before the driver wakes, but each remains its own turn.
     send(agent, 'secret')
     send(agent, 'safe')
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
-    // the allowed prompt became a user/message and drove exactly one model call
+    // The allowed prompt became a user/message and drove exactly one model call.
     const userMsgs = log.filter(e => e.type === 'user/message')
     expect(userMsgs).toHaveLength(1)
     expect(userMsgs[0]?.type === 'user/message' && userMsgs[0].data.content).toEqual([{ type: 'text', text: 'safe' }])
@@ -222,15 +208,17 @@ describe('agent/prompt-submit', () => {
       content: [{ type: 'text', text: 'secret' }],
       reason: 'policy: no secrets',
     })
-    // the turn did NOT reject — a sibling was allowed — so the boundary reason
-    // alone would not have preserved the block
-    expect(reasons.some(r => r.kind === 'rejected')).toBe(false)
+    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(2)
+    expect(reasons).toEqual([
+      { kind: 'rejected', reason: 'policy: no secrets' },
+      { kind: 'completed' },
+    ])
   })
 
-  it('a throwing prompt-submit listener ends the turn balanced (error), loop survives', async () => {
+  it('a throwing prompt-submit listener ends its turn balanced while an adjacent message survives', async () => {
     const adapter = new MockAdapter([textResponse('after')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threw = false
     ctx.on('agent/prompt-submit', async () => {
@@ -238,20 +226,31 @@ describe('agent/prompt-submit', () => {
       return { kind: 'allow' as const }
     })
     const errors: Error[] = []
+    const reasons: TurnEndReason[] = []
+    const statuses: string[] = []
     ctx.on('agent/error', (_a, _t, _s, error) => void errors.push(error))
+    ctx.on('agent/status', (subject, status) => { if (subject === agent) statuses.push(status) })
+    ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'turn/end') reasons.push(event.data.reason)
+    })
 
+    const idle = waitForIdle(ctx, agent)
     send(agent, 'first')
-    await waitForIdle(ctx, agent)
-    expect(errors.map(e => e.message)).toEqual(['prompt hook broke'])
-    // turn balanced
-    const log = events(agent)
-    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(1)
-    expect(log.filter(e => e.type === 'turn/end')).toHaveLength(1)
-
-    // loop survives: a second prompt runs normally
     send(agent, 'second')
-    await waitForIdle(ctx, agent)
-    expect(adapter.requests.length).toBeGreaterThanOrEqual(1)
+    await idle
+    expect(errors.map(e => e.message)).toEqual(['prompt hook broke'])
+    // The failed prompt forms one balanced error turn; the adjacent prompt forms
+    // the following normal turn without an intermediate idle transition.
+    const log = events(agent)
+    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(2)
+    expect(log.filter(e => e.type === 'turn/end')).toHaveLength(2)
+    expect(reasons).toEqual([
+      { kind: 'error', step: 0, message: 'prompt hook broke' },
+      { kind: 'completed' },
+    ])
+    expect(statuses).toEqual(['running', 'idle'])
+    expect(adapter.requests).toHaveLength(1)
+    expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('second')
   })
 })
 
@@ -263,7 +262,7 @@ describe('agent/session-start', () => {
     const sources: SessionStartSource[] = []
     ctx.on('agent/session-start', (_agent, source) => void sources.push(source))
 
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     // fires synchronously at create, before any turn
     expect(sources).toEqual(['startup'])
     expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
@@ -282,7 +281,7 @@ describe('agent/session-start', () => {
       agent.inject([{ type: 'text', text: 'session preamble' }], { source: { kind: 'plugin', plugin: 'test' } })
     })
 
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
@@ -300,8 +299,8 @@ describe('agent/session-start', () => {
     ctx.on('agent/session-start', () => { throw new Error('session-start hook broke') })
 
     // create must not throw — the listener error is contained/logged
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
-    expect(agent.id).toBe(AgentId('a1'))
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    expect(agent.id).toBe(SessionId('a1'))
 
     // and the agent still runs
     send(agent, 'go')
@@ -314,8 +313,8 @@ describe('agent/session-prefix', () => {
   it('dispatches to global and matching agent-scope listeners only', async () => {
     const adapter = new MockAdapter([textResponse('a done'), textResponse('b done')])
     const ctx = await harness(adapter)
-    const agentA = ctx.agentLoop.create(AgentId('prefix-a'), { model: 'mock' })
-    const agentB = ctx.agentLoop.create(AgentId('prefix-b'), { model: 'mock' })
+    const agentA = ctx.agentLoop.create(SessionId('prefix-a'), { provider: 'mock', model: 'mock' })
+    const agentB = ctx.agentLoop.create(SessionId('prefix-b'), { provider: 'mock', model: 'mock' })
     const seen: string[] = []
     ctx.on('agent/session-prefix', async (agent, _prefix, _signal, next) => {
       seen.push(`global:${agent.id}`)
@@ -352,7 +351,7 @@ describe('agent/session-prefix', () => {
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const reminder: Message = { role: 'user', content: [{ type: 'text', text: '<system-reminder>catalog</system-reminder>' }] }
     let composed = 0
@@ -374,18 +373,18 @@ describe('agent/session-prefix', () => {
       expect(request.messages[0]).toEqual(reminder)
     }
     // The anchoring snapshot is the prefix's durable record — and the ONLY
-    // header event: reuse means no request/header-delta ever.
-    const headerEvents = events(agent).filter(e => e.type === 'request/header' || e.type === 'request/header-delta')
+    // header event: reuse means no changed snapshot ever.
+    const headerEvents = events(agent).filter(e => e.type === 'request/header')
     expect(headerEvents).toHaveLength(1)
     expect(headerEvents[0]?.type === 'request/header' && headerEvents[0].data.header.messagePrefix).toEqual([reminder])
     // Never session history: the derivation starts at the real user prompt.
     expect(agent.session.deriveMessages()[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'go' }] })
   })
 
-  it('composes before the first pre-step and hands the prefix to the seam (pressure gates see the real value)', async () => {
+  it('composes before the first pre-step and records the prefix on the request header', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const reminder: Message = { role: 'user', content: [{ type: 'text', text: 'opener' }] }
     const order: string[] = []
@@ -393,26 +392,21 @@ describe('agent/session-prefix', () => {
       order.push('compose')
       return [reminder, ...await next()]
     })
-    const seen: (readonly Message[])[] = []
-    ctx.on('agent/pre-step', (_agent, _turn, _step, _system, sessionPrefix) => {
+    ctx.on('agent/pre-step', () => {
       order.push('pre-step')
-      seen.push(sessionPrefix)
     })
 
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
-    // Composition precedes the pre-step seam, and the seam receives THIS
-    // instance's composed prefix — a token-pressure gate (compaction) counts
-    // what the request will actually carry, never a stale logged prefix.
     expect(order).toEqual(['compose', 'pre-step'])
-    expect(seen[0]).toEqual([reminder])
+    expect(agent.session.requestHeader()?.messagePrefix).toEqual([reminder])
   })
 
   it('the canonical prepend pattern composes contributions in registration order', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // Both listeners use the canonical `[mine, ...await next()]` prepend: the
     // waterfall unwinds innermost-first (the second listener's array is built
@@ -434,7 +428,7 @@ describe('agent/session-prefix', () => {
   it('with no contributions the header omits messagePrefix and the request is the bare derivation', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // A listener that delegates without contributing — the canonical no-op.
     ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next) => next())
@@ -450,7 +444,7 @@ describe('agent/session-prefix', () => {
   it('the frozen seed rejects in-place mutation — a contribution is a returned extension', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let mutationError: unknown
     ctx.on('agent/session-prefix', async (_agent, prefix, _signal, next): Promise<Message[]> => {
@@ -479,7 +473,7 @@ describe('agent/session-prefix', () => {
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const held: Message = { role: 'user', content: [{ type: 'text', text: 'v1' }] }
     ctx.on('agent/session-prefix', async (_agent, _prefix, _signal, next): Promise<Message[]> => [...await next(), held])
@@ -491,7 +485,7 @@ describe('agent/session-prefix', () => {
     // cached prefix is a deep-frozen clone, so step 2's request is unchanged.
     held.content = [{ type: 'text', text: 'v2' }]
     expect(adapter.requests[1]!.messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'v1' }] })
-    expect(events(agent).filter(e => e.type === 'request/header-delta')).toHaveLength(0)
+    expect(events(agent).filter(e => e.type === 'request/header')).toHaveLength(1)
   })
 })
 
@@ -500,10 +494,10 @@ describe('agent/turn-continuation (ContinuationDecision)', () => {
   it('a continue decision with a reason records next-step steering in the same turn', async () => {
     const adapter = new MockAdapter([textResponse('step 1 no tools'), textResponse('step 2')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let forced = false
-    ctx.on('agent/turn-continuation', async (_agent, _turn, _default, next): Promise<ContinuationDecision> => {
+    ctx.on('agent/turn-continuation', async (_agent, _turn, _default, _signal, next): Promise<ContinuationDecision> => {
       if (!forced) {
         forced = true
         return { action: 'continue', reason: { content: [{ type: 'text', text: 'keep going on the goal' }], source: { kind: 'plugin', plugin: 'goal' } } }
@@ -515,14 +509,13 @@ describe('agent/turn-continuation (ContinuationDecision)', () => {
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
-    // same turn, two steps
+    // The continuation stays in the turn, is logged with provenance before step 2,
+    // and reaches that step's request.
     expect(log.filter(e => e.type === 'turn/start')).toHaveLength(1)
     expect(log.filter(e => e.type === 'step/start')).toHaveLength(2)
-    // the reason was recorded as steering BEFORE step 2, with its plugin source
     const steering = log.find(e => e.type === 'steering/message')
     expect(steering?.type === 'steering/message' && steering.data.content).toEqual([{ type: 'text', text: 'keep going on the goal' }])
     expect(steering?.type === 'steering/message' && steering.data.source).toEqual({ kind: 'plugin', plugin: 'goal' })
-    // and reached the next request
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('keep going on the goal')
   })
 
@@ -533,7 +526,7 @@ describe('agent/turn-continuation (ContinuationDecision)', () => {
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/turn-continuation', async (): Promise<ContinuationDecision> => ({ action: 'stop' }))
 
@@ -546,8 +539,8 @@ describe('agent/turn-continuation (ContinuationDecision)', () => {
   })
 })
 
-describe('tools/post-execute additionalContext buffering across a multi-call step', () => {
-  it('appends each call\'s additionalContext only AFTER all tool/results, preserving adjacency', async () => {
+describe('tool additionalContexts buffering across a step', () => {
+  it('appends each call\'s contexts only AFTER all tool/results, preserving adjacency', async () => {
     // One assistant step with TWO tool calls; the second model response stops.
     const twoCalls = [
       { type: 'block-start' as const, index: 0, blockType: 'tool-call' as const },
@@ -563,11 +556,18 @@ describe('tools/post-execute additionalContext buffering across a multi-call ste
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    // Each call attaches additionalContext naming itself.
+    // Each call attaches one context naming itself.
     ctx.on('tools/post-execute', async (exec, _result): Promise<PostToolDecision> =>
-      ({ kind: 'accept', additionalContext: { content: [{ type: 'text', text: `ctx-${exec.callId}` }], source: { kind: 'plugin', plugin: 'p' } } }))
+      ({
+        kind: 'accept',
+        additionalContexts: [{
+          content: [{ type: 'text', text: `ctx-${exec.callId}` }],
+          source: { kind: 'plugin', plugin: 'p' },
+          meta: { callId: exec.callId },
+        }],
+      }))
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
@@ -587,6 +587,36 @@ describe('tools/post-execute additionalContext buffering across a multi-call ste
       .flatMap(e => (e.type === 'context/message' ? e.data.content : []))
       .map(b => (b.type === 'text' ? b.text : ''))
     expect(ctxTexts).toEqual(['ctx-c1', 'ctx-c2'])
+    const contextEvents = events(agent).filter(e => e.type === 'context/message')
+    expect(contextEvents.map(e => e.type === 'context/message' && e.data.meta)).toEqual([{ callId: 'c1' }, { callId: 'c2' }])
+  })
+
+  it('appends multiple contexts deferred by one composite tool after its outer result', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'composite', {}), textResponse('done')])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineTool({
+      name: 'composite', description: 'composite', parameters: {},
+      async execute(_args, exec) {
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-a' }], source: { kind: 'plugin', plugin: 'a' }, meta: { order: 1 } })
+        exec.deferContext({ content: [{ type: 'text', text: 'nested-b' }], source: { kind: 'plugin', plugin: 'b' }, meta: { order: 2 } })
+        return [{ type: 'text', text: 'outer result' }]
+      },
+    }))
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const log = events(agent)
+    const resultIndex = log.findIndex(event => event.type === 'tool/result')
+    const contextEvents = log.filter(event => event.type === 'context/message')
+    expect(resultIndex).toBeGreaterThanOrEqual(0)
+    expect(log.findIndex(event => event === contextEvents[0])).toBeGreaterThan(resultIndex)
+    expect(contextEvents.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      { kind: 'plugin', plugin: 'a' },
+      { kind: 'plugin', plugin: 'b' },
+    ])
+    expect(contextEvents.map(event => event.type === 'context/message' && event.data.meta)).toEqual([{ order: 1 }, { order: 2 }])
   })
 })
 
@@ -599,7 +629,7 @@ describe('tools/pre-execute gate (native-plugin permission pattern, end-to-end t
       name: 'danger', description: 'danger', parameters: {},
       async execute() { ran = true; return [{ type: 'text', text: 'should not run' }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
       if (exec.name === 'danger') return { kind: 'deny', reason: 'blocked dangerous tool' }
@@ -618,11 +648,9 @@ describe('tools/pre-execute gate (native-plugin permission pattern, end-to-end t
 })
 
 describe('worked example: a native hook plugin is just a cordis plugin on the seams', () => {
-  // The whole point of the interception taxonomy: a "native hook" needs no
-  // dsh-hook-protocol, no external command, no hook/* log — it is an ordinary
-  // cordis plugin subscribing to the canonical events and returning typed
-  // decisions. This proves all four seams compose end-to-end through the REAL
-  // loop, with NO hook/* SessionEvents involved (those belong to the bridge lib).
+  // The whole point of the interception taxonomy: a "native hook" needs no dsh-hook-protocol,
+  // no external command, no hook/* log — it is an ordinary cordis plugin subscribing to the
+  // canonical events and returning typed decisions.
   const NativeGuard = {
     name: 'native-guard',
     apply(ctx: Context) {
@@ -634,7 +662,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
         )
       })
       // 2. PromptSubmit: block a forbidden prompt, annotate the rest.
-      ctx.on('agent/prompt-submit', async (_agent, content, _source, next): Promise<PromptDecision> => {
+      ctx.on('agent/prompt-submit', async (_agent, content, _source, _signal, next): Promise<PromptDecision> => {
         const text = content.map(b => (b.type === 'text' ? b.text : '')).join('')
         if (text.includes('rm -rf')) return { kind: 'block', reason: 'destructive prompt blocked' }
         return next()
@@ -648,7 +676,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
       ctx.on('tools/post-execute', async (_exec, _result, next): Promise<PostToolDecision> => {
         const decision = await next()
         if (decision.kind === 'accept') {
-          return { kind: 'accept', additionalContext: { content: [{ type: 'text', text: 'audited' }], source: { kind: 'plugin', plugin: 'native-guard' } } }
+          return { kind: 'accept', additionalContexts: [{ content: [{ type: 'text', text: 'audited' }], source: { kind: 'plugin', plugin: 'native-guard' } }] }
         }
         return decision
       })
@@ -663,7 +691,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
       name: 'echo', description: 'echo', parameters: { text: { type: 'string' } },
       async execute(args) { return [{ type: 'text', text: String(args.text) }] },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'please echo hi')
     await waitForIdle(ctx, agent)
@@ -686,7 +714,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)
     await ctx.plugin(NativeGuard)
-    const agent = ctx.agentLoop.create(AgentId('a2'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a2'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -705,7 +733,7 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
     await fiber.dispose()
 
     // After disposal, a destructive prompt is NOT blocked (the listener is gone).
-    const agent = ctx.agentLoop.create(AgentId('a3'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a3'), { provider: 'mock', model: 'mock' })
     send(agent, 'run rm -rf /')
     await waitForIdle(ctx, agent)
     // the prompt ran (not rejected) — proving the prompt-submit listener was disposed
