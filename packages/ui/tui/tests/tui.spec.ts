@@ -2,7 +2,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import type { Terminal } from '@earendil-works/pi-tui'
+import { CombinedAutocompleteProvider, type Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type JsonValue } from '@deepseek-ai/dsh-session'
@@ -545,6 +545,40 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
+  it('escapes session autocomplete metadata while preserving the referenced session id', async () => {
+    const unsafeId = SessionId('evil\x1b\x07\u009b\ns')
+    const unsafeCwd = '/x/\x1b\x07\u009b\nf'
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+        const source = ctx.sessions.create(unsafeId, { meta: { cwd: unsafeCwd, createdAt: 1 } })
+        appendUser(source, 'safe background')
+      },
+    })
+
+    result.terminal.send('@evil')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Session · evil\\x1b\\x07\\x9b\\x0a')
+    })
+    expect(result.terminal.output).toContain('/x/\\x1b\\x07\\x9b\\x0af')
+    expect(result.terminal.output).not.toContain('evil\x1b\x07')
+    expect(result.terminal.output).not.toContain('/x/\x1b\x07')
+
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
+    expect(result.agent.sent).toEqual([[
+      { type: 'text', text: '@evil\\x1b\\x07\\x9b\\x0as' },
+    ]])
+    expect(result.agent.sentOptions[0]?.contexts).toMatchObject([{
+      meta: { references: [{ sessionId: unsafeId }] },
+    }])
+    await dispose(result)
+  })
+
   it('falls back cleanly for non-session, empty, failed, and superseded autocomplete requests', async () => {
     const result = await setup({
       async configureContext(ctx) {
@@ -575,19 +609,38 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     result.terminal.send('\x03')
 
-    let releaseFirst: (() => void) | undefined
+    let releaseBase: (() => void) | undefined
+    const baseSuggestions = vi.spyOn(CombinedAutocompleteProvider.prototype, 'getSuggestions')
+      .mockImplementationOnce(async () => {
+        await new Promise<void>((resolve) => { releaseBase = resolve })
+        return null
+      })
+    listCandidates.mockResolvedValueOnce([])
+    result.terminal.send('@base-slow')
+    await vi.waitFor(() => { expect(releaseBase).toBeTypeOf('function') })
+    const baseWaitSignal = listCandidates.mock.calls.at(-1)?.[3]
+    result.terminal.send('x')
+    await vi.waitFor(() => { expect(baseWaitSignal?.aborted).toBe(true) })
+    releaseBase?.()
+    await tick()
+    baseSuggestions.mockRestore()
+
+    let delayedSignal: AbortSignal | undefined
     let delayed = true
     listCandidates.mockImplementation(async (...args) => {
       if (!delayed) return originalListCandidates(...args)
       delayed = false
-      await new Promise<void>((resolve) => { releaseFirst = resolve })
+      delayedSignal = args[3]
+      if (delayedSignal === undefined) throw new Error('expected autocomplete cancellation signal')
+      await new Promise<void>((_resolve, reject) => {
+        delayedSignal?.addEventListener('abort', () => { reject(new Error('superseded')) }, { once: true })
+      })
       return []
     })
     result.terminal.send('@slow')
-    await vi.waitFor(() => { expect(releaseFirst).toBeTypeOf('function') })
+    await vi.waitFor(() => { expect(delayedSignal).toBeDefined() })
     result.terminal.send('x')
-    releaseFirst?.()
-    await tick()
+    await vi.waitFor(() => { expect(delayedSignal?.aborted).toBe(true) })
     await dispose(result)
   })
 

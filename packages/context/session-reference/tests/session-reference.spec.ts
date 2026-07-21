@@ -190,6 +190,21 @@ describe('session reference discovery and preparation', () => {
     ])
     await expect(ctx.sessionReferences.listCandidates(fakeAgent(target), '', 0))
       .rejects.toThrow(expectCode('SESSION_REFERENCE_INVALID_REFERENCE'))
+
+    let releaseList: (() => void) | undefined
+    const listSessions = vi.spyOn(ctx.sessionQuery, 'listSessions').mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { releaseList = resolve })
+      return []
+    })
+    const controller = new AbortController()
+    const pending = ctx.sessionReferences.listCandidates(fakeAgent(target), '', undefined, controller.signal)
+    await vi.waitFor(() => { expect(releaseList).toBeTypeOf('function') })
+    const cancelledList = expect(pending).rejects.toThrow(expectCode('SESSION_REFERENCE_CANCELLED'))
+    controller.abort('autocomplete superseded')
+    await cancelledList
+    releaseList?.()
+    await Promise.resolve()
+    listSessions.mockRestore()
   })
 
   it('projects only the current user/assistant surface and records snapshot metadata', async () => {
@@ -309,6 +324,9 @@ describe('session reference discovery and preparation', () => {
     readSurface.mockRejectedValueOnce('non-error read failure')
     await expect(ctx.sessionReferences.prepare(agent, content, [{ sessionId: one.id }]))
       .rejects.toThrow(/non-error read failure/)
+    readSurface.mockRejectedValueOnce('non-error signalled read failure')
+    await expect(ctx.sessionReferences.prepare(agent, content, [{ sessionId: one.id }], new AbortController().signal))
+      .rejects.toThrow(/non-error signalled read failure/)
 
     const duringRead = new AbortController()
     readSurface.mockImplementationOnce(async () => {
@@ -317,6 +335,21 @@ describe('session reference discovery and preparation', () => {
     })
     await expect(ctx.sessionReferences.prepare(agent, content, [{ sessionId: one.id }], duringRead.signal))
       .rejects.toThrow(expectCode('SESSION_REFERENCE_CANCELLED'))
+
+    const snapshot = await ctx.sessionQuery.readSurface(one.id)
+    let releaseRead: (() => void) | undefined
+    readSurface.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { releaseRead = resolve })
+      return snapshot
+    })
+    const hangingRead = new AbortController()
+    const pending = ctx.sessionReferences.prepare(agent, content, [{ sessionId: one.id }], hangingRead.signal)
+    await vi.waitFor(() => { expect(releaseRead).toBeTypeOf('function') })
+    const cancelledRead = expect(pending).rejects.toThrow(expectCode('SESSION_REFERENCE_CANCELLED'))
+    hangingRead.abort('cancelled while storage remained pending')
+    await cancelledRead
+    releaseRead?.()
+    await Promise.resolve()
     readSurface.mockRestore()
 
     const abort = new AbortController()

@@ -40,7 +40,7 @@ export interface SendOptions {
 }
 
 /** Options specific to durable synthetic context injection. */
-export interface InjectOptions extends SendOptions {
+export interface InjectOptions extends Omit<SendOptions, 'contexts'> {
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }

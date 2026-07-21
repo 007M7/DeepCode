@@ -434,8 +434,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Exact-read consumer that prepares immutable cross-session message context.',
     methods: [
       {
-        signature: 'async listCandidates(agent: Agent, query = \'\', limit = this.config.candidateLimit): Promise<SessionReferenceCandidate[]>',
-        jsDoc: '/**\n * List metadata-only reference candidates, ranked by working-directory affinity.\n * @param agent - target agent; self is excluded and its cwd drives ranking.\n * @param query - optional case-insensitive session-id/cwd substring.\n * @param limit - optional positive result cap.\n * @returns candidate records in stable source creation order within each rank.\n */',
+        signature: 'async listCandidates( agent: Agent, query = \'\', limit = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>',
+        jsDoc: '/**\n * List metadata-only reference candidates, ranked by working-directory affinity.\n * @param agent - target agent; self is excluded and its cwd drives ranking.\n * @param query - optional case-insensitive session-id/cwd substring.\n * @param limit - optional positive result cap.\n * @param signal - optional cancellation boundary for host autocomplete teardown.\n * @returns candidate records in stable source creation order within each rank.\n */',
       },
       {
         signature: 'async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>',
@@ -1352,7 +1352,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InjectOptions',
-    declaration: 'export interface InjectOptions extends SendOptions {\n    meta?: JsonValue;\n}',
+    declaration: 'export interface InjectOptions extends Omit<SendOptions, \'contexts\'> {\n    meta?: JsonValue;\n}',
   },
   {
     name: 'JsonValue',

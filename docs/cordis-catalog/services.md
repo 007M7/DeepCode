@@ -854,9 +854,10 @@ Exact-read consumer that prepares immutable cross-session message context.
  * @param agent - target agent; self is excluded and its cwd drives ranking.
  * @param query - optional case-insensitive session-id/cwd substring.
  * @param limit - optional positive result cap.
+ * @param signal - optional cancellation boundary for host autocomplete teardown.
  * @returns candidate records in stable source creation order within each rank.
  */
-async listCandidates(agent: Agent, query = '', limit = this.config.candidateLimit): Promise<SessionReferenceCandidate[]>
+async listCandidates( agent: Agent, query = '', limit = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>
 
 /**
  * Snapshot all references before enqueue and return one aggregated durable context.

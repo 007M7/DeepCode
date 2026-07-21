@@ -397,25 +397,25 @@ describe('acp bridge', () => {
   it('cancels reference preparation before a turn is created', async () => {
     harness = await makeBridgeHarness({ storageDir, withSessionReferences: true, script: [] })
     const source = harness.ctx.sessions.create(SessionId('source'))
+    const snapshot = await harness.ctx.sessionQuery.readSurface(source.id)
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
-    const prepare = vi.spyOn(harness.ctx.sessionReferences, 'prepare').mockImplementation(
-      (_agent, _content, _references, signal) => new Promise((_resolve, reject) => {
-        if (signal?.aborted === true) {
-          reject(new Error('already aborted'))
-          return
-        }
-        signal?.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
-      }),
-    )
+    let releaseRead: (() => void) | undefined
+    const readSurface = vi.spyOn(harness.ctx.sessionQuery, 'readSurface').mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { releaseRead = resolve })
+      return snapshot
+    })
     const pending = harness.client.prompt({
       sessionId,
       prompt: [{ type: 'resource_link', uri: encodeSessionReferenceUri(source.id), name: 'source' }],
     })
-    await vi.waitFor(() => { expect(prepare).toHaveBeenCalledOnce() })
+    await vi.waitFor(() => { expect(releaseRead).toBeTypeOf('function') })
     await harness.client.cancel({ sessionId })
     await expect(pending).resolves.toEqual({ stopReason: 'cancelled' })
     expect(harness.ctx.agents.get(SessionId(sessionId))?.session.events).toHaveLength(0)
+    releaseRead?.()
+    await Promise.resolve()
+    readSurface.mockRestore()
   })
 
   it('rejects a prompt for an unknown session', async () => {

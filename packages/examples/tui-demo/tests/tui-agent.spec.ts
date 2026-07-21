@@ -32,6 +32,12 @@ describe('dsh-tui-demo app', () => {
       dshHome: '/tmp/dsh-home',
       persistenceRoot: '/tmp/tui-sessions',
       persistenceCompression: 'none',
+      sessionReferences: {
+        maxReferences: 2,
+        candidateLimit: 7,
+        maxReferenceBytes: 1234,
+        maxTotalBytes: 2345,
+      },
       welcome: 'TUI ready',
       ui: { color: false, maxToolOutputLines: 3 },
       skills: { tool: { catalogDescriptionMaxLength: 8 } },
@@ -53,6 +59,12 @@ describe('dsh-tui-demo app', () => {
     ])
     expect(calls[0]?.config).toBeUndefined()
     expect(calls[2]?.config).toEqual({ root: '/tmp/tui-sessions', compression: 'none' })
+    expect(calls[4]?.config).toEqual({
+      maxReferences: 2,
+      candidateLimit: 7,
+      maxReferenceBytes: 1234,
+      maxTotalBytes: 2345,
+    })
     const tuiConfig = calls[6]?.config as { sessionId: string }
     expect(tuiConfig).toMatchObject({ welcome: 'TUI ready', color: false, maxToolOutputLines: 3 })
     expect(tuiConfig.sessionId).toMatch(/^main-session-[0-9a-f-]{36}$/)
@@ -90,6 +102,7 @@ describe('dsh-tui-demo app', () => {
     })
 
     expect(calls[2]?.config).toEqual({ root: './.sessions' })
+    expect(calls[4]?.config).toEqual({})
     expect(calls[6]?.config).toEqual({ welcome: 'ready.', sessionId: 'persisted-session' })
     expect((calls[7]?.config as { agents: Array<Record<string, unknown>> }).agents[0]).toMatchObject({
       id: 'main',

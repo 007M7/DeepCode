@@ -356,11 +356,11 @@ interface SendOptions {
 }
 ```
 
-`InjectOptions` extends ordinary message attribution with durable model-hidden JSON metadata:
+`InjectOptions` accepts ordinary message attribution and durable model-hidden JSON metadata. Attached contexts belong only to queued or steering input, so synthetic injection cannot accept them:
 
 ```ts type-equiv
 /** Options specific to durable synthetic context injection. */
-interface InjectOptions extends SendOptions {
+interface InjectOptions extends Omit<SendOptions, 'contexts'> {
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }

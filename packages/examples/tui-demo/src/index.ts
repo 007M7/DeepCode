@@ -23,7 +23,7 @@ import SessionPersistenceJsonl, {
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import SessionQueryService from '@deepseek-ai/dsh-session-query'
-import SessionReferenceService from '@deepseek-ai/dsh-session-reference'
+import SessionReferenceService, { type Config as SessionReferenceConfig } from '@deepseek-ai/dsh-session-reference'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as uiTui from '@deepseek-ai/dsh-tui'
 
@@ -51,6 +51,8 @@ export interface Config {
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
+  /** Cross-session reference discovery and snapshot byte budgets. */
+  sessionReferences?: SessionReferenceConfig
   /** TUI subtitle rendered on start. Defaults to `ready.`. */
   welcome?: string
   /** Full-screen TUI presentation settings. */
@@ -83,6 +85,7 @@ export const Config: z<Config> = z.object({
   dshHome: z.string(),
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
   persistenceCompression: JsonlCompressionSchema,
+  sessionReferences: SessionReferenceService.Config,
   welcome: z.string().default(DEFAULT_WELCOME),
   ui: uiTui.TuiConfigSchema,
   skills: agentCore.SkillConfigSchema,
@@ -112,7 +115,7 @@ export function composeTuiApp(ctx: Context, config: Config): void {
     ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
   })
   ctx.plugin(SessionQueryService)
-  ctx.plugin(SessionReferenceService)
+  ctx.plugin(SessionReferenceService, config.sessionReferences ?? {})
   ctx.plugin(UserInteractionService)
   ctx.plugin(uiTui, {
     ...config.ui,

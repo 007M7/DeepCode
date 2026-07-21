@@ -23,7 +23,7 @@ import SessionPersistenceJsonl, {
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import SessionQueryService from '@deepseek-ai/dsh-session-query'
-import SessionReferenceService from '@deepseek-ai/dsh-session-reference'
+import SessionReferenceService, { type Config as SessionReferenceConfig } from '@deepseek-ai/dsh-session-reference'
 
 export const name = 'acp-demo'
 const DEFAULT_PERSISTENCE_ROOT = './.sessions'
@@ -56,6 +56,8 @@ export interface Config {
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
+  /** Cross-session reference discovery and snapshot byte budgets. */
+  sessionReferences?: SessionReferenceConfig
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
@@ -86,6 +88,7 @@ export const Config: z<Config> = z.object({
   dshHome: z.string(),
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
   persistenceCompression: JsonlCompressionSchema,
+  sessionReferences: SessionReferenceService.Config,
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
@@ -107,12 +110,16 @@ export function apply(ctx: Context, config: Config): void {
   ctx.plugin(CommandService)
   if (goals !== false) ctx.plugin(commandGoal)
   ctx.plugin(agentCore, { ...agentCore.pickSpineConfig(config), goals })
+  // This front door owns the same persistence/reference cluster as the TUI;
+  // extracting these few calls would introduce a shared app-composition facade.
+  /* jscpd:ignore-start */
   ctx.plugin(UserInteractionService)
   ctx.plugin(SessionPersistenceJsonl, {
     root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
     ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
   })
   ctx.plugin(SessionQueryService)
-  ctx.plugin(SessionReferenceService)
+  ctx.plugin(SessionReferenceService, config.sessionReferences ?? {})
+  /* jscpd:ignore-end */
   ctx.plugin(acp, { provider: config.provider, model: config.model })
 }

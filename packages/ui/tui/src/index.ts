@@ -202,6 +202,11 @@ function displayText(text: string): string {
     `\\x${control.charCodeAt(0).toString(16).padStart(2, '0')}`)
 }
 
+/** Escape external controls for terminal fields that must remain on one line. */
+function displayInlineText(text: string): string {
+  return displayText(text).replaceAll('\n', '\\x0a')
+}
+
 /**
  * Theme-agnostic palette built from the standard 16-color ANSI set plus SGR
  * attributes, which every terminal remaps to its active color scheme. Body
@@ -827,17 +832,20 @@ class SessionAutocompleteProvider implements AutocompleteProvider {
     if (token === undefined) return basePromise
     let candidates
     try {
-      candidates = await this.sessions.listCandidates(this.agent, token.slice(1))
+      candidates = await this.sessions.listCandidates(this.agent, token.slice(1), undefined, options.signal)
     } catch {
       return basePromise
     }
     const base = await basePromise
     if (options.signal.aborted) return base
-    const items: AutocompleteItem[] = candidates.map(candidate => ({
-      value: formatSessionReferenceMention({ sessionId: candidate.sessionId, label: candidate.label }),
-      label: `Session · ${candidate.sessionId}`,
-      description: `${candidate.cwd ?? '(no cwd)'} · ${new Date(candidate.createdAt).toISOString()}`,
-    }))
+    const items: AutocompleteItem[] = candidates.map((candidate) => {
+      const mentionLabel = displayInlineText(candidate.label)
+      return {
+        value: formatSessionReferenceMention({ sessionId: candidate.sessionId, label: mentionLabel }),
+        label: `Session · ${displayInlineText(candidate.sessionId)}`,
+        description: `${candidate.cwd === undefined ? '(no cwd)' : displayInlineText(candidate.cwd)} · ${new Date(candidate.createdAt).toISOString()}`,
+      }
+    })
     if (items.length === 0) return base
     return { items: [...items, ...(base?.items ?? [])], prefix: token }
   }

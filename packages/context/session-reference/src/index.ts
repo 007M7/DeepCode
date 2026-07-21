@@ -102,15 +102,22 @@ export class SessionReferenceService extends Service {
    * @param agent - target agent; self is excluded and its cwd drives ranking.
    * @param query - optional case-insensitive session-id/cwd substring.
    * @param limit - optional positive result cap.
+   * @param signal - optional cancellation boundary for host autocomplete teardown.
    * @returns candidate records in stable source creation order within each rank.
    */
-  async listCandidates(agent: Agent, query = '', limit = this.config.candidateLimit): Promise<SessionReferenceCandidate[]> {
+  async listCandidates(
+    agent: Agent,
+    query = '',
+    limit = this.config.candidateLimit,
+    signal?: AbortSignal,
+  ): Promise<SessionReferenceCandidate[]> {
     if (!Number.isSafeInteger(limit) || limit <= 0) {
       throw new SessionReferenceError('candidate limit must be a positive safe integer', 'SESSION_REFERENCE_INVALID_REFERENCE')
     }
     const needle = query.toLocaleLowerCase()
     const targetCwd = agent.session.header.cwd
-    const records = (await this.ctx.sessionQuery.listSessions())
+    assertNotCancelled(signal)
+    const records = (await settleWithCancellation(this.ctx.sessionQuery.listSessions(), signal))
       .filter(record => record.header.id !== agent.id)
       .filter((record) => {
         if (needle === '') return true
@@ -149,10 +156,13 @@ export class SessionReferenceService extends Service {
     assertNotCancelled(signal)
     let prepared: PreparedSource[]
     try {
-      prepared = await Promise.all(inputs.map(async input => ({
-        input,
-        snapshot: await this.ctx.sessionQuery.readSurface(input.sessionId),
-      })))
+      prepared = await settleWithCancellation(
+        Promise.all(inputs.map(async input => ({
+          input,
+          snapshot: await this.ctx.sessionQuery.readSurface(input.sessionId),
+        }))),
+        signal,
+      )
     } catch (error: unknown) {
       if (signal?.aborted === true) throw cancelled(signal)
       throw new SessionReferenceError(
@@ -256,6 +266,25 @@ function candidateRank(candidateCwd: string | undefined, targetCwd: string | und
 
 function assertNotCancelled(signal: AbortSignal | undefined): void {
   if (signal?.aborted === true) throw cancelled(signal)
+}
+
+function settleWithCancellation<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return work
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => { reject(cancelled(signal)) }
+    signal.addEventListener('abort', onAbort, { once: true })
+    void work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      },
+    )
+    if (signal.aborted) onAbort()
+  })
 }
 
 function cancelled(signal: AbortSignal): SessionReferenceError {
