@@ -40,6 +40,8 @@ const CHECKPOINTS = [
   'surface-before-compaction',
   'surface-after-compaction-narrow',
   'surface-after-compaction-wide',
+  'model-selector',
+  'model-switching',
   'errors-and-help',
   'disposed-terminal',
 ] as const
@@ -201,6 +203,8 @@ describe('TUI terminal-state snapshots', () => {
   it('pins an in-flight reasoning and Markdown stream', async () => {
     const harness = await setupSnapshot()
     await renderAfter(harness, () => {
+      harness.agent.status = 'running'
+      harness.ctx.emit('agent/status', harness.agent, 'running')
       appendUser(harness.session, 'Show the live update.')
       harness.session.append('assistant/chunk', {
         turn: 2,
@@ -463,25 +467,29 @@ describe('TUI terminal-state snapshots', () => {
     const harness = await setupSnapshot({
       config: {
         maxQuestionOptions: 3,
-        questionDialogWidth: 48,
+        questionDialogWidth: 200,
         questionDialogMaxHeight: 16,
       },
     }, { columns: 56, rows: 20 })
     const controller = new AbortController()
     const beforeQuestion = harness.terminal.frames
     const answer = harness.ctx.userInteraction.ask({
-      questions: [{
-        id: 'coverage',
-        header: 'Coverage',
-        question: 'Which advanced TUI states belong in the required matrix?',
-        multiSelect: true,
-        options: [
-          { label: 'Code Mode', description: 'run_code programs and captured output' },
-          { label: 'Workflows', description: 'phases and parallel agents' },
-          { label: 'Cordis tools', description: 'inspect, mount, and unmount' },
-          { label: 'Compaction', description: 'surface replacement and reflow' },
-        ],
-      }],
+      questions: [
+        {
+          id: 'coverage',
+          header: 'Coverage',
+          question: 'Which advanced TUI states belong in the required matrix?',
+          multiSelect: true,
+          options: [
+            { label: 'Code Mode', description: 'run_code programs and captured output' },
+            { label: 'Workflows', description: 'phases and parallel agents' },
+            { label: 'Cordis tools', description: 'inspect, mount, and unmount' },
+            { label: 'Compaction', description: 'surface replacement and reflow' },
+          ],
+        },
+        { id: 'priority', question: 'Which state should be implemented first?' },
+        { id: 'notes', question: 'Any additional constraints?' },
+      ],
       signal: controller.signal,
     })
     const rejected = expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
@@ -568,6 +576,21 @@ describe('TUI terminal-state snapshots', () => {
     await checkpoint('disposed-terminal', harness.terminal, { includeScrollback: true })
     await harness.ctx.fiber.dispose()
     await harness.terminal.dispose()
+  })
+
+  it('pins the model selector and selection notice', async () => {
+    const harness = await setupSnapshot({}, { columns: 92, rows: 32 })
+    await renderAfter(harness, () => {
+      harness.terminal.send('/model')
+      harness.terminal.send('\r')
+    })
+    await checkpoint('model-selector', harness.terminal, { includeScrollback: true })
+    await renderAfter(harness, () => {
+      harness.terminal.send('\x1b[B')
+      harness.terminal.send('\r')
+    })
+    await checkpoint('model-switching', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
   })
 })
 

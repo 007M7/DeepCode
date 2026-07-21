@@ -44,6 +44,9 @@
 - id: web-fetch-local
   name: '@deepseek-ai/dsh-web-fetch-local'
 
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
 # The app bundle pre-creates the self-referential demo's `main` agent.
 - id: tui-agent
   name: '@deepseek-ai/dsh-tui-demo'

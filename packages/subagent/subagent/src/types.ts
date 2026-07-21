@@ -56,7 +56,10 @@ export interface SubagentStartRequest {
    * The spawning ("parent") agent — the one whose tool call started this
    * subagent. REQUIRED: in-process backends read `parent.session.header` for
    * the working directory, the `parentSession` lineage to stamp on the child,
-   * and the parent's delegation depth. Out-of-process backends (ACP) ignore it.
+   * and the parent's delegation depth. The out-of-process backend (ACP) reads
+   * exactly one field — the session header's cwd, the child's workspace when
+   * no deployment `cwd` override is configured; nothing else crosses the
+   * process boundary.
    */
   readonly parent: Agent
   /**

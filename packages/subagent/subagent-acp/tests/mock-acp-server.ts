@@ -15,6 +15,11 @@
  *                        `dispose()` must still kill the process.
  * - `MOCK_PERMISSION`  — if `1`, the agent calls `session/request_permission`
  *                        before answering, to exercise the client's auto-answer.
+ * - `MOCK_ECHO_CWD`    — if `1`, ignore MOCK_TEXT and stream two lines instead:
+ *                        the agent PROCESS's `process.cwd()` and the `cwd` the
+ *                        client announced in `session/new` — so a test can assert
+ *                        where the child actually ran and what workspace it was
+ *                        told it has.
  * - `MOCK_READY_FILE`  — if set, the path the agent touches once its `prompt`
  *                        handler is in flight (it has streamed its chunk). A test
  *                        polls for this file to cancel on a CONDITION rather than
@@ -63,6 +68,7 @@ import {
 } from '@agentclientprotocol/sdk'
 
 const TEXT = process.env.MOCK_TEXT ?? 'mock child answer'
+const ECHO_CWD = process.env.MOCK_ECHO_CWD === '1'
 const STOP = (process.env.MOCK_STOP ?? 'end_turn') as StopReason
 const HANG = process.env.MOCK_HANG === '1'
 const WANT_PERMISSION = process.env.MOCK_PERMISSION === '1'
@@ -83,6 +89,8 @@ function makeAgent(conn: AgentSideConnection): Agent {
   // Pending cancel resolver for the HANG path: a `session/cancel` resolves the
   // prompt with `cancelled`.
   let resolveCancel: ((reason: StopReason) => void) | undefined
+  // The cwd the client announced in `session/new`, echoed under MOCK_ECHO_CWD.
+  let sessionCwd: string | undefined
 
   return {
     initialize(_params: InitializeRequest): Promise<InitializeResponse> {
@@ -92,7 +100,8 @@ function makeAgent(conn: AgentSideConnection): Agent {
         authMethods: [],
       })
     },
-    async newSession(_params: NewSessionRequest): Promise<NewSessionResponse> {
+    async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+      sessionCwd = params.cwd
       // Optionally signal "newSession reached" and block until released, so a
       // test can cancel DURING newSession (the early-cancel race window) on a
       // condition rather than a timeout.
@@ -136,10 +145,14 @@ function makeAgent(conn: AgentSideConnection): Agent {
           update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'thinking…' } },
         })
       }
-      // Stream the canned assistant text as one chunk.
+      // Stream the canned assistant text as one chunk (or, under MOCK_ECHO_CWD,
+      // the observable process cwd + announced session cwd).
       await conn.sessionUpdate({
         sessionId: params.sessionId,
-        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: TEXT } },
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: ECHO_CWD ? `${process.cwd()}\n${sessionCwd ?? ''}` : TEXT },
+        },
       })
       // Signal "prompt is in flight" by touching the readiness file, so a test
       // can wait on a CONDITION (file exists) rather than an arbitrary timeout
