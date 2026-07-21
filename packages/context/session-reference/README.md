@@ -18,12 +18,11 @@ The context source is `{ kind: 'plugin', plugin: 'session-reference' }`. Its met
 
 | Key | Default | Contract |
 |---|---:|---|
-| `maxReferences` | `3` | Maximum distinct source sessions in one prepared message. |
+| `maxReferences` | `3` | Maximum distinct source sessions in one prepared message; must be at most `3`. |
 | `candidateLimit` | `50` | Default metadata candidate count returned to a host. |
 | `maxReferenceBytes` | `65536` | Maximum serialized JSON bytes for one reference object. |
-| `maxTotalBytes` | `196608` | Maximum complete prompt bytes, including fixed warning and tags. |
 
-Retention keeps compact checkpoints and the newest message before dropping older non-checkpoint units. Oversized retained text uses `dsh-retention` head/tail truncation with an exact UTF-8 omission notice. The total budget is applied to the complete rendered prompt, including escaped JSON and fixed warning text; a snapshot whose fixed data cannot fit fails with `SESSION_REFERENCE_BUDGET_EXCEEDED`.
+Retention applies `maxReferenceBytes` independently to each source, keeps compact checkpoints and the newest message before dropping older non-checkpoint units, and uses `dsh-retention` head/tail truncation with an exact UTF-8 omission notice. If one source's fixed serialized fields cannot fit, preparation fails with `SESSION_REFERENCE_BUDGET_EXCEEDED` instead of returning a partial context.
 
 ## Model Experience
 
@@ -35,7 +34,7 @@ The model sees the current message's readable `@label` plus one same-level user-
 
 #### Token effect
 
-Each referenced message adds the fixed warning plus the retained serialized snapshots, bounded by `maxReferenceBytes` and `maxTotalBytes`. The exact snapshot remains in target history until target compaction shadows or summarizes it; source-session changes add no further tokens.
+Each referenced message adds the fixed warning plus up to three serialized snapshots, each independently bounded by `maxReferenceBytes`. The exact snapshot remains in target history until target compaction shadows or summarizes it; source-session changes add no further tokens.
 
 #### KV Cache effect
 

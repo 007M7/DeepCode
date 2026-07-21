@@ -870,18 +870,16 @@ Requires: `sessionQuery`
 ```ts config-catalog
 /** Session-reference service configuration. */
 export interface Config {
-  /** Maximum distinct source sessions referenced by one message. */
+  /** Maximum distinct source sessions referenced by one message, from one to three. */
   maxReferences?: number
   /** Default host candidate-list limit. */
   candidateLimit?: number
   /** Maximum rendered UTF-8 bytes for one source snapshot. */
   maxReferenceBytes?: number
-  /** Maximum rendered UTF-8 bytes for the complete injected prompt. */
-  maxTotalBytes?: number
 }
 ```
 
-Source: [`packages/context/session-reference/src/config.ts:13`](../packages/context/session-reference/src/config.ts)
+Source: [`packages/context/session-reference/src/config.ts:11`](../packages/context/session-reference/src/config.ts)
 
 ## `@deepseek-ai/dsh-skill`
 

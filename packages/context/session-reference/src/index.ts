@@ -13,9 +13,8 @@ import type { JsonValue, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionSurfaceSnapshot } from '@deepseek-ai/dsh-session-query'
 import {
   DEFAULT_CANDIDATE_LIMIT,
-  DEFAULT_MAX_REFERENCES,
   DEFAULT_MAX_REFERENCE_BYTES,
-  DEFAULT_MAX_TOTAL_BYTES,
+  MAX_REFERENCES,
   SessionReferenceError,
   type Config,
 } from './config.ts'
@@ -27,9 +26,8 @@ export type * from './types.ts'
 export type { Config, SessionReferenceErrorCode } from './config.ts'
 export {
   DEFAULT_CANDIDATE_LIMIT,
-  DEFAULT_MAX_REFERENCES,
   DEFAULT_MAX_REFERENCE_BYTES,
-  DEFAULT_MAX_TOTAL_BYTES,
+  MAX_REFERENCES,
   SessionReferenceError,
 } from './config.ts'
 export {
@@ -71,10 +69,9 @@ interface RenderedSource {
 export class SessionReferenceService extends Service {
   static inject = ['sessionQuery']
   static Config: z<Config> = z.object({
-    maxReferences: z.number().step(1).min(1).default(DEFAULT_MAX_REFERENCES),
+    maxReferences: z.number().step(1).min(1).max(MAX_REFERENCES).default(MAX_REFERENCES),
     candidateLimit: z.number().step(1).min(1).default(DEFAULT_CANDIDATE_LIMIT),
     maxReferenceBytes: z.number().step(1).min(1).default(DEFAULT_MAX_REFERENCE_BYTES),
-    maxTotalBytes: z.number().step(1).min(1).default(DEFAULT_MAX_TOTAL_BYTES),
   })
 
   private readonly config: Required<Config>
@@ -82,10 +79,9 @@ export class SessionReferenceService extends Service {
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'sessionReferences')
     this.config = {
-      maxReferences: config.maxReferences ?? DEFAULT_MAX_REFERENCES,
+      maxReferences: config.maxReferences ?? MAX_REFERENCES,
       candidateLimit: config.candidateLimit ?? DEFAULT_CANDIDATE_LIMIT,
       maxReferenceBytes: config.maxReferenceBytes ?? DEFAULT_MAX_REFERENCE_BYTES,
-      maxTotalBytes: config.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES,
     }
     for (const [name, value] of Object.entries(this.config)) {
       if (!Number.isSafeInteger(value) || value <= 0) {
@@ -94,6 +90,12 @@ export class SessionReferenceService extends Service {
           'SESSION_REFERENCE_INVALID_CONFIG',
         )
       }
+    }
+    if (this.config.maxReferences > MAX_REFERENCES) {
+      throw new SessionReferenceError(
+        `session-reference: maxReferences must not exceed ${MAX_REFERENCES}`,
+        'SESSION_REFERENCE_INVALID_CONFIG',
+      )
     }
   }
 
@@ -173,7 +175,7 @@ export class SessionReferenceService extends Service {
     }
     assertNotCancelled(signal)
 
-    const rendered = this.fitTotalBudget(prepared)
+    const rendered = this.renderSources(prepared)
     const prompt = renderPrompt(rendered.map(source => source.data))
     const meta = {
       kind: 'session-reference',
@@ -194,32 +196,19 @@ export class SessionReferenceService extends Service {
     return { content: acceptedContent, contexts: [context] }
   }
 
-  private fitTotalBudget(sources: readonly PreparedSource[]): RenderedSource[] {
-    let low = 1
-    let high = this.config.maxReferenceBytes
-    let best: RenderedSource[] | undefined
-    while (low <= high) {
-      const cap = Math.floor((low + high) / 2)
-      const candidate = sources.map(source => retainReferencedSession(source.snapshot, source.input.label, cap))
-      if (candidate.some(source => source === undefined)) {
-        low = cap + 1
-        continue
+  private renderSources(sources: readonly PreparedSource[]): RenderedSource[] {
+    const rendered: RenderedSource[] = []
+    for (const source of sources) {
+      const retained = retainReferencedSession(source.snapshot, source.input.label, this.config.maxReferenceBytes)
+      if (retained === undefined) {
+        throw new SessionReferenceError(
+          'referenced session snapshot cannot fit the configured byte budget',
+          'SESSION_REFERENCE_BUDGET_EXCEEDED',
+        )
       }
-      const rendered = candidate as RenderedSource[]
-      if (Buffer.byteLength(renderPrompt(rendered.map(source => source.data)), 'utf8') <= this.config.maxTotalBytes) {
-        best = rendered
-        low = cap + 1
-      } else {
-        high = cap - 1
-      }
+      rendered.push(retained)
     }
-    if (best === undefined) {
-      throw new SessionReferenceError(
-        'referenced session snapshot cannot fit the configured byte budgets',
-        'SESSION_REFERENCE_BUDGET_EXCEEDED',
-      )
-    }
-    return best
+    return rendered
   }
 }
 

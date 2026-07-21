@@ -358,8 +358,8 @@ describe('session reference discovery and preparation', () => {
       .rejects.toThrow(expectCode('SESSION_REFERENCE_CANCELLED'))
   })
 
-  it('retains compact checkpoints and latest messages within exact UTF-8 budgets', async () => {
-    const ctx = await harness({ maxReferenceBytes: 360, maxTotalBytes: 650 })
+  it('retains compact checkpoints and latest messages within an exact per-reference UTF-8 budget', async () => {
+    const ctx = await harness({ maxReferenceBytes: 360 })
     const target = ctx.sessions.create(SessionId('target'))
     const source = ctx.sessions.create(SessionId('source'))
     appendConversation(source)
@@ -377,7 +377,6 @@ describe('session reference discovery and preparation', () => {
     const prepared = await ctx.sessionReferences.prepare(fakeAgent(target), [{ type: 'text', text: 'go' }], [{ sessionId: source.id }])
     const context = prepared.contexts[0]
     if (context?.content[0]?.type !== 'text') throw new Error('expected text context')
-    expect(Buffer.byteLength(context.content[0].text, 'utf8')).toBeLessThanOrEqual(650)
     const data = promptData(context.content[0].text) as unknown[]
     expect(Buffer.byteLength(stringifyTagSafeJson(data[0]), 'utf8')).toBeLessThanOrEqual(360)
     expect(context.content[0].text).toContain('checkpoint')
@@ -386,8 +385,41 @@ describe('session reference discovery and preparation', () => {
     expect(context.meta).toMatchObject({ references: [{ truncated: true, compacted: true }] })
   })
 
+  it('applies the full byte limit independently to each of three references', async () => {
+    const maxReferenceBytes = 360
+    const ctx = await harness({ maxReferenceBytes })
+    const target = ctx.sessions.create(SessionId('target'))
+    const sources = ['one', 'two', 'three'].map((id) => {
+      const source = ctx.sessions.create(SessionId(id))
+      source.append(
+        'user/message',
+        { content: [{ type: 'text', text: `${id}-${'界'.repeat(400)}` }], source: COMPACT_CHECKPOINT_SOURCE },
+        { surfaceOp: 'append' },
+      )
+      source.append(
+        'user/message',
+        { content: [{ type: 'text', text: `${id}-tail` }], source: { kind: 'user' } },
+        { surfaceOp: 'append' },
+      )
+      return source
+    })
+
+    const prepared = await ctx.sessionReferences.prepare(
+      fakeAgent(target),
+      [{ type: 'text', text: 'go' }],
+      sources.map(source => ({ sessionId: source.id })),
+    )
+    const context = prepared.contexts[0]
+    if (context?.content[0]?.type !== 'text') throw new Error('expected text context')
+    const data = promptData(context.content[0].text) as unknown[]
+    const sizes = data.map(source => Buffer.byteLength(stringifyTagSafeJson(source), 'utf8'))
+    expect(sizes).toHaveLength(3)
+    expect(sizes.every(size => size <= maxReferenceBytes)).toBe(true)
+    expect(sizes.reduce((sum, size) => sum + size, 0)).toBeGreaterThan(maxReferenceBytes * 2)
+  })
+
   it('fails without producing a partial context when fixed prompt data cannot fit', async () => {
-    const ctx = await harness({ maxReferenceBytes: 16, maxTotalBytes: 32 })
+    const ctx = await harness({ maxReferenceBytes: 16 })
     const target = ctx.sessions.create(SessionId('target'))
     const source = ctx.sessions.create(SessionId('source'))
     await expect(ctx.sessionReferences.prepare(fakeAgent(target), [{ type: 'text', text: 'go' }], [{ sessionId: source.id }]))
@@ -452,6 +484,12 @@ describe('session reference discovery and preparation', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionQueryService)
     expect(() => new SessionReferenceService(ctx, { maxReferences: 0 }))
+      .toThrow(expectCode('SESSION_REFERENCE_INVALID_CONFIG'))
+
+    const oversizedCtx = new Context()
+    await oversizedCtx.plugin(SessionStore)
+    await oversizedCtx.plugin(SessionQueryService)
+    expect(() => new SessionReferenceService(oversizedCtx, { maxReferences: 4 }))
       .toThrow(expectCode('SESSION_REFERENCE_INVALID_CONFIG'))
 
     const defaultCtx = new Context()

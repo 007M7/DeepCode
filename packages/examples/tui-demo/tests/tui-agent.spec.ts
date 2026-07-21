@@ -36,7 +36,6 @@ describe('dsh-tui-demo app', () => {
         maxReferences: 2,
         candidateLimit: 7,
         maxReferenceBytes: 1234,
-        maxTotalBytes: 2345,
       },
       welcome: 'TUI ready',
       ui: { color: false, maxToolOutputLines: 3 },
@@ -63,7 +62,6 @@ describe('dsh-tui-demo app', () => {
       maxReferences: 2,
       candidateLimit: 7,
       maxReferenceBytes: 1234,
-      maxTotalBytes: 2345,
     })
     const tuiConfig = calls[6]?.config as { sessionId: string }
     expect(tuiConfig).toMatchObject({ welcome: 'TUI ready', color: false, maxToolOutputLines: 3 })
