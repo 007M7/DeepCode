@@ -101,6 +101,6 @@ buffer
   style 1-1 inverse
 45| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-46| "/workspace/project  ↑3.5k ↓227          idle  reasoning:on  tools:compact"
-  style 0-56 dim
-  style 67-99 dim
+46| "/tmp/dsh-tui-snapshot-dynamic  ↑3.5k ↓227 3% context  tools:compact  deepseek-v4-flash(reasoning:on)"
+  style 0-28 dim
+  style 42-99 dim

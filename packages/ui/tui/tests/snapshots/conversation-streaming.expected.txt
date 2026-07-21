@@ -1,5 +1,5 @@
 terminal 96x36 buffer=normal length=36 base=0 viewport=0
-lifecycle started=1 stopped=0 progress=inactive
+lifecycle started=1 stopped=0 progress=active
 title "DSH snapshot"
 cursor hidden column=1 viewportRow=17 bufferRow=17
 viewport
@@ -41,12 +41,12 @@ viewport
 15| " Streaming visible state…                                                                       "
   style 11-23 bold
 16| "────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-95 dim
+  style 0-95 fg=bright-blue
 17| "                                                                                                "
   style 1-1 inverse
 18| "────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-95 dim
-19| "/workspace/project  ↑0 ↓0                                      idle  reasoning:on  tools:compact"
-  style 0-24 dim
-  style 63-95 dim
+  style 0-95 fg=bright-blue
+19| "◒ Working · 0s                                                                     esc interrupt"
+  style 0-13 fg=bright-blue
+  style 83-95 dim
 20-35| <blank>
