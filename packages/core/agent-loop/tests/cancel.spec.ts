@@ -7,7 +7,7 @@
  * @module dsh-agent-loop/tests/cancel
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -55,6 +55,33 @@ function userTexts(agent: Agent): string[] {
 }
 
 describe('Agent.cancel()', () => {
+  it('notifies every observer before clearing work and contains listener failures', async () => {
+    const adapter = new MockAdapter([textResponse('must remain unused')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('cancel-event'), { provider: 'mock', model: 'mock' })
+    const warned = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const seen: string[] = []
+    ctx.on('agent/cancel-requested', (subject, reason) => {
+      if (subject !== agent) return
+      seen.push(`first:${reason}`)
+      subject.send([{ type: 'text', text: 'queued by cancel observer' }])
+      throw new Error('observer failed')
+    })
+    ctx.on('agent/cancel-requested', (subject, reason) => {
+      if (subject === agent) seen.push(`second:${reason}`)
+    })
+
+    send(agent, 'drop me')
+    agent.cancel()
+    await new Promise(resolve => setTimeout(resolve, 30))
+    agent.cancel('idle no-op')
+
+    expect(seen).toEqual(['first:cancelled', 'second:cancelled'])
+    expect(userTexts(agent)).toEqual([])
+    expect(adapter.requests).toHaveLength(0)
+    expect(warned).toHaveBeenCalledWith(expect.stringContaining('agent/cancel-requested'))
+  })
+
   it('cancel() on an idle agent with nothing queued is a no-op; the next prompt runs (F2 leak guard)', async () => {
     const adapter = new MockAdapter([textResponse('reply')])
     const ctx = await harness(adapter)

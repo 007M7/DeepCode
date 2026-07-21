@@ -80,6 +80,11 @@
 - id: tool-workflow
   name: '@deepseek-ai/dsh-tool-workflow'
 
+# A separate fixed consumer demonstrates fresh-agent Ralph iteration without
+# changing the workflow tool or same-session goal behavior.
+- id: tool-ralph
+  name: '@deepseek-ai/dsh-tool-ralph'
+
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
 

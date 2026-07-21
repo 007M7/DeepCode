@@ -7,7 +7,7 @@
 
 import type { Context } from 'cordis'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import type { ContentBlock, LlmCallConfig, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, LlmCallConfig, LlmFailure, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
@@ -25,7 +25,10 @@ export interface AgentOptions {
   model?: string
 }
 
-/** Message options; an omitted source resolves to `{ kind: 'user' }`, so plugins must label their own content. */
+/**
+ * Message options. An omitted source attests direct human input as `{ kind: 'user' }`
+ * and may authorize policy consumers, so non-human producers must label their content.
+ */
 export interface SendOptions {
   source?: MessageSource
 }
@@ -122,10 +125,10 @@ export interface Agent {
 
   /**
    * Clear all queued and steering work, including items waiting to start, and
-   * abort the active step. The supplied reason is preserved across pre-step
-   * and active cancellation windows, and `whenIdle()` resolves after
-   * cancellation reaches quiescence. Idle cancellation is a no-op and does not
-   * arm a later cancel.
+   * abort the active step. An effective call first emits `agent/cancel-requested`
+   * with the resolved reason. That reason is preserved across pre-step and active
+   * cancellation windows, and `whenIdle()` resolves after cancellation reaches
+   * quiescence. Idle cancellation is a no-op and does not arm a later cancel.
    */
   cancel(reason?: string): void
 
@@ -176,6 +179,16 @@ declare module 'cordis' {
      * @mode emit
      */
     'agent/queued'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
+    /**
+     * Effective broad cancellation was requested, before queued/steering work
+     * is cleared or the active step is aborted. This observe-only notification
+     * cannot veto cancellation; listener failures are contained.
+     * @param agent - the agent whose current work is being cancelled.
+     * @param reason - resolved cancellation reason, including the default.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode emit
+     */
+    'agent/cancel-requested'(this: Scoped<Agent>, agent: Agent, reason: string): void
 
     // ---- session lifecycle (emit) ----
     /**
@@ -273,12 +286,13 @@ declare module 'cordis' {
      * @param turn - the open turn number.
      * @param step - the failed step number.
      * @param error - the original model-request failure.
-     * @param retryAttempt - zero-based number of prior recovery retries.
+     * @param failure - serializable facts normalized at the final adapter boundary.
+     * @param priorFailures - immutable failures that already authorized another request in this consecutive sequence.
      * @param signal - the turn abort signal.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, retryAttempt: number, signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>
+    'agent/request-error'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>
     /**
      * Override whether the turn continues. The default continues after tool
      * calls or steering and stops otherwise; a continue reason becomes steering.

@@ -34,12 +34,12 @@ Unknown options, malformed arguments, unsupported schemas, tripped caps, provide
 
 ## Run sequence
 
-`start()` validates meta and parses the body, creates the worker, and returns a holder-owned `WorkflowRun`. Source mode installs TypeScript transforms through a data-URL bootstrap; built mode passes sibling `lib/worker.cjs` as a filesystem path because pkg's VFS hook expects CommonJS. Both work under ordinary Node. A ready/go handshake prevents a start-signal cancellation racing worker boot from executing the script's initial synchronous slice.
+`start()` validates meta, parses the body, resolves a registered normalized provider route, and resolves any per-run total-child cap before creating a worker or publishing `workflow/start`. A requested `maxTotalAgents` must be a positive safe integer no greater than the engine's configured deployment ceiling. Source mode installs TypeScript transforms through a data-URL bootstrap; built mode passes sibling `lib/worker.cjs` as a filesystem path because pkg's VFS hook expects CommonJS. Both work under ordinary Node. A ready/go handshake prevents a start-signal cancellation racing worker boot from executing the script's initial synchronous slice.
 
 For each `agent()` call:
 
 1. The worker sends `child-start` with a plain-data prompt and options.
-2. The host calls the configured provider through async `SubagentService.start`, passing the workflow's parent and one canonical per-run abort signal.
+2. The host calls the start request's provider override, or otherwise the configured provider, through async `SubagentService.start`, passing the workflow's parent and one canonical per-run abort signal. Provider choice applies to every child in that run and is not visible to the script.
 3. If start rejects, the host sends `child-start-error`; provider startup has already reached quiescence and no child lifecycle event is emitted.
 4. If start fulfills while the workflow still admits work, the host records the run, observes `result`, then sends `child-started`. Even an already-settled result is forwarded afterward, preserving start-before-result order.
 5. The worker emits paired `workflow/agent-start` and `workflow/agent-end` narration and requests child disposal after collection.
@@ -80,6 +80,8 @@ The host keeps a ledger of forwarded child starts. A graceful worker supplies th
 | `maxItemsPerCall` | `4096` | Items accepted by one `parallel()` or `pipeline()` call. |
 | `syncTimeoutMs` | `5000` | VM timeout for the script's initial synchronous slice. |
 | `disposeGraceMs` | `5000` | Bound before force-settlement/termination and for public disposal. |
+
+An owning consumer may set `WorkflowStartRequest.subagentProvider` and `WorkflowStartRequest.maxTotalAgents` for one run. These are engine-level policy, not script hooks or model-facing options; the ordinary `workflow` tool leaves both unset. A per-run total-child cap may lower but never raise the configured `maxTotalAgents` ceiling.
 
 ## Model Experience
 

@@ -86,8 +86,27 @@ describe('dsh-acp-demo composition', () => {
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('userInteraction')).toBeDefined()
     expect(ctx.get('tools')?.get('ask_user_question')).toBeUndefined()
+    expect(ctx.get('goals')).toBeDefined()
+    expect(ctx.get('tools')?.get('get_goal')).toBeDefined()
     // No pre-created agents — ACP session/new creates them on demand.
     expect(ctx.get('agents')!.list()).toHaveLength(0)
+    await ctx.fiber.dispose()
+  })
+
+  it('can explicitly omit the persisted-goal stack and its command', async () => {
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      goals: false,
+      workspaceContext: false,
+    })
+    expect(ctx.get('goals')).toBeUndefined()
+    const handle = await ctx.agents.create({
+      sessionId: 'disabled-goals' as import('@deepseek-ai/dsh-session').SessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    expect(ctx.commands.find(handle.agent, 'goal')).toBeUndefined()
+    await handle.dispose()
     await ctx.fiber.dispose()
   })
 
@@ -188,7 +207,17 @@ describe('dsh-acp-demo composition', () => {
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'skill', 'task_kill', 'task_list', 'task_output'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual([
+      'zulu',
+      'alpha',
+      'create_goal',
+      'get_goal',
+      'skill',
+      'task_kill',
+      'task_list',
+      'task_output',
+      'update_goal',
+    ])
     await ctx.fiber.dispose()
   })
 

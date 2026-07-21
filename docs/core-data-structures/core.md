@@ -18,6 +18,8 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [llm-streaming.md](llm-streaming.md) | the `StreamChunk` wire protocol + adapter contract, `BlockAssembler`, the `LlmAdapter` seam |
 | [token-meter.md](token-meter.md) | immutable scalar and positional replay measurements with consumed-log revisions |
 | [scope.md](scope.md) | scoped registration identity, dispatch carriers, and the owned `Scope` context |
+| [goal.md](goal.md) | persisted goal identity, lifecycle snapshots, activation, change records, and round attribution |
+| [commands.md](commands.md) | the human-command seam: definitions, adapter discovery, direct invocation, results, and parsing views |
 | [session.md](session.md) | the full `SessionEventMap` variant catalog, `TurnTrigger`/`TurnEndReason`, `deriveMessages()`, the turn-enclosure invariant |
 | [persistence.md](persistence.md) | the durability seam: `SessionPersistence`, JSONL + SQLite backends, `session/flush`, crash recovery, `SessionHeader` |
 | [session-query.md](session-query.md) | logical records, bounded exact-event reads, and relationship traces |
@@ -224,7 +226,7 @@ interface GenerateOptions {
 }
 ```
 
-Why a model response stopped is a merge-extensible reason:
+Why a model response stopped is a merge-extensible reason. Terminal provider failures carry the streaming contract's [`LlmFailure`](llm-streaming.md#llmfailure):
 
 ```ts type-equiv
 /**
@@ -235,8 +237,8 @@ interface FinishReasonMap {
   'stop': { kind: 'stop' }
   'tool-calls': { kind: 'tool-calls' }
   'max-tokens': { kind: 'max-tokens' }
-  'aborted': { kind: 'aborted' }
-  'error': { kind: 'error'; message: string; code?: string }
+  'aborted': { kind: 'aborted'; failure: LlmFailure }
+  'error': { kind: 'error'; failure: LlmFailure }
 }
 ```
 
@@ -388,10 +390,10 @@ interface Agent {
 
   /**
    * Clear all queued and steering work, including items waiting to start, and
-   * abort the active step. The supplied reason is preserved across pre-step
-   * and active cancellation windows, and `whenIdle()` resolves after
-   * cancellation reaches quiescence. Idle cancellation is a no-op and does not
-   * arm a later cancel.
+   * abort the active step. An effective call first emits `agent/cancel-requested`
+   * with the resolved reason. That reason is preserved across pre-step and active
+   * cancellation windows, and `whenIdle()` resolves after cancellation reaches
+   * quiescence. Idle cancellation is a no-op and does not arm a later cancel.
    */
   cancel(reason?: string): void
 
@@ -448,14 +450,14 @@ type ContinuationDecision =
   | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 ```
 
-`agent/request-error` receives the original `RequestError`, whose optional provider-neutral `code` supports stable routing without message parsing:
+`agent/request-error` receives the exact original `RequestError` beside its immutable `LlmFailure`, an immutable list of failures that already authorized another request in the consecutive sequence, the turn signal, and `next()`. Recovery plugins route on `failure.code`, not the live error's message; each policy counts only its own codes, and a successful request clears the history:
 
 ```ts type-equiv
 /** Model-request failure with an optional machine-routable provider code. */
 type RequestError = Error & { code?: string }
 ```
 
-It returns a `RequestErrorDecision`; `retry` opens a new numbered step after the recovery listener's durable mutation, while `fail` preserves that error:
+It returns a `RequestErrorDecision`; `retry` opens a new numbered step after the recovery listener's durable mutation, while `fail` retains the structured failure on `turn/end`:
 
 ```ts type-equiv
 /** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */

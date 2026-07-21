@@ -47,6 +47,8 @@ flowchart LR
   cfg --> plugin_acp_workflow_workerthread
   plugin_acp_tool_workflow["tool-workflow<br/>@deepseek-ai/dsh-tool-workflow"]
   cfg --> plugin_acp_tool_workflow
+  plugin_acp_tool_ralph["tool-ralph<br/>@deepseek-ai/dsh-tool-ralph"]
+  cfg --> plugin_acp_tool_ralph
   plugin_acp_tool_todo["tool-todo<br/>@deepseek-ai/dsh-tool-todo"]
   cfg --> plugin_acp_tool_todo
   plugin_acp_repeat_tool_guard["repeat-tool-guard<br/>@deepseek-ai/dsh-repeat-tool-guard"]
@@ -81,6 +83,7 @@ flowchart LR
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
 | `workflow-workerthread` | `@deepseek-ai/dsh-workflow-workerthread` |
 | `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
+| `tool-ralph` | `@deepseek-ai/dsh-tool-ralph` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
 | `repeat-tool-guard` | `@deepseek-ai/dsh-repeat-tool-guard` |
 | `fs-sandbox` | `@deepseek-ai/dsh-fs-sandbox` |

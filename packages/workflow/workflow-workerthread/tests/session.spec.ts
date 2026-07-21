@@ -392,6 +392,7 @@ describe('runWorkerSession over an in-process MessageChannel', () => {
     const result = await host.result()
     expect(result.stopReason).toBe('error')
     expect(result.error).toContain('total agent cap (2)')
+    expect(result.error).toContain('applicable maxTotalAgents limit')
     expect(result.agentsStarted).toBe(2)
     host.close()
   })
