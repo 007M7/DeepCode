@@ -96,6 +96,7 @@
     { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleSource", "source": "packages/session-title/session-title/src/index.ts" },
     { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleEventData", "source": "packages/session-title/session-title/src/index.ts" },
     { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleSnapshot", "source": "packages/session-title/session-title/src/index.ts" },
+    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleLlmRequestEventData", "source": "packages/session-title/session-title-llm/src/index.ts" },
     { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleUserMessage", "source": "packages/session-title/session-title/src/index.ts" },
     { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleAutomaticMode", "source": "packages/session-title/session-title/src/index.ts" },
     { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProviderRequest", "source": "packages/session-title/session-title/src/index.ts" },

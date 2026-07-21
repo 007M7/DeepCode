@@ -3,7 +3,7 @@
  * @module @deepseek-ai/dsh-session-title
  */
 
-import { Context, Service } from 'cordis'
+import { Context, FiberState, Service, type Fiber } from 'cordis'
 import z from 'schemastery'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
@@ -200,6 +200,8 @@ interface ResolvedConfig {
 /** One exact provider registration generation. */
 interface ProviderRegistration {
   readonly provider: SessionTitleProvider
+  readonly active: Set<Promise<unknown>>
+  closing: boolean
 }
 
 /** Automatic work waiting for the matching main-request header. */
@@ -239,11 +241,15 @@ export class SessionTitleService extends Service {
   })
 
   private readonly config: ResolvedConfig
+  private readonly ownerFiber: Fiber
   private registration: ProviderRegistration | undefined
   private readonly work = new Map<Session, SessionTitleWorkState>()
+  private readonly lifetime = new AbortController()
+  private readonly inFlight = new Set<Promise<unknown>>()
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'sessionTitle')
+    this.ownerFiber = ctx.fiber
     const candidate: unknown = config
     if (candidate === null || typeof candidate !== 'object') {
       throw new Error('session-title: configuration is required')
@@ -256,6 +262,18 @@ export class SessionTitleService extends Service {
       throw new Error('session-title: fallbackMaxBytes must not exceed maxTitleBytes')
     }
     this.config = deepFreeze({ ...value })
+
+    ctx.effect(() => async () => {
+      this.lifetime.abort(new Error('session-title service disposed'))
+      if (this.registration !== undefined) this.registration.closing = true
+      this.registration = undefined
+      for (const state of this.work.values()) {
+        delete state.pending
+        state.active?.controller.abort(new Error('session-title service disposed'))
+      }
+      await this.drain(this.inFlight)
+      this.work.clear()
+    }, 'sessionTitle lifecycle')
 
     ctx.on('session/event', (session, event) => {
       switch (event.type) {
@@ -295,15 +313,16 @@ export class SessionTitleService extends Service {
    */
   async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined> {
     signal?.throwIfAborted()
+    this.assertServiceActive()
     if (this.ctx.sessions.get(session.id) !== session) {
       throw new Error(`session "${session.id}" is not live in this store`)
     }
-    const fallback = await this.ensureFallback(session)
     const registration = this.registration
-    if (registration === undefined) return fallback
     const messages = collectSessionTitleMessages(session.events)
     const latest = messages.at(-1)
-    if (latest === undefined) return fallback
+    if (registration === undefined || registration.closing || latest === undefined) {
+      return this.ensureFallback(session)
+    }
     const state = this.stateFor(session)
     const revision = this.supersede(state, 'explicit title refresh superseded older generation')
     const work = this.activate({
@@ -313,42 +332,48 @@ export class SessionTitleService extends Service {
     }, state, signal)
     const config = session.requestHeader()?.config
     const route = config === undefined ? undefined : { provider: config.provider, model: config.model }
-    return this.runProvider(session, work, route)
+    return this.startProvider(session, work, route)
   }
 
   /**
    * Register the sole optional title provider. Disposal aborts its pending and
    * active work before another provider may register.
    * @param provider - provider identity, cadence, and generation function.
-   * @returns exact Cordis effect disposer for HMR-safe unregistration.
+   * @returns exact Cordis effect disposer, which settles after active calls quiesce.
    */
-  register(provider: SessionTitleProvider): () => void {
+  register(provider: SessionTitleProvider): () => Promise<void> {
     this.validateProvider(provider)
     if (this.registration !== undefined) {
       throw new Error(`session-title provider "${this.registration.provider.id}" is already registered`)
     }
     const registration: ProviderRegistration = {
       provider,
+      active: new Set(),
+      closing: false,
     }
     const dispose = this.ctx.effect(function* (this: SessionTitleService) {
       this.registration = registration
-      yield () => {
-        this.registration = undefined
+      yield async () => {
+        registration.closing = true
         for (const state of this.work.values()) {
-          delete state.pending
-          state.active?.controller.abort(new Error(`session-title provider "${provider.id}" was disposed`))
+          if (state.pending?.registration === registration) delete state.pending
+          if (state.active?.registration === registration) {
+            state.active.controller.abort(new Error(`session-title provider "${provider.id}" was disposed`))
+          }
         }
+        await this.drain(registration.active)
+        if (this.registration === registration) this.registration = undefined
       }
     }.bind(this), 'sessionTitle.register()')
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- exact effect disposer preserves owner teardown ordering
     return dispose
   }
 
   /** Schedule fallback creation and any provider cadence for one eligible event. */
   private onUserMessage(session: Session, event: Extract<SessionEvent, { type: 'user/message' }>): void {
+    if (!this.serviceActive()) return
     if (event.data.source.kind !== 'user' || collectSessionTitleMessages([event]).length === 0) return
     const registration = this.registration
-    if (registration !== undefined) {
+    if (registration !== undefined && !registration.closing) {
       const messages = collectSessionTitleMessages(session.events, event.seq)
       const shouldSchedule = registration.provider.automatic === 'all-user-messages'
         || (session.header.parentSession === undefined && messages.length === 1 && this.get(session) === undefined)
@@ -358,15 +383,19 @@ export class SessionTitleService extends Service {
         state.pending = { registration, revision, throughSeq: event.seq }
       }
     }
-    queueMicrotask(() => {
-      void this.ensureFallback(session).catch((error: unknown) => {
+    this.defer(async () => {
+      try {
+        await this.ensureFallback(session)
+      } catch (error: unknown) {
+        if (!this.serviceActive()) return
         this.ctx.logger.warn(`session "${session.id}": fallback title update failed: ${String(error)}`)
-      })
+      }
     })
   }
 
   /** Start pending automatic work only after its exact main-request route is logged. */
   private onRequestHeader(session: Session, event: Extract<SessionEvent, { type: 'request/header' }>): void {
+    if (!this.serviceActive()) return
     const state = this.work.get(session)
     const pending = state?.pending
     if (state === undefined || pending === undefined || pending.throughSeq >= event.seq) return
@@ -375,14 +404,29 @@ export class SessionTitleService extends Service {
       provider: event.data.header.config.provider,
       model: event.data.header.config.model,
     }
-    queueMicrotask(() => {
-      if (this.registration !== pending.registration || state.revision !== pending.revision) return
+    this.defer(async () => {
+      if (this.registration !== pending.registration
+        || pending.registration.closing
+        || this.work.get(session) !== state
+        || state.revision !== pending.revision) return
       const work = this.activate(pending, state)
-      void this.runProvider(session, work, route).catch((error: unknown) => {
-        if (work.signal.aborted) return
+      try {
+        await this.startProvider(session, work, route)
+      } catch (error: unknown) {
+        if (work.signal.aborted || !this.serviceActive()) return
         this.ctx.logger.warn(`session "${session.id}": automatic title generation failed: ${String(error)}`)
-      })
+      }
     })
+  }
+
+  /** Start one tracked provider call after publishing its active revision. */
+  private startProvider(
+    session: Session,
+    work: ActiveProviderWork,
+    route?: SessionTitleModelProvenance,
+  ): Promise<SessionTitleSnapshot | undefined> {
+    const run = Promise.resolve().then(() => this.runProvider(session, work, route))
+    return this.track(run, work.registration)
   }
 
   /** Execute and durably accept one current provider revision. */
@@ -392,6 +436,7 @@ export class SessionTitleService extends Service {
     route?: SessionTitleModelProvenance,
   ): Promise<SessionTitleSnapshot | undefined> {
     try {
+      this.assertCurrent(session, work)
       await this.ensureFallback(session)
       this.assertCurrent(session, work)
       const messages = collectSessionTitleMessages(session.events, work.throughSeq)
@@ -470,6 +515,7 @@ export class SessionTitleService extends Service {
 
   /** Fail a completion whose provider, revision, session, or signal is stale. */
   private assertCurrent(session: Session, work: ActiveProviderWork): void {
+    this.assertServiceActive()
     work.signal.throwIfAborted()
     const state = this.work.get(session)
     /* v8 ignore next -- every supported supersession, provider disposal, and session disposal aborts
@@ -490,8 +536,8 @@ export class SessionTitleService extends Service {
   ): ActiveProviderWork {
     const controller = new AbortController()
     const signal = upstream === undefined
-      ? controller.signal
-      : AbortSignal.any([controller.signal, upstream])
+      ? AbortSignal.any([controller.signal, this.lifetime.signal])
+      : AbortSignal.any([controller.signal, this.lifetime.signal, upstream])
     const work: ActiveProviderWork = { ...pending, controller, signal }
     state.active = work
     return work
@@ -515,6 +561,44 @@ export class SessionTitleService extends Service {
     return state
   }
 
+  /** Queue detached service work and retain it through service disposal. */
+  private defer(task: () => Promise<void>): void {
+    const run = Promise.resolve().then(async () => {
+      if (!this.serviceActive()) return
+      await task()
+    })
+    void this.track(run)
+  }
+
+  /** Retain one promise until settlement for service and optional provider teardown. */
+  private track<T>(run: Promise<T>, registration?: ProviderRegistration): Promise<T> {
+    this.inFlight.add(run)
+    registration?.active.add(run)
+    const settled = (): void => {
+      this.inFlight.delete(run)
+      registration?.active.delete(run)
+    }
+    void run.then(settled, settled)
+    return run
+  }
+
+  /** Await every current and settling promise in one lifecycle registry. */
+  private async drain(active: Set<Promise<unknown>>): Promise<void> {
+    while (active.size > 0) await Promise.allSettled([...active])
+  }
+
+  /** Whether the owning plugin fiber can still start or commit title work. */
+  private serviceActive(): boolean {
+    return !this.lifetime.signal.aborted
+      && this.ownerFiber.uid !== null
+      && this.ownerFiber.state === FiberState.ACTIVE
+  }
+
+  /** Reject work once the owning plugin fiber has begun unloading. */
+  private assertServiceActive(): void {
+    if (!this.serviceActive()) throw new Error('session-title service disposed')
+  }
+
   /** Reject malformed provider registrations before publishing an effect. */
   private validateProvider(provider: unknown): asserts provider is SessionTitleProvider {
     if (provider === null || typeof provider !== 'object') {
@@ -534,6 +618,7 @@ export class SessionTitleService extends Service {
 
   /** Create the first deterministic fallback if the session still lacks a title. */
   private async ensureFallback(session: Session): Promise<SessionTitleSnapshot | undefined> {
+    this.assertServiceActive()
     const current = this.get(session)
     if (current !== undefined) return current
     const [first] = collectSessionTitleMessages(session.events)

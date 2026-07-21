@@ -1,4 +1,4 @@
-import { Context } from 'cordis'
+import { Context, type Fiber } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionTitleService, {
@@ -162,6 +162,157 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
     expect(disposeSignal?.aborted).toBe(true)
   })
 
+  it('reserves overlapping refresh order before fallback durability settles', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionTitleService, CONFIG)
+    const seed = new Session(SessionId('refresh-order-seed'))
+    seed.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    const source = appendPrompt(seed, 'Keep the newest explicit refresh')
+    seed.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const session = ctx.sessions.create(SessionId('refresh-order'), { seed: seed.events })
+    const flushStarted = deferred<undefined>()
+    const releaseFlush = deferred<undefined>()
+    let flushCount = 0
+    ctx.on('session/flush', async (subject) => {
+      if (subject !== session || ++flushCount !== 1) return
+      flushStarted.resolve(undefined)
+      await releaseFlush.promise
+    })
+    const result = deferred<SessionTitleProviderResult>()
+    const requests: SessionTitleProviderRequest[] = []
+    ctx.sessionTitle.register({
+      id: SessionTitleProviderId('refresh-order'),
+      automatic: 'first-message',
+      generate(request) {
+        requests.push(request)
+        return result.promise
+      },
+    })
+
+    const older = ctx.sessionTitle.refresh(session)
+    const olderOutcome = older.then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    await flushStarted.promise
+    const newer = ctx.sessionTitle.refresh(session)
+    await settle()
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.signal.aborted).toBe(false)
+
+    releaseFlush.resolve(undefined)
+    await settle()
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.signal.aborted).toBe(false)
+    result.resolve({ title: 'Newest explicit title', messageSeqs: [source.seq] })
+    await expect(newer).resolves.toMatchObject({ title: 'Newest explicit title' })
+    const olderError = await olderOutcome
+    expect(olderError).toBeInstanceOf(Error)
+    if (!(olderError instanceof Error)) throw new Error('expected older refresh to reject')
+    expect(olderError.message).toMatch(/superseded/)
+  })
+
+  it('cancels a queued fallback when the session-title service unloads', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const lifecycle: { fiber?: Fiber; session?: Session; inactiveRefresh?: Promise<unknown> } = {}
+    ctx.on('internal/plugin', (subject) => {
+      if (subject !== lifecycle.fiber || subject.uid !== null || lifecycle.session === undefined) return
+      appendPrompt(lifecycle.session, 'Ignore reentrant disposal prompt')
+      lifecycle.session.append('request/header', {
+        header: { config: { provider: 'main', model: 'main' } },
+        reason: 'initial',
+      })
+      lifecycle.inactiveRefresh = ctx.sessionTitle.refresh(lifecycle.session).then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+    })
+    const fiber = await ctx.plugin(SessionTitleService, CONFIG)
+    lifecycle.fiber = fiber
+    const session = startSession(ctx, 'service-dispose-fallback')
+    lifecycle.session = session
+    appendPrompt(session, 'Do not publish after service disposal')
+
+    await fiber.dispose()
+    await settle()
+
+    expect(session.events.some(event => event.type === 'session/title')).toBe(false)
+    const inactiveError = await lifecycle.inactiveRefresh
+    expect(inactiveError).toBeInstanceOf(Error)
+    if (!(inactiveError instanceof Error)) throw new Error('expected inactive refresh to reject')
+    expect(inactiveError.message).toBe('session-title service disposed')
+  })
+
+  it('aborts pending and active provider work and drains ignored cancellation during service unload', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionTitleService, CONFIG)
+    const result = deferred<SessionTitleProviderResult>()
+    const requests: SessionTitleProviderRequest[] = []
+    ctx.sessionTitle.register({
+      id: SessionTitleProviderId('service-unload'),
+      automatic: 'all-user-messages',
+      generate(request) {
+        requests.push(request)
+        return result.promise
+      },
+    })
+    const active = startSession(ctx, 'service-unload-active')
+    const activeMessage = appendPrompt(active, 'Active provider work')
+    await settle()
+    const refresh = ctx.sessionTitle.refresh(active)
+    const refreshOutcome = refresh.then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    await settle()
+    expect(requests).toHaveLength(1)
+    const pending = startSession(ctx, 'service-unload-pending')
+    appendPrompt(pending, 'Pending provider work')
+
+    const disposal = fiber.dispose()
+    let disposed = false
+    void disposal.then(() => { disposed = true })
+    await settle()
+    expect(requests[0]?.signal.aborted).toBe(true)
+    expect(disposed).toBe(false)
+    result.resolve({ title: 'Ignored service abort', messageSeqs: [activeMessage.seq] })
+    await disposal
+
+    expect(disposed).toBe(true)
+    await expect(refreshOutcome).resolves.toEqual(expect.objectContaining({ message: 'session-title service disposed' }))
+  })
+
+  it('suppresses a queued fallback failure after service unload begins', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(SessionTitleService, CONFIG)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const session = startSession(ctx, 'service-unload-flush')
+    appendPrompt(session, 'Fallback whose flush outlives the service')
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const flushStarted = deferred<undefined>()
+    const releaseFlush = deferred<undefined>()
+    ctx.on('session/flush', async (subject) => {
+      if (subject !== session) return
+      flushStarted.resolve(undefined)
+      await releaseFlush.promise
+      throw new Error('flush failed during service unload')
+    })
+
+    await flushStarted.promise
+    const disposal = fiber.dispose()
+    releaseFlush.resolve(undefined)
+    await disposal
+
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   it('warns when a detached session prevents queued fallback publication', async () => {
     const ctx = await setup()
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
@@ -238,10 +389,13 @@ describe('SessionTitleService provider validation and stale scheduling', () => {
       header: { config: { provider: 'main', model: 'main' } },
       reason: 'initial',
     })
-    dispose()
+    const pending = startSession(ctx, 'pending-provider-dispose')
+    appendPrompt(pending, 'Drop pending provider work')
+    await dispose()
     await settle()
     expect(generate).not.toHaveBeenCalled()
     expect(ctx.sessionTitle.get(session)?.source.kind).toBe('fallback')
+    expect(ctx.sessionTitle.get(pending)?.source.kind).toBe('fallback')
   })
 
   it('rejects malformed provider results without replacing the fallback', async () => {

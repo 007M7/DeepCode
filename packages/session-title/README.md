@@ -5,7 +5,7 @@ Durable session-title state, one optional asynchronous provider seam, and two op
 | Package | Role | ctx key |
 |---|---|---|
 | [`session-title/`](session-title/README.md) | Log fold, deterministic fallback, provider registry, and refresh API | `ctx.sessionTitle` |
-| [`session-title-llm/`](session-title-llm/README.md) | Shared route, prompt, timeout, stream, and validation helper | — |
+| [`session-title-llm/`](session-title-llm/README.md) | Shared route, request logging, prompt, timeout, stream, and validation helper | — |
 | [`session-title-first-message-llm/`](session-title-first-message-llm/README.md) | Optional provider using the first eligible human message | registers on `ctx.sessionTitle` |
 | [`session-title-all-messages-llm/`](session-title-all-messages-llm/README.md) | Optional provider using every eligible human message | registers on `ctx.sessionTitle` |
 

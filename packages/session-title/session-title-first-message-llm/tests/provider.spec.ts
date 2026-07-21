@@ -40,7 +40,7 @@ describe('first-message LLM title provider', () => {
     let registered: SessionTitleProvider | undefined
     vi.spyOn(ctx.sessionTitle, 'register').mockImplementation((provider) => {
       registered = provider
-      return () => undefined
+      return async () => undefined
     })
     providerPlugin.apply(ctx, LLM_CONFIG)
 

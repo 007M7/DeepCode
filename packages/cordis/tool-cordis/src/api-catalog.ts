@@ -484,8 +484,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Explicitly retry the registered provider, or materialize the built-in\n * fallback when no provider is registered.\n * @param session - exact live session to refresh.\n * @param signal - optional caller cancellation.\n * @returns latest accepted title, or `undefined` when no eligible text exists.\n */',
       },
       {
-        signature: 'register(provider: SessionTitleProvider): () => void',
-        jsDoc: '/**\n * Register the sole optional title provider. Disposal aborts its pending and\n * active work before another provider may register.\n * @param provider - provider identity, cadence, and generation function.\n * @returns exact Cordis effect disposer for HMR-safe unregistration.\n */',
+        signature: 'register(provider: SessionTitleProvider): () => Promise<void>',
+        jsDoc: '/**\n * Register the sole optional title provider. Disposal aborts its pending and\n * active work before another provider may register.\n * @param provider - provider identity, cadence, and generation function.\n * @returns exact Cordis effect disposer, which settles after active calls quiesce.\n */',
       },
     ],
   },

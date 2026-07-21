@@ -7,7 +7,7 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import { BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
-import type { FinishReason, GenerateOptions } from '@deepseek-ai/dsh-llm'
+import type { FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { deadline, MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { normalizeSessionTitle, SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
 import type {
@@ -17,6 +17,33 @@ import type {
   SessionTitleProviderResult,
   SessionTitleUserMessage,
 } from '@deepseek-ai/dsh-session-title'
+
+/** Exact model-visible request recorded before one auxiliary title dispatch. */
+export interface SessionTitleLlmRequestEventData {
+  /** Registered title-provider identity responsible for the request. */
+  readonly titleProvider: SessionTitleProviderId
+  /** Exact human `user/message` seqs represented in `messages`. */
+  readonly messageSeqs: number[]
+  /** Exact auxiliary LLM route. */
+  readonly route: SessionTitleModelProvenance
+  /** Exact auxiliary system prompt. */
+  readonly system: string
+  /** Exact auxiliary message list. */
+  readonly messages: Message[]
+  /** Exact auxiliary output-token cap. */
+  readonly maxTokens: number
+}
+
+declare module '@deepseek-ai/dsh-session' {
+  interface SessionEventMap {
+    /** Log-only pre-dispatch record of one session-title model request. */
+    'session/title-llm-request': SessionTitleLlmRequestEventData
+  }
+
+  interface OutOfBandSessionEventMap {
+    'session/title-llm-request': true
+  }
+}
 
 /** Capability-owned timeout reason code for auxiliary title requests. */
 export const SESSION_TITLE_TIMEOUT_CODE = 'SESSION_TITLE_TIMEOUT'
@@ -132,11 +159,12 @@ export function registerSessionTitleLlmProvider(
   selectMessages: SessionTitleLlmMessageSelector,
 ): void {
   const resolved = resolveSessionTitleLlmConfig(config)
+  const titleProvider = SessionTitleProviderId(id)
   ctx.sessionTitle.register({
-    id: SessionTitleProviderId(id),
+    id: titleProvider,
     automatic,
     async generate(request) {
-      return generateSessionTitleWithLlm(ctx, resolved, request, selectMessages(request.messages))
+      return generateSessionTitleWithLlm(ctx, resolved, request, selectMessages(request.messages), titleProvider)
     },
   })
 }
@@ -196,6 +224,7 @@ function finishError(finish: FinishReason): Error | undefined {
  * @param config - validated model-provider policy.
  * @param request - service-owned session, route, message snapshot, and cancellation.
  * @param selectedMessages - exact provider-selected subset to frame and attribute.
+ * @param titleProvider - registered title-provider identity recorded with the request.
  * @returns normalized non-empty title, exact source seqs, and used model route.
  */
 export async function generateSessionTitleWithLlm(
@@ -203,6 +232,7 @@ export async function generateSessionTitleWithLlm(
   config: ResolvedSessionTitleLlmConfig,
   request: SessionTitleProviderRequest,
   selectedMessages: readonly SessionTitleUserMessage[],
+  titleProvider: SessionTitleProviderId,
 ): Promise<SessionTitleProviderResult> {
   request.signal.throwIfAborted()
   if (selectedMessages.length === 0) {
@@ -213,16 +243,30 @@ export async function generateSessionTitleWithLlm(
     throw new Error(`session-title-llm: input is ${inputBytes} bytes, exceeding maxInputBytes ${config.maxInputBytes}`)
   }
   const route = resolveRoute(config, request)
+  const messages: Message[] = [{
+    role: 'user',
+    content: [{ type: 'text', text: frameMessages(selectedMessages) }],
+  }]
+  const system = systemPrompt(config)
   using callDeadline = deadline(request.signal, config.timeoutMs, SESSION_TITLE_TIMEOUT_CODE)
-  const options: GenerateOptions = {
+  const options: GenerateOptions = deepFreeze({
     provider: route.provider,
     model: route.model,
-    messages: [{ role: 'user', content: [{ type: 'text', text: frameMessages(selectedMessages) }] }],
-    system: systemPrompt(config),
+    messages,
+    system,
     maxTokens: config.maxOutputTokens,
     sessionId: request.session.id,
     signal: callDeadline.signal,
-  }
+  })
+  await ctx.sessions.appendOutOfBand(request.session, 'session/title-llm-request', {
+    titleProvider,
+    messageSeqs: selectedMessages.map(message => message.seq),
+    route,
+    system,
+    messages,
+    maxTokens: config.maxOutputTokens,
+  }, { kind: 'session-title' })
+  callDeadline.signal.throwIfAborted()
   const assembler = new BlockAssembler()
   for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)
   const terminalError = finishError(assembler.finish)

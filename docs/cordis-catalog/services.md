@@ -1016,14 +1016,14 @@ async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnaps
  * Register the sole optional title provider. Disposal aborts its pending and
  * active work before another provider may register.
  * @param provider - provider identity, cadence, and generation function.
- * @returns exact Cordis effect disposer for HMR-safe unregistration.
+ * @returns exact Cordis effect disposer, which settles after active calls quiesce.
  */
-register(provider: SessionTitleProvider): () => void
+register(provider: SessionTitleProvider): () => Promise<void>
 ```
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:233`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:235`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

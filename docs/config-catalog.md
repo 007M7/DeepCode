@@ -881,7 +881,7 @@ Source: [`packages/session-title/session-title/src/index.ts:63`](../packages/ses
 
 ## `@deepseek-ai/dsh-session-title-all-messages-llm`
 
-Requires: `sessionTitle` · `llm`
+Requires: `sessionTitle` · `llm` · `sessions`
 
 ```ts config-catalog
 /** Required LLM policy; this plugin adds no defaults. */
@@ -894,7 +894,7 @@ Source: [`packages/session-title/session-title-all-messages-llm/src/index.ts:15`
 
 ## `@deepseek-ai/dsh-session-title-first-message-llm`
 
-Requires: `sessionTitle` · `llm`
+Requires: `sessionTitle` · `llm` · `sessions`
 
 ```ts config-catalog
 /** Required LLM policy; this plugin adds no defaults. */

@@ -1,8 +1,8 @@
 # Session Titles
 
-Durable latest-wins title state and the optional asynchronous provider vocabulary owned by [`@deepseek-ai/dsh-session-title`](../../packages/session-title/session-title). The package README owns timing, fallback, failure, and fork behavior; the generated [persistence catalog](../persistence-catalog.md) owns the complete `session/title` event declaration.
+Durable latest-wins title state and the optional asynchronous provider vocabulary owned by [`@deepseek-ai/dsh-session-title`](../../packages/session-title/session-title). The shared LLM helper owns the exact auxiliary request record. Package READMEs own timing, fallback, failure, and fork behavior; the generated [persistence catalog](../persistence-catalog.md) owns the complete event declarations.
 
-Source: [`packages/session-title/session-title/src/index.ts`](../../packages/session-title/session-title/src/index.ts)
+Sources: [`packages/session-title/session-title/src/index.ts`](../../packages/session-title/session-title/src/index.ts), [`packages/session-title/session-title-llm/src/index.ts`](../../packages/session-title/session-title-llm/src/index.ts)
 
 ## Durable title state
 
@@ -53,6 +53,28 @@ interface SessionTitleSnapshot extends SessionTitleEventData {
   readonly eventSeq: number
   /** Timestamp of the latest `session/title` event. */
   readonly updatedAt: number
+}
+```
+
+## Auxiliary request record
+
+The shared LLM helper records each validated, dispatchable title request before calling the model. The payload reproduces the model-visible system and message input, routing, output limit, provider ownership, and source-message attribution even when generation later fails.
+
+```ts type-equiv
+/** Exact model-visible request recorded before one auxiliary title dispatch. */
+interface SessionTitleLlmRequestEventData {
+  /** Registered title-provider identity responsible for the request. */
+  readonly titleProvider: SessionTitleProviderId
+  /** Exact human `user/message` seqs represented in `messages`. */
+  readonly messageSeqs: number[]
+  /** Exact auxiliary LLM route. */
+  readonly route: SessionTitleModelProvenance
+  /** Exact auxiliary system prompt. */
+  readonly system: string
+  /** Exact auxiliary message list. */
+  readonly messages: Message[]
+  /** Exact auxiliary output-token cap. */
+  readonly maxTokens: number
 }
 ```
 

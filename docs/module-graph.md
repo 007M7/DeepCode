@@ -251,6 +251,7 @@ flowchart TD
   pkg_session_query --> pkg_session_persistence
   pkg_session_query --> pkg_session_title
   pkg_session_title_llm --> pkg_llm
+  pkg_session_title_llm --> pkg_session
   pkg_session_title_llm --> pkg_session_title
   pkg_session_title_llm --> pkg_timeout
   pkg_invariants --> pkg_agent
@@ -298,9 +299,11 @@ flowchart TD
   pkg_fs_sandbox --> pkg_sandbox
   pkg_fs_sandbox --> pkg_sandbox_policy
   pkg_session_title_all_messages_llm --> pkg_llm
+  pkg_session_title_all_messages_llm --> pkg_session
   pkg_session_title_all_messages_llm --> pkg_session_title
   pkg_session_title_all_messages_llm --> pkg_session_title_llm
   pkg_session_title_first_message_llm --> pkg_llm
+  pkg_session_title_first_message_llm --> pkg_session
   pkg_session_title_first_message_llm --> pkg_session_title
   pkg_session_title_first_message_llm --> pkg_session_title_llm
   pkg_permission --> pkg_bash
@@ -585,7 +588,7 @@ flowchart TD
 | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
 | [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | `session-persistence` | [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
 | [`session-query`](../packages/session-query/session-query) | `session-query` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`session-title`](../packages/session-title/session-title) |
-| [`session-title-llm`](../packages/session-title/session-title-llm) | `session-title` | [`llm`](../packages/llm/llm), [`session-title`](../packages/session-title/session-title), [`timeout`](../packages/util/timeout) |
+| [`session-title-llm`](../packages/session-title/session-title-llm) | `session-title` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-title`](../packages/session-title/session-title), [`timeout`](../packages/util/timeout) |
 | [`invariants`](../packages/support/invariants) | `support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session) |
 | [`commands`](../packages/ui/commands) | `ui` | [`agent`](../packages/core/agent), [`scope`](../packages/core/scope) |
 | [`user-approval`](../packages/ui/user-approval) | `ui` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
@@ -598,8 +601,8 @@ flowchart TD
 | [`goal-session`](../packages/goal/goal-session) | `goal` | [`agent`](../packages/core/agent), [`goal`](../packages/goal/goal), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`bash-sandbox`](../packages/bash/bash-sandbox) | `bash` | [`bash`](../packages/bash/bash), [`bash-local`](../packages/bash/bash-local), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy) |
 | [`fs-sandbox`](../packages/fs/fs-sandbox) | `fs` | [`fs`](../packages/fs/fs), [`fs-local`](../packages/fs/fs-local), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy) |
-| [`session-title-all-messages-llm`](../packages/session-title/session-title-all-messages-llm) | `session-title` | [`llm`](../packages/llm/llm), [`session-title`](../packages/session-title/session-title), [`session-title-llm`](../packages/session-title/session-title-llm) |
-| [`session-title-first-message-llm`](../packages/session-title/session-title-first-message-llm) | `session-title` | [`llm`](../packages/llm/llm), [`session-title`](../packages/session-title/session-title), [`session-title-llm`](../packages/session-title/session-title-llm) |
+| [`session-title-all-messages-llm`](../packages/session-title/session-title-all-messages-llm) | `session-title` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-title`](../packages/session-title/session-title), [`session-title-llm`](../packages/session-title/session-title-llm) |
+| [`session-title-first-message-llm`](../packages/session-title/session-title-first-message-llm) | `session-title` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-title`](../packages/session-title/session-title), [`session-title-llm`](../packages/session-title/session-title-llm) |
 | [`permission`](../packages/ui/permission) | `ui` | [`bash`](../packages/bash/bash), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`user-approval`](../packages/ui/user-approval) |
 | [`agent-loop`](../packages/core/agent-loop) | `core` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-goal`](../packages/goal/tool-goal) | `goal` | [`agent`](../packages/core/agent), [`goal`](../packages/goal/goal), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |

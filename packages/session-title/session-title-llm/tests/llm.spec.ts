@@ -2,7 +2,8 @@ import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import LlmService, { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleProviderRequest } from '@deepseek-ai/dsh-session-title'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
@@ -15,11 +16,15 @@ import type { SessionTitleLlmConfig } from '@deepseek-ai/dsh-session-title-llm'
 class RecordingAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
 
-  constructor(private readonly script: readonly StreamChunk[]) {
+  constructor(
+    private readonly script: readonly StreamChunk[],
+    private readonly onDispatch?: () => void,
+  ) {
     super()
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.onDispatch?.()
     this.requests.push(options)
     yield * this.script
   }
@@ -57,24 +62,38 @@ const CONFIG = {
   timeoutMs: 1_000,
 } as const
 
-function request(signal = new AbortController().signal): SessionTitleProviderRequest {
+const TITLE_PROVIDER = SessionTitleProviderId('test-title-provider')
+let nextSession = 0
+
+function request(ctx: Context, signal = new AbortController().signal): SessionTitleProviderRequest {
+  const session = ctx.sessions.create(SessionId(`title-call-${++nextSession}`))
+  session.append('turn/start', {
+    turn: 1,
+    trigger: { kind: 'message', source: { kind: 'user' } },
+  })
+  const first = session.append('user/message', {
+    content: [{ type: 'text', text: 'first prompt' }],
+    source: { kind: 'user' },
+  }, { surfaceOp: 'append' })
+  const second = session.append('user/message', {
+    content: [{ type: 'text', text: '第二个问题' }],
+    source: { kind: 'user' },
+  }, { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   return {
-    session: new Session(SessionId('title-call')),
+    session,
     messages: [
-      { seq: 2, text: 'first prompt' },
-      { seq: 9, text: '第二个问题' },
+      { seq: first.seq, text: 'first prompt' },
+      { seq: second.seq, text: '第二个问题' },
     ],
     route: { provider: 'current-route', model: 'current-model' },
     signal,
   }
 }
 
-function requestWithoutRoute(signal = new AbortController().signal): SessionTitleProviderRequest {
-  return {
-    session: new Session(SessionId('title-call-no-route')),
-    messages: [{ seq: 2, text: 'first prompt' }],
-    signal,
-  }
+function requestWithoutRoute(ctx: Context, signal = new AbortController().signal): SessionTitleProviderRequest {
+  const routed = request(ctx, signal)
+  return { session: routed.session, messages: routed.messages, signal }
 }
 
 async function withScript(script: readonly StreamChunk[]): Promise<{
@@ -82,6 +101,7 @@ async function withScript(script: readonly StreamChunk[]): Promise<{
   adapter: RecordingAdapter
 }> {
   const ctx = new Context()
+  await ctx.plugin(SessionStore)
   await ctx.plugin(LlmService)
   const adapter = new RecordingAdapter(script)
   ctx.llm.registerAdapter(['current-route'], adapter)
@@ -91,39 +111,59 @@ async function withScript(script: readonly StreamChunk[]): Promise<{
 describe('generateSessionTitleWithLlm', () => {
   it('uses the exact logged route, language targets, full framed input, and output token cap', async () => {
     const ctx = new Context()
+    await ctx.plugin(SessionStore)
     await ctx.plugin(LlmService)
-    const adapter = new RecordingAdapter(SCRIPT)
+    const providerRequest = request(ctx)
+    let requestWasLoggedAtDispatch = false
+    const adapter = new RecordingAdapter(SCRIPT, () => {
+      requestWasLoggedAtDispatch = providerRequest.session.events
+        .some(event => event.type === 'session/title-llm-request')
+    })
     ctx.llm.registerAdapter(['current-route'], adapter)
 
     const result = await generateSessionTitleWithLlm(
       ctx,
       resolveSessionTitleLlmConfig(CONFIG),
-      request(),
-      request().messages,
+      providerRequest,
+      providerRequest.messages,
+      TITLE_PROVIDER,
     )
 
     expect(result).toEqual({
       title: '五个字标题',
-      messageSeqs: [2, 9],
+      messageSeqs: providerRequest.messages.map(message => message.seq),
       model: { provider: 'current-route', model: 'current-model' },
     })
+    expect(requestWasLoggedAtDispatch).toBe(true)
     expect(adapter.requests).toHaveLength(1)
     const options = adapter.requests[0]!
+    expect(Object.isFrozen(options)).toBe(true)
+    expect(Object.isFrozen(options.messages)).toBe(true)
     expect(options).toMatchObject({
       provider: 'current-route',
       model: 'current-model',
       maxTokens: 32,
-      sessionId: SessionId('title-call'),
+      sessionId: providerRequest.session.id,
     })
     expect(options.system).toContain('5 words')
     expect(options.system).toContain('10 CJK characters')
     const prompt = options.messages[0]?.content[0]
     expect(prompt?.type === 'text' && prompt.text).toContain('first prompt')
     expect(prompt?.type === 'text' && prompt.text).toContain('第二个问题')
+    expect(providerRequest.session.events.findLast(event => event.type === 'session/title-llm-request')?.data)
+      .toEqual({
+        titleProvider: TITLE_PROVIDER,
+        messageSeqs: providerRequest.messages.map(message => message.seq),
+        route: { provider: 'current-route', model: 'current-model' },
+        system: options.system,
+        messages: options.messages,
+        maxTokens: 32,
+      })
   })
 
   it('uses paired explicit overrides and rejects an oversized input without calling the model', async () => {
     const ctx = new Context()
+    await ctx.plugin(SessionStore)
     await ctx.plugin(LlmService)
     const adapter = new RecordingAdapter(SCRIPT)
     ctx.llm.registerAdapter(['explicit-route'], adapter)
@@ -134,12 +174,15 @@ describe('generateSessionTitleWithLlm', () => {
       maxInputBytes: 4,
     })
 
-    await expect(generateSessionTitleWithLlm(ctx, config, request(), request().messages))
+    const oversized = request(ctx)
+    await expect(generateSessionTitleWithLlm(ctx, config, oversized, oversized.messages, TITLE_PROVIDER))
       .rejects.toThrow(/input.*bytes.*maxInputBytes/i)
     expect(adapter.requests).toEqual([])
+    expect(oversized.session.events.some(event => event.type === 'session/title-llm-request')).toBe(false)
 
     const withinLimit = resolveSessionTitleLlmConfig({ ...config, maxInputBytes: 1_000 })
-    await generateSessionTitleWithLlm(ctx, withinLimit, request(), [request().messages[0]!])
+    const within = request(ctx)
+    await generateSessionTitleWithLlm(ctx, withinLimit, within, [within.messages[0]!], TITLE_PROVIDER)
     expect(adapter.requests[0]).toMatchObject({
       provider: 'explicit-route',
       model: 'explicit-model',
@@ -176,13 +219,16 @@ describe('generateSessionTitleWithLlm', () => {
   it('rejects an absent route, empty selection, and pre-aborted caller before model dispatch', async () => {
     const { ctx, adapter } = await withScript(SCRIPT)
     const config = resolveSessionTitleLlmConfig(CONFIG)
-    await expect(generateSessionTitleWithLlm(ctx, config, requestWithoutRoute(), requestWithoutRoute().messages))
+    const unrouted = requestWithoutRoute(ctx)
+    await expect(generateSessionTitleWithLlm(ctx, config, unrouted, unrouted.messages, TITLE_PROVIDER))
       .rejects.toThrow(/no logged request route/)
-    await expect(generateSessionTitleWithLlm(ctx, config, request(), []))
+    const empty = request(ctx)
+    await expect(generateSessionTitleWithLlm(ctx, config, empty, [], TITLE_PROVIDER))
       .rejects.toThrow(/at least one source message/)
     const controller = new AbortController()
     controller.abort(new Error('caller stopped'))
-    await expect(generateSessionTitleWithLlm(ctx, config, request(controller.signal), request().messages))
+    const aborted = request(ctx, controller.signal)
+    await expect(generateSessionTitleWithLlm(ctx, config, aborted, aborted.messages, TITLE_PROVIDER))
       .rejects.toThrow('caller stopped')
     expect(adapter.requests).toEqual([])
   })
@@ -192,12 +238,15 @@ describe('generateSessionTitleWithLlm', () => {
     [{ kind: 'aborted', failure: { message: 'provider aborted', code: 'ABORTED' } }, 'provider aborted', 'ABORTED'],
   ] satisfies Array<[FinishReason, string, string]>)('preserves %s terminal failure details', async (reason, message, code) => {
     const { ctx } = await withScript([{ type: 'finish', reason }])
+    const providerRequest = request(ctx)
     await expect(generateSessionTitleWithLlm(
       ctx,
       resolveSessionTitleLlmConfig(CONFIG),
-      request(),
-      request().messages,
+      providerRequest,
+      providerRequest.messages,
+      TITLE_PROVIDER,
     )).rejects.toMatchObject({ message, code })
+    expect(providerRequest.session.events.some(event => event.type === 'session/title-llm-request')).toBe(true)
   })
 
   it.each([
@@ -206,11 +255,13 @@ describe('generateSessionTitleWithLlm', () => {
     [{ kind: 'future-finish' } as never, /unsupported finish reason "future-finish"/],
   ] satisfies Array<[FinishReason, RegExp]>)('rejects the terminal finish reason %s', async (reason, error) => {
     const { ctx } = await withScript([{ type: 'finish', reason }])
+    const providerRequest = request(ctx)
     await expect(generateSessionTitleWithLlm(
       ctx,
       resolveSessionTitleLlmConfig(CONFIG),
-      request(),
-      request().messages,
+      providerRequest,
+      providerRequest.messages,
+      TITLE_PROVIDER,
     )).rejects.toThrow(error)
   })
 
@@ -221,11 +272,13 @@ describe('generateSessionTitleWithLlm', () => {
       { type: 'finish', reason: { kind: 'stop' } },
     ]
     const tool = await withScript(toolScript)
+    const toolRequest = request(tool.ctx)
     await expect(generateSessionTitleWithLlm(
       tool.ctx,
       resolveSessionTitleLlmConfig(CONFIG),
-      request(),
-      request().messages,
+      toolRequest,
+      toolRequest.messages,
+      TITLE_PROVIDER,
     )).rejects.toThrow(/output must contain text only/)
 
     const reasoning = await withScript([
@@ -233,11 +286,13 @@ describe('generateSessionTitleWithLlm', () => {
       { type: 'reasoning-delta', index: 0, text: 'no final title' },
       { type: 'finish', reason: { kind: 'stop' } },
     ])
+    const reasoningRequest = request(reasoning.ctx)
     await expect(generateSessionTitleWithLlm(
       reasoning.ctx,
       resolveSessionTitleLlmConfig(CONFIG),
-      request(),
-      request().messages,
+      reasoningRequest,
+      reasoningRequest.messages,
+      TITLE_PROVIDER,
     )).rejects.toThrow(/produced no text/)
   })
 
@@ -245,13 +300,16 @@ describe('generateSessionTitleWithLlm', () => {
     vi.useFakeTimers()
     try {
       const ctx = new Context()
+      await ctx.plugin(SessionStore)
       await ctx.plugin(LlmService)
       ctx.llm.registerAdapter(['current-route'], new CooperativeAdapter())
+      const providerRequest = request(ctx)
       const pending = generateSessionTitleWithLlm(
         ctx,
         resolveSessionTitleLlmConfig({ ...CONFIG, timeoutMs: 10 }),
-        request(),
-        request().messages,
+        providerRequest,
+        providerRequest.messages,
+        TITLE_PROVIDER,
       )
       const rejected = expect(pending).rejects.toMatchObject({
         code: SESSION_TITLE_TIMEOUT_CODE,

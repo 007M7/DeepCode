@@ -84,7 +84,7 @@ describe('SessionTitleService provider lifecycle', () => {
     await settle()
     child.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
     expect(firstGenerate).not.toHaveBeenCalled()
-    disposeFirst()
+    await disposeFirst()
 
     const allGenerate = vi.fn(async (request: SessionTitleProviderRequest) => ({
       title: 'Fork all prompts',
@@ -170,7 +170,7 @@ describe('SessionTitleService provider lifecycle', () => {
     expect(requests[1]?.messages.map(message => message.seq)).toEqual([first.seq, second.seq])
   })
 
-  it('rejects a second provider and aborts stale work when the winner is disposed', async () => {
+  it('rejects a second provider and drains stale work when the winner is disposed', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionTitleService, CONFIG)
@@ -202,10 +202,15 @@ describe('SessionTitleService provider lifecycle', () => {
     await settle()
     expect(observedSignal?.aborted).toBe(false)
 
-    dispose()
+    const disposal = dispose()
     expect(observedSignal?.aborted).toBe(true)
-    pending.resolve({ title: 'stale provider result', messageSeqs: [message.seq] })
+    let disposed = false
+    void disposal.then(() => { disposed = true })
     await settle()
+    expect(disposed).toBe(false)
+    pending.resolve({ title: 'stale provider result', messageSeqs: [message.seq] })
+    await disposal
+    expect(disposed).toBe(true)
     expect(ctx.sessionTitle.get(session)?.source.kind).toBe('fallback')
 
     const replacement: SessionTitleProvider = {
@@ -214,7 +219,7 @@ describe('SessionTitleService provider lifecycle', () => {
       generate: async () => ({ title: 'replacement', messageSeqs: [message.seq] }),
     }
     const disposeReplacement = ctx.sessionTitle.register(replacement)
-    disposeReplacement()
+    await disposeReplacement()
   })
 
   it('supersedes an older all-messages revision and cannot commit an ignored abort', async () => {

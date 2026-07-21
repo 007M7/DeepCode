@@ -392,6 +392,17 @@ Types: [SessionTitleEventData](core-data-structures/session-title.md)
 
 Source: [`packages/session-title/session-title/src/index.ts:89`](../packages/session-title/session-title/src/index.ts)
 
+#### `session/title-llm-request` — log-only
+
+```ts persistence-catalog
+/** Log-only pre-dispatch record of one session-title model request. */
+'session/title-llm-request': SessionTitleLlmRequestEventData
+```
+
+Types: [SessionTitleLlmRequestEventData](core-data-structures/session-title.md)
+
+Source: [`packages/session-title/session-title-llm/src/index.ts:40`](../packages/session-title/session-title-llm/src/index.ts)
+
 ### `steering/*`
 
 #### `steering/message` — surface
