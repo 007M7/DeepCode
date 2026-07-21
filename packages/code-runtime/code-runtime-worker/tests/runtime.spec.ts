@@ -171,6 +171,19 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
     expect(result.error).toEqual({ kind: 'abort', message: 'too-late' })
   })
 
+  it('applies the outer-output cap to failures before worker startup', async () => {
+    const capped = await setup({ maxOutputBytes: 64 })
+    const controller = new AbortController()
+    controller.abort('A'.repeat(1_000))
+    const aborted = await capped.runtime.run({ program: 'return 1', bindings: [], signal: controller.signal })
+    expect(aborted).toEqual({ logs: [], error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' } })
+
+    const minimal = await setup({ maxOutputBytes: 4 })
+    const invalid = await minimal.runtime.run({ program: 'enum E { A }\nreturn 1', bindings: [] })
+    expect(invalid.error?.kind).toBe('output-limit')
+    expect(Buffer.byteLength(JSON.stringify(invalid.logs), 'utf8') + Buffer.byteLength(JSON.stringify(invalid.error?.message), 'utf8')).toBeLessThanOrEqual(4)
+  })
+
   it('drops a binding resolution that lands after the run settled', async () => {
     const { runtime } = await setup()
     const controller = new AbortController()
@@ -447,6 +460,41 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
       toolName: 'never',
       message: 'binding arguments must be lossless JSON',
     }))
+  })
+
+  it('rejects forged lossy binding arguments again at the host boundary', async () => {
+    const { runtime } = await setup()
+    let calls = 0
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        const forged = (id, args) => new Promise((resolve) => {
+          const receive = (message) => {
+            if (message?.type !== 'reply' || message.id !== id) return;
+            parentPort.off('message', receive);
+            resolve(message);
+          };
+          parentPort.on('message', receive);
+          parentPort.postMessage({ type: 'call', id, global: 'tools', name: 'never', args });
+        });
+        const sparse = []; sparse.length = 1;
+        const cycle = {}; cycle.self = cycle;
+        return await Promise.all([
+          forged(8001, new Date()),
+          forged(8002, -0),
+          forged(8003, sparse),
+          forged(8004, cycle),
+        ]);
+      `,
+      bindings: tools({ never: async () => { calls += 1; return null } }),
+    })
+    expect(calls).toBe(0)
+    expect(result.value).toEqual([8001, 8002, 8003, 8004].map(id => ({
+      type: 'reply',
+      id,
+      ok: false,
+      message: 'binding arguments must be lossless JSON',
+    })))
   })
 
   it('contains throwing getters while snapshotting binding resolutions', async () => {
