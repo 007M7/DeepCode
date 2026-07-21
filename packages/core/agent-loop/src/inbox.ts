@@ -29,7 +29,7 @@ export class Inbox {
     return this.queuedMessages.length > 0
   }
 
-  /** True while steering messages are pending — read by `cancel()`'s arm gate and the loop's stop-override check. */
+  /** True while steering messages are pending — read by cancellation and the loop's stop-override check. */
   get hasSteering(): boolean {
     return this.steeringMessages.length > 0
   }

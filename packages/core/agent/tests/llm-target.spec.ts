@@ -17,28 +17,29 @@ describe('installAgentLlmTarget()', () => {
     const dispose = installAgentLlmTarget(ctx, target)
     const agent = {} as Agent
     const seed: LlmCallConfig = { provider: 'seed', model: 'seed', temperature: 0.2 }
+    const signal = new AbortController().signal
 
     expect((await ctx.systemPrompt.assemble()).variables).toEqual({})
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 1, 0, seed, () => Promise.resolve(seed),
+      'agent/request', 1, 0, seed, signal, () => Promise.resolve(seed),
     )).resolves.toBe(seed)
 
     target.current = { provider: 'alpha', model: 'a1' }
     expect((await ctx.systemPrompt.assemble()).variables).toMatchObject({ provider: 'alpha', model: 'a1' })
     target.current = { provider: 'beta', model: 'b1' }
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 1, 0, seed, () => Promise.resolve(seed),
+      'agent/request', 1, 0, seed, signal, () => Promise.resolve(seed),
     )).resolves.toEqual({ provider: 'alpha', model: 'a1', temperature: 0.2 })
 
     expect((await ctx.systemPrompt.assemble()).variables).toMatchObject({ provider: 'beta', model: 'b1' })
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 1, 1, seed, () => Promise.resolve(seed),
+      'agent/request', 1, 1, seed, signal, () => Promise.resolve(seed),
     )).resolves.toEqual({ provider: 'beta', model: 'b1', temperature: 0.2 })
 
     dispose()
     expect((await ctx.systemPrompt.assemble()).variables).toEqual({})
     await expect(agentEvents(ctx, agent).waterfall(
-      'agent/request', 2, 0, seed, () => Promise.resolve(seed),
+      'agent/request', 2, 0, seed, signal, () => Promise.resolve(seed),
     )).resolves.toBe(seed)
     await ctx.fiber.dispose()
   })

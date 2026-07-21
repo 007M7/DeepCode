@@ -186,7 +186,7 @@ describe('acp bridge — session config options', () => {
     const { sessionId } = await h.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     const agent = h.ctx.agents.list()[0]
     if (agent === undefined) throw new Error('expected an agent')
-    agent.ctx.on('agent/request', async (_agent, _turn, _step, callConfig, _next) => ({
+    agent.ctx.on('agent/request', async (_agent, _turn, _step, callConfig, _signal, _next) => ({
       ...callConfig,
       provider: 'mock',
       model: 'mock',

@@ -10,6 +10,8 @@ import { type Agent } from '@deepseek-ai/dsh-agent'
 
 import * as tool from '../src/index.ts'
 
+const testToolSignal = new AbortController().signal
+
 /**
  * Drives the REAL plugin body: mounts `dsh-tool-todo` on a real `ToolRegistry`
  * and invokes the registered `todo_write` tool through `ctx.tools.execute`,
@@ -36,6 +38,7 @@ let callCounter = 0
 function callTodo(ctx: Context, args: unknown, over: { agent?: Agent | undefined } = {}) {
   const agent = 'agent' in over ? over.agent : agentWithSession()
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId(`call-${++callCounter}`),
     name: 'todo_write',
     arguments: args,
