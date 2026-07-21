@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -191,5 +191,39 @@ describe('one-context multi-project sandbox', () => {
     expect(await readFile(join(physicalRoot, 'fs-owned.txt'), 'utf8')).toBe('fs')
     await expectMissing(join(lexicalRoot, 'bash-escaped.txt'))
     await expectMissing(join(lexicalRoot, 'fs-escaped.txt'))
+  })
+
+  it.skipIf(!processSandboxUsable)('resolves parent traversal from a symlinked session root consistently', async () => {
+    const active = ctx as Context
+    const lexicalRoot = await projectDir('lexical-parent')
+    const physicalRoot = await projectDir('physical-parent')
+    const physicalChild = join(physicalRoot, 'child')
+    await mkdir(physicalChild)
+    const link = join(lexicalRoot, 'link')
+    await symlink(physicalChild, link, process.platform === 'win32' ? 'junction' : 'dir')
+    await writeFile(join(lexicalRoot, 'shared.txt'), 'from-lexical-parent')
+    await writeFile(join(physicalRoot, 'shared.txt'), 'from-physical-parent')
+    const handle = await active.agents.create({
+      sessionId: SessionId('symlink-root-parent-path-session'),
+      meta: { cwd: link },
+    })
+
+    const [bashRead, fsRead] = await Promise.all([
+      active.tools.execute({
+        callId: CallId('bash-symlink-parent-read'), name: 'bash', agent: handle.agent,
+        arguments: { command: 'cat ../shared.txt', description: 'Read through the physical parent' },
+      }),
+      active.tools.execute({
+        callId: CallId('fs-symlink-parent-read'), name: 'read', agent: handle.agent,
+        arguments: { file_path: '../shared.txt' },
+      }),
+    ])
+
+    expect(bashRead.isError).toBe(false)
+    expect(fsRead.isError).toBe(false)
+    expect(resultText(bashRead)).toContain('from-physical-parent')
+    expect(resultText(fsRead)).toContain('from-physical-parent')
+    expect(resultText(bashRead)).not.toContain('from-lexical-parent')
+    expect(resultText(fsRead)).not.toContain('from-lexical-parent')
   })
 })

@@ -5,8 +5,9 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { realpathSync } from 'node:fs'
-import { sep } from 'node:path'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, sep } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -113,12 +114,24 @@ describe('session cwd resolution', () => {
     ? {}
     : { agent: { session: { header: { cwd } } } }
 
-  it('retains ordinary spelling but resolves parent segments before lexical use', () => {
+  it('retains ordinary spelling but resolves the cwd before parent traversal', () => {
     const cwd = process.cwd()
     const throughParent = `${cwd}${sep}..`
-    expect(sessionCwd(execution() as never)).toBeUndefined()
-    expect(sessionCwd(execution(cwd) as never)).toBe(cwd)
-    expect(sessionCwd(execution(throughParent) as never)).toBe(realpathSync.native(throughParent))
+    expect(sessionCwd(execution() as never, 'file.txt')).toBeUndefined()
+    expect(sessionCwd(execution(cwd) as never, 'file.txt')).toBe(cwd)
+    expect(sessionCwd(execution(throughParent) as never, 'file.txt')).toBe(realpathSync.native(throughParent))
+
+    const root = mkdtempSync(join(tmpdir(), 'dsh-tool-fs-session-cwd-'))
+    const physical = join(root, 'physical')
+    const link = join(root, 'link')
+    try {
+      mkdirSync(physical)
+      symlinkSync(physical, link, process.platform === 'win32' ? 'junction' : 'dir')
+      expect(sessionCwd(execution(link) as never, 'child.txt')).toBe(link)
+      expect(sessionCwd(execution(link) as never, `..${sep}parent.txt`)).toBe(realpathSync.native(link))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 
