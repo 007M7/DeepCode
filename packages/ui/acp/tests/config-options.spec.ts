@@ -8,7 +8,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import * as Invariants from '@deepseek-ai/dsh-invariants'
+import InvariantService from '@deepseek-ai/dsh-invariants'
+import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
@@ -23,6 +26,13 @@ class SandboxedLocalExecutor extends LocalBashExecutor {
   override get sandboxMode(): SandboxMode {
     return 'workspace-write'
   }
+}
+
+async function mountInvariants(ctx: BridgeHarness['ctx']): Promise<void> {
+  await ctx.plugin(InvariantService)
+  await ctx.plugin(SessionInvariant)
+  await ctx.plugin(AgentInvariant)
+  await ctx.plugin(AgentLoopInvariant)
 }
 
 function permissionOption(currentValue: string): object {
@@ -76,7 +86,7 @@ describe('acp bridge — session config options', () => {
   async function presetStack(options: { script?: NonNullable<Parameters<typeof makeBridgeHarness>[0]>['script'] } = {}): Promise<BridgeHarness> {
     const harness = await makeBridgeHarness({ storageDir, ...options.script !== undefined ? { script: options.script } : {} })
     // Make an out-of-turn switch fail in this suite.
-    await harness.ctx.plugin(Invariants)
+    await mountInvariants(harness.ctx)
     await harness.ctx.plugin(SandboxedLocalExecutor, { timeoutMs: 10_000 })
     await harness.ctx.plugin(ApprovalService)
     await harness.ctx.plugin(PermissionService)

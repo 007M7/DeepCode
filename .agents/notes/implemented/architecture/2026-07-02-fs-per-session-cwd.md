@@ -12,11 +12,11 @@ A valid absolute cwd can itself have two apparent parents: when it contains `sym
 
 ## Decision
 
-Thread the caller's session cwd into path resolution, exactly as `dsh-tool-bash` already does for `workdir`. Resolve that cwd to its native filesystem identity before any lexical join, and reuse the resolved sandbox-policy root for mutations and sandboxed bash calls so one call has one workspace identity. The **caller** (the tool) supplies the cwd; the provider does not read a session or agent.
+Thread the caller's session cwd into path resolution, exactly as `dsh-tool-bash` already does for `workdir`. When the cwd contains a parent segment, resolve it to its native filesystem identity before any lexical join; ordinary cwd spellings stay stable for display. Reuse the resolved sandbox-policy root for mutations and sandboxed bash calls so one call has one workspace identity. The **caller** (the tool) supplies the cwd; the provider does not read a session or agent.
 
 - `FileSystem.resolve` accepts `resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>`. `opts.cwd` is the base a RELATIVE `path` resolves against; an absolute `path` ignores it; omitting `opts.cwd` uses the backend's own default. `opts.signal` cancels resolution when the backend performs I/O. The options object keeps both caller-owned resolution controls together without positional growth.
 - `dsh-fs-local.resolve` uses `resolveLocalTarget(opts?.cwd ?? this.config.cwd, path)`. `config.cwd` stays the default for a caller that supplies none (non-ACP / no-session use, and the single-session stdio demo where `process.cwd()` IS the workspace).
-- `dsh-tool-fs`'s `read`/`write`/`edit` derive the session cwd through a shared `sessionCwd(exec)` helper (`exec.agent?.session.header.cwd`, mirroring bash's `resolveWorkdir`), canonicalize it with native realpath semantics, and pass it to `resolve`. A sandboxed mutation reuses the complete policy's `workspaceRoot`; a non-agent / headerless caller yields `undefined`, so the backend applies its default.
+- `dsh-tool-fs`'s `read`/`write`/`edit` derive the session cwd through a shared `sessionCwd(exec)` helper (`exec.agent?.session.header.cwd`, mirroring bash's `resolveWorkdir`) and pass it to `resolve`. The helper uses native realpath semantics when a parent segment could cross a symlink while retaining ordinary spellings; a sandboxed mutation reuses the complete policy's `workspaceRoot`; a non-agent / headerless caller yields `undefined`, so the backend applies its default.
 
 ## Alternatives considered
 

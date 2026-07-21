@@ -5,6 +5,8 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import { realpathSync } from 'node:fs'
+import { sep } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -24,6 +26,7 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import { STREAM_MIN_SIZE } from '../src/read.ts'
 import { formatReadOutput } from '../src/read-render.ts'
 import type { FileReadOutcome } from '../src/read-render.ts'
+import { sessionCwd } from '../src/session-cwd.ts'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
@@ -104,6 +107,20 @@ function call(ctx: Context, name: string, args: unknown, agent?: object) {
 function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(b => b.type === 'text').map(b => b.text).join('')
 }
+
+describe('session cwd resolution', () => {
+  const execution = (cwd?: string) => cwd === undefined
+    ? {}
+    : { agent: { session: { header: { cwd } } } }
+
+  it('retains ordinary spelling but resolves parent segments before lexical use', () => {
+    const cwd = process.cwd()
+    const throughParent = `${cwd}${sep}..`
+    expect(sessionCwd(execution() as never)).toBeUndefined()
+    expect(sessionCwd(execution(cwd) as never)).toBe(cwd)
+    expect(sessionCwd(execution(throughParent) as never)).toBe(realpathSync.native(throughParent))
+  })
+})
 
 describe('registration', () => {
   it('registers read, write, and edit', async () => {

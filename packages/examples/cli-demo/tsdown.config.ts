@@ -2,7 +2,7 @@ import { defineConfig } from 'tsdown'
 
 /** Builds the plugin and executable entries from declarations emitted by `tsc -b`. */
 export default defineConfig({
-  entry: ['lib/types/index.js', 'lib/types/bin.js'],
+  entry: ['lib/types/index.js', 'lib/types/invariant.js', 'lib/types/bin.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',

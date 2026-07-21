@@ -6,7 +6,14 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../helper" },
-    { "path": "../../../vendor/cordis" }
+    {
+      "path": "../helper"
+    },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../support/invariants"
+    }
   ]
 }

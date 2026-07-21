@@ -6,11 +6,26 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../../../vendor/cosmokit" },
-    { "path": "../../../vendor/cordis" },
-    { "path": "../../../vendor/schemastery" },
-    { "path": "../../util/home" },
-    { "path": "../../fs/fs" },
-    { "path": "../skill" }
+    {
+      "path": "../../../vendor/cosmokit"
+    },
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../util/home"
+    },
+    {
+      "path": "../../fs/fs"
+    },
+    {
+      "path": "../skill"
+    },
+    {
+      "path": "../../support/invariants"
+    }
   ]
 }
