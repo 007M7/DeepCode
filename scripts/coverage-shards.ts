@@ -13,12 +13,44 @@ export interface CoverageShard {
 /** Exhaustive, non-overlapping ownership of workspace packages in coverage CI. */
 export const coverageShards = [
   {
-    name: 'core',
-    packageRoots: ['core', 'context'],
-    extraTestRoots: ['packages/examples/cli-demo/tests'],
+    name: 'core-loop',
+    packageRoots: ['core/agent', 'core/agent-loop', 'core/tools'],
   },
-  { name: 'models-protocol', packageRoots: ['llm', 'compact', 'hooks/hook-protocol'] },
-  { name: 'sdk-codex', packageRoots: ['sdk', 'hooks/hooks-codex'] },
+  {
+    name: 'state-session',
+    packageRoots: [
+      'core/session',
+      'core/scope',
+      'core/system-prompt',
+      'context',
+      'session-persistence',
+      'session-query',
+      'support/invariants',
+    ],
+    extraTestRoots: [
+      'packages/examples/cli-demo/tests',
+      'packages/llm/token-meter/tests',
+      'scripts',
+    ],
+  },
+  {
+    name: 'models-integrations',
+    packageRoots: ['llm', 'compact', 'hooks/hook-protocol', 'lsp', 'mcp', 'hooks/hooks-claude'],
+  },
+  {
+    name: 'sdk-capabilities',
+    packageRoots: [
+      'sdk',
+      'hooks/hooks-codex',
+      'web',
+      'skill',
+      'spill',
+      'util',
+      'guard',
+      'todo',
+      'timeout',
+    ],
+  },
   {
     name: 'interfaces',
     packageRoots: ['ui', 'examples', 'goal'],
@@ -29,7 +61,10 @@ export const coverageShards = [
     name: 'workflow',
     packageRoots: ['workflow/workflow', 'workflow/tool-workflow', 'workflow/tool-ralph'],
   },
-  { name: 'workflow-worker', packageRoots: ['workflow/workflow-workerthread'] },
+  {
+    name: 'workflow-worker',
+    packageRoots: ['workflow/workflow-workerthread'],
+  },
   { name: 'delegation', packageRoots: ['subagent', 'tasks'] },
   {
     name: 'repository',
@@ -40,16 +75,6 @@ export const coverageShards = [
       'support/llm-replay',
       'support/loader-smoke',
     ],
-  },
-  {
-    name: 'session-scripts',
-    packageRoots: ['session-persistence', 'session-query', 'support/invariants'],
-    extraTestRoots: ['scripts'],
-  },
-  { name: 'integrations-claude', packageRoots: ['lsp', 'mcp', 'hooks/hooks-claude'] },
-  {
-    name: 'capabilities',
-    packageRoots: ['web', 'skill', 'spill', 'util', 'guard', 'todo', 'timeout'],
   },
 ] as const satisfies readonly CoverageShard[]
 

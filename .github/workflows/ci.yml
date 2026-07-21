@@ -81,21 +81,26 @@ jobs:
             gate_concurrency: '1'
             eslint_cache: '1'
             lint_shard: repository
-          - lane: coverage-core
+          - lane: coverage-core-loop
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
             coverage_max_workers: '4'
-            coverage_shard: core
-          - lane: coverage-models-protocol
+            coverage_shard: core-loop
+          - lane: coverage-state-session
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
             coverage_max_workers: '4'
-            coverage_shard: models-protocol
-          - lane: coverage-sdk-codex
+            coverage_shard: state-session
+          - lane: coverage-models-integrations
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
             coverage_max_workers: '4'
-            coverage_shard: sdk-codex
+            coverage_shard: models-integrations
+          - lane: coverage-sdk-capabilities
+            command: pnpm run check:ci:coverage
+            gate_concurrency: '1'
+            coverage_max_workers: '4'
+            coverage_shard: sdk-capabilities
           - lane: coverage-interfaces
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
@@ -126,21 +131,6 @@ jobs:
             gate_concurrency: '1'
             coverage_max_workers: '4'
             coverage_shard: repository
-          - lane: coverage-integrations-claude
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: integrations-claude
-          - lane: coverage-session-scripts
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: session-scripts
-          - lane: coverage-capabilities
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: capabilities
           - lane: snapshot-support
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
@@ -175,6 +165,18 @@ jobs:
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
             snapshot_lane: acp-4
+            snapshot_max_concurrency: '5'
+            snapshot_prebuilt: '1'
+          - lane: snapshot-acp-5
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_lane: acp-5
+            snapshot_max_concurrency: '5'
+            snapshot_prebuilt: '1'
+          - lane: snapshot-acp-6
+            command: pnpm run check:ci:snapshot
+            gate_concurrency: '1'
+            snapshot_lane: acp-6
             snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
           - lane: artifacts-metadata
