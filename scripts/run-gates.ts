@@ -9,6 +9,7 @@ import { availableParallelism } from 'node:os'
 import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { coverageArgs } from './coverage-shards.ts'
+import { selectLintShard } from './lint-shards.ts'
 import { selectStaticGates } from './static-shards.ts'
 
 type Mode =
@@ -162,11 +163,13 @@ function gatesForMode(selected: Mode): Gate[] {
       return ciPrimaryGates()
     case 'ci-static':
       return ciStaticGates()
-    case 'ci-lint':
+    case 'ci-lint': {
+      const selection = selectLintShard(process.env.DSH_LINT_SHARD)
       return [
-        lintGate(),
-        pnpmScript('duplication', 'duplication'),
+        lintGate(selection.eslintTargets),
+        ...selection.includeDuplication ? [pnpmScript('duplication', 'duplication')] : [],
       ]
+    }
     case 'ci-coverage':
       return [coverageGate()]
     case 'ci-snapshot':
@@ -267,11 +270,11 @@ function ciArtifactGates(): Gate[] {
   return [...metadataGates, builtBinSmokeGate()]
 }
 
-function lintGate(): Gate {
+function lintGate(eslintTargets: readonly string[] = ['.']): Gate {
   if (process.env.DSH_ESLINT_CACHE === '1') {
     return pnpmExec('lint', [
       'eslint',
-      '.',
+      ...eslintTargets,
       '--cache',
       '--cache-location',
       '.cache/eslint/',

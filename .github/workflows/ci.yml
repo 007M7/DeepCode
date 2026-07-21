@@ -26,7 +26,9 @@ jobs:
       DSH_ARTIFACT_SHARD: ${{ matrix.artifact_shard }}
       DSH_COVERAGE_MAX_WORKERS: ${{ matrix.coverage_max_workers }}
       DSH_COVERAGE_SHARD: ${{ matrix.coverage_shard }}
+      DSH_LINT_SHARD: ${{ matrix.lint_shard }}
       DSH_STATIC_SHARD: ${{ matrix.static_shard }}
+      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ matrix.snapshot_max_concurrency }}
       DSH_SNAPSHOT_PREBUILT: ${{ matrix.snapshot_prebuilt }}
       DSH_SNAPSHOT_SHARD: ${{ matrix.snapshot_shard }}
       DSH_ESLINT_CACHE: ${{ matrix.eslint_cache }}
@@ -54,10 +56,21 @@ jobs:
             command: pnpm run check:ci:static
             gate_concurrency: '1'
             static_shard: site
-          - lane: lint
+          - lane: lint-package-sources
             command: pnpm run check:ci:lint
             gate_concurrency: '1'
             eslint_cache: '1'
+            lint_shard: package-sources
+          - lane: lint-package-tests
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: package-tests
+          - lane: lint-repository
+            command: pnpm run check:ci:lint
+            gate_concurrency: '1'
+            eslint_cache: '1'
+            lint_shard: repository
           - lane: coverage-core
             command: pnpm run check:ci:coverage
             gate_concurrency: '1'
@@ -141,21 +154,25 @@ jobs:
           - lane: snapshot-1
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
+            snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
             snapshot_shard: '1/4'
           - lane: snapshot-2
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
+            snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
             snapshot_shard: '2/4'
           - lane: snapshot-3
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
+            snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
             snapshot_shard: '3/4'
           - lane: snapshot-4
             command: pnpm run check:ci:snapshot
             gate_concurrency: '1'
+            snapshot_max_concurrency: '5'
             snapshot_prebuilt: '1'
             snapshot_shard: '4/4'
           - lane: artifacts-metadata
@@ -207,8 +224,7 @@ jobs:
           pnpm run build &
           build_pid=$!
           (
-            sudo apt-get update -q
-            sudo apt-get install -yq bubblewrap
+            sudo apt-get install -yq --no-install-recommends bubblewrap
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
               || echo "apparmor userns knob absent — the functional probe decides"
           ) &
@@ -221,7 +237,7 @@ jobs:
           exit "$sandbox_status"
 
       - uses: actions/cache@v4
-        if: matrix.lane == 'lint'
+        if: startsWith(matrix.lane, 'lint-')
         with:
           path: .cache/eslint
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
