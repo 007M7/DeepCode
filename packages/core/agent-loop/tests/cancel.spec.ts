@@ -397,7 +397,7 @@ describe('Agent.cancel()', () => {
     expect(result?.type === 'tool/result' ? result.data : undefined).toMatchObject({
       callId: 'c1',
       isError: true,
-      error: { info: { name: 'AbortError', code: 'ABORTED' } },
+      error: { name: 'AbortError', code: 'ABORTED' },
     })
 
     send(agent, 'continue safely')

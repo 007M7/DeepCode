@@ -66,7 +66,7 @@
 {"type":"tool/call","seq":64,"time":1783986963664,"data":{"turn":1,"step":1,"callId":"call_00_1rmSWHhVchVg7PDTmegT0421","name":"bash","arguments":"{\"command\": \"echo HELLO\", \"description\": \"Echo HELLO to stdout\"}"}}
 {"type":"hook/invoked","seq":65,"time":1783986963673,"data":{"turn":1,"point":"PostToolUse","dialect":"codex","handlerId":"codex:PostToolUse:1","matcher":"bash"}}
 {"type":"hook/result","seq":66,"time":1783986963677,"data":{"turn":1,"point":"PostToolUse","handlerId":"codex:PostToolUse:1","decision":"block","exitCode":2,"stderrSummary":"tool output rejected by codex policy: summarize instead","durationMs":4.42941699999983}}
-{"type":"tool/result","seq":67,"time":1783986963678,"data":{"turn":1,"step":1,"callId":"call_00_1rmSWHhVchVg7PDTmegT0421","content":[{"type":"text","text":"tool output rejected by codex policy: summarize instead"}],"isError":true,"error":{"message":"tool output rejected by codex policy: summarize instead"}},"sourceEventSeqs":[64],"surfaceOp":"append"}
+{"type":"tool/result","seq":67,"time":1783986963678,"data":{"turn":1,"step":1,"callId":"call_00_1rmSWHhVchVg7PDTmegT0421","content":[{"type":"text","text":"tool output rejected by codex policy: summarize instead"}],"isError":true},"sourceEventSeqs":[64],"surfaceOp":"append"}
 {"type":"step/end","seq":68,"time":1783986963678,"data":{"turn":1,"step":1}}
 {"type":"step/start","seq":69,"time":1783986963679,"data":{"turn":1,"step":2}}
 {"type":"assistant/chunk","seq":70,"time":1783986964555,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"reasoning"}}}

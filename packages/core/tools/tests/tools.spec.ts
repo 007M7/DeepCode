@@ -147,6 +147,7 @@ describe('ToolRegistry', () => {
     })
     expect(result.isError).toBe(true)
     expect(result.content[0]?.type === 'text' && result.content[0].text).toContain('Error:')
+    expect(result.error).toMatchObject({ info: { name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' } })
     expect(observedError).toBe(true)
   })
 
@@ -209,10 +210,10 @@ describe('ToolRegistry', () => {
     }))
 
     const result = await ctx.tools.execute({ callId: CallId(projector), name: `throwing-${projector}`, arguments: {} })
-    expect(result).toMatchObject({
-      isError: true,
-      error: { message: projector === 'render' ? 'renderer exploded' : 'metadata exploded' },
-    })
+    expect(result.isError).toBe(true)
+    expect(result.error?.message)
+      .toContain(projector === 'render' ? 'renderer exploded' : 'metadata exploded')
+    expect(result.error?.info).toEqual({ name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' })
     expect('value' in result).toBe(false)
   })
 

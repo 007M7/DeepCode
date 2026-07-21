@@ -1447,6 +1447,9 @@ importers:
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
@@ -1463,9 +1466,6 @@ importers:
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
 
   packages/sandbox/sandbox:
     devDependencies:

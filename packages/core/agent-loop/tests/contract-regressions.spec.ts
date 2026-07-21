@@ -259,7 +259,7 @@ describe('abort during tool execution ends the turn', () => {
         case 'assistant/message': order.push('assistant/message'); break
         case 'tool/call': order.push(`tool/call:${event.data.callId}`); break
         case 'tool/result': {
-          const outcome = event.data.error?.info?.code === 'ABORTED' ? 'synthetic-aborted' : 'real'
+          const outcome = event.data.error?.code === 'ABORTED' ? 'synthetic-aborted' : 'real'
           order.push(`tool/result:${event.data.callId}:${outcome}`)
           break
         }
@@ -308,7 +308,7 @@ describe('abort during tool execution ends the turn', () => {
     expect(results[1]!.data).toMatchObject({
       callId: CallId('c2'),
       isError: true,
-      error: { info: { name: 'AbortError', code: 'ABORTED' } },
+      error: { name: 'AbortError', code: 'ABORTED' },
     })
   })
 

@@ -349,6 +349,25 @@ export class ToolOutputError extends HarnessError {
   }
 }
 
+/** Convert one projector exception into the canonical invalid-output failure. */
+function projectionError(toolName: string, projector: 'render' | 'presentationMeta', error: unknown): ToolOutputError {
+  return new ToolOutputError(toolName, [`output.${projector} failed: ${errorMessage(error)}`])
+}
+
+/** Snapshot one projector result before later durable-result materialization. */
+function snapshotProjection<T>(toolName: string, projector: 'render' | 'presentationMeta', candidate: T): T {
+  try {
+    const detached = snapshotJsonValue(candidate)
+    if (detached === undefined) {
+      throw new ToolOutputError(toolName, [`output.${projector} returned non-lossless JSON`])
+    }
+    return detached
+  } catch (error: unknown) {
+    if (error instanceof ToolOutputError) throw error
+    throw projectionError(toolName, projector, error)
+  }
+}
+
 /** Successful canonical tool execution, including its Native/model projection. */
 export interface ToolExecutionSuccess {
   readonly isError: false
@@ -1156,10 +1175,23 @@ export class ToolRegistry extends Service {
     const violations = validateJsonSchemaValue(tool.output.schema, detached, 'value')
     if (violations.length > 0) throw new ToolOutputError(tool.name, violations)
     const value = deepFreeze(detached as JsonValue)
-    const content = tool.output.render(exec.arguments, value)
-    const meta = exec.parent === undefined && tool.output.presentationMeta !== undefined
-      ? tool.output.presentationMeta(exec.arguments, value)
-      : undefined
+    let rendered: ContentBlock[]
+    try {
+      rendered = tool.output.render(exec.arguments, value)
+    } catch (error: unknown) {
+      throw projectionError(tool.name, 'render', error)
+    }
+    const content = snapshotProjection(tool.name, 'render', rendered)
+    let meta: JsonValue | undefined
+    if (exec.parent === undefined && tool.output.presentationMeta !== undefined) {
+      let projected: JsonValue
+      try {
+        projected = tool.output.presentationMeta(exec.arguments, value)
+      } catch (error: unknown) {
+        throw projectionError(tool.name, 'presentationMeta', error)
+      }
+      meta = snapshotProjection(tool.name, 'presentationMeta', projected)
+    }
     return this.markCanonical(this.materializeFinalResult({
       isError: false,
       value,
