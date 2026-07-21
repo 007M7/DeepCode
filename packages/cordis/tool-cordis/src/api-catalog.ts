@@ -422,6 +422,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @returns deterministic newest-first cloned session records.\n */',
       },
       {
+        signature: 'async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>',
+        jsDoc: '/**\n * Fold the latest log-backed title from one live-preferred logical session.\n * @param sessionId - live or persisted session id to read.\n * @returns latest title snapshot, or `undefined` when the log has no title event.\n */',
+      },
+      {
         signature: 'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
         jsDoc: '/**\n * List lightweight raw-log event records for one logical session.\n * @param sessionId - live-preferred session id to read.\n * @returns event records in ascending seq order.\n */',
       },
@@ -464,6 +468,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the loop\'s turn-end checkpoint, idle\n * injection, teardown drains) must come through here rather than dispatch a\n * raw `ctx.parallel(\'session/flush\', …)` — one owner, one spelling, and the\n * scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns resolves when every flush listener has settled; after all settle,\n *   rejects with the first registered listener failure if any listener failed.\n */',
       },
       {
+        signature: 'async appendOutOfBand<T extends OutOfBandSessionEventType>( session: Session, type: T, data: SessionEventMap[T], trigger: TurnTrigger, ): Promise<SessionEvent<T>>',
+        jsDoc: '/**\n * Append one plugin-declared log-only event without borrowing the agent\n * loop\'s lifecycle. An open turn receives the event directly and remains\n * responsible for its ordinary checkpoint. A closed log receives one\n * zero-step turn around the event, followed by an awaited flush.\n *\n * Once the synthetic `turn/start` commits, this method always attempts its\n * matching `turn/end` and flush, including when the target append fails.\n * Detachment requested by an event or flush listener is deferred until that\n * sequence settles, so publication cannot switch from a live scoped session\n * to an unobserved bare `Session` halfway through the update.\n *\n * @param session - exact live session that owns the target log.\n * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.\n * @param data - typed JSON payload for the target event.\n * @param trigger - plugin-owned turn trigger used only when the log is closed.\n * @returns the accepted target event with its assigned sequence and timestamp.\n * @throws when the session is detached, another out-of-band append is active,\n *   event acceptance fails, the synthetic turn cannot close, or flushing fails.\n */',
+      },
+      {
         signature: 'get(id: SessionId): Session | undefined',
         jsDoc: '/**\n * Look up a live session.\n * @param id - the session id to look up.\n * @returns the session, or undefined when no live session has that id.\n */',
       },
@@ -474,6 +482,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session',
         jsDoc: '/**\n * Create a live child session from a turn-enclosed prefix of a live source.\n * `boundary` is an inclusive source event seq; omitted means the source\'s\n * current last event. A non-empty selected slice must end at `turn/end`.\n *\n * @param source - Live source session object or id.\n * @param boundary - Inclusive source event seq to fork through; omitted means\n *   the source\'s current last event, and omitted on an empty source forks an\n *   empty child.\n * @param childSessionId - Optional child session id; omitted delegates to\n *   `SessionStore`\'s id policy.\n * @returns The created live child session.\n */',
+      },
+    ],
+  },
+  {
+    key: 'sessionTitle',
+    summary: 'Log-backed title fold plus asynchronous fallback generation.',
+    methods: [
+      {
+        signature: 'get(session: Session): SessionTitleSnapshot | undefined',
+        jsDoc: '/**\n * Read the latest folded title from one live or replayed session.\n * @param session - session whose log is the title source of truth.\n * @returns latest title snapshot, or `undefined` before eligible input.\n */',
+      },
+      {
+        signature: 'async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>',
+        jsDoc: '/**\n * Explicitly retry the registered provider, or materialize the built-in\n * fallback when no provider is registered.\n * @param session - exact live session to refresh.\n * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.\n * @returns latest accepted title, or `undefined` when no eligible text exists.\n */',
+      },
+      {
+        signature: 'register(provider: SessionTitleProvider): () => Promise<void>',
+        jsDoc: '/**\n * Register the sole optional title provider. Disposal aborts its pending and\n * active work before another provider may register.\n * @param provider - provider identity, cadence, and generation function.\n * @returns exact Cordis effect disposer, which settles after active calls quiesce.\n */',
       },
     ],
   },
@@ -872,7 +898,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'llm/stream',
     mode: 'waterfall',
     signature: '\'llm/stream\'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>',
-    jsDoc: '/**\n * Waterfall around every streaming model call (retry, replay, routing).\n * Bound to the {@link LlmService}; call `next()` to reach the resolved\n * adapter\'s stream, or yield your own chunks to short-circuit.\n * @param options - the full request. A LOOP-built request arrives\n *   deep-frozen (mutation throws): its content is a pure function of the\n *   session log (the reconstructability Agent Note), so listeners read it, never\n *   rewrite it. A hand-built one-shot (compaction summarize) is the\n *   caller\'s own object and stays mutable here.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Waterfall around every streaming model call (retry, replay, routing).\n * Bound to the {@link LlmService}; call `next()` to reach the resolved\n * adapter\'s stream, or yield your own chunks to short-circuit.\n * @param options - the full request. A LOOP-built request carries the\n *   process-local {@link markAgentLoopRequest} identity and arrives deep-frozen\n *   (mutation throws): its content is a pure function of the session log (the\n *   reconstructability Agent Note), so listeners read it, never rewrite it.\n *   Hand-built calls own their mutability policy and do not carry that marker.\n * @mode waterfall\n */',
     summary: 'Waterfall around every streaming model call (retry, replay, routing).',
   },
   {
@@ -1399,6 +1425,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n}',
   },
   {
+    name: 'OutOfBandSessionEventMap',
+    declaration: 'export interface OutOfBandSessionEventMap {\n}',
+  },
+  {
+    name: 'OutOfBandSessionEventType',
+    declaration: 'export type OutOfBandSessionEventType = Exclude<Extract<SessionEventType, keyof OutOfBandSessionEventMap>, SurfaceEventType>;',
+  },
+  {
     name: 'PresetOption',
     declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n}',
   },
@@ -1521,6 +1555,46 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionRecord',
     declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n}',
+  },
+  {
+    name: 'SessionTitleAutomaticMode',
+    declaration: 'export type SessionTitleAutomaticMode = \'first-message\' | \'all-user-messages\';',
+  },
+  {
+    name: 'SessionTitleEventData',
+    declaration: 'export interface SessionTitleEventData {\n    readonly title: string;\n    readonly messageSeqs: number[];\n    readonly source: SessionTitleSource;\n}',
+  },
+  {
+    name: 'SessionTitleModelProvenance',
+    declaration: 'export interface SessionTitleModelProvenance {\n    readonly provider: string;\n    readonly model: string;\n}',
+  },
+  {
+    name: 'SessionTitleProvider',
+    declaration: 'export interface SessionTitleProvider {\n    readonly id: SessionTitleProviderId;\n    readonly automatic: SessionTitleAutomaticMode;\n    generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult>;\n}',
+  },
+  {
+    name: 'SessionTitleProviderId',
+    declaration: 'export type SessionTitleProviderId = Branded<\'SessionTitleProviderId\'>;',
+  },
+  {
+    name: 'SessionTitleProviderRequest',
+    declaration: 'export interface SessionTitleProviderRequest {\n    readonly session: Session;\n    readonly messages: readonly SessionTitleUserMessage[];\n    readonly route?: SessionTitleModelProvenance;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'SessionTitleProviderResult',
+    declaration: 'export interface SessionTitleProviderResult {\n    readonly title: string;\n    readonly messageSeqs: readonly number[];\n    readonly model?: SessionTitleModelProvenance;\n}',
+  },
+  {
+    name: 'SessionTitleSnapshot',
+    declaration: 'export interface SessionTitleSnapshot extends SessionTitleEventData {\n    readonly eventSeq: number;\n    readonly updatedAt: number;\n}',
+  },
+  {
+    name: 'SessionTitleSource',
+    declaration: 'export type SessionTitleSource = {\n    readonly kind: \'fallback\';\n} | {\n    readonly kind: \'provider\';\n    readonly provider: SessionTitleProviderId;\n    readonly model?: SessionTitleModelProvenance;\n};',
+  },
+  {
+    name: 'SessionTitleUserMessage',
+    declaration: 'export interface SessionTitleUserMessage {\n    readonly seq: number;\n    readonly text: string;\n}',
   },
   {
     name: 'SkillCandidate',

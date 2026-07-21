@@ -64,6 +64,7 @@
     { "doc": "docs/core-data-structures/token-meter.md", "symbol": "TokenSurfaceNode", "source": "packages/llm/token-meter/src/types.ts" },
 
     { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEventMap", "source": "packages/core/session/src/types.ts" },
+    { "doc": "docs/core-data-structures/session.md", "symbol": "OutOfBandSessionEventMap", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "EpochHeader", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "TodoItem", "source": "packages/core/session/src/types.ts" },
     { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" },
@@ -91,6 +92,18 @@
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventWindow", "source": "packages/session-query/session-query/src/types.ts" },
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventTraceRequest", "source": "packages/session-query/session-query/src/types.ts" },
     { "doc": "docs/core-data-structures/session-query.md", "symbol": "SessionEventTrace", "source": "packages/session-query/session-query/src/types.ts" },
+
+    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProviderId", "source": "packages/session-title/session-title/src/index.ts" },
+    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleModelProvenance", "source": "packages/session-title/session-title/src/index.ts" },
+    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleSource", "source": "packages/session-title/session-title/src/index.ts" },
+    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleEventData", "source": "packages/session-title/session-title/src/index.ts" },
+    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleSnapshot", "source": "packages/session-title/session-title/src/index.ts" },
+    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleLlmRequestEventData", "source": "packages/session-title/session-title-llm/src/index.ts" },
+    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleUserMessage", "source": "packages/session-title/session-title/src/index.ts" },
+    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleAutomaticMode", "source": "packages/session-title/session-title/src/index.ts" },
+    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProviderRequest", "source": "packages/session-title/session-title/src/index.ts" },
+    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProviderResult", "source": "packages/session-title/session-title/src/index.ts" },
+    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProvider", "source": "packages/session-title/session-title/src/index.ts" },
 
     { "doc": "docs/core-data-structures/tools.md", "symbol": "ToolDefinition", "source": "packages/core/tools/src/index.ts" },
     { "doc": "docs/core-data-structures/tools.md", "symbol": "SchemaProp", "source": "packages/core/tools/src/schema.ts" },

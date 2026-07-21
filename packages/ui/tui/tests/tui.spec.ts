@@ -7,6 +7,7 @@ import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@dee
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type {} from '@deepseek-ai/dsh-llm-retry'
@@ -165,6 +166,34 @@ describe('TUI config', () => {
 })
 
 describe('pi-tui chat lifecycle and transcript', () => {
+  it('uses the latest log-backed title for the header subtitle and terminal window', async () => {
+    const result = await setup({
+      beforeMount(session) {
+        session.append('session/title', {
+          title: 'Restored session title',
+          messageSeqs: [1],
+          source: { kind: 'fallback' },
+        })
+      },
+    })
+
+    expect(result.terminal.title).toBe('Restored session title — DeepSeek Harness')
+    expect(result.terminal.output).toContain('Restored session title')
+    expect(result.terminal.output).not.toContain('Coding agent ready.')
+
+    result.session.append('session/title', {
+      title: 'Live title \u001B]0;unsafe\u0007',
+      messageSeqs: [1, 5],
+      source: { kind: 'fallback' },
+    })
+    await tick()
+
+    expect(result.terminal.title).toContain('Live title \\x1b]0;unsafe\\x07 — DeepSeek Harness')
+    expect(result.terminal.title).not.toContain('\u001B')
+    expect(result.terminal.output).toContain('Live title \\x1b]0;unsafe\\x07')
+    await dispose(result)
+  })
+
   it('renders its header, footer, replay, streaming answer, todos, and status', async () => {
     let now = 0
     const result = await setup({

@@ -58,6 +58,8 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
 import type {} from '@deepseek-ai/dsh-permission'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
+// Side-effect type import: adds the log-only session/title event translated below.
+import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } from '@deepseek-ai/dsh-tools'
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
@@ -1228,6 +1230,17 @@ export function streamSessionEventUpdate(
     }
     case 'todo/write': {
       notify({ sessionId, update: { sessionUpdate: 'plan', ...todosToPlan(event.data.todos) } })
+      return
+    }
+    case 'session/title': {
+      notify({
+        sessionId,
+        update: {
+          sessionUpdate: 'session_info_update',
+          title: event.data.title,
+          updatedAt: new Date(event.time).toISOString(),
+        },
+      })
       return
     }
     case 'turn/end': {

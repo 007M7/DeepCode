@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-compact-basic/region
  */
 
+import { isDeepStrictEqual } from 'node:util'
 import {
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
@@ -113,8 +114,8 @@ export async function compactSurfaceRegion(
   const shadowedSeqs = nodes.slice(startIdx, endIdx + 1)
   const startEvent = session.append('compact/start', { turn: tail.turn })
   try {
-    // Capture after the lock event so any later durable append, including a
-    // log-only one, invalidates the async selection before replacement.
+    // Capture after the lock event so a later surface mutation invalidates the
+    // async selection before replacement. Unrelated log-only facts may append.
     const lockedMeasurement = dependencies.meter.measure(session)
     const selected = lockedMeasurement.nodes.slice(startIdx, endIdx + 1)
     if (selected.length !== shadowedSeqs.length
@@ -126,8 +127,8 @@ export async function compactSurfaceRegion(
     const { summary, provider, model, maxTokens } = await dependencies.summarize(summarizationInput, agent, signal)
 
     const currentMeasurement = dependencies.meter.measure(session)
-    if (currentMeasurement.logRevision !== lockedMeasurement.logRevision) {
-      throw new Error('compaction: session log changed during summarization')
+    if (!isDeepStrictEqual(currentMeasurement.nodes, lockedMeasurement.nodes)) {
+      throw new Error('compaction: session surface changed during summarization')
     }
     const framedSummary = frameSummary(summary)
     const framedSummaryTokenCount = dependencies.meter.estimateMessage({

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-title'
 import { makeBridgeHarness, textResponse, toolCallResponse, type BridgeHarness, type CapturedUpdate } from './harness.ts'
 
 /** Concatenate the text of all agent_message_chunk updates. */
@@ -54,6 +55,31 @@ describe('acp bridge — session/load replay', () => {
       .map(u => (u.content.type === 'text' ? u.content.text : ''))
       .join('')
     expect(userText).toBe('remember this')
+  })
+
+  it('streams and replays the same persisted session_info_update for a title event', async () => {
+    live = await makeBridgeHarness({ storageDir, script: [] })
+    await live.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await live.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const session = live.ctx.agents.get(SessionId(sessionId))!.session
+    const event = await live.ctx.sessions.appendOutOfBand(session, 'session/title', {
+      title: 'Durable ACP title',
+      messageSeqs: [1],
+      source: { kind: 'fallback' },
+    }, { kind: 'session-title' })
+    const expected = {
+      sessionUpdate: 'session_info_update' as const,
+      title: 'Durable ACP title',
+      updatedAt: new Date(event.time).toISOString(),
+    }
+    expect(live.updates).toContainEqual(expected)
+    await live.dispose()
+    live = undefined
+
+    loader = await makeBridgeHarness({ storageDir, script: [] })
+    await loader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await loader.client.loadSession({ sessionId, cwd: process.cwd(), mcpServers: [] })
+    expect(loader.updates).toContainEqual(expected)
   })
 
   it('replays a persisted tool call with the TOOL-OWNED presentation (title/rawInput/console output)', async () => {
