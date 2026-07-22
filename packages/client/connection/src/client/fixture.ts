@@ -124,6 +124,18 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
+  // Turn 64: todo_write sample — the TodoRow toolview in the flow plus the
+  // todo/write snapshot event feeding the TodoPanel plan strip.
+  const fixtureTodos = [
+    { content: '梳理需求', status: 'completed' },
+    { content: '实现 fixture 样本', status: 'in_progress' },
+    { content: '浏览器验收', status: 'pending' },
+  ]
+  const todoArgs = JSON.stringify({ todos: fixtureTodos })
+  toolTurn(64, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  // The tool appends the snapshot event inside its own turn; splice it before the trailing turn/end.
+  events.splice(events.length - 1, 0, { type: 'todo/write', time: time += 800, data: { todos: fixtureTodos } })
+  events.forEach((e, i) => { e.seq = i })
   return events as unknown as SessionEvent[]
 }
 
