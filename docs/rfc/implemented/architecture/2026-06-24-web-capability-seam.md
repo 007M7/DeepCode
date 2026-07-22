@@ -1,5 +1,7 @@
 # RFC: Web capability seam - stable tools over multiple providers
 
+English | [中文](2026-06-24-web-capability-seam.zh.md)
+
 Status: implemented
 
 ## Problem

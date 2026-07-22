@@ -58,6 +58,7 @@
     "docs/rfc/implemented/architecture/2026-06-20-extract-example-app-packages.md",
     "docs/rfc/implemented/architecture/2026-06-20-package-hierarchy.md",
     "docs/rfc/implemented/architecture/2026-06-21-mandatory-app-attribution-headers.md",
+    "docs/rfc/implemented/architecture/2026-06-24-web-capability-seam.md",
     "docs/rfc/implemented/architecture/2026-06-26-file-context-as-event-gate.md",
     "docs/rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md",
     "docs/rfc/implemented/architecture/2026-06-30-event-domain-semantics.md",
