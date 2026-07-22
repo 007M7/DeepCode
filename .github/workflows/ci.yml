@@ -15,6 +15,7 @@ on:
           - serial-reference
           - larger-runner-benchmark
           - consolidated-runner-benchmark
+          - sharded-reference
           - optimized-larger-runners
 
 concurrency:
@@ -28,8 +29,8 @@ env:
   PRIMARY_NODE_VERSION: '24'
 
 jobs:
-  node-24:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
+  node-24-sharded:
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'sharded-reference'
     runs-on: ${{ startsWith(matrix.lane, 'snapshot-') && 'dsh-ubuntu-24-04-8core' || 'dsh-ubuntu-24-04-4core' }}
     name: node 24 / ${{ matrix.lane }}
     env:
@@ -317,6 +318,75 @@ jobs:
       - name: Run gates
         run: ${{ matrix.command }}
 
+  # One large runner pays hosted setup once, then the repository scheduler
+  # overlaps the complete unsharded primary gate inventory inside that box.
+  node-24:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
+    runs-on: dsh-ubuntu-24-04-96core
+    name: node 24 / complete
+    env:
+      DSH_COVERAGE_MAX_WORKERS: '32'
+      DSH_ESLINT_CACHE: '1'
+      DSH_ESLINT_CONCURRENCY: '32'
+      DSH_GATE_CONCURRENCY: '32'
+      DSH_PUBLINT_CONCURRENCY: '32'
+      DSH_SNAPSHOT_MAX_CONCURRENCY: '32'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack and resolve pnpm store path
+        id: pnpm-store
+        run: |
+          corepack enable
+          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - uses: actions/cache@v4
+        with:
+          path: .cache/eslint
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
+
+      - name: Install, build, and prepare bubblewrap
+        run: |
+          pnpm install --frozen-lockfile &
+          install_pid=$!
+          (
+            if ! sudo apt-get install -yq --no-install-recommends bubblewrap; then
+              echo "initial bubblewrap install failed; refreshing APT indexes and retrying"
+              sudo apt-get update -q
+              sudo apt-get install -yq --no-install-recommends bubblewrap
+            fi
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
+              || echo "apparmor userns knob absent — the functional probe decides"
+          ) &
+          sandbox_pid=$!
+          install_status=0
+          wait "$install_pid" || install_status=$?
+          build_status=0
+          if (( install_status == 0 )); then
+            pnpm run build || build_status=$?
+          fi
+          sandbox_status=0
+          wait "$sandbox_pid" || sandbox_status=$?
+          if (( install_status != 0 )); then exit "$install_status"; fi
+          if (( build_status != 0 )); then exit "$build_status"; fi
+          exit "$sandbox_status"
+
+      - name: Run complete unsharded primary Node CI concurrently
+        run: pnpm run check:ci:prebuilt
+
   node-compat:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
     runs-on: ubuntu-latest
@@ -378,12 +448,13 @@ jobs:
       - name: Run complete keyless Python suite
         run: uv run --python 3.10 --group test --project python/sdk pytest
 
-  # Blocking Windows build and production-site lanes keep the already-green
+  # Manual sharded Windows reference matching the former production topology.
+  # Blocking build and production-site lanes keep the already-green
   # native outputs protected without putting both critical paths in one job.
   # The broader observational gate matrix below exposes the remaining
   # portability work without blocking mainline merges.
-  windows-build:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
+  windows-build-sharded:
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'sharded-reference'
     runs-on: dsh-windows-2025-4core
     name: windows / build
     steps:
@@ -401,8 +472,8 @@ jobs:
       - name: Build (tsc -b + tsdown)
         run: pnpm run build
 
-  windows-site:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
+  windows-site-sharded:
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'sharded-reference'
     runs-on: dsh-windows-2025-4core
     name: windows / production site
     steps:
@@ -425,8 +496,8 @@ jobs:
   # have dedicated support. Run the gates from native PowerShell: an MSYS parent
   # would change the environment being measured. This job intentionally stays
   # out of all-checks-passed.needs.
-  windows-gates:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
+  windows-gates-sharded:
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'sharded-reference'
     continue-on-error: true
     runs-on: dsh-windows-2025-4core
     name: windows node 24 / ${{ matrix.lane }}
@@ -516,7 +587,97 @@ jobs:
         shell: pwsh
         run: ${{ matrix.command }}
 
-  # Manual reference runs deliberately avoid the optimized matrices above.
+  # The two blocking Windows build surfaces share one setup and run concurrently.
+  windows-build:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
+    runs-on: dsh-windows-2025-16core
+    name: windows / blocking builds
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack and resolve pnpm store path
+        id: pnpm-store
+        shell: pwsh
+        run: |
+          corepack enable
+          "path=$(pnpm store path --silent)" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - name: Install (immutable)
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: Run blocking Windows builds concurrently
+        shell: pwsh
+        env:
+          DSH_GATE_CONCURRENCY: '2'
+        run: pnpm run check:ci:windows-blocking
+
+  # Wider Windows portability gates remain observational, but one larger box
+  # now runs their complete unsharded inventory with in-runner concurrency.
+  windows-gates:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
+    continue-on-error: true
+    runs-on: dsh-windows-2025-16core
+    name: windows node 24 / observational
+    env:
+      DSH_ESLINT_CACHE: '1'
+      DSH_ESLINT_CONCURRENCY: '16'
+      DSH_GATE_CONCURRENCY: '16'
+      DSH_PUBLINT_CONCURRENCY: '16'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Enable Developer Mode (symlink support)
+        shell: pwsh
+        run: >-
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
+          /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack and resolve pnpm store path
+        id: pnpm-store
+        shell: pwsh
+        run: |
+          corepack enable
+          "path=$(pnpm store path --silent)" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - uses: actions/cache@v4
+        with:
+          path: .cache/eslint
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
+
+      - name: Install (immutable)
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: Run observational Windows gates concurrently
+        shell: pwsh
+        run: pnpm run check:ci:windows-observational
+
+  # Manual reference runs deliberately avoid the optimized jobs above.
   # Each host executes the complete, unsharded primary Node aggregate with one
   # gate worker, giving reviewers a simple cross-platform oracle for completeness
   # and timing.
@@ -834,9 +995,14 @@ jobs:
           sandbox_pid=$!
           install_status=0
           wait "$install_pid" || install_status=$?
+          build_status=0
+          if (( install_status == 0 )); then
+            pnpm run build || build_status=$?
+          fi
           sandbox_status=0
           wait "$sandbox_pid" || sandbox_status=$?
           if (( install_status != 0 )); then exit "$install_status"; fi
+          if (( build_status != 0 )); then exit "$build_status"; fi
           exit "$sandbox_status"
 
       - name: Install (immutable)
@@ -853,7 +1019,7 @@ jobs:
           DSH_GATE_CONCURRENCY: ${{ matrix.workers }}
           DSH_PUBLINT_CONCURRENCY: ${{ matrix.workers }}
           DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ matrix.workers }}
-        run: pnpm run check:ci
+        run: pnpm run check:ci:prebuilt
 
       - name: Run blocking Windows builds concurrently
         if: matrix.platform == 'windows'
@@ -874,7 +1040,7 @@ jobs:
   all-checks-passed:
     name: all checks passed
     runs-on: ubuntu-latest
-    needs: [node-24, node-compat, python-sdk, windows-build, windows-site]
+    needs: [node-24, node-compat, python-sdk, windows-build]
     if: always() && (github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners')
     steps:
       - name: Fail if any needed job did not succeed

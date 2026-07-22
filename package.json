@@ -26,6 +26,7 @@
     "test:snapshot:record": "DSH_SNAPSHOT=record vitest run --config vitest.snapshot.config.ts --update",
     "test:snapshot:refresh": "DSH_SNAPSHOT=refresh vitest run --config vitest.snapshot.config.ts",
     "check:ci": "tsx scripts/run-gates.ts ci-primary",
+    "check:ci:prebuilt": "tsx scripts/run-gates.ts ci-primary-prebuilt",
     "check:ci:static": "tsx scripts/run-gates.ts ci-static",
     "check:ci:lint": "tsx scripts/run-gates.ts ci-lint",
     "check:ci:coverage": "tsx scripts/run-gates.ts ci-coverage",
