@@ -77,7 +77,7 @@ Because `ctx.on()` is an effect, the listener disappears with the plugin — no 
 
 ## Dispatch modes
 
-`emit` is one of five dispatch modes. Which one an event uses is part of its contract — it decides whether listeners can return values, run concurrently, or veto each other:
+`emit` is one of five dispatch modes. Which one an event uses is part of its contract — it decides whether listeners can return values, run concurrently, or short-circuit each other:
 
 | Mode | Call | Semantics |
 |---|---|---|
@@ -89,9 +89,9 @@ Because `ctx.on()` is an effect, the listener disappears with the plugin — no 
 
 Every harness event documents its mode in the generated [events catalog](../cordis-catalog/events.md).
 
-## Waterfall: transform or veto
+## Waterfall: transform or short-circuit
 
-Waterfall is the mode that powers interception. Each listener receives the arguments plus a `next()` continuation; it can transform what `next()` returns, or refuse to call `next()` at all — the veto. Create `waterfall-demo.ts`:
+Waterfall is the mode that powers interception. Each listener receives the arguments plus a `next()` continuation; it can transform what `next()` returns, or return without calling `next()` and short-circuit the rest of the chain — what the Cordis docs call the veto. Create `waterfall-demo.ts`:
 
 ```ts
 import type { Context } from 'cordis'
@@ -111,9 +111,9 @@ export function apply(ctx: Context) {
     return downstream.toUpperCase()
   })
 
-  // Listener 2: veto when it owns the decision.
+  // Listener 2: short-circuit when it owns the decision.
   ctx.on('demo/transform', async (input, next) => {
-    if (input.includes('blocked')) return '** vetoed **'
+    if (input.includes('blocked')) return '** blocked **'
     return next()
   })
 
@@ -128,12 +128,12 @@ Point `cordis.yml` at just this file and run:
 
 ```
 HELLO
-** VETOED **
+** BLOCKED **
 ```
 
-Walk through the second line: listener 1 runs first, calls `next()`, which invokes listener 2; listener 2 sees `blocked` and returns without calling `next()` — the innermost default (the function passed to `ctx.waterfall`) never runs — and listener 1 uppercases the veto message on the way out.
+Walk through the second line: listener 1 runs first, calls `next()`, which invokes listener 2; listener 2 sees `blocked` and returns without calling `next()` — the innermost default (the function passed to `ctx.waterfall`) never runs — and listener 1 uppercases the replacement message on the way out.
 
-The discipline that follows: **a waterfall listener that only observes or annotates must call `next()`**; returning without it is a deliberate veto. Forgetting `next()` in a logging listener silently swallows the default behavior for everyone downstream. This is important enough that it is a standing rule of this repository ([waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)).
+The discipline that follows: **a waterfall listener that only observes or annotates must call `next()`**; returning without it is a deliberate short-circuit. Forgetting `next()` in a logging listener silently swallows the default behavior for everyone downstream. This is important enough that it is a standing rule of this repository ([waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)).
 
 The harness uses waterfalls for decisions that cooperating plugins may wrap or answer: [`agent/request`](../cordis-catalog/events.md#agentrequest--waterfall) lets a plugin replace the model-call config, and [`approval/request`](../cordis-catalog/events.md#approvalrequest--waterfall) lets a policy answer instead of the user.
 

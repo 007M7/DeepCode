@@ -36,7 +36,7 @@ That one-file launcher (see [vendor/cordis/bin.js](../../vendor/cordis/bin.js)) 
 1. [Your first plugin](01-first-plugin.md) — a plugin is a function; the loader mounts it.
 2. [Lifecycle and effects](02-lifecycle-and-effects.md) — Cordis-managed registrations are undone when their plugin unloads.
 3. [Services](03-services.md) — expose a capability on `ctx` and depend on it with `inject`.
-4. [Events](04-events.md) — typed events, broadcast dispatch, and the waterfall veto.
+4. [Events](04-events.md) — typed events, broadcast dispatch, and the waterfall short-circuit.
 5. [Configuration](05-config.md) — validated config from `cordis.yml`, failing loud on bad input.
 6. [Composition and HMR](06-composition-and-hmr.md) — the config file as a plugin tree, hot reload, and diagnosing a plugin that never loads.
 7. [Into the harness](07-into-the-harness.md) — register a model-callable tool against real harness services.
