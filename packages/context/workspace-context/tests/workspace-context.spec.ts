@@ -58,6 +58,7 @@ async function write(path: string, content: string): Promise<void> {
 class RecordingFileSystem extends FileSystem {
   entries = new Map<string, { type: FsInfo['type']; content?: string; version?: FsVersion }>()
   throwOnStat = new Set<string>()
+  throwOnRead = new Set<string>()
   omitSizes = new Set<string>()
   readTargets: string[] = []
   readTextTargets: string[] = []
@@ -66,7 +67,9 @@ class RecordingFileSystem extends FileSystem {
   override async resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget> {
     if (opts?.signal !== undefined) this.signals.push(opts.signal)
     opts?.signal?.throwIfAborted()
-    const absolute = join(opts?.cwd ?? '/', path)
+    // resolve(), not join(): entries are seeded with host join() keys, and on
+    // Windows a joined '/'-rooted prefix would not match a resolved drive path.
+    const absolute = resolve(opts?.cwd ?? '/', path)
     return { targetKey: FsTargetKey(absolute), displayPath: absolute }
   }
 
@@ -108,6 +111,7 @@ class RecordingFileSystem extends FileSystem {
     if (signal !== undefined) this.signals.push(signal)
     signal?.throwIfAborted()
     this.readTargets.push(target.targetKey)
+    if (this.throwOnRead.has(target.targetKey)) throw new Error(`read failed: ${target.displayPath}`)
     const content = this.entries.get(target.targetKey)?.content ?? ''
     return (async function* () {
       const midpoint = Math.ceil(content.length / 2)
@@ -383,7 +387,8 @@ describe('workspace context instruction discovery', () => {
     }
   })
 
-  it('skips a file that becomes unreadable after discovery without failing the request', async () => {
+  // POSIX-only fixture: chmod 0 cannot make a file unreadable to its owner on Windows.
+  it.skipIf(process.platform === 'win32')('skips a file that becomes unreadable after discovery without failing the request', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1818,7 +1823,7 @@ describe('dynamic nested workspace context injection', () => {
       const text = blocksText(workspaceContextOf(result)?.content)
       expect(text).toBe([
         '<system-reminder>',
-        'Additional instructions from: pkg/AGENTS.md',
+        `Additional instructions from: ${join('pkg', 'AGENTS.md')}`,
         '',
         'These instructions apply to work under `pkg`. Use them as guidance when relevant; more specific instructions take precedence. They do not override system, developer, or direct user instructions.',
         '',
@@ -2115,7 +2120,7 @@ describe('dynamic nested workspace context injection', () => {
       })
       expect(blocksText(workspaceContextOf(changed)?.content)).toBe([
         '<system-reminder>',
-        'Updated instructions from: pkg/AGENTS.md',
+        `Updated instructions from: ${join('pkg', 'AGENTS.md')}`,
         '',
         'This file changed after it was loaded. Use the following content instead of the previously loaded instructions from this file.',
         '',
@@ -2300,7 +2305,7 @@ describe('dynamic nested workspace context injection', () => {
       })
       expect(blocksText(workspaceContextOf(removed)?.content)).toBe([
         '<system-reminder>',
-        'Instructions removed: pkg/AGENTS.md',
+        `Instructions removed: ${join('pkg', 'AGENTS.md')}`,
         '',
         'The previously loaded instructions from this file no longer apply.',
         '</system-reminder>',
@@ -2755,16 +2760,23 @@ describe('dynamic nested workspace context injection', () => {
   })
 
   it('skips unreadable nested instruction files without attaching empty context', async () => {
+    // Cross-platform unreadable fixture: the provider read throws (chmod 0
+    // cannot make a file unreadable to its owner on Windows).
     const root = await tempRepo()
     const home = await tempRepo()
+    const ctx = new Context()
     try {
-      await mkdir(join(root, '.git'), { recursive: true })
       const nested = join(root, 'pkg/AGENTS.md')
-      await write(nested, 'nested package rule')
-      await write(join(root, 'pkg/deep/file.txt'), 'hello')
-      await chmod(nested, 0)
-      const ctx = new Context()
-      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(nested, { type: 'file', content: 'nested package rule' })
+      fs.entries.set(join(root, 'pkg/deep/file.txt'), { type: 'file', content: 'hello' })
+      fs.throwOnRead.add(nested)
+      await ctx.plugin(ToolFs)
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
 
       const result = await ctx.tools.execute({
         signal: testToolSignal,
@@ -2776,8 +2788,9 @@ describe('dynamic nested workspace context injection', () => {
 
       expect(result.isError).toBe(false)
       expect(result.additionalContexts).toBeUndefined()
-      await chmod(nested, 0o600)
+      expect(fs.readTargets).toContain(nested)
     } finally {
+      await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }
