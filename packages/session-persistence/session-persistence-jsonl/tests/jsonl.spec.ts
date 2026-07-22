@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { appendFile, mkdtemp, mkdir, open, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
-import type { FileHandle } from 'node:fs/promises'
+import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -46,21 +45,6 @@ afterEach(async () => {
   vi.restoreAllMocks()
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
-
-async function rejectDirectorySync(code: string): Promise<void> {
-  const handle = await open(root, 'r')
-  const proto = Object.getPrototypeOf(handle) as { sync: () => Promise<void> }
-  await handle.close()
-  const realSync = proto.sync
-  vi.spyOn(proto, 'sync').mockImplementation(async function (this: FileHandle) {
-    if ((await this.stat()).isDirectory()) {
-      const error = new Error(`simulated directory fsync ${code}`) as NodeJS.ErrnoException
-      error.code = code
-      throw error
-    }
-    return realSync.call(this)
-  })
-}
 
 function appendClosedTurn(session: Session): void {
   session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -358,26 +342,43 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
   })
 
-  it('keeps file fsync mandatory while tolerating unsupported Windows directory fsync', async () => {
-    await rejectDirectorySync('EPERM')
-    const backend = ctx.sessionPersistence as SessionPersistenceJsonl
-    backend.internals.platform = 'win32'
-    const m = meta('windows-directory-sync')
+  it('reports both the append failure and a failed rollback', async () => {
+    const m = meta('rollback-failure')
     await ctx.sessionPersistence.create(m)
-    await expect(ctx.sessionPersistence.append(m.id, oneTurnLog())).resolves.toBeUndefined()
-    expect((await ctx.sessionPersistence.load(m.id)).events).toEqual(oneTurnLog())
-  })
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
 
-  it.each([
-    ['linux', 'EPERM'],
-    ['win32', 'EIO'],
-  ] as const)('surfaces directory fsync errors on %s with %s', async (platform, code) => {
-    await rejectDirectorySync(code)
-    const backend = ctx.sessionPersistence as SessionPersistenceJsonl
-    backend.internals.platform = platform
-    const m = meta(`directory-sync-${platform}-${code}`)
-    await ctx.sessionPersistence.create(m)
-    await expect(ctx.sessionPersistence.append(m.id, oneTurnLog())).rejects.toMatchObject({ code })
+    const path = rawLogPath(root, undefined, m.id)
+    const handle = await (await import('node:fs/promises')).open(path, 'r')
+    const proto = Object.getPrototypeOf(handle) as { sync: () => Promise<void> }
+    await handle.close()
+    const realSync = proto.sync
+    let failed = false
+    const syncSpy = vi.spyOn(proto, 'sync').mockImplementation(async function (this: unknown) {
+      if (!failed) { failed = true; throw new Error('simulated append fsync failure') }
+      return realSync.call(this)
+    })
+    const backend = ctx.sessionPersistence as unknown as {
+      rollbackAppend: (path: string, size: number) => Promise<void>
+    }
+    const realRollback = backend.rollbackAppend.bind(backend)
+    backend.rollbackAppend = () => Promise.reject(new Error('simulated rollback failure'))
+
+    try {
+      await ctx.sessionPersistence.append(m.id, [
+        { type: 'turn/start', seq: 6, time: 9, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      ] as SessionEvent[])
+      throw new Error('expected append to reject')
+    } catch (error) {
+      expect(error).toBeInstanceOf(AggregateError)
+      const aggregate = error as AggregateError
+      expect(aggregate.message).toContain(`failed to roll back append to "${path}"`)
+      expect(aggregate.errors).toHaveLength(2)
+      expect(aggregate.errors[0]).toMatchObject({ message: 'simulated append fsync failure' })
+      expect(aggregate.errors[1]).toMatchObject({ message: 'simulated rollback failure' })
+    } finally {
+      backend.rollbackAppend = realRollback
+      syncSpy.mockRestore()
+    }
   })
 
   it('load returns a meta copy: mutating it does not corrupt backend pathing', async () => {

@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
@@ -168,6 +168,10 @@ describe('TUI config', () => {
 describe('pi-tui chat lifecycle and transcript', () => {
   it('uses the latest log-backed title for the header subtitle and terminal window', async () => {
     const result = await setup({
+      // A fixed short cwd keeps the footer's token counters inside the 88-column
+      // fake terminal regardless of where the checkout lives; cwd rendering has
+      // its own dedicated variants test below.
+      cwd: '/workspace',
       beforeMount(session) {
         session.append('session/title', {
           title: 'Restored session title',
@@ -413,6 +417,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
   it('renders the ANSI palette and every markdown/content style', async () => {
     const result = await setup({
+      cwd: '/workspace',
       config: { color: true },
       beforeMount(session) {
         session.append('user/message', {
@@ -496,9 +501,21 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(unsetResult.terminal.output).toContain('cwd unset')
     await dispose(unsetResult)
 
+    const homeParent = resolve(home, '..')
+    const parentResult = await setup({ cwd: homeParent })
+    expect(parentResult.terminal.output).toContain(homeParent)
+    await dispose(parentResult)
+
     const outsideResult = await setup({ cwd: '/opt' })
     expect(outsideResult.terminal.output).toContain('/opt')
     await dispose(outsideResult)
+
+    const logicalResult = await setup({
+      cwd: '/w',
+      formatCwd: cwd => `logical:${cwd}\x1b`,
+    })
+    expect(logicalResult.terminal.output).toContain('logical:/w\\x1b')
+    await dispose(logicalResult)
   })
 
   it('sends, steers, handles commands, global keys, and disposed-agent input', async () => {
@@ -1174,8 +1191,9 @@ describe('TUI user-interaction dialogs', () => {
     result.terminal.send('x')
     result.terminal.send(' ')
     result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('Select at least one option')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Select at least one option')
+    })
     result.terminal.send('c')
     await tick()
     result.terminal.send('\x1b')

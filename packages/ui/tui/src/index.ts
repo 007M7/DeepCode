@@ -6,7 +6,7 @@
  */
 
 import { homedir } from 'node:os'
-import { relative, resolve, sep } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import {
   CombinedAutocompleteProvider,
   Container,
@@ -170,6 +170,12 @@ export interface TuiRuntime {
   terminal: Terminal
   /** Exit hook used by terminal shutdown or a target-agent startup failure. */
   exit(code: number): void
+  /**
+   * Override the footer's logical working-directory label without changing the session directory used by tools.
+   * @param cwd - Operational working directory from the session header.
+   * @returns Unescaped label; the TUI makes terminal controls visible.
+   */
+  formatCwd?: (cwd: string | undefined) => string
   /** Monotonic-enough wall clock for elapsed status rendering. Defaults to `Date.now`. */
   now?(): number
 }
@@ -697,8 +703,10 @@ function formatCwd(cwd: string | undefined): string {
   const home = homedir()
   const rel = relative(resolve(home), resolve(cwd))
   if (rel === '') return '~'
-  if (rel !== '..' && !rel.startsWith(`..${sep}`)) return displayText(`~${sep}${rel}`)
-  return displayText(cwd)
+  /* v8 ignore next -- Windows cross-drive coverage; POSIX relative() cannot return an absolute path. */
+  if (isAbsolute(rel)) return cwd
+  if (rel !== '..' && !rel.startsWith(`..${sep}`)) return `~${sep}${rel}`
+  return cwd
 }
 
 interface SessionTokenTotals {
@@ -742,6 +750,7 @@ class FooterComponent implements Component {
     private readonly toolsExpanded: () => boolean,
     private readonly showReasoning: () => boolean,
     private readonly tokens: () => { input: number; output: number },
+    private readonly cwdFormatter: TuiRuntime['formatCwd'],
     private readonly currentModel: () => string | undefined,
     private readonly contextPercent: () => number | undefined,
     private readonly runningSeconds: () => number,
@@ -765,6 +774,9 @@ class FooterComponent implements Component {
     const context = contextPercent === undefined ? 'context unknown' : `${contextPercent}% context`
     const fullRight = `${context}  tools:${this.toolsExpanded() ? 'expanded' : 'compact'}  ${modelState}`
     const compactRight = `${context}  ${modelState}`
+    const formattedCwd = displayText(
+      this.cwdFormatter?.(this.agent.session.header.cwd) ?? formatCwd(this.agent.session.header.cwd),
+    )
     if (visibleWidth(counters) + visibleWidth(compactRight) + 1 > width) {
       const compact = truncateToWidth(compactRight, width, '')
       return [`${' '.repeat(Math.max(0, width - visibleWidth(compact)))}${this.palette.dim(compact)}`]
@@ -773,7 +785,7 @@ class FooterComponent implements Component {
     const right = visibleWidth(fullRight) <= rightAvailable ? fullRight : compactRight
     const rightClipped = truncateToWidth(right, rightAvailable, '')
     const cwdAvailable = Math.max(0, width - visibleWidth(counters) - visibleWidth(rightClipped) - 3)
-    const cwd = truncateToWidth(formatCwd(this.agent.session.header.cwd), cwdAvailable, '')
+    const cwd = truncateToWidth(formattedCwd, cwdAvailable, '')
     const left = [cwd, counters].filter(Boolean).join('  ')
     const gap = ' '.repeat(Math.max(0, width - visibleWidth(left) - visibleWidth(rightClipped)))
     return [`${this.palette.dim(left)}${gap}${this.palette.dim(rightClipped)}`]
@@ -1082,6 +1094,7 @@ export function createTuiChat(
     () => toolsExpanded,
     () => showReasoning,
     () => tokens,
+    runtime.formatCwd,
     () => target.current?.model,
     () => contextWindow === undefined
       ? undefined

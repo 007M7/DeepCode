@@ -32,6 +32,7 @@
     "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
+    "koffi": "^3.1.0",
     "schemastery": "^3.18.0"
   },
   "devDependencies": {

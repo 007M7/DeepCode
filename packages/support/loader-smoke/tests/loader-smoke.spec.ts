@@ -37,8 +37,8 @@ describe('runLoaderSmoke', () => {
       marker: 'present',
       input: 'one\ntwo\n',
     })
-    expect(canonicalTempPath(output.dshHome)).toBe(`${canonicalTempPath(output.cwd)}/.dsh`)
-    expect(canonicalTempPath(output.agentsHome)).toBe(`${canonicalTempPath(output.cwd)}/.agents`)
+    expect(canonicalTempPath(output.dshHome)).toBe(canonicalTempPath(join(output.cwd, '.dsh')))
+    expect(canonicalTempPath(output.agentsHome)).toBe(canonicalTempPath(join(output.cwd, '.agents')))
     expect(result.stderr).toContain('fixture stderr')
     expect(existsSync(output.cwd)).toBe(false)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)

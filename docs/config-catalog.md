@@ -892,7 +892,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:36`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:37`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 
@@ -1095,7 +1095,7 @@ export interface Config {
    * before the parent escalates to a signal.
    */
   disposeEofGraceMs?: number
-  /** Grace period (ms) between `SIGTERM` and the `SIGKILL` escalation on dispose. */
+  /** Termination confirmation window (ms), including forced exit on every platform. */
   disposeGraceMs?: number
 }
 
