@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-08-self-referential-cordis-toolset.md: 62b97dc4bdbd0e0b5b1f67f77c763065c79964ed
-2026-07-08-self-referential-cordis-toolset.zh.md: ce220d256dbb3d43514702e57e71728fdc82a788
+2026-07-08-self-referential-cordis-toolset.zh.md: 44648d7a3f195f2dc84121c0d014e5193484b106

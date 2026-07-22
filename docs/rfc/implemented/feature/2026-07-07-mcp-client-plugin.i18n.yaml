@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-07-mcp-client-plugin.md: 7706190257b54730532e4aa46cc9c47453c59871
-2026-07-07-mcp-client-plugin.zh.md: 4d2ea8532afbf6160a98020b8cc480e1bf683981
+2026-07-07-mcp-client-plugin.zh.md: b5fee7eff7f12de5658f0a10c32cfeed71482fdf

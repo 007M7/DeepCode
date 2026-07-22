@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-04-drop-image-content-block.md: 8222880b61c225c39a1e132353c5f343fb90cb4b
-2026-07-04-drop-image-content-block.zh.md: d1379d69a0c5056cdfcc744182cd9b6c52f222d5
+2026-07-04-drop-image-content-block.zh.md: cb9372e50863193cd579c0bf8de991810db95206

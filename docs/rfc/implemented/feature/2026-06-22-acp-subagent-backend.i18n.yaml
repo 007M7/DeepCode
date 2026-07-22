@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-22-acp-subagent-backend.md: 7eb03ddf68f54c29524944e7b8bc801eb1724fe6
-2026-06-22-acp-subagent-backend.zh.md: 6f7b95318a2c714fea43a584ba49da00a7c12040
+2026-06-22-acp-subagent-backend.zh.md: 249f5a5ebf18d42f3d83d2159f6c2bcb52a245c3

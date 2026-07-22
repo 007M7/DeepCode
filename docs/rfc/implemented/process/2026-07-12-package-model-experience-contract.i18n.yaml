@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-12-package-model-experience-contract.md: 036efbc9510d6d0ae9e3c52a5ba8f39647adc4c9
-2026-07-12-package-model-experience-contract.zh.md: 6ee96f3befbb2ead7196f412dccf915f475cfc6d
+2026-07-12-package-model-experience-contract.zh.md: b1efa712bc4f6fa7b23c0afe965e56eabf068d97

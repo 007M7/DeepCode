@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-30-session-store-fork-api.md: 4bf5c3fe43821570fd947034358e54d0a0a602f9
-2026-06-30-session-store-fork-api.zh.md: 3dd15f5beb095fecb7fdaa7d80abcf4b99c07920
+2026-06-30-session-store-fork-api.zh.md: a3ffb881a446647861fa5fbaf57dde291838a090

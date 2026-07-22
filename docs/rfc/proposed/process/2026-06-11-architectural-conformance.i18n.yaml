@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-11-architectural-conformance.md: 40858d049af2df1928e27280238d0b198a5202f7
-2026-06-11-architectural-conformance.zh.md: d61751210ef78b26e05a05efae4d5abccbfd2e5c
+2026-06-11-architectural-conformance.zh.md: b68355dc1c04a4f807efdb95f813159cb7f9f178

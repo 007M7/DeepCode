@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-06-explicit-tool-order.md: 9d94496ffdcbc4c7df820581b02e3e075ec1c0be
-2026-07-06-explicit-tool-order.zh.md: fa3a5bbf83115c25f87471b8a3847b9347d42934
+2026-07-06-explicit-tool-order.zh.md: 0b020f969299799289e18ed93c81db08cabc0b2d

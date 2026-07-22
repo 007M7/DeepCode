@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-02-result-time-applied-hunk-diffs.md: 81ab8b9827ddaec39d63e2a3f8fbb864085a9ac9
-2026-07-02-result-time-applied-hunk-diffs.zh.md: 3914bb872025d7116a047dfaf3455f527e35879a
+2026-07-02-result-time-applied-hunk-diffs.zh.md: 2914c4242c4246ede8588967ed36b3f6c725c607

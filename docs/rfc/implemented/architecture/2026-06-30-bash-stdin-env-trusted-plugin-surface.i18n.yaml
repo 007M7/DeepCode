@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-30-bash-stdin-env-trusted-plugin-surface.md: 72aae03361cbc088cf64f3548a43ac6253eb21eb
-2026-06-30-bash-stdin-env-trusted-plugin-surface.zh.md: 5c708cb6bfed28b2164cbd1d0b1c7368bf3e1d07
+2026-06-30-bash-stdin-env-trusted-plugin-surface.zh.md: f661199048b7eaa359f792e96ac52baf8cd61fdf

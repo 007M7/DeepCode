@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-18-acp-terminal-and-tool-rendering.md: cab89aa690c2068399ea5429a9c467410c744ce8
-2026-06-18-acp-terminal-and-tool-rendering.zh.md: 5a545b7a53f0814bc0e6071430c367047dc83f7f
+2026-06-18-acp-terminal-and-tool-rendering.zh.md: 4047c493e63ac23f758de718616fd1f4bb29f7d4

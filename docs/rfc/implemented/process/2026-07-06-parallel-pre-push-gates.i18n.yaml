@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-06-parallel-pre-push-gates.md: 8a8813f2f3f6726ab2ab028757406d366ceb8b6d
-2026-07-06-parallel-pre-push-gates.zh.md: 36207e522982990c193f9fe909faf380de53bca6
+2026-07-06-parallel-pre-push-gates.zh.md: 6ee3a8003853092d75cda9908bfae13ee0d4c7a2

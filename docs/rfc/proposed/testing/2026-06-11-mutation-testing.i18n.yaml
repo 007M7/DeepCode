@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-11-mutation-testing.md: 344263d1c91a5e6c83320f367bf76ed6f7ef5a49
-2026-06-11-mutation-testing.zh.md: aa89b3335a143b6f34858bdc2f3344a6a7d758d9
+2026-06-11-mutation-testing.zh.md: 28bb7253c12827dbcddd141481f26f60b3a72b7a

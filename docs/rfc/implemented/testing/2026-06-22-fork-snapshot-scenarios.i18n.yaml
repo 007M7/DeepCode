@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-22-fork-snapshot-scenarios.md: baca94d6a1071ec38ee20ca841fc3472a870b1a2
-2026-06-22-fork-snapshot-scenarios.zh.md: 227d54cc2bb2e66a391dddd29a7f2593cb02f7e2
+2026-06-22-fork-snapshot-scenarios.zh.md: b6f3f6a6f318a343d5e32573d39f11f59b509ee3

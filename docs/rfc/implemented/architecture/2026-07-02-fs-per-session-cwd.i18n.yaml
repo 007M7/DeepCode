@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-02-fs-per-session-cwd.md: 00643955d918dff87241f4b240bb7e6774d21a0b
-2026-07-02-fs-per-session-cwd.zh.md: ca37e1f41af53c43151ac82e1be1b76eaafdb97e
+2026-07-02-fs-per-session-cwd.zh.md: 73176cde3747a2eb8c03aadbf3f419bf27173d70

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-discover-package-inventory.md: 22b3e9acbe4dad8ef829d0dd30415c516031d66b
-2026-06-20-discover-package-inventory.zh.md: 8b62d42d2d514f60016690ba55d5ce77a50b3aff
+2026-06-20-discover-package-inventory.zh.md: 4eeaed9ed6b390608095281775883f8e7a52e954

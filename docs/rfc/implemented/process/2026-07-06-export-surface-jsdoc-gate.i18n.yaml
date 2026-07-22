@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-06-export-surface-jsdoc-gate.md: fd255cc6212d7f6f919ad23f999fa68b01478a73
-2026-07-06-export-surface-jsdoc-gate.zh.md: 02a5c2682095c66818a51cc14fd565111b7e6e80
+2026-07-06-export-surface-jsdoc-gate.zh.md: 796b5bb8f3a2a890986c73511bb63e167c831a5f

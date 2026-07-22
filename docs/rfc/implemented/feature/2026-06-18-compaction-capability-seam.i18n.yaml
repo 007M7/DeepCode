@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-18-compaction-capability-seam.md: 31b06905924a07a7f0c2af427d8868585966f1a7
-2026-06-18-compaction-capability-seam.zh.md: ef71b3df39f02221f1bd25beb5e026cb056b95a0
+2026-06-18-compaction-capability-seam.zh.md: 1675484ed65e5cd890f420d4bdd1e16e2a95b2ef

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-retire-mid-turn-steering.md: bf78125ec175aa9152789bdccd1f8e8a16863a5b
-2026-06-20-retire-mid-turn-steering.zh.md: 03af2b24916a5d1a479dc06a30d54003dfa7f156
+2026-06-20-retire-mid-turn-steering.zh.md: a56e112df37bdeb75ca808f76beabe1fec8b1b7b

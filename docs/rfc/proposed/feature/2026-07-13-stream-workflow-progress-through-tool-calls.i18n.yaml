@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-13-stream-workflow-progress-through-tool-calls.md: 525f2793052a80d82de29d2d370cfd747d002af6
-2026-07-13-stream-workflow-progress-through-tool-calls.zh.md: b5cc86df3ca42e513bda7e56b485a8287f275613
+2026-07-13-stream-workflow-progress-through-tool-calls.zh.md: 8dcb4aea2de50cdd278c702c9f6c85ab66e6be34

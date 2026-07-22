@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-12-drop-unconsumed-skill-provider-events.md: 5ec9d201939b8f58334647353f599361bd2e58a0
-2026-07-12-drop-unconsumed-skill-provider-events.zh.md: 8ab2a5f55b2a1eed676b28a1ca7804d6237f63fd
+2026-07-12-drop-unconsumed-skill-provider-events.zh.md: 15dbfedb07afa36b677074c403812d0f164c8bd5

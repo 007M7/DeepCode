@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-08-agent-scope-contexts.md: f238d58d90413d36e81b34c1a2c94e1291e889de
-2026-07-08-agent-scope-contexts.zh.md: dfade19709ccbf206054f414882ecff114ac1e44
+2026-07-08-agent-scope-contexts.zh.md: 0f4de12e782fc72d3761b6d46cd953ab4650654d

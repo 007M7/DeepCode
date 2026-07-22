@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-08-repeat-tool-guard.md: 04d5d077a42b54ca7dc04a1efc9ea2f4034b642b
-2026-07-08-repeat-tool-guard.zh.md: e20bd06a6902f9fadb77a90e719aaf703d7067cc
+2026-07-08-repeat-tool-guard.zh.md: 917d958ca1019eb464b72b0201219de9dde7f658

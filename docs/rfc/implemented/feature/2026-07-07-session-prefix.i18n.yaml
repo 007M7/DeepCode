@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-07-session-prefix.md: ffa0fecb86e84ed64d45b24e1b6943d421757fb2
-2026-07-07-session-prefix.zh.md: 292c74fac75d8f2c29628fc5e90c72dadcaf4fdb
+2026-07-07-session-prefix.zh.md: ca38ebf337e16f4f2368ca74e394fcc1031fbf1f

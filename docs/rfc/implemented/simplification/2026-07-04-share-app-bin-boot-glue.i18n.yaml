@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-04-share-app-bin-boot-glue.md: afaa61fe909f3dbf900337518969410780020a88
-2026-07-04-share-app-bin-boot-glue.zh.md: 2a022fbb8dcdf6977ede81780a87c570715ce441
+2026-07-04-share-app-bin-boot-glue.zh.md: 33fe2f27df9c8b172e4296ece0720813f9775f86

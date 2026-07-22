@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-04-drop-inert-request-knobs.md: d5484aa5ec64f89ce705ddd0a434c2c4dfbad460
-2026-07-04-drop-inert-request-knobs.zh.md: 877b073c4693f0c87b5f25003a1d043743b658fa
+2026-07-04-drop-inert-request-knobs.zh.md: 9bd13cd024bc0e2ba7795a190d77063c3457fe98

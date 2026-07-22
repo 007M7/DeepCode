@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-04-prune-unimplemented-subagent-vocabulary.md: 3c86f11564d85b423fe59d784c6bf69959fb3907
-2026-07-04-prune-unimplemented-subagent-vocabulary.zh.md: ad8c8541ca682be6e71b6fe4ae166c3b65d14cdf
+2026-07-04-prune-unimplemented-subagent-vocabulary.zh.md: 84ff6f15ff2c9b3a13240997ab3c7b5cf2ab7263

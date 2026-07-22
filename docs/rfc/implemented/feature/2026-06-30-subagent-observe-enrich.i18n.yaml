@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-30-subagent-observe-enrich.md: b48a1fff32130345e669a3b3b905c4fda987e41e
-2026-06-30-subagent-observe-enrich.zh.md: 59dc555ce4acff30f4ba0b5929b605dc5252fe38
+2026-06-30-subagent-observe-enrich.zh.md: 8ce070001e219572658fd4e94c660de1094ddee5

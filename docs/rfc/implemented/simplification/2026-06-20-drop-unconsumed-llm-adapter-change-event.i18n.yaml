@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-drop-unconsumed-llm-adapter-change-event.md: efe90c0197671ef4385ce517540b4b238962c3b5
-2026-06-20-drop-unconsumed-llm-adapter-change-event.zh.md: 13f01566472a030cc9d4f97f6e4438fe4c3ecbf8
+2026-06-20-drop-unconsumed-llm-adapter-change-event.zh.md: b26610cfe273820112113c73b9313557cd78262c

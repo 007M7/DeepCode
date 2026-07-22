@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-11-runtime-arg-validation.md: 6da117643166d304bee1d368a314cc1602cac828
-2026-06-11-runtime-arg-validation.zh.md: fb67568da3bfc7f1f8fcc0429b6c68193e04693a
+2026-06-11-runtime-arg-validation.zh.md: 5f41ff99a2d56f39ff8d61191d92dc782f163c82

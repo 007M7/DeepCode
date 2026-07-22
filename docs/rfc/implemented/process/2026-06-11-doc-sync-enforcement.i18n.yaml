@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-11-doc-sync-enforcement.md: 44ea84daddcae73ce07b0a8240f83ee9945e449d
-2026-06-11-doc-sync-enforcement.zh.md: e7abe2d87fd97211f653b63ddb8818077532af48
+2026-06-11-doc-sync-enforcement.zh.md: c739e9661bb926c772f1d5399529a813ac59991c

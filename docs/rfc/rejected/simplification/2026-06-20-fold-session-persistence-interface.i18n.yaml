@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-fold-session-persistence-interface.md: 695cd679c67f3e0a9f901c671c33e9507ecbe279
-2026-06-20-fold-session-persistence-interface.zh.md: 1ef93fb64cc27eeeb465136dc7dac6e751a7ccfc
+2026-06-20-fold-session-persistence-interface.zh.md: 38f79f833fb5d95e4d9f392de627ee16b17cb997

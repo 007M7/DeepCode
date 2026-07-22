@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-05-uniform-rfc-format.md: f67c61c0b627950cf07e7d57672324308a9462ec
-2026-07-05-uniform-rfc-format.zh.md: a11cba1c343f150a67c1af4a04a8d89480185207
+2026-07-05-uniform-rfc-format.zh.md: b175c2d5b7537e793a61c95b6524d08bc4216384

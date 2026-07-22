@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-prune-dead-seam-methods.md: cb3eb576dbae209ddccbea7f42a80ef09f842887
-2026-06-20-prune-dead-seam-methods.zh.md: d3c658ea2ce994e640ec4fd2cf5f74d82f695e69
+2026-06-20-prune-dead-seam-methods.zh.md: 988da3c44d8860d89f090f0ea9e2af49ae9007dd

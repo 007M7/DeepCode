@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-14-acp-multi-session.md: b96557d2d94711adb2183aa4f5dd8debf39c1de8
-2026-06-14-acp-multi-session.zh.md: 263e292e7161b789b8e06772deb0d2bc896f8de6
+2026-06-14-acp-multi-session.zh.md: 6a9f5e8162d46ed8719164247e22b8b9c5d26c61

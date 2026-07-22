@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-04-prune-write-only-fs-surface.md: ac2cbcc282b848b26a3d5d327e0ab54612b5ac91
-2026-07-04-prune-write-only-fs-surface.zh.md: 799847aa77599a292c1aa48e150aae99fa130ae3
+2026-07-04-prune-write-only-fs-surface.zh.md: e854df76cae74033404aa9cc1986fdd118f19b10

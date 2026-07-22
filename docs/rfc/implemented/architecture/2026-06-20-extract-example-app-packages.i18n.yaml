@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-extract-example-app-packages.md: 3a0a0f5d4b329afed72bd3c00bf880989e24fe54
-2026-06-20-extract-example-app-packages.zh.md: 9de9f79369ebad387778a0418b75dfde96b285a7
+2026-06-20-extract-example-app-packages.zh.md: 8945f0c97727479c9e847711a96fc5d18118e09e

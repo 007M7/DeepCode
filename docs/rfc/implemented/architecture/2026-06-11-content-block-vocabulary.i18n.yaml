@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-11-content-block-vocabulary.md: 9414bda624fa6e5fc7e9b11b7a738d32b269af6b
-2026-06-11-content-block-vocabulary.zh.md: 32308a5fe58f3a2e3c402982b7067811b9698218
+2026-06-11-content-block-vocabulary.zh.md: 764791cbef65c2031b8337af4f4cb6835e9d312a

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-drop-unused-session-lineage.md: 4200532726a27e257e09f927240846f20a0b30ad
-2026-06-20-drop-unused-session-lineage.zh.md: c20f964317a1924c3cbc36b7f7838f3a207a65c1
+2026-06-20-drop-unused-session-lineage.zh.md: 1524987111f12a9c6e2014723bb1cb4c87bcf940

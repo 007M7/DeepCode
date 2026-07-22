@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-11-property-based-testing.md: 169989746ea5114b1f35e7ebe35a02e8aeb0f782
-2026-06-11-property-based-testing.zh.md: 9e1532c02bb2c46c40577af7275d6aabbb2f9a4f
+2026-06-11-property-based-testing.zh.md: 4f2303010f44279c4edd0ec5a509b71f8aad606b

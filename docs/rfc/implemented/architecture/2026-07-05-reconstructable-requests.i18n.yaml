@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-05-reconstructable-requests.md: 0978cd8760c6a0420be1bf0a3baf6b50c1a04a13
-2026-07-05-reconstructable-requests.zh.md: 82f9cf085db3d6cd408e54a8e7cf99082d848176
+2026-07-05-reconstructable-requests.zh.md: a4864c9e795ccc0da2cbbf0ca4d17a90c029858c

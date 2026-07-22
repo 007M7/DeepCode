@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-12-prune-unused-skill-registry-surface.md: 3e8c009871c3d609612b4a01edc2048ddedfad0d
-2026-07-12-prune-unused-skill-registry-surface.zh.md: 1412e3cfac1adbb8b563ad50edb08c53a719feb8
+2026-07-12-prune-unused-skill-registry-surface.zh.md: deaea2ca53d4ed2ac5141013f969f621d3202875

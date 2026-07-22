@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-30-interception-seams.md: fb8efe1e1c2057db13b440881f110ca7f579a81e
-2026-06-30-interception-seams.zh.md: b22b3d61bd14b6708e5a063f02537e981fead0fc
+2026-06-30-interception-seams.zh.md: 668b96dba282ecdcbe85cc0b1dc56c2de293b3b3

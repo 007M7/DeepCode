@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-25-ask-user-question.md: 06673233038d10214f8de3d1f29766d43b575442
-2026-06-25-ask-user-question.zh.md: 01d1284dba3622984d5403f94e3edd0ba02583b6
+2026-06-25-ask-user-question.zh.md: a036220fd54e3f634ab4be80a45964b076d3fd2d

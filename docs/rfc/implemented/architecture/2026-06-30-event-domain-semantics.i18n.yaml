@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-30-event-domain-semantics.md: e05c238c52052454d3e01e82767cddd9af316a9d
-2026-06-30-event-domain-semantics.zh.md: a5453824183aa3f71486b5dbd24ed8c056d9c854
+2026-06-30-event-domain-semantics.zh.md: 9048679ec7a7992852cce76bf43269f5499da792

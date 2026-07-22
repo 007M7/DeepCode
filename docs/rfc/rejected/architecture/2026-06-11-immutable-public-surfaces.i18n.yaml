@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-11-immutable-public-surfaces.md: 68472d9817f0de22777314927f05f90949903723
-2026-06-11-immutable-public-surfaces.zh.md: e067b48d9a936133abdf149fbb9ff626c9411851
+2026-06-11-immutable-public-surfaces.zh.md: 7dc42ef9ff07682c1bbac1ca61caba49596cb7bc

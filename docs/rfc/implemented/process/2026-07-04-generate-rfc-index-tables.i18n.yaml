@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-04-generate-rfc-index-tables.md: 6a8888eda8b7cf7105a44802774bf49d6463952d
-2026-07-04-generate-rfc-index-tables.zh.md: 42ae64306aa1d5cf9117ca2b4d698a5d8effdeec
+2026-07-04-generate-rfc-index-tables.zh.md: aad1652edc9de81a70a7a391700f63be9499035c

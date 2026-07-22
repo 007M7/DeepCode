@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-rfc-classification.md: 201852a209be7f40b05de45d148a36b9185767a3
-2026-06-20-rfc-classification.zh.md: 38eb920ac216e69087f0c84c95cdd9effca7b9b3
+2026-06-20-rfc-classification.zh.md: 554ac8014719c99ed447a33ff843c40fde761eed
