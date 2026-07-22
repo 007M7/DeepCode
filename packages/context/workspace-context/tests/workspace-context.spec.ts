@@ -1143,8 +1143,8 @@ describe('workspace context request injection', () => {
   })
 
   it('keeps the direct provider API usable without an operation signal', async () => {
-    const root = '/virtual/no-signal-repo'
-    const home = '/virtual/no-signal-home'
+    const root = resolve('/virtual/no-signal-repo')
+    const home = resolve('/virtual/no-signal-home')
     const ctx = new Context()
     try {
       await ctx.plugin(RecordingFileSystem)
