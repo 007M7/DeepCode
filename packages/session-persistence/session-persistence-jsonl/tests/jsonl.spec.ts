@@ -6,7 +6,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { encodeSegment, logPath, scanLog, sessionDir, toHeaderLine } from '../src/format.ts'
+import { encodeSegment, eventLines, logPath, scanLog, sessionDir, toHeaderLine } from '../src/format.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
@@ -551,6 +551,121 @@ describe('SessionPersistenceJsonl: scanLog unit', () => {
     ].join('\n') + '\n'
     const { events } = scanLog(Buffer.from(log))
     expect(events.map(e => e.seq)).toEqual([0, 1]) // tail dropped
+  })
+})
+
+describe('SessionPersistenceJsonl: packed chunk rows (packChunks: true)', () => {
+  let ctx: Context
+  beforeEach(async () => {
+    root = await freshRoot()
+    ctx = new Context()
+    await ctx.plugin(SessionStore)
+    // compression: 'none' — these tests assert the textual storage-record layout
+    // (row tags per line); packing is orthogonal to the physical encoding.
+    await ctx.plugin(SessionPersistenceJsonl, { root, packChunks: true, compression: 'none' })
+  })
+  afterEach(async () => { await ctx.fiber.dispose() })
+
+  /** A one-turn log whose step streams a five-member text-delta run. */
+  function chunkRunLog(): SessionEvent[] {
+    const deltas: SessionEvent[] = Array.from({ length: 5 }, (_, k) => ({
+      type: 'assistant/chunk',
+      seq: 2 + k,
+      time: 3 + k,
+      data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: `t${k}` } },
+    }))
+    return [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
+      ...deltas,
+      { type: 'assistant/message', seq: 7, time: 8, data: { turn: 1, step: 1, content: [{ type: 'text', text: 't0t1t2t3t4' }], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append', sourceEventSeqs: [2, 3, 4, 5, 6] },
+      { type: 'step/end', seq: 8, time: 9, data: { turn: 1, step: 1 } },
+      { type: 'turn/end', seq: 9, time: 10, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+  }
+
+  it('writes a delta run as one text-chunks row and loads back identical events', async () => {
+    const m = meta('packed', '/work')
+    const log = chunkRunLog()
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, log)
+
+    const raw = (await readFile(rawLogPath(root, '/work', m.id), 'utf8')).split('\n').filter(Boolean)
+    const tags = raw.slice(1).map(line => (JSON.parse(line) as { type: string }).type)
+    expect(tags).toEqual(['turn/start', 'step/start', 'text-chunks', 'assistant/message', 'step/end', 'turn/end'])
+
+    const loaded = await ctx.sessionPersistence.load(m.id)
+    expect(loaded.events).toEqual(log)
+  })
+
+  it('loads a mixed file: verbatim lines from an unpacked writer, then packed appends', async () => {
+    const m = meta('mixed', '/work')
+    const log = chunkRunLog()
+    // First turn written line-per-event by an unpacked-config writer (an old
+    // file, hand-planted so this packed-config backend adopts it on load).
+    await mkdir(sessionDir(root, '/work'), { recursive: true })
+    await writeFile(rawLogPath(root, '/work', m.id), [
+      JSON.stringify({ type: 'session', version: 0, id: 'mixed', createdAt: 1000, cwd: '/work', delegationDepth: 0 }),
+      ...log.map(e => JSON.stringify(e)),
+    ].join('\n') + '\n')
+    // Adopt the stored log (cursor = stored length), then append a second turn
+    // through THIS packed-config backend.
+    expect((await ctx.sessionPersistence.load(m.id)).events).toEqual(log)
+    const secondTurn: SessionEvent[] = JSON.parse(JSON.stringify(log)) as SessionEvent[]
+    for (const [k, e] of secondTurn.entries()) {
+      ;(e as { seq: number }).seq = 10 + k
+      ;(e.data as { turn: number }).turn = 2
+    }
+    await ctx.sessionPersistence.append(m.id, secondTurn)
+
+    const loaded = await ctx.sessionPersistence.load(m.id)
+    expect(loaded.events).toEqual([...log, ...secondTurn])
+    // The packed append really packed: the file's tail carries a text-chunks row.
+    const tags = (await readFile(rawLogPath(root, '/work', m.id), 'utf8')).split('\n').filter(Boolean)
+      .map(line => (JSON.parse(line) as { type: string }).type)
+    expect(tags.filter(t => t === 'text-chunks')).toHaveLength(1)
+    expect(tags.filter(t => t === 'assistant/chunk')).toHaveLength(5)
+  })
+
+  it('scanLog: a packed row advances the seq cursor by its whole run', () => {
+    const logText = [
+      JSON.stringify({ type: 'session', version: 0, id: 'rows', createdAt: 1, delegationDepth: 0 }),
+      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      JSON.stringify({ type: 'text-chunks', seq0: 1, time0: 2, data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 'c'] } }),
+      JSON.stringify({ type: 'turn/end', seq: 4, time: 5, data: { turn: 1, reason: { kind: 'completed' } } }),
+    ].join('\n') + '\n'
+    const { events } = scanLog(Buffer.from(logText))
+    expect(events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4])
+    expect(events[2]).toEqual({ type: 'assistant/chunk', seq: 2, time: 3, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'b' } } })
+  })
+
+  it('scanLog: a malformed packed row in the committed region rejects like corrupt JSON', () => {
+    const logText = [
+      JSON.stringify({ type: 'session', version: 0, id: 'bad-row', createdAt: 1, delegationDepth: 0 }),
+      // dt arity mismatch — row validation throws, so the line is a committed hole.
+      JSON.stringify({ type: 'text-chunks', seq0: 0, time0: 1, data: { turn: 1, step: 1, index: 0, dt: [], texts: ['a', 'b'] } }),
+      JSON.stringify({ type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } }),
+    ].join('\n') + '\n'
+    expect(() => scanLog(Buffer.from(logText))).toThrow(/unparsable committed event/)
+  })
+
+  it('scanLog: a packed row with a mid-run seq gap after the last turn/end drops the whole row', () => {
+    const logText = [
+      JSON.stringify({ type: 'session', version: 0, id: 'row-gap', createdAt: 1, delegationDepth: 0 }),
+      JSON.stringify({ type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+      // seq0 skips 1 — the run's first member is already a gap; no turn/end follows.
+      JSON.stringify({ type: 'text-chunks', seq0: 2, time0: 2, data: { turn: 1, step: 1, index: 0, dt: [1, 1], texts: ['a', 'b', 'c'] } }),
+    ].join('\n') + '\n'
+    const scanned = scanLog(Buffer.from(logText))
+    expect(scanned.events.map(e => e.seq)).toEqual([0])
+    // committedBytes stays on the line boundary BEFORE the dropped row.
+    const headerAndTurn = logText.split('\n').slice(0, 2).join('\n') + '\n'
+    expect(scanned.committedBytes).toBe(Buffer.byteLength(headerAndTurn, 'utf8'))
+  })
+
+  it('eventLines(packChunks: false) is byte-identical to the pre-packing layout', () => {
+    const log = chunkRunLog()
+    expect(eventLines(log, false)).toBe(log.map(e => JSON.stringify(e)).join('\n'))
   })
 })
 
