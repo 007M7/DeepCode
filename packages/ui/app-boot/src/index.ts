@@ -66,7 +66,9 @@ export function parseResumeArg(
     if (arg === RESUME_FLAG || inlineValue) {
       if (resumeSessionId !== undefined) throw new Error(`${RESUME_FLAG} may be given only once`)
       const value = inlineValue ? arg.slice(RESUME_FLAG.length + 1) : argv[i + 1]
-      if (value === undefined || value === '') {
+      // A following token that is itself resume syntax (`--resume --resume x`)
+      // is a missing id, not a session literally named `--resume…`.
+      if (value === undefined || value === '' || value === RESUME_FLAG || value.startsWith(`${RESUME_FLAG}=`)) {
         throw new Error(`${RESUME_FLAG} requires a session id (e.g. ${RESUME_FLAG} <session-id>)`)
       }
       resumeSessionId = value

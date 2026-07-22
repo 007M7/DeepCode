@@ -48,6 +48,11 @@ describe('parseResumeArg', () => {
     expect(() => parseResumeArg(['--resume='])).toThrow('--resume requires a session id')
     expect(() => parseResumeArg(['--resume', 'a', '--resume', 'b'])).toThrow('--resume may be given only once')
   })
+
+  it('rejects resume syntax used as the flag value instead of resuming a session named like the flag', () => {
+    expect(() => parseResumeArg(['--resume', '--resume', 'sess'])).toThrow('--resume requires a session id')
+    expect(() => parseResumeArg(['--resume', '--resume=sess'])).toThrow('--resume requires a session id')
+  })
 })
 
 describe('loadEnv', () => {

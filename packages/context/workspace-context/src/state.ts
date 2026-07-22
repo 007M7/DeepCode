@@ -448,7 +448,17 @@ export async function reconcileInstructionContext(
     const { directory } = decodeScopeKey(scope)
     const previous = effective.get(scope)
     const probe = await probeScopeInstruction(scope, projectRoot, resolved, fileSystem, options.signal)
-    if (probe.kind === 'unavailable') continue
+    if (probe.kind === 'unavailable') {
+      // Last-good-state: the candidate stays effective, so its cached trimmed
+      // digest must keep occupying the directory's dedup slot — otherwise an
+      // identical later sibling would be emitted as a duplicate `set` until the
+      // next successful reconciliation removed it again.
+      const cached = versions.get(scope)
+      if (cached !== undefined && previous !== undefined && previous.action !== 'remove') {
+        registerKeptTrimmed(directory, cached.trimmedDigest)
+      }
+      continue
+    }
     if (probe.kind === 'absent') {
       if (previous === undefined || previous.action === 'remove') versions.delete(scope)
       else pushRemoval(scope, previous.path)

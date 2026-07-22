@@ -2201,6 +2201,47 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
+  it('keeps deduplicating against a loaded candidate whose probe transiently fails', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'pkg/AGENTS.md'), { type: 'file', content: 'nested rule' })
+      fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
+      await ctx.plugin(ToolFs)
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      const first = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-before-transient-probe-failure'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+      appendAdditionalContexts(agent, first)
+      expect(first.additionalContexts).toBeDefined()
+
+      // The loaded candidate's probe fails while an identical sibling appears:
+      // the cached candidate stays effective (last good state), so the sibling
+      // must still deduplicate against it rather than land as a duplicate set.
+      fs.throwOnStat.add(join(root, 'pkg/AGENTS.md'))
+      fs.entries.set(join(root, 'pkg/CLAUDE.md'), { type: 'file', content: 'nested rule' })
+      const duringFailure = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-during-transient-probe-failure'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+
+      expect(duringFailure.additionalContexts).toBeUndefined()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('removes a previously rendered sibling once its content becomes a duplicate of an earlier candidate', async () => {
     const root = await tempRepo()
     const home = await tempRepo()

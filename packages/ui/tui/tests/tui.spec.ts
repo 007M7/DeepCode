@@ -584,12 +584,27 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('— Enter sends steering, Esc cancels')
     expect(result.terminal.output).not.toContain('queued')
 
-    // A loop-authored steering drain past zero clamps rather than underflowing.
+    // A drain with no matching queued entry is ignored rather than underflowing.
     result.terminal.output = ''
     drainSteering('continuation')
     queueSteering('after')
     await tick()
     expect(result.terminal.output).toContain('1 queued')
+
+    // A loop-authored steering event (plugin source, no matching agent/queued)
+    // cannot consume a pending user slot, even when it drains first.
+    result.terminal.output = ''
+    result.session.append('steering/message', {
+      turn: 1,
+      content: [{ type: 'text', text: 'continue: goal not reached' }],
+      source: { kind: 'plugin', plugin: 'hooks' },
+    }, { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('1 queued')
+    result.terminal.output = ''
+    drainSteering('after')
+    await tick()
+    expect(result.terminal.output).not.toContain('queued')
 
     // The turn ending resets the badge, so the next running turn starts clean.
     result.agent.status = 'idle'

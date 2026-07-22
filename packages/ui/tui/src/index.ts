@@ -1307,12 +1307,15 @@ export function createTuiChat(
   let toolsExpanded = false
   let streaming: StreamingAssistantComponent | undefined
   let runningStatus: RunningStatus | undefined
-  // Steering messages the user queued during the running turn that the loop has
-  // not yet drained, shown as a badge on the status line. Reset on the
-  // running→idle status transition, which also absorbs a cancellation that
-  // clears the queue without logging drains; the status line exists only while
-  // running, so idle carries no badge to keep current.
-  let pendingSteering = 0
+  // Steering messages queued during the running turn (`agent/queued`) that the
+  // loop has not yet drained, shown as a badge on the status line. Each entry is
+  // the queued message's serialized source: a drain (`steering/message`) removes
+  // one MATCHING entry, so loop-authored steering — continuation reasons enter
+  // the inbox without an `agent/queued` event — cannot consume a pending user
+  // message's slot. Cleared on leaving `running`, which also absorbs a
+  // cancellation that discards the queue without logging drains; the status
+  // line exists only while running, so idle carries no badge to keep current.
+  const pendingSteering: string[] = []
   let disposed = false
   let shuttingDown: Promise<void> | undefined
   // Optional: skills mount conditionally, so read the global service store
@@ -1509,7 +1512,9 @@ export function createTuiChat(
   // controller's phase and the current steering count.
   const renderStatus = (running: RunningStatus): void => {
     const at = now()
-    running.loader.setMessage(formatTurnStatus(running.phase, at - running.phaseStartedAt, at - running.stepStartedAt, pendingSteering))
+    running.loader.setMessage(
+      formatTurnStatus(running.phase, at - running.phaseStartedAt, at - running.stepStartedAt, pendingSteering.length),
+    )
   }
 
   // Move to a derived phase, resetting the phase timer on a genuine change and
@@ -1536,7 +1541,7 @@ export function createTuiChat(
       const phase = prior?.phase ?? 'waiting'
       const phaseStartedAt = prior?.phaseStartedAt ?? at
       const stepStartedAt = prior?.stepStartedAt ?? at
-      const message = formatTurnStatus(phase, at - phaseStartedAt, at - stepStartedAt, pendingSteering)
+      const message = formatTurnStatus(phase, at - phaseStartedAt, at - stepStartedAt, pendingSteering.length)
       const loader = new Loader(ui, text => palette.accent(text), text => palette.muted(text), message)
       statusContainer.addChild(loader)
       const running: RunningStatus = {
@@ -2240,12 +2245,16 @@ export function createTuiChat(
     if (session !== agent.session) return
     recordEventUsage(tokens, event)
     advanceTurnPhase(event)
-    if (event.type === 'steering/message' && pendingSteering > 0) {
-      // A queued steering message reached the model as it drained; drop it from
-      // the badge. Clamped because loop-authored steering (e.g. continuation
-      // reasons) also logs here without a matching user-queued increment.
-      pendingSteering -= 1
-      refreshStatus()
+    if (event.type === 'steering/message') {
+      // A queued steering message reached the model as it drained; drop its
+      // entry from the badge. Matching by source keeps loop-authored steering
+      // (e.g. continuation reasons), which logs here without a matching
+      // `agent/queued` increment, from consuming a pending user slot.
+      const drained = pendingSteering.indexOf(JSON.stringify(event.data.source))
+      if (drained >= 0) {
+        pendingSteering.splice(drained, 1)
+        refreshStatus()
+      }
     }
     if ('surfaceOp' in event && typeof event.surfaceOp === 'object') {
       rebuildTranscript(false)
@@ -2256,7 +2265,7 @@ export function createTuiChat(
   })
   const disposeQueued = ctx.on('agent/queued', (subject, _content, info) => {
     if (subject !== agent || !info.steering) return
-    pendingSteering += 1
+    pendingSteering.push(JSON.stringify(info.source))
     refreshStatus()
   })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {
@@ -2264,7 +2273,7 @@ export function createTuiChat(
     // Leaving 'running' ends the turn's status line; clear any badge so the
     // next running turn starts from zero (and a cancellation, which discards
     // the queue without logging drains, cannot strand a stale count).
-    if (status !== 'running') pendingSteering = 0
+    if (status !== 'running') pendingSteering.length = 0
     setStatus(status)
   })
   const disposeError = ctx.on('agent/error', (subject, turn, step, error) => {
