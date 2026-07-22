@@ -359,11 +359,27 @@ The fourteen event variants (`turn/start`, `turn/end`, `step/start`, `step/end`,
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`InjectOptions` extends ordinary message attribution with durable model-hidden JSON metadata:
+```ts type-equiv
+/**
+ * Message options. An omitted source attests direct human input as `{ kind: 'user' }`
+ * and may authorize policy consumers, so non-human producers must label their content.
+ */
+interface SendOptions {
+  source?: MessageSource
+  /**
+   * Model-facing contexts captured with this inbox item. A queued prompt exposes
+   * them through the default `agent/prompt-submit` allow decision, while steering
+   * records them directly at its next checkpoint.
+   */
+  contexts?: HookContext[]
+}
+```
+
+`InjectOptions` accepts ordinary message attribution and durable model-hidden JSON metadata. Attached contexts belong only to queued or steering input, so synthetic injection cannot accept them:
 
 ```ts type-equiv
 /** Options specific to durable synthetic context injection. */
-interface InjectOptions extends SendOptions {
+interface InjectOptions extends Omit<SendOptions, 'contexts'> {
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
@@ -391,7 +407,8 @@ interface Agent {
    * Queue one detached, frozen lossless-JSON item. If claimed, it is the sole
    * ordinary message in its FIFO-ordered turn; the next claimed item waits for
    * that turn's checkpoint.
-   * Invalid input throws synchronously before notification or enqueue.
+   * Attached contexts share the same snapshot and ownership boundary. Invalid
+   * input throws synchronously before notification or enqueue.
    */
   send(content: ContentBlock[], options?: SendOptions): void
 
@@ -443,15 +460,21 @@ The process-local initiator carried by `ctx.agents` is the exact `Agent` above, 
 
 ## Interception decisions
 
-Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. Prompt and post-tool decisions share one model-facing context shape, `HookContext`, which is `inject()`ed as a `context/message` and therefore carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its `content` reaches the model verbatim as a user-role message, while JSON `meta` persists plugin state without exposing it to the model. Both decisions carry `additionalContexts[]` so every entry preserves its own provenance and metadata. Continuation reasons are steering messages instead and deliberately use the narrower content/source shape.
+Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. Prompt and post-tool decisions share one model-facing context shape, `HookContext`, which carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its `content` reaches the model verbatim as user-role input, while JSON `meta` persists plugin state without exposing it to the model. Absent or `separate` placement becomes `context/message`; `prompt-prefix` placement is available to prompt and steering inbox attachments and bakes the context before the effective request in the same message. Both decisions carry `additionalContexts[]` so every entry preserves its own provenance, metadata, and placement. Continuation reasons are steering messages instead and deliberately use the narrower content/source shape.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
 ```ts type-equiv
-/** Model-facing context injected by a listener; `source` prevents plugin text from being labeled as user input. */
+/** Model-facing context injected by a listener or atomically attached to one inbox message. */
 interface HookContext {
   content: ContentBlock[]
   source: MessageSource
+  /**
+   * Model placement. Absent or `separate` records an independent
+   * `context/message`; `prompt-prefix` prepends this context and a stable
+   * request delimiter to the same user-role message as its attached prompt.
+   */
+  placement?: 'separate' | 'prompt-prefix'
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
@@ -461,10 +484,13 @@ interface HookContext {
 
 ```ts type-equiv
 /**
- * Prompt interception result. `allow.content` replaces the prompt and each
- * `additionalContexts` entry becomes a separate context message. `block`
- * records a durable `prompt/blocked` and ends the claimed prompt's zero-step
- * turn as rejected.
+ * Prompt interception result. `allow.content` replaces the prompt. Each
+ * `additionalContexts` entry follows its declared placement: separate context
+ * message by default, or a prefix inside the prompt's user-role message.
+ * `block` records a durable `prompt/blocked` and ends the claimed prompt's
+ * zero-step turn as rejected. An `allow` returned by a listener is
+ * authoritative: a listener wrapping `next()` preserves downstream `content`
+ * and `additionalContexts` unless it intentionally replaces them.
  */
 type PromptDecision =
   | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }

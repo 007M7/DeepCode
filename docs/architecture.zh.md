@@ -81,11 +81,11 @@ forever:
   emit agent/status(running)
   TURN:
     'turn/start'
-    claimed message -> agent/prompt-submit
-      allowed prompt -> 'user/message' plus injected context
+    claimed message + contexts -> agent/prompt-submit
+      allowed prompt -> 'user/message' with prompt-prefix context baked in; append separate contexts
       blocked prompt -> 'prompt/blocked' -> 'turn/end'(rejected)
     STEP loop:
-      drain steering
+      drain steering with the same prefix/separate context placement (no prompt-submit)
       assemble system prompt and tool schemas
       agent/session-prefix (first step)
       agent/pre-step
@@ -123,7 +123,7 @@ forever:
 
 ### 失败边界
 
-轮次负责隔离故障。适配器故障会先关闭步骤，再进入 `agent/request-error`；该事件会收到准确的 `Error`、`LlmFailure` 和历史记录。重试会开启另一个步骤；成功会清除历史记录；重试耗尽后，故障存入 `turn/end`。失败分片不会提交消息或工具。
+适配器故障会先关闭步骤，再进入 `agent/request-error`；该事件会收到准确的 `Error`、`LlmFailure` 和历史记录。重试会开启另一个步骤；成功会清除历史记录；重试耗尽后，故障存入 `turn/end`。失败分片不会提交消息或工具。
 
 其他故障使用 `agent/error`。取消和资源释放均优先于恢复；尚未分派的工具调用会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。轮次信号会在 `turn/end` 前失效。实际生效的 `cancel()` 会在清空队列和中止前发出类型化原因；观察方不能否决该操作，空闲状态下的调用不发出任何事件，持久化会记录 `aborted`。dispose（资源释放）会等待系统停稳（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 

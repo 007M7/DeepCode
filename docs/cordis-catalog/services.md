@@ -383,7 +383,7 @@ Source: [`packages/ui/commands/src/index.ts:227`](../../packages/ui/commands/src
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
-Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. Load one implementation per context as `ctx.compact`.
+Abstract compaction service. Implementations own trigger policy, retention, and summarization, and may consume a separate measurement service. A successful run replaces the selected surface span with one summary node and prevents concurrent compaction of the same session. The replacement user message uses COMPACT_CHECKPOINT_SOURCE so consumers recognize it independently of the backend. Load one implementation per context as `ctx.compact`.
 
 ```ts cordis-catalog
 /**
@@ -407,6 +407,7 @@ abstract compactIfNeeded( agent: CompactAgentContext, trigger: CompactionTrigger
  * balanced so assistant tool calls remain paired with their results. A model-
  * backed implementation forwards cancellation and rejects active, missing,
  * reversed, or unbalanced ranges. The target session is `agent.session`.
+ * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.
  * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}
  * for the edge checks.
  *
@@ -422,7 +423,7 @@ abstract compactRegion( start: number, end: number, agent: CompactAgentContext, 
 
 Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionTrigger](../core-data-structures/compaction.md)
 
-Source: [`packages/compact/compact/src/index.ts:39`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:54`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
@@ -960,6 +961,14 @@ async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>
 async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
 
 /**
+ * Read one session's complete current model surface from one corpus observation.
+ * @param sessionId - live-preferred session id to read.
+ * @returns cloned header, current surface, and raw-log capture boundary.
+ * @throws when source resolution fails or the session surface is invalid.
+ */
+async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>
+
+/**
  * Trace known ancestry and descendants from one corpus observation.
  * @param sessionId - logical session id to trace.
  * @returns a complete lineage or an explicit unresolved parent boundary.
@@ -983,9 +992,39 @@ async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
 
-Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventTrace](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
+Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventTrace](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-query/session-query/src/index.ts:40`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:41`](../../packages/session-query/session-query/src/index.ts)
+
+## `ctx.sessionReferences` — `SessionReferenceService`
+
+Exact-read consumer that prepares immutable cross-session message context.
+
+```ts cordis-catalog
+/**
+ * List reference candidates, ranked by working-directory affinity.
+ * @param agent - target agent; self is excluded and its cwd drives ranking.
+ * @param query - optional case-insensitive session-id/cwd substring.
+ * @param limit - optional positive result cap.
+ * @param signal - optional cancellation boundary for host autocomplete teardown.
+ * @returns candidates labeled by latest title or, when absent, session id.
+ */
+async listCandidates( agent: Agent, query = '', limit = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>
+
+/**
+ * Snapshot all references before enqueue and return one aggregated durable context.
+ * @param agent - target agent; references to it are rejected.
+ * @param content - already host-normalized readable message content.
+ * @param references - structured source sessions in mention order.
+ * @param signal - optional cancellation boundary for host request teardown.
+ * @returns detached content and zero or one prepared contexts.
+ */
+async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>
+```
+
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [PreparedReferencedMessage](../core-data-structures/session-reference.md) · [SessionReferenceCandidate](../core-data-structures/session-reference.md) · [SessionReferenceInput](../core-data-structures/session-reference.md)
+
+Source: [`packages/context/session-reference/src/index.ts:69`](../../packages/context/session-reference/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -1134,7 +1173,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:594`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:605`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1168,7 +1207,7 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:282`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:284`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
