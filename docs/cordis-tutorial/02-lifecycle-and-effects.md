@@ -54,7 +54,7 @@ disposed
 
 Three things to notice:
 
-- `ctx.plugin(heartbeat)` mounts a plugin **from code** — the same operation the YAML loader performs for each config entry. It returns a **fiber**, the runtime handle for one loaded plugin instance.
+- `ctx.plugin(heartbeat)` mounts a function **from code** as a plugin — the same operation the YAML loader performs for each config entry. A function plugin needs no `apply` method: Cordis calls the function directly and uses its name only for diagnostics. An `apply` method is required only for the object form, `ctx.plugin({ apply(ctx) { /* ... */ } })`. The call returns a **fiber**, the runtime handle for one loaded plugin instance.
 - The effect body runs during load; the disposer it returns runs during unload. You never call the disposer yourself for a plugin-lifetime resource.
 - `fiber.dispose()` resolves after all of the plugin's cleanup — including async disposers — has finished, and recursively unloads any child plugins it mounted.
 
@@ -87,3 +87,5 @@ For a resource Cordis does not manage, acquire it inside `ctx.effect()` and retu
 One ordering caveat: disposers start in reverse registration order, but multiple **async** disposers run concurrently. If teardown steps must run in sequence, keep them in one disposer and await them there.
 
 Next: [Services](03-services.md) — how plugins share capabilities.
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)

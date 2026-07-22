@@ -92,3 +92,5 @@ export function apply(ctx: Context) {
 Service names live in one flat namespace per application. Prefix or namespace your own services distinctively (the harness claims plain names like `tools` and `llm`); the generated [services catalog](../cordis-catalog/services.md) lists every name the harness registers.
 
 Next: [Events](04-events.md) — communication without a shared service.
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)

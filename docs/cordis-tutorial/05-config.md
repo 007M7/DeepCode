@@ -82,3 +82,5 @@ The loader used in this repo supports a `!!js` tag for config values that must b
 `!!js` works **only inside `config`**. Entry metadata (`name`, `id`, `disabled`, `inject`, ...) is static; `disabled: !!js ...` produces a truthy expression object that always disables the entry. See [loader configuration](../cordis-primer.md#loader-configuration).
 
 Next: [Composition and HMR](06-composition-and-hmr.md) — treating `cordis.yml` as the application.
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-harness/deepseek-harness)
