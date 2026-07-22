@@ -57,7 +57,11 @@ function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.Rea
     host,
     current,
     addSession: (id: string) => {
-      const cell: SessionCell = { sessionId: id, useSession: { hookTag: id } }
+      // Bare source per cell (identity-stable): the machinery binds useSession from it.
+      const cell: SessionCell = {
+        sessionId: id,
+        session: { getSnapshot: () => ({ sid: id }), subscribe: () => () => {} },
+      }
       cells.set(id, cell)
       return cell
     },
@@ -121,15 +125,23 @@ describe('SessionProvider', () => {
     const h = makeHost({
       root: (renderSlot) => <SessionProvider>{() => renderSlot('k.session', {})}</SessionProvider>,
     })
-    const s1 = h.addSession('s1')
-    const s2 = h.addSession('s2')
-    h.registerSession({ component: (props: object) => { seen.push(props as Record<string, unknown>); return null }, options: {} })
+    h.addSession('s1')
+    h.addSession('s2')
+    h.registerSession({
+      component: (props: { useSession?: <S>(sel: (s: { sid: string }) => S) => S; sessionId?: string }) => {
+        // The bound hook reads the cell's bare source — asserting through it
+        // proves the machinery wired THIS session's source, not another's.
+        seen.push({ sessionId: props.sessionId, read: props.useSession!((s) => s.sid) })
+        return null
+      },
+      options: {},
+    })
     render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
     act(() => { h.current.set('s1') })
-    expect(seen.at(-1)!['useSession']).toBe(s1.useSession)
+    expect(seen.at(-1)!['read']).toBe('s1')
     expect(seen.at(-1)!['sessionId']).toBe('s1')
     act(() => { h.current.set('s2') })
-    expect(seen.at(-1)!['useSession']).toBe(s2.useSession)
+    expect(seen.at(-1)!['read']).toBe('s2')
     expect(seen.at(-1)!['sessionId']).toBe('s2')
   })
 

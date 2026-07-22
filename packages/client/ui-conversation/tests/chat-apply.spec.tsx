@@ -8,7 +8,7 @@
 
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react/src/store/index.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject, ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'

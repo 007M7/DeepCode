@@ -16,19 +16,33 @@ export interface HostObservable<T> {
 
 /**
  * Type-erased store instance face at the render seam (the typed twin is
- * {@link StoreInstance}): selector hook plus draft-stripped action callbacks.
- * Typing lands at the component seam via {@link PropsStore}.
+ * {@link StoreInstance}): a bare snapshot source plus the draft-stripped
+ * action callbacks. No React hook crosses this seam — the render machinery
+ * binds `useStore` from the source at its own side (cached per instance);
+ * typing lands at the component seam via {@link PropsStore}.
  */
 export interface StoreInstanceLike {
-  readonly useSelector: unknown
+  /** Current state snapshot (uSES getSnapshot side). */
+  getSnapshot(): unknown
+  /**
+   * Subscribe to state changes (uSES subscribe side).
+   * @param fn - change callback.
+   * @returns unsubscribe.
+   */
+  subscribe(fn: () => void): () => void
+  /** Baked write callbacks (delivered to components as `actions`). */
   readonly actions: Record<string, (...params: never[]) => void>
 }
 
 /** Session standard kit resolved per session id (identity-stable per session scope; a recreated scope yields a new cell). */
 export interface SessionCell {
   sessionId: string
-  /** Bound conversation-snapshot selector hook (wide here; runtime narrows at its export seam). */
-  useSession: unknown
+  /**
+   * Bare conversation-snapshot source (wide here; runtime narrows at its
+   * export seam). The React side binds the `useSession` hook per cell —
+   * hooks never appear on the host contract.
+   */
+  session: HostObservable<unknown>
 }
 
 /** renderSlot dispatch options at the machinery level: keyed dispatch key, list filtering, empty fallback. */

@@ -7,9 +7,10 @@
  * index; business components see zero React contexts.
  */
 import { createContext, useContext, type ReactNode } from 'react'
-import type { HostObservable, SessionCell, SlotRendererHost } from '@deepseek-ai/dsh-client-ui-slots'
+import type {
+  HostObservable, SessionCell, SlotRendererHost, SnapshotSelectorHook,
+} from '@deepseek-ai/dsh-client-ui-slots'
 import { bindSnapshotSelector } from './bind.ts'
-import type { SnapshotSelectorHook } from './store/index.ts'
 
 /**
  * A missing-provider assembly error: the shell wired the tree wrong. The slot

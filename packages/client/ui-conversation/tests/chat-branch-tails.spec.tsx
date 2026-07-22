@@ -9,8 +9,8 @@ import { cleanup, render } from '@testing-library/react'
 import { act } from '@testing-library/react'
 import type { SessionId, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { RpcId } from '@deepseek-ai/dsh-client-connection/client'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
+import { hookOf } from './hook.ts'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ToolViewProps, Translate } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { MessageItem } from '../src/client/chat/MessageItem.tsx'
@@ -85,7 +85,7 @@ describe('small branch tails', () => {
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
-      <StatsLine sessionId={SID} useSession={bindSnapshotSelector(source) as unknown as UseSession} />,
+      <StatsLine sessionId={SID} useSession={hookOf(source) as unknown as UseSession} />,
     )
     expect(view.getByText('10 tokens · 1 turns · 1 steps')).toBeTruthy()
   })

@@ -12,24 +12,22 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { useSyncExternalStore } from 'react'
 import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
 
-// Session-mode switch for the SessionProvider stub (hoisted above the mock).
-const sessionMode = vi.hoisted(() => ({ current: true }))
+// Session-mode switch for the SessionProvider stub prop.
+const sessionMode = { current: true }
 
-vi.mock('@deepseek-ai/dsh-client-web-react', async (importOriginal) => {
-  const mod = await importOriginal<object>()
-  return {
-    ...mod,
-    // Render-prop contract stub: session mode runs children(id), empty mode
-    // runs the empty branch — the frame must work against exactly this shape.
-    SessionProvider: ({ children, empty }: { children: (id: string) => ReactNode; empty?: () => ReactNode }) =>
-      sessionMode.current ? <>{children('s-test')}</> : <>{empty?.() ?? null}</>,
-  }
-})
+// Render-prop contract stub fed through the standard seat prop (the renderer
+// injects the real one in production): session mode runs children(id), empty
+// mode runs the empty branch — the frame must work against exactly this
+// shape. Typed as the seat's own component type so the branded sessionId
+// parameter stays contract-checked.
+const SessionProviderStub: AppFrameProps['SessionProvider'] = ({ children, empty }) =>
+  sessionMode.current ? <>{children('s-test' as Parameters<typeof children>[0])}</> : <>{empty?.() ?? null}</>
+
 
 /** Observer stub: captures the callback so tests can fire resizes manually. */
 let fireResize: (() => void) | null = null
@@ -42,6 +40,11 @@ class ResizeObserverStub {
 }
 
 let frameWidth = 1920
+
+/** Minimal selector hook over an engine instance (the engine carries no hook since the store migration; the renderer binds in production, the spec binds here). */
+function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapshot: () => T }) {
+  return <S,>(sel: (s: T) => S): S => sel(useSyncExternalStore(inst.subscribe, inst.getSnapshot))
+}
 
 function mountFrame() {
   window.innerWidth = frameWidth // first-render viewport source before the observer fires
@@ -58,10 +61,11 @@ function mountFrame() {
   const useSessions = ((sel: (s: unknown) => unknown) => sel({ ids: [], byId: {} })) as never
   const utils = render(
     <AppFrame
-      useStore={instance.useSelector}
+      useStore={hookOf(instance) as never}
       actions={instance.actions}
       renderSlot={renderSlot}
       useSessions={useSessions}
+      SessionProvider={SessionProviderStub}
     />,
   )
   const frame = utils.container.firstElementChild as HTMLElement
@@ -160,7 +164,7 @@ describe('AppFrame', () => {
     expect(tracks(frame)).toEqual([300, 310])
     const handles = frame.querySelectorAll('[class*="handle"]')
     drag(handles[1]!, 940, 950) // shrink by 10 from the rendered width
-    expect(instance.store.getSnapshot().details).toBe(300)
+    expect(instance.getSnapshot().details).toBe(300)
   })
 
   it('details column stays mounted at zero width', () => {
@@ -195,14 +199,14 @@ describe('AppFrame — guard branches', () => {
   it('pointer moves without capture are ignored (no width write)', () => {
     const { frame, instance } = mountFrame()
     const handle = frame.querySelectorAll('[class*="handle"]')[0]!
-    const before = instance.store.getSnapshot().sidebar
+    const before = instance.getSnapshot().sidebar
     // Move + up without a preceding pointerdown: hasPointerCapture is false.
     act(() => {
       handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 9, clientX: 500, bubbles: true }))
       vi.advanceTimersByTime(20)
       handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 9, clientX: 500, bubbles: true }))
     })
-    expect(instance.store.getSnapshot().sidebar).toBe(before)
+    expect(instance.getSnapshot().sidebar).toBe(before)
   })
 
   it('two moves inside one frame coalesce through the pending rAF', () => {
@@ -217,7 +221,7 @@ describe('AppFrame — guard branches', () => {
       vi.advanceTimersByTime(20)
     })
     act(() => { handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 340, bubbles: true })) })
-    expect(instance.store.getSnapshot().sidebar).toBe(340)
+    expect(instance.getSnapshot().sidebar).toBe(340)
   })
 
   it('pointerup with a pending rAF cancels it and commits the final position', () => {
@@ -229,7 +233,7 @@ describe('AppFrame — guard branches', () => {
       // No timer advance: the rAF is still pending when pointerup arrives.
       handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 360, bubbles: true }))
     })
-    expect(instance.store.getSnapshot().sidebar).toBe(360)
+    expect(instance.getSnapshot().sidebar).toBe(360)
   })
 
   it('zero-width resize reports are ignored (display:none window)', () => {

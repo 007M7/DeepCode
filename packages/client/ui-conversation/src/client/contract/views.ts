@@ -6,7 +6,7 @@
  * import this, never each other.
  */
 import type { FC } from 'react'
-import type { SnapshotSelectorHook, UseSession } from '@deepseek-ai/dsh-client-web-react'
+import type { SnapshotSelectorHook, UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 
 /**

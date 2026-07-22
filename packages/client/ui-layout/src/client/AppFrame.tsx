@@ -4,15 +4,16 @@
  * details), the drag handles (pointer capture + rAF throttle), the concession
  * chain (columns.ts), and the child-slot render decisions: the sidebar slot
  * renders HERE with live parameters from the concession solve, and the
- * session pair renders under the framework-wired SessionProvider (render-prop
- * form; session slots get sessionId as a framework-standard prop, so the
- * owner shares stay empty). Pure component: everything arrives through the
- * four prop shares — zero cordis imports, zero self-made hooks.
+ * session pair renders under the SessionProvider standard seat (render-prop
+ * form, injected by the renderer because the children declaration contains
+ * session-scope slots; session slots get sessionId as a framework-standard
+ * prop, so the owner shares stay empty). Pure component: everything arrives
+ * through the four prop shares — zero cordis or framework imports, zero
+ * self-made hooks.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import { SessionProvider } from '@deepseek-ai/dsh-client-web-react'
 import { computeColumns } from './columns.ts'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
@@ -78,8 +79,8 @@ function DragHandle(props: { left: number; onStart: () => void; onDrag: (dx: num
   )
 }
 
-/** The three-column frame (see module doc). */
-export function AppFrame({ useStore, actions, renderSlot }: AppFrameProps) {
+/** The three-column frame (see module doc). SessionProvider arrives as a standard seat (declaring a session-scope child summons it — no framework import). */
+export function AppFrame({ useStore, actions, renderSlot, SessionProvider }: AppFrameProps) {
   const panels = useStore((s) => s)
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)

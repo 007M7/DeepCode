@@ -11,9 +11,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import type { SlotEntryDef, SlotSpec, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ActionsDecl, SlotEntryDef, SlotSpec, StoreHandle, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  createSlotRenderer, defineStore, SessionProvider, SlotOwnershipError,
+  createSlotRenderer, SessionProvider, SlotOwnershipError,
   type RenderOpts, type SessionCell,
   type SlotRendererHost, type StoreInstanceLike,
 } from '@deepseek-ai/dsh-client-web-react'
@@ -24,6 +24,36 @@ type DeclaredSpec = SlotSpec<SlotEntryDef>
 /** Entry literal helper: fake entries default the mandatory options bag. */
 const entryOf = (partial: Omit<StoredEntry, 'options'> & { options?: StoredEntry['options'] }): StoredEntry =>
   ({ options: {}, ...partial })
+
+/**
+ * Minimal store handle satisfying the StoreDecl contract shape (spec +
+ * create(scopeKey?) + instance with clearPersisted): the machinery consumes
+ * only the StoreInstanceLike face (bare snapshot source + baked actions),
+ * but entry.store is typed to the full contract — the real defineStore lives
+ * in runtime, which web-react tests must not import (dependency direction).
+ */
+function miniStore<T extends object>(init: () => T, mutators: Record<string, (state: T, ...params: never[]) => T>): StoreHandle<T, ActionsDecl<T>> {
+  return {
+    spec: { init, actions: {} },
+    create: () => {
+      let state = init()
+      const listeners = new Set<() => void>()
+      const actions: Record<string, (...params: never[]) => void> = {}
+      for (const key of Object.keys(mutators)) {
+        actions[key] = (...params: never[]) => {
+          state = mutators[key]!(state, ...params)
+          for (const fn of [...listeners]) fn()
+        }
+      }
+      return {
+        getSnapshot: () => state,
+        subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn) } },
+        actions,
+        clearPersisted: () => {},
+      } as StoreInstanceLike as ReturnType<StoreHandle<T, ActionsDecl<T>>['create']>
+    },
+  }
+}
 
 function observable<T>(initial: T) {
   let value = initial
@@ -109,7 +139,11 @@ function makeHost() {
       }
     },
     addSession: (id: string): SessionCell => {
-      const cell: SessionCell = { sessionId: id, useSession: { hookTag: id } }
+      // Bare source per cell (identity-stable): the machinery binds useSession from it.
+      const cell: SessionCell = {
+        sessionId: id,
+        session: { getSnapshot: () => ({ sid: id }), subscribe: () => () => {} },
+      }
       cells.set(id, cell)
       return cell
     },
@@ -242,12 +276,17 @@ describe('standard-kit synthesis', () => {
     expect(view.container.textContent).toBe('2')
   })
 
-  it('delivers the session pair (useSession identity + sessionId) under SessionProvider', () => {
+  it('delivers the session pair (bound useSession + sessionId) under SessionProvider', () => {
     const h = makeHost()
     h.declare('k.session', SINGLE_SESSION)
-    const cell = h.addSession('s1')
+    h.addSession('s1')
     const seen: AnyProps[] = []
-    h.add('k.session', { component: (props: object) => { seen.push(props as AnyProps); return null } })
+    h.add('k.session', {
+      component: (props: { useSession?: <S>(sel: (s: { sid: string }) => S) => S; sessionId?: string }) => {
+        seen.push({ ...props, read: props.useSession!((s) => s.sid) })
+        return null
+      },
+    })
     mountRoot(h, { 'k.session': SINGLE_SESSION }, (renderSlot) => (
       <SessionProvider empty={() => <i>empty</i>}>
         {() => renderSlot('k.session', {})}
@@ -255,8 +294,49 @@ describe('standard-kit synthesis', () => {
     ))
     act(() => { h.current.set('s1') })
     const props = seen.at(-1)!
-    expect(props['useSession']).toBe(cell.useSession)
+    // The hook is BOUND by the machinery from the cell's bare source: it
+    // reads the source's snapshot and stays identity-stable across renders
+    // (per-source cache), which the switch-back cache tests cover.
+    expect(props['read']).toBe('s1')
     expect(props['sessionId']).toBe('s1')
+  })
+
+  it('hands the SessionProvider seat to entries declaring a session-scope child', () => {
+    const h = makeHost()
+    h.declare('k.session', SINGLE_SESSION)
+    h.declare('k.single', SINGLE_ROOT)
+    h.addSession('s1')
+    h.add('k.session', { component: ({ sessionId }: { sessionId?: string }) => <b>{sessionId}</b> })
+    const rootSeen: AnyProps[] = []
+    // Root entry uses its INJECTED provider seat (no value import of SessionProvider).
+    h.add('root', {
+      component: (props: AnyProps) => {
+        rootSeen.push(props)
+        const Provider = props['SessionProvider'] as typeof SessionProvider
+        const renderSlot = props['renderSlot'] as RenderSlotFn
+        return (
+          <Provider empty={() => <i>empty</i>}>
+            {() => renderSlot('k.session', {})}
+          </Provider>
+        )
+      },
+      children: { 'k.session': SINGLE_SESSION },
+    })
+    const view = render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
+    expect(view.container.textContent).toBe('empty')
+    act(() => { h.current.set('s1') })
+    expect(view.container.textContent).toBe('s1')
+
+    // Entries whose children are all root-scope get no provider seat.
+    const h2 = makeHost()
+    h2.declare('k.single', SINGLE_ROOT)
+    const seen2: AnyProps[] = []
+    h2.add('root', {
+      component: (props: AnyProps) => { seen2.push(props); return null },
+      children: { 'k.single': SINGLE_ROOT },
+    })
+    render(<>{createSlotRenderer().renderRoot(h2.host, {})}</>)
+    expect(seen2.at(-1)!['SessionProvider']).toBeUndefined()
   })
 
   it('fails loud when a session slot renders outside SessionProvider', () => {
@@ -272,10 +352,7 @@ describe('standard-kit synthesis', () => {
   it('delivers the store pair for store-declaring entries and writes through baked actions', () => {
     const h = makeHost()
     h.declare('k.single', SINGLE_ROOT)
-    const handle = defineStore({
-      init: () => ({ n: 0 }),
-      actions: { inc: (d) => { d.n += 1 } },
-    })
+    const handle = miniStore(() => ({ n: 0 }), { inc: (s) => ({ n: s.n + 1 }) })
     let bump = () => {}
     h.add('k.single', {
       component: ({ useStore, actions }: {
@@ -298,10 +375,7 @@ describe('standard-kit synthesis', () => {
     h.declare('k.session', SINGLE_SESSION)
     h.addSession('s1')
     h.addSession('s2')
-    const handle = defineStore({
-      init: () => ({ draft: '' }),
-      actions: { setDraft: (d, text: string) => { d.draft = text } },
-    })
+    const handle = miniStore(() => ({ draft: '' }), { setDraft: (_s, text: string) => ({ draft: text }) })
     let setDraft: (text: string) => void = () => {}
     h.add('k.session', {
       component: ({ useStore, actions }: {
@@ -369,7 +443,7 @@ describe('inject: execution point, parameter derivation, cache granularity', () 
     h.declare('k.single', SINGLE_ROOT)
     h.declare('k.session', SINGLE_SESSION)
     h.addSession('s1')
-    const handle = defineStore({ init: () => ({ n: 0 }), actions: { inc: (d) => { d.n += 1 } } })
+    const handle = miniStore(() => ({ n: 0 }), { inc: (s) => ({ n: s.n + 1 }) })
     const rootInject = vi.fn((actions: { inc: () => void }) => ({ viaRoot: actions }))
     const sessionInject = vi.fn((sessionId: string, actions: { inc: () => void }) => ({ sid: sessionId, viaSession: actions }))
     const seenRoot: AnyProps[] = []

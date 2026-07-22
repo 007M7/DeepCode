@@ -3,9 +3,11 @@
  * rafFlush middleware + opt-in persist + dev freeze) plus the declarative
  * shell over it: {@link defineStore} bakes an init/persist/actions literal
  * into a {@link StoreHandle}, the registration-side store seat of the slot
- * terminal design (§4). The engine ({@link createSnapshotStore}) stays the
- * substrate for framework data (runtime sessions/loader/i18n); business
- * plugins declare stores through defineStore only.
+ * terminal design (§4). Lives in the React-free runtime (store-migration
+ * ruling: the data layer owns its engine; web-react is shell-only React
+ * glue): engine products are bare observables — subscribe/getSnapshot/
+ * update/set, NO selector hook. Hook synthesis is web-react's (the one
+ * uSES bridge, cached per source at the binding site).
  */
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { subscribeWithSelector } from 'zustand/middleware'
@@ -14,10 +16,9 @@ import { produce } from 'immer'
 import type {
   ActionsDecl, BakedActions, StoreHandle, StoreInstance, StoreSpec,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import { bindSnapshotSelector } from '../bind.ts'
 
-// Store contract types are ui-slots authority (wave 1); this module re-exports
-// them beside the engine so '/store' consumers get one import surface.
+// Store contract types are ui-slots authority; re-exported beside the engine
+// so store consumers get one import surface.
 export type {
   ActionsDecl, BakedActions, BoundActions, StoreFactory, StoreHandle, StoreInstance, StoreSpec,
 } from '@deepseek-ai/dsh-client-ui-slots'
@@ -25,7 +26,7 @@ export type {
 /** Minimal observable snapshot source: Session objects and snapshot stores both satisfy it. */
 export interface ObservableSnapshot<T> { getSnapshot(): T; subscribe(fn: () => void): () => void }
 
-/** Writable snapshot store with an attached typed selector hook. */
+/** Writable snapshot store (bare data face; React selector hooks are synthesized in web-react). */
 export interface SnapshotStore<T> extends ObservableSnapshot<T> {
   /**
    * Mutate the state through an immer draft.
@@ -37,14 +38,11 @@ export interface SnapshotStore<T> extends ObservableSnapshot<T> {
    * @param next - next state.
    */
   set(next: T): void
-  readonly useSelector: SnapshotSelectorHook<T>
 }
 
-/** Typed selector hook: equality defaults to Object.is; pass shallowEqual for object slices. */
-export type SnapshotSelectorHook<T> = <S>(sel: (s: T) => S, eq?: (a: S, b: S) => boolean) => S
-
 /**
- * Shallow equality for selector slices (re-export of zustand/shallow semantics).
+ * Shallow equality for selector slices (zustand/shallow semantics; travels
+ * with the engine so hook consumers need no zustand dependency).
  * @param a - left value.
  * @param b - right value.
  * @returns whether the values are shallowly equal.
@@ -104,7 +102,7 @@ export function createSnapshotStore<T>(
     }
   }
 
-  const store: SnapshotStore<T> = {
+  return {
     getSnapshot: () => api.getState(),
     subscribe: fn => subscribe(fn),
     update: (mutator) => {
@@ -115,10 +113,7 @@ export function createSnapshotStore<T>(
     set: (next) => {
       api.setState(devFreeze(next), true)
     },
-    useSelector: undefined as unknown as SnapshotSelectorHook<T>,
   }
-  ;(store as { useSelector: SnapshotSelectorHook<T> }).useSelector = bindSnapshotSelector(store)
-  return store
 }
 
 /**
@@ -230,7 +225,6 @@ export function defineStore<T, A extends ActionsDecl<T>>(
         actions[key] = (...params: unknown[]) => { store.update((draft) => { mutate(draft, ...params) }) }
       }
       return {
-        useSelector: store.useSelector,
         actions: actions as BakedActions<T, A>,
         getSnapshot: () => store.getSnapshot(),
         subscribe: fn => store.subscribe(fn),

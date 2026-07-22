@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createSnapshotStore, defineStore, shallowEqual } from '@deepseek-ai/dsh-client-web-react/store'
+import { createSnapshotStore, defineStore, shallowEqual } from '../src/client/store/index.ts'
 
 interface State {
   a: { n: number }

@@ -8,12 +8,11 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
-import { Context } from 'cordis'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react/src/store/index.ts'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
+import { hookOf } from './hook.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-import { apply, inject, ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createChatStore } from '../src/client/stores.ts'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
@@ -31,19 +30,6 @@ function snapshotBase(): ConversationSnapshot {
     hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null,
   } as ConversationSnapshot
 }
-
-describe('apply need() and cwd cache', () => {
-  it('apply fails loud when a required service is absent', () => {
-    // Call apply directly (no fiber machinery): need('sessions') on a bare
-    // context throws synchronously — the loud-failure branch without the
-    // fiber runner's internal rejection surface. Mount semantics (inject
-    // gating) are covered by the full bench in apply-inject.spec.
-    void inject
-    const ctx = new Context()
-    expect(() => { (apply as (c: Context) => void)(ctx) }).toThrow(/sessions service unavailable/)
-  })
-
-})
 
 describe('render branch tails', () => {
   it('AssistantMarkdown reasoning row is ok-state when not the streaming tail', () => {
@@ -68,7 +54,7 @@ describe('render branch tails', () => {
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
-      <StatsLine sessionId={SID} useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>} />,
+      <StatsLine sessionId={SID} useSession={hookOf(source) as unknown as UseSession<ConversationSnapshot>} />,
     )
     expect(view.getByText('cache hit 0% · 15 tokens · 2 turns · 3 steps')).toBeTruthy()
   })
@@ -90,9 +76,9 @@ describe('render branch tails', () => {
     const view = render(
       <DetailsPanel
         sessionId={SID}
-        useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} }) as unknown as UseSession<ConversationSnapshot>}
-        useSessions={emptyList.useSelector}
-        useStore={chat.useSelector}
+        useSession={hookOf({ getSnapshot: () => snap, subscribe: () => () => {} }) as unknown as UseSession<ConversationSnapshot>}
+        useSessions={hookOf(emptyList)}
+        useStore={hookOf(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
       />,

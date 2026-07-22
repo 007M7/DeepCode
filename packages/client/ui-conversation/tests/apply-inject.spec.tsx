@@ -10,10 +10,10 @@
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react/src/store/index.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlotsService, scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SlotRendererHost } from '@deepseek-ai/dsh-client-web-react'
+import type { SlotRendererHost } from '@deepseek-ai/dsh-client-ui-slots'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   ConversationInjected, DetailsInjected, EmptyStateInjected,

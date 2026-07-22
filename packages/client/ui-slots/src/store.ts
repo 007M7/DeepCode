@@ -51,19 +51,19 @@ export interface StoreSpec<T, A extends ActionsDecl<T>> {
 
 /**
  * Live engine instance: the create() product consumed by the render machinery
- * and by component tests (fed straight into props as useStore/actions).
- * Production components and render paths never call create() themselves —
- * instance lifecycle is the framework's.
+ * and by tests. A bare snapshot source plus the baked write set — no React
+ * hook rides the engine product (the engine lives in the React-free runtime);
+ * the render machinery binds the `useStore` hook from this source on its own
+ * side, cached per instance. Production components and render paths never
+ * call create() themselves — instance lifecycle is the framework's.
  */
 export interface StoreInstance<T, A extends ActionsDecl<T>> {
-  /** Selector hook bound to this instance (delivered to components as `useStore`). */
-  readonly useSelector: SnapshotSelectorHook<T>
   /** Baked write callbacks (delivered to components as `actions`). */
   readonly actions: BakedActions<T, A>
-  /** Current state snapshot (test assertions; machinery). */
+  /** Current state snapshot (uSES getSnapshot side; test assertions). */
   getSnapshot(): T
   /**
-   * Subscribe to state changes.
+   * Subscribe to state changes (uSES subscribe side).
    * @param fn - change callback.
    * @returns unsubscribe.
    */
@@ -130,8 +130,8 @@ export type PropsStore<H> = H extends StoreHandle<infer T, infer A>
   : object
 
 /**
- * The defineStore contract (implementation lives in web-react, bound to the
- * snapshot-store engine): spec in, handle out, with T inferred from `init`
- * and the actions table constrained by T.
+ * The defineStore contract (implementation lives in the runtime package,
+ * bound to the snapshot-store engine): spec in, handle out, with T inferred
+ * from `init` and the actions table constrained by T.
  */
 export type DefineStore = <T, A extends ActionsDecl<T>>(spec: StoreSpec<T, A>) => StoreHandle<T, A>

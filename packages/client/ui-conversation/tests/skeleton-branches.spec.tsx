@@ -7,9 +7,9 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react/src/store/index.ts'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
+import { hookOf } from './hook.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SelectionTarget, ViewEntry } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Export discipline: packages/client/AGENTS.md.
@@ -49,7 +49,7 @@ function listHook(rows: { id: string; title: string; cwd?: string; parentId?: st
     }])),
     current: undefined,
   } as SessionListState)
-  return store.useSelector
+  return hookOf(store)
 }
 
 describe('ConversationRoot branches', () => {
@@ -66,9 +66,9 @@ describe('ConversationRoot branches', () => {
     const view = render(
       <ConversationRoot
         sessionId={SID}
-        useSession={bindSnapshotSelector(sessionSource(over?.snapshot)) as unknown as UseSession<ConversationSnapshot>}
+        useSession={hookOf(sessionSource(over?.snapshot)) as unknown as UseSession<ConversationSnapshot>}
         useSessions={listHook(over?.rows ?? [])}
-        useStore={chat.useSelector}
+        useStore={hookOf(chat)}
         actions={chat.actions}
         views={{ list: () => [chatEntry], subscribe: () => () => {}, version: () => 1 }}
         send={vi.fn()}
@@ -124,9 +124,9 @@ describe('ConversationRoot branches', () => {
     const view = render(
       <ConversationRoot
         sessionId={SID}
-        useSession={bindSnapshotSelector(sessionSource()) as unknown as UseSession<ConversationSnapshot>}
+        useSession={hookOf(sessionSource()) as unknown as UseSession<ConversationSnapshot>}
         useSessions={listHook([])}
-        useStore={chat.useSelector}
+        useStore={hookOf(chat)}
         actions={chat.actions}
         views={{ list: () => [chatEntry], subscribe: () => () => {}, version: () => 1 }}
         send={vi.fn()}
@@ -147,9 +147,9 @@ describe('DetailsPanel branches', () => {
     return render(
       <DetailsPanel
         sessionId={SID}
-        useSession={bindSnapshotSelector(sessionSource(snapshot)) as unknown as UseSession<ConversationSnapshot>}
+        useSession={hookOf(sessionSource(snapshot)) as unknown as UseSession<ConversationSnapshot>}
         useSessions={listHook([])}
-        useStore={chat.useSelector}
+        useStore={hookOf(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
       />,
@@ -183,9 +183,9 @@ describe('DetailsPanel branches', () => {
     const view = render(
       <DetailsPanel
         sessionId={SID}
-        useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>}
+        useSession={hookOf(source) as unknown as UseSession<ConversationSnapshot>}
         useSessions={listHook([])}
-        useStore={chat.useSelector}
+        useStore={hookOf(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
       />,

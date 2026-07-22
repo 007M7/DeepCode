@@ -7,8 +7,8 @@
 
 import { useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
+import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import { shallowEqual } from '@deepseek-ai/dsh-client-web-react'
 import type { ConversationSlotProps } from '../contract/slots.ts'
 import type { ConvViewProps, ViewEntry } from '../contract/views.ts'
 import { InputBar } from './InputBar.tsx'

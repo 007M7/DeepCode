@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-web-react
 
-ctx↔React machinery for the slot terminal design: createSlotRenderer (the SlotRenderer implementation the shell installs into the runtime SlotsService), SessionProvider (framework-wired render prop over the host's current-session source), defineStore (the declarative store shell over the internal zustand engine), bindSnapshotSelector, useInvoke. The snapshot-store engine (createSnapshotStore) is framework-internal via the `./store` subpath; business plugins declare stores through defineStore only.
+Shell-side React glue for the slot terminal design: createSlotRenderer (the SlotRenderer implementation the shell installs into the runtime SlotsService), SessionProvider (framework-wired render prop, also injected as a standard seat to entries declaring session-scope children), bindSnapshotSelector (the one hook constructor — hosts and engines traffic in bare observable sources; every hook binds here, cached per source), useInvoke. The snapshot-store engine and defineStore live in runtime (store relocation); business plugins depend on ui-slots types only, never on this package.
 
 ## Model Experience
 

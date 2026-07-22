@@ -14,7 +14,7 @@
  * consumer merges keys in and the intersection is what keeps them string-typed.
  * The rule fires on the empty-map view, not on real redundancy. */
 import type { ReactNode } from 'react'
-import type { BoundActions, HandleOf, PropsStore, StoreDecl } from './store.ts'
+import type { BoundActions, HandleOf, PropsStore, SnapshotSelectorHook, StoreDecl } from './store.ts'
 
 export * from './store.ts'
 export * from './renderer.ts'
@@ -99,6 +99,32 @@ export type PropsRuntime<K extends keyof SlotMap & string> =
 export interface RenderOpts { entryKey?: string; only?: string; fallback?: ReactNode }
 
 /**
+ * Conversation-session selector hook alias for props contracts. Wide by
+ * default at this dependency-inverted layer; the runtime narrows at its
+ * export seam (`UseSession<ConversationSnapshot>`).
+ */
+export type UseSession<Snap extends object = object> = SnapshotSelectorHook<Snap>
+
+/** Props of the standard-kit SessionProvider seat (render-prop form). */
+export interface SessionAreaProps {
+  /** No-session body (also covers a current id whose session cannot be resolved). */
+  empty?: (() => ReactNode) | undefined
+  /** Session body; the framework remounts it per session (key=sessionId). */
+  children: (sessionId: SessionIdOf) => ReactNode
+}
+
+/**
+ * The framework-wired session area component (slot terminal design §7):
+ * subscribes to the current-session selection internally (design fiat ① —
+ * selection authority lives with runtime sessions) and switches between the
+ * session body and the empty branch. Delivered as a standard seat to every
+ * entry whose children declaration contains a session-scope slot (the
+ * derivation rides {@link PropsRenderSlots}); the value is injected by the
+ * installed renderer — business code never imports it.
+ */
+export type SessionProviderComponent = (props: SessionAreaProps) => ReactNode
+
+/**
  * Child-slot render share: `renderSlot` statically narrowed to the entry's
  * declared children keys. Delegation is plain props passing (hand
  * `props.renderSlot` down); the authorizing identity stays the registering
@@ -117,7 +143,12 @@ export type PropsRenderSlots<S extends keyof SlotMap & string> = {
    */
   renderSlot: <K extends S>(key: K, owner: OwnerOf<K>, opts?: RenderOpts) => ReactNode
   readonly __renders?: ((key: S) => void) | undefined
-}
+} & ('session' extends ScopeOf<S>
+  // The SessionProvider seat rides the same source as renderSlot: declaring
+  // a session-scope child is what makes a session area exist, so the seat
+  // derives from the children key set's scopes (renderer injects the value).
+  ? { SessionProvider: SessionProviderComponent }
+  : object)
 
 /**
  * Registration-position component shape: the bare call signature, so composed

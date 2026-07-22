@@ -6,7 +6,7 @@
  * implementation files import this, never each other.
  */
 import type { FC } from 'react'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CallId, Translate } from './views.ts'
 

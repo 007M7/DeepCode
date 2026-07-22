@@ -10,7 +10,7 @@
 import { Context } from 'cordis'
 import { createRoot } from 'react-dom/client'
 import type { ReactNode } from 'react'
-import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-web-react'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSlotRenderer } from '@deepseek-ai/dsh-client-web-react'
 import { createClientLoader, type ClientLoaderOptions } from '@deepseek-ai/dsh-client-runtime/loader'
 import { AppRoot } from './AppRoot.tsx'

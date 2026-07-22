@@ -75,8 +75,8 @@ function storeFor(b: Bench, slot: 'conversation' | 'details', sessionId: Session
 }
 
 /** The host face is only built at renderSlot time; install a stub renderer once to reach it. */
-function renderHost(b: Bench): import('@deepseek-ai/dsh-client-web-react').SlotRendererHost {
-  const captured = (b as unknown as { _host?: import('@deepseek-ai/dsh-client-web-react').SlotRendererHost })
+function renderHost(b: Bench): import('@deepseek-ai/dsh-client-ui-slots').SlotRendererHost {
+  const captured = (b as unknown as { _host?: import('@deepseek-ai/dsh-client-ui-slots').SlotRendererHost })
   if (captured._host === undefined) {
     b.slots.install({
       renderRoot: (host) => {

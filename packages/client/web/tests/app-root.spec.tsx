@@ -9,10 +9,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 
 afterEach(cleanup)
-// createSnapshotStore left the public face (framework-internal engine); the
-// status-store stub reaches it through the same ./store channel runtime uses.
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react/store'
-import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-web-react'
+// The snapshot-store engine lives with runtime now; the status-store stub
+// uses the same channel production code does.
+import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import type { LoaderStatus } from '@deepseek-ai/dsh-client-runtime/client'
 import { AppRoot } from '@deepseek-ai/dsh-client-web/src/AppRoot.tsx'
 

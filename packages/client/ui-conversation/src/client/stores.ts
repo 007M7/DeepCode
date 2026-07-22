@@ -9,7 +9,7 @@
  * Module exports the factory only — a module-level handle would pin identity
  * in the module cache (a de-facto singleton surviving plugin reloads).
  */
-import { defineStore } from '@deepseek-ai/dsh-client-web-react'
+import { defineStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ChatStoreState, SelectionTarget, ViewId } from './contract/views.ts'
 
 /**

@@ -155,13 +155,15 @@ describe('current selection (migrated from ui-layout, arbitrated into the list s
 })
 
 describe('cell (render-layer session kit)', () => {
-  it('resolves an identity-stable {sessionId, useSession} pair; unknown ids yield undefined', async () => {
+  it('resolves an identity-stable {sessionId, session} cell; unknown ids yield undefined', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }])
     const cell = b.svc.cell('s1')
     expect(cell).toBeDefined()
     expect(cell?.sessionId).toBe('s1')
-    expect(cell?.useSession).toBe(b.svc.manager.get(sid('s1')).useSelector)
+    // Bare-source form (store migration): the cell carries the Session
+    // observable itself; hook binding happens in the React machinery.
+    expect(cell?.session).toBe(b.svc.manager.get(sid('s1')))
     expect(b.svc.cell('s1')).toBe(cell)
     expect(b.svc.cell('ghost')).toBeUndefined()
   })

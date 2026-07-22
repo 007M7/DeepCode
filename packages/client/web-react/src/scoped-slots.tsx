@@ -19,7 +19,7 @@ import {
   type StoredEntry,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  HostContext, SlotAssemblyError, observableHook, useHost, useSessionCell,
+  HostContext, SessionProvider, SlotAssemblyError, observableHook, useHost, useSessionCell,
 } from './session-provider.tsx'
 
 type InjectedProps = Record<string, unknown>
@@ -120,26 +120,36 @@ class SlotErrorBoundary extends Component<
 
 /**
  * Standard-kit synthesis shared by both scope branches: the global
- * useSessions hook, the store pair when declared, and the renderSlot binding
- * when children are declared. Every member is identity-stable (hook cache /
- * host store cache / binding cache), so spreading a fresh kit object per
- * render never churns child subscriptions.
+ * useSessions hook, the session pair, the store pair when declared, the
+ * renderSlot binding when children are declared, and the SessionProvider
+ * seat when the children declare a session-scope slot. Hosts hand out BARE
+ * observable sources (hooks never cross the host contract); every hook is
+ * bound HERE, cached per source (observableHook), so spreading a fresh kit
+ * object per render never churns child subscriptions.
  */
 function standardKit(host: SlotRendererHost, entry: StoredEntry, cell: SessionCell | undefined): {
   kit: InjectedProps; actions: object | undefined
 } {
   const kit: InjectedProps = { useSessions: observableHook(host.sessions.list) }
   if (cell !== undefined) {
-    kit['useSession'] = cell.useSession
+    kit['useSession'] = observableHook(cell.session)
     kit['sessionId'] = cell.sessionId
   }
   const store = host.storeOf(entry, cell?.sessionId)
   if (store !== undefined) {
-    kit['useStore'] = store.useSelector
+    // The instance IS an observable snapshot source (contract getSnapshot/
+    // subscribe); the useStore hook binds here, cached per instance.
+    kit['useStore'] = observableHook(store)
     kit['actions'] = store.actions
   }
   if (entry.children !== undefined) {
     kit['renderSlot'] = boundRenderSlot(host, entry)
+    // SessionProvider standard seat: entries declaring a session-scope child
+    // render the session area, so the framework hands them the self-wired
+    // provider (module-level component = stable reference; no value import).
+    if (Object.values(entry.children).some((spec) => spec.scope === 'session')) {
+      kit['SessionProvider'] = SessionProvider
+    }
   }
   return { kit, actions: store?.actions }
 }

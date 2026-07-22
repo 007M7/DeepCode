@@ -13,12 +13,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { act } from '@testing-library/react'
 import { bootWebShell } from '@deepseek-ai/dsh-client-web'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, defineStore, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 
 interface BootWindow extends Window {
   __DSH_BOOT__?: { plugins: { id: string; url: string; inject: string[]; immediately?: boolean }[] }
   DSHClientProxy?: unknown
   __TEST_SLOTS_SERVICE__?: unknown
+  __TEST_RUNTIME_STORE__?: { createSnapshotStore: unknown; defineStore: unknown }
 }
 const win = window as unknown as BootWindow
 
@@ -34,14 +35,14 @@ window.DSHClientProxy.loadPlugin({
   id: 'fake-runtime',
   factory: (require) => {
     const SlotsService = window.__TEST_SLOTS_SERVICE__
-    const { createSnapshotStore } = require('@deepseek-ai/dsh-client-web-react/store')
+    const { createSnapshotStore } = window.__TEST_RUNTIME_STORE__
     return {
       apply: (ctx) => {
         ctx.plugin(SlotsService)
         const list = createSnapshotStore({ ids: ['s1'], byId: { s1: { id: 's1', title: 'S1', running: false, updatedAt: 1 } }, current: 's1' })
         ctx.provide('sessions', {
           list,
-          cell: (id) => (id === 's1' ? { sessionId: 's1', useSelector: (sel) => sel({}) } : undefined),
+          cell: (id) => (id === 's1' ? { sessionId: 's1', session: { getSnapshot: () => ({}), subscribe: () => () => {} } } : undefined),
         })
       },
     }
@@ -55,7 +56,7 @@ window.DSHClientProxy.loadPlugin({
   id: 'fake-layout',
   factory: (require) => {
     const React = require('react')
-    const { defineStore } = require('@deepseek-ai/dsh-client-web-react')
+    const { defineStore } = window.__TEST_RUNTIME_STORE__
     return {
       inject: ['slots'],
       apply: (ctx) => {
@@ -130,13 +131,15 @@ afterEach(() => {
   delete win.__DSH_BOOT__
   delete win.DSHClientProxy
   delete win.__TEST_SLOTS_SERVICE__
+  delete win.__TEST_RUNTIME_STORE__
   document.body.innerHTML = ''
   document.head.querySelectorAll('script').forEach((s) => { s.remove() })
 })
 
-/** Hand the real service class to the stub bundle (runtime is not a seeded library). */
+/** Hand the real runtime surface to the stub bundle (runtime is not a seeded library). */
 function seedSlotsService(): void {
   win.__TEST_SLOTS_SERVICE__ = SlotsService
+  win.__TEST_RUNTIME_STORE__ = { createSnapshotStore, defineStore }
 }
 
 describe('bootWebShell (real loader + real script execution)', () => {

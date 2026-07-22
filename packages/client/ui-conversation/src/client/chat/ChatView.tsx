@@ -16,7 +16,7 @@ import {
 import type {
   ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
+import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConvViewProps, SelectionTarget, Translate } from '../contract/views.ts'
 import type { ToolViewProps } from '../contract/toolview.ts'
@@ -38,7 +38,7 @@ const FOLLOW_THRESHOLD = 24
 
 type OpenDetails = (target: SelectionTarget) => void
 
-/** web-react's UseSession is deliberately wide (dependency direction); the
+/** ui-slots' UseSession is deliberately wide (dependency direction); the
  *  chat view narrows once to the runtime snapshot the binding actually feeds. */
 type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
 

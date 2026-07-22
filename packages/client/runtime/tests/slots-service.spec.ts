@@ -49,9 +49,10 @@ async function boot(): Promise<Bench> {
   return { ctx, svc, erased: svc as unknown as ErasedService }
 }
 
-/** Engine-shaped instance stub (the arbitrated persist face: scope-keyed create + clearPersisted). */
+/** Engine-shaped instance stub (bare-source form: subscribe/getSnapshot + baked actions + clearPersisted). */
 interface FakeInstance {
-  useSelector: () => undefined
+  getSnapshot: () => undefined
+  subscribe: () => () => void
   actions: Record<string, never>
   clearPersisted: ReturnType<typeof vi.fn>
 }
@@ -61,7 +62,10 @@ function fakeHandle() {
   const created: FakeInstance[] = []
   const handle = {
     create: vi.fn((_scopeKey?: string): FakeInstance => {
-      const instance: FakeInstance = { useSelector: () => undefined, actions: {}, clearPersisted: vi.fn() }
+      const instance: FakeInstance = {
+        getSnapshot: () => undefined, subscribe: () => () => undefined,
+        actions: {}, clearPersisted: vi.fn(),
+      }
       created.push(instance)
       return instance
     }),
@@ -91,7 +95,9 @@ function fakeSessions() {
   const state = { ids: [], byId: {}, current: undefined as string | undefined }
   return {
     list: { getSnapshot: () => state, subscribe: () => () => undefined },
-    cell: (id: string) => (id === 'known' ? { sessionId: id, useSession: () => undefined } : undefined),
+    cell: (id: string) => (id === 'known'
+      ? { sessionId: id, session: { getSnapshot: () => undefined, subscribe: () => () => undefined } }
+      : undefined),
   }
 }
 

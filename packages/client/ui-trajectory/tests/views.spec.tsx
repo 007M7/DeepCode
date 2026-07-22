@@ -11,9 +11,9 @@ import { Context } from 'cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, type FC } from 'react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react/src/store/index.ts'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
+import { bindSnapshotSelector } from '../../web-react/src/bind.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import { ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Export discipline: packages/client/AGENTS.md.
@@ -53,7 +53,7 @@ function fakeSession(nodes: ConversationSnapshot['nodes']) {
 function emptySessions() {
   const store = createSnapshotStore<SessionListState>(
     { ids: [], byId: {}, current: undefined } as SessionListState)
-  return store.useSelector
+  return bindSnapshotSelector(store)
 }
 
 /** Chat-view stand-in props for standalone view mounts. */
@@ -62,7 +62,7 @@ function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
   return {
     sessionId: SID,
     useSession: fakeSession(nodes).useSession,
-    useStore: chat.useSelector,
+    useStore: bindSnapshotSelector(chat),
     actions: { openDetails: vi.fn(), loadOlder: vi.fn() },
   } as unknown as ConvViewProps
 }
@@ -89,7 +89,7 @@ function mount(svc: ConversationService, nodes: ConversationSnapshot['nodes'] = 
       sessionId={SID}
       useSession={bindSnapshotSelector(sessionSnapshot) as unknown as UseSession<ConversationSnapshot>}
       useSessions={emptySessions()}
-      useStore={chat.useSelector}
+      useStore={bindSnapshotSelector(chat)}
       actions={chat.actions}
       views={{
         list: () => svc.views(),

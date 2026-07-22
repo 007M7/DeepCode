@@ -5,8 +5,8 @@
 // share the store seat exists for) and derives the call material from the
 // session snapshot — no data of its own.
 
+import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import { shallowEqual } from '@deepseek-ai/dsh-client-web-react'
 import type { DetailsSlotProps } from '../contract/slots.ts'
 import css from './DetailsPanel.module.css'
 

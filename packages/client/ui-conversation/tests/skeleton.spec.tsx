@@ -11,9 +11,9 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FC } from 'react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react/src/store/index.ts'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
+import { hookOf } from './hook.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SelectionTarget, ViewEntry } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Export discipline: packages/client/AGENTS.md.
@@ -42,7 +42,7 @@ function fakeSession(init: Partial<FakeSnapshot> = {}) {
   const store = createSnapshotStore<FakeSnapshot>({
     nodes: [], runningCalls: [], running: false, removed: false, promptError: null, ...init,
   })
-  return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
+  return { store, useSession: hookOf(store) as unknown as UseSession<ConversationSnapshot> }
 }
 
 /** Sessions-list stub: the standard useSessions hook over a snapshot store. */
@@ -56,7 +56,7 @@ function fakeSessions(rows: { id: string; title: string; cwd?: string; parentId?
     }])),
     current: undefined,
   } as SessionListState)
-  return { store, useSessions: store.useSelector }
+  return { store, useSessions: hookOf(store) }
 }
 
 describe('EmptyState', () => {
@@ -114,7 +114,7 @@ describe('ConversationRoot', () => {
         sessionId={sid('s1')}
         useSession={useSession}
         useSessions={useSessions}
-        useStore={chat.useSelector}
+        useStore={hookOf(chat)}
         actions={chat.actions}
         views={{
           list: () => views,
@@ -199,7 +199,7 @@ describe('DetailsPanel', () => {
         sessionId={sid('s1')}
         useSession={useSession}
         useSessions={useSessions}
-        useStore={chat.useSelector}
+        useStore={hookOf(chat)}
         actions={chat.actions}
         closeDetails={closeDetails}
       />)

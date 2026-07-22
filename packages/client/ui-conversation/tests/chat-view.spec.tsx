@@ -9,8 +9,8 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
   AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, ToolResultNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
+import { hookOf } from './hook.ts'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConvViewProps, SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createChatStore } from '../src/client/stores.ts'
@@ -79,8 +79,8 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const chat = createChatStore().create()
   const props: ConvViewProps = {
     sessionId: SID,
-    useSession: bindSnapshotSelector(source) as unknown as UseSession,
-    useStore: chat.useSelector,
+    useSession: hookOf(source) as unknown as UseSession,
+    useStore: hookOf(chat),
     actions: { openDetails, loadOlder },
   }
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }

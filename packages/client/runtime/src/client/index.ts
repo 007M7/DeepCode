@@ -12,7 +12,7 @@
 import type { Context } from 'cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SnapshotStore, UseSession } from '@deepseek-ai/dsh-client-web-react'
+import type { SnapshotStore } from './store/index.ts'
 import { SlotsService } from './slots.ts'
 import { SessionsService } from './sessions/service.ts'
 import type { SessionListState } from './sessions/service.ts'
@@ -25,6 +25,13 @@ export type { RootOwnerProps } from './slots.ts'
 export { SessionsService, scopeOf } from './sessions/service.ts'
 export type { Session } from './sessions/session.ts'
 export type { SessionBinding, SessionListState, SessionSummary } from './sessions/service.ts'
+// The snapshot-store engine lives here since the store migration (the data
+// layer owns its substrate; web-react is React glue only). The './client'
+// main export is the single serving door — no store subpath.
+export { createSnapshotStore, defineStore, shallowEqual } from './store/index.ts'
+export type {
+  EngineStoreHandle, EngineStoreInstance, ObservableSnapshot, SnapshotStore,
+} from './store/index.ts'
 export type {
   AssistantBlock, AssistantMessageNode, ContextMessageNode, ConversationNode, ConversationSnapshot,
   PendingInteraction, RunningToolCall, SteeringMessageNode,
@@ -45,7 +52,7 @@ export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 export type ClientContext = Context
 
 /** The conversation-snapshot selector hook (ConvViewProps/ToolViewProps take this). */
-export type UseConversationSession = UseSession<ConversationSnapshot>
+export type UseConversationSession = SnapshotSelectorHook<ConversationSnapshot>
 
 /**
  * One tool call as the chat flow renders it: still-running (spinner card) or

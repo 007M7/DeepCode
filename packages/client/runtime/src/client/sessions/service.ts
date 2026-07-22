@@ -15,11 +15,9 @@
  */
 import type { Context, Fiber } from 'cordis'
 import type { IApiClient, SessionId } from '@deepseek-ai/dsh-client-connection/client'
-// Engine reach-through: the store subpath is the framework-internal channel
-// (the public web-react face carries defineStore only).
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-web-react/store'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react/store'
-import type { SessionCell } from '@deepseek-ai/dsh-client-web-react'
+import type { SessionCell } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SnapshotStore } from '../store/index.ts'
+import { createSnapshotStore } from '../store/index.ts'
 import { SessionManager } from './manager.ts'
 import type { Session } from './session.ts'
 
@@ -216,7 +214,9 @@ export class SessionsService {
       fiber,
       ctx,
       binding: { sessionId: id, session, ctx },
-      cell: { sessionId: id, useSession: session.useSelector },
+      // Bare source form (store migration): the Session object IS the
+      // observable; the React side binds the useSession hook per cell.
+      cell: { sessionId: id, session },
     }
     this.scopes.set(id, record)
     return record

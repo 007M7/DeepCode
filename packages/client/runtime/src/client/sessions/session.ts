@@ -7,8 +7,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult, SessionId, ToolEventView } from '@deepseek-ai/dsh-client-connection/client'
 import { transportError } from '@deepseek-ai/dsh-client-connection/client'
-import type { ObservableSnapshot, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import type { ObservableSnapshot } from '../store/index.ts'
 import type {
   ConversationNode, ConversationSnapshot, OpenState, PendingInteraction, PromptError, RunningToolCall,
 } from './conversation.ts'
@@ -19,11 +18,13 @@ import { PartialAccumulator } from './partial.ts'
 /** Messages per page (F.4 ledger: promote to Config at graduation; every call site references this constant). */
 export const PAGE_MESSAGES = 50
 
-/** Per-session state owner: event window + fold + partial, snapshot out via uSES (see the web client architecture RFC). */
+/**
+ * Per-session state owner: event window + fold + partial, snapshot out via
+ * subscribe/getSnapshot (see the web client architecture RFC). Bare source
+ * only (store migration): the React machinery binds the per-cell useSession
+ * hook at its own seam — no selector hook member lives on the data layer.
+ */
 export class Session implements ObservableSnapshot<ConversationSnapshot> {
-  /** Typed selector hook bound to this instance (the SessionBinding `useSession` source). */
-  readonly useSelector: SnapshotSelectorHook<ConversationSnapshot> = bindSnapshotSelector(this)
-
   // ---- Window and derived state (all private; the snapshot is the only read surface) ----
   private events: SessionEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).

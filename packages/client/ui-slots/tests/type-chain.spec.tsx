@@ -166,6 +166,12 @@ describe('terminal-design type chain', () => {
       acts.setDraft('x')
       // @ts-expect-error wrong payload type
       acts.setDraft(1)
+
+      // SessionProvider seat: derives from a session-scope child declaration.
+      fp.SessionProvider({ empty: () => null, children: () => null })
+      const sideOnly: PropsRenderSlots<'chain.side'> = null as never
+      // @ts-expect-error only root-scope children declared → no SessionProvider seat
+      void sideOnly.SessionProvider
     }
     expect(samples).toBeTypeOf('function')
   })

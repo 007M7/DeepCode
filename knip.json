@@ -106,6 +106,16 @@
         "tests/**/*.tsx"
       ]
     },
+    "packages/client/web-react": {
+      "entry": [
+        "tests/**/*.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.tsx"
+      ]
+    },
     "packages/client/ui-layout": {
       "entry": [
         "tests/**/*.spec.ts",
@@ -116,9 +126,6 @@
         "src/**/*.tsx",
         "tests/**/*.ts",
         "tests/**/*.tsx"
-      ],
-      "ignoreDependencies": [
-        "@deepseek-ai/dsh-client-ui-slots"
       ]
     },
     "website": {
