@@ -12,6 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
+import { join } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
@@ -496,7 +497,7 @@ describe('glob results', () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('/sessions/s1/src/a.ts\n/elsewhere/b.ts\nrel/c.ts\n')
     const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/sessions/s1') })
-    expect(text(result)).toBe('src/a.ts\n/elsewhere/b.ts\nrel/c.ts')
+    expect(text(result)).toBe(`${join('src', 'a.ts')}\n/elsewhere/b.ts\nrel/c.ts`)
   })
 
   it('validates arguments (blank pattern, blank path)', async () => {
@@ -578,7 +579,7 @@ describe('grep results', () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult(`${matchLine('/sessions/s1/deep/a.ts', 2, 'hit')}\n`)
     const result = await call(ctx, 'grep', { pattern: 'hit', path: '/sessions/s1' }, { agent: agent('/sessions/s1') })
-    expect(text(result)).toContain('deep/a.ts\nLine 2: hit')
+    expect(text(result)).toContain(`${join('deep', 'a.ts')}\nLine 2: hit`)
   })
 
   it('previews a long matched line at grepMaxLineBytes preserving UTF-8', async () => {
@@ -688,7 +689,7 @@ describe('presentation', () => {
 
 describe('helpers', () => {
   it('toWorkdirRelative maps inside-workdir absolutes and passes everything else through', () => {
-    expect(toWorkdirRelative('/w/a/b.ts', '/w')).toBe('a/b.ts')
+    expect(toWorkdirRelative('/w/a/b.ts', '/w')).toBe(join('a', 'b.ts'))
     expect(toWorkdirRelative('/w', '/w')).toBe('.')
     expect(toWorkdirRelative('/other/b.ts', '/w')).toBe('/other/b.ts')
     expect(toWorkdirRelative('/w-sibling/b.ts', '/w')).toBe('/w-sibling/b.ts')

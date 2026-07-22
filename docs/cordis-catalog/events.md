@@ -532,11 +532,11 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
  * Waterfall around every streaming model call (retry, replay, routing).
  * Bound to the {@link LlmService}; call `next()` to reach the resolved
  * adapter's stream, or yield your own chunks to short-circuit.
- * @param options - the full request. A LOOP-built request arrives
- *   deep-frozen (mutation throws): its content is a pure function of the
- *   session log (the reconstructability Agent Note), so listeners read it, never
- *   rewrite it. A hand-built one-shot (compaction summarize) is the
- *   caller's own object and stays mutable here.
+ * @param options - the full request. A LOOP-built request carries the
+ *   process-local {@link markAgentLoopRequest} identity and arrives deep-frozen
+ *   (mutation throws): its content is a pure function of the session log (the
+ *   reconstructability Agent Note), so listeners read it, never rewrite it.
+ *   Hand-built calls own their mutability policy and do not carry that marker.
  * @mode waterfall
  */
 'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
@@ -569,7 +569,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:47`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:68`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -590,7 +590,7 @@ Emitted once when an announced session leaves the store, including publication r
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:57`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:78`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -613,7 +613,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:69`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:90`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -634,7 +634,7 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:79`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:100`](../../packages/core/session/src/index.ts)
 
 ## `subagent/*`
 

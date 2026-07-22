@@ -12,7 +12,7 @@ The returned run id is minted in the parent namespace. The child server's sessio
 
 After publication, the provider sends the prompt and collects streamed `agent_message_chunk` text into `SubagentResult.output`. A prompt/transport failure resolves with `stopReason: 'error'`, or `aborted` when the required request signal or disposal requested cancellation.
 
-`dispose()` is idempotent. It removes the signal listener, requests ACP cancellation when possible, closes stdin, waits `disposeEofGraceMs`, escalates to SIGTERM, waits `disposeGraceMs`, and finally uses SIGKILL if necessary. Every run uses a fresh process; process pooling is not implemented.
+`dispose()` is idempotent. It removes the signal listener, requests ACP cancellation when possible, closes stdin, and waits `disposeEofGraceMs`. POSIX then escalates through SIGTERM and `disposeGraceMs` before SIGKILL; Windows force-terminates directly because Node maps both signals to `TerminateProcess`. After forced termination, every platform waits at most `disposeGraceMs` for exit and rejects on a signal error or missing exit. Every run uses a fresh process; process pooling is not implemented.
 
 ## Capabilities and context
 
@@ -28,8 +28,8 @@ ACP advertises no start-time capabilities because this process cannot enforce th
 | `cwd` | parent session cwd | Working-directory override for the child process and its ACP session; must be non-empty, a relative value resolves against the harness launch directory at load, and the result must name a directory the harness can enter. |
 | `permission` | `reject` | Auto-answer permission requests by rejecting or choosing the first allow-shaped option. |
 | `env` | `{}` | Explicit child environment layered over a credential-scrubbed parent environment. |
-| `disposeEofGraceMs` | `6000` | Grace after stdin EOF before SIGTERM. |
-| `disposeGraceMs` | `3000` | Grace after SIGTERM before SIGKILL. |
+| `disposeEofGraceMs` | `6000` | Grace after stdin EOF before platform termination. |
+| `disposeGraceMs` | `3000` | Exit-confirmation grace after termination; POSIX also waits this long after SIGTERM before SIGKILL. |
 
 ```yaml
 - id: subagent-acp

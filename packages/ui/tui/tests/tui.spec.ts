@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
@@ -7,6 +7,7 @@ import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@dee
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type {} from '@deepseek-ai/dsh-llm-retry'
@@ -165,6 +166,38 @@ describe('TUI config', () => {
 })
 
 describe('pi-tui chat lifecycle and transcript', () => {
+  it('uses the latest log-backed title for the header subtitle and terminal window', async () => {
+    const result = await setup({
+      // A fixed short cwd keeps the footer's token counters inside the 88-column
+      // fake terminal regardless of where the checkout lives; cwd rendering has
+      // its own dedicated variants test below.
+      cwd: '/workspace',
+      beforeMount(session) {
+        session.append('session/title', {
+          title: 'Restored session title',
+          messageSeqs: [1],
+          source: { kind: 'fallback' },
+        })
+      },
+    })
+
+    expect(result.terminal.title).toBe('Restored session title — DeepSeek Harness')
+    expect(result.terminal.output).toContain('Restored session title')
+    expect(result.terminal.output).not.toContain('Coding agent ready.')
+
+    result.session.append('session/title', {
+      title: 'Live title \u001B]0;unsafe\u0007',
+      messageSeqs: [1, 5],
+      source: { kind: 'fallback' },
+    })
+    await tick()
+
+    expect(result.terminal.title).toContain('Live title \\x1b]0;unsafe\\x07 — DeepSeek Harness')
+    expect(result.terminal.title).not.toContain('\u001B')
+    expect(result.terminal.output).toContain('Live title \\x1b]0;unsafe\\x07')
+    await dispose(result)
+  })
+
   it('renders its header, footer, replay, streaming answer, todos, and status', async () => {
     let now = 0
     const result = await setup({
@@ -384,6 +417,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
   it('renders the ANSI palette and every markdown/content style', async () => {
     const result = await setup({
+      cwd: '/workspace',
       config: { color: true },
       beforeMount(session) {
         session.append('user/message', {
@@ -467,9 +501,21 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(unsetResult.terminal.output).toContain('cwd unset')
     await dispose(unsetResult)
 
+    const homeParent = resolve(home, '..')
+    const parentResult = await setup({ cwd: homeParent })
+    expect(parentResult.terminal.output).toContain(homeParent)
+    await dispose(parentResult)
+
     const outsideResult = await setup({ cwd: '/opt' })
     expect(outsideResult.terminal.output).toContain('/opt')
     await dispose(outsideResult)
+
+    const logicalResult = await setup({
+      cwd: '/w',
+      formatCwd: cwd => `logical:${cwd}\x1b`,
+    })
+    expect(logicalResult.terminal.output).toContain('logical:/w\\x1b')
+    await dispose(logicalResult)
   })
 
   it('sends, steers, handles commands, global keys, and disposed-agent input', async () => {
@@ -1145,8 +1191,9 @@ describe('TUI user-interaction dialogs', () => {
     result.terminal.send('x')
     result.terminal.send(' ')
     result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('Select at least one option')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Select at least one option')
+    })
     result.terminal.send('c')
     await tick()
     result.terminal.send('\x1b')
@@ -1369,5 +1416,58 @@ describe('terminal mounting', () => {
     const runtime: TuiRuntime = { terminal: new FakeTerminal(), exit: vi.fn() }
     expect(() => createTuiChat(ctx, { sessionId: 'missing' }, runtime)).toThrow('is not running')
     await ctx.fiber.dispose()
+  })
+
+  it('detects a light terminal color scheme and switches from dark- to light-optimised ANSI codes', async () => {
+    const result = await setup({ config: { color: true } })
+    // Initial render uses dark-optimised palette: SGR 2 (dim) for dim text.
+    expect(result.terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
+
+    // A report matching the current scheme is a no-op: no palette rebuild or
+    // re-render (ESC [?997;1n = dark, the startup default).
+    const beforeSameScheme = result.terminal.output.length
+    result.terminal.send('\x1b[?997;1n')
+    await tick()
+    expect(result.terminal.output.length).toBe(beforeSameScheme)
+
+    // Simulate the terminal responding with a light color scheme report
+    // (ESC [?997;2n = light, ESC [?997;1n = dark).
+    result.terminal.send('\x1b[?997;2n')
+    await tick()
+    await tick()
+
+    // After switching to light-optimised palette: palette.dim uses ANSI 90
+    // (gray) instead of SGR 2. The header now uses \x1b[90m for the detail
+    // line. The cumulative output still contains the initial SGR 2 render,
+    // so we assert that a LATER write (appended after the scheme switch)
+    // uses ANSI 90 for the same header text.
+    expect(result.terminal.output).toContain('\x1b[90mdeepseek-v4-flash')
+
+    // Switch back to dark scheme.
+    result.terminal.send('\x1b[?997;1n')
+    await tick()
+    await tick()
+    // After switching back, a new write uses SGR 2 for the header detail.
+    expect(result.terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
+    await dispose(result)
+  })
+
+  it('keeps the dark palette when the terminal rejects the color-scheme query', async () => {
+    class QueryFailTerminal extends FakeTerminal {
+      override write(data: string): void {
+        // The device-status query is the only write that fails; the promise
+        // rejects and the swallowed `.catch` leaves the dark palette in place.
+        if (data === '\x1b[?996n') throw new Error('query write failed')
+        super.write(data)
+      }
+    }
+    const terminal = new QueryFailTerminal()
+    const result = await createTuiTestHarness(terminal, vi.fn(), {
+      config: { color: true },
+      cwd: process.cwd(),
+    })
+    await tick()
+    expect(terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
+    await disposeTuiTestHarness(result)
   })
 })
