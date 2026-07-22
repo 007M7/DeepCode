@@ -37,6 +37,29 @@ There is no universal local baseline beyond the hooks. Every behavior change nee
 
 Do not manually repeat a passing check merely because commit or push follows. In particular, do not run typecheck immediately before pushing solely to duplicate the pre-push hook.
 
+### Focus unit coverage on the affected source
+
+Test selection and coverage selection are separate. A Vitest file filter chooses which tests run, while the repository configuration otherwise measures every `packages/*/*/src/**/*.ts` file. When unit coverage is relevant, name both the owning tests and the source files or package whose coverage those tests must prove:
+
+```sh
+pnpm exec vitest run packages/<group>/<package>/tests/<behavior>.spec.ts \
+  --coverage \
+  --coverage.include='packages/<group>/<package>/src/**/*.ts'
+```
+
+Use an exact source file when the behavior is truly confined to one module. Repeat `--coverage.include` for multiple affected files or packages, and pass every owning test file needed to exercise that scope. The configured per-file 100% thresholds still apply inside the selected source scope.
+
+When the owning tests are unclear, use Vitest's dependency graph to discover a candidate set, then inspect the selected tests before treating the run as evidence:
+
+```sh
+pnpm exec vitest related packages/<group>/<package>/src/<changed>.ts \
+  --run \
+  --coverage \
+  --coverage.include='packages/<group>/<package>/src/<changed>.ts'
+```
+
+`vitest related` cannot discover behavior reached only through configuration, dynamic loading, subprocesses, workers, built artifacts, or external providers; select those owning tests explicitly. Do not use `--passWithNoTests`, lower coverage thresholds, or narrow `--coverage.include` merely to hide an uncovered affected file. If a selected package scope fails because one focused test does not cover it, add its other relevant owning tests or narrow the source scope only when the excluded modules cannot be affected by the change.
+
 ## Full local rehearsal
 
 Run the complete local approximation only when the user explicitly requests it, while diagnosing a CI failure, or when the change spans the repository so broadly that no narrower set is credible. Use the current workflow and package scripts as the inventory; do not recreate the removed `check:pre-push` aggregate.
