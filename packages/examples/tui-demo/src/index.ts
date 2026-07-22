@@ -27,7 +27,6 @@ import * as uiTui from '@deepseek-ai/dsh-tui'
 
 export const name = 'tui-demo'
 const DEFAULT_PERSISTENCE_ROOT = './.sessions'
-const DEFAULT_WELCOME = 'ready.'
 
 /** App config routed to the spine, TUI, configured agent, and JSONL backend. */
 export interface Config {
@@ -51,8 +50,15 @@ export interface Config {
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
-  /** TUI subtitle rendered on start. Defaults to `ready.`. */
+  /** TUI transcript's optional first line; absent renders nothing on start. */
   welcome?: string
+  /**
+   * Shell command template the TUI prints on exit and lists under `/resume`,
+   * with `{session}` replaced by the live session id (forwarded to the front
+   * door). Set it to a command that resumes via this app's env var, e.g.
+   * `RESUME_SESSION_ID={session} dsh`.
+   */
+  resumeCommand?: string
   /** Full-screen TUI presentation settings. */
   ui?: uiTui.TuiConfig
   /** Skill registry, local-provider, and model-facing consumer config. */
@@ -84,7 +90,8 @@ export const Config: z<Config> = z.object({
   sessionTitle: agentCore.SessionTitleConfigSchema,
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
   persistenceCompression: JsonlCompressionSchema,
-  welcome: z.string().default(DEFAULT_WELCOME),
+  welcome: z.string(),
+  resumeCommand: z.string(),
   ui: uiTui.TuiConfigSchema,
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
@@ -115,7 +122,8 @@ export function composeTuiApp(ctx: Context, config: Config): void {
   ctx.plugin(UserInteractionService)
   ctx.plugin(uiTui, {
     ...config.ui,
-    welcome: config.welcome ?? DEFAULT_WELCOME,
+    ...config.welcome === undefined ? {} : { welcome: config.welcome },
+    ...config.resumeCommand === undefined ? {} : { resumeCommand: config.resumeCommand },
     sessionId,
   })
   ctx.plugin(agentCore, {

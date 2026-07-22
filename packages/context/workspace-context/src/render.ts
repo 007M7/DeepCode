@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-workspace-context/render
  */
 
-import { dirname } from 'node:path'
+import { basename, dirname } from 'node:path'
 import type { InstructionFile, LoadedInstructionFile } from './files.ts'
 
 const SYSTEM_REMINDER_OPEN = '<system-reminder>'
@@ -33,7 +33,6 @@ export interface WorkspaceInstructionChange {
   action: 'set' | 'replace' | 'remove'
   scope: string
   path: string
-  previousPath?: string
   digest?: string
 }
 
@@ -62,8 +61,8 @@ function truncateUtf8(value: string, maxBytes: number): string {
 
 function escapeInstructionContent(content: string): string {
   // TODO(instruction-frame-paths): apply the same delimiter neutralization to
-  // every interpolated path, scope, and previous path; repository-controlled
-  // names can otherwise close the plugin-owned system-reminder frame.
+  // every interpolated path and scope; repository-controlled names can
+  // otherwise close the plugin-owned system-reminder frame.
   return content.replaceAll(SYSTEM_REMINDER_CLOSE, '<\\/system-reminder>')
 }
 
@@ -71,14 +70,63 @@ function sectionText(file: LoadedInstructionFile): string {
   return `Instructions from: ${file.displayPath}\n\n${escapeInstructionContent(file.content)}`
 }
 
+/** Directory component that identifies the single user-global instruction scope. */
+export const USER_GLOBAL_DIRECTORY = 'user-global'
+
+/**
+ * File name of the single user-global instruction file under `$DSH_HOME`.
+ * Discovery (`$DSH_HOME/<name>`) and reconciliation (the user-global scope key's
+ * candidate component) both key on this name, so it lives in one place: were the
+ * two to disagree, the user-global instruction would load but never reconcile.
+ */
+export const USER_GLOBAL_FILE = 'AGENTS.md'
+
 /**
  * Derive the logical instruction scope from a model-facing path.
  * @param displayPath - project-relative or user-global instruction path.
  * @returns `user-global`, `.`, or the containing project-relative directory.
  */
 export function scopeForDisplayPath(displayPath: string): string {
-  if (displayPath === '~/.dsh/AGENTS.md' || displayPath === '$DSH_HOME/AGENTS.md') return 'user-global'
+  if (displayPath === '~/.dsh/AGENTS.md' || displayPath === '$DSH_HOME/AGENTS.md') return USER_GLOBAL_DIRECTORY
   return dirname(displayPath)
+}
+
+const SCOPE_SEPARATOR = '\u0000'
+
+/**
+ * Compose the reconciliation key for one instruction candidate file.
+ * Each loaded candidate is tracked independently, so the key pairs the logical
+ * directory with the exact candidate file name behind a NUL separator that no
+ * directory path or file name can contain. Distinct candidates in one directory
+ * (`AGENTS.md` vs `CLAUDE.md`, a base file vs its `.local` overlay) therefore
+ * never collide in the scope-keyed state maps.
+ * @param directory - `user-global`, `.`, or a project-relative directory.
+ * @param candidateName - instruction file name within that directory.
+ * @returns the per-candidate logical scope key.
+ */
+export function candidateScopeKey(directory: string, candidateName: string): string {
+  return `${directory}${SCOPE_SEPARATOR}${candidateName}`
+}
+
+/**
+ * Derive the per-candidate scope key for a loaded instruction file.
+ * @param displayPath - project-relative or user-global instruction path.
+ * @returns the scope key pairing the file's directory with its name.
+ */
+export function instructionScopeKey(displayPath: string): string {
+  return candidateScopeKey(scopeForDisplayPath(displayPath), basename(displayPath))
+}
+
+/**
+ * Recover the directory and candidate name that {@link candidateScopeKey} encoded.
+ * @param scope - a per-candidate scope key.
+ * @returns the directory scope and the candidate file name within it.
+ */
+export function decodeScopeKey(scope: string): { directory: string; candidateName: string } {
+  const separator = scope.indexOf(SCOPE_SEPARATOR)
+  /* v8 ignore next -- every scope key is produced by candidateScopeKey, which always inserts the separator. */
+  if (separator < 0) return { directory: scope, candidateName: '' }
+  return { directory: scope.slice(0, separator), candidateName: scope.slice(separator + 1) }
 }
 
 function additionalSectionText(file: LoadedInstructionFile): string {
@@ -100,13 +148,10 @@ function changedSectionText(item: ChangeRenderItem): string {
   if (change.action === 'remove') {
     return `Instructions removed: ${change.path}\n\nThe previously loaded instructions from this file no longer apply.`
   }
-  const description = change.previousPath === undefined
-    ? 'This file changed after it was loaded. Use the following content instead of the previously loaded instructions from this file.'
-    : `The instructions previously loaded from \`${change.previousPath}\` no longer apply. Use the following content for \`${change.scope}\` instead.`
   return [
     `Updated instructions from: ${change.path}`,
     '',
-    description,
+    'This file changed after it was loaded. Use the following content instead of the previously loaded instructions from this file.',
     '',
     escapeInstructionContent(file.content),
   ].join('\n')

@@ -1,87 +1,77 @@
-terminal 100x34 buffer=normal length=40 base=6 viewport=6
+terminal 100x34 buffer=normal length=38 base=4 viewport=4
 lifecycle started=1 stopped=0 progress=inactive
 title "Unsafe terminal title \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m"
-cursor hidden column=100 viewportRow=33 bufferRow=39
+cursor hidden column=100 viewportRow=33 bufferRow=37
 buffer
-0| "╭──────────────────────────────────────────────────────────────────────────────────────────────────╮"
-  style 0-99 fg=bright-blue
-1| "│ DEEPSEEK HARNESS                                                                                 │"
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Unsafe welcome \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m"
+  style 1-60 fg=bright-black
+2| " deepseek-v4-flash  •  main-session"
+  style 1-34 dim
+3| <blank>
+4| "▌ "
   style 0-0 fg=bright-blue
-  style 2-9 fg=bright-blue bold
-  style 11-17 bold
-  style 99-99 fg=bright-blue
-2| "│ Unsafe welcome \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                     │"
-  style 0-0 fg=bright-blue
-  style 2-61 fg=bright-black
-  style 99-99 fg=bright-blue
-3| "│ deepseek-v4-flash  •  main-session                                                               │"
-  style 0-0 fg=bright-blue
-  style 2-35 dim
-  style 99-99 fg=bright-blue
-4| "╰──────────────────────────────────────────────────────────────────────────────────────────────────╯"
-  style 0-99 fg=bright-blue
-5| <blank>
-6| "▌ "
-  style 0-0 fg=bright-blue
-7| "▌ You                                                                                               "
+5| "▌ You                                                                                               "
   style 0-0 fg=bright-blue
   style 2-4 fg=bright-blue bold
-8| "▌ Unsafe user \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                         "
+6| "▌ Unsafe user \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                         "
   style 0-0 fg=bright-blue
-9| "▌ "
+7| "▌ "
   style 0-0 fg=bright-blue
-10| <blank>
-11| " Reasoning                                                                                          "
+8| <blank>
+9| " Reasoning                                                                                          "
   style 1-9 fg=bright-black italic
-12| " Unsafe reasoning \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                     "
+10| " Unsafe reasoning \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                     "
   style 1-62 fg=bright-black italic
-13| <blank>
-14| " Assistant                                                                                          "
+11| <blank>
+12| " Assistant                                                                                          "
   style 1-9 fg=bright-magenta bold
-15| " Unsafe assistant \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                     "
-16| <blank>
-17| "▌ "
+13| " Unsafe assistant \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                     "
+14| <blank>
+15| "▌ "
   style 0-0 fg=green
-18| "▌ ✓ Unsafe title \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                      "
+16| "▌ ✓ Unsafe title \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                      "
   style 0-0 fg=green
   style 2-2 fg=green bold
   style 3-61 bold
-19| "▌ Unsafe description \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                  "
+17| "▌ Unsafe description \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                  "
   style 0-0 fg=green
   style 2-65 fg=bright-black
-20| "▌ /unsafe/\\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                             "
+18| "▌ /unsafe/\\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                             "
   style 0-0 fg=green
   style 2-54 dim
-21| "▌ Unsafe output \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                       "
+19| "▌ Unsafe output \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                       "
   style 0-0 fg=green
-22| "▌ [signal SIG\\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m]                                         "
+20| "▌ [signal SIG\\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m]                                         "
   style 0-0 fg=green
   style 2-58 fg=red
-23| "▌ "
+21| "▌ "
   style 0-0 fg=green
-24| <blank>
-25| " Context · unsafe-\\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                     "
+22| <blank>
+23| " Context · unsafe-\\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                     "
   style 1-62 dim
-26| " Unsafe context \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                       "
+24| " Unsafe context \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                       "
   style 1-60 fg=bright-black
-27| <blank>
-28| " Prompt blocked: Unsafe policy \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                        "
+25| <blank>
+26| " Prompt blocked: Unsafe policy \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                        "
   style 1-75 fg=yellow
-29| <blank>
-30| " Unsafe turn error \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                    "
+27| <blank>
+28| " Unsafe turn error \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                    "
   style 1-63 fg=red
-31| <blank>
-32| "                                                                                                    "
-33| "  Question 1/1 (1 unanswered) · Unsafe header \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m         "
+29| <blank>
+30| "                                                                                                    "
+31| "  Question 1/1 (1 unanswered) · Unsafe header \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m         "
   style 2-90 fg=bright-black
-34| "  Unsafe question \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                     "
-35| "                                                                                                    "
-36| "  › 1. Unsafe option \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m Unsafe detail \\x1b]2;snapshot-c  "
+32| "  Unsafe question \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m                                     "
+33| "                                                                                                    "
+34| "  › 1. Unsafe option \\x1b]2;snapshot-controlled\\x07\\x09\\x7f\\x9b31m Unsafe detail \\x1b]2;snapshot-c  "
   style 2-65 fg=bright-blue bold
   style 67-97 fg=bright-black
-37| "  Tab custom answer • ↑/↓ navigate • Enter submit • Esc interrupt                                   "
+35| "  Tab custom answer • ↑/↓ navigate • Enter submit • Esc interrupt                                   "
   style 2-64 dim
-38| "                                                                                                    "
-39| "/workspace/project  ↑0 ↓0                 0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
-  style 0-24 dim
-  style 42-99 dim
+36| "                                                                                                    "
+37| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                             0% context  tools:collapsed"
+  style 0-43 dim
+  style 73-99 dim

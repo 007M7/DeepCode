@@ -1,67 +1,63 @@
 terminal 92x32 buffer=normal length=32 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=26 bufferRow=26
+cursor hidden column=1 viewportRow=27 bufferRow=27
 buffer
-0| "╭──────────────────────────────────────────────────────────────────────────────────────────╮"
-  style 0-91 fg=bright-blue
-1| "│ DEEPSEEK HARNESS                                                                         │"
-  style 0-0 fg=bright-blue
-  style 2-9 fg=bright-blue bold
-  style 11-17 bold
-  style 91-91 fg=bright-blue
-2| "│ Snapshot agent ready.                                                                    │"
-  style 0-0 fg=bright-blue
-  style 2-22 fg=bright-black
-  style 91-91 fg=bright-blue
-3| "│ deepseek-v4-flash  •  main-session                                                       │"
-  style 0-0 fg=bright-blue
-  style 2-35 dim
-  style 91-91 fg=bright-blue
-4| "╰──────────────────────────────────────────────────────────────────────────────────────────╯"
-  style 0-91 fg=bright-blue
-5| <blank>
-6| " Keyboard shortcuts                                                                         "
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Snapshot agent ready."
+  style 1-21 fg=bright-black
+2| " deepseek-v4-flash  •  main-session"
+  style 1-34 dim
+3| <blank>
+4| " Keyboard shortcuts                                                                         "
   style 1-18 fg=bright-blue bold
-7| " Enter send • Shift/Alt+Enter newline • Up/Down prompt history                              "
+5| " Enter send • Shift/Alt+Enter newline • Up/Down prompt history                              "
   style 1-61 fg=bright-black
-8| " Esc cancel active turn • Ctrl+O toggle tool cards • Ctrl+R toggle reasoning                "
+6| " Esc cancel active turn • Ctrl+O toggle tool cards • Ctrl+R toggle reasoning                "
   style 1-75 fg=bright-black
-9| " Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit                  "
+7| " Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit                  "
   style 1-73 fg=bright-black
-10| "                                                                                            "
-11| " /cancel — Cancel the active turn                                                           "
-  style 1-32 fg=bright-black
-12| " /clear — Clear the transcript view (session history is unchanged)                          "
+8| "                                                                                            "
+9| " /clear — Clear the transcript view (session history is unchanged)                          "
   style 1-65 fg=bright-black
-13| " /exit — Exit after the active turn reaches idle                                            "
+10| " /exit — Exit after the active turn reaches idle                                            "
   style 1-47 fg=bright-black
-14| " /help — Show keyboard shortcuts and commands                                               "
+11| " /help — Show keyboard shortcuts and commands                                               "
   style 1-44 fg=bright-black
-15| " /model [[provider/]model] — Show or switch this session's model                            "
+12| " /model [[provider/]model] — Show or switch this session's model                            "
   style 1-63 fg=bright-black
-16| " /reasoning — Toggle reasoning blocks                                                       "
+13| " /reasoning — Toggle reasoning blocks                                                       "
   style 1-36 fg=bright-black
-17| " /redraw — Invalidate components and redraw the terminal                                    "
+14| " /redraw — Invalidate components and redraw the terminal                                    "
   style 1-55 fg=bright-black
+15| " /reload — EXPERIMENTAL (dev): re-read loader config files and apply the diff (idle only)   "
+  style 1-88 fg=bright-black
+16| " /resume — List this workspace's resumable sessions                                         "
+  style 1-50 fg=bright-black
+17| " /status — Show detailed session diagnostics                                                "
+  style 1-43 fg=bright-black
 18| " /tools — Expand or collapse all tool cards                                                 "
   style 1-42 fg=bright-black
-19| <blank>
-20| " provider stream failed after partial output                                                "
+19| " /skill:<name> [instructions] — load a skill into the conversation                          "
+  style 1-65 fg=bright-black
+20| <blank>
+21| " provider stream failed after partial output                                                "
   style 1-43 fg=red
-21| <blank>
-22| " The previous process ended during this turn.                                               "
+22| <blank>
+23| " The previous process ended during this turn.                                               "
   style 1-44 fg=yellow
-23| <blank>
-24| " Unknown command: /unknown-advanced-command                                                 "
+24| <blank>
+25| " Unknown command: /unknown-advanced-command                                                 "
   style 1-42 fg=yellow
-25| "────────────────────────────────────────────────────────────────────────────────────────────"
+26| "────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-91 dim
-26| "                                                                                            "
+27| "                                                                                            "
   style 1-1 inverse
-27| "────────────────────────────────────────────────────────────────────────────────────────────"
+28| "────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-91 dim
-28| "/workspace/project  ↑0 ↓0         0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
-  style 0-24 dim
-  style 34-91 dim
-29-31| <blank>
+29| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                     0% context  tools:collapsed"
+  style 0-43 dim
+  style 65-91 dim
+30-31| <blank>

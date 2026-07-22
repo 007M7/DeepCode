@@ -9,9 +9,10 @@
         name: '@deepseek-ai/dsh-tui-demo'
         config:
           provider: deepseek
-          model: deepseek-v4-flash
+          model: deepseek-v4-pro
           resumeSessionId: !!js process.env.RESUME_SESSION_ID
           persistenceRoot: './.sessions'
+          resumeCommand: 'dsh --resume {session}'
           workspaceContext:
             maxBytes: 65536
           tools:

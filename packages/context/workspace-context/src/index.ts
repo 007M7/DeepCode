@@ -74,6 +74,7 @@ export function apply(ctx: Context, config: Config): void {
       maxBytes: resolved.maxBytes,
       maxSourceBytes: resolved.maxSourceBytes,
       instructionFileCandidates: resolved.instructionFileCandidates,
+      localInstructionFileCandidates: resolved.localInstructionFileCandidates,
       signal,
     }, fileSystem)
     const baseline = baselineInstructionState(instructions?.included ?? [])

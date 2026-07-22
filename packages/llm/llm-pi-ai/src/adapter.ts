@@ -4,13 +4,11 @@
  * @module dsh-llm-pi-ai/adapter
  */
 
-import {
-  getModels,
-  streamSimple,
-} from '@earendil-works/pi-ai'
+import { streamSimple } from '@earendil-works/pi-ai/compat'
+import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
+import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
 import type {
   Api,
-  KnownProvider,
   Model,
   SimpleStreamOptions,
 } from '@earendil-works/pi-ai'
@@ -33,7 +31,7 @@ export interface PiAiAdapterOptions {
  * override, preserving the catalog's API/capability/compatibility metadata.
  */
 function resolveModel(profile: PiAiProviderProfile, modelId: string): Model<Api> {
-  const model = getModels(profile.provider as KnownProvider).find(candidate => candidate.id === modelId) as Model<Api> | undefined
+  const model = getBuiltinModels(profile.provider as BuiltinProvider).find(candidate => candidate.id === modelId) as Model<Api> | undefined
   if (model === undefined) {
     throw new LlmError(`pi-ai provider "${profile.provider}" has no catalog model "${modelId}"`, 'UNKNOWN_MODEL')
   }
@@ -82,7 +80,7 @@ export class PiAiAdapter extends LlmAdapter {
     if (profile === undefined) {
       return Promise.reject(new LlmError(`pi-ai adapter does not own provider "${provider}"`, 'NO_ADAPTER'))
     }
-    return Promise.resolve(getModels(profile.provider as KnownProvider).map(model => ({
+    return Promise.resolve(getBuiltinModels(profile.provider as BuiltinProvider).map(model => ({
       provider,
       id: model.id,
       name: model.name,

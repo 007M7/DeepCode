@@ -33,6 +33,7 @@ describe('dsh-tui-demo app', () => {
       persistenceRoot: '/tmp/tui-sessions',
       persistenceCompression: 'none',
       welcome: 'TUI ready',
+      resumeCommand: 'dsh --resume {session}',
       ui: { color: false, maxToolOutputLines: 3 },
       skills: { tool: { catalogDescriptionMaxLength: 8 } },
       toolBash: { enableRunInBackground: false },
@@ -52,7 +53,12 @@ describe('dsh-tui-demo app', () => {
     expect(calls[0]?.config).toBeUndefined()
     expect(calls[2]?.config).toEqual({ root: '/tmp/tui-sessions', compression: 'none' })
     const tuiConfig = calls[4]?.config as { sessionId: string }
-    expect(tuiConfig).toMatchObject({ welcome: 'TUI ready', color: false, maxToolOutputLines: 3 })
+    expect(tuiConfig).toMatchObject({
+      welcome: 'TUI ready',
+      resumeCommand: 'dsh --resume {session}',
+      color: false,
+      maxToolOutputLines: 3,
+    })
     expect(tuiConfig.sessionId).toMatch(/^main-session-[0-9a-f-]{36}$/)
     const spineConfig = calls[5]?.config as {
       readonly agents: Array<Record<string, unknown>>
@@ -88,7 +94,8 @@ describe('dsh-tui-demo app', () => {
     })
 
     expect(calls[2]?.config).toEqual({ root: './.sessions' })
-    expect(calls[4]?.config).toEqual({ welcome: 'ready.', sessionId: 'persisted-session' })
+    // No configured welcome forwards none: the TUI banner sweeps in without a subtitle.
+    expect(calls[4]?.config).toEqual({ sessionId: 'persisted-session' })
     expect((calls[5]?.config as { agents: Array<Record<string, unknown>> }).agents[0]).toMatchObject({
       id: 'main',
       resumeSessionId: 'persisted-session',

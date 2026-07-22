@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "op": "initialize"
+    },
+    {
+      "op": "newSession"
+    },
+    {
+      "op": "setMode",
+      "modeId": "plan"
+    },
+    {
+      "op": "prompt",
+      "text": "The typo is on line 2 of notes.txt itself; the workspace contains no other file. Inspect it with the bash tool: run exactly `cat notes.txt` (relative path, no other command). Then present a one-step plan titled '# Fix the greeting typo' via exit_plan_mode: the single step is editing line 2 of notes.txt to say hello world. Do not edit anything before the review approves. After it approves, apply exactly that one edit to notes.txt with the edit tool and stop — no other commands, do not look for any other file."
+    },
+    {
+      "op": "prompt",
+      "text": "Read notes.txt (relative path notes.txt) and reply with the single word DONE if line 2 now says hello world."
+    }
+  ],
+  "elicitationAnswers": [
+    {
+      "action": "accept",
+      "choice": "Approve"
+    }
+  ]
+}
