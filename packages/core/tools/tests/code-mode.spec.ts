@@ -10,7 +10,7 @@ import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DI
 import type { Config, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEventMap } from '@deepseek-ai/dsh-session'
+import type { JsonValue, SessionEventMap } from '@deepseek-ai/dsh-session'
 
 const testToolSignal = new AbortController().signal
 
@@ -860,10 +860,17 @@ describe('the run_code dispatch bridge', () => {
 
   it('renders every non-string JSON root as pretty JSON while preserving strings raw', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
-    runtime.behavior = () => Promise.resolve({ logs: [], value: { n: 42 } })
-    expect((await runCode(ctx, 'object')).content[0]).toEqual({ type: 'text', text: '{\n  "n": 42\n}' })
+    runtime.behavior = () => Promise.resolve({ logs: [], value: { n: 42, ok: true } })
+    expect((await runCode(ctx, 'object')).content[0]).toEqual({ type: 'text', text: '{\n  "n": 42,\n  "ok": true\n}' })
+    runtime.behavior = () => Promise.resolve({ logs: [], value: {} })
+    expect((await runCode(ctx, 'empty object')).content[0]).toEqual({ type: 'text', text: '{}' })
+    const nested = { outer: [{ inner: true }] }
+    runtime.behavior = () => Promise.resolve({ logs: [], value: nested })
+    expect((await runCode(ctx, 'nested')).content[0]).toEqual({ type: 'text', text: JSON.stringify(nested, null, 2) })
     runtime.behavior = () => Promise.resolve({ logs: [], value: ['x', 2] })
     expect((await runCode(ctx, 'array')).content[0]).toEqual({ type: 'text', text: '[\n  "x",\n  2\n]' })
+    runtime.behavior = () => Promise.resolve({ logs: [], value: [] })
+    expect((await runCode(ctx, 'empty array')).content[0]).toEqual({ type: 'text', text: '[]' })
     runtime.behavior = () => Promise.resolve({ logs: [], value: null })
     expect((await runCode(ctx, 'null')).content[0]).toEqual({ type: 'text', text: 'null' })
     runtime.behavior = () => Promise.resolve({ logs: [], value: 'raw' })
@@ -872,6 +879,27 @@ describe('the run_code dispatch bridge', () => {
     const absent = await runCode(ctx, 'undefined')
     expect(absent.content[0]).toEqual({ type: 'text', text: '(run_code completed with no output)' })
     expect(absent.isError ? undefined : absent.value).toEqual({ logs: [] })
+  })
+
+  it('renders deeply nested JSON without recursive traversal or quadratic indentation', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    let value: JsonValue = {
+      emptyArray: [],
+      emptyObject: {},
+      pair: ['leaf', 2],
+      record: { first: true, second: null },
+    }
+    for (let depth = 0; depth < 5_000; depth++) value = [value]
+    runtime.behavior = () => Promise.resolve({ logs: [], value })
+
+    const result = await runCode(ctx, 'deep result')
+
+    expect(result.isError).toBe(false)
+    const text = (result.content[0] as { type: 'text'; text: string }).text
+    expect(text.startsWith('[\n  [\n    [')).toBe(true)
+    expect(text).toContain('"leaf"')
+    expect(text.endsWith(']')).toBe(true)
+    expect(text.length).toBeLessThan(11_000)
   })
 
   it('short-circuits a pre-aborted outer signal before the code runtime', async () => {

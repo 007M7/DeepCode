@@ -294,7 +294,10 @@ export interface Config {
    * nobody will resolve).
    */
   maxWallMs?: number
-  /** Hard cap for the combined serialized outer logs, completion value, and failure diagnostic. */
+  /**
+   * Hard cap for serialized log-array, completion-value, and failure-message payloads;
+   * fixed result-envelope syntax is excluded.
+   */
   maxOutputBytes?: number
   /** The worker's max old-generation heap in MiB (`resourceLimits`); overflow kills the worker, surfacing as kind `'worker-exit'`. */
   maxOldGenerationSizeMb?: number
