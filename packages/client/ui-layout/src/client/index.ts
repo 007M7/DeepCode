@@ -10,12 +10,13 @@ import type { Context } from 'cordis'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { LayoutService } from './service.ts'
 
+// Contract surface only (export-convergence rule: cross-package consumers
+// keep a symbol exported; test-only/package-internal symbols live off /src).
+// AppFrame trio + AppFrameProps: consumed by the web shell's assembly closure.
+// LayoutService: the ctx.layout service class (consumers type against it).
+// PanelState rides AppFrameProps' hooks; NavState/ViewId are service-store
+// shapes referenced through LayoutService's members.
 export { AppFrame, CenterColumn, DetailsColumn, type AppFrameProps } from './AppFrame.tsx'
-export {
-  clampWidth, computeColumns,
-  CENTER_MIN, DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
-  type Columns, type PanelInput,
-} from './columns.ts'
 export { LayoutService, type NavState, type PanelState, type ViewId } from './service.ts'
 
 declare module 'cordis' {
