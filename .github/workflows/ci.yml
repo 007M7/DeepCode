@@ -277,23 +277,16 @@ jobs:
       # re-executing their bash calls under a real runner. ubuntu-latest has
       # no bubblewrap preinstalled and no built Landlock launcher, so without
       # this the confined executions fail closed (SANDBOX_UNAVAILABLE). The
-      # install retries after refreshing stale indexes and applies the Ubuntu
-      # 24.04 AppArmor userns knob. Bubblewrap preparation is independent of
-      # dependency installation and the build, so it runs beside both.
-      - name: Install and prepare built snapshot runtime and bubblewrap
+      # pinned Ubuntu payload is verified and extracted into the ephemeral
+      # runner instead of paying for a system package transaction. Bubblewrap
+      # preparation is independent of dependency installation and the build,
+      # so it runs beside both.
+      - name: Prepare built snapshot runtime and bubblewrap
         if: startsWith(matrix.lane, 'snapshot-')
         run: |
           pnpm install --frozen-lockfile &
           install_pid=$!
-          (
-            if ! sudo apt-get install -yq --no-install-recommends bubblewrap; then
-              echo "initial bubblewrap install failed; refreshing APT indexes and retrying"
-              sudo apt-get update -q
-              sudo apt-get install -yq --no-install-recommends bubblewrap
-            fi
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
-              || echo "apparmor userns knob absent — the functional probe decides"
-          ) &
+          bash scripts/prepare-ci-bubblewrap.sh &
           sandbox_pid=$!
           install_status=0
           wait "$install_pid" || install_status=$?
@@ -356,19 +349,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
-      - name: Install and prepare bubblewrap
+      - name: Install dependencies and prepare bubblewrap
         run: |
           pnpm install --frozen-lockfile &
           install_pid=$!
-          (
-            if ! sudo apt-get install -yq --no-install-recommends bubblewrap; then
-              echo "initial bubblewrap install failed; refreshing APT indexes and retrying"
-              sudo apt-get update -q
-              sudo apt-get install -yq --no-install-recommends bubblewrap
-            fi
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
-              || echo "apparmor userns knob absent — the functional probe decides"
-          ) &
+          bash scripts/prepare-ci-bubblewrap.sh &
           sandbox_pid=$!
           install_status=0
           wait "$install_pid" || install_status=$?
@@ -473,20 +458,12 @@ jobs:
         if: matrix.primary_cpu != true
         run: pnpm install --frozen-lockfile
 
-      - name: Install and prepare bubblewrap
+      - name: Install dependencies and prepare bubblewrap
         if: matrix.primary_cpu == true
         run: |
           pnpm install --frozen-lockfile &
           install_pid=$!
-          (
-            if ! sudo apt-get install -yq --no-install-recommends bubblewrap; then
-              echo "initial bubblewrap install failed; refreshing APT indexes and retrying"
-              sudo apt-get update -q
-              sudo apt-get install -yq --no-install-recommends bubblewrap
-            fi
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
-              || echo "apparmor userns knob absent — the functional probe decides"
-          ) &
+          bash scripts/prepare-ci-bubblewrap.sh &
           sandbox_pid=$!
           install_status=0
           wait "$install_pid" || install_status=$?
@@ -731,12 +708,8 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
-      - name: Install bubblewrap (unrestrict userns)
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -yq --no-install-recommends bubblewrap
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
-            || echo "apparmor userns knob absent — the functional probe decides"
+      - name: Prepare bubblewrap (unrestrict userns)
+        run: bash scripts/prepare-ci-bubblewrap.sh
 
       - name: Run complete unsharded primary Node CI serially
         env:
@@ -1016,15 +989,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile &
           install_pid=$!
-          (
-            if ! sudo apt-get install -yq --no-install-recommends bubblewrap; then
-              echo "initial bubblewrap install failed; refreshing APT indexes and retrying"
-              sudo apt-get update -q
-              sudo apt-get install -yq --no-install-recommends bubblewrap
-            fi
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
-              || echo "apparmor userns knob absent — the functional probe decides"
-          ) &
+          bash scripts/prepare-ci-bubblewrap.sh &
           sandbox_pid=$!
           install_status=0
           wait "$install_pid" || install_status=$?
