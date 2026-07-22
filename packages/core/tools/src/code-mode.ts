@@ -351,7 +351,11 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         try {
           result = await runtime.run({
             program: args.code,
-            bindings: [{ global: 'tools', functions }],
+            bindings: [{
+              global: 'tools',
+              functions,
+              errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' },
+            }],
             signal: runController.signal,
           })
         } finally {

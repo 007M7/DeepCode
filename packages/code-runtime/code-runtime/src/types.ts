@@ -21,6 +21,20 @@ export type CodeBindingFunction = (args: unknown) => Promise<CodeJsonValue>
 export type CodeJsonValue = null | boolean | number | string | CodeJsonValue[] | { [key: string]: CodeJsonValue }
 
 /**
+ * Program-visible typed rejection for one binding namespace. The runtime
+ * injects a real error constructor under `name`; rejected member calls become
+ * its instances and expose the exact member name through
+ * `memberNameProperty`. Both strings are runtime data rather than knowledge
+ * of a particular consumer such as Code Mode.
+ */
+export interface CodeBindingErrorClass {
+  /** Constructor global and resulting `Error.name` (must be a usable JS identifier). */
+  name: string
+  /** Non-empty own property for the member name; cannot replace `name`, `message`, or `stack`. */
+  memberNameProperty: string
+}
+
+/**
  * A named group of {@link CodeBindingFunction}s the runtime exposes to the
  * program as one global object (e.g. `tools`). Function names are arbitrary
  * strings — a runtime must treat names like `__proto__` or `constructor` as
@@ -32,6 +46,8 @@ export interface CodeBindingNamespace {
   global: string
   /** The callable members, keyed by the exact name the program calls. */
   functions: Record<string, CodeBindingFunction>
+  /** Optional program-visible typed rejection contract for this namespace. */
+  errorClass?: CodeBindingErrorClass
 }
 
 /**

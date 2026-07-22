@@ -296,6 +296,10 @@ describe('mode-aware wire contribution', () => {
     const { ctx, runtime } = await setup({ mode: 'both' })
     registerEcho(ctx)
     runtime.behavior = (request) => {
+      expect(request.bindings[0]!.errorClass).toEqual({
+        name: 'ToolCallError',
+        memberNameProperty: 'toolName',
+      })
       const functions = request.bindings[0]!.functions
       return Promise.resolve({
         logs: [],

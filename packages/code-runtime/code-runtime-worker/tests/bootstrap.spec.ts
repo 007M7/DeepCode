@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { LogBuffer, makeConsoleShim, makeNamespaces, captureStreamWrites, prepareCompletion, runWorkerMain, ToolCallError, truncateUtf8Bytes, wireReplies } from '../src/bootstrap.ts'
+import { LogBuffer, makeBindingErrorClasses, makeConsoleShim, makeNamespaces, captureStreamWrites, prepareCompletion, prepareException, runWorkerMain, wireReplies } from '../src/bootstrap.ts'
 import type { BootstrapPort, PatchableStream, PendingCall } from '../src/bootstrap.ts'
 import type { ReplyMessage, WorkerToHost } from '../src/protocol.ts'
 import { decodeWorkerJson, encodeWorkerJson } from '../src/worker-json.ts'
@@ -60,23 +60,30 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
 }
 
 const BOOT = { maxOutputBytes: 65_536 }
+const TOOL_ERROR_CLASS = { name: 'ToolCallError', memberNameProperty: 'toolName' } as const
+
+/** One worker declaration for the Code Mode tools namespace. */
+function toolNamespace(names: string[]) {
+  return { global: 'tools', names, errorClass: TOOL_ERROR_CLASS }
+}
 
 describe('LogBuffer', () => {
   it('streams entries to the sink until the byte budget, then emits one fitting prefix and reports the limit once', () => {
     const seen: string[] = []
     let limits = 0
-    const buffer = new LogBuffer(10, text => seen.push(text), () => { limits += 1 })
+    const buffer = new LogBuffer(15, text => seen.push(text), () => { limits += 1 })
     buffer.push('12345')
     buffer.push('123456')
     buffer.push('dropped')
-    expect(seen).toEqual(['12345', '12345'])
+    expect(seen).toEqual(['12345', '123'])
     expect(limits).toBe(1)
+    expect(buffer.remainingOutputBytes()).toBe(0)
 
     const exactlyFull: string[] = []
-    const fullBuffer = new LogBuffer(4, text => exactlyFull.push(text))
-    fullBuffer.push('1234')
+    const fullBuffer = new LogBuffer(6, text => exactlyFull.push(text))
+    fullBuffer.push('12')
     fullBuffer.push('no-prefix-fits')
-    expect(exactlyFull).toEqual(['1234'])
+    expect(exactlyFull).toEqual(['12'])
   })
 })
 
@@ -167,19 +174,32 @@ describe('prepareCompletion', () => {
       error: { kind: 'invalid-output', message: 'program completion must be lossless JSON' },
     })
   })
+
+  it('uses the remaining combined budget for invalid-output diagnostics', () => {
+    expect(prepareCompletion(() => 1, 4, 64)).toEqual({
+      error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' },
+    })
+  })
 })
 
-describe('truncateUtf8Bytes', () => {
-  it('returns a fitting string whole', () => {
-    expect(truncateUtf8Bytes('fits', 4)).toBe('fits')
+describe('prepareException', () => {
+  it('passes a fitting diagnostic and rejects one byte over without carrying its text', () => {
+    expect(prepareException('boom', 6, 64)).toEqual({ error: { kind: 'exception', message: 'boom' } })
+    expect(prepareException('boom', 5, 64)).toEqual({
+      error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' },
+    })
   })
 
-  it('cuts at a code-point boundary, never mid-surrogate-pair', () => {
-    // Each 😀 is one code point, two code units, four UTF-8 bytes: a 5-byte
-    // budget fits exactly one — and never leaves a lone surrogate behind.
-    const cut = truncateUtf8Bytes('😀😀', 5)
-    expect(cut).toBe('😀')
-    expect(Buffer.byteLength(truncateUtf8Bytes('😀😀', 3), 'utf8')).toBe(0)
+  it('contains a thrown value whose string conversion fails', () => {
+    const thrown = { toString() { throw new Error('cannot render') } }
+    expect(prepareException(thrown, 1_000)).toEqual({
+      error: { kind: 'exception', message: 'program threw an unrenderable value' },
+    })
+
+    const strangeStack = Object.defineProperty(new Error('ignored'), 'stack', { value: 42 })
+    expect(prepareException(strangeStack, 1_000)).toEqual({
+      error: { kind: 'exception', message: '42' },
+    })
   })
 })
 
@@ -219,7 +239,16 @@ describe('makeNamespaces', () => {
       on: () => {},
     }
     const pending = new Map<number, PendingCall>()
-    const [tools] = makeNamespaces({ namespaces: [{ global: 'tools', names: ['x'] }] }, throwingPort, pending, { value: 1 }) as [Record<string, (args: unknown) => Promise<unknown>>]
+    const data = { namespaces: [toolNamespace(['x'])] }
+    const errorClasses = makeBindingErrorClasses(data)
+    const ToolCallError = errorClasses.get('tools')
+    const [tools] = makeNamespaces(
+      data,
+      throwingPort,
+      pending,
+      { value: 1 },
+      errorClasses,
+    ) as [Record<string, (args: unknown) => Promise<unknown>>]
     const first = await rejectionOf(tools.x?.({ first: true }) ?? Promise.resolve())
     const second = await rejectionOf(tools.x?.({ second: true }) ?? Promise.resolve())
     expect(first).toMatchObject({ name: 'ToolCallError', toolName: 'x' })
@@ -237,7 +266,7 @@ describe('makeNamespaces', () => {
     const pending = new Map<number, PendingCall>()
     const nextId = { value: 1 }
     const [tools] = makeNamespaces(
-      { namespaces: [{ global: 'tools', names: ['x'] }] }, port, pending, nextId,
+      { namespaces: [toolNamespace(['x'])] }, port, pending, nextId,
     ) as [Record<string, (args: unknown) => Promise<unknown>>]
     const decorated = [1]
     Object.defineProperty(decorated, 'extra', { value: true })
@@ -267,18 +296,18 @@ describe('makeNamespaces', () => {
     const [helpers] = makeNamespaces({ namespaces: [{ global: 'helpers', names: ['x'] }] }, deniedPort, deniedPending, { value: 1 }) as [Record<string, (args: unknown) => Promise<unknown>>]
     const denied = await rejectionOf(helpers.x?.({}) ?? Promise.resolve())
     expect(denied).toBeInstanceOf(Error)
-    expect(denied).not.toBeInstanceOf(ToolCallError)
+    expect(denied).toMatchObject({ name: 'Error', message: 'helper denied' })
+    expect(denied).not.toHaveProperty('toolName')
 
     const invalid = await rejectionOf(helpers.x?.(() => 1) ?? Promise.resolve())
     expect(invalid).toBeInstanceOf(Error)
-    expect(invalid).not.toBeInstanceOf(ToolCallError)
     expect((invalid as Error).message).toBe('binding arguments must be lossless JSON')
 
     const clonePort: BootstrapPort = { postMessage: () => { throw new Error('clone failed') }, on: () => {} }
     const [cloneHelpers] = makeNamespaces({ namespaces: [{ global: 'helpers', names: ['x'] }] }, clonePort, new Map(), { value: 1 }) as [Record<string, (args: unknown) => Promise<unknown>>]
     const cloneFailure = await rejectionOf(cloneHelpers.x?.({}) ?? Promise.resolve())
     expect(cloneFailure).toBeInstanceOf(Error)
-    expect(cloneFailure).not.toBeInstanceOf(ToolCallError)
+    expect(cloneFailure).not.toHaveProperty('toolName')
   })
 })
 
@@ -306,9 +335,12 @@ describe('runWorkerMain', () => {
       code: 'console.log("12345"); return null',
       namespaces: [],
     }, fakeStreams())
-    expect(port.sent).toContainEqual({ type: 'log', text: '1234' })
+    expect(port.logs()).toEqual([])
     expect(port.sent).toContainEqual({ type: 'output-limit' })
-    expect(port.doneValue()).toBeNull()
+    expect(port.done()).toEqual({
+      type: 'done',
+      error: { kind: 'output-limit', message: 'outer output exceeded 4 bytes' },
+    })
   })
 
   it('reports a thrown program error on the done message', async () => {
@@ -331,16 +363,56 @@ describe('runWorkerMain', () => {
     expect(barePort.done()).toEqual({ type: 'done', error: { kind: 'exception', message: 'bare' } })
   })
 
+  it('replaces giant thrown strings and Error stacks before posting the done message', async () => {
+    const rawPort = new FakePort()
+    await runWorkerMain(rawPort, {
+      maxOutputBytes: 64,
+      code: 'throw "x".repeat(1_000_000)',
+      namespaces: [],
+    }, fakeStreams())
+    expect(rawPort.done()).toEqual({
+      type: 'done',
+      error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' },
+    })
+
+    const stackPort = new FakePort()
+    await runWorkerMain(stackPort, {
+      maxOutputBytes: 64,
+      code: 'throw new Error("x".repeat(1_000_000))',
+      namespaces: [],
+    }, fakeStreams())
+    expect(stackPort.done()).toEqual({
+      type: 'done',
+      error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' },
+    })
+  })
+
   it('surfaces a host failure reply as a program-side rejection it can catch', async () => {
     const port = new FakePort()
     port.respond = message => message.type === 'call' ? { type: 'reply', id: message.id, ok: false, message: 'denied by host' } : undefined
     await runWorkerMain(port, {
       ...BOOT,
       code: 'try { await tools.x({}) } catch (error) { return { caught: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message } }',
-      namespaces: [{ global: 'tools', names: ['x'] }],
+      namespaces: [toolNamespace(['x'])],
     }, fakeStreams())
     expect(port.doneValue()).toEqual({ caught: true, name: 'ToolCallError', toolName: 'x', message: 'denied by host' })
-    expect(new ToolCallError('x', 'nope')).toMatchObject({ name: 'ToolCallError', toolName: 'x', message: 'nope' })
+  })
+
+  it('materializes a consumer-declared rejection class without knowing the namespace', async () => {
+    const port = new FakePort()
+    port.respond = message => message.type === 'call'
+      ? { type: 'reply', id: message.id, ok: false, message: 'helper denied' }
+      : undefined
+    await runWorkerMain(port, {
+      ...BOOT,
+      code: 'try { await helpers.x({}) } catch (error) { return { caught: error instanceof HelperCallError, name: error.name, helperName: error.helperName, message: error.message } }',
+      namespaces: [{
+        global: 'helpers',
+        names: ['x'],
+        errorClass: { name: 'HelperCallError', memberNameProperty: 'helperName' },
+      }],
+    }, fakeStreams())
+    expect(port.doneValue()).toEqual({ caught: true, name: 'HelperCallError', helperName: 'x', message: 'helper denied' })
   })
 
   it('ignores replies for unknown pending ids', async () => {

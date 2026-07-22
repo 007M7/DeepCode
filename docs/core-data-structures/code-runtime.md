@@ -59,7 +59,23 @@ interface CodeRunResult {
 
 ## Bindings: host functions as program globals
 
-Each `CodeBindingNamespace` becomes one global object of async callables inside the program (the Code Mode consumer passes one: `tools`). Arguments and resolutions must be lossless JSON and cross without a seam-level byte cap; the runtime may bridge them through structured clone. A runtime also treats binding names as hostile input (`__proto__` is an ordinary own property, never a prototype collision):
+Each `CodeBindingNamespace` becomes one global object of async callables inside the program (the Code Mode consumer passes one: `tools`). Arguments and resolutions must be lossless JSON and cross without a seam-level byte cap; the runtime may bridge them through structured clone. A namespace may declare a program-visible error class without making the runtime know the consumer's names: the runtime injects the real constructor and turns rejected calls into its instances. A runtime also treats binding names as hostile input (`__proto__` is an ordinary own property, never a prototype collision):
+
+```ts type-equiv
+/**
+ * Program-visible typed rejection for one binding namespace. The runtime
+ * injects a real error constructor under `name`; rejected member calls become
+ * its instances and expose the exact member name through
+ * `memberNameProperty`. Both strings are runtime data rather than knowledge
+ * of a particular consumer such as Code Mode.
+ */
+interface CodeBindingErrorClass {
+  /** Constructor global and resulting `Error.name` (must be a usable JS identifier). */
+  name: string
+  /** Non-empty own property for the member name; cannot replace `name`, `message`, or `stack`. */
+  memberNameProperty: string
+}
+```
 
 ```ts type-equiv
 /**
@@ -74,6 +90,8 @@ interface CodeBindingNamespace {
   global: string
   /** The callable members, keyed by the exact name the program calls. */
   functions: Record<string, CodeBindingFunction>
+  /** Optional program-visible typed rejection contract for this namespace. */
+  errorClass?: CodeBindingErrorClass
 }
 ```
 

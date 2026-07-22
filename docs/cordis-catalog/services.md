@@ -321,7 +321,7 @@ Source: [`packages/bash/tool-bash/src/index.ts:104`](../../packages/bash/tool-ba
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
-Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate failures resolve in CodeRunResult; only seam misuse rejects. Implementations bridge structured-cloneable bindings while treating programs as hostile peers, isolate runs from one another, and terminate and await in-flight runs during disposal.
+Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate failures resolve in CodeRunResult; only seam misuse rejects. Implementations bridge structured-cloneable bindings, materialize each declared namespace rejection class, treat programs as hostile peers, isolate runs from one another, and terminate and await in-flight runs during disposal.
 
 ```ts cordis-catalog
 /**
@@ -338,7 +338,7 @@ abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 
 Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResult](../core-data-structures/code-runtime.md)
 
-Source: [`packages/code-runtime/code-runtime/src/index.ts:31`](../../packages/code-runtime/code-runtime/src/index.ts)
+Source: [`packages/code-runtime/code-runtime/src/index.ts:33`](../../packages/code-runtime/code-runtime/src/index.ts)
 
 ## `ctx.commands` — `CommandService`
 
