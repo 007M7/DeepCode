@@ -317,6 +317,10 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/session-persistence/session-checkpoint-policy": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
     "packages/util/paths": {
       "entry": [
         "tests/**/*.spec.ts"

@@ -39,6 +39,9 @@
   config:
     root: !!js process.env.DSH_SESSION_ROOT ?? './.sessions'
 
+- id: session-checkpoints
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
+
 - id: subagent
   name: '@deepseek-ai/dsh-subagent'
 
