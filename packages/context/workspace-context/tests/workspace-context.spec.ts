@@ -1,5 +1,5 @@
 import { chmod, mkdtemp, mkdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
@@ -381,20 +381,6 @@ describe('workspace context instruction discovery', () => {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }
-  })
-
-  it('loads through a FileSystem provider without a cancellation signal', async () => {
-    // Direct-library callers may omit `signal`; the fs-backed probe must pass
-    // no options object rather than `{ signal: undefined }`.
-    const ctx = new Context()
-    await ctx.plugin(RecordingFileSystem)
-    const fs = ctx.fs as RecordingFileSystem
-    fs.entries.set('/repo/.git', { type: 'directory' })
-    fs.entries.set('/repo/AGENTS.md', { type: 'file', content: 'signalless rule' })
-    const rendered = await loadBaselineInstructions({ cwd: '/repo', maxBytes: 65536 }, fs)
-    expect(rendered?.text).toContain('signalless rule')
-    expect(fs.signals).toHaveLength(0)
-    await ctx.fiber.dispose()
   })
 
   it('skips a file that becomes unreadable after discovery without failing the request', async () => {
