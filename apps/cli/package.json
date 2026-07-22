@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh",
-  "description": "dsh CLI: the interactive TUI coding agent, booting the shipped default config with the personal overlay from ~/.config/dsh",
+  "description": "dsh CLI: the interactive TUI coding agent, booting the shipped default config with the personal overlay from ~/.dsh",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -13,6 +13,7 @@
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
-    "@deepseek-ai/dsh-app-boot": "workspace:^"
+    "@deepseek-ai/dsh-app-boot": "workspace:^",
+    "@deepseek-ai/dsh-paths": "workspace:^"
   }
 }

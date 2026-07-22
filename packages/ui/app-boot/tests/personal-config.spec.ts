@@ -1,48 +1,27 @@
 /**
- * Personal-config behavior of `dsh-app-boot`: the `~/.config/dsh` directory
- * resolution, the `config.yaml` overlay loader, and `boot()` applying the
- * personal overlay over a real Loader tree.
+ * Personal-config behavior of `dsh-app-boot`: the Harness home (`~/.dsh`)
+ * `config.yaml` overlay loader and `boot()` applying the personal overlay over
+ * a real Loader tree.
  */
 
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve, sep } from 'node:path'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
 import {
   boot,
-  DSH_CONFIG_HOME_ENV,
   loadPersonalPatches,
   PERSONAL_CONFIG_FILENAME,
-  resolvePersonalConfigDir,
 } from '../src/index.ts'
 
 const NAME = 'dsh-test-bin'
 
 const tmp = (): string => mkdtempSync(join(tmpdir(), 'dsh-personal-config-'))
 
-describe('resolvePersonalConfigDir', () => {
-  it('prefers $DSH_CONFIG_HOME, then $XDG_CONFIG_HOME/dsh, then ~/.config/dsh', () => {
-    const home = `${sep}home${sep}user`
-    expect(resolvePersonalConfigDir({ DSH_CONFIG_HOME: `${sep}explicit`, XDG_CONFIG_HOME: `${sep}xdg` }, home))
-      .toBe(resolve(`${sep}explicit`))
-    expect(resolvePersonalConfigDir({ XDG_CONFIG_HOME: `${sep}xdg` }, home))
-      .toBe(resolve(`${sep}xdg`, 'dsh'))
-    expect(resolvePersonalConfigDir({}, home)).toBe(resolve(home, '.config', 'dsh'))
-  })
-
-  it('treats empty variables as unset and defaults to the real env and home', () => {
-    const home = `${sep}home${sep}user`
-    expect(resolvePersonalConfigDir({ DSH_CONFIG_HOME: '', XDG_CONFIG_HOME: '' }, home))
-      .toBe(resolve(home, '.config', 'dsh'))
-    // Default-arg arm: resolves against the ambient environment without throwing.
-    expect(resolvePersonalConfigDir().length).toBeGreaterThan(0)
-  })
-})
-
 describe('loadPersonalPatches', () => {
   afterEach(() => {
-    delete process.env.DSH_CONFIG_HOME
+    delete process.env.DSH_HOME
   })
 
   it('returns undefined when no personal patches file exists', () => {
@@ -70,10 +49,10 @@ describe('loadPersonalPatches', () => {
     expect(patches?.[1]?.insert).toHaveLength(1)
   })
 
-  it('defaults its directory to the resolved personal config dir', () => {
+  it('defaults its directory to the Harness home ($DSH_HOME)', () => {
     const dir = tmp()
     writeFileSync(join(dir, PERSONAL_CONFIG_FILENAME), '- id: x\n  config:\n    a: 1\n')
-    process.env[DSH_CONFIG_HOME_ENV] = dir
+    process.env.DSH_HOME = dir
     expect(loadPersonalPatches(NAME)).toHaveLength(1)
   })
 

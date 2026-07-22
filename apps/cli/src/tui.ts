@@ -1,8 +1,8 @@
 /**
  * `dsh` default surface — the interactive TUI coding agent. Boots the shipped
  * tui-agent config (or an explicit config argument) with the personal overlay
- * from `~/.config/dsh`: its `.env` fills environment gaps (precedence: ambient
- * environment, then the invoking directory's `.env`, then the personal one)
+ * from the Harness home (`~/.dsh`): its `.env` fills environment gaps (precedence:
+ * ambient environment, then the invoking directory's `.env`, then the personal one)
  * and its `config.yaml` patches the booted tree. The workspace is the invoking
  * directory: sessions, relative paths, and workspace instructions resolve from
  * the cwd, so `dsh` acts on whatever project it is launched in. After boot, the
@@ -20,8 +20,8 @@ import {
   loadPersonalPatches,
   parseResumeArg,
   resolveConfigPath,
-  resolvePersonalConfigDir,
 } from '@deepseek-ai/dsh-app-boot'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 
 const NAME = 'dsh'
 
@@ -60,7 +60,7 @@ export async function runTui(argv: string[]): Promise<void> {
   installFailLoud(NAME)
   // The bin already loaded the invoking directory's .env; the personal .env
   // only fills what is still unset (process.loadEnvFile never overrides).
-  loadEnv(NAME, resolvePersonalConfigDir())
+  loadEnv(NAME, resolveDshHome())
   // An explicit `--resume` flag beats any ambient RESUME_SESSION_ID, so set it
   // after loadEnv and before boot reads it through the config's `!!js`.
   const { resumeSessionId, rest } = parseResumeArg(argv)

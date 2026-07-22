@@ -6,8 +6,8 @@
 # It clones the harness to ~/.dsh/source, checks host dependencies (git, Node,
 # pnpm) and offers to install a missing pnpm, runs `pnpm install` (no build —
 # the `bin/dsh` launcher runs the TypeScript source through the repo's own tsx),
-# symlinks `dsh` onto PATH, records your API credentials in the personal config
-# dir dsh reads at boot, and drops you into `dsh`.
+# symlinks `dsh` onto PATH, records your API credentials in the Harness home
+# (`~/.dsh`) dsh reads at boot, and drops you into `dsh`.
 #
 # When run from inside an existing checkout (e.g. `sh scripts/install.sh` rather
 # than `curl ... | sh`) it reuses that checkout and skips the clone/update, leaving
@@ -23,7 +23,7 @@
 #   DSH_REPO         clone URL                           (default: the GitHub repo)
 #   DSH_SOURCE       checkout location                   (default: ~/.dsh/source)
 #   DSH_BIN_DIR      directory the `dsh` symlink lands in (default: ~/.local/bin)
-#   DSH_CONFIG_HOME  personal config dir (also XDG_CONFIG_HOME/dsh, ~/.config/dsh)
+#   DSH_HOME         Harness home holding the personal config (default: ~/.dsh)
 set -eu
 
 DSH_REF=${DSH_REF:-master}
@@ -224,13 +224,11 @@ if [ "$ON_PATH" = 0 ]; then
 fi
 
 # --- 5. credentials ------------------------------------------------------------
-# Mirror app-boot's resolvePersonalConfigDir precedence so creds land where dsh reads them.
-if [ -n "${DSH_CONFIG_HOME:-}" ]; then
-  CONF="$DSH_CONFIG_HOME"
-elif [ -n "${XDG_CONFIG_HOME:-}" ]; then
-  CONF="$XDG_CONFIG_HOME/dsh"
+# Mirror app-boot's resolveDshHome precedence ($DSH_HOME, else ~/.dsh) so creds land where dsh reads them.
+if [ -n "${DSH_HOME:-}" ]; then
+  CONF="$DSH_HOME"
 else
-  CONF="$HOME/.config/dsh"
+  CONF="$HOME/.dsh"
 fi
 ENV_FILE="$CONF/.env"
 
