@@ -31,6 +31,7 @@ const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../workspace-context.cor
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
+const PACKED_CHUNKS_CONFIG = fileURLToPath(new URL('../packed-chunks.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
@@ -57,6 +58,13 @@ const SCENARIOS: Scenario[] = [
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  // Authored from text-turn's recording: the same single text turn persisted
+  // through the packChunks overlay. The committed session.jsonl carries a
+  // packed `reasoning-chunks` row (the reasoning stream is the ≥3-delta run;
+  // the two text deltas stay verbatim), so replay proves a packed fixture
+  // derives the same model script (reading is layout-blind) and the
+  // re-persisted log packs identically.
+  { name: 'packed-chunks', hasModelTurn: true, recorded: false, configPath: PACKED_CHUNKS_CONFIG },
   // The fs overlay only adds the spill stack (the sandboxed filesystem tools
   // live in the base tree), so these scenarios share the default header class.
   {
