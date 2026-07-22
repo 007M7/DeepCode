@@ -24,7 +24,7 @@ export const LOADER_SMOKE_TEST_TIMEOUT_MS = DEFAULT_PROCESS_TIMEOUT_MS + 15_000
 /** Which artifact an example bin is booted from: unbuilt `src` via tsx, or built `lib` via plain Node. */
 export type ExampleMode = 'src' | 'lib'
 
-/** Environment variable selecting the mode; CI and pre-push set it to `lib`, dev leaves it unset (`src`). */
+/** Environment variable selecting the mode; CI sets it to `lib`, dev leaves it unset (`src`). */
 export const EXAMPLE_MODE_ENV = 'DSH_EXAMPLE_MODE'
 
 /**

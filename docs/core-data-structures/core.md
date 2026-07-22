@@ -235,6 +235,12 @@ interface GenerateOptions {
    * it; replay uses it to keep concurrent parent and child cursors independent.
    */
   sessionId?: Branded<'SessionId'>
+  /**
+   * Provider-neutral classification for an auxiliary model call. Adapters may
+   * map the purpose to model-hidden transport metadata. Ordinary conversation
+   * requests leave it unset.
+   */
+  purpose?: 'compaction'
 }
 ```
 

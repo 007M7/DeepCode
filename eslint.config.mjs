@@ -18,6 +18,8 @@ export default tseslint.config(
       '**/*.js',
       '**/*.mjs',
       '*.config.ts', // root tool configs (vitest, tsdown) — no project service
+      '**/tsdown.config.ts', // package build configs — in no tsconfig program, and TS syntax breaks the parserless fallback
+      'packages/client/tsdown.client.ts', // shared client build preset, same standing
     ],
   },
 
@@ -105,6 +107,20 @@ export default tseslint.config(
         varsIgnorePattern: '^_',
         caughtErrorsIgnorePattern: '^_',
       }],
+    },
+  },
+
+  // --- client tests: the root program excludes packages/client (host/client
+  // Context merges collide), so the shared project service cannot resolve
+  // them — parse these through the client aggregate explicitly.
+  {
+    files: ['packages/client/*/tests/**/*.ts', 'scripts/client-bundle-purity.spec.ts'],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: ['./tsconfig.client.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
     },
   },
 

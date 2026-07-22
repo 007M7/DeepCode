@@ -102,10 +102,10 @@ async function tick(): Promise<void> {
 async function setup(options: TuiHarnessOptions = {}) {
   const terminal = new FakeTerminal()
   const exit = vi.fn()
-  const result = await createTuiTestHarness(terminal, exit, {
-    ...options,
-    cwd: options.cwd === undefined ? process.cwd() : options.cwd,
-  })
+  // Let the harness default cwd ('/workspace') stand: a checkout-dependent
+  // process.cwd() longer than the 88-column fake terminal pushes the footer
+  // token counters off-screen and fails their assertions by location.
+  const result = await createTuiTestHarness(terminal, exit, options)
   await tick()
   return result
 }
@@ -198,7 +198,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
-  it.skipIf(process.platform === 'win32')('renders its header, footer, replay, streaming answer, todos, and status', async () => {
+  it('renders its header, footer, replay, streaming answer, todos, and status', async () => {
     let now = 0
     const result = await setup({
       contextWindow: 100,
@@ -320,7 +320,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
       { inputTokens: 500, outputTokens: 8 },
       { turn: 3, step: 1 },
     )
-    await tick()
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('final live answer')
+    })
 
     expect(result.terminal.output).toContain('◒ Working · 8s')
     expect(result.terminal.output).toContain('esc interrupt')
@@ -328,7 +330,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('user context')
     expect(result.terminal.output).toContain('Prompt blocked')
     expect(result.terminal.output).toContain('Turn cancelled')
-    expect(result.terminal.output).toContain('final live answer')
     expect(result.terminal.progress).toContain(true)
 
     result.session.append('assistant/chunk', {

@@ -417,7 +417,7 @@ Ask composed answerers for one decision. Return an outcome to claim the request 
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [ApprovalService](../core-data-structures/approval.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:31`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:30`](../../packages/ui/user-approval/src/index.ts)
 
 ## `commands/*`
 
