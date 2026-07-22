@@ -22,7 +22,7 @@ There is no creation-time mode option: a UI (or a plugin) selects through `set()
 
 ## Per-mode slash commands
 
-When a command registry (`@deepseek-ai/dsh-commands`) is composed, each configured definition contributes its own entry command to interactive front doors. The required definition supplies `/plan`; a further `review` definition supplies `/review`. These commands accept no arguments, record the switch through `set()`, and report that it applies from the next turn. `default` is the absence of a definition and contributes no command. Without a commands service the child never mounts and nothing else changes.
+When a command registry (`@deepseek-ai/dsh-commands`) is composed, each configured definition contributes its own entry command to interactive front doors. The required definition supplies `/plan [message]`; a further `review` definition supplies `/review [message]`. Each command records its named switch through `set()`; when the optional message is non-empty, the handler trims it and passes it to `agent.steer()` so a running agent receives it in its next step and an idle agent starts a new turn. `default` is the absence of a definition and contributes no command. Without a commands service the child never mounts and nothing else changes.
 
 Definition names must match `/^[a-z][a-z0-9_-]*$/u`, the shared mode/command subset; config fails at load before a definition can become selectable but undispatchable.
 
@@ -77,6 +77,20 @@ Each qualifying transition adds one short conversation message once. The dynamic
 #### KV Cache effect
 
 The notice itself is append-only conversation growth. A real mode transition also changes the earlier order-50 section, so that section remains the limiting cache boundary.
+
+### Per-mode command message
+
+#### What the model sees
+
+The command name and result remain in the direct command plane. A non-empty optional suffix is trimmed and submitted as one ordinary user text block through `agent.steer()` after the mode selection, so the resulting step sees the selected mode.
+
+#### Token effect
+
+The command itself adds no tokens. An optional message has the same history and token cost as submitting that text separately.
+
+#### KV Cache effect
+
+The optional message is append-only conversation growth. Entering the mode still changes the order-50 system-prompt section for the affected step.
 
 ### Exit tool schema and review exchange
 

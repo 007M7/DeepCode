@@ -15,7 +15,7 @@ import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
-import ModesService, { DEFAULT_MODE, PLAN_MODE } from '@deepseek-ai/dsh-mode'
+import ModesService, { PLAN_MODE } from '@deepseek-ai/dsh-mode'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -275,14 +275,17 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     })
     await settleTerminal(terminal)
 
+    let remainingPrompts = prompts
     if (scenario.enterPlanMode === true) {
-      terminal.send('/plan')
+      const firstPrompt = prompts[0]!
+      terminal.send(`/plan ${firstPrompt}`)
       terminal.send('\r')
+      await agent.whenIdle()
       await settleTerminal(terminal)
-      expect(ctx.modes.get(agent)).toEqual({ current: DEFAULT_MODE, pending: PLAN_MODE })
+      remainingPrompts = prompts.slice(1)
     }
 
-    for (const prompt of prompts) {
+    for (const prompt of remainingPrompts) {
       terminal.send(prompt)
       terminal.send('\r')
       await agent.whenIdle()
@@ -303,6 +306,8 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       }
       expect(modeSet.seq).toBeLessThan(firstHeader.seq)
       expect(firstHeader.data.header.system).toContain('Snapshot plan mode instructions.')
+      const firstMessage = events.find(event => event.type === 'user/message')
+      expect(firstMessage?.data.content).toEqual([{ type: 'text', text: prompts[0] }])
     }
     expect(events.filter(event => event.type === 'tool/result').every(event => !event.data.isError)).toBe(true)
     expect(events.filter(event => event.type === 'turn/end').every(event => event.data.reason.kind !== 'error')).toBe(true)

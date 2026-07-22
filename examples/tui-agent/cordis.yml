@@ -89,8 +89,8 @@
   name: '@deepseek-ai/dsh-tool-todo'
 
 # Session modes (the shipped `plan` definition): the TUI's command registry
-# gains the plugin-registered /plan command, and the exit review rides the
-# TUI's user-interaction provider.
+# gains the plugin-registered /plan [message] command, and the exit review
+# rides the TUI's user-interaction provider.
 - id: mode
   name: '@deepseek-ai/dsh-mode'
   config:

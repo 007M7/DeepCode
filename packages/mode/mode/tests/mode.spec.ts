@@ -610,21 +610,23 @@ describe('per-mode slash commands', () => {
     // The `ctx.inject` child mounts asynchronously once `commands` resolves.
     await new Promise(resolve => setImmediate(resolve))
     const agent = await agentWithSession(ctx)
+    const steer = vi.fn()
+    ;(agent as unknown as { steer: typeof steer }).steer = steer
     expect(ctx.commands.list(agent)).toEqual([
-      { name: 'plan', description: 'Enter plan mode' },
-      { name: 'review', description: 'Enter review mode' },
+      { name: 'plan', description: 'Enter plan mode', input: { hint: '[message]' } },
+      { name: 'review', description: 'Enter review mode', input: { hint: '[message]' } },
     ])
 
     const signal = new AbortController().signal
     expect(await ctx.commands.execute(agent, '/mode', signal)).toBeUndefined()
-    expect(await ctx.commands.execute(agent, '/plan later', signal))
-      .toEqual({ kind: 'error', text: 'Usage: /plan' })
-    const plan = await ctx.commands.execute(agent, '/plan', signal)
-    expect(plan).toEqual({ kind: 'success', text: 'Entering plan mode (applies from the next turn).' })
+    const plan = await ctx.commands.execute(agent, '/plan   draft the migration  ', signal)
+    expect(plan).toEqual({ kind: 'success', text: 'Entering plan mode (applies from the next step).' })
     expect(ctx.modes.get(agent)).toEqual({ current: DEFAULT_MODE, pending: PLAN_MODE })
+    expect(steer).toHaveBeenCalledExactlyOnceWith([{ type: 'text', text: 'draft the migration' }])
     const review = await ctx.commands.execute(agent, '/review', signal)
-    expect(review).toEqual({ kind: 'success', text: 'Entering review mode (applies from the next turn).' })
+    expect(review).toEqual({ kind: 'success', text: 'Entering review mode (applies from the next step).' })
     expect(ctx.modes.get(agent)).toEqual({ current: DEFAULT_MODE, pending: 'review' })
+    expect(steer).toHaveBeenCalledOnce()
   })
 
   it('removes every contributed command when the mode plugin is disposed', async () => {

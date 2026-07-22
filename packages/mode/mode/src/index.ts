@@ -301,12 +301,12 @@ export class ModesService extends Service {
         commandCtx.commands.register({
           name: mode,
           description: `Enter ${mode} mode`,
+          input: { hint: '[message]' },
           handler: ({ agent, rawInput }) => {
-            if (rawInput.trim() !== '') {
-              return { kind: 'error', text: `Usage: /${mode}` }
-            }
+            const message = rawInput.trim()
             this.set(agent, mode)
-            return { kind: 'success', text: `Entering ${mode} mode (applies from the next turn).` }
+            if (message !== '') agent.steer([{ type: 'text', text: message }])
+            return { kind: 'success', text: `Entering ${mode} mode (applies from the next step).` }
           },
         })
       }

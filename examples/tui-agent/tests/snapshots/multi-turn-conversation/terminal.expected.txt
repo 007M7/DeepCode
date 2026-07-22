@@ -21,7 +21,7 @@ buffer
 4| "╰──────────────────────────────────────────────────────────────────────────────────────────────────╯"
   style 0-99 fg=bright-blue
 5| <blank>
-6| " Entering plan mode (applies from the next turn).                                                   "
+6| " Entering plan mode (applies from the next step).                                                   "
   style 1-48 fg=bright-black
 7| <blank>
 8| "▌ "
