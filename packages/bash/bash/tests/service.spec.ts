@@ -17,7 +17,7 @@ class StubExecutor extends BashExecutor {
       timeoutMs: request.timeoutMs ?? 1000,
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       ...request.signal ? { signal: request.signal } : {},
-      sandboxMode: request.sandboxMode,
+      sandboxPolicy: request.sandboxPolicy,
     }
   }
 
@@ -55,7 +55,7 @@ describe('BashExecutor service seam', () => {
     const ctx = new Context()
     await ctx.plugin(StubExecutor)
     const spec = ctx.bash.resolve({ command: 'echo hi' })
-    expect(spec).toEqual({ command: 'echo hi', workdir: '/stub', timeoutMs: 1000, stdoutMaxBytes: 64_000, sandboxMode: undefined })
+    expect(spec).toEqual({ command: 'echo hi', workdir: '/stub', timeoutMs: 1000, stdoutMaxBytes: 64_000, sandboxPolicy: undefined })
 
     const result = await ctx.bash.run(spec)
     expect(result.exitCode).toBe(0)

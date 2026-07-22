@@ -380,6 +380,10 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/examples/agent-spine-demo": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
     "packages/ui/jsonrpc": {
       "entry": [
         "tests/**/*.spec.ts",
@@ -401,7 +405,8 @@
     },
     "packages/examples/tui-demo": {
       "entry": [
-        "tests/**/*.spec.ts"
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts"
       ],
       "project": [
         "src/**/*.ts",

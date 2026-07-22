@@ -5,13 +5,14 @@
  */
 
 import { createReadStream } from 'node:fs'
-import { lstat, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
-import type { FileSystem, FsInfo, FsPathInfo, FsTarget, FsVersion } from '@deepseek-ai/dsh-fs'
+import type { FileSystem, FsInfo, FsTarget, FsVersion } from '@deepseek-ai/dsh-fs'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import { dshHomeDisplay } from '@deepseek-ai/dsh-paths'
 import { resolveConfig, resolveDiscoveryConfig, type ResolvedConfig } from './config.ts'
-import { renderWorkspaceContext, type RenderedWorkspaceContext } from './render.ts'
+import { trimmedInstructionDigest } from './digest.ts'
+import { decodeScopeKey, renderWorkspaceContext, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE, type RenderedWorkspaceContext } from './render.ts'
 
 /** An instruction candidate identified by absolute and model-facing paths. */
 export interface InstructionFile {
@@ -32,7 +33,7 @@ interface DiscoveredInstructionFile extends InstructionFile {
   version?: FsVersion
 }
 
-/** Provider metadata for a winning scope candidate before its content is read. */
+/** Provider metadata for a probed scope candidate before its content is read. */
 export interface ProbedInstructionFile extends InstructionFile {
   target: FsTarget
   version: FsVersion
@@ -44,6 +45,7 @@ interface DiscoverOptions {
   dshHome?: string
   projectRootMarkers?: string[]
   instructionFileCandidates?: string[]
+  localInstructionFileCandidates?: string[]
   signal?: AbortSignal
 }
 
@@ -86,7 +88,9 @@ function isMissingPathError(error: unknown): boolean {
 async function nodeStatFile(path: string, signal?: AbortSignal): Promise<StatFileProbe> {
   try {
     signal?.throwIfAborted()
-    const info = await lstat(path)
+    // stat (not lstat) follows a final-component symlink so a link to a regular
+    // file loads; a broken link surfaces as ENOENT and is treated as absent below.
+    const info = await stat(path)
     signal?.throwIfAborted()
     if (!info.isFile()) return { kind: 'absent' }
     return { kind: 'present', info: { size: info.size } }
@@ -101,25 +105,15 @@ async function fsStatFile(
   fileSystem: FileSystem,
   signal?: AbortSignal,
 ): Promise<StatFileProbe> {
-  // TODO(instruction-symlink-race): replace this lstat -> resolve -> read
-  // protocol, including probeScopeInstruction below, with a provider-owned
-  // atomic no-follow read so the final component cannot change after validation.
-  let pathInfo: FsPathInfo | undefined
-  try {
-    pathInfo = await fileSystem.lstat(path, undefined, signal)
-    signal?.throwIfAborted()
-  } catch {
-    signal?.throwIfAborted()
-    return { kind: 'unavailable' }
-  }
-  if (pathInfo?.type !== 'file') return { kind: 'absent' }
-
+  // resolve() follows a final-component symlink to its target's stable identity;
+  // stat then classifies that target. A link to a regular file loads, while a
+  // missing path or non-file target (including a link to a directory) is absent.
   try {
     const target = await fileSystem.resolve(path, signalOptions(signal))
     signal?.throwIfAborted()
     const info = await fileSystem.stat(target, signal)
     signal?.throwIfAborted()
-    if (info?.type !== 'file') return { kind: 'unavailable' }
+    if (info?.type !== 'file') return { kind: 'absent' }
     return {
       kind: 'present',
       info: { target, version: info.version, ...info.size === undefined ? {} : { size: info.size } },
@@ -232,33 +226,32 @@ export function relativeDisplay(root: string, path: string): string {
   return relative(root, path)
 }
 
-async function firstExistingInstructionFile(
+async function allExistingInstructionFiles(
   dir: string,
   root: string,
   instructionFileCandidates: readonly string[],
   fileSystem?: FileSystem,
   signal?: AbortSignal,
-): Promise<DiscoveredInstructionFile | undefined> {
+): Promise<DiscoveredInstructionFile[]> {
+  const found: DiscoveredInstructionFile[] = []
   for (const candidate of instructionFileCandidates) {
     const path = join(dir, candidate)
     const probe = await statFile(path, fileSystem, signal)
     switch (probe.kind) {
       case 'present':
-        return {
-          absolutePath: path,
-          displayPath: relativeDisplay(root, path),
-          ...probe.info,
-        }
-      case 'absent':
+        found.push({ absolutePath: path, displayPath: relativeDisplay(root, path), ...probe.info })
         continue
+      // A missing candidate is skipped; a transient provider failure skips only
+      // that candidate so the remaining independent candidates still load.
+      case 'absent':
       case 'unavailable':
-        return undefined
+        continue
       /* v8 ignore next 2 -- StatFileProbe is closed; this arm only makes adding a kind a compile error. */
       default:
-        return assertNever(probe, 'StatFileProbe')
+        assertNever(probe, 'StatFileProbe')
     }
   }
-  return undefined
+  return found
 }
 
 async function discoverInstructionFiles(
@@ -274,7 +267,7 @@ async function discoverInstructionFiles(
     files.push(file)
   }
 
-  const userGlobal = join(config.dshHome, 'AGENTS.md')
+  const userGlobal = join(config.dshHome, USER_GLOBAL_FILE)
   const userGlobalProbe = await statFile(userGlobal, fileSystem, options.signal)
   switch (userGlobalProbe.kind) {
     case 'present':
@@ -295,16 +288,21 @@ async function discoverInstructionFiles(
   const cwd = resolve(options.cwd)
   const projectRoot = await findProjectRoot(cwd, config.projectRootMarkers, fileSystem, options.signal)
   for (const dir of ancestorChain(projectRoot, cwd)) {
-    const file = await firstExistingInstructionFile(dir, projectRoot, config.instructionFileCandidates, fileSystem, options.signal)
-    if (file !== undefined) addFile(file)
+    for (const candidates of [config.instructionFileCandidates, config.localInstructionFileCandidates]) {
+      for (const file of await allExistingInstructionFiles(dir, projectRoot, candidates, fileSystem, options.signal)) {
+        addFile(file)
+      }
+    }
   }
   return files
 }
 
 /**
  * Discover host-visible user-global and root-to-cwd instruction candidates.
+ * All present candidates in each directory are returned; trimmed-content
+ * duplicates are collapsed later, once content is read.
  * @param options - cwd, home, root marker, and candidate configuration.
- * @returns de-duplicated instruction paths in model precedence order.
+ * @returns path-deduplicated instruction candidates in model precedence order.
  */
 export async function discoverBaselineInstructionFiles(options: DiscoverOptions): Promise<InstructionFile[]> {
   return (await discoverInstructionFiles(options)).map(({ absolutePath, displayPath }) => ({ absolutePath, displayPath }))
@@ -316,7 +314,7 @@ async function* nodeTextChunks(path: string, signal?: AbortSignal): AsyncIterabl
 }
 
 async function readBounded(
-  file: DiscoveredInstructionFile,
+  file: { absolutePath: string; target?: FsTarget; size?: number },
   maxSourceBytes: number,
   fileSystem?: FileSystem,
   signal?: AbortSignal,
@@ -345,6 +343,33 @@ async function readBounded(
     // A file may disappear or become unreadable after its metadata probe.
     return undefined
   }
+}
+
+/**
+ * Drop later candidates whose trimmed content duplicates an earlier sibling in
+ * the same directory. Different directories never collapse even when identical;
+ * within one directory the earliest candidate in discovery order is kept and its
+ * original bytes are rendered. A candidate that symlinks a sibling resolves to
+ * the same content and collapses here like any byte-identical real file.
+ * @param files - loaded files in discovery order.
+ * @returns the retained files in the same order.
+ */
+export function dedupInstructionFilesByDirectory(files: LoadedInstructionFile[]): LoadedInstructionFile[] {
+  const keptDigestsByDir = new Map<string, Set<string>>()
+  const kept: LoadedInstructionFile[] = []
+  for (const file of files) {
+    const dir = dirname(file.displayPath)
+    let digests = keptDigestsByDir.get(dir)
+    if (digests === undefined) {
+      digests = new Set()
+      keptDigestsByDir.set(dir, digests)
+    }
+    const digest = trimmedInstructionDigest(file.content)
+    if (digests.has(digest)) continue
+    digests.add(digest)
+    kept.push(file)
+  }
+  return kept
 }
 
 /**
@@ -386,18 +411,19 @@ export async function loadBaselineInstructionSet(
       })
     }
   }
-  if (loaded.length === 0) return undefined
-  const rendered = renderWorkspaceContext(loaded, { maxBytes: config.maxBytes })
+  const deduped = dedupInstructionFilesByDirectory(loaded)
+  if (deduped.length === 0) return undefined
+  const rendered = renderWorkspaceContext(deduped, { maxBytes: config.maxBytes })
   const omitted = new Set(rendered.omitted.map(file => file.absolutePath))
-  return { rendered, included: loaded.filter(file => !omitted.has(file.absolutePath)) }
+  return { rendered, included: deduped.filter(file => !omitted.has(file.absolutePath)) }
 }
 
 /**
- * Probe the current first-winning instruction candidate for one logical scope.
- * @param scope - `user-global`, `.`, or a project-relative directory.
+ * Probe the current provider metadata for one per-candidate instruction scope.
+ * @param scope - a {@link candidateScopeKey} identifying a directory and candidate file.
  * @param projectRoot - project root used to resolve and display project scopes.
  * @param resolved - normalized plugin configuration.
- * @param fileSystem - provider used for no-follow probing.
+ * @param fileSystem - provider used to resolve and stat scope candidates.
  * @param signal - cancellation for provider probes.
  * @returns present metadata, confirmed absence, or temporary unavailability.
  */
@@ -408,40 +434,32 @@ export async function probeScopeInstruction(
   fileSystem: FileSystem,
   signal?: AbortSignal,
 ): Promise<ScopeInstructionProbe> {
-  const dir = scope === 'user-global'
+  const { directory, candidateName } = decodeScopeKey(scope)
+  const dir = directory === USER_GLOBAL_DIRECTORY
     ? resolved.dshHome
-    : scope === '.' ? projectRoot : join(projectRoot, scope)
-  const candidates = scope === 'user-global' ? ['AGENTS.md'] : resolved.instructionFileCandidates
-  for (const candidate of candidates) {
-    const absolutePath = join(dir, candidate)
-    let pathInfo: FsPathInfo | undefined
-    try {
-      pathInfo = await fileSystem.lstat(absolutePath, undefined, signal)
-    } catch {
-      signal?.throwIfAborted()
-      return { kind: 'unavailable' }
-    }
-    if (pathInfo === undefined || pathInfo.type !== 'file') continue
-    let target: FsTarget
-    let info: FsInfo | undefined
-    try {
-      target = await fileSystem.resolve(absolutePath, signalOptions(signal))
-      info = await fileSystem.stat(target, signal)
-    } catch {
-      signal?.throwIfAborted()
-      return { kind: 'unavailable' }
-    }
-    if (info?.type !== 'file') return { kind: 'unavailable' }
-    const file: ProbedInstructionFile = {
-      absolutePath,
-      displayPath: scope === 'user-global' ? userGlobalDisplayPath(resolved.dshHome) : relativeDisplay(projectRoot, absolutePath),
-      target,
-      version: info.version,
-      ...info.size === undefined ? {} : { size: info.size },
-    }
-    return { kind: 'present', file }
+    : directory === '.' ? projectRoot : join(projectRoot, directory)
+  const absolutePath = join(dir, candidateName)
+  // resolve() follows a final-component symlink; stat then classifies the target.
+  // A non-file target (missing, or a link to a directory) is a confirmed absence;
+  // only a provider exception is reported as unavailable.
+  let target: FsTarget
+  let info: FsInfo | undefined
+  try {
+    target = await fileSystem.resolve(absolutePath, signalOptions(signal))
+    info = await fileSystem.stat(target, signal)
+  } catch {
+    signal?.throwIfAborted()
+    return { kind: 'unavailable' }
   }
-  return { kind: 'absent' }
+  if (info?.type !== 'file') return { kind: 'absent' }
+  const file: ProbedInstructionFile = {
+    absolutePath,
+    displayPath: directory === USER_GLOBAL_DIRECTORY ? userGlobalDisplayPath(resolved.dshHome) : relativeDisplay(projectRoot, absolutePath),
+    target,
+    version: info.version,
+    ...info.size === undefined ? {} : { size: info.size },
+  }
+  return { kind: 'present', file }
 }
 
 /**

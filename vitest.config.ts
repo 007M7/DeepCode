@@ -88,11 +88,8 @@ export default defineConfig({
       // Types-only files have no runtime coverage. Importing self-executing bins/workers would boot
       // them inside the unit process, so real subprocess/Worker tests cover their thin entry glue.
       exclude: [
-
         'packages/*/*/src/types.ts',
-
         'packages/*/*/src/bin.ts',
-
         'packages/*/*/src/worker.ts',
         // GUI step-1 skeleton (PR #500): client/web UI files whose remaining
         // branches need a browser-grade harness the jsdom lane doesn't cover

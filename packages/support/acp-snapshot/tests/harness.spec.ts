@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { once } from 'node:events'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { delimiter, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
@@ -464,6 +464,22 @@ describe('runScenario', () => {
       { agent: AGENT, mode: 'replay', fixtureFile, workspaceDir },
     )
     expect(result.rawStdout).toContain('workspace:seeded.txt')
+  })
+
+  it('creates the generated workspace under an explicit parent', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({})
+    const workspaceParent = await mkdtemp(join(tmpdir(), 'acp-snap-parent-'))
+    tempDirs.push(workspaceParent)
+
+    const result = await runScenario(
+      { steps: boot },
+      { agent: AGENT, mode: 'replay', fixtureFile, workspaceParent },
+    )
+
+    const child = relative(workspaceParent, result.cwd)
+    expect(child).not.toBe('')
+    expect(child).not.toBe('..')
+    expect(child.startsWith(`..${sep}`)).toBe(false)
   })
 
   it('promptAndCancel waits for the streamed chunk, cancels, and settles the prompt', { timeout: 20_000 }, async () => {

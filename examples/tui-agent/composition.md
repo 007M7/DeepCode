@@ -23,6 +23,8 @@ flowchart LR
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
   bundle_agent_core --> spine_loop["ctx.agents + ctx.agentLoop"]
+  plugin_tui_session_title_llm["session-title-llm<br/>@deepseek-ai/dsh-session-title-first-message-llm"]
+  cfg --> plugin_tui_session_title_llm
   plugin_tui_token_meter["token-meter<br/>@deepseek-ai/dsh-token-meter"]
   cfg --> plugin_tui_token_meter
   plugin_tui_tool_result_prune["tool-result-prune<br/>@deepseek-ai/dsh-compact-tool-result-prune"]
@@ -45,8 +47,6 @@ flowchart LR
   cfg --> plugin_tui_tool_workflow
   plugin_tui_tool_ralph["tool-ralph<br/>@deepseek-ai/dsh-tool-ralph"]
   cfg --> plugin_tui_tool_ralph
-  plugin_tui_tool_todo["tool-todo<br/>@deepseek-ai/dsh-tool-todo"]
-  cfg --> plugin_tui_tool_todo
   plugin_tui_plan_mode["plan-mode<br/>@deepseek-ai/dsh-plan-mode"]
   cfg --> plugin_tui_plan_mode
   plugin_tui_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
@@ -71,6 +71,7 @@ flowchart LR
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |
 | `tui-agent` | `@deepseek-ai/dsh-tui-demo` |
+| `session-title-llm` | `@deepseek-ai/dsh-session-title-first-message-llm` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `tool-result-prune` | `@deepseek-ai/dsh-compact-tool-result-prune` |
 | `compact-basic` | `@deepseek-ai/dsh-compact-basic` |
@@ -82,7 +83,6 @@ flowchart LR
 | `workflow-workerthread` | `@deepseek-ai/dsh-workflow-workerthread` |
 | `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
 | `tool-ralph` | `@deepseek-ai/dsh-tool-ralph` |
-| `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
 | `plan-mode` | `@deepseek-ai/dsh-plan-mode` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
