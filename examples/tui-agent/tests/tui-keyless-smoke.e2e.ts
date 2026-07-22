@@ -22,6 +22,10 @@ env.update({
     "COLUMNS": "100",
     "LINES": "30",
 })
+# Deterministic banner: a developer shell's COLORTERM=truecolor would switch the
+# banner to the per-letter gradient (one SGR per letter), breaking the literal
+# DEEPSEEK assertions. The gradient path has its own unit and snapshot coverage.
+env.pop("COLORTERM", None)
 if resume_session_id:
     env["RESUME_SESSION_ID"] = resume_session_id
 pid, fd = pty.fork()

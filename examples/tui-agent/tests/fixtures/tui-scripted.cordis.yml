@@ -21,6 +21,9 @@
     provider: tui-scripted
     model: tui-scripted-model
     persistenceRoot: './.sessions'
+    # The smoke's log inspection reads plain `.jsonl`; keep the scripted
+    # fixture uncompressed like the other snapshot-facing configs.
+    persistenceCompression: none
     workspaceContext:
       maxBytes: 65536
     welcome: 'scripted TUI ready.'
