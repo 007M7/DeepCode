@@ -67,7 +67,7 @@ Compose and run:
 Hello, world!
 ```
 
-Swap the two lines in `cordis.yml` and rerun: same output. Try removing `./greeter.ts` entirely: the consumer stays PENDING and prints nothing — no crash, no partial run. [Chapter 6](06-composition-and-hmr.md) shows how to diagnose that state.
+Swap the two lines in `cordis.yml` and rerun: same output. Try removing `./greeter.ts` entirely: the consumer stays PENDING and prints nothing — no crash, no partial run. A PENDING fiber does not keep Node's event loop alive either, so a composition with nothing else running exits 0 silently. [Chapter 6](06-composition-and-hmr.md) shows how to diagnose that state.
 
 ## Dependencies are live
 
