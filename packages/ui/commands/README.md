@@ -22,7 +22,7 @@ The terminal and ACP app bundles mount this service with their consuming front d
 
 #### What the model sees
 
-The registry itself submits nothing. Known slash commands execute in the UI command plane, and their `CommandResult` text is not submitted as a user message. Unknown slash-command input is rejected by shipped adapters instead of becoming a model prompt. A command producer may explicitly use the receiving `Agent`; for example, [`dsh-mode`](../../mode/mode/README.md#per-mode-slash-commands) submits the optional message in `/plan [message]` after selecting the mode.
+The registry itself submits nothing. Known slash commands execute in the UI command plane, and their `CommandResult` text is not submitted as a user message. Unknown slash-command input is rejected by shipped adapters instead of becoming a model prompt. A command producer may explicitly use the receiving `Agent`; for example, [`dsh-plan-mode`](../../plan/plan-mode/README.md#model-and-human-surfaces) submits the optional message in `/plan [message]` after selecting plan mode.
 
 #### Token effect
 

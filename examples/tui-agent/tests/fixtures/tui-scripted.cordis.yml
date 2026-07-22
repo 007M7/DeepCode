@@ -15,12 +15,10 @@
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
 
-- id: mode
-  name: '@deepseek-ai/dsh-mode'
+- id: plan-mode
+  name: '@deepseek-ai/dsh-plan-mode'
   config:
-    modes:
-      plan:
-        section: 'Stay in plan mode for this scripted TUI test.'
+    section: 'Stay in plan mode for this scripted TUI test.'
 
 - id: tui-agent
   name: '@deepseek-ai/dsh-tui-demo'

@@ -31,7 +31,7 @@ const GROUP_ORDER = [
   'spill',
   'timeout',
   'todo',
-  'mode',
+  'plan',
   'cordis',
   'hooks',
   'session-persistence',

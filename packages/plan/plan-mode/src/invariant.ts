@@ -1,32 +1,27 @@
-/** Package-owned durable mode-stream invariants. @module @deepseek-ai/dsh-mode/invariant */
+/** Package-owned durable plan-mode invariants. @module @deepseek-ai/dsh-plan-mode/invariant */
 
 import type { Context } from 'cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-mode'
+const PACKAGE_NAME = '@deepseek-ai/dsh-plan-mode'
 
 /** Cordis companion plugin name. */
-export const name = 'mode-invariant'
+export const name = 'plan-mode-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/**
- * Validate one `mode/set` payload before it reaches the durable log: the mode
- * is a non-empty bare name (config-declared vocabulary, not an opaque id), so
- * an empty or non-string value can only be a writer bug — folding it would
- * silently select the default mode while the log claims otherwise.
- */
+/** Validate one `plan/mode` payload before it reaches the durable log. */
 function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
-  if (event.type !== 'mode/set') return
-  const mode = (event.data as { mode?: unknown }).mode
-  if (typeof mode !== 'string' || mode.trim() === '' || mode.trim() !== mode) {
-    fail(`mode/set carries invalid mode ${JSON.stringify(mode)}; expected a non-empty trimmed name`)
+  if (event.type !== 'plan/mode') return
+  const active = (event.data as { active?: unknown }).active
+  if (typeof active !== 'boolean') {
+    fail(`plan/mode carries invalid active state ${JSON.stringify(active)}; expected a boolean`)
   }
 }
 
 /* jscpd:ignore-start -- package companions share replay and dispatch plumbing */
-/** Install validation for loaded and newly appended mode selections. */
+/** Install validation for loaded and newly appended plan-mode state. */
 const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
   for (const session of ctx.sessions.list()) {
     for (const event of session.events) validateEvent(event, fail)
@@ -40,7 +35,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
 /* jscpd:ignore-end */
 
 /**
- * Register the mode invariant companion.
+ * Register the plan-mode invariant companion.
  * @param ctx - Cordis context carrying the invariant service.
  * @returns the installed registration's disposer after setup succeeds.
  */

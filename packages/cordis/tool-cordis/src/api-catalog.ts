@@ -351,24 +351,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
-    key: 'modes',
-    summary: '`ctx.modes`: the session-mode service.',
-    methods: [
-      {
-        signature: 'list(): string[]',
-        jsDoc: '/**\n * The selectable mode vocabulary: {@link DEFAULT_MODE} first, then the\n * configured definitions — the list a mode picker advertises.\n *\n * @returns Mode names, `default` first.\n */',
-      },
-      {
-        signature: 'get(agent: Agent): { current: string; pending?: string }',
-        jsDoc: '/**\n * The agent\'s mode state: the folded mode in force (a folded name the config\n * no longer defines reads as {@link DEFAULT_MODE}) plus the pending\n * user-selected intent awaiting its boundary flush, when one exists.\n *\n * @param agent The agent to read.\n * @returns The current (effective) mode and the pending intent, if any.\n */',
-      },
-      {
-        signature: 'set(agent: Agent, mode: string): void',
-        jsDoc: '/**\n * Select the agent\'s mode. Validates the name against {@link list} (loud on\n * unknown; `default` is always a valid target), drops a no-op (target equals\n * the pending intent, else the current fold), and otherwise records a\n * pending intent flushed as a `mode/set` at the next turn boundary.\n *\n * @param agent The agent to switch.\n * @param mode The target mode name.\n */',
-      },
-    ],
-  },
-  {
     key: 'permission',
     summary: 'Owns the deployment\'s permission presets and their write path.',
     methods: [
@@ -387,6 +369,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'set(session: Session, name: string): void',
         jsDoc: '/**\n * Record a changed preset, then update each changed knob through its own\n * setter. Selecting the effective preset again appends nothing.\n * @param session - the session the switch belongs to.\n * @param name - the preset to switch to; unknown names throw.\n */',
+      },
+    ],
+  },
+  {
+    key: 'planMode',
+    summary: '`ctx.planMode`: owns logged plan state, boundary application and narration, the `plan:policy` section, the `/plan` command, and the stable exit tool.',
+    methods: [
+      {
+        signature: 'get(agent: Agent): { active: boolean; pending?: boolean }',
+        jsDoc: '/**\n * Read the logged plan state and any selected state awaiting a boundary.\n *\n * @param agent The agent to read.\n * @returns Current logged state plus a pending selection, when present.\n */',
+      },
+      {
+        signature: 'set(agent: Agent, active: boolean): void',
+        jsDoc: '/**\n * Select whether plan mode should be active from the next turn boundary.\n * Repeated selection of the current or already-pending state is a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n */',
       },
     ],
   },

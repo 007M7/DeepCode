@@ -17,7 +17,7 @@ import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
-import ModesService from '@deepseek-ai/dsh-mode'
+import PlanModeService from '@deepseek-ai/dsh-plan-mode'
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -192,7 +192,7 @@ export async function makeBridgeHarness(options: {
    * tool + the bridge's own todo/write→plan mapping, not a stand-in.
    */
   withTodo?: boolean
-  /** Plug the REAL `dsh-mode` plugin so a test can drive the session-mode picker. */
+  /** Plug the REAL `dsh-plan-mode` plugin so a test can drive the session-mode picker. */
   withModes?: boolean
   /**
    * Plug the REAL filesystem stack (`dsh-fs-local` + `dsh-fs-policy` +
@@ -229,7 +229,7 @@ export async function makeBridgeHarness(options: {
     await ctx.plugin(ToolTodo)
   }
   if (options.withModes) {
-    await ctx.plugin(ModesService, { modes: { plan: { section: 'Test plan mode instructions.' } } })
+    await ctx.plugin(PlanModeService, { section: 'Test plan mode instructions.' })
   }
   if (options.withFs) {
     await ctx.plugin(LocalFileSystem, { cwd: options.fsCwd ?? options.storageDir })

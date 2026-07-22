@@ -29,8 +29,8 @@ flowchart LR
   bundle_agent_core --> spine_sessions["ctx.sessions"]
   bundle_agent_core --> spine_tools["ctx.tools + tool-bash"]
   bundle_agent_core --> spine_loop["ctx.agents + ctx.agentLoop"]
-  plugin_acp_mode["mode<br/>@deepseek-ai/dsh-mode"]
-  cfg --> plugin_acp_mode
+  plugin_acp_plan_mode["plan-mode<br/>@deepseek-ai/dsh-plan-mode"]
+  cfg --> plugin_acp_plan_mode
   plugin_acp_tool_ask_user["tool-ask-user<br/>@deepseek-ai/dsh-tool-ask-user"]
   cfg --> plugin_acp_tool_ask_user
   plugin_acp_token_meter["token-meter<br/>@deepseek-ai/dsh-token-meter"]
@@ -78,7 +78,7 @@ flowchart LR
 | `approval` | `@deepseek-ai/dsh-user-approval` |
 | `permission` | `@deepseek-ai/dsh-permission` |
 | `acp-agent` | `@deepseek-ai/dsh-acp-demo` |
-| `mode` | `@deepseek-ai/dsh-mode` |
+| `plan-mode` | `@deepseek-ai/dsh-plan-mode` |
 | `tool-ask-user` | `@deepseek-ai/dsh-tool-ask-user` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `compact-basic` | `@deepseek-ai/dsh-compact-basic` |

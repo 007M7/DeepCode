@@ -1,6 +1,6 @@
 {
-  "name": "@deepseek-ai/dsh-mode",
-  "description": "Session modes for the DeepSeek Harness: plan mode as a logged per-agent collaboration state with a guidance section and a user-reviewed exit",
+  "name": "@deepseek-ai/dsh-plan-mode",
+  "description": "Logged per-agent plan mode with deployment guidance, a direct slash command, and a user-reviewed exit",
   "version": "0.0.1",
   "private": true,
   "type": "module",

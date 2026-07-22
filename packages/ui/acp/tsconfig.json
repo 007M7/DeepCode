@@ -42,7 +42,7 @@
       "path": "../user-interaction"
     },
     {
-      "path": "../../mode/mode"
+      "path": "../../plan/plan-mode"
     },
     {
       "path": "../../session-persistence/session-persistence"

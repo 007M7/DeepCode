@@ -689,45 +689,6 @@ Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../cor
 
 Source: [`packages/llm/llm/src/index.ts:159`](../../packages/llm/llm/src/index.ts)
 
-## `ctx.modes` — `ModesService`
-
-`ctx.modes`: the session-mode service. Owns the `mode/set` vocabulary, the pending-intent flush, the boundary narration, the `mode:policy` section, and the stable exit tool. UIs read mode flips off `session/event`; there is no live mirror.
-
-```ts cordis-catalog
-/**
- * The selectable mode vocabulary: {@link DEFAULT_MODE} first, then the
- * configured definitions — the list a mode picker advertises.
- *
- * @returns Mode names, `default` first.
- */
-list(): string[]
-
-/**
- * The agent's mode state: the folded mode in force (a folded name the config
- * no longer defines reads as {@link DEFAULT_MODE}) plus the pending
- * user-selected intent awaiting its boundary flush, when one exists.
- *
- * @param agent The agent to read.
- * @returns The current (effective) mode and the pending intent, if any.
- */
-get(agent: Agent): { current: string; pending?: string }
-
-/**
- * Select the agent's mode. Validates the name against {@link list} (loud on
- * unknown; `default` is always a valid target), drops a no-op (target equals
- * the pending intent, else the current fold), and otherwise records a
- * pending intent flushed as a `mode/set` at the next turn boundary.
- *
- * @param agent The agent to switch.
- * @param mode The target mode name.
- */
-set(agent: Agent, mode: string): void
-```
-
-Types: [Agent](../core-data-structures/core.md)
-
-Source: [`packages/mode/mode/src/index.ts:217`](../../packages/mode/mode/src/index.ts)
-
 ## `ctx.permission` — `PermissionService`
 
 Owns the deployment's permission presets and their write path. Requires a confining `ctx.bash` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.
@@ -771,6 +732,33 @@ set(session: Session, name: string): void
 Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
 Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/src/index.ts)
+
+## `ctx.planMode` — `PlanModeService`
+
+`ctx.planMode`: owns logged plan state, boundary application and narration, the `plan:policy` section, the `/plan` command, and the stable exit tool. UIs observe committed flips through `session/event`; there is no live mirror.
+
+```ts cordis-catalog
+/**
+ * Read the logged plan state and any selected state awaiting a boundary.
+ *
+ * @param agent The agent to read.
+ * @returns Current logged state plus a pending selection, when present.
+ */
+get(agent: Agent): { active: boolean; pending?: boolean }
+
+/**
+ * Select whether plan mode should be active from the next turn boundary.
+ * Repeated selection of the current or already-pending state is a no-op.
+ *
+ * @param agent The agent to switch.
+ * @param active Whether plan mode should be active.
+ */
+set(agent: Agent, active: boolean): void
+```
+
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/plan/plan-mode/src/index.ts:141`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 

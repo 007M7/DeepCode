@@ -312,21 +312,6 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 
 Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src/index.ts)
 
-### `mode/*`
-
-#### `mode/set` — log-only
-
-```ts persistence-catalog
-/**
- * The session mode in force from this point on: log-only, non-surface,
- * whole-value replace — the last `mode/set` in the log wins (see
- * {@link foldMode}). A log with none folds to {@link DEFAULT_MODE}.
- */
-'mode/set': { mode: string }
-```
-
-Source: [`packages/mode/mode/src/index.ts:52`](../packages/mode/mode/src/index.ts)
-
 ### `permission/*`
 
 #### `permission/preset` — log-only
@@ -342,6 +327,21 @@ Source: [`packages/mode/mode/src/index.ts:52`](../packages/mode/mode/src/index.t
 ```
 
 Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src/index.ts)
+
+### `plan/*`
+
+#### `plan/mode` — log-only
+
+```ts persistence-catalog
+/**
+ * Whether plan mode is in force from this point on: log-only, non-surface,
+ * whole-value replace. The last `plan/mode` wins; a log with none folds to
+ * inactive through {@link foldPlanMode}.
+ */
+'plan/mode': { active: boolean }
+```
+
+Source: [`packages/plan/plan-mode/src/index.ts:40`](../packages/plan/plan-mode/src/index.ts)
 
 ### `prompt/*`
 

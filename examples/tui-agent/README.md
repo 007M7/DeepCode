@@ -1,6 +1,6 @@
 # tui-agent
 
-The full-screen interactive coding agent: DeepSeek V4, local bash and filesystem tools, compaction, subagents, workflows and fresh-agent Ralph iteration, `todo_write`, session modes (`/plan` enters plan mode, which has a reviewed exit), timeout/spill policy, and [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo).
+The full-screen interactive coding agent: DeepSeek V4, local bash and filesystem tools, compaction, subagents, workflows and fresh-agent Ralph iteration, `todo_write`, plan mode (`/plan` enters and `exit_plan_mode` reviews the exit), timeout/spill policy, and [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo).
 
 ## Run it
 
