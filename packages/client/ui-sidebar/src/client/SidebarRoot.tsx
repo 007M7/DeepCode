@@ -1,11 +1,12 @@
 /**
  * SidebarRoot (figma 133:7629): logo row + collapse, New Session, search,
  * WorkSpace section header with the group-by menu, session tree list,
- * Settings foot. Pure presentational — data and actions arrive through the
- * inject surface; the tree store is subscribed via useTree, never derived in
- * render.
+ * Settings foot. Pure presentational — the session list arrives through the
+ * standard useSessions hook, viewing state (expansion, search) is local
+ * component state, and rows are derived in render via useMemo (slot design
+ * section 6: derived data is a pure function, no materializing store).
  */
-import { Fragment, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import {
   FishLogo,
@@ -14,6 +15,7 @@ import {
   Menu,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarRootComponentProps } from './contract/slots.ts'
+import { deriveRows } from './tree.ts'
 import { ProjectRowItem, SessionRowItem } from './Rows.tsx'
 import css from './SidebarRoot.module.css'
 
@@ -24,14 +26,28 @@ const GROUP_BY_ITEMS = [
   { id: 'status', label: 'Status', disabled: true },
 ]
 
-type SidebarBodyProps = Pick<SidebarRootComponentProps, 'useTree' | 'useCurrent' | 'actions' | 'tree'>
+/** Immutable membership toggle for the local expansion arrays. */
+function toggled(list: readonly string[], key: string): string[] {
+  return list.includes(key) ? list.filter((k) => k !== key) : [...list, key]
+}
 
-/** Expanded-only content; unmounting drops tree/current subscriptions while the rail is collapsed. */
-function SidebarBody({ useTree, useCurrent, actions, tree }: SidebarBodyProps) {
-  const rows = useTree((s) => s.rows)
-  const query = useTree((s) => s.query)
-  const groupBy = useTree((s) => s.groupBy)
-  const current = useCurrent()
+/**
+ * Render the sidebar column.
+ * @param props - composed slot props (runtime share + injected callbacks, contract/slots.ts).
+ * @returns the sidebar element tree.
+ */
+export function SidebarRoot({ useSessions, onOpen, onCreate, onToggleSidebar }: SidebarRootComponentProps) {
+  const list = useSessions((s) => s)
+  // Wave-2 seam: row highlight expects `current` on the sessions list
+  // snapshot (sessions.current lives with the runtime sessions service).
+  const current = useSessions((s) => s.current)
+  const [expandedProjects, setExpandedProjects] = useState<string[]>([])
+  const [expandedSessions, setExpandedSessions] = useState<string[]>([])
+  const [query, setQuery] = useState('')
+  const rows = useMemo(
+    () => deriveRows(list, { expandedProjects, expandedSessions, query }),
+    [list, expandedProjects, expandedSessions, query],
+  )
   const [menuOpen, setMenuOpen] = useState(false)
   const now = Date.now()
 
@@ -45,14 +61,39 @@ function SidebarBody({ useTree, useCurrent, actions, tree }: SidebarBodyProps) {
   }
 
   return (
-    <div className={css.listArea}>
+    <div className={css.root}>
+      <div className={css.headerBlock}>
+        <div className={css.logoRow}>
+          <span className={css.brand}>
+            {/* Wordmark svg not extracted yet (figma 88:8932) — text stands in at the same ink. */}
+            <FishLogo size={23} />
+            <span className={css.wordmark}>deepseek</span>
+            <span className={css.badge}>HARNESS</span>
+          </span>
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label="Collapse sidebar"
+            onClick={() => { onToggleSidebar() }}
+          >
+            <IconPanelLeftOutline16 />
+          </button>
+        </div>
+
+        <button type="button" className={css.newSession} onClick={() => { onCreate() }}>
+          <IconNewChatOutline16 size={14} />
+          New Session
+        </button>
+      </div>
+
+      <div className={css.listArea}>
       <div className={css.sectionHeader}>
         <span className={css.sectionLabel}>WorkSpace</span>
         <Menu
           open={menuOpen}
           onClose={() => { setMenuOpen(false) }}
           items={GROUP_BY_ITEMS}
-          selectedId={groupBy}
+          selectedId="workspace"
           onSelect={() => { setMenuOpen(false) }}
           align="end"
           anchor={(
@@ -70,7 +111,7 @@ function SidebarBody({ useTree, useCurrent, actions, tree }: SidebarBodyProps) {
           type="button"
           className={css.iconButton}
           aria-label="New workspace"
-          onClick={() => { actions.create() }}
+          onClick={() => { onCreate() }}
         >
           <IconProjectAddOutline16 />
         </button>
@@ -83,14 +124,14 @@ function SidebarBody({ useTree, useCurrent, actions, tree }: SidebarBodyProps) {
           type="text"
           placeholder="Search name, keywords..."
           value={query}
-          onChange={(e) => { tree.setQuery(e.target.value) }}
+          onChange={(e) => { setQuery(e.target.value) }}
         />
         {query !== '' && (
           <button
             type="button"
             className={css.clearButton}
             aria-label="Clear search"
-            onClick={() => { tree.setQuery('') }}
+            onClick={() => { setQuery('') }}
           >
             <IconCloseFill14 />
           </button>
@@ -109,8 +150,8 @@ function SidebarBody({ useTree, useCurrent, actions, tree }: SidebarBodyProps) {
                 <ProjectRowItem
                   row={row}
                   active={row.key === activeGroup}
-                  onToggle={() => { tree.toggleProject(row.key) }}
-                  onCreate={() => { actions.create(row.cwd) }}
+                  onToggle={() => { setExpandedProjects((l) => toggled(l, row.key)) }}
+                  onCreate={() => { onCreate(row.cwd) }}
                 />
               </Fragment>
             )
@@ -120,72 +161,17 @@ function SidebarBody({ useTree, useCurrent, actions, tree }: SidebarBodyProps) {
                 row={row}
                 selected={row.id === current}
                 now={now}
-                onOpen={() => { actions.open(row.id) }}
-                onToggle={() => { tree.toggleSession(row.id) }}
+                onOpen={() => { onOpen(row.id) }}
+                onToggle={() => { setExpandedSessions((l) => toggled(l, row.id)) }}
               />
             ))}
       </div>
       <span className={css.fade} />
-    </div>
-  )
-}
-
-/**
- * Render the sidebar column.
- * @param props - composed slot props (owner share + injected surface, contract/slots.ts).
- * @returns the sidebar element tree.
- */
-export function SidebarRoot(props: SidebarRootComponentProps) {
-  const open = props.useSidebarOpen()
-
-  return (
-    <div className={clsx(css.root, !open && css.collapsed)}>
-      <div className={css.headerBlock}>
-        <div className={css.logoRow}>
-          {open
-            ? (
-                <span className={css.brand}>
-                  {/* Wordmark svg not extracted yet (figma 88:8932) — text stands in at the same ink. */}
-                  <FishLogo size={23} />
-                  <span className={css.wordmark}>deepseek</span>
-                  <span className={css.badge}>HARNESS</span>
-                </span>
-              )
-            : null}
-          <button
-            type="button"
-            className={css.iconButton}
-            aria-label={open ? 'Collapse sidebar' : 'Expand sidebar'}
-            onClick={() => { props.actions.toggleSidebar() }}
-          >
-            <IconPanelLeftOutline16 />
-          </button>
-        </div>
-
-        {open
-          ? (
-              <button type="button" className={css.newSession} onClick={() => { props.actions.create() }}>
-                <IconNewChatOutline16 size={14} />
-                New Session
-              </button>
-            )
-          : null}
       </div>
 
-      {open
-        ? (
-            <SidebarBody
-              useTree={props.useTree}
-              useCurrent={props.useCurrent}
-              actions={props.actions}
-              tree={props.tree}
-            />
-          )
-        : null}
-
-      <div className={css.foot} role="button" tabIndex={0} aria-label="Settings">
+      <div className={clsx(css.foot)} role="button" tabIndex={0} aria-label="Settings">
         <IconSettingsOutline14 />
-        {open ? <span>Settings</span> : null}
+        Settings
       </div>
     </div>
   )

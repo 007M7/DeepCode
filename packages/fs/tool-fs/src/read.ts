@@ -88,7 +88,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
     isConcurrencySafe: () => true,
     async execute(args, exec): Promise<ContentBlock[]> {
       const input = parseReadArgs(args, caps.limit)
-      const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec))
+      const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec, input.filePath))
 
       // One stat: type check + size routing + the version recorded as observed.
       // A concurrent write can only make a later guarded mutation fail stale and require reread.

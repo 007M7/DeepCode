@@ -1,15 +1,16 @@
 /**
- * SessionProvider (dependency-inverted; never imports runtime) plus the two
- * binding contexts the slot outlet reads: per-session {@link BindingContext}
- * written here, and the root-binding channel written by the shell through
- * {@link RootBindingProvider}.
+ * SessionProvider (framework-wired render prop, slot terminal design §7) plus
+ * the two internal channels the render machinery shares: the renderer host
+ * context (written once by createSlotRenderer's root) and the per-session
+ * binding context (written here, read by session-scope outlets). Both
+ * contexts are in-package machinery — they are NOT exported from the package
+ * index; business components see zero React contexts.
  */
-import { createContext, useContext, type FC, type ReactNode } from 'react'
-import type { RootBinding } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionBinding, SessionProviderDeps } from './index.ts'
-
-/** Session binding for the subtree under SessionProvider (module-private write). */
-const BindingContext = createContext<SessionBinding | null>(null)
+import { createContext, useContext, type ReactNode } from 'react'
+import type {
+  HostObservable, SessionCell, SlotRendererHost, SnapshotSelectorHook,
+} from '@deepseek-ai/dsh-client-ui-slots'
+import { bindSnapshotSelector } from './bind.ts'
 
 /**
  * A missing-provider assembly error: the shell wired the tree wrong. The slot
@@ -19,56 +20,75 @@ const BindingContext = createContext<SessionBinding | null>(null)
  */
 export class SlotAssemblyError extends Error {}
 
+/** Renderer host channel: written by createSlotRenderer's root element (in-package machinery only). */
+export const HostContext = createContext<SlotRendererHost | null>(null)
+
 /**
- * Read the enclosing session binding; throws outside a SessionProvider
- * subtree (session slots must not render without a session).
- * @returns the enclosing binding.
+ * Read the installed renderer host; throws outside the rendered root tree
+ * (framework components must not render detached from the renderer).
+ * @returns the host surface.
  */
-export function useSessionBinding(): SessionBinding {
-  const binding = useContext(BindingContext)
-  if (!binding) throw new SlotAssemblyError('session slot rendered outside SessionProvider')
-  return binding
+export function useHost(): SlotRendererHost {
+  const host = useContext(HostContext)
+  if (!host) throw new SlotAssemblyError('slot machinery rendered outside the installed renderer tree')
+  return host
 }
 
-const RootBindingContext = createContext<RootBinding | null>(null)
+/** Per-session binding channel for the subtree under SessionProvider (in-package machinery only). */
+const BindingContext = createContext<SessionCell | null>(null)
 
 /**
- * Root-binding supply channel: the shell mounts this once at the top so root
- * slot inject factories receive their assembly handle.
+ * Read the enclosing session cell; throws outside a SessionProvider subtree
+ * (session slots must not render without a session).
+ * @returns the enclosing cell.
  */
-export const RootBindingProvider: FC<{ value: RootBinding; children?: ReactNode }> =
-  ({ value, children }) => (
-    <RootBindingContext.Provider value={value}>{children}</RootBindingContext.Provider>
-  )
-
-/**
- * Read the root binding; throws when the shell forgot to mount
- * {@link RootBindingProvider} (root inject factories need ctx).
- * @returns the root binding.
- */
-export function useRootBinding(): RootBinding {
-  const binding = useContext(RootBindingContext)
-  if (!binding) throw new SlotAssemblyError('root slot inject requires RootBindingProvider above')
-  return binding
+export function useSessionCell(): SessionCell {
+  const cell = useContext(BindingContext)
+  if (!cell) throw new SlotAssemblyError('session slot rendered outside SessionProvider')
+  return cell
 }
 
 /**
- * Build the single SessionProvider component: subscribes to the current
- * session id, resolves its binding (stable reference), remounts the body
- * under key={id}, and delegates body rendering to the assembler's renderBody
- * (slot ownership stays with layout; the provider knows no slot names).
- * @param deps - inverted dependencies.
- * @returns the provider component.
+ * Identity-stable selector hook per host observable. uSES resubscribes when
+ * the subscribe reference changes, so the bound hook must be created once per
+ * source — cached here by source identity (sources are host-owned singletons).
+ * @param source - host-provided observable.
+ * @returns the cached selector hook.
  */
-export function createSessionProvider(deps: SessionProviderDeps): FC<{ renderEmpty?: () => ReactNode }> {
-  return function SessionProvider({ renderEmpty }) {
-    const id = deps.useCurrent()
-    const binding = id === undefined ? undefined : deps.resolveBinding(id)
-    if (id === undefined || !binding) return <>{renderEmpty?.() ?? null}</>
-    return (
-      <BindingContext.Provider value={binding} key={id}>
-        {deps.renderBody(id)}
-      </BindingContext.Provider>
-    )
+export function observableHook<T>(source: HostObservable<T>): SnapshotSelectorHook<T> {
+  let hook = hookCache.get(source)
+  if (hook === undefined) {
+    hook = bindSnapshotSelector(source)
+    hookCache.set(source, hook)
   }
+  return hook as SnapshotSelectorHook<T>
+}
+const hookCache = new WeakMap<object, unknown>()
+
+/** SessionProvider surface: render-prop body plus the no-session branch. */
+export interface SessionProviderProps {
+  /** No-session body (also covers a current id whose session cannot be resolved). */
+  empty?: (() => ReactNode) | undefined
+  /** Session body; remounted per session via key={sessionId}. */
+  children: (sessionId: string) => ReactNode
+}
+
+/**
+ * Framework-wired session area: subscribes to the host's current-session
+ * source (design fiat ① — selection authority lives with runtime sessions),
+ * resolves the session cell, and remounts the body under key={sessionId} so
+ * a session switch rebuilds the whole session subtree. Ids speak plain
+ * string at this dependency-inverted layer; branding lands on the component
+ * props seam (PropsRuntime).
+ */
+export function SessionProvider({ empty, children }: SessionProviderProps) {
+  const host = useHost()
+  const id = observableHook(host.sessions.current)((s) => s)
+  const cell = id === undefined ? undefined : host.sessions.cell(id)
+  if (id === undefined || cell === undefined) return <>{empty?.() ?? null}</>
+  return (
+    <BindingContext.Provider value={cell} key={id}>
+      {children(id)}
+    </BindingContext.Provider>
+  )
 }

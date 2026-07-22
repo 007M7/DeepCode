@@ -166,8 +166,8 @@ export function scanRows(rows: readonly EventRow[]): { preserved: SessionEvent[]
     }
   })
 
-  // The last index that is a valid `turn/end` — the last fully-committed
-  // boundary (the loop flushes only at turn/end).
+  // The last index that is a valid `turn/end` — holes through a closed turn
+  // are always committed corruption.
   let lastTurnEnd = -1
   for (let i = parsed.length - 1; i >= 0; i--) {
     if (parsed[i]?.ok && rows[i]?.type === 'turn/end') { lastTurnEnd = i; break }

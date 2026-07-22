@@ -10,6 +10,7 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
+import type { AddressInfo } from 'node:net'
 import { dirname } from 'node:path'
 import { serveStatic } from './static.ts'
 import type { HostWebPluginRegistry } from './web-plugins.ts'
@@ -21,7 +22,9 @@ export type {
 
 /** Options for startWebServer. */
 export interface WebServerOptions {
-  /** Port to listen on (0.0.0.0). */
+  /** Address or hostname to listen on. */
+  host: string
+  /** Port to listen on; zero requests an OS-assigned port. */
   port: number
   /**
    * Absolute path of index.html inside the static root — the caller resolves
@@ -40,7 +43,7 @@ export interface WebServerOptions {
 
 /** Listening web server handle. */
 export interface RunningWebServer {
-  /** The listening port (for the shell's URL line; equals options.port). */
+  /** The listening port, including the OS-assigned value when options.port is zero. */
   port: number
   /**
    * Shutdown: close + closeAllConnections (SSE connections never end on their
@@ -50,7 +53,7 @@ export interface RunningWebServer {
 }
 
 /**
- * Start the web-shape HTTP server: listen(port, '0.0.0.0').
+ * Start the web-shape HTTP server on the caller-selected host and port.
  * Routing: /api/* → apiHandler bridge; non-GET/HEAD → 405; everything else →
  * static with the step1-locked semantics (403 traversal, SPA fallback 200).
  * A listen failure (EADDRINUSE…) rejects — the shell decides how to exit; a
@@ -63,7 +66,7 @@ export interface RunningWebServer {
  * @returns the running server handle once listening.
  */
 export function startWebServer(options: WebServerOptions, onError: (err: Error) => void): Promise<RunningWebServer> {
-  const { port, distIndex, apiHandler, webPlugins } = options
+  const { host, port, distIndex, apiHandler, webPlugins } = options
   const distRoot = dirname(distIndex)
   const renderIndex = webPlugins === undefined ? undefined : async (): Promise<string> => {
     const html = await readFile(distIndex, 'utf8')
@@ -113,10 +116,10 @@ export function startWebServer(options: WebServerOptions, onError: (err: Error) 
 
   return new Promise((resolveListen, rejectListen) => {
     server.once('error', rejectListen)
-    server.listen(port, '0.0.0.0', () => {
+    server.listen(port, host, () => {
       server.off('error', rejectListen)
       server.on('error', onError)
-      resolveListen({ port, close })
+      resolveListen({ port: (server.address() as AddressInfo).port, close })
     })
   })
 }

@@ -4,7 +4,7 @@ import LlmService, { CallId, ContentBlock, MessageSource, ProviderRequestId, Str
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool, TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, type PostToolDecision } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type Agent, type ContinuationDecision } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type ContinuationDecision, type HookContext } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { prepareReactLoopAgent } from '../src/agent.ts'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -777,14 +777,14 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
       },
     }))
 
-    const queuedSources: { source: MessageSource; steering: boolean }[] = []
+    const queuedSources: { source: MessageSource; contexts: HookContext[]; steering: boolean }[] = []
     ctx.on('agent/queued', (_agent, _content, info) => void queuedSources.push(info))
 
     send(agent, 'go') // no explicit source → default {kind:'user'} must be visible
     await waitForIdle(ctx, agent)
 
-    expect(queuedSources[0]).toEqual({ source: { kind: 'user' }, steering: false })
-    expect(queuedSources[1]).toEqual({ source: { kind: 'plugin', plugin: 'goal' }, steering: true })
+    expect(queuedSources[0]).toEqual({ source: { kind: 'user' }, contexts: [], steering: false })
+    expect(queuedSources[1]).toEqual({ source: { kind: 'plugin', plugin: 'goal' }, contexts: [], steering: true })
     // The drain appends the durable steering/message with the caller's source
     // intact — the log, not a transient emit, is where consumers read it.
     const steeringSources = agent.session.events.flatMap(e => e.type === 'steering/message' ? [e.data.source] : [])
@@ -799,24 +799,39 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     const source = { kind: 'plugin' as const, plugin: 'accepted-source' }
     let notifiedContent: ContentBlock[] | undefined
     let notifiedSource: MessageSource | undefined
+    let notifiedContexts: HookContext[] | undefined
     ctx.on('agent/queued', (subject, acceptedContent, info) => {
       if (subject !== agent || info.steering) return
       // Retain the exact notification references: cloning here would test the
       // listener's copy rather than the event/inbox ownership boundary.
       notifiedContent = acceptedContent
       notifiedSource = info.source
+      notifiedContexts = info.contexts
     })
 
-    agent.send(content, { source })
+    const contexts: HookContext[] = [{
+      content: [{ type: 'text', text: 'accepted-context' }],
+      source: { kind: 'plugin', plugin: 'context-source' },
+      meta: { version: 1 },
+    }]
+    agent.send(content, { source, contexts })
     content[0]!.text = 'caller-mutated-send'
     source.plugin = 'caller-mutated-source'
+    contexts[0]!.content[0] = { type: 'text', text: 'caller-mutated-context' }
     await waitForIdle(ctx, agent)
 
     expect(notifiedContent).toEqual([{ type: 'text', text: 'accepted-send' }])
     expect(notifiedSource).toEqual({ kind: 'plugin', plugin: 'accepted-source' })
+    expect(notifiedContexts).toEqual([{
+      content: [{ type: 'text', text: 'accepted-context' }],
+      source: { kind: 'plugin', plugin: 'context-source' },
+      meta: { version: 1 },
+    }])
     expect(Object.isFrozen(notifiedContent)).toBe(true)
     expect(Object.isFrozen(notifiedContent?.[0])).toBe(true)
     expect(Object.isFrozen(notifiedSource)).toBe(true)
+    expect(Object.isFrozen(notifiedContexts)).toBe(true)
+    expect(Object.isFrozen(notifiedContexts?.[0]?.content)).toBe(true)
     const recorded = agent.session.events.flatMap(event => event.type === 'user/message' ? [event.data] : [])
     expect(recorded).toContainEqual({
       content: [{ type: 'text', text: 'accepted-send' }],
@@ -824,7 +839,9 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     })
     const request = JSON.stringify(adapter.requests[0]!.messages)
     expect(request).toContain('accepted-send')
+    expect(request).toContain('accepted-context')
     expect(request).not.toContain('caller-mutated-send')
+    expect(request).not.toContain('caller-mutated-context')
   })
 
   it('running steer() owns content and source before notification and delivery', async () => {
@@ -845,10 +862,12 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     }))
     let notifiedContent: ContentBlock[] | undefined
     let notifiedSource: MessageSource | undefined
+    let notifiedContexts: HookContext[] | undefined
     ctx.on('agent/queued', (subject, acceptedContent, info) => {
       if (subject !== agent || !info.steering) return
       notifiedContent = acceptedContent
       notifiedSource = info.source
+      notifiedContexts = info.contexts
     })
 
     agent.send([{ type: 'text', text: 'start' }])
@@ -856,27 +875,86 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     expect(agent.status).toBe('running')
     const content = [{ type: 'text' as const, text: 'accepted-steer' }]
     const source = { kind: 'plugin' as const, plugin: 'accepted-source' }
-    agent.steer(content, { source })
+    const contexts: HookContext[] = [
+      {
+        content: [{ type: 'text', text: 'accepted-steering-prefix' }],
+        source: { kind: 'plugin', plugin: 'steering-prefix' },
+        placement: 'prompt-prefix',
+      },
+      {
+        content: [{ type: 'text', text: 'accepted-steering-context' }],
+        source: { kind: 'plugin', plugin: 'steering-context' },
+        meta: { kind: 'separate-card' },
+      },
+      {
+        content: [{ type: 'text', text: 'accepted-steering-context-without-meta' }],
+        source: { kind: 'plugin', plugin: 'steering-context-without-meta' },
+      },
+    ]
+    agent.steer(content, { source, contexts })
     content[0]!.text = 'caller-mutated-steer'
     source.plugin = 'caller-mutated-source'
+    contexts[0]!.content[0] = { type: 'text', text: 'caller-mutated-steering-prefix' }
+    contexts[0]!.placement = 'separate'
+    contexts[1]!.content[0] = { type: 'text', text: 'caller-mutated-steering-context' }
+    contexts[2]!.content[0] = { type: 'text', text: 'caller-mutated-steering-context-without-meta' }
     const idle = waitForIdle(ctx, agent)
     release.resolve(undefined)
     await idle
 
     expect(notifiedContent).toEqual([{ type: 'text', text: 'accepted-steer' }])
     expect(notifiedSource).toEqual({ kind: 'plugin', plugin: 'accepted-source' })
+    expect(notifiedContexts).toEqual([
+      {
+        content: [{ type: 'text', text: 'accepted-steering-prefix' }],
+        source: { kind: 'plugin', plugin: 'steering-prefix' },
+        placement: 'prompt-prefix',
+      },
+      {
+        content: [{ type: 'text', text: 'accepted-steering-context' }],
+        source: { kind: 'plugin', plugin: 'steering-context' },
+        meta: { kind: 'separate-card' },
+      },
+      {
+        content: [{ type: 'text', text: 'accepted-steering-context-without-meta' }],
+        source: { kind: 'plugin', plugin: 'steering-context-without-meta' },
+      },
+    ])
     expect(Object.isFrozen(notifiedContent)).toBe(true)
     expect(Object.isFrozen(notifiedContent?.[0])).toBe(true)
     expect(Object.isFrozen(notifiedSource)).toBe(true)
+    expect(Object.isFrozen(notifiedContexts)).toBe(true)
     const recorded = agent.session.events.flatMap(event => event.type === 'steering/message' ? [event.data] : [])
     expect(recorded).toContainEqual({
       turn: 1,
-      content: [{ type: 'text', text: 'accepted-steer' }],
+      content: [
+        { type: 'text', text: 'accepted-steering-prefix' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'accepted-steer' },
+      ],
       source: { kind: 'plugin', plugin: 'accepted-source' },
+      envelope: {
+        displayContent: [{ type: 'text', text: 'accepted-steer' }],
+        prefixContexts: [{
+          source: { kind: 'plugin', plugin: 'steering-prefix' },
+        }],
+      },
     })
     const request = JSON.stringify(adapter.requests[1]!.messages)
     expect(request).toContain('accepted-steer')
+    expect(request).toContain('accepted-steering-prefix')
+    expect(request).toContain('accepted-steering-context')
+    expect(request).toContain('accepted-steering-context-without-meta')
     expect(request).not.toContain('caller-mutated-steer')
+    expect(request).not.toContain('caller-mutated-steering-prefix')
+    expect(request).not.toContain('caller-mutated-steering-context')
+    expect(request).not.toContain('caller-mutated-steering-context-without-meta')
+
+    const steeringIndex = agent.session.events.findIndex(event => event.type === 'steering/message')
+    const contextIndex = agent.session.events.findIndex(event => event.type === 'context/message'
+      && event.data.source.kind === 'plugin' && event.data.source.plugin === 'steering-context')
+    expect(steeringIndex).toBeGreaterThanOrEqual(0)
+    expect(contextIndex).toBe(steeringIndex + 1)
   })
 })
 

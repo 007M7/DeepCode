@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render } from '@testing-library/react'
 
 afterEach(cleanup)
 import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import { classifyTool, toolRowModel } from '../src/client/contract/tool-call-model.ts'
 import { ToolRow } from '../src/client/chat/ToolRow.tsx'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'

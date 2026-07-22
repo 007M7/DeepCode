@@ -6,6 +6,7 @@
 
 import { isDeepStrictEqual } from 'node:util'
 import {
+  COMPACT_CHECKPOINT_SOURCE,
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compact'
@@ -152,7 +153,7 @@ export async function compactSurfaceRegion(
     })
     session.append('user/message', {
       content: framedSummary,
-      source: { kind: 'plugin', plugin: 'compact' },
+      source: COMPACT_CHECKPOINT_SOURCE,
     }, {
       surfaceOp: { op: 'replace', start, end },
       sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],

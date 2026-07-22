@@ -1,165 +1,290 @@
+// SlotCore terminal-design behavior: the single register composition API —
+// a-priori 'root', children declaration/authorization, load-time validation,
+// one-axis lifecycle cascade, store scope pinning, subscription surface.
 import { describe, expect, it, vi } from 'vitest'
-import type { FC } from 'react'
-import type { RootBinding, SessionBinding, SlotOptions } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SlotComponent, StoreHandle } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 
+// 'root' is NOT merged here: the runtime package owns the built-in row, and
+// the client aggregate program would see both merges collide.
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
-    'test.single': { kind: 'single'; scope: 'root'; props: { label: string } }
-    'test.list': { kind: 'list'; scope: 'root'; props: { label: string } }
-    'test.keyed': { kind: 'keyed'; scope: 'session'; props: { label: string; useSession: unknown } }
+    'test.single': { kind: 'single'; scope: 'root' }
+    'test.session': { kind: 'single'; scope: 'session' }
+    'test.list': { kind: 'list'; scope: 'root' }
+    'test.keyed': { kind: 'keyed'; scope: 'session' }
+    'test.grandchild': { kind: 'single'; scope: 'root' }
   }
 }
 
-const Comp: FC<{ label: string }> = () => null
-const SessionComp: FC<{ label: string; useSession: unknown }> = () => null
+// Wide-accepting fixture: assignable wherever the composed constraint is an
+// object type (children-declaring fixtures erase via `as never` instead —
+// RendersCheck would demand a renderSlot consumer).
+const Comp: SlotComponent<object> = () => null
+
+/** A minimal structurally-valid store handle (identity is what the ledger tracks). */
+function fakeHandle(): StoreHandle<{ n: number }, Record<string, (d: { n: number }) => void>> {
+  return {
+    spec: { init: () => ({ n: 0 }), actions: {} },
+    create: () => { throw new Error('not under test') },
+  }
+}
+
+/** Register a root-frame entry declaring the four test child slots. */
+function mountFrame(core: SlotCore) {
+  return core.register({
+    name: 'root',
+    children: {
+      'test.single': { kind: 'single', scope: 'root' },
+      'test.session': { kind: 'single', scope: 'session' },
+      'test.list': { kind: 'list', scope: 'root' },
+      'test.keyed': { kind: 'keyed', scope: 'session' },
+    },
+  // Type-level renderSlot presence is proven by the type-chain spec; erasing
+  // here keeps runtime fixtures terse.
+  }, Comp as never)
+}
 
 const flushMicrotasks = () => new Promise<void>((resolve) => { queueMicrotask(resolve) })
 
-describe('SlotCore kind semantics', () => {
-  it('throws on register before define', () => {
+describe('a-priori root and declaration gate', () => {
+  it('seeds root as single/root at construction', () => {
     const core = new SlotCore()
-    expect(() => core.register('test.single', Comp)).toThrow('not defined')
+    expect(core.specDynamic('root')).toEqual({ kind: 'single', scope: 'root' })
   })
 
-  it('throws on duplicate define', () => {
+  it('throws on registering into an undeclared slot', () => {
     const core = new SlotCore()
-    core.define('test.single', { kind: 'single', scope: 'root' })
-    expect(() => core.define('test.single', { kind: 'single', scope: 'root' })).toThrow('already defined')
+    expect(() => core.register({ name: 'test.single' }, Comp)).toThrow('not declared')
   })
 
-  it('single: second registration throws, disposer frees the seat', () => {
+  it('root is single: a second frame registration throws', () => {
     const core = new SlotCore()
-    core.define('test.single', { kind: 'single', scope: 'root' })
-    const dispose = core.register('test.single', Comp)
-    expect(() => core.register('test.single', Comp)).toThrow('already has a registration')
-    dispose()
+    mountFrame(core)
+    expect(() => core.register({ name: 'root' }, Comp)).toThrow('already has a registration')
+  })
+
+  it('children declaration makes child slots registerable, with specs recorded', () => {
+    const core = new SlotCore()
+    mountFrame(core)
+    expect(core.specDynamic('test.session')).toEqual({ kind: 'single', scope: 'session' })
+    expect(() => core.register({ name: 'test.single' }, Comp)).not.toThrow()
+  })
+
+  it('duplicate child declaration throws naming the first declarer', () => {
+    const core = new SlotCore()
+    mountFrame(core)
+    core.register({ name: 'test.single', children: { 'test.grandchild': { kind: 'single', scope: 'root' } } }, Comp as never)
+    expect(() => core.register(
+      { name: 'test.session', children: { 'test.grandchild': { kind: 'single', scope: 'root' } }, registrant: 'imposter' },
+      Comp as never,
+    )).toThrow(/already declared.*test\.single/)
+  })
+})
+
+describe('lifecycle cascade (one axis)', () => {
+  it('disposing a declaring entry collapses child slots and their contributions recursively', () => {
+    const core = new SlotCore()
+    const disposeFrame = mountFrame(core)
+    const disposeChild = core.register(
+      { name: 'test.single', children: { 'test.grandchild': { kind: 'single', scope: 'root' } } }, Comp as never)
+    core.register({ name: 'test.grandchild' }, Comp)
+    expect(core.entries('test.grandchild')).toHaveLength(1)
+
+    disposeFrame()
+    expect(core.specDynamic('test.single')).toBeUndefined()
+    expect(core.specDynamic('test.grandchild')).toBeUndefined()
     expect(core.entries('test.single')).toHaveLength(0)
-    expect(() => core.register('test.single', Comp)).not.toThrow()
+    expect(core.entries('test.grandchild')).toHaveLength(0)
+    // Stale disposer of a cascaded-away entry is a no-op.
+    expect(() => { disposeChild() }).not.toThrow()
+    // Slots return to undeclared: contributing again throws until redeclared.
+    expect(() => core.register({ name: 'test.single' }, Comp)).toThrow('not declared')
   })
 
+  it('registration disposers are idempotent', () => {
+    const core = new SlotCore()
+    const dispose = mountFrame(core)
+    dispose()
+    dispose()
+    expect(core.entries('root')).toHaveLength(0)
+    // Redeclare works after collapse.
+    mountFrame(core)
+    expect(core.specDynamic('test.single')).toBeDefined()
+  })
+
+  it('isLive tracks ledger membership across dispose', () => {
+    const core = new SlotCore()
+    mountFrame(core)
+    const dispose = core.register({ name: 'test.single' }, Comp)
+    const entry = core.entries('test.single')[0]!
+    expect(core.isLive(entry)).toBe(true)
+    dispose()
+    expect(core.isLive(entry)).toBe(false)
+  })
+})
+
+describe('kind semantics', () => {
   it('keyed: duplicate key throws, missing key throws', () => {
     const core = new SlotCore()
-    core.define('test.keyed', { kind: 'keyed', scope: 'session' })
-    core.register('test.keyed', SessionComp, { key: 'a' })
-    expect(() => core.register('test.keyed', SessionComp, { key: 'a' })).toThrow('key "a"')
-    // Statically rejected since RegisterArgs made keyed options mandatory;
-    // the runtime guard stays for dynamically-composed callers.
-    // @ts-expect-error keyed registration requires options
-    expect(() => core.register('test.keyed', SessionComp)).toThrow('requires options.key')
-    expect(() => core.register('test.keyed', SessionComp, { key: 'b' })).not.toThrow()
+    mountFrame(core)
+    core.register({ name: 'test.keyed', key: 'a' }, Comp)
+    expect(() => core.register({ name: 'test.keyed', key: 'a' }, Comp)).toThrow('key "a"')
+    // Statically rejected (KindOptions); runtime guard stays for dynamic callers.
+    // @ts-expect-error keyed registration requires options.key
+    expect(() => core.register({ name: 'test.keyed' }, Comp)).toThrow('requires options.key')
+    expect(() => core.register({ name: 'test.keyed', key: 'b' }, Comp)).not.toThrow()
   })
 
   it('list: duplicate id throws, missing id throws, entries sort by order stably', () => {
     const core = new SlotCore()
-    core.define('test.list', { kind: 'list', scope: 'root' })
-    core.register('test.list', Comp, { id: 'c', order: 10 })
-    core.register('test.list', Comp, { id: 'a' })
-    core.register('test.list', Comp, { id: 'b' })
-    expect(() => core.register('test.list', Comp, { id: 'a' })).toThrow('id "a"')
-    // @ts-expect-error list registration requires options (static since RegisterArgs)
-    expect(() => core.register('test.list', Comp)).toThrow('requires options.id')
-    const ids = core.entries('test.list').map(e => (e.options as { id: string }).id)
-    expect(ids).toEqual(['a', 'b', 'c'])
+    mountFrame(core)
+    core.register({ name: 'test.list', id: 'c', order: 10 }, Comp)
+    core.register({ name: 'test.list', id: 'a' }, Comp)
+    core.register({ name: 'test.list', id: 'b' }, Comp)
+    expect(() => core.register({ name: 'test.list', id: 'a' }, Comp)).toThrow('id "a"')
+    // @ts-expect-error list registration requires options.id
+    expect(() => core.register({ name: 'test.list' }, Comp)).toThrow('requires options.id')
+    expect(core.entries('test.list').map(e => e.options.id)).toEqual(['a', 'b', 'c'])
   })
 
-  it('spec() exposes the definition; define disposer clears spec and entries', () => {
+  it('single: second registration throws, disposer frees the seat', () => {
     const core = new SlotCore()
-    const dispose = core.define('test.single', { kind: 'single', scope: 'root' })
-    core.register('test.single', Comp)
-    expect(core.spec('test.single')).toEqual({ kind: 'single', scope: 'root' })
+    mountFrame(core)
+    const dispose = core.register({ name: 'test.single' }, Comp)
+    expect(() => core.register({ name: 'test.single' }, Comp)).toThrow('already has a registration')
     dispose()
-    expect(core.spec('test.single')).toBeUndefined()
     expect(core.entries('test.single')).toHaveLength(0)
-    expect(() => core.register('test.single', Comp)).toThrow('not defined')
-  })
-
-  it('disposers are idempotent and stale disposers after redefine are no-ops', () => {
-    const core = new SlotCore()
-    const disposeDef = core.define('test.single', { kind: 'single', scope: 'root' })
-    const disposeReg = core.register('test.single', Comp)
-    disposeReg()
-    disposeReg()
-    disposeDef()
-    disposeDef()
-    core.define('test.single', { kind: 'single', scope: 'root' })
-    core.register('test.single', Comp)
-    disposeDef()
-    disposeReg()
-    expect(core.spec('test.single')).toBeDefined()
-    expect(core.entries('test.single')).toHaveLength(1)
+    expect(() => core.register({ name: 'test.single' }, Comp)).not.toThrow()
   })
 })
 
-describe('SlotCore subscription surface', () => {
+describe('store scope pinning', () => {
+  it('one shared handle under two scopes throws at load', () => {
+    const core = new SlotCore()
+    mountFrame(core)
+    const handle = fakeHandle()
+    core.register({ name: 'test.session', store: handle }, Comp as never)
+    expect(() => core.register({ name: 'test.single', store: handle }, Comp as never))
+      .toThrow('one handle, one scope')
+  })
+
+  it('same handle under same scope is fine; full unmount releases the pin', () => {
+    const core = new SlotCore()
+    mountFrame(core)
+    const handle = fakeHandle()
+    const d1 = core.register({ name: 'test.list', id: 'x', store: handle }, Comp as never)
+    const d2 = core.register({ name: 'test.list', id: 'y', store: handle }, Comp as never)
+    d1()
+    // Still mounted once — scope stays pinned.
+    expect(() => core.register({ name: 'test.session', store: handle }, Comp as never))
+      .toThrow('one handle, one scope')
+    d2()
+    // All mounts gone: the handle may pin a new scope.
+    expect(() => core.register({ name: 'test.session', store: handle }, Comp as never)).not.toThrow()
+  })
+
+  it('factories are exempt from pinning (no shared identity)', () => {
+    const core = new SlotCore()
+    mountFrame(core)
+    const factory = () => fakeHandle()
+    core.register({ name: 'test.session', store: factory }, Comp as never)
+    expect(() => core.register({ name: 'test.single', store: factory }, Comp as never)).not.toThrow()
+  })
+
+  it('cascade releases store pins of collapsed child entries', () => {
+    const core = new SlotCore()
+    const disposeFrame = mountFrame(core)
+    const handle = fakeHandle()
+    core.register({ name: 'test.session', store: handle }, Comp as never)
+    disposeFrame()
+    mountFrame(core)
+    expect(() => core.register({ name: 'test.single', store: handle }, Comp as never)).not.toThrow()
+  })
+})
+
+describe('subscription surface', () => {
   it('entries() returns a stable cached reference between mutations', () => {
     const core = new SlotCore()
-    core.define('test.list', { kind: 'list', scope: 'root' })
-    core.register('test.list', Comp, { id: 'a' })
+    mountFrame(core)
+    core.register({ name: 'test.list', id: 'a' }, Comp)
     const first = core.entries('test.list')
     expect(core.entries('test.list')).toBe(first)
-    core.register('test.list', Comp, { id: 'b' })
+    core.register({ name: 'test.list', id: 'b' }, Comp)
     expect(core.entries('test.list')).not.toBe(first)
   })
 
   it('bumps version synchronously but batches notifications per microtask', async () => {
     const core = new SlotCore()
+    mountFrame(core)
     const fn = vi.fn()
     core.subscribe('test.list', fn)
-    core.define('test.list', { kind: 'list', scope: 'root' })
-    core.register('test.list', Comp, { id: 'a' })
-    core.register('test.list', Comp, { id: 'b' })
-    expect(core.getVersion('test.list')).toBe(3)
+    const before = core.getVersion('test.list')
+    core.register({ name: 'test.list', id: 'a' }, Comp)
+    core.register({ name: 'test.list', id: 'b' }, Comp)
+    expect(core.getVersion('test.list')).toBe(before + 2)
     expect(fn).not.toHaveBeenCalled()
     await flushMicrotasks()
     expect(fn).toHaveBeenCalledTimes(1)
-    core.register('test.list', Comp, { id: 'c' })
+    core.register({ name: 'test.list', id: 'c' }, Comp)
     await flushMicrotasks()
     expect(fn).toHaveBeenCalledTimes(2)
   })
 
+  it('declaration itself notifies child-key subscribers (subscribe-ahead allowed)', async () => {
+    const core = new SlotCore()
+    const fn = vi.fn()
+    core.subscribe('test.single', fn)
+    mountFrame(core)
+    await flushMicrotasks()
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
   it('notifies only subscribers of the touched key; unsubscribe stops delivery', async () => {
     const core = new SlotCore()
+    mountFrame(core)
+    await flushMicrotasks()
     const single = vi.fn()
     const list = vi.fn()
     core.subscribe('test.single', single)
     const unsubscribe = core.subscribe('test.list', list)
-    core.define('test.single', { kind: 'single', scope: 'root' })
+    core.register({ name: 'test.single' }, Comp)
     await flushMicrotasks()
     expect(single).toHaveBeenCalledTimes(1)
     expect(list).not.toHaveBeenCalled()
     unsubscribe()
-    core.define('test.list', { kind: 'list', scope: 'root' })
+    core.register({ name: 'test.list', id: 'a' }, Comp)
     await flushMicrotasks()
     expect(list).not.toHaveBeenCalled()
   })
 
   it('a mutation from inside a flush re-schedules instead of being lost', async () => {
     const core = new SlotCore()
-    core.define('test.list', { kind: 'list', scope: 'root' })
+    mountFrame(core)
+    await flushMicrotasks()
     const seen: number[] = []
     let reentered = false
     core.subscribe('test.list', () => {
       seen.push(core.getVersion('test.list'))
       if (!reentered) {
         reentered = true
-        core.register('test.list', Comp, { id: 'reentrant' })
+        core.register({ name: 'test.list', id: 'reentrant' }, Comp)
       }
     })
-    core.register('test.list', Comp, { id: 'a' })
+    core.register({ name: 'test.list', id: 'a' }, Comp)
     await flushMicrotasks()
     await flushMicrotasks()
     expect(seen).toHaveLength(2)
     expect(core.entries('test.list')).toHaveLength(2)
   })
 
-  it('getVersion is 0 for untouched keys and monotonic across redefine', () => {
+  it('getVersion is 0 for untouched keys and monotonic across redeclaration', () => {
     const core = new SlotCore()
     expect(core.getVersion('test.single')).toBe(0)
-    const dispose = core.define('test.single', { kind: 'single', scope: 'root' })
+    const dispose = mountFrame(core)
     dispose()
     const after = core.getVersion('test.single')
-    core.define('test.single', { kind: 'single', scope: 'root' })
+    mountFrame(core)
     expect(core.getVersion('test.single')).toBeGreaterThan(after)
   })
 
@@ -167,43 +292,14 @@ describe('SlotCore subscription surface', () => {
     const core = new SlotCore()
     const keys: string[] = []
     const off = core.onMutate(key => keys.push(key))
-    core.define('test.single', { kind: 'single', scope: 'root' })
-    core.define('test.list', { kind: 'list', scope: 'root' })
-    core.register('test.list', Comp, { id: 'a' })
-    expect(keys).toEqual(['test.single', 'test.list', 'test.list'])
+    mountFrame(core)
+    // Contribution first, then each declared child key.
+    expect(keys).toEqual(['root', 'test.single', 'test.session', 'test.list', 'test.keyed'])
+    keys.length = 0
+    core.register({ name: 'test.list', id: 'a' }, Comp)
+    expect(keys).toEqual(['test.list'])
     off()
-    core.register('test.list', Comp, { id: 'b' })
-    expect(keys).toHaveLength(3)
-  })
-})
-
-describe('SlotOptions typing', () => {
-  it('rejects kind-mismatched options and scope-mismatched inject bindings', () => {
-    // Compile-time negatives only: the body never runs (some rejected shapes
-    // would be legal at runtime, which validates kinds, not props).
-    const typeNegatives = (core: SlotCore) => {
-      // @ts-expect-error single options take no key
-      core.register('test.single', Comp, { key: 'x' })
-      // @ts-expect-error list options require id
-      core.register('test.list', Comp, { order: 1 })
-      // @ts-expect-error keyed options require key
-      core.register('test.keyed', SessionComp, { inject: () => ({}) })
-      // @ts-expect-error component props must match the SlotMap contract
-      core.register('test.single', SessionComp)
-      // @ts-expect-error kind must match the SlotMap declaration
-      core.define('test.single', { kind: 'list', scope: 'root' })
-      const rootInject: SlotOptions<{ kind: 'single'; scope: 'root'; props: { label: string } }> = {
-        // @ts-expect-error root slots bind RootBinding, which has no sessionId
-        inject: (b: RootBinding) => ({ sessionId: b.sessionId }),
-      }
-      return rootInject
-    }
-    expect(typeNegatives).toBeTypeOf('function')
-
-    const sessionInject: SlotOptions<{ kind: 'keyed'; scope: 'session'; props: { label: string } }> = {
-      key: 'k',
-      inject: (b: SessionBinding) => ({ sessionId: b.sessionId }),
-    }
-    expect(sessionInject.key).toBe('k')
+    core.register({ name: 'test.list', id: 'b' }, Comp)
+    expect(keys).toHaveLength(1)
   })
 })

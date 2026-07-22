@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 /**
- * dsh — command-line entry. Coarse dispatch only; each subcommand module owns
- * its parseArgs. Dynamic imports keep the shapes independent: `web` never
- * loads the headless consumer, `-p` never loads node:http or the static server.
+ * dsh — command-line entry. Coarse dispatch only; each surface module owns its
+ * argument handling. Dynamic imports keep unrelated surfaces out of each
+ * dispatch path; everything except `web` and headless prompts opens the TUI.
+ * @module @deepseek-ai/dsh/bin
  */
+
+/* v8 ignore file -- built-bin and PTY tests exercise this self-executing dispatch. */
 
 import { loadEnv } from '@deepseek-ai/dsh-app-boot'
 
@@ -17,6 +20,6 @@ if (argv[0] === 'web') {
   const { runHeadless } = await import('./headless.ts')
   await runHeadless(argv)
 } else {
-  process.stderr.write('usage: dsh web [--port N] | dsh -p "task"\n')
-  process.exit(1)
+  const { runTui } = await import('./tui.ts')
+  await runTui(argv)
 }

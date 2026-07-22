@@ -7,7 +7,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
-import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-web-react'
+import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { LoaderStatus } from '@deepseek-ai/dsh-client-runtime/client'
 import css from './AppRoot.module.css'
 

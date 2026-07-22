@@ -5,10 +5,11 @@ import AgentRegistry, {
   type AgentCancelCause,
   type AgentOptions,
   type AgentStatus,
+  type SendOptions,
 } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type Session, type SessionHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -17,18 +18,25 @@ import { createTuiChat, type Config, type TuiRuntime } from '../src/index.ts'
 interface FakeAgent extends Agent {
   status: AgentStatus
   sent: ContentBlock[][]
+  sentOptions: (SendOptions | undefined)[]
   steered: ContentBlock[][]
+  steeredOptions: (SendOptions | undefined)[]
   cancelled: AgentCancelCause[]
 }
 
 export interface TuiHarnessOptions {
   status?: AgentStatus
   config?: Config
+  /** Leave the session event log empty instead of seeding one turn and step. */
+  omitInitialLifecycle?: boolean
+  /** Omit the harness's default `welcome`, exercising the banner sweep-reveal path. */
+  omitWelcome?: boolean
   tools?: Record<string, ToolDefinition>
   configureContext?: (ctx: Context) => Promise<void>
   beforeMount?: (session: Session) => void
   cwd?: string | null
   formatCwd?: TuiRuntime['formatCwd']
+  /** Fake-agent creation options (`provider`/`model` seed the model selector's initial target). */
   agentOptions?: AgentOptions
   contextWindow?: number
   contextTokens?: number
@@ -39,6 +47,8 @@ export interface TuiHarnessOptions {
     listModels?: (provider: string) => Promise<LlmModelInfo[]>
     resolveModelContext?: (provider: string, model: string) => Promise<LlmModelContext | undefined>
   }
+  /** Provide a fake `sessionPersistence` service so resume surfaces can list sessions. */
+  sessionPersistence?: { list(): Promise<SessionHeader[]> }
 }
 
 export interface TuiHarness<TerminalType extends Terminal, Exit extends (code: number) => void> {
@@ -74,19 +84,6 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
     ],
   }
-  ctx.provide('llm', {
-    listProviders() {
-      return catalog.providers.map(provider => ({ ...provider }))
-    },
-    listModels(provider: string) {
-      return catalog.listModels?.(provider)
-        ?? Promise.resolve(catalog.models.filter(model => model.provider === provider).map(model => ({ ...model })))
-    },
-    resolveModelContext(provider: string, model: string) {
-      return catalog.resolveModelContext?.(provider, model)
-        ?? Promise.resolve({ contextWindow: options.contextWindow ?? 128_000 })
-    },
-  } as never)
   ctx.provide('tokenMeter', {
     measure() {
       return { totalTokens: options.contextTokens ?? 0 }
@@ -102,20 +99,44 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   } else {
     await options.configureContext(ctx)
   }
+  // A configureContext may mount the real LlmService; only fill the
+  // advisory-catalog stub when none was provided.
+  if (ctx.get('llm') === undefined) {
+    ctx.provide('llm', {
+      listProviders() {
+        return catalog.providers.map(provider => ({ ...provider }))
+      },
+      listModels(provider: string) {
+        return catalog.listModels?.(provider)
+          ?? Promise.resolve(catalog.models.filter(model => model.provider === provider).map(model => ({ ...model })))
+      },
+      resolveModelContext(provider: string, model: string) {
+        return catalog.resolveModelContext?.(provider, model)
+          ?? Promise.resolve({ contextWindow: options.contextWindow ?? 128_000 })
+      },
+    } as never)
+  }
   if (ctx.get('systemPrompt') === undefined) await ctx.plugin(SystemPrompt)
+  if (options.sessionPersistence !== undefined) {
+    ctx.provide('sessionPersistence', options.sessionPersistence as never)
+  }
   const sessionId = SessionId('main-session')
   const session = ctx.sessions.create(
     sessionId,
     options.cwd === null ? undefined : { meta: { cwd: options.cwd ?? '/workspace' } },
   )
-  session.append('turn/start', {
-    turn: 1,
-    trigger: { kind: 'message', source: { kind: 'user' } },
-  })
-  session.append('step/start', { turn: 1, step: 1 })
+  if (options.omitInitialLifecycle !== true) {
+    session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    session.append('step/start', { turn: 1, step: 1 })
+  }
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
   const steered: ContentBlock[][] = []
+  const sentOptions: (SendOptions | undefined)[] = []
+  const steeredOptions: (SendOptions | undefined)[] = []
   const cancelled: AgentCancelCause[] = []
   const agent: FakeAgent = {
     id: sessionId,
@@ -124,13 +145,17 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     status: options.status ?? 'idle',
     ctx,
     sent,
+    sentOptions,
     steered,
+    steeredOptions,
     cancelled,
-    send(content) {
+    send(content, options) {
       sent.push(content)
+      sentOptions.push(options)
     },
-    steer(content) {
+    steer(content, options) {
       steered.push(content)
+      steeredOptions.push(options)
     },
     inject() {},
     cancel(cause = { kind: 'user' }) {
@@ -142,13 +167,16 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   }
   ctx.agents.register(agent)
   const controller = createTuiChat(ctx, Object.assign({
-    welcome: 'Coding agent ready.',
+    ...options.omitWelcome === true ? {} : { welcome: 'Coding agent ready.' },
     sessionId,
     color: false,
   }, options.config), {
     terminal,
     exit,
-    now: options.now ?? (() => 0),
+    // Default to the real clock (runtime.now falls back to Date.now) so the
+    // elapsed-status suites can drive time via timers or Date.now spies; a
+    // test pins the clock only by passing `now` explicitly.
+    ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.formatCwd === undefined ? {} : { formatCwd: options.formatCwd }),
   })
   return { ctx, session, agent, terminal, exit, controller }
@@ -174,7 +202,7 @@ export function appendUser(session: Session, text: string): void {
 export function appendAssistant(
   session: Session,
   content: ContentBlock[],
-  usage?: { inputTokens: number; outputTokens: number },
+  usage?: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number },
   position: { turn: number; step: number } = { turn: 1, step: 1 },
 ): void {
   session.append('assistant/message', {

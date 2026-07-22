@@ -1,0 +1,246 @@
+import { describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import { CallId } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import PtyService, { PtySessionId } from '@deepseek-ai/dsh-pty'
+import type { PtyBackend, PtyBackendSession, PtySendOperation, PtySendRequest, PtySessionStatus, PtySignal } from '@deepseek-ai/dsh-pty'
+import TaskService from '@deepseek-ai/dsh-tasks'
+import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
+import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
+
+function fakeAgent(ctx: Context, rawId: string): Agent {
+  const scope = ctx.plugin(() => {})
+  const id = SessionId(rawId)
+  const agent: Agent = {
+    id, options: {}, session: new Session(id), status: 'idle', ctx: scope.ctx,
+    send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+  }
+  ctx.agents.register(agent)
+  return agent
+}
+
+class StubSession implements PtyBackendSession {
+  readonly motd = 'stub prompt'
+  readonly pid = 42
+  statusValue: PtySessionStatus = { kind: 'running' }
+  operation: PtySendOperation | undefined
+  autoSettle = true
+  rejectOperation = false
+  closeGate: PromiseWithResolvers<undefined> | undefined
+
+  startSend(_request: PtySendRequest): PtySendOperation {
+    let settle!: () => void
+    let reject!: (error: unknown) => void
+    let cancelled = false
+    const done = new Promise<void>((resolve, rejectPromise) => { settle = resolve; reject = rejectPromise }).then(() => ({
+      viewport: cancelled ? '^C' : 'command output',
+      waitReason: 'stdin_read' as const,
+      sessionStatus: this.statusValue,
+      truncated: false,
+    }))
+    const operation: PtySendOperation = {
+      done,
+      readOutput: () => ({ delta: 'live output', truncated: false }),
+      cancel: () => {
+        if (cancelled) return false
+        cancelled = true
+        settle()
+        return true
+      },
+    }
+    this.operation = operation
+    if (this.rejectOperation) queueMicrotask(() => { reject(new Error('operation failed')) })
+    else if (this.autoSettle) queueMicrotask(settle)
+    return operation
+  }
+
+  read() {
+    return { text: 'history', totalLines: 1, lineBegin: 0, lineEnd: 1, truncated: false }
+  }
+
+  async signal(signal: PtySignal) {
+    return { delivered: true as const, targetPgid: signal === 'SIGINT' ? 10 : 11 }
+  }
+
+  status() { return this.statusValue }
+
+  async close() {
+    if (this.closeGate !== undefined) await this.closeGate.promise
+    this.statusValue = { kind: 'exited', exitCode: 0, signal: null }
+  }
+}
+
+function stubBackend() {
+  const sessions: StubSession[] = []
+  const backend: PtyBackend = {
+    type: 'stub',
+    async spawn() {
+      const session = new StubSession()
+      sessions.push(session)
+      return session
+    },
+  }
+  return { backend, sessions }
+}
+
+async function setup(tasks: boolean) {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(PtyService)
+  const stub = stubBackend()
+  ctx.pty.registerBackend(stub.backend)
+  if (tasks) {
+    await ctx.plugin(TaskService)
+    await ctx.plugin(ToolTasks)
+  }
+  await ctx.plugin(ToolPty)
+  return { ctx, stub, agent: fakeAgent(ctx, tasks ? 'with-tasks' : 'foreground') }
+}
+
+let callNumber = 0
+const testToolSignal = new AbortController().signal
+function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
+  return ctx.tools.execute({ signal: testToolSignal, callId: CallId(`pty-call-${++callNumber}`), name, arguments: args, ...agent ? { agent } : {} })
+}
+
+function callWithSignal(ctx: Context, name: string, args: unknown, agent: Agent, signal: AbortSignal) {
+  return ctx.tools.execute({ callId: CallId(`pty-call-${++callNumber}`), name, arguments: args, agent, signal })
+}
+
+function text(result: { content: { type: string; text?: string }[] }): string {
+  return result.content.filter(block => block.type === 'text').map(block => block.text).join('')
+}
+
+describe('tool-pty foreground surface', () => {
+  it('registers exactly six schemas and drives the full owner-scoped lifecycle', async () => {
+    const { ctx, agent } = await setup(false)
+    expect(['terminal_open', 'terminal_send', 'terminal_read', 'terminal_signal', 'terminal_close', 'terminal_list'].every(name => ctx.tools.get(name) !== undefined)).toBe(true)
+
+    const spawned = await call(ctx, 'terminal_open', { type: 'stub', name: 'main' }, agent)
+    expect(text(spawned)).toContain('started terminal session pty-1 (main)')
+    expect(text(await call(ctx, 'terminal_list', {}, agent))).toContain('pty-1 (main) [stub] running pid=42')
+    expect(text(await call(ctx, 'terminal_read', { sessionId: 'pty-1' }, agent))).toContain('history\n[lines: 0-1 of 1]')
+    expect(text(await call(ctx, 'terminal_signal', { sessionId: 'pty-1', signal: 'SIGINT' }, agent))).toBe('delivered SIGINT to foreground process group 10')
+    const sent = await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'echo hi' }, agent)
+    expect(text(sent)).toContain('command output\n[wait: stdin_read]\n[session: running]')
+    expect(text(await call(ctx, 'terminal_close', { sessionId: 'pty-1' }, agent))).toBe('closed terminal session pty-1')
+    expect(text(await call(ctx, 'terminal_list', {}, agent))).toBe('(no terminal sessions)')
+  })
+
+  it('fails without an initiating agent and rejects background before writing', async () => {
+    const { ctx, agent, stub } = await setup(false)
+    expect((await call(ctx, 'terminal_open', { type: 'stub' })).isError).toBe(true)
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
+    const result = await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'sleep 1', run_in_background: true }, agent)
+    expect(result.isError).toBe(true)
+    expect(stub.sessions[0]?.operation).toBeUndefined()
+  })
+
+  it('validates required values and forwards optional spawn/read arguments', async () => {
+    const { ctx, agent } = await setup(false)
+    expect((await call(ctx, 'terminal_open', { type: '' }, agent)).isError).toBe(true)
+    expect((await call(ctx, 'terminal_send', { sessionId: '', text: 'x' }, agent)).isError).toBe(true)
+    expect((await call(ctx, 'terminal_send', { sessionId: 1, text: 'x' }, agent)).isError).toBe(true)
+    expect((await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 1 }, agent)).isError).toBe(true)
+    await call(ctx, 'terminal_open', { type: 'stub', name: 'named', cwd: '/tmp' }, agent)
+    expect(text(await call(ctx, 'terminal_read', { sessionId: 'pty-1', offset: 2, count: 3 }, agent))).toContain('history')
+  })
+
+  it('declares terminal presentation only for foreground sends', async () => {
+    const { ctx } = await setup(false)
+    const definition = ctx.tools.get('terminal_send')
+    expect(definition?.presentCall?.({ sessionId: 'pty-1', text: 'python3' })).toMatchObject({ card: 'terminal', title: 'python3' })
+    expect(definition?.presentCall?.({ sessionId: 'pty-1', text: 'make', run_in_background: true })).toMatchObject({ card: 'generic' })
+    expect(definition?.presentCall?.({ sessionId: 'pty-1', text: '' })).toMatchObject({ card: 'terminal', title: '(send input)' })
+    expect(definition?.presentResult?.({ sessionId: 'pty-1', text: 'x', run_in_background: true }, { content: [], isError: false })).toBeUndefined()
+    expect(definition?.presentResult?.({ sessionId: 'pty-1', text: 'x' }, { content: [], isError: true })).toBeUndefined()
+    expect(definition?.presentResult?.({ sessionId: 'pty-1', text: 'x' }, { content: [], isError: false })).toBeUndefined()
+    expect(definition?.presentResult?.({ sessionId: 'pty-1', text: 'x' }, { content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }], isError: false })).toBeUndefined()
+    expect(definition?.presentResult?.({ sessionId: 'pty-1', text: 'x' }, { content: [undefined as never], isError: false })).toBeUndefined()
+    expect(definition?.presentResult?.({ sessionId: 'pty-1', text: 'x' }, { content: [{ type: 'text', text: 'ok' }], isError: false })).toEqual({ card: 'terminal', output: 'ok' })
+
+    expect(ctx.tools.get('terminal_open')?.presentCall?.({ type: 'stub' })).toMatchObject({ card: 'generic', title: 'Open terminal stub' })
+    expect(ctx.tools.get('terminal_open')?.presentCall?.({ type: 'stub', name: 'main' })).toMatchObject({ card: 'generic', title: 'Open terminal main' })
+    expect(ctx.tools.get('terminal_read')?.presentCall?.({ sessionId: 'pty-1' })).toMatchObject({ card: 'generic', title: 'Read terminal pty-1' })
+    expect(ctx.tools.get('terminal_signal')?.presentCall?.({ sessionId: 'pty-1', signal: 'SIGINT' })).toMatchObject({ card: 'generic', title: 'Signal terminal pty-1' })
+    expect(ctx.tools.get('terminal_close')?.presentCall?.({ sessionId: 'pty-1' })).toMatchObject({ card: 'generic', title: 'Close terminal pty-1' })
+    expect(ctx.tools.get('terminal_list')?.presentCall?.({})).toMatchObject({ card: 'generic', title: 'List terminal sessions' })
+  })
+})
+
+describe('tool-pty task integration', () => {
+  it('registers a generic task and exposes incremental output', async () => {
+    const { ctx, agent } = await setup(true)
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
+    expect(text(await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'build', run_in_background: true }, agent))).toBe('started background task pty-send-1')
+    const output = await call(ctx, 'task_output', { task_id: 'pty-send-1', wait: true }, agent)
+    expect(text(output)).toContain('live output')
+    expect(text(output)).toContain('[status: completed, wait: stdin_read]')
+  })
+
+  it('rejects pre-aborted background calls, maps task cancellation, and contains operation failure', async () => {
+    const { ctx, agent, stub } = await setup(true)
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
+    const controller = new AbortController()
+    controller.abort()
+    expect((await callWithSignal(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'x', run_in_background: true }, agent, controller.signal)).isError).toBe(true)
+
+    stub.sessions[0]!.autoSettle = false
+    expect(text(await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: '', run_in_background: true }, agent))).toContain('pty-send-1')
+    expect(text(await call(ctx, 'task_kill', { task_id: 'pty-send-1' }, agent))).toContain('requested cancellation')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(text(await call(ctx, 'task_output', { task_id: 'pty-send-1' }, agent))).toContain('[status: killed')
+
+    stub.sessions[0]!.rejectOperation = true
+    stub.sessions[0]!.autoSettle = false
+    expect(text(await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'bad', run_in_background: true }, agent))).toContain('pty-send-2')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(text(await call(ctx, 'task_output', { task_id: 'pty-send-2' }, agent))).toContain('[status: failed')
+  })
+
+  it('reports foreground cancellation after the terminal operation settles', async () => {
+    const { ctx, agent, stub } = await setup(false)
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
+    stub.sessions[0]!.autoSettle = false
+    const controller = new AbortController()
+    const pending = callWithSignal(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'sleep' }, agent, controller.signal)
+    await Promise.resolve()
+    controller.abort()
+    stub.sessions[0]!.operation?.cancel()
+    expect((await pending).isError).toBe(true)
+  })
+
+  it('renders the already-closing kill result', async () => {
+    const { ctx, agent, stub } = await setup(false)
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
+    stub.sessions[0]!.closeGate = Promise.withResolvers<undefined>()
+    const first = ctx.pty.kill(agent, PtySessionId('pty-1'))
+    const second = call(ctx, 'terminal_close', { sessionId: 'pty-1' }, agent)
+    stub.sessions[0]!.closeGate?.resolve(undefined)
+    await first
+    expect(text(await second)).toBe('terminal session pty-1 was already closing')
+  })
+
+  it('renders an exited session detail for background completion', async () => {
+    const { ctx, agent, stub } = await setup(true)
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
+    stub.sessions[0]!.statusValue = { kind: 'exited', exitCode: null, signal: null }
+    await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'exit', run_in_background: true }, agent)
+    const output = await call(ctx, 'task_output', { task_id: 'pty-send-1', wait: true }, agent)
+    expect(text(output)).toContain('session exited: unknown')
+  })
+})
+
+describe('tool-pty plugin shape', () => {
+  it('is a named function plugin with no default export', () => {
+    expect('default' in ToolPty).toBe(false)
+    expect(ToolPty.name).toBe('tool-pty')
+    expect(ToolPty.inject).toEqual(['pty', 'tools', 'systemPrompt'])
+  })
+})

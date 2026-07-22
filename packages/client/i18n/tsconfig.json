@@ -18,7 +18,7 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../web-react"
+      "path": "../runtime"
     },
     {
       "path": "../../support/invariants"

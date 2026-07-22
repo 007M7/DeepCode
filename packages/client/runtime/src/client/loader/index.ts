@@ -17,7 +17,7 @@
  * load one by one in inject topology.
  */
 import type { Context } from 'cordis'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
+import { createSnapshotStore } from '../store/index.ts'
 import type { BootPluginEntry, ClientLoader, LoaderStatus } from '../index.ts'
 
 export type { BootPluginEntry, ClientLoader, LoaderStatus } from '../index.ts'

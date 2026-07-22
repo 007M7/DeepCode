@@ -15,13 +15,15 @@ stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it
 | `@deepseek-ai/dsh-command-goal` | the discoverable direct `/goal` producer; the app enables the spine's persisted-goal stack with it |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by clients that can complete ACP elicitation requests |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log (the bridge advertises `loadSession`) |
+| `@deepseek-ai/dsh-session-query` + `@deepseek-ai/dsh-session-reference` | exact current-surface reads and bounded `dsh-session:` snapshots |
+| `@deepseek-ai/dsh-session-checkpoint-policy` | semantic durability barriers before model requests and top-level tool effects, plus completed-step checkpoints |
 | `@deepseek-ai/dsh-acp` | the bridge that owns stdout for JSON-RPC and provides ACP-backed user answers when a leaf explicitly exposes a user-question tool |
 | ~~`@deepseek-ai/dsh-tool-ask-user`~~ | **omitted by default** — ACP elicitation support is still client-dependent, so leaves must opt in deliberately |
 | ~~`@deepseek-ai/dsh-user-approval`~~ | **omitted by default** — permission policy is deployment-specific; sandbox/approval leaves opt in and the ACP bridge then supplies the answerer |
 | ~~console logger~~ | **omitted** — it writes to stdout and would corrupt the protocol frames ([the stdout-purity footgun](../../ui/acp/README.md)) |
 | ~~`hmr`~~ | **omitted** — the editor owns the subprocess |
 
-Because the package wires no logger entry, an ACP leaf has **nothing to get wrong by default**: it only picks backends. A leaf author can still add `@cordisjs/plugin-logger-console` as a sibling entry, so the rule remains: never add a stdout logger to an ACP leaf; use a stderr exporter instead.
+The app owns this cluster through one ordered Cordis effect. Teardown drains the ACP bridge before removing the checkpoint policy or persistence backend, so a graceful disconnect persists the real closing `step/end` and `turn/end` events rather than leaving crash recovery to synthesize them. Because the package wires no logger entry, an ACP leaf has **nothing to get wrong by default**: it only picks backends. A leaf author can still add `@cordisjs/plugin-logger-console` as a sibling entry, so the rule remains: never add a stdout logger to an ACP leaf; use a stderr exporter instead.
 
 ## Config
 
@@ -42,7 +44,9 @@ Because the package wires no logger entry, an ACP leaf has **nothing to get wron
 | `goals` | owner defaults | persisted goal-domain and model-tool config; `false` removes the goal stack and `/goal` producer |
 | `llmRetry` | owner defaults | bounded transient model-request retry policy routed through `dsh-agent-spine-demo` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
+| `packChunks` | `false` | write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`) |
 | `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
+| `sessionReferences` | service defaults | cross-session candidate and snapshot limits routed to `dsh-session-reference` |
 
 The leaf supplies the swappable backends: an LLM adapter (`llm-deepseek` for the real model, `llm-replay` for keyless snapshot replay), a bash executor, and optionally a `ctx.fs` provider. Workspace context becomes a no-op without `ctx.fs`; the shipped [`examples/acp-agent/cordis.yml`](../../../examples/acp-agent/cordis.yml) selects `dsh-sandbox-policy`, `dsh-fs-sandbox`, `dsh-fs-policy`, and `dsh-tool-fs` so baseline instructions and model-facing `read`/`write`/`edit` share one provider, sandbox mode, workspace root, and observed-version policy.
 

@@ -27,6 +27,8 @@ import {
   type EnumOption,
   type InitializeRequest,
   type InitializeResponse,
+  type ListSessionsRequest,
+  type ListSessionsResponse,
   type LoadSessionRequest,
   type LoadSessionResponse,
   type NewSessionRequest,
@@ -36,11 +38,14 @@ import {
   type PromptRequest,
   type PromptResponse,
   type SessionConfigOption,
+  type SessionModeState,
   type SessionConfigSelectGroup,
   type SessionConfigSelectOption,
   type SessionNotification,
   type SetSessionConfigOptionRequest,
   type SetSessionConfigOptionResponse,
+  type SetSessionModeRequest,
+  type SetSessionModeResponse,
   type Stream,
   type StopReason,
 } from '@agentclientprotocol/sdk'
@@ -54,7 +59,8 @@ import {
   type AgentLlmTargetRef as LlmTargetRef,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { encodeSessionReferenceUri } from '@deepseek-ai/dsh-session-reference'
+import { displayPromptContent, SessionId } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
 import type {} from '@deepseek-ai/dsh-permission'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -64,6 +70,12 @@ import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } f
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
+// Side-effect type import: declaration-merges the exact-read service used by
+// session/list for live-preferred title folding.
+import type {} from '@deepseek-ai/dsh-session-query'
+// Type-only edge: resolves `ctx.get('planMode')` when dsh-plan-mode is composed;
+// the runtime read stays opportunistic.
+import type {} from '@deepseek-ai/dsh-plan-mode'
 // Side-effect type import: declaration-merges prompt assembly onto Context and
 // the scoped waterfall used to keep persona variables aligned with requests.
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -80,6 +92,7 @@ import {
 } from '@deepseek-ai/dsh-user-interaction'
 import {
   acpPromptToText,
+  acpPromptToReferencedPrompt,
   harnessBlockToAcpContent,
   promptHasUnsupportedContent,
   turnEndToStopReason,
@@ -87,11 +100,26 @@ import {
 
 export const name = 'acp'
 // Interface services back loading, presentation, interaction, and prompt assembly.
-export const inject = ['agents', 'commands', 'sessionPersistence', 'tools', 'userInteraction', 'llm', 'systemPrompt']
+export const inject = ['agents', 'commands', 'sessionPersistence', 'sessionQuery', 'tools', 'userInteraction', 'llm', 'systemPrompt']
+
+/** ACP `SessionInfo._meta` key carrying a ready-to-submit session-reference URI. */
+export const ACP_SESSION_REFERENCE_META_KEY = 'deepseek-harness/sessionReference'
 
 /** Preserve invalid-parameter detail in the SDK wire error message. */
 function invalidParams(detail: string): RequestError {
   return RequestError.invalidParams(undefined, detail)
+}
+
+const DEFAULT_SESSION_MODE_ID = 'default'
+const PLAN_SESSION_MODE_ID = 'plan'
+const AVAILABLE_SESSION_MODES = [
+  { id: DEFAULT_SESSION_MODE_ID, name: DEFAULT_SESSION_MODE_ID },
+  { id: PLAN_SESSION_MODE_ID, name: PLAN_SESSION_MODE_ID },
+]
+
+/** Map plan state onto ACP's named collaboration-mode protocol. */
+function sessionModeId(active: boolean): string {
+  return active ? PLAN_SESSION_MODE_ID : DEFAULT_SESSION_MODE_ID
 }
 
 /** Render arbitrary thrown values without trusting their string coercion. */
@@ -186,11 +214,14 @@ function elicitationForQuestion(
   options: AskUserQuestionOption[],
 ): CreateElicitationRequest {
   const title = question.header ?? 'Question'
+  const message = question.detail === undefined
+    ? question.question
+    : `${question.question}\n\n${question.detail}`
   if (options.length === 0) {
     return {
       sessionId,
       mode: 'form',
-      message: question.question,
+      message,
       requestedSchema: {
         type: 'object',
         title,
@@ -224,7 +255,7 @@ function elicitationForQuestion(
   return {
     sessionId,
     mode: 'form',
-    message: question.question,
+    message,
     requestedSchema: {
       type: 'object',
       title,
@@ -286,6 +317,13 @@ interface SessionRecord {
   presenter: ToolPresenter
   /** Terminal capability snapshot shared by matching call and result updates. */
   terminalEnabled: boolean
+  /**
+   * The last mode id this session sent to the client (advertised at
+   * session/new+load, echoed optimistically on session/set_mode, re-notified on
+   * each logged `plan/mode` that differs). `undefined` when dsh-plan-mode is
+   * not composed, so no mode surface is advertised or notified.
+   */
+  lastModeId: string | undefined
   /** Session-local provider/model selection and the current step snapshot. */
   target: LlmTargetRef
   /** In-flight prompt and its captured turn number for exact settlement. */
@@ -296,6 +334,8 @@ interface SessionRecord {
   } | undefined
   /** Abort owner for a direct slash-command request, mutually exclusive with `inflight`. */
   commandAbort: AbortController | undefined
+  /** Abort owner while referenced sessions are snapshotted before enqueue. */
+  promptPreparation: AbortController | undefined
   /** Last idle switch per knob, anchored before the next prompt assembles. */
   pendingSwitches: { preset?: string }
 }
@@ -542,6 +582,21 @@ export function apply(ctx: Context, config: AcpConfig): void {
 
   // --- Stream the harness event taxonomy to ACP session/update --------------
 
+  // --- Session modes (dsh-plan-mode, opportunistic) -------------------------
+  // ACP's generic mode picker projects the one plan capability as the fixed
+  // `default` / `plan` vocabulary. A selection is echoed optimistically; the
+  // logged `plan/mode` follows at the boundary and tool-driven exits are
+  // re-notified from that event. Environment knobs remain config options.
+  const modesStateFor = (agent: Agent): SessionModeState | undefined => {
+    const planMode = ctx.get('planMode')
+    if (planMode === undefined) return undefined
+    const { active, pending } = planMode.get(agent)
+    return {
+      availableModes: AVAILABLE_SESSION_MODES,
+      currentModeId: sessionModeId(pending ?? active),
+    }
+  }
+
   // All content streaming AND the prompt settle flow through `session/event`,
   // the canonical log: every assistant/chunk and tool/call/result is logged, so
   // translating from the log makes live streaming and `session/load` replay
@@ -567,6 +622,20 @@ export function apply(ctx: Context, config: AcpConfig): void {
         cwd: session.header.cwd,
       }, { includeUserMessages: false })
     } finally {
+      // Re-notify from the EVENT's value, not from planMode.get(): the service
+      // holds one coalesced pending slot (every flush reads the latest
+      // selection, so a flush can never be stale against the picker), and for
+      // any other writer — the exit tool, a test, a foreign plugin — the logged
+      // value IS the truth the picker should track, in log order. Inside the
+      // containment `finally` like the prompt settlement: a throwing presenter
+      // must not desync the picker.
+      if (event.type === 'plan/mode') {
+        const modeId = sessionModeId(event.data.active)
+        if (modeId !== rec.lastModeId) {
+          rec.lastModeId = modeId
+          notify({ sessionId: rec.agent.session.id, update: { sessionUpdate: 'current_mode_update', currentModeId: modeId } })
+        }
+      }
       const inflight = rec.inflight
       if (inflight !== undefined && event.type === 'turn/start') {
         // The first message-triggered turn after prompt installation owns the
@@ -690,6 +759,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' },
           agentCapabilities: {
             loadSession: true,
+            sessionCapabilities: { list: {} },
             // Baseline prompt blocks only: text plus resource_link rendered as
             // text. No image/audio/embeddedContext, no mcpCapabilities.
             promptCapabilities: { image: false, audio: false, embeddedContext: false },
@@ -702,6 +772,41 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // No auth methods advertised; nothing to do. Present because the SDK
         // Agent interface requires it.
         return Promise.resolve()
+      },
+
+      async listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
+        assertOpen()
+        if (params.cursor !== undefined && params.cursor !== null) {
+          throw invalidParams('session/list does not paginate; omit cursor')
+        }
+        if (params.cwd !== undefined && params.cwd !== null && !isAbsolute(params.cwd)) {
+          throw invalidParams('session/list cwd must be absolute')
+        }
+        const records = (await ctx.sessionQuery.listSessions()).flatMap((record) => {
+          const cwd = record.header.cwd
+          if (cwd === undefined) return []
+          if (params.cwd !== undefined && params.cwd !== null && !sameWorkspaceCwd(cwd, params.cwd)) return []
+          return [{ record, cwd }]
+        })
+        const titles = await Promise.all(records.map(({ record }) => ctx.sessionQuery.readTitle(record.header.id)))
+        assertOpen()
+        const referencesAvailable = ctx.get('sessionReferences') !== undefined
+        return {
+          sessions: records.map(({ record, cwd }, index) => ({
+            sessionId: record.header.id,
+            cwd,
+            ...titles[index] === undefined ? {} : { title: titles[index].title },
+            ...referencesAvailable
+              ? {
+                _meta: {
+                  [ACP_SESSION_REFERENCE_META_KEY]: {
+                    uri: encodeSessionReferenceUri(record.header.id),
+                  },
+                },
+              }
+              : {},
+          })),
+        }
       },
 
       async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
@@ -726,20 +831,27 @@ export function apply(ctx: Context, config: AcpConfig): void {
           await handle.dispose()
           throw internalError('connection closed during session/new')
         }
+        const modes = modesStateFor(handle.agent)
         const record: SessionRecord = {
           agent: handle.agent,
           dispose: () => handle.dispose(),
           presenter: makePresenter(handle.agent),
           terminalEnabled: terminalOutputCap,
+          lastModeId: modes?.currentModeId,
           target,
           inflight: undefined,
           commandAbort: undefined,
+          promptPreparation: undefined,
           pendingSwitches: {},
         }
         sessions.set(sessionId, record)
         pendingCommandSnapshots.set(sessionId, record)
         const configOptions = configOptionsFor(handle.agent, directory)
-        return { sessionId, ...configOptions.length > 0 ? { configOptions } : {} }
+        return {
+          sessionId,
+          ...modes !== undefined ? { modes } : {},
+          ...configOptions.length > 0 ? { configOptions } : {},
+        }
       },
 
       async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
@@ -811,14 +923,17 @@ export function apply(ctx: Context, config: AcpConfig): void {
           // the replay below and the post-load live stream) so a later
           // `initialize` can't desync the call/result of a tool card.
           const terminalEnabled = terminalOutputCap
+          const modes = modesStateFor(agent)
           const record: SessionRecord = {
             agent,
             dispose: () => handle.dispose(),
             presenter: makePresenter(agent),
             terminalEnabled,
+            lastModeId: modes?.currentModeId,
             target,
             inflight: undefined,
             commandAbort: undefined,
+            promptPreparation: undefined,
             pendingSwitches: {},
           }
           sessions.set(sessionId, record)
@@ -845,32 +960,52 @@ export function apply(ctx: Context, config: AcpConfig): void {
           }
           notifyCommands(record)
           const configOptions = configOptionsFor(agent, directory)
-          return configOptions.length > 0 ? { configOptions } : {}
+          return {
+            ...modes !== undefined ? { modes } : {},
+            ...configOptions.length > 0 ? { configOptions } : {},
+          }
         } finally {
           loadingIds.delete(sessionId)
         }
       },
 
+      setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
+        assertOpen()
+        const rec = requireSession(SessionId(params.sessionId))
+        const planMode = ctx.get('planMode')
+        if (planMode === undefined) throw invalidParams('session modes are not composed in this deployment')
+        if (params.modeId !== DEFAULT_SESSION_MODE_ID && params.modeId !== PLAN_SESSION_MODE_ID) {
+          throw invalidParams(`unknown session mode ${JSON.stringify(params.modeId)} — available modes: default, plan`)
+        }
+        planMode.set(rec.agent, params.modeId === PLAN_SESSION_MODE_ID)
+        // Optimistic echo: the pending mode IS the user's selection; the logged
+        // `plan/mode` lands at the next turn boundary and, matching lastModeId,
+        // is not re-notified. A no-op selection (already current) echoes too —
+        // cheap, idempotent, and the picker settles regardless.
+        rec.lastModeId = params.modeId
+        notify({ sessionId: rec.agent.session.id, update: { sessionUpdate: 'current_mode_update', currentModeId: params.modeId } })
+        return Promise.resolve({})
+      },
+
       async prompt(params: PromptRequest): Promise<PromptResponse> {
         assertOpen()
         const rec = requireSession(SessionId(params.sessionId))
-        if (rec.inflight !== undefined || rec.commandAbort !== undefined) {
+        if (rec.inflight !== undefined || rec.commandAbort !== undefined || rec.promptPreparation !== undefined) {
           throw invalidParams('a prompt is already in flight for this session')
         }
         if (promptHasUnsupportedContent(params.prompt)) {
           throw invalidParams('only text and resource_link prompt content is supported; image/audio/embedded resource blocks are rejected rather than silently dropped')
         }
-        const text = acpPromptToText(params.prompt)
-        if (text.trim().length === 0) {
+        const flattenedText = acpPromptToText(params.prompt)
+        if (flattenedText.trim().length === 0) {
           // Reject up front rather than calling send(): an empty prompt would
           // queue no work, no turn would start, and the RPC would hang forever
           // waiting for a settle that never comes.
           throw invalidParams('empty prompt')
         }
-        // ACP command prompts may carry additional supported content blocks.
-        // The same lossless flattening used for model prompts supplies their
-        // unstructured command input; unsupported kinds were rejected above.
-        const commandLine = text.startsWith('/') ? text : undefined
+        // Direct commands consume ordinary ACP flattening before reference
+        // extraction, so URI-shaped arguments remain opaque to the bridge.
+        const commandLine = flattenedText.startsWith('/') ? flattenedText : undefined
         if (commandLine !== undefined) {
           const controller = new AbortController()
           rec.commandAbort = controller
@@ -913,6 +1048,39 @@ export function apply(ctx: Context, config: AcpConfig): void {
             rec.commandAbort = undefined
           }
         }
+        let referencedPrompt: ReturnType<typeof acpPromptToReferencedPrompt>
+        try {
+          referencedPrompt = acpPromptToReferencedPrompt(params.prompt)
+        } catch (error: unknown) {
+          throw invalidParams(`invalid session reference: ${renderThrown(error)}`)
+        }
+        const { text } = referencedPrompt
+        let preparedContent: ContentBlock[] = [{ type: 'text', text }]
+        let preparedContexts: NonNullable<Parameters<Agent['send']>[1]>['contexts'] = []
+        if (referencedPrompt.references.length > 0) {
+          const sessionReferences = ctx.get('sessionReferences')
+          if (sessionReferences === undefined) {
+            throw invalidParams('session reference capability unavailable')
+          }
+          const controller = new AbortController()
+          rec.promptPreparation = controller
+          try {
+            const prepared = await sessionReferences.prepare(
+              rec.agent,
+              preparedContent,
+              referencedPrompt.references,
+              controller.signal,
+            )
+            preparedContent = prepared.content
+            preparedContexts = prepared.contexts
+          } catch (error: unknown) {
+            if (controller.signal.aborted) return { stopReason: 'cancelled' }
+            throw invalidParams(`session reference preparation failed: ${renderThrown(error)}`)
+          } finally {
+            rec.promptPreparation = undefined
+          }
+          assertOpen()
+        }
         // Install the in-flight slot BEFORE send() (send does not synchronously
         // flip status to running; the session/event listener records the turn
         // number and settle/rejects it). Capture the log length now as the
@@ -920,7 +1088,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // produces an error stop reason).
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
           rec.inflight = { resolve, reject, turn: undefined }
-          rec.agent.send([{ type: 'text', text }])
+          rec.agent.send(preparedContent, { contexts: preparedContexts })
         })
         return { stopReason }
       },
@@ -940,7 +1108,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // settle it, because cancel() may drop the turn before any turn/end is
         // emitted, and removing this direct settle would move the RPC's
         // resolution onto a later observer path, changing its timing.
-        if (rec.commandAbort !== undefined) {
+        if (rec.promptPreparation !== undefined) {
+          rec.promptPreparation.abort(new Error('session/cancel'))
+        } else if (rec.commandAbort !== undefined) {
           rec.commandAbort.abort(new Error('session/cancel'))
         } else {
           rec.agent.cancel({ kind: 'user' })
@@ -1061,6 +1231,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       await Promise.all(recs.map(async (rec) => {
         settlePrompt(rec, 'cancelled')
         rec.commandAbort?.abort(new Error('ACP connection closed'))
+        rec.promptPreparation?.abort(new Error('ACP connection closed'))
         // Per-agent dispose (the AgentHandle disposer): unregister this agent,
         // stop its loop (sets disposed + aborts the in-flight step), await
         // quiescence (the loop exit + final flush), and remove its session — so
@@ -1206,7 +1377,7 @@ export function streamSessionEventUpdate(
       // Replay the user's prompt so a loaded session shows both sides of each
       // turn. Live prompt turns suppress this path to avoid duplicating what
       // the client just sent.
-      for (const block of event.data.content) {
+      for (const block of displayPromptContent(event.data)) {
         const content = harnessBlockToAcpContent(block)
         if (content !== undefined) {
           notify({ sessionId, update: { sessionUpdate: 'user_message_chunk', content } })

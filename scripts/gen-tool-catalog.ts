@@ -19,6 +19,7 @@ import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import PlanModeService from '@deepseek-ai/dsh-plan-mode'
 import WebService from '@deepseek-ai/dsh-web'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
@@ -32,6 +33,8 @@ import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+import PtyService from '@deepseek-ai/dsh-pty'
+import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import Lsp from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
@@ -61,7 +64,7 @@ class CatalogSearchBashExecutor extends BashExecutor {
       timeoutMs: request.timeoutMs ?? 60_000,
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       signal: request.signal,
-      sandboxMode: request.sandboxMode,
+      sandboxPolicy: request.sandboxPolicy,
     }
   }
 
@@ -173,6 +176,18 @@ const TOOL_PACKAGES: ToolPackage[] = [
       'Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry\'s only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.',
   },
   {
+    pkg: '@deepseek-ai/dsh-plan-mode',
+    dir: 'plan-mode',
+    source: 'packages/plan/plan-mode/src/index.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.userInteraction (execution time, opportunistic)'],
+    writes: ['tool/call', 'plan/mode inactive on an approved review', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(PlanModeService, { section: 'Tool catalog schema harvest.' })
+    },
+    note:
+      'exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-interaction seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-bash',
     dir: 'tool-bash',
     source: 'packages/bash/tool-bash/src/index.ts',
@@ -229,6 +244,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-pty',
+    dir: 'tool-pty',
+    source: 'packages/pty/tool-pty/src/index.ts',
+    requires: ['ctx.tools', 'ctx.pty', 'ctx.systemPrompt', 'ctx.tasks at call time for run_in_background'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(PtyService)
+      await ctx.plugin(ToolPty)
+    },
+    note:
+      'The six terminal tools are opt-in and complement one-shot bash/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-goal',
@@ -314,7 +342,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolTasks)
     },
     note:
-      'The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers\' `ctx.tasks.start()`.',
+      'The kind-agnostic background-task control surface: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers\' `ctx.tasks.start()`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-todo',

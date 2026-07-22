@@ -1,7 +1,9 @@
 /**
  * SessionsService: root sessions service — list snapshot store (manager
- * projection), session scope tree (mintScope pattern: no-op plugin Fiber +
- * ctx.extend scope tag), stable SessionBinding cache, ancestry walk.
+ * projection; carries `current`, the persisted selection every
+ * session-scoped surface keys off — migrated here from ui-layout per the
+ * slot-parity design), session scope tree (mintScope pattern: no-op plugin
+ * Fiber + ctx.extend scope tag), stable SessionBinding cache, ancestry walk.
  *
  * Scope lifecycle is watch-driven: a scope is minted lazily on first
  * resolution; a session leaving the list tears its scope down only when
@@ -13,8 +15,9 @@
  */
 import type { Context, Fiber } from 'cordis'
 import type { IApiClient, SessionId } from '@deepseek-ai/dsh-client-connection/client'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
+import type { SessionCell } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SnapshotStore } from '../store/index.ts'
+import { createSnapshotStore } from '../store/index.ts'
 import { SessionManager } from './manager.ts'
 import type { Session } from './session.ts'
 
@@ -28,8 +31,12 @@ export interface SessionSummary {
   updatedAt: number
 }
 
-/** Session list store shape. */
-export interface SessionListState { ids: SessionId[]; byId: Record<SessionId, SessionSummary> }
+/**
+ * Session list store shape. `current` rides the same snapshot (arbitrated:
+ * the single useSessions standard hook reads list and selection together —
+ * sidebar highlighting and SessionProvider share one fact source).
+ */
+export interface SessionListState { ids: SessionId[]; byId: Record<SessionId, SessionSummary>; current: SessionId | undefined }
 
 /** Session assembly handle for SessionProvider/inject factories (identity-stable per session). */
 export interface SessionBinding {
@@ -69,14 +76,25 @@ interface ScopeRecord {
   fiber: Fiber
   ctx: Context
   binding: SessionBinding
+  /** Render-layer standard kit (identity-stable per scope; the renderer's per-cell caches key off it). */
+  cell: SessionCell
 }
 
-/** Root sessions service: list store, object-layer manager, scope tree, bindings, ancestry. */
+/** Root sessions service: list store, current selection, object-layer manager, scope tree, bindings, ancestry. */
 export class SessionsService {
-  /** List snapshot store (list RPC + host stream increments; re-pulled on reconnect). */
+  /** List snapshot store (list RPC + host stream increments; re-pulled on reconnect) — the useSessions standard feed, current included. */
   readonly list: SnapshotStore<SessionListState>
   /** The object-layer instance cluster and frame dispatch entry (wired to the connection by the runtime apply). */
   readonly manager: SessionManager
+
+  /**
+   * Persisted selection cell (the durable half of `list.current`). Private on
+   * purpose: reads go through the list snapshot; writes through {@link
+   * SessionsService.open}. Projection validates it against the live list
+   * instead of destructively pruning, so a selection survives transient list
+   * states (reconnect re-pull) and resurfaces when its session returns.
+   */
+  private readonly selection: SnapshotStore<{ sessionId?: SessionId }>
 
   private readonly scopes = new Map<SessionId, ScopeRecord>()
   /** Most recently resolved binding id — the watch approximation for deferred teardown. */
@@ -90,11 +108,27 @@ export class SessionsService {
    */
   constructor(private readonly rootCtx: Context, api: IApiClient) {
     this.manager = new SessionManager(api)
-    this.list = createSnapshotStore<SessionListState>({ ids: [], byId: {} })
+    this.selection = createSnapshotStore<{ sessionId?: SessionId }>(
+      {},
+      { persist: { name: 'dsh.sessions.current' } })
+    this.list = createSnapshotStore<SessionListState>({ ids: [], byId: {}, current: undefined })
     // The manager owns wire truth; the store is its projection. Manager
     // notifications are already microtask-batched.
     this.manager.subscribe(() => { this.projectList() })
     rootCtx.reflect.provide('sessions', this, undefined)
+  }
+
+  /**
+   * Select a session as current. Unknown ids fail loud instead of navigating
+   * nowhere (the sole selection write path).
+   * @param id - session id (must exist in the list store).
+   */
+  open(id: SessionId): void {
+    if (this.list.getSnapshot().byId[id] === undefined) {
+      throw new Error(`sessions.open: unknown session ${id}`)
+    }
+    this.selection.update((draft) => { draft.sessionId = id })
+    this.list.update((draft) => { draft.current = id })
   }
 
   /**
@@ -133,6 +167,23 @@ export class SessionsService {
   }
 
   /**
+   * Resolve the render-layer session cell (SessionProvider's feed through
+   * the renderer host; ctx never enters the render layer). Marks the session
+   * watched, same as {@link SessionsService.binding}.
+   * @param id - session id.
+   * @returns cell, or undefined for a session neither listed nor already scoped.
+   */
+  cell(id: string): SessionCell | undefined {
+    const record = this.resolve(id as SessionId)
+    if (record === undefined) return undefined
+    if (this.watched !== id) {
+      this.watched = id as SessionId
+      this.sweepDeferred()
+    }
+    return record.cell
+  }
+
+  /**
    * Breadcrumb feed: walk parentId links inside the list store.
    * @param id - session id.
    * @returns summaries from root ancestor to the session itself (empty when unknown; a broken link stops the walk).
@@ -158,10 +209,14 @@ export class SessionsService {
     if (this.list.getSnapshot().byId[id] === undefined) return undefined
     const fiber = this.rootCtx.plugin(sessionScope)
     const ctx = fiber.ctx.extend({ [kScope]: id })
+    const session = this.manager.get(id)
     const record: ScopeRecord = {
       fiber,
       ctx,
-      binding: { sessionId: id, session: this.manager.get(id), ctx },
+      binding: { sessionId: id, session, ctx },
+      // Bare source form (store migration): the Session object IS the
+      // observable; the React side binds the useSession hook per cell.
+      cell: { sessionId: id, session },
     }
     this.scopes.set(id, record)
     return record
@@ -183,7 +238,11 @@ export class SessionsService {
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
       }
     }
-    this.list.set({ ids, byId })
+    // current = the persisted selection, masked while its session is absent
+    // (falls to the empty state; resurfaces if the session returns).
+    const selected = this.selection.getSnapshot().sessionId
+    const current = selected !== undefined && byId[selected] !== undefined ? selected : undefined
+    this.list.set({ ids, byId, current })
     this.pruneScopes(byId)
   }
 
@@ -197,8 +256,16 @@ export class SessionsService {
       }
       this.scopes.delete(id)
       this.deferredRemovals.delete(id)
-      void record.fiber.dispose()
+      this.dropScope(id, record)
     }
+  }
+
+  /** Dispose a scope fiber and its session-keyed slot-store instances together (single lifecycle axis). */
+  private dropScope(id: SessionId, record: ScopeRecord): void {
+    void record.fiber.dispose()
+    // Optional lookup: slots and sessions are sibling services with no
+    // declared dependency; a slots-less boot (object-layer tests) skips.
+    this.rootCtx.get('slots')?.pruneStoreScope(id)
   }
 
   /** Run deferred teardowns whose session is no longer watched (called when the watch moves). */
@@ -220,7 +287,7 @@ export class SessionsService {
        * future teardown path cannot double-dispose. */
       if (record !== undefined) {
         this.scopes.delete(id)
-        void record.fiber.dispose()
+        this.dropScope(id, record)
       }
     }
   }
