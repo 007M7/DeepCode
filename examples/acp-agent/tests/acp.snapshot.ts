@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
 
 /**
@@ -31,6 +32,7 @@ const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../workspace-context.cor
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
+const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
@@ -213,6 +215,19 @@ const SCENARIOS: Scenario[] = [
   { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'fs-escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
+  // Unlike ordinary snapshots, this session cwd is outside the platform temp
+  // roots that workspace-write always grants. The overlay points the
+  // deployment fallback at /tmp, so a successful relative write proves the
+  // assembled app replaced that process-level fallback with SessionHeader.cwd.
+  {
+    name: 'session-sandbox-root',
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    headerClass: 'sandbox',
+    configPath: SESSION_SANDBOX_ROOT_CONFIG,
+    workspaceParent: homedir(),
+  },
 ]
 
 defineAcpSnapshotSuite({

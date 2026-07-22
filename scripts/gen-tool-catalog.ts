@@ -62,7 +62,7 @@ class CatalogSearchBashExecutor extends BashExecutor {
       timeoutMs: request.timeoutMs ?? 60_000,
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       signal: request.signal,
-      sandboxMode: request.sandboxMode,
+      sandboxPolicy: request.sandboxPolicy,
     }
   }
 

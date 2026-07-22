@@ -92,10 +92,10 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxSurface): void {
     },
     async execute(args: EditToolArgs, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
       const input = parseEditArgs(args)
-      // Resolve the per-call sandbox mode (escalation grant > session override
-      // > backend default) BEFORE anything executes.
-      const sandboxMode = await sandbox.stampMode('edit', args, exec)
-      const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec))
+      // Resolve the per-call sandbox policy (approved mode > session override
+      // > backend default, plus the session cwd root) BEFORE anything executes.
+      const sandboxPolicy = await sandbox.resolvePolicy('edit', args, exec)
+      const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec, input.filePath, sandboxPolicy?.workspaceRoot))
       // Single-slot decision: the policy plugin returns { version: vObserved } or
       // throws FS_NOT_OBSERVED; the bare default is undefined (unconditional edit).
       // No stat — the bare default never manufactures a version basis.
@@ -107,11 +107,11 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxSurface): void {
           { oldString: input.oldString, newString: input.newString, replaceAll: input.replaceAll },
           intent,
           exec.signal,
-          sandboxMode,
+          sandboxPolicy,
         )
       } catch (error: unknown) {
         // A sandbox denial becomes the shared [sandbox: …] marker; any other error passes through.
-        throw sandbox.mapError(error, sandboxMode)
+        throw sandbox.mapError(error, sandboxPolicy)
       }
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
