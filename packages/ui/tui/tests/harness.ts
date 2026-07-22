@@ -24,6 +24,8 @@ interface FakeAgent extends Agent {
 export interface TuiHarnessOptions {
   status?: AgentStatus
   config?: Config
+  /** Omit the harness's default `welcome`, exercising the banner sweep-reveal path. */
+  omitWelcome?: boolean
   tools?: Record<string, ToolDefinition>
   configureContext?: (ctx: Context) => Promise<void>
   beforeMount?: (session: Session) => void
@@ -142,7 +144,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   }
   ctx.agents.register(agent)
   const controller = createTuiChat(ctx, Object.assign({
-    welcome: 'Coding agent ready.',
+    ...options.omitWelcome === true ? {} : { welcome: 'Coding agent ready.' },
     sessionId,
     color: false,
   }, options.config), {
