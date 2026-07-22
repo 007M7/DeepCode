@@ -21,7 +21,7 @@ type Mode =
   | 'ci-windows-observational'
   | 'node-compat'
   | 'pre-push'
-  | 'manual-push'
+  | 'check-all'
   | 'doc-sync'
 type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
 
@@ -98,12 +98,12 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-windows-observational':
     case 'node-compat':
     case 'pre-push':
-    case 'manual-push':
+    case 'check-all':
     case 'doc-sync':
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | pre-push | manual-push | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | pre-push | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -112,7 +112,7 @@ function defaultConcurrency(selectedMode: Mode, total: number): ConcurrencyDefau
   const available = availableParallelism()
   // Local modes cap workers: several doc gates each build a full ts.Program,
   // so an uncapped default on a large host trades wall clock for memory blowups.
-  const localCap = selectedMode === 'pre-push' || selectedMode === 'doc-sync'
+  const localCap = selectedMode === 'pre-push' || selectedMode === 'check-all' || selectedMode === 'doc-sync'
   const modeLimit = localCap ? Math.min(4, available) : available
   return {
     workers: Math.min(total, modeLimit),
@@ -191,7 +191,7 @@ function gatesForMode(selected: Mode): Gate[] {
     case 'node-compat':
       return nodeCompatGates()
     case 'pre-push': return []
-    case 'manual-push':
+    case 'check-all':
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
         pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
@@ -383,7 +383,7 @@ function coverageGate(): Gate {
 }
 
 // The snapshot suite boots the example bins in `lib` mode (built artifact under plain Node,
-// plugins via real exports) — CI and pre-push already build, so they exercise what ships rather
+// plugins via real exports) — CI and check-all already build, so they exercise what ships rather
 // than the tsx/source path dev uses. It therefore waits on `build`.
 function snapshotGate(): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
