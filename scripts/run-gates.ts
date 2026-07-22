@@ -15,6 +15,7 @@ import { selectStaticGates } from './static-shards.ts'
 
 type Mode =
   | 'ci-primary'
+  | 'ci-primary-cpu'
   | 'ci-primary-large-runner'
   | 'ci-static'
   | 'ci-lint'
@@ -92,6 +93,7 @@ if (results.some(result => result.gate.allowFailure !== true && (result.status =
 function parseMode(raw: string | undefined): Mode {
   switch (raw) {
     case 'ci-primary':
+    case 'ci-primary-cpu':
     case 'ci-primary-large-runner':
     case 'ci-static':
     case 'ci-lint':
@@ -107,7 +109,7 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-primary-large-runner | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | pre-push | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-primary-cpu | ci-primary-large-runner | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | pre-push | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -173,6 +175,8 @@ function gatesForMode(selected: Mode): Gate[] {
   switch (selected) {
     case 'ci-primary':
       return ciPrimaryGates()
+    case 'ci-primary-cpu':
+      return ciPrimaryCpuGates()
     case 'ci-primary-large-runner':
       return ciPrimaryLargeRunnerGates()
     case 'ci-static':
@@ -199,19 +203,7 @@ function gatesForMode(selected: Mode): Gate[] {
     case 'ci-windows-observational':
       return ciWindowsObservationalGates()
     case 'node-compat':
-      return [
-        ...flagEnabled('DSH_NODE_COMPAT_SKIP_TYPECHECK') ? [] : [pnpmScript('typecheck', 'typecheck')],
-        pnpmExec('source-worker-smoke', [
-          'vitest',
-          'run',
-          'packages/workflow/workflow-workerthread/tests/source-worker.compat.spec.ts',
-        ], { label: 'source worker smoke' }),
-        pnpmExec('jsonl-zstd-smoke', [
-          'vitest',
-          'run',
-          'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
-        ], { label: 'JSONL Zstandard smoke' }),
-      ]
+      return nodeCompatGates()
     case 'pre-push':
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
@@ -258,16 +250,49 @@ function ciPrimaryGates(): Gate[] {
 }
 
 function ciPrimaryLargeRunnerGates(): Gate[] {
-  // Typecheck does not consume build output, so a large runner can start both
-  // together while snapshot and artifact consumers still wait for the build.
+  // The CPU lane owns typecheck, coverage, and the build-to-snapshot chain.
+  // This core lane starts its own build eagerly for the remaining artifact consumers.
   return ciPrimaryGates()
-    .filter(gate => gate.id !== 'docs-site-build')
+    .filter(gate => !['coverage', 'docs-site-build', 'snapshot', 'typecheck'].includes(gate.id))
     .map((gate) => {
       if (gate.id !== 'build') return gate
       const eagerBuild = { ...gate }
       delete eagerBuild.needs
       return eagerBuild
     })
+}
+
+function ciPrimaryCpuGates(): Gate[] {
+  // Build and snapshot stay together so the dependent replay consumes this lane's output.
+  return [
+    pnpmScript('typecheck', 'typecheck'),
+    coverageGate(),
+    pnpmScript('build', 'build'),
+    snapshotGate(),
+    ...nodeCompatSmokeGates(),
+  ]
+}
+
+function nodeCompatGates(): Gate[] {
+  return [
+    ...flagEnabled('DSH_NODE_COMPAT_SKIP_TYPECHECK') ? [] : [pnpmScript('typecheck', 'typecheck')],
+    ...nodeCompatSmokeGates(),
+  ]
+}
+
+function nodeCompatSmokeGates(): Gate[] {
+  return [
+    pnpmExec('source-worker-smoke', [
+      'vitest',
+      'run',
+      'packages/workflow/workflow-workerthread/tests/source-worker.compat.spec.ts',
+    ], { label: 'source worker smoke' }),
+    pnpmExec('jsonl-zstd-smoke', [
+      'vitest',
+      'run',
+      'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
+    ], { label: 'JSONL Zstandard smoke' }),
+  ]
 }
 
 function ciStaticGates(): Gate[] {

@@ -319,19 +319,16 @@ jobs:
         run: ${{ matrix.command }}
 
   # One large runner pays hosted setup once, then the repository scheduler
-  # overlaps the unsharded primary inventory except the production site build.
+  # overlaps the unsharded core inventory. CPU and site chains use coarse lanes.
   node-24:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
     runs-on: dsh-ubuntu-24-04-96core
     name: node 24 / core
     env:
-      # Thirty-two Vitest forks intermittently crash Node's CJS lexer on this image.
-      DSH_COVERAGE_MAX_WORKERS: '16'
       DSH_ESLINT_CACHE: '1'
       DSH_ESLINT_CONCURRENCY: '32'
       DSH_GATE_CONCURRENCY: '32'
       DSH_PUBLINT_CONCURRENCY: '32'
-      DSH_SNAPSHOT_MAX_CONCURRENCY: '32'
     steps:
       - uses: actions/checkout@v6
 
@@ -383,8 +380,8 @@ jobs:
       - name: Run unsharded primary Node core CI concurrently
         run: pnpm run check:ci:large-runner
 
-  # Keep only the longest independent Linux gate on a second coarse-grained
-  # runner so cold install variance does not push the primary box over a minute.
+  # Keep the longest independent Linux gate on its own coarse-grained runner so
+  # cold install variance does not push either primary aggregate over a minute.
   node-24-site:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
     runs-on: dsh-ubuntu-24-04-16core
@@ -418,24 +415,39 @@ jobs:
   node-compat:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
     # Distinct larger-runner pools avoid both standard-runner setup outliers and
-    # the delayed second allocation observed when two jobs shared one pool.
+    # the delayed second allocation observed when two jobs shared one pool. The
+    # primary Node row also owns the CPU/dependency-critical primary gate chain.
     runs-on: ${{ matrix.runner }}
-    name: node ${{ matrix.node }}
+    name: ${{ matrix.name }}
     env:
-      DSH_GATE_CONCURRENCY: '2'
+      DSH_COVERAGE_MAX_WORKERS: ${{ matrix.coverage_workers }}
+      DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
       DSH_NODE_COMPAT_SKIP_TYPECHECK: ${{ matrix.skip_typecheck }}
+      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ matrix.snapshot_workers }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - node: '22.19'
+            name: node 22.19
             runner: dsh-ubuntu-24-04-4core
+            command: pnpm run check:node-compat
+            gate_concurrency: '2'
             skip_typecheck: '1'
           - node: 24
-            runner: dsh-ubuntu-24-04-8core
+            name: node 24 / cpu
+            runner: dsh-ubuntu-24-04-64core
+            command: pnpm run check:ci:primary-cpu
+            coverage_workers: '16'
+            gate_concurrency: '6'
+            primary_cpu: true
+            snapshot_workers: '16'
             skip_typecheck: '1'
           - node: 26
+            name: node 26
             runner: dsh-ubuntu-24-04-32core
+            command: pnpm run check:node-compat
+            gate_concurrency: '2'
             skip_typecheck: '1'
     steps:
       - uses: actions/checkout@v6
@@ -458,14 +470,37 @@ jobs:
             ${{ runner.os }}-node-${{ matrix.node }}-pnpm-
 
       - name: Install (immutable)
+        if: matrix.primary_cpu != true
         run: pnpm install --frozen-lockfile
 
-      - name: Run compatibility gates
-        run: pnpm run check:node-compat
+      - name: Install and prepare bubblewrap
+        if: matrix.primary_cpu == true
+        run: |
+          pnpm install --frozen-lockfile &
+          install_pid=$!
+          (
+            if ! sudo apt-get install -yq --no-install-recommends bubblewrap; then
+              echo "initial bubblewrap install failed; refreshing APT indexes and retrying"
+              sudo apt-get update -q
+              sudo apt-get install -yq --no-install-recommends bubblewrap
+            fi
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
+              || echo "apparmor userns knob absent — the functional probe decides"
+          ) &
+          sandbox_pid=$!
+          install_status=0
+          wait "$install_pid" || install_status=$?
+          sandbox_status=0
+          wait "$sandbox_pid" || sandbox_status=$?
+          if (( install_status != 0 )); then exit "$install_status"; fi
+          exit "$sandbox_status"
+
+      - name: Run assigned gates
+        run: ${{ matrix.command }}
 
   python-sdk:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
-    runs-on: dsh-ubuntu-24-04-64core
+    runs-on: dsh-ubuntu-24-04-8core
     name: python 3.10 / keyless SDK
     steps:
       - uses: actions/checkout@v6
