@@ -10,14 +10,27 @@ import { createRequire } from 'node:module'
 import { mountWebPlugins, startHost } from '@deepseek-ai/dsh-host-runtime'
 import { createHostWebPluginRegistry, startWebServer } from '@deepseek-ai/dsh-host-webserver'
 
+const LOOPBACK_HOST = '127.0.0.1'
+const ALL_INTERFACES_HOST = '0.0.0.0'
+
 export async function runWeb(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
-    options: { port: { type: 'string', default: '3080' } },
+    options: {
+      host: { type: 'string', default: LOOPBACK_HOST },
+      port: { type: 'string', default: '3080' },
+    },
     allowPositionals: false,
   })
+  if (values.host !== LOOPBACK_HOST && values.host !== ALL_INTERFACES_HOST) {
+    process.stderr.write(
+      `dsh web: invalid --host ${values.host}; expected ${LOOPBACK_HOST} or ${ALL_INTERFACES_HOST}\n`,
+    )
+    process.exit(1)
+  }
+  const hostAddress = values.host
   const port = Number(values.port)
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
     process.stderr.write(`dsh web: invalid --port ${values.port}\n`)
     process.exit(1)
   }
@@ -65,7 +78,7 @@ export async function runWeb(argv: string[]): Promise<void> {
   let server: Awaited<ReturnType<typeof startWebServer>>
   try {
     server = await startWebServer(
-      { port, distIndex, apiHandler: host.handler, webPlugins },
+      { host: hostAddress, port, distIndex, apiHandler: host.handler, webPlugins },
       (err: Error) => {
         process.stderr.write(`dsh web: ${String(err)}\n`)
         void shutdown(1)
@@ -78,11 +91,12 @@ export async function runWeb(argv: string[]): Promise<void> {
     process.exit(1)
   }
 
-  // The server binds 0.0.0.0 (remote-container + LAN-browser is the primary scenario);
-  // print the LAN address alongside loopback so the printed URL is copy-usable from outside.
-  const lan = Object.values(networkInterfaces()).flat()
-    .find(iface => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
-  console.log(`dsh web: http://127.0.0.1:${server.port}${lan === undefined ? '' : ` (LAN: http://${lan.address}:${server.port})`}`)
+  const lan = hostAddress === ALL_INTERFACES_HOST
+    ? Object.values(networkInterfaces()).flat()
+      .find(iface => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
+    : undefined
+  const localUrl = `http://${LOOPBACK_HOST}:${server.port}`
+  console.log(`dsh web: ${localUrl}${lan === undefined ? '' : ` (LAN: http://${lan.address}:${server.port})`}`)
 
   process.on('SIGTERM', () => { void shutdown(0) })
   process.on('SIGINT', () => { void shutdown(130) })
