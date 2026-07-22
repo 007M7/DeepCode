@@ -11,8 +11,10 @@ import type { Context } from 'cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-commands'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { ApiProxy, HistoryEntry, HostFrame, MuxFrame, SessionSummary, ToolEventView } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { GoalView } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 
@@ -102,6 +104,17 @@ class FrameQueue<F> {
  */
 function frame<F>(payload: F): RpcRequest<F> {
   return { rpcId: RpcId(randomUUID()), payload }
+}
+
+/**
+ * Slash-command candidate: the web composer sends exactly one text block, so
+ * only that exact shape dispatches; multi-block content is never flattened.
+ */
+function commandCandidate(content: ContentBlock[]): string | undefined {
+  const [first, ...rest] = content
+  if (first === undefined || rest.length > 0) return undefined
+  if (first.type !== 'text' || !first.text.startsWith('/')) return undefined
+  return first.text
 }
 
 /** SessionSummary projection for attached (in-memory) sessions. */
@@ -206,6 +219,22 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
     }
   }
   return undefined
+}
+
+/** Project a server-side GoalView into the wire GoalView shape. */
+function goalView(g: import('@deepseek-ai/dsh-goal').GoalView): GoalView {
+  return {
+    id: g.id,
+    revision: g.revision,
+    objective: g.objective,
+    phase: g.phase,
+    ...(g.blockedReason !== undefined ? { blockedReason: g.blockedReason } : {}),
+    maxGoalRounds: g.maxGoalRounds,
+    roundsStarted: g.roundsStarted,
+    createdAt: g.createdAt,
+    updatedAt: g.updatedAt,
+    activation: g.activation,
+  }
 }
 
 /**
@@ -318,6 +347,30 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const agent = found.agent
+        // Host-side slash-command dispatch (symmetric with the ACP adapter): a
+        // leading-/ single-text-block prompt executes through the command
+        // registry instead of reaching the model. Commands are mode-agnostic,
+        // so queue and steer dispatch identically.
+        const commandLine = commandCandidate(content)
+        if (commandLine !== undefined) {
+          // Unary handlers carry no request signal; the dispatch owns a fresh
+          // one (commands here are synchronous mutations, so nothing aborts it).
+          const result = await ctx.commands.execute(agent, commandLine, new AbortController().signal)
+          if (result === undefined) {
+            const space = commandLine.search(/\s/u)
+            const token = space === -1 ? commandLine : commandLine.slice(0, space)
+            return err(request, { code: 'unknown-command', message: `unknown command: ${token}`, details: {} })
+          }
+          // Usage/state errors travel as RPC errors so the client restores the
+          // composer's draft and shows the message on its error strip.
+          if (result.kind === 'error') {
+            return err(request, { code: 'command-error', message: result.text, details: {} })
+          }
+          return ok(request, {
+            accepted: true as const,
+            command: { kind: 'success' as const, ...result.text === undefined ? {} : { text: result.text } },
+          })
+        }
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
@@ -424,6 +477,94 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     // TODO(step2): approval/question pending registry (wire answerer + proxy provider).
     respond(_message: ClientResponse): Promise<RpcReceipt> {
       return Promise.resolve({ accepted: false, reason: 'not-pending' })
+    },
+
+    goals: {
+      async get(request) {
+        const { sessionId } = request.payload
+        const found = await agentFor(sessionId as SessionId)
+        if ('error' in found) return err(request, found.error)
+        const goal = ctx.goals.get(found.agent)
+        return ok(request, { goal: goal ? goalView(goal) : null })
+      },
+
+      async create(request) {
+        const { sessionId, objective, maxGoalRounds } = request.payload
+        const found = await agentFor(sessionId as SessionId)
+        if ('error' in found) return err(request, found.error)
+        try {
+          const goal = ctx.goals.create(found.agent, {
+            objective,
+            ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+          })
+          return ok(request, { goal: goalView(goal) })
+        } catch (error: unknown) {
+          return err(request, { code: 'internal', message: String(error), details: {} })
+        }
+      },
+
+      async edit(request) {
+        const { sessionId, ref, objective, maxGoalRounds } = request.payload
+        const found = await agentFor(sessionId as SessionId)
+        if ('error' in found) return err(request, found.error)
+        try {
+          const goal = ctx.goals.edit(found.agent, ref, {
+            ...(objective !== undefined ? { objective } : {}),
+            ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+          })
+          return ok(request, { goal: goalView(goal) })
+        } catch (error: unknown) {
+          return err(request, { code: 'internal', message: String(error), details: {} })
+        }
+      },
+
+      async pause(request) {
+        const { sessionId, ref } = request.payload
+        const found = await agentFor(sessionId as SessionId)
+        if ('error' in found) return err(request, found.error)
+        try {
+          const goal = ctx.goals.pause(found.agent, ref)
+          return ok(request, { goal: goalView(goal) })
+        } catch (error: unknown) {
+          return err(request, { code: 'internal', message: String(error), details: {} })
+        }
+      },
+
+      async resume(request) {
+        const { sessionId, ref } = request.payload
+        const found = await agentFor(sessionId as SessionId)
+        if ('error' in found) return err(request, found.error)
+        try {
+          const goal = ctx.goals.resume(found.agent, ref)
+          return ok(request, { goal: goalView(goal) })
+        } catch (error: unknown) {
+          return err(request, { code: 'internal', message: String(error), details: {} })
+        }
+      },
+
+      async complete(request) {
+        const { sessionId, ref } = request.payload
+        const found = await agentFor(sessionId as SessionId)
+        if ('error' in found) return err(request, found.error)
+        try {
+          const goal = ctx.goals.complete(found.agent, ref)
+          return ok(request, { goal: goalView(goal) })
+        } catch (error: unknown) {
+          return err(request, { code: 'internal', message: String(error), details: {} })
+        }
+      },
+
+      async clear(request) {
+        const { sessionId, ref } = request.payload
+        const found = await agentFor(sessionId as SessionId)
+        if ('error' in found) return err(request, found.error)
+        try {
+          ctx.goals.clear(found.agent, ref)
+          return ok(request, { cleared: true as const })
+        } catch (error: unknown) {
+          return err(request, { code: 'internal', message: String(error), details: {} })
+        }
+      },
     },
   }
 }

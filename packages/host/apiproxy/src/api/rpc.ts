@@ -32,6 +32,10 @@ export interface RpcErrorDetailsMap {
   'bad-request': { issues: ZodIssue[] }
   'session-not-found': { sessionId: SessionId }
   'agent-busy': { reason: string }
+  /** A known slash command reported a usage/state error; the message is the command's own text. */
+  'command-error': {}
+  /** A leading-/ prompt named no registered command; the message names the token. */
+  'unknown-command': {}
   'internal': {}
 }
 

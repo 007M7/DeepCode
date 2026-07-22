@@ -63,6 +63,15 @@
       "path": "../../fs/tool-fs-search"
     },
     {
+      "path": "../../goal/goal"
+    },
+    {
+      "path": "../../goal/goal-session"
+    },
+    {
+      "path": "../../goal/command-goal"
+    },
+    {
       "path": "../../llm/token-meter"
     },
     {
@@ -136,6 +145,9 @@
     },
     {
       "path": "../../client/ui-conversation"
+    },
+    {
+      "path": "../../ui/commands"
     },
     {
       "path": "../../client/ui-trajectory"

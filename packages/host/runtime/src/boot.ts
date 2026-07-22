@@ -37,6 +37,10 @@ import * as toolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 import * as timeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
 import SpillLocal from '@deepseek-ai/dsh-spill-local'
 import * as spillPolicy from '@deepseek-ai/dsh-spill-policy'
+import GoalService from '@deepseek-ai/dsh-goal'
+import * as goalSession from '@deepseek-ai/dsh-goal-session'
+import CommandService from '@deepseek-ai/dsh-commands'
+import * as commandGoal from '@deepseek-ai/dsh-command-goal'
 
 /** Options for bootHost — the assembly-layer composition knobs. */
 export interface BootHostOptions {
@@ -129,5 +133,12 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   // Oversized tool output spills to session-scoped files (repl-agent budget).
   await ctx.plugin(SpillLocal, {})
   await ctx.plugin(spillPolicy, { maxInlineBytes: 50000 })
+  // Goal service and automatic same-session continuation.
+  await ctx.plugin(GoalService, {})
+  await ctx.plugin(goalSession)
+  // Human slash commands: the registry plus the /goal producer; the api-proxy
+  // prompt path dispatches leading-/ single-text-block prompts through them.
+  await ctx.plugin(CommandService)
+  await ctx.plugin(commandGoal)
   return { ctx, defaults, dispose: () => ctx.fiber.dispose() }
 }
