@@ -129,6 +129,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(server.headers[0]).not.toHaveProperty('http-referer')
     expect(server.headers[0]).not.toHaveProperty('x-openrouter-title')
     expect(server.headers[0]).not.toHaveProperty('x-openrouter-categories')
+    expect(server.headers[0]).not.toHaveProperty('x-deepseek-harness-compact')
   })
 
   it('streams raw chunks through ctx.llm.stream', async () => {
@@ -157,6 +158,19 @@ describe('DeepSeekAdapter against a mock server', () => {
     })
 
     expect(server.headers[0]?.['x-deepseek-harness-session-id']).toBe('child-session')
+  })
+
+  it('marks the auxiliary compaction call on the wire', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const ctx = await harness(server.url)
+
+    await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      purpose: 'compaction',
+    })
+
+    expect(server.headers[0]?.['x-deepseek-harness-compact']).toBe('1')
   })
 
   it('forwards thinking config onto the wire', async () => {
