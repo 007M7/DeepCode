@@ -13,7 +13,7 @@ Owner-scoped persistent PTY seam. `PtyService` registers as `ctx.pty`, mints opa
 - A successful spawn publishes one `PtySessionId`. The optional `name` is owner-local display metadata, never authority.
 - One session accepts at most one live send operation. Reads and signals may observe it; another send fails until the operation settles.
 - `PtySendResult.waitReason` and `sessionStatus` are independent. `session_exit` describes the top-level PTY process, not an arbitrary foreground command.
-- `kill()` and disposal resolve only after the backend's captured process tree is quiescent. A cleanup failure rejects instead of claiming success and leaves the close retriable.
+- `kill()` and disposal resolve only after the backend's captured process tree is quiescent. A cleanup failure rejects instead of claiming success and clears the matching backend and registry fences so a later close can retry without disturbing a newer attempt.
 
 The seam contains no `node-pty`, sandbox, tool-schema, prompt, task, or terminal-rendering policy. Implementations own terminal mechanics; consumers own model presentation and optional background-task registration.
 

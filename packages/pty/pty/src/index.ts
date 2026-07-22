@@ -457,8 +457,14 @@ export class PtyService extends Service {
     const results = await Promise.allSettled(records.map(async (record) => {
       const closing = record.closing ?? record.session.close(reason)
       record.closing = closing
-      await closing
-      this.sessions.delete(record.id)
+      try {
+        await closing
+        this.sessions.delete(record.id)
+      } catch (error: unknown) {
+        // A concurrent retry may already own a newer fence; never clear it.
+        if (record.closing === closing) record.closing = undefined
+        throw error
+      }
     }))
     const failures = results
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')

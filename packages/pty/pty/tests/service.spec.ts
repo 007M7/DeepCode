@@ -540,8 +540,15 @@ describe('PtyService ownership and lifecycle', () => {
       sessions: Map<PtySessionIdType, unknown>
       closeRecords(records: unknown[], reason: string): Promise<void>
     }
-    await expect(internal.closeRecords([...internal.sessions.values()], 'test failure')).rejects.toThrow('failed to close 1 PTY session')
+    const records = [...internal.sessions.values()]
+    const firstFailure = expect(internal.closeRecords(records, 'test failure')).rejects.toThrow('failed to close 1 PTY session')
+    const joinedFailure = expect(internal.closeRecords(records, 'joined failure')).rejects.toThrow('failed to close 1 PTY session')
+    await firstFailure
+    await joinedFailure
     b.sessions[0]!.rejectClose = false
+    await expect(internal.closeRecords([...internal.sessions.values()], 'retry')).resolves.toBeUndefined()
+    expect(b.sessions[0]!.closed).toEqual(['test failure', 'retry'])
+    expect(internal.sessions.size).toBe(0)
     await disposePtyService(ctx)
     await expect(service.spawn(owner, { type: 'stub' })).rejects.toMatchObject({ code: 'SERVICE_DISPOSING' })
   })
