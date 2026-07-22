@@ -12,12 +12,29 @@ const intrinsicReflectApply = Reflect.apply as (
 const intrinsicArrayIsArray = Array.isArray
 const IntrinsicBuffer = Buffer
 const intrinsicBufferByteLength = Reflect.get(Buffer, 'byteLength') as IntrinsicCallable
+const intrinsicObjectCreate = Object.create
 const intrinsicObjectDefineProperty = Object.defineProperty
 const intrinsicObjectKeys = Object.keys
 const intrinsicString = String
 const intrinsicStringCharCodeAt = Reflect.get(String.prototype, 'charCodeAt') as IntrinsicCallable
 const intrinsicStringCodePointAt = Reflect.get(String.prototype, 'codePointAt') as IntrinsicCallable
 const intrinsicStringSlice = Reflect.get(String.prototype, 'slice') as IntrinsicCallable
+
+/** Build a data descriptor that cannot inherit model-defined accessor fields. */
+function dataDescriptor(value: unknown): PropertyDescriptor {
+  const descriptor = intrinsicObjectCreate(null) as PropertyDescriptor
+  descriptor.value = value
+  return descriptor
+}
+
+/** Define an ordinary enumerable data slot without a prototype-bearing descriptor. */
+function defineEnumerableDataProperty(target: object, key: PropertyKey, value: unknown): void {
+  const descriptor = dataDescriptor(value)
+  descriptor.enumerable = true
+  descriptor.configurable = true
+  descriptor.writable = true
+  intrinsicObjectDefineProperty(target, key, descriptor)
+}
 
 /** UTF-8 byte length through the module-captured Node intrinsic. */
 function byteLength(text: string): number {
@@ -26,12 +43,7 @@ function byteLength(text: string): number {
 
 /** Append without consulting a model-mutated `Array.prototype`. */
 function append<T>(target: T[], value: T): void {
-  intrinsicObjectDefineProperty(target, target.length, {
-    value,
-    enumerable: true,
-    configurable: true,
-    writable: true,
-  })
+  defineEnumerableDataProperty(target, target.length, value)
 }
 
 /** Pop without consulting a model-mutated `Array.prototype`. */
@@ -39,7 +51,7 @@ function takeLast<T>(target: T[]): T | undefined {
   if (target.length === 0) return undefined
   const index = target.length - 1
   const value = target[index]
-  intrinsicObjectDefineProperty(target, 'length', { value: index })
+  intrinsicObjectDefineProperty(target, 'length', dataDescriptor(index))
   return value
 }
 

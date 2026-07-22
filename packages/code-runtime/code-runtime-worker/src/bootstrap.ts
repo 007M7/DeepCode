@@ -10,6 +10,18 @@ import type { DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './
 import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
 import { decodeWorkerJson, encodeWorkerJson, snapshotCodeJsonValue } from './worker-json.ts'
 
+const CapturedError = Error
+const capturedObjectCreate = Object.create
+const capturedObjectDefineProperty = Object.defineProperty
+
+/** Define one public binding-error field without consulting mutable globals or descriptor prototypes. */
+function defineBindingErrorField(error: Error, key: string, value: string): void {
+  const attributes = capturedObjectCreate(null) as PropertyDescriptor
+  attributes.enumerable = true
+  attributes.value = value
+  capturedObjectDefineProperty(error, key, attributes)
+}
+
 /** The port surface the bootstrap needs — satisfied by `parentPort` and by the tests' fake. */
 export interface BootstrapPort {
   postMessage(message: WorkerToHost): void
@@ -66,7 +78,7 @@ export class LogBuffer {
       if (prefix.length > 0) {
         const prefixBytes = jsonStringBytesUpTo(prefix, availableBytes)
         /* v8 ignore next -- truncateJsonStringBytes guarantees the returned prefix fits. */
-        if (prefixBytes === undefined) throw new Error('worker output ledger produced an oversized log prefix')
+        if (prefixBytes === undefined) throw new CapturedError('worker output ledger produced an oversized log prefix')
         this.bytes += prefixBytes + separatorBytes
         this.entries += 1
         this.sink(prefix)
@@ -208,7 +220,7 @@ export function prepareException(
 ): Omit<DoneMessage, 'type'> {
   let message: string
   try {
-    const detail: unknown = error instanceof Error ? error.stack ?? error.message : error
+    const detail: unknown = error instanceof CapturedError ? error.stack ?? error.message : error
     message = typeof detail === 'string' ? detail : String(detail)
   } catch {
     message = 'program threw an unrenderable value'
@@ -233,18 +245,18 @@ export type BindingErrorConstructor = new (memberName: string, message: string) 
 function makeBindingErrorClass(
   descriptor: { name: string; memberNameProperty: string },
 ): BindingErrorConstructor {
-  return class BindingCallError extends Error {
+  return class BindingCallError extends CapturedError {
     constructor(memberName: string, message: string) {
       super(message)
-      Object.defineProperty(this, 'name', { enumerable: true, value: descriptor.name })
-      Object.defineProperty(this, descriptor.memberNameProperty, { enumerable: true, value: memberName })
+      defineBindingErrorField(this, 'name', descriptor.name)
+      defineBindingErrorField(this, descriptor.memberNameProperty, memberName)
     }
   }
 }
 
 /** Create the namespace-specific rejection for one failed binding call. */
 function bindingFailure(errorClass: BindingErrorConstructor | undefined, memberName: string, message: string): Error {
-  return errorClass ? new errorClass(memberName, message) : new Error(message)
+  return errorClass ? new errorClass(memberName, message) : new CapturedError(message)
 }
 
 /**
@@ -278,10 +290,10 @@ export function wireReplies(port: BootstrapPort, pending: Map<number, PendingCal
     pending.delete(message.id)
     if (message.ok) {
       const value = decodeWorkerJson(message.value)
-      if (value === undefined) entry.reject(new Error('binding resolution must be lossless JSON'))
+      if (value === undefined) entry.reject(new CapturedError('binding resolution must be lossless JSON'))
       else entry.resolve(value)
     } else {
-      entry.reject(new Error(message.message))
+      entry.reject(new CapturedError(message.message))
     }
   })
 }
@@ -335,7 +347,7 @@ export function makeNamespaces(
               port.postMessage({ type: 'call', id, global, name, args: encodeWorkerJson(detached) })
             } catch (error: unknown) {
               pending.delete(id)
-              const message = `binding arguments must be structured-cloneable: ${error instanceof Error ? error.message : String(error)}`
+              const message = `binding arguments must be structured-cloneable: ${error instanceof CapturedError ? error.message : String(error)}`
               reject(bindingFailure(errorClass, name, message))
             }
           })
@@ -380,7 +392,7 @@ export async function runWorkerMain(
     errorClassParameters.push(namespace.errorClass.name)
     const errorClass = errorClasses.get(namespace.global)
     /* v8 ignore next -- makeBindingErrorClasses covers every declaration in the same data. */
-    if (!errorClass) throw new Error(`missing binding error class for ${namespace.global}`)
+    if (!errorClass) throw new CapturedError(`missing binding error class for ${namespace.global}`)
     errorClassValues.push(errorClass)
   }
   const consoleShim = makeConsoleShim(logs)
