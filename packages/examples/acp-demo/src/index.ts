@@ -25,6 +25,8 @@ import SessionPersistenceJsonl, {
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as sessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import SessionQueryService from '@deepseek-ai/dsh-session-query'
+import SessionReferenceService, { type Config as SessionReferenceConfig } from '@deepseek-ai/dsh-session-reference'
 
 export const name = 'acp-demo'
 const DEFAULT_PERSISTENCE_ROOT = './.sessions'
@@ -61,6 +63,8 @@ export interface Config {
   packChunks?: boolean
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
+  /** Cross-session reference discovery and snapshot byte budgets. */
+  sessionReferences?: SessionReferenceConfig
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
@@ -93,6 +97,7 @@ export const Config: z<Config> = z.object({
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
   packChunks: z.boolean().default(false),
   persistenceCompression: JsonlCompressionSchema,
+  sessionReferences: SessionReferenceService.Config,
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
@@ -128,6 +133,8 @@ export function apply(ctx: Context, config: Config): void {
     }).dispose
     /* jscpd:ignore-end */
     yield ctx.plugin(sessionCheckpointPolicy).dispose
+    yield ctx.plugin(SessionQueryService).dispose
+    yield ctx.plugin(SessionReferenceService, config.sessionReferences ?? {}).dispose
     yield ctx.plugin(acp, { provider: config.provider, model: config.model }).dispose
   }, 'acp-demo.composition')
 }

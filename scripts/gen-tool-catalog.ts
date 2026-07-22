@@ -33,6 +33,8 @@ import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+import PtyService from '@deepseek-ai/dsh-pty'
+import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
 import Lsp from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
@@ -244,6 +246,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
       'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
   },
   {
+    pkg: '@deepseek-ai/dsh-tool-pty',
+    dir: 'tool-pty',
+    source: 'packages/pty/tool-pty/src/index.ts',
+    requires: ['ctx.tools', 'ctx.pty', 'ctx.systemPrompt', 'ctx.tasks at call time for run_in_background'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(PtyService)
+      await ctx.plugin(ToolPty)
+    },
+    note:
+      'The six terminal tools are opt-in and complement one-shot bash/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-goal',
     dir: 'tool-goal',
     source: 'packages/goal/tool-goal/src/index.ts',
@@ -327,7 +342,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolTasks)
     },
     note:
-      'The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers\' `ctx.tasks.start()`.',
+      'The kind-agnostic background-task control surface: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers\' `ctx.tasks.start()`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-todo',

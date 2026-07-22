@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import * as acpAgent from '../src/index.ts'
@@ -83,18 +84,26 @@ describe('dsh-acp-demo composition', () => {
       persona: 'hi',
       persistenceRoot: '/tmp/dsh-acp-demo-test',
       persistenceCompression: 'none',
+      sessionReferences: { candidateLimit: 1 },
       skills: await isolatedSkillsConfig(),
       workspaceContext: false,
     })
     expect(ctx.get('agents')).toBeDefined()
     expect(ctx.get('sessions')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
+    expect(ctx.get('sessionQuery')).toBeDefined()
+    expect(ctx.get('sessionReferences')).toBeDefined()
     expect((ctx.get('sessionPersistence') as unknown as { config: { compression?: string } }).config.compression).toBe('none')
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('userInteraction')).toBeDefined()
     expect(ctx.get('tools')?.get('ask_user_question')).toBeUndefined()
     expect(ctx.get('goals')).toBeDefined()
     expect(ctx.get('tools')?.get('get_goal')).toBeDefined()
+    const target = ctx.sessions.create(SessionId('candidate-target'))
+    ctx.sessions.create(SessionId('candidate-one'))
+    ctx.sessions.create(SessionId('candidate-two'))
+    await expect(ctx.sessionReferences.listCandidates({ id: target.id, session: target } as Agent))
+      .resolves.toHaveLength(1)
     // No pre-created agents — ACP session/new creates them on demand.
     expect(ctx.get('agents')!.list()).toHaveLength(0)
     await ctx.fiber.dispose()
