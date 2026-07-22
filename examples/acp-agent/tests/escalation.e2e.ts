@@ -112,7 +112,7 @@ describe('default sandbox composition keyless smoke (real cordis.yml via the Loa
     // ONE select advertises, current from the configured default preset.
     const created = await client.newSession({ cwd: workdir, mcpServers: [] })
     const advertised = created.configOptions ?? []
-    const modelValue = JSON.stringify(['deepseek', 'deepseek-v4-flash'])
+    const modelValue = JSON.stringify(['deepseek', 'deepseek-v4-pro'])
     expect(advertised.map(option => [option.id, 'currentValue' in option ? option.currentValue : undefined]))
       .toEqual([['model', modelValue], ['permission', 'workspace-write']])
     // A switch responds with the COMPLETE refreshed state (the spec contract),

@@ -1,12 +1,13 @@
 import { mkdir, readdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import { CallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import type { Session } from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolDefinition, type ToolResultView } from '@deepseek-ai/dsh-tools'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
@@ -30,6 +31,7 @@ const CHECKPOINTS = [
   'retry-recovered',
   'retry-cancelled',
   'retry-exhausted',
+  'banner-gradient',
   'code-mode-pending',
   'dynamic-workflow-pending',
   'cordis-tools-pending',
@@ -45,6 +47,9 @@ const CHECKPOINTS = [
   'model-switching',
   'errors-and-help',
   'disposed-terminal',
+  'resume-sessions',
+  'status-diagnostics',
+  'status-diagnostics-narrow',
 ] as const
 
 type Checkpoint = typeof CHECKPOINTS[number]
@@ -56,9 +61,23 @@ async function checkpoint(
   name: Checkpoint,
   terminal: HeadlessTerminal,
   options: TerminalSnapshotOptions = {},
+  bannerGradient = false,
 ): Promise<void> {
   observedCheckpoints.add(name)
-  expect(terminal.themeViolations(), `${name} must remain theme-agnostic`).toEqual([])
+  const violations = terminal.themeViolations()
+  if (bannerGradient) {
+    // The banner paints its product name in the DeepSeek brand gradient with
+    // 24-bit foreground codes: the sole sanctioned truecolor. Require it to be
+    // present and to never leak a background or extended-palette color into the
+    // otherwise theme-agnostic UI.
+    expect(violations, `${name} must render the banner gradient`).not.toEqual([])
+    expect(
+      violations.every(entry => entry.endsWith('rgb-fg')),
+      `${name} must confine truecolor to the banner foreground`,
+    ).toBe(true)
+  } else {
+    expect(violations, `${name} must remain theme-agnostic`).toEqual([])
+  }
   const snapshot = await terminal.snapshot(options)
   const path = join(SNAPSHOTS_DIR, `${name}.expected.txt`)
   if (REFRESHING) {
@@ -305,6 +324,12 @@ describe('TUI terminal-state snapshots', () => {
       })
     })
     await checkpoint('retry-exhausted', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+  })
+
+  it('paints the startup banner product name in the DeepSeek brand gradient on truecolor terminals', async () => {
+    const harness = await setupSnapshot({ config: { truecolor: true } })
+    await checkpoint('banner-gradient', harness.terminal, {}, true)
     await disposeSnapshot(harness)
   })
 
@@ -595,6 +620,63 @@ describe('TUI terminal-state snapshots', () => {
     })
     await checkpoint('model-switching', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
+  })
+
+  it('lists this workspace\'s resumable sessions with their commands', async () => {
+    const harness = await setupSnapshot({
+      config: { resumeCommand: 'RESUME_SESSION_ID={session} dsh' },
+      sessionPersistence: { list: async () => [
+        { version: 0, id: SessionId('main-session'), createdAt: Date.parse('2024-01-02T03:04:00Z'), cwd: '/workspace/project' },
+        { version: 0, id: SessionId('earlier-session'), createdAt: Date.parse('2024-01-01T00:00:00Z'), cwd: '/workspace/project' },
+      ] },
+    }, { columns: 92, rows: 32 })
+    harness.terminal.send('/resume')
+    harness.terminal.send('\r')
+    // `/resume` scans persistence asynchronously, so the listing renders a tick
+    // after submit (the unit suite waits the same way); settle, then flush.
+    await new Promise(resolve => setTimeout(resolve, 60))
+    await harness.terminal.flush()
+    await checkpoint('resume-sessions', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+  })
+
+  it('pins the detailed session diagnostics card', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-22T09:10:11.000Z'))
+    const harness = await setupSnapshot({
+      contextWindow: 128_000,
+      contextTokens: 42_000,
+      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+      beforeMount(session) {
+        appendUser(session, 'inspect this session')
+        appendAssistant(session, [{ type: 'text', text: 'Session inspected.' }], {
+          inputTokens: 1_250,
+          outputTokens: 340,
+          cacheReadTokens: 3_000,
+          cacheWriteTokens: 250,
+        })
+        session.append('tool/call', {
+          turn: 1,
+          step: 1,
+          callId: CallId('status-call'),
+          name: 'read',
+          arguments: '{"path":"README.md"}',
+        })
+        session.append('session/title', {
+          title: 'Inspect session diagnostics',
+          messageSeqs: [1],
+          source: { kind: 'fallback' },
+        })
+      },
+    }, { columns: 92, rows: 32 })
+    await renderAfter(harness, () => {
+      harness.terminal.send('/status')
+      harness.terminal.send('\r')
+    })
+    await checkpoint('status-diagnostics', harness.terminal, { includeScrollback: true })
+    await renderAfter(harness, () => { harness.terminal.resize(56, 36) })
+    await checkpoint('status-diagnostics-narrow', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+    dateNow.mockRestore()
   })
 })
 

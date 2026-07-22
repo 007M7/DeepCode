@@ -1474,10 +1474,18 @@ Requires: `agents` · `commands` · `userInteraction` · `tools` · `llm` · `sy
 ```ts config-catalog
 /** Serializable plugin configuration. */
 export interface Config extends TuiConfig {
-  /** Header subtitle. Defaults to `ready.`. */
+  /** Banner subtitle line. When absent, the banner has no subtitle and sweeps in on start. */
   welcome?: string
   /** Exact shared agent/session identity driven by this terminal. Defaults to `main`. */
   sessionId?: string
+  /**
+   * Shell command template shown for resuming this session: printed on exit and
+   * listed by `/resume`, with every `{session}` occurrence replaced by the live
+   * session id. Absent disables both surfaces. Deployments set it only when a
+   * persistence backend makes the session resumable (e.g.
+   * `RESUME_SESSION_ID={session} dsh`).
+   */
+  resumeCommand?: string
 }
 
 /** Presentation settings for the pi-tui terminal mode. */
@@ -1502,12 +1510,19 @@ export interface TuiConfig {
   showHardwareCursor?: boolean
   /** Apply the built-in ANSI color palette. */
   color?: boolean
-  /** Terminal window title while the UI is mounted. */
+  /**
+   * Paint the startup banner's product name in the DeepSeek brand gradient
+   * using 24-bit truecolor. Requires {@link TuiConfig.color}; falls back to the
+   * flat accent color when either is off. Unset auto-detects `COLORTERM` at the
+   * process boundary, so most deployments leave it unset.
+   */
+  truecolor?: boolean
+  /** Terminal window title while the UI is mounted; a logged session title prefixes it. */
   title?: string
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:129`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:145`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 
@@ -1534,8 +1549,15 @@ export interface Config {
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
-  /** TUI subtitle rendered on start. Defaults to `ready.`. */
+  /** TUI transcript's optional first line; absent renders nothing on start. */
   welcome?: string
+  /**
+   * Shell command template the TUI prints on exit and lists under `/resume`,
+   * with `{session}` replaced by the live session id (forwarded to the front
+   * door). Set it to a command that resumes via this app's env var, e.g.
+   * `RESUME_SESSION_ID={session} dsh`.
+   */
+  resumeCommand?: string
   /** Full-screen TUI presentation settings. */
   ui?: uiTui.TuiConfig
   /** Skill registry, local-provider, and model-facing consumer config. */
@@ -1555,7 +1577,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`uiTui`](../packages/ui/tui/src/index.ts)
 
-Source: [`packages/examples/tui-demo/src/index.ts:33`](../packages/examples/tui-demo/src/index.ts)
+Source: [`packages/examples/tui-demo/src/index.ts:32`](../packages/examples/tui-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
@@ -1740,12 +1762,20 @@ export interface Config {
   maxBytes: number
   /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
   maxSourceBytes?: number
-  /** Ordered same-directory project candidates; the first existing regular file wins in each scope. */
+  /**
+   * Ordered same-directory project candidates; every existing file loads, with
+   * per-directory trimmed-content duplicates collapsed to the earliest candidate.
+   */
   instructionFileCandidates?: string[]
+  /**
+   * Ordered same-directory local-overlay candidates loaded after the base files
+   * under the same per-directory trimmed-content dedup; empty disables the overlay.
+   */
+  localInstructionFileCandidates?: string[]
 }
 ```
 
-Source: [`packages/context/workspace-context/src/config.ts:16`](../packages/context/workspace-context/src/config.ts)
+Source: [`packages/context/workspace-context/src/config.ts:17`](../packages/context/workspace-context/src/config.ts)
 
 ## Loadable plugins with no config
 

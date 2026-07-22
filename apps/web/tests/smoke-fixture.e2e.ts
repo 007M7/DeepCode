@@ -49,12 +49,12 @@ describe('web boot chain (keyless, real carrier)', () => {
       apiHandler,
       webPlugins: {
         snapshot: () => ROWS,
-        clientPath: (id) => (id === ROWS[0]!.id ? LAYOUT_BUNDLE : undefined),
+        clientPath: id => (id === ROWS[0]!.id ? LAYOUT_BUNDLE : undefined),
       },
     }, (err) => { pageErrors.push(`server: ${String(err)}`) })
     browser = await chromium.launch()
     page = await browser.newPage()
-    page.on('pageerror', (e) => pageErrors.push(String(e)))
+    page.on('pageerror', e => pageErrors.push(String(e)))
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' })
   })
 
@@ -91,7 +91,7 @@ describe('web boot chain (keyless, real carrier)', () => {
 })
 
 describe('web boot chain success pass (keyless, five real bundles, ?fixture)', () => {
-  const missing = REAL_PLUGINS.filter((p) => !existsSync(bundlePath(p.dir)))
+  const missing = REAL_PLUGINS.filter(p => !existsSync(bundlePath(p.dir)))
   let server: Awaited<ReturnType<typeof startWebServer>>
   let browser: Browser
   let page: Page
@@ -99,25 +99,25 @@ describe('web boot chain success pass (keyless, five real bundles, ?fixture)', (
 
   beforeAll(async () => {
     requireDist()
-    if (missing.length > 0) throw new Error(`client bundles not built (pnpm --filter <pkg> bundle): ${missing.map((m) => m.dir).join(', ')}`)
+    if (missing.length > 0) throw new Error(`client bundles not built (pnpm --filter <pkg> bundle): ${missing.map(m => m.dir).join(', ')}`)
     const port = await probeFreePort()
     const rows: WebPluginBootEntry[] = REAL_PLUGINS.map((p) => {
       const row: WebPluginBootEntry = { id: p.id, url: `/plugins/${p.id}/client.js`, inject: p.inject }
       if (p.immediately === true) row.immediately = true
       return row
     })
-    const byId = new Map(REAL_PLUGINS.map((p) => [p.id, bundlePath(p.dir)]))
+    const byId = new Map(REAL_PLUGINS.map(p => [p.id, bundlePath(p.dir)]))
     // ?fixture never opens HTTP streams; /api is a tripwire like the first describe.
     const apiHandler = { fetch: () => Promise.resolve(new Response('fixture mode must not call /api', { status: 500 })) }
     server = await startWebServer({
       port,
       distIndex: DIST_INDEX,
       apiHandler,
-      webPlugins: { snapshot: () => rows, clientPath: (id) => byId.get(id) },
+      webPlugins: { snapshot: () => rows, clientPath: id => byId.get(id) },
     }, (err) => { pageErrors.push(`server: ${String(err)}`) })
     browser = await chromium.launch()
     page = await browser.newPage()
-    page.on('pageerror', (e) => pageErrors.push(String(e)))
+    page.on('pageerror', e => pageErrors.push(String(e)))
     await page.goto(`http://127.0.0.1:${port}/?fixture`, { waitUntil: 'load' })
   })
 
@@ -131,13 +131,13 @@ describe('web boot chain success pass (keyless, five real bundles, ?fixture)', (
     await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
     // Loading page is gone; the grid carries the three tracks.
     expect(await page.locator('text=Failed to load plugins').count()).toBe(0)
-    const template = await page.locator('[class*="frame"]').evaluate((el) => getComputedStyle(el).gridTemplateColumns)
+    const template = await page.locator('[class*="frame"]').evaluate(el => getComputedStyle(el).gridTemplateColumns)
     expect(template.split(' ').length).toBe(3)
   })
 
   it('every plugin CSS landed with its ownership tag', async () => {
     const owners = await page.evaluate(() =>
-      [...document.querySelectorAll('style[data-plugin]')].map((s) => (s as HTMLElement).dataset['plugin']))
+      [...document.querySelectorAll('style[data-plugin]')].map(s => (s as HTMLElement).dataset['plugin']))
     expect(owners).toContain('@deepseek-ai/dsh-client-ui-layout')
   })
 
