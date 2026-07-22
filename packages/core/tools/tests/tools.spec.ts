@@ -140,6 +140,62 @@ describe('ToolRegistry', () => {
     expect(observedError).toBe(true)
   })
 
+  it('finalizes errors discovered while snapshotting non-content result fields', async () => {
+    const ctx = await setup()
+    let finalizeCalls = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'throwing-meta',
+      finalizeContent(_exec, result) {
+        finalizeCalls += 1
+        const block = result.content[0]
+        if (block?.type !== 'text') return undefined
+        return [{ type: 'text', text: block.text.slice(0, 32) }]
+      },
+      async execute() {
+        const meta = {}
+        Object.defineProperty(meta, 'value', {
+          enumerable: true,
+          get() { throw new Error('snapshot failed: '.repeat(100)) },
+        })
+        return { content: [{ type: 'text', text: 'body' }], meta }
+      },
+    })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('throwing-meta'), name: 'throwing-meta', arguments: {},
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: snapshot failed: snapshot' }])
+    expect(finalizeCalls).toBe(1)
+  })
+
+  it('normalizes a throwing final content callback without invoking it again', async () => {
+    const ctx = await setup()
+    let finalizeCalls = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'throwing-finalizer',
+      finalizeContent() {
+        finalizeCalls += 1
+        throw new Error('finalizer violated its total contract')
+      },
+    })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('throwing-finalizer'), name: 'throwing-finalizer', arguments: {},
+    })
+
+    expect(result).toEqual({
+      content: [{ type: 'text', text: 'Error: finalizer violated its total contract' }],
+      isError: true,
+    })
+    expect(finalizeCalls).toBe(1)
+  })
+
   it('returns isError results for unknown tools and throwing tools', async () => {
     const ctx = await setup()
     ctx.tools.register({

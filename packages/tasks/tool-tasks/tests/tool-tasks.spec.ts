@@ -424,6 +424,53 @@ describe('completion notices', () => {
     expect(notice).toContain('[notice truncated]\nDone; task_output.')
   })
 
+  it('keeps the complete PTY task id and collection action at the minimum PTY limit', async () => {
+    const { ctx } = await setup()
+    for (let index = 0; index < 99; index += 1) {
+      const prior = producer({ kind: 'pty-send' })
+      ctx.tasks.start(prior.spec)
+      prior.settle({ status: 'completed' })
+    }
+    const inject = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const target = producer({
+      owner,
+      kind: 'pty-send',
+      label: 'x'.repeat(1_000),
+      outputLimitBytes: 64,
+    })
+    ctx.tasks.start(target.spec)
+
+    target.settle({ status: 'completed', detail: 'd'.repeat(1_000) })
+    await tick()
+
+    const content = inject.mock.calls[0]?.[0] as Array<{ type: string; text?: string }> | undefined
+    const notice = content?.[0]?.text ?? ''
+    expect(Buffer.byteLength(notice)).toBeLessThanOrEqual(64)
+    expect(notice).toBe('background task pty-send-100\nDone; task_output.')
+  })
+
+  it('reserves the collection-action tail when a producer supplies a smaller budget', async () => {
+    const { ctx } = await setup()
+    const inject = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const tiny = producer({ owner, kind: 'pty-send', label: 'x'.repeat(100), outputLimitBytes: 8 })
+    const short = producer({ owner, kind: 'pty-send', label: 'x'.repeat(100), outputLimitBytes: 32 })
+    ctx.tasks.start(tiny.spec)
+    ctx.tasks.start(short.spec)
+
+    tiny.settle({ status: 'completed' })
+    short.settle({ status: 'completed' })
+    await tick()
+
+    const tinyNotice = (inject.mock.calls[0]?.[0] as Array<{ text?: string }> | undefined)?.[0]?.text ?? ''
+    const shortNotice = (inject.mock.calls[1]?.[0] as Array<{ text?: string }> | undefined)?.[0]?.text ?? ''
+    expect(Buffer.byteLength(tinyNotice)).toBeLessThanOrEqual(8)
+    expect(tinyNotice).toBe('_output.')
+    expect(Buffer.byteLength(shortNotice)).toBeLessThanOrEqual(32)
+    expect(shortNotice).toBe('background ta\nDone; task_output.')
+  })
+
   it('suppresses the notice for a task the model already killed', async () => {
     const { ctx } = await setup()
     const inject = vi.fn()

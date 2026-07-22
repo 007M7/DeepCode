@@ -81,8 +81,17 @@ function fitCompletionNotice(snapshot: TaskSnapshot): string {
   const omitted = '\n[notice truncated]'
   const fixed = `${prefix}${omitted}${action}`
   const fixedBytes = encoder.encode(fixed).byteLength
-  if (fixedBytes >= maxBytes) return retainHead(fixed, maxBytes)
-  return `${prefix}${retainHead(detail, maxBytes - fixedBytes)}${omitted}${action}`
+  if (fixedBytes <= maxBytes) {
+    return fixedBytes === maxBytes
+      ? fixed
+      : `${prefix}${retainHead(detail, maxBytes - fixedBytes)}${omitted}${action}`
+  }
+  const compact = `${prefix}${action}`
+  const compactBytes = encoder.encode(compact).byteLength
+  if (compactBytes <= maxBytes) return compact
+  const actionBytes = encoder.encode(action).byteLength
+  if (actionBytes >= maxBytes) return retainTail(action, maxBytes)
+  return `${retainHead(prefix, maxBytes - actionBytes)}${action}`
 }
 
 function boundSingleText(content: readonly ContentBlock[], maxBytes: number): ContentBlock[] | undefined {

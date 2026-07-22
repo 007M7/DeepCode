@@ -1057,9 +1057,15 @@ export class ToolRegistry extends Service {
    * @internal
    */
   private finishScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
+    let snapshottedResult: ToolExecutionResult
+    try {
+      snapshottedResult = this.snapshotFinalResult(result)
+    } catch (error: unknown) {
+      snapshottedResult = toolErrorResult(error)
+    }
     let finalResult: ToolExecutionResult
     try {
-      finalResult = this.materializeFinalResult(this.applyFinalContent(exec, result))
+      finalResult = this.materializeFinalResult(this.applyFinalContent(exec, snapshottedResult))
     } catch (error: unknown) {
       finalResult = this.materializeFinalResult(toolErrorResult(error))
     }
@@ -1187,13 +1193,18 @@ export class ToolRegistry extends Service {
     }
   }
 
-  /** Materialize the authoritative commit outcome once, immediately before `tools/result`. */
-  private materializeFinalResult(result: ToolExecutionResult): ToolExecutionResult {
+  /** Validate and detach one candidate outcome before tool-owned final content. */
+  private snapshotFinalResult(result: ToolExecutionResult): ToolExecutionResult {
     const detached = snapshotJsonValue(result)
     if (detached === undefined) {
       throw new TypeError('tool result must be losslessly JSON-serializable')
     }
-    return deepFreeze(detached)
+    return detached
+  }
+
+  /** Materialize the authoritative commit outcome once, immediately before `tools/result`. */
+  private materializeFinalResult(result: ToolExecutionResult): ToolExecutionResult {
+    return deepFreeze(this.snapshotFinalResult(result))
   }
 }
 
