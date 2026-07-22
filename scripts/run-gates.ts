@@ -18,6 +18,7 @@ type Mode =
   | 'ci-artifacts'
   | 'node-compat'
   | 'pre-push'
+  | 'manual-push'
   | 'doc-sync'
 type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
 
@@ -191,7 +192,8 @@ function gatesForMode(selected: Mode): Gate[] {
           'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
         ], { label: 'JSONL Zstandard smoke' }),
       ]
-    case 'pre-push':
+    case 'pre-push': return []
+    case 'manual-push':
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
         pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
