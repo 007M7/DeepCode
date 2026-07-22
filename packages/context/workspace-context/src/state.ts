@@ -61,9 +61,8 @@ export interface ReconciledInstructionContext {
   versionUpdates: InstructionVersionUpdate[]
 }
 
-/** Plugin-owned raw context with required replay metadata. */
+/** Plugin-owned context with required replay metadata. */
 export interface WorkspaceHookContext extends HookContext {
-  envelope: 'raw'
   meta: JsonValue
 }
 
@@ -76,7 +75,7 @@ function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[
     ...change.digest !== undefined ? { digest: change.digest } : {},
   }))
   const meta: JsonValue = { kind: 'workspace-instructions', version: 1, changes: serializedChanges }
-  return { content: [{ type: 'text', text }], source: PLUGIN_SOURCE, envelope: 'raw', meta }
+  return { content: [{ type: 'text', text }], source: PLUGIN_SOURCE, meta }
 }
 
 /**
