@@ -16,8 +16,8 @@
  * - LSP_FAKE_OPEN_MARKER: appends each didOpen document text as one JSON line to this path.
  * - LSP_FAKE_INITIALIZED_MARKER: records when the initialized notification is received.
  * - LSP_FAKE_PAUSE_STDIN_AFTER_INITIALIZED: "1" stops consuming stdin after initialized.
- * - LSP_FAKE_CLOSE_STDIN_AFTER_INITIALIZED: "1" closes fd 0 after the initialized notification.
- * - LSP_FAKE_CLOSE_STDIN_AFTER_REPLY: "1" closes fd 0 before sending the first query response.
+ * - LSP_FAKE_CLOSE_STDIN_AFTER_INITIALIZED: "1" closes the stdin pipe after initialization.
+ * - LSP_FAKE_CLOSE_STDIN_AFTER_REPLY: "1" closes the stdin pipe before the first query response.
  * - LSP_FAKE_EXIT_DELAY_MS / LSP_FAKE_EXIT_MARKER: delay protocol exit and record exit/termination.
  * - LSP_FAKE_NO_SHUTDOWN: "1" ignores the shutdown request (forces kill escalation).
  * - LSP_FAKE_ON_OPEN: server→client request to emit when a didOpen arrives, one of
@@ -146,14 +146,14 @@ function handle(message: { id?: number; method?: string; params?: unknown; resul
   if (method === 'initialized') {
     if (initializedMarker !== undefined) appendFileSync(initializedMarker, 'INITIALIZED\n')
     if (pauseStdinAfterInitialized) process.stdin.pause()
-    if (closeStdinAfterInitialized) closeSync(0)
+    if (closeStdinAfterInitialized) closeStdinPipe()
     return
   }
   if (method === 'textDocument/didClose') return
   if (method?.startsWith('textDocument/')) {
     if (hang) return
     const reply = (): void => {
-      if (closeStdinAfterReply) closeSync(0)
+      if (closeStdinAfterReply) closeStdinPipe()
       if (errorReply) {
         send({ id, error: { code: -32000, message: 'server refused the request' } })
       } else {
@@ -169,6 +169,13 @@ function handle(message: { id?: number; method?: string; params?: unknown; resul
   }
   // Unknown request with an id: answer null so the client never stalls.
   if (id !== undefined) send({ id, result: null })
+}
+
+/** Close both the CRT descriptor and libuv handle that can own a platform's child-stdin pipe. */
+function closeStdinPipe(): void {
+  const stdin = process.stdin as NodeJS.ReadStream & { _handle?: { close(): void } }
+  closeSync(0)
+  stdin._handle?.close()
 }
 
 /** Append one teardown event when the fixture is configured to expose process ordering. */
