@@ -3,7 +3,7 @@
   "logs": [{
     "file": "b/main.jsonl",
     "lines": [
-      { "type": "session", "id": "{{SID}}", "createdAt": 500, "cwd": "{{CWD}}" },
+      { "type": "session", "id": "{{SID}}", "createdAt": 500, "cwd": "{{CWD}}", "delegationDepth": 0 },
       { "type": "turn/end", "seq": 1, "time": 9, "data": { "error": "model exploded" } }
     ]
   }]

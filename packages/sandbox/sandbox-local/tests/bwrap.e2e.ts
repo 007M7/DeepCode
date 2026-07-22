@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
-import { bwrapProfileArgs, LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
+import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
+import { bwrapProfileArgs } from '../src/profiles.ts'
 
 /**
  * Keyless backend integration through `confine()` and a real bwrap process. With no rung forced,

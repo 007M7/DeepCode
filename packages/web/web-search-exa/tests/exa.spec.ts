@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import WebService from '@deepseek-ai/dsh-web'
-import { ExaSearchProvider, mapExaResponse, mapExaResult, EXA_PROVIDER_ID } from '@deepseek-ai/dsh-web-search-exa'
+import { ExaSearchProvider, EXA_PROVIDER_ID } from '@deepseek-ai/dsh-web-search-exa'
 import * as exaPlugin from '@deepseek-ai/dsh-web-search-exa'
+import { mapExaResponse, mapExaResult } from '../src/provider.ts'
 
 const options = { apiKey: 'exa-key', baseURL: 'https://api.exa.test', searchType: 'auto' as const, highlightsPerResult: 1 }
 
@@ -95,6 +96,7 @@ describe('ExaSearchProvider request mapping', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://api.exa.test/search')
+    expect(init).toMatchObject({ method: 'POST', redirect: 'error' })
     expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer exa-key')
     expect(JSON.parse(init.body as string)).toEqual({
       query: 'hello',

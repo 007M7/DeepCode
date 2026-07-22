@@ -11,7 +11,7 @@ Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a mod
 
 ### Key Types
 
-- `AskUserQuestionRequest` — `{ questions: [{ id, question, header?, options?, multiSelect? }], agent?, signal? }`.
+- `AskUserQuestionRequest` — `{ questions: [{ id, question, detail?, header?, options?, multiSelect? }], agent?, signal? }`; `detail` supplies supporting text that providers render with the question without turning it into an option label.
 - `AskUserQuestionOption` — `{ label, description? }`.
 - `AskUserQuestionAnswer` — `{ answers: [{ id, selected, custom? }] }`.
 - `UserInteractionProvider` — UI implementation with `ask(request)`.
@@ -21,11 +21,15 @@ When an answer includes `custom`, `selected` is empty; custom text is an overrid
 
 ## Role
 
-This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; UI front doors such as the `stdio-agent` readline module and the `acp` bridge provide the provider. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
+This is the interface package. Model-facing consumers such as `@deepseek-ai/dsh-tool-ask-user` depend on this seam; the interactive `dsh-tui` and structured `dsh-acp` front doors provide the provider. The loop stays unchanged: a tool call awaits a promise, and the tool result resumes the normal agent loop.
 
 ## Model Experience
 
 Indirectly, through `dsh-tool-ask-user`, which retains a successful provider answer as compact JSON or one of these failures: `Error: ask_user_question was aborted before the user answered`, `Error: ask_user_question requires at least one question`, `Error: no user-interaction provider is registered`, or `Error: <message>`. Waiting for the human adds no tokens.
+
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 

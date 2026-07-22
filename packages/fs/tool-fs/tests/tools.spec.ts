@@ -5,6 +5,9 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, sep } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -14,6 +17,7 @@ import type {
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
+  FsPathInfo,
   FsTarget,
   FsWriteIntent,
   FsWriteOutcome,
@@ -23,6 +27,12 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import { STREAM_MIN_SIZE } from '../src/read.ts'
 import { formatReadOutput } from '../src/read-render.ts'
 import type { FileReadOutcome } from '../src/read-render.ts'
+import { sessionCwd } from '../src/session-cwd.ts'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
+
+const testToolSignal = new AbortController().signal
 
 /** An in-memory fake provider; a test can arm a rejection on any primitive. */
 class FakeFs extends FileSystem {
@@ -41,6 +51,11 @@ class FakeFs extends FileSystem {
   override async stat(target: FsTarget): Promise<FsInfo | undefined> {
     this.throwIfArmed()
     const content = this.files.get(target.targetKey)
+    if (content === undefined) return undefined
+    return { version: FsVersion('v1'), type: 'file', size: content.length }
+  }
+  override async lstat(path: string): Promise<FsPathInfo | undefined> {
+    const content = this.files.get(`key:${path}`)
     if (content === undefined) return undefined
     return { version: FsVersion('v1'), type: 'file', size: content.length }
   }
@@ -85,6 +100,7 @@ async function setup() {
 let callCounter = 0
 function call(ctx: Context, name: string, args: unknown, agent?: object) {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId(`call-${++callCounter}`),
     name,
     arguments: args,
@@ -96,10 +112,46 @@ function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(b => b.type === 'text').map(b => b.text).join('')
 }
 
+describe('session cwd resolution', () => {
+  const execution = (cwd?: string) => cwd === undefined
+    ? {}
+    : { agent: { session: { header: { cwd } } } }
+
+  it('retains ordinary spelling but resolves the cwd before parent traversal', () => {
+    const cwd = process.cwd()
+    const throughParent = `${cwd}${sep}..`
+    expect(sessionCwd(execution() as never, 'file.txt')).toBeUndefined()
+    expect(sessionCwd(execution(cwd) as never, 'file.txt')).toBe(cwd)
+    expect(sessionCwd(execution(throughParent) as never, 'file.txt')).toBe(realpathSync.native(throughParent))
+
+    const root = mkdtempSync(join(tmpdir(), 'dsh-tool-fs-session-cwd-'))
+    const physical = join(root, 'physical')
+    const link = join(root, 'link')
+    try {
+      mkdirSync(physical)
+      symlinkSync(physical, link, process.platform === 'win32' ? 'junction' : 'dir')
+      expect(sessionCwd(execution(link) as never, 'child.txt')).toBe(link)
+      expect(sessionCwd(execution(link) as never, `..${sep}parent.txt`)).toBe(realpathSync.native(link))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('registration', () => {
   it('registers read, write, and edit', async () => {
     const { ctx } = await setup()
     expect(ctx.tools.schemas().map(s => s.name).sort()).toEqual(['edit', 'read', 'write'])
+  })
+
+  it('declares read parallel-safe while write/edit remain exclusive', async () => {
+    const { ctx } = await setup()
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('read-safe'), name: 'read', arguments: { file_path: 'a.txt' } }))
+      .toEqual({ kind: 'parallel' })
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('write-exclusive'), name: 'write', arguments: { file_path: 'a.txt', content: 'x' } }))
+      .toEqual({ kind: 'exclusive' })
+    expect(ctx.tools.executionMode({ signal: testToolSignal, callId: CallId('edit-exclusive'), name: 'edit', arguments: { file_path: 'a.txt', old_string: 'x', new_string: 'y' } }))
+      .toEqual({ kind: 'exclusive' })
   })
 
   it('registers prompt sections for each tool', async () => {
@@ -562,5 +614,174 @@ describe('read caps are plugin config', () => {
 
   it('has no default export (namespace plugin export shape)', () => {
     expect('default' in ToolFs).toBe(false)
+  })
+})
+
+describe('sandbox escalation surface (write/edit)', () => {
+  /** A confining fake `ctx.fs`: reports a default mode, records each per-call policy, and can arm a sandbox denial. */
+  class SandboxingFakeFs extends FakeFs {
+    stamped: (SandboxExecutionPolicy | undefined)[] = []
+    override get sandboxMode(): SandboxMode {
+      return 'workspace-write'
+    }
+    override async writeText(
+      target: FsTarget,
+      content: string,
+      expected?: FsWriteIntent,
+      _signal?: AbortSignal,
+      sandboxPolicy?: SandboxExecutionPolicy,
+    ): Promise<FsWriteOutcome> {
+      this.stamped.push(sandboxPolicy)
+      return super.writeText(target, content, expected)
+    }
+    override async editText(
+      target: FsTarget,
+      edit: FsEditRequest,
+      expected?: { version: FsVersion },
+      _signal?: AbortSignal,
+      sandboxPolicy?: SandboxExecutionPolicy,
+    ): Promise<FsEditOutcome> {
+      this.stamped.push(sandboxPolicy)
+      return super.editText(target, edit, expected)
+    }
+  }
+
+  async function setupConfining(opts: { approval?: boolean } = {}) {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write' })
+    await ctx.plugin(SandboxingFakeFs)
+    await ctx.plugin(FsPolicy)
+    if (opts.approval === true) await ctx.plugin(ApprovalService)
+    await ctx.plugin(ToolFs)
+    return { ctx, fs: ctx.fs as SandboxingFakeFs }
+  }
+
+  /** A fake agent whose session records appends (the approval audit surface), mid-turn, carrying the given events for the fold. */
+  function escalationAgent(events: Array<{ type: string; data?: Record<string, unknown> }> = []): object {
+    return {
+      id: 'agent-fs-esc',
+      session: {
+        header: { version: 0, id: 'sess-fs-esc', createdAt: 0, cwd: '/session-project' },
+        events: [{ type: 'turn/start' }, ...events],
+        append: (type: string, data: Record<string, unknown>) => { events.push({ type, data }) },
+      },
+    }
+  }
+
+  function fsSchema(ctx: Context, name: 'write' | 'edit') {
+    const schema = ctx.tools.schemas().find(s => s.name === name)
+    if (!schema) throw new Error(`${name} tool not registered`)
+    return schema as unknown as { parameters: { properties: Record<string, { enum?: string[] }> } }
+  }
+
+  it('fails load when a confining filesystem has no shared sandbox-policy resolver', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SandboxingFakeFs)
+    await expect(ctx.plugin(ToolFs)).rejects.toThrow('tool-fs: the mounted filesystem confines but ctx.sandboxPolicy is missing')
+  })
+
+  it('advertises no escalation fields under a non-confining backend', async () => {
+    const { ctx } = await setup()
+    expect(ctx.fs.sandboxMode).toBeUndefined()
+    for (const name of ['write', 'edit'] as const) {
+      const props = fsSchema(ctx, name).parameters.properties
+      expect(props['sandbox_permissions']).toBeUndefined()
+      expect(props['justification']).toBeUndefined()
+    }
+  })
+
+  it('advertises the closed target vocabulary on write and edit under a confining backend', async () => {
+    const { ctx } = await setupConfining()
+    for (const name of ['write', 'edit'] as const) {
+      const props = fsSchema(ctx, name).parameters.properties
+      expect(props['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
+      expect(props['justification']).toBeDefined()
+    }
+  })
+
+  it('a plain write stamps the default mode with the calling session root', async () => {
+    const { ctx, fs } = await setupConfining()
+    await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
+    expect(fs.stamped).toEqual([{ mode: 'workspace-write', workspaceRoot: '/session-project' }])
+  })
+
+  it('a standing session override folds onto the stamp', async () => {
+    const { ctx, fs } = await setupConfining()
+    await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'read-only' } }]))
+    expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: '/session-project' }])
+  })
+
+  it('a denied write maps to the shared marker plus the escalation hint (isError)', async () => {
+    const { ctx, fs } = await setupConfining()
+    fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('[sandbox: file access denied under workspace-write mode]')
+    expect(text(result)).toContain('retry this exact operation once with sandbox_permissions')
+  })
+
+  it('a non-FS_SANDBOX_DENIED provider error passes through unchanged', async () => {
+    const { ctx, fs } = await setupConfining()
+    fs.rejectWith = new FsError('boom', 'FS_IO_ERROR')
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('boom')
+    expect(text(result)).not.toContain('[sandbox:')
+  })
+
+  it('an approved escalation stamps the granted mode onto that write', async () => {
+    const { ctx, fs } = await setupConfining({ approval: true })
+    ctx.on('approval/request', () => Promise.resolve('allowed-once' as const))
+    // Pass a signal so the escalation ask forwards it to the approval request
+    // (the request rides the tool-execution abort signal).
+    await ctx.tools.execute({
+      callId: CallId('call-fs-esc-grant'),
+      name: 'write',
+      arguments: { file_path: 'a.txt', content: 'x', sandbox_permissions: 'danger-full-access', justification: 'the test needs it' },
+      agent: escalationAgent() as never,
+      signal: new AbortController().signal,
+    })
+    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: '/session-project' }])
+  })
+
+  it('a rejected escalation fails closed with its own text and never mutates', async () => {
+    const { ctx, fs } = await setupConfining({ approval: true })
+    ctx.on('approval/request', () => Promise.resolve('rejected' as const))
+    const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'x', new_string: 'y', sandbox_permissions: 'danger-full-access', justification: 'the test needs it' }, escalationAgent())
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('the user rejected escalating this operation to "danger-full-access"')
+    expect(fs.stamped).toEqual([])
+  })
+
+  it('escalation without an approval service fails closed', async () => {
+    const { ctx } = await setupConfining()
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'danger-full-access', justification: 'why' }, escalationAgent())
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('no approval service is composed')
+  })
+
+  it('escalation with an approval service but no agent fails closed', async () => {
+    const { ctx } = await setupConfining({ approval: true })
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'danger-full-access', justification: 'why' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('no agent to route it through')
+  })
+
+  it('rejects the escalation argument pairing (one field without the other)', async () => {
+    const { ctx } = await setupConfining()
+    const missing = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write' }, escalationAgent())
+    expect(missing.isError).toBe(true)
+    expect(text(missing)).toContain('sandbox_permissions requires a justification')
+  })
+
+  it('sandbox_permissions under a non-confining backend fails closed (unadvertised field still reaches execute)', async () => {
+    const { ctx } = await setup()
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write', justification: 'why' }, escalationAgent())
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('not available in this composition')
   })
 })

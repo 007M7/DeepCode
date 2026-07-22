@@ -7,7 +7,6 @@
 import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CallId } from '@deepseek-ai/dsh-llm'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
@@ -63,32 +62,17 @@ declare module '@deepseek-ai/dsh-session' {
      * from the prompt section and the narrator's notices). The LAST such
      * event is the session's override ({@link effectiveApprovalPolicy});
      * who asked for it is derivable from position (an event after the log's
-     * last `request/header*` was a runtime switch by the user).
+     * last `request/header` was a runtime switch by the user).
      */
     'approval/policy': { policy: ApprovalPolicy }
   }
 }
 
-/**
- * Pairs one `approval/asked` audit event with its `approval/decided`.
- * Service-issued (one fresh id per {@link ApprovalService.request} call).
- */
-export type ApprovalRequestId = Branded<'ApprovalRequestId'>
+import { ApprovalRequestId } from './types.ts'
+import type { ApprovalOutcome } from './types.ts'
 
-/**
- * Brand a string as an {@link ApprovalRequestId}.
- * @param id - the raw id string to brand.
- * @returns the same string carrying the brand.
- */
-export function ApprovalRequestId(id: string): ApprovalRequestId {
-  return id as ApprovalRequestId
-}
-
-/**
- * Closed approval outcomes: a one-shot grant, explicit rejection, withdrawn
- * request, or unavailable answerer. Callers fail closed on `unavailable`.
- */
-export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
+export { ApprovalRequestId } from './types.ts'
+export type { ApprovalOutcome } from './types.ts'
 
 /** Every {@link ApprovalOutcome}, for runtime normalization of answerer returns. */
 const OUTCOMES: readonly ApprovalOutcome[] = ['allowed-once', 'rejected', 'cancelled', 'unavailable']
@@ -258,7 +242,7 @@ export class ApprovalService extends Service {
     // narrated no later than the next step. What each session was last told
     // is in-memory with a log-derived fallback (the folded header's system
     // text), so restarts lose nothing. Attribution is positional: an
-    // override event after the log's last `request/header*` was a runtime
+    // override event after the log's last `request/header` was a runtime
     // switch by the user; otherwise the configured default moved under the
     // session (operator/config).
     const narrated = new WeakMap<Agent['session'], ApprovalPolicy>()
@@ -271,7 +255,7 @@ export class ApprovalService extends Service {
         const event = events[index] as (typeof events)[number]
         if (overrideIndex < 0 && event.type === 'approval/policy') {
           overrideIndex = index
-        } else if (headerIndex < 0 && (event.type === 'request/header' || event.type === 'request/header-delta')) {
+        } else if (headerIndex < 0 && event.type === 'request/header') {
           headerIndex = index
         }
       }

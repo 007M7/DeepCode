@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
-import { mapStopReason, mapUsage, toPiContext, toStreamChunks } from '@deepseek-ai/dsh-llm-pi-ai'
+import { toPiContext } from '../src/context.ts'
+import { toPiReplayState } from '../src/replay.ts'
+import { mapStopReason, mapUsage, toStreamChunks } from '../src/stream.ts'
 
 function usage(input = 0, output = 0, cacheRead = 0, cacheWrite = 0): Usage {
   return {
@@ -42,6 +44,7 @@ async function collect(stream: AsyncIterable<StreamChunk>): Promise<StreamChunk[
 describe('toPiContext', () => {
   it('maps system prompt, user text, and tools', () => {
     const context = toPiContext({
+      provider: 'deepseek',
       model: 'deepseek-v4-flash',
       system: 'be helpful',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
@@ -55,13 +58,14 @@ describe('toPiContext', () => {
   })
 
   it('omits empty tools and absent system prompt', () => {
-    const context = toPiContext({ model: 'm', messages: [], tools: [] })
+    const context = toPiContext({ provider: 'deepseek', model: 'm', messages: [], tools: [] })
     expect(context.systemPrompt).toBeUndefined()
     expect(context.tools).toBeUndefined()
   })
 
   it('maps assistant text/reasoning/tool-call blocks', () => {
     const context = toPiContext({
+      provider: 'deepseek',
       model: 'm',
       messages: [{
         role: 'assistant',
@@ -76,8 +80,7 @@ describe('toPiContext', () => {
     expect(message.role).toBe('assistant')
     expect(message.stopReason).toBe('toolUse')
     expect(message.content).toEqual([
-      // thinkingSignature names the replay field — DeepSeek's passback rule.
-      { type: 'thinking', thinking: 'hmm', thinkingSignature: 'reasoning_content' },
+      { type: 'thinking', thinking: 'hmm' },
       { type: 'text', text: 'calling' },
       { type: 'toolCall', id: 'c1', name: 'f', arguments: { a: 1 } },
     ])
@@ -85,6 +88,7 @@ describe('toPiContext', () => {
 
   it('marks tool-call-free assistant messages with stopReason stop', () => {
     const context = toPiContext({
+      provider: 'deepseek',
       model: 'm',
       messages: [{ role: 'assistant', content: [{ type: 'text', text: 'done' }] }],
     })
@@ -93,6 +97,7 @@ describe('toPiContext', () => {
 
   it('parses malformed tool-call arguments to {}', () => {
     const context = toPiContext({
+      provider: 'deepseek',
       model: 'm',
       messages: [{
         role: 'assistant',
@@ -105,6 +110,7 @@ describe('toPiContext', () => {
 
   it('parses non-object argument JSON (arrays, scalars) to {}', () => {
     const context = toPiContext({
+      provider: 'deepseek',
       model: 'm',
       messages: [{
         role: 'assistant',
@@ -116,6 +122,7 @@ describe('toPiContext', () => {
 
   it('recovers toolName for tool results from the preceding assistant call', () => {
     const context = toPiContext({
+      provider: 'deepseek',
       model: 'm',
       messages: [
         {
@@ -140,6 +147,7 @@ describe('toPiContext', () => {
 
   it('labels unmatched tool results with toolName unknown and keeps isError', () => {
     const context = toPiContext({
+      provider: 'deepseek',
       model: 'm',
       messages: [{
         role: 'user',
@@ -156,6 +164,7 @@ describe('toPiContext', () => {
 
   it('splits mixed user text + tool results and folds history system messages', () => {
     const context = toPiContext({
+      provider: 'deepseek',
       model: 'm',
       messages: [
         { role: 'system', content: [{ type: 'text', text: 'rule' }] },
@@ -173,6 +182,7 @@ describe('toPiContext', () => {
 
   it('skips plugin-added (unknown) blocks in assistant content', () => {
     const context = toPiContext({
+      provider: 'deepseek',
       model: 'm',
       messages: [{
         role: 'assistant',
@@ -183,6 +193,195 @@ describe('toPiContext', () => {
       }],
     })
     expect((context.messages[0] as AssistantMessage).content).toEqual([{ type: 'text', text: 'visible' }])
+  })
+
+  it('recombines durable content with pi-ai replay metadata across target providers and models', () => {
+    const state = toPiReplayState(assistant({
+      api: 'openai-responses',
+      provider: 'openai',
+      model: 'gpt-5',
+      responseModel: 'gpt-5-2026-01-01',
+      responseId: 'resp_123',
+      stopReason: 'toolUse',
+      content: [
+        { type: 'thinking', thinking: 'private reasoning', thinkingSignature: 'think-sig', redacted: true },
+        { type: 'text', text: 'calling', textSignature: 'text-sig' },
+        { type: 'toolCall', id: 'c1', name: 'f', arguments: { a: 1 }, thoughtSignature: 'tool-sig' },
+      ],
+    }))
+    const context = toPiContext({
+      provider: 'anthropic',
+      model: 'claude-next',
+      messages: [{
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: 'private reasoning' },
+          { type: 'text', text: 'calling' },
+          { type: 'tool-call', id: CallId('c1'), name: 'f', arguments: '{"a":1}' },
+        ],
+        provenance: { provider: 'openai', model: 'gpt-5', replayState: state },
+      }],
+    })
+
+    expect(context.messages[0]).toMatchObject({
+      role: 'assistant',
+      api: 'openai-responses',
+      provider: 'openai',
+      model: 'gpt-5',
+      responseModel: 'gpt-5-2026-01-01',
+      responseId: 'resp_123',
+      stopReason: 'toolUse',
+      content: [
+        { type: 'thinking', thinking: 'private reasoning', thinkingSignature: 'think-sig', redacted: true },
+        { type: 'text', text: 'calling', textSignature: 'text-sig' },
+        { type: 'toolCall', id: 'c1', name: 'f', arguments: { a: 1 }, thoughtSignature: 'tool-sig' },
+      ],
+    })
+  })
+
+  it('replays all native block kinds when optional metadata is absent', () => {
+    const state = toPiReplayState(assistant({
+      content: [
+        { type: 'thinking', thinking: 'private reasoning' },
+        { type: 'text', text: 'calling' },
+        { type: 'toolCall', id: 'c1', name: 'f', arguments: { a: 1 } },
+      ],
+    }))
+    const context = toPiContext({
+      provider: 'deepseek',
+      model: 'new-model',
+      messages: [{
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: 'private reasoning' },
+          { type: 'text', text: 'calling' },
+          { type: 'tool-call', id: CallId('c1'), name: 'f', arguments: '{"a":1}' },
+        ],
+        provenance: { provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
+      }],
+    })
+
+    expect(context.messages[0]).toMatchObject({
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'private reasoning' },
+        { type: 'text', text: 'calling' },
+        { type: 'toolCall', id: 'c1', name: 'f', arguments: { a: 1 } },
+      ],
+    })
+    expect(context.messages[0]).not.toHaveProperty('responseModel')
+    expect(context.messages[0]).not.toHaveProperty('responseId')
+  })
+
+  it('rejects unsupported replay-state versions with a stable error code', () => {
+    try {
+      toPiContext({
+        provider: 'deepseek',
+        model: 'm',
+        messages: [{
+          role: 'assistant',
+          content: [{ type: 'text', text: 'done' }],
+          provenance: {
+            provider: 'deepseek',
+            model: 'old',
+            replayState: { kind: 'pi-ai', version: 2 },
+          },
+        }],
+      })
+      expect.fail('expected invalid replay state')
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(LlmError)
+      expect((error as LlmError).code).toBe('INVALID_REPLAY_STATE')
+      expect((error as Error).message).toContain('unsupported version 2')
+    }
+  })
+
+  it('rejects replay metadata whose blocks do not match the durable content', () => {
+    const state = toPiReplayState(assistant({ content: [{ type: 'text', text: 'done' }] }))
+    expect(() => toPiContext({
+      provider: 'deepseek',
+      model: 'm',
+      messages: [{
+        role: 'assistant',
+        content: [{ type: 'reasoning', text: 'done' }],
+        provenance: { provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
+      }],
+    })).toThrow(/block 0 does not match assistant content/)
+  })
+
+  it('rejects replay metadata whose block count differs from durable content', () => {
+    const state = toPiReplayState(assistant())
+    expect(() => toPiContext({
+      provider: 'deepseek',
+      model: 'm',
+      messages: [{
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
+        provenance: { provider: 'deepseek', model: 'deepseek-v4-flash', replayState: state },
+      }],
+    })).toThrow(/block count does not match assistant content/)
+  })
+
+  const validReplay = {
+    kind: 'pi-ai',
+    version: 1,
+    api: 'openai-completions',
+    provider: 'deepseek',
+    model: 'deepseek-v4-flash',
+    stopReason: 'stop',
+    blocks: [{ type: 'text' }],
+  }
+
+  it.each([
+    ['provider', { ...validReplay, provider: 'openai' }],
+    ['model', { ...validReplay, model: 'deepseek-v4-pro' }],
+  ])('rejects replay metadata whose %s differs from assistant provenance', (field, replayState) => {
+    try {
+      toPiContext({
+        provider: 'deepseek',
+        model: 'next-model',
+        messages: [{
+          role: 'assistant',
+          content: [{ type: 'text', text: 'done' }],
+          provenance: { provider: 'deepseek', model: 'deepseek-v4-flash', replayState },
+        }],
+      })
+      expect.fail('expected invalid replay state')
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(LlmError)
+      expect((error as LlmError).code).toBe('INVALID_REPLAY_STATE')
+      expect((error as Error).message).toContain(`${field} does not match assistant provenance`)
+    }
+  })
+
+  it.each([
+    ['number state', 1, 'expected an object'],
+    ['null state', null, 'expected an object'],
+    ['array state', [], 'expected an object'],
+    ['unknown kind', { ...validReplay, kind: 'other' }, 'unknown state kind'],
+    ['non-string api', { ...validReplay, api: 1 }, 'api must be a non-empty string'],
+    ['empty provider', { ...validReplay, provider: '' }, 'provider must be a non-empty string'],
+    ['missing model', { ...validReplay, model: undefined }, 'model must be a non-empty string'],
+    ['unknown stop reason', { ...validReplay, stopReason: 'pause' }, 'unknown stopReason'],
+    ['non-string response model', { ...validReplay, responseModel: 1 }, 'responseModel must be a string'],
+    ['non-string response id', { ...validReplay, responseId: 1 }, 'responseId must be a string'],
+    ['non-array blocks', { ...validReplay, blocks: 'text' }, 'blocks must be an array'],
+    ['number block', { ...validReplay, blocks: [1] }, 'block 0 must be an object'],
+    ['null block', { ...validReplay, blocks: [null] }, 'block 0 must be an object'],
+    ['array block', { ...validReplay, blocks: [[]] }, 'block 0 must be an object'],
+    ['unknown block type', { ...validReplay, blocks: [{ type: 'audio' }] }, 'block 0 has an unknown type'],
+    ['non-string signature', { ...validReplay, blocks: [{ type: 'text', textSignature: 1 }] }, 'textSignature must be a string'],
+    ['non-boolean redaction', { ...validReplay, blocks: [{ type: 'reasoning', redacted: 'yes' }] }, 'redacted must be boolean'],
+  ])('rejects malformed replay state: %s', (_name, replayState, message) => {
+    expect(() => toPiContext({
+      provider: 'deepseek',
+      model: 'm',
+      messages: [{
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
+        provenance: { provider: 'deepseek', model: 'deepseek-v4-flash', replayState },
+      }],
+    })).toThrow(message)
   })
 })
 
@@ -205,7 +404,19 @@ describe('toStreamChunks', () => {
       { type: 'text-delta', index: 0, text: 'hi' },
       { type: 'block-end', index: 0, block: { type: 'text', text: 'hi' } },
       { type: 'usage', usage: { inputTokens: 3, outputTokens: 2 } },
-      { type: 'finish', reason: { kind: 'stop' } },
+      {
+        type: 'finish',
+        reason: { kind: 'stop' },
+        replayState: {
+          kind: 'pi-ai',
+          version: 1,
+          api: 'openai-completions',
+          provider: 'deepseek',
+          model: 'deepseek-v4-flash',
+          stopReason: 'stop',
+          blocks: [{ type: 'text' }],
+        },
+      },
     ])
   })
 
@@ -234,7 +445,7 @@ describe('toStreamChunks', () => {
         toolCall: { type: 'toolCall', id: 'call-1', name: 'f', arguments: { a: 1 } },
         partial: partialWithToolCall,
       },
-      { type: 'done', reason: 'toolUse', message: assistant({ stopReason: 'toolUse' }) },
+      { type: 'done', reason: 'toolUse', message: assistant({ content: partialWithToolCall.content, stopReason: 'toolUse' }) },
     )))
     expect(chunks).toEqual([
       { type: 'block-start', index: 0, blockType: 'tool-call' },
@@ -242,7 +453,19 @@ describe('toStreamChunks', () => {
       { type: 'tool-call-delta', index: 0, id: 'call-1', name: 'f', argumentsDelta: ':1}' },
       { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'call-1', name: 'f', arguments: '{"a":1}' } },
       { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } },
-      { type: 'finish', reason: { kind: 'tool-calls' } },
+      {
+        type: 'finish',
+        reason: { kind: 'tool-calls' },
+        replayState: {
+          kind: 'pi-ai',
+          version: 1,
+          api: 'openai-completions',
+          provider: 'deepseek',
+          model: 'deepseek-v4-flash',
+          stopReason: 'toolUse',
+          blocks: [{ type: 'tool-call' }],
+        },
+      },
     ])
   })
 
@@ -262,19 +485,31 @@ describe('toStreamChunks', () => {
     )))
     expect(chunks).toEqual([
       { type: 'usage', usage: { inputTokens: 1, outputTokens: 0 } },
-      { type: 'finish', reason: { kind: 'error', message: 'boom', code: 'PI_AI_ERROR' } },
+      { type: 'finish', reason: { kind: 'error', failure: { message: 'boom', code: 'PI_AI_ERROR' } } },
     ])
   })
 
   it('maps aborted error events to aborted finish', async () => {
     const error = assistant({ stopReason: 'aborted' })
     const chunks = await collect(toStreamChunks(feed({ type: 'error', reason: 'aborted', error })))
-    expect(chunks.at(-1)).toEqual({ type: 'finish', reason: { kind: 'aborted' } })
+    expect(chunks.at(-1)).toEqual({
+      type: 'finish',
+      reason: { kind: 'aborted', failure: { message: 'pi-ai stream aborted', code: 'ABORTED' } },
+    })
   })
 
   it('rejects a stream that ends without done or error', async () => {
     await expect(collect(toStreamChunks(feed({ type: 'start', partial: assistant() }))))
       .rejects.toThrow(/without done\/error/)
+  })
+
+  it('preserves an unknown SDK iterator Error exactly', async () => {
+    const original = Object.assign(new Error('SDK transport exploded'), { code: 'ECONNRESET' })
+    async function* failedSdkStream(): AsyncGenerator<AssistantMessageEvent> {
+      throw original
+    }
+
+    await expect(collect(toStreamChunks(failedSdkStream()))).rejects.toBe(original)
   })
 })
 
@@ -283,23 +518,84 @@ describe('mapStopReason / mapUsage', () => {
     ['stop', { kind: 'stop' }],
     ['length', { kind: 'max-tokens' }],
     ['toolUse', { kind: 'tool-calls' }],
-    ['aborted', { kind: 'aborted' }],
+    ['aborted', { kind: 'aborted', failure: { message: 'pi-ai stream aborted', code: 'ABORTED' } }],
   ] as const)('maps %s', (stopReason, expected) => {
     expect(mapStopReason(assistant({ stopReason }))).toEqual(expected)
   })
 
   it('defaults the error message when pi-ai omits it', () => {
     expect(mapStopReason(assistant({ stopReason: 'error' })))
-      .toEqual({ kind: 'error', message: 'pi-ai stream error', code: 'PI_AI_ERROR' })
+      .toEqual({ kind: 'error', failure: { message: 'pi-ai stream error', code: 'PI_AI_ERROR' } })
   })
 
   it('maps routable HTTP-ish error messages to stable codes', () => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 401: bad key' })))
-      .toMatchObject({ kind: 'error', code: 'AUTH' })
+      .toMatchObject({ kind: 'error', failure: { code: 'AUTH' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 429: rate limit' })))
-      .toMatchObject({ kind: 'error', code: 'RATE_LIMIT' })
+      .toMatchObject({ kind: 'error', failure: { code: 'RATE_LIMIT' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 429: insufficient_quota' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'QUOTA' } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'OpenAI API error (429): You exceeded your current quota, please check your plan and billing details.',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'QUOTA' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 500: backend down' })))
-      .toMatchObject({ kind: 'error', code: 'SERVER' })
+      .toMatchObject({ kind: 'error', failure: { code: 'SERVER' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'provider timed out' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'TIMEOUT' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'ECONNRESET socket closed' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'HTTP 400: input exceeds the model context window limit',
+    }))).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'HTTP 400: request too large for model context',
+    }))).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'HTTP 400: invalid input: temperature exceeds maximum allowed value',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'INVALID_REQUEST' } })
+  })
+
+  it.each([
+    'other side closed',
+    'HTTP2 request did not get a response',
+    'WebSocket closed unexpectedly',
+  ])('maps pi-ai transport wording %j', (errorMessage) => {
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage })))
+      .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
+  })
+
+  it('uses pi-ai provider-specific overflow classification without losing rate-limit exclusions', () => {
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'prompt is too long: 213462 tokens > 200000 maximum',
+    }))).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'ThrottlingException: Too many tokens, rate limit reached',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'RATE_LIMIT' } })
+  })
+
+  it('uses the resolved context window for silent and length-stop overflows', () => {
+    const silent = assistant({ stopReason: 'stop', usage: usage(101, 0) })
+    expect(mapStopReason(silent)).toEqual({ kind: 'stop' })
+    expect(mapStopReason(silent, 100)).toEqual({
+      kind: 'error',
+      failure: {
+        message: 'pi-ai detected context overflow for model "deepseek-v4-flash"',
+        code: CONTEXT_WINDOW_EXCEEDED_CODE,
+      },
+    })
+
+    const truncated = assistant({ stopReason: 'length', usage: usage(80, 0, 19) })
+    expect(mapStopReason(truncated)).toEqual({ kind: 'max-tokens' })
+    expect(mapStopReason(truncated, 100)).toMatchObject({
+      kind: 'error',
+      failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE },
+    })
   })
 
   it('maps cache fields only when nonzero', () => {

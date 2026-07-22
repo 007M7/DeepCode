@@ -1,17 +1,21 @@
 /**
- * Exact session-history reads over live and optionally persisted logs.
+ * Exact session-history reads and traces over live and optionally persisted logs.
  *
  * @module @deepseek-ai/dsh-session-query
  */
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import { foldSurface } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
+import type { SessionTitleSnapshot } from '@deepseek-ai/dsh-session-title'
 import type {
   SessionEventReadRequest,
   SessionEventRecord,
+  SessionEventTrace,
+  SessionEventTraceRequest,
   SessionEventWindow,
+  SessionLineageTrace,
   SessionRecord,
 } from './types.ts'
 import {
@@ -20,6 +24,7 @@ import {
   type Config,
 } from './config.ts'
 import { SessionCorpus } from './corpus.ts'
+import * as tracing from './tracing.ts'
 
 export type * from './types.ts'
 export type { Config, SessionQueryErrorCode } from './config.ts'
@@ -31,7 +36,7 @@ declare module 'cordis' {
   }
 }
 
-/** Live-preferred logical-corpus and exact-event read service. */
+/** Live-preferred logical-corpus exact-read and relationship-tracing service. */
 export class SessionQueryService extends Service {
   static inject = ['sessions']
   static Config: z<Config> = z.object({
@@ -62,13 +67,45 @@ export class SessionQueryService extends Service {
   }
 
   /**
+   * Fold the latest log-backed title from one live-preferred logical session.
+   * @param sessionId - live or persisted session id to read.
+   * @returns latest title snapshot, or `undefined` when the log has no title event.
+   */
+  async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined> {
+    const loaded = await this._corpus.load(sessionId)
+    return foldSessionTitle(loaded.events)
+  }
+
+  /**
    * List lightweight raw-log event records for one logical session.
    * @param sessionId - live-preferred session id to read.
    * @returns event records in ascending seq order.
    */
   async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]> {
     const loaded = await this._corpus.load(sessionId)
-    return eventRecords(sessionId, loaded.events)
+    return tracing.eventRecords(sessionId, loaded.events)
+  }
+
+  /**
+   * Trace known ancestry and descendants from one corpus observation.
+   * @param sessionId - logical session id to trace.
+   * @returns a complete lineage or an explicit unresolved parent boundary.
+   * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.
+   */
+  async traceSession(sessionId: SessionId): Promise<SessionLineageTrace> {
+    const records = await this._corpus.listSessions()
+    return tracing.traceSession(records, sessionId)
+  }
+
+  /**
+   * Trace one event's direct positional and provenance relationships.
+   * @param request - target session id and event seq.
+   * @returns direct links plus the target's positional replacement chain.
+   * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
+   */
+  async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace> {
+    const loaded = await this._corpus.load(request.sessionId)
+    return tracing.traceEvent(request.sessionId, loaded.events, request.seq)
   }
 
   /**
@@ -108,29 +145,6 @@ export class SessionQueryService extends Service {
     }
     return value
   }
-}
-
-function eventRecords(sessionId: SessionId, events: readonly SessionEvent[]): SessionEventRecord[] {
-  let folded: ReturnType<typeof foldSurface>
-  try {
-    folded = foldSurface(events)
-  } catch (error: unknown) {
-    throw new SessionQueryError(
-      /* v8 ignore next -- foldSurface throws Error instances */
-      `invalid session surface: ${error instanceof Error ? error.message : 'unknown error'}`,
-      'SESSION_QUERY_INVALID_SURFACE',
-      { cause: error },
-    )
-  }
-  const current = new Set(folded.nodes.map(node => node.seq))
-  const shadowed = new Set(folded.replacements.flatMap(replacement => replacement.shadowedSeqs))
-  return events.map(event => ({
-    sessionId,
-    seq: event.seq,
-    type: event.type,
-    time: event.time,
-    surface: current.has(event.seq) ? 'current' : shadowed.has(event.seq) ? 'shadowed' : 'log-only',
-  }))
 }
 
 export default SessionQueryService

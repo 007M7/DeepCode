@@ -23,7 +23,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
   it('boots every shipped tool package and harvests its model-facing schemas', async () => {
     const catalog = await collectToolCatalog()
     const names = catalog.flatMap(entry => entry.schemas.map(s => s.name)).sort()
-    expect(names).toEqual(['ask_user_question', 'bash', 'bash_kill', 'bash_output', 'cordis_inspect', 'cordis_mount', 'cordis_unmount', 'edit', 'read', 'run_code', 'skill', 'subagent', 'todo_write', 'web_fetch', 'web_search', 'workflow', 'write'])
+    expect(names).toEqual(['ask_user_question', 'bash', 'cordis_inspect', 'cordis_mount', 'cordis_unmount', 'create_goal', 'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep', 'lsp', 'ralph', 'read', 'run_code', 'skill', 'subagent', 'task_kill', 'task_list', 'task_output', 'todo_write', 'update_goal', 'web_fetch', 'web_search', 'workflow', 'write'])
     // Every tool carries a JSON-Schema `parameters` object (what the model sees).
     for (const entry of catalog) {
       for (const schema of entry.schemas) {
@@ -47,6 +47,19 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     const catalog = await collectToolCatalog()
     const bash = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-bash')
     expect(bash?.source).toBe('packages/bash/tool-bash/src/index.ts')
+  })
+
+  it('harvests search tools without depending on the generator process PATH', async () => {
+    const oldPath = process.env.PATH
+    try {
+      process.env.PATH = ''
+      const catalog = await collectToolCatalog()
+      const search = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-fs-search')
+      expect(search?.schemas.map(s => s.name).sort()).toEqual(['glob', 'grep'])
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH
+      else process.env.PATH = oldPath
+    }
   })
 
   it('records the shipped `subagent_fork` alias in a note (config-driven tool name)', async () => {

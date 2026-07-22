@@ -8,8 +8,12 @@
       - id: acp-agent
         name: '@deepseek-ai/dsh-acp-demo'
         config:
-          model: deepseek-v4-flash
+          provider: deepseek
+          model: deepseek-v4-pro
           persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+          persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+          workspaceContext:
+            maxBytes: 65536
           tools:
             mode: both
           persona: |

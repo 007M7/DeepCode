@@ -6,7 +6,7 @@ The fork provider creates an in-process child seeded with the parent's completed
 
 The parent's current tool-calling turn is still open when a subagent starts: its log contains the assistant tool call but not the matching tool result or `turn/end`. Copying that raw log would give the child an invalid, unbalanced session.
 
-Fork therefore uses `completedTurnPrefix(parent.session.events)`: the contiguous prefix ending at the last `turn/end`. The child sees all completed parent turns and none of the in-flight turn. If the parent has not completed a turn yet, the seed is empty and the child behaves like a fresh spawn.
+Fork therefore computes the contiguous prefix ending at the last `turn/end`. The child sees all completed parent turns and none of the in-flight turn. If the parent has not completed a turn yet, the seed is empty and the child behaves like a fresh spawn.
 
 The seed transfers conversation history only. The child still receives a fresh flat registration scope; it does not inherit the parent's tool restrictions or authority.
 
@@ -27,15 +27,31 @@ See [`dsh-subagent-spawn`](../subagent-spawn/README.md) for the run lifecycle, m
 
 ### Child-agent history and envelope
 
-**What the model sees**: The child receives the parent's balanced completed-turn surface prefix, then the new task content verbatim. A configured persona shadows prompt text in the child's fresh scope; a tool restriction filters its global wire schemas, executable lookup, and Code Mode SDK bindings but not standalone guidance. The parent's tool view and authority are not inherited. An optional structured-output request adds its child-only contract. The parent's current in-flight turn is excluded.
+#### What the model sees
 
-**Token effect**: Forking duplicates retained completed history into separate child requests; the child then accumulates its own tokens independently. Persona changes repeated prompt cost, filtering changes schema or generated SDK cost, and a first-turn fork has no inherited history.
+The child receives the parent's balanced completed-turn surface prefix, then the new task content verbatim. A configured persona shadows prompt text in the child's fresh scope; a tool restriction filters its global wire schemas, executable lookup, and Code Mode SDK bindings but not standalone guidance. The parent's tool view and authority are not inherited. An optional structured-output request adds its child-only contract. The parent's current in-flight turn is excluded.
+
+#### Token effect
+
+Forking duplicates retained completed history into separate child requests; the child then accumulates its own tokens independently. Persona changes repeated prompt cost, filtering changes schema or generated SDK cost, and a first-turn fork has no inherited history.
+
+#### KV Cache effect
+
+The child may reuse the inherited byte-identical prefix under the same provider and model. Persona, tool-filter, generated-SDK, or route changes may invalidate reuse before inherited history; later child history is append-only.
 
 ### Parent tool result, indirectly
 
-**What the model sees**: The parent receives only the child's own final output through `dsh-tool-subagent`, not the inherited prefix or intermediate work.
+#### What the model sees
 
-**Token effect**: Parent input grows by one data-dependent final result retained until compaction.
+The parent receives only the child's own final output through `dsh-tool-subagent`, not the inherited prefix or intermediate work.
+
+#### Token effect
+
+Parent input grows by one data-dependent final result retained until compaction.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 

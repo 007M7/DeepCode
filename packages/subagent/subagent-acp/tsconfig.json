@@ -28,6 +28,12 @@
     },
     {
       "path": "../subagent-subprocess"
+    },
+    {
+      "path": "../../support/loader-smoke"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

@@ -13,8 +13,8 @@
  */
 
 import * as vm from 'node:vm'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { assertSupportedOutputSchema, OutputSchemaError } from '@deepseek-ai/dsh-tools'
 import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
 import { isFatalWorkflowError, WorkflowError } from '@deepseek-ai/dsh-workflow'
@@ -36,7 +36,7 @@ export interface ExecutionObserver {
 }
 
 /** The `agent()` options the script may pass; everything else rejects loud. */
-const SUPPORTED_AGENT_OPTIONS = new Set(['label', 'phase', 'schema', 'model'])
+const SUPPORTED_AGENT_OPTIONS = new Set(['label', 'phase', 'schema', 'provider', 'model'])
 /** Deferred Claude Code options we name explicitly in the rejection message. */
 const DEFERRED_AGENT_OPTIONS = new Set(['effort', 'isolation', 'agentType'])
 
@@ -255,7 +255,7 @@ export class WorkflowExecution {
     const opts = this.readAgentOptions(rawOpts)
     if (this.started >= this.limits.maxTotalAgents) {
       throw new WorkflowError(
-        `this run reached its total agent cap (${this.limits.maxTotalAgents}) — a runaway-loop backstop; raise maxTotalAgents in the engine config if the scale is intentional`,
+        `this run reached its total agent cap (${this.limits.maxTotalAgents}) — a runaway-loop backstop; raise the applicable maxTotalAgents limit if the scale is intentional`,
         'AGENT_CAP',
       )
     }
@@ -277,6 +277,7 @@ export class WorkflowExecution {
         run = await this.children.startAgent({
           prompt: rawPrompt,
           ...opts.schema !== undefined ? { schema: opts.schema } : {},
+          ...opts.provider !== undefined ? { provider: opts.provider } : {},
           ...opts.model !== undefined ? { model: opts.model } : {},
         })
       } catch (error: unknown) {
@@ -294,7 +295,7 @@ export class WorkflowExecution {
         await run.dispose()
         throw this.cancelledError()
       }
-      const info: WorkflowAgentInfo = { seq, label, ...phase !== undefined ? { phase } : {}, childId: AgentId(run.id) }
+      const info: WorkflowAgentInfo = { seq, label, ...phase !== undefined ? { phase } : {}, childId: SessionId(run.id) }
       this.observer.agentStart(info)
       try {
         let result
@@ -344,7 +345,13 @@ export class WorkflowExecution {
   }
 
   /** Materialize + validate the `agent()` options bag from the realm. */
-  private readAgentOptions(rawOpts: unknown): { label?: string; phase?: string; model?: string; schema?: StructuredOutputSchema } {
+  private readAgentOptions(rawOpts: unknown): {
+    label?: string
+    phase?: string
+    provider?: string
+    model?: string
+    schema?: StructuredOutputSchema
+  } {
     if (rawOpts === undefined) return {}
     let opts: unknown
     try {
@@ -361,11 +368,11 @@ export class WorkflowExecution {
     for (const key of Object.keys(record)) {
       if (SUPPORTED_AGENT_OPTIONS.has(key)) continue
       if (DEFERRED_AGENT_OPTIONS.has(key)) {
-        throw new WorkflowError(`agent() option "${key}" is deferred and not supported by this engine (supported: label, phase, schema, model)`, 'UNSUPPORTED_OPTION')
+        throw new WorkflowError(`agent() option "${key}" is deferred and not supported by this engine (supported: label, phase, schema, provider, model)`, 'UNSUPPORTED_OPTION')
       }
-      throw new WorkflowError(`agent() option "${key}" is not recognized (supported: label, phase, schema, model)`, 'UNSUPPORTED_OPTION')
+      throw new WorkflowError(`agent() option "${key}" is not recognized (supported: label, phase, schema, provider, model)`, 'UNSUPPORTED_OPTION')
     }
-    for (const key of ['label', 'phase', 'model'] as const) {
+    for (const key of ['label', 'phase', 'provider', 'model'] as const) {
       if (record[key] !== undefined && typeof record[key] !== 'string') {
         throw new WorkflowError(`agent() option "${key}" must be a string`, 'INVALID_ARGUMENT')
       }
@@ -384,6 +391,7 @@ export class WorkflowExecution {
     return {
       ...record.label !== undefined ? { label: record.label as string } : {},
       ...record.phase !== undefined ? { phase: record.phase as string } : {},
+      ...record.provider !== undefined ? { provider: record.provider as string } : {},
       ...record.model !== undefined ? { model: record.model as string } : {},
       ...schema !== undefined ? { schema } : {},
     }

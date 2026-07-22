@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 jobs:
-  # Keyless real-kernel sandbox proofs (sandbox RFC § Testing): each ladder
+  # Keyless real-kernel sandbox proofs (sandbox Agent Note § Testing): each ladder
   # rung is only provable on a host where it enforces, so this job fans out
   # an OS×runner matrix — bwrap and Landlock on Linux (separate legs: the
   # Landlock files force the bwrap rung off, so each leg proves exactly one

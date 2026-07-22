@@ -1,11 +1,24 @@
 /**
- * Scripted ACP agent for snapshot-kit tests. A fixture-adjacent `behavior.json` controls the
- * subprocess reached through the real harness path; the bin reports observations over ACP and
- * writes scripted logs before exiting on stdin EOF.
+ * Scripted fake ACP agent bin for `dsh-acp-snapshot`'s unit specs. Speaks
+ * newline-delimited JSON-RPC on stdio like the real `dsh-acp-agent` bin, but
+ * every behavior — how prompts settle, whether session/new rejects, which
+ * session logs get persisted, what filesystem noise to leave — comes from a
+ * `behavior.json` sitting NEXT to the `$DSH_SNAPSHOT_FILE` fixture, so a spec
+ * scripts a whole subprocess run from data. The specs launch it through the
+ * REAL `runScenario` spawn path (tsx loader, temp cwd, env plumbing), so the
+ * harness plumbing is exercised for real; only the agent behind the protocol
+ * is scripted.
+ *
+ * The specs (not the golden tier) own this bin: it asserts nothing, echoes
+ * observable facts into `session/update` text chunks (env probe, permission
+ * outcome, seeded-workspace listing) for the spec to read off `rawStdout`, and
+ * exits 0 on stdin EOF after writing the scripted logs — mirroring the real
+ * bin's dispose-flush-exit shape.
  */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { readdirSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
@@ -24,20 +37,32 @@ interface ScriptedLog {
 
 /** The whole scripted behavior for one run. Every field defaults to the least surprising choice. */
 interface Behavior {
+  /** Exit during startup after writing any configured stderr note. */
+  failOnBoot?: boolean
   /** Reject every `session/new` (exercises the expect-error step without extra dirs). */
   rejectNewSession?: boolean
   /** Reject `session/new` only when `additionalDirectories` is non-empty (the real bridge's rule). */
   rejectExtraDirs?: boolean
   /** How `session/prompt` settles: a clean response, a JSON-RPC error, or a hang until `session/cancel`. */
   prompt?: 'respond' | 'error' | 'hang-until-cancel'
+  /** Emit a tool call instead of a message chunk before parking a cancellable prompt. */
+  cancelAtToolCall?: boolean
+  /** Emit the parked tool call's terminal update after answering cancellation. */
+  cancelToolCallUpdate?: boolean
   /** Before responding to a prompt, send a `session/request_permission` request and echo its outcome as a chunk. */
   permissionProbe?: boolean
+  /** Before responding to a prompt, send an `elicitation/create` request and echo its response as a chunk. */
+  elicitationProbe?: boolean
+  /** How `session/set_mode` settles: an empty response (echoing the modeId as a chunk) or a JSON-RPC error. */
+  setMode?: 'respond' | 'error'
   /** Echo the `DSH_SNAPSHOT_*` env the harness set as a chunk (spec-side env-plumbing assertions). */
   echoEnv?: boolean
   /** Echo the sorted cwd listing as a chunk (spec-side workspace-seeding assertions). */
   echoWorkspace?: boolean
   /** Write a line to stderr on boot (spec-side stderr-capture assertions). */
   stderrNote?: string
+  /** Let a short-lived descendant retain stdio and emit one final ACP update plus stderr line after this parent exits. */
+  lateInheritedOutput?: boolean
   /** Session logs to persist on stdin EOF. */
   logs?: ScriptedLog[]
   /** Leave a stray FILE directly under the sessions root (harvest must skip it). */
@@ -62,6 +87,7 @@ const behavior: Behavior = fixtureFile === ''
   : JSON.parse(readFileSync(join(dirname(fixtureFile), 'behavior.json'), 'utf8')) as Behavior
 
 if (behavior.stderrNote !== undefined) process.stderr.write(`${behavior.stderrNote}\n`)
+if (behavior.failOnBoot === true) process.exit(7)
 
 let nextOutboundId = 1000
 let sessionId = ''
@@ -74,8 +100,8 @@ let sessionId = ''
 let sessionCwd = ''
 /** The parked prompt request id while `hang-until-cancel` waits for the cancel notification. */
 let parkedPromptId: number | string | null = null
-/** Resolvers for permission-probe responses, keyed by outbound request id. */
-const pendingPermission = new Map<number, (outcome: unknown) => void>()
+/** Resolvers for outbound probe responses (permission/elicitation), keyed by request id. */
+const pendingOutbound = new Map<number, (result: unknown) => void>()
 /** Per-run `session/set_config_option` state: config id → current value (first vocabulary entry until set). */
 const currentConfig: Record<string, string> = {}
 
@@ -120,12 +146,29 @@ async function handlePrompt(id: number | string): Promise<void> {
       params: { sessionId, update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'mulling' } } },
     })
   }
-  chunk('thinking about it')
+  if (behavior.cancelAtToolCall === true) {
+    send({
+      method: 'session/update',
+      params: {
+        sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'call_fake_1',
+          title: 'fake tool',
+          kind: 'execute',
+          status: 'in_progress',
+        },
+      },
+    })
+  } else {
+    chunk('thinking about it')
+  }
   if (behavior.echoEnv === true) {
     chunk(`env:${JSON.stringify({
       mode: process.env.DSH_SNAPSHOT,
       override: process.env.DSH_SNAPSHOT_OVERRIDE ?? null,
       childFiles: process.env.DSH_SNAPSHOT_CHILD_FILES ?? null,
+      spillRoot: process.env.DSH_SNAPSHOT_SPILL_ROOT ?? null,
     })}`)
   }
   if (behavior.echoWorkspace === true) {
@@ -133,8 +176,8 @@ async function handlePrompt(id: number | string): Promise<void> {
   }
   if (behavior.permissionProbe === true) {
     const requestId = nextOutboundId++
-    const outcome = await new Promise<unknown>((resolve) => {
-      pendingPermission.set(requestId, resolve)
+    const result = await new Promise<unknown>((resolve) => {
+      pendingOutbound.set(requestId, resolve)
       send({
         id: requestId,
         method: 'session/request_permission',
@@ -148,7 +191,24 @@ async function handlePrompt(id: number | string): Promise<void> {
         },
       })
     })
-    chunk(`permission:${JSON.stringify(outcome)}`)
+    chunk(`permission:${JSON.stringify((result as { outcome?: unknown } | undefined)?.outcome ?? null)}`)
+  }
+  if (behavior.elicitationProbe === true) {
+    const requestId = nextOutboundId++
+    const result = await new Promise<unknown>((resolve) => {
+      pendingOutbound.set(requestId, resolve)
+      send({
+        id: requestId,
+        method: 'elicitation/create',
+        params: {
+          sessionId,
+          mode: 'form',
+          message: 'Approve this plan and leave plan mode?',
+          requestedSchema: { type: 'object', title: 'Plan review', properties: { choice: { type: 'string' }, custom: { type: 'string' } }, required: [] },
+        },
+      })
+    })
+    chunk(`elicitation:${JSON.stringify(result ?? null)}`)
   }
   switch (behavior.prompt ?? 'respond') {
     case 'respond':
@@ -168,10 +228,10 @@ function handleFrame(frame: Record<string, unknown>): void {
   const method = frame.method as string | undefined
   const params = (frame.params ?? {}) as Record<string, unknown>
   // A response to one of OUR outbound requests (the permission probe).
-  if (method === undefined && id !== undefined && typeof id === 'number' && pendingPermission.has(id)) {
-    const resolve = pendingPermission.get(id) as (outcome: unknown) => void
-    pendingPermission.delete(id)
-    resolve((frame.result as { outcome?: unknown } | undefined)?.outcome ?? null)
+  if (method === undefined && id !== undefined && typeof id === 'number' && pendingOutbound.has(id)) {
+    const resolve = pendingOutbound.get(id) as (result: unknown) => void
+    pendingOutbound.delete(id)
+    resolve(frame.result)
     return
   }
   switch (method) {
@@ -191,6 +251,14 @@ function handleFrame(frame: Record<string, unknown>): void {
     }
     case 'session/prompt':
       void handlePrompt(id as number | string)
+      return
+    case 'session/set_mode':
+      if ((behavior.setMode ?? 'respond') === 'error') {
+        respondError(id as number | string, 'unknown mode')
+        return
+      }
+      chunk(`setMode:${String(params.modeId)}`)
+      respond(id as number | string, {})
       return
     case 'session/set_config_option': {
       const vocabulary = behavior.configOptions
@@ -223,6 +291,19 @@ function handleFrame(frame: Record<string, unknown>): void {
         const parked = parkedPromptId
         parkedPromptId = null
         respond(parked, { stopReason: 'cancelled' })
+        if (behavior.cancelToolCallUpdate === true) {
+          send({
+            method: 'session/update',
+            params: {
+              sessionId,
+              update: {
+                sessionUpdate: 'tool_call_update',
+                toolCallId: 'call_fake_1',
+                status: 'failed',
+              },
+            },
+          })
+        }
       }
       return
     default:
@@ -244,6 +325,27 @@ function flushLogsAndExit(): void {
     writeFileSync(join(sessionsRoot, 'bucket-noise', 'notes.txt'), 'not a session log\n')
   }
   if (behavior.deleteSessionsRoot === true) rmSync(sessionsRoot, { recursive: true, force: true })
+  if (behavior.lateInheritedOutput === true) {
+    const frame = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'late inherited stdout' },
+        },
+      },
+    })
+    const code = [
+      `setTimeout(() => process.stdout.write(${JSON.stringify(`${frame}\n`)}), 50)`,
+      `setTimeout(() => process.stderr.write(${JSON.stringify('late inherited stderr\n')}), 75)`,
+    ].join(';')
+    spawn(process.execPath, ['-e', code], {
+      detached: true,
+      stdio: ['ignore', 'inherit', 'inherit'],
+    }).unref()
+  }
   process.exit(0)
 }
 

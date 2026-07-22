@@ -24,10 +24,19 @@
       "path": "../../ui/acp"
     },
     {
+      "path": "../../ui/commands"
+    },
+    {
+      "path": "../../goal/command-goal"
+    },
+    {
       "path": "../../core/agent"
     },
     {
       "path": "../agent-spine-demo"
+    },
+    {
+      "path": "../../context/workspace-context"
     },
     {
       "path": "../../ui/user-interaction"
@@ -37,6 +46,9 @@
     },
     {
       "path": "../../session-persistence/session-persistence-jsonl"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

@@ -57,12 +57,14 @@ CUSTOM_CORDIS = """\
 - id: agent-core
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
+    workspaceContext: false
     tools:
       mode: both
 - id: sessions
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
     root: !!js process.env.DSH_SESSION_ROOT
+    compression: 'none'
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
@@ -379,6 +381,7 @@ def smoke_sdk_default(base_url: str) -> None:
         root = Path(temporary).resolve()
         sessions = root / "sessions"
         with DeepSeekHarness(
+            provider="deepseek",
             model="smoke-model",
             cwd=str(root),
             session_root=str(sessions),
@@ -389,7 +392,7 @@ def smoke_sdk_default(base_url: str) -> None:
             result = harness.run("reply with the smoke text", session_id="default-smoke")
         assert result.status == "ok", result
         assert result.final_response == EXPECTED_TEXT, result.final_response
-        assert_session_log(sessions, root, EXPECTED_TEXT)
+        assert_zstd_session_log(sessions)
 
 
 def smoke_sdk_custom(base_url: str, executable: Path) -> None:
@@ -401,6 +404,7 @@ def smoke_sdk_custom(base_url: str, executable: Path) -> None:
         cordis = root / "cordis.yml"
         cordis.write_text(CUSTOM_CORDIS)
         with DeepSeekHarness(
+            provider="deepseek",
             model="smoke-model",
             cwd=str(root),
             session_root=str(sessions),
@@ -432,6 +436,7 @@ def smoke_sdk_snapshot(base_url: str, executable: Path, update_snapshots: bool) 
         cordis = root / "cordis.yml"
         cordis.write_text(CUSTOM_CORDIS)
         with DeepSeekHarness(
+            provider="deepseek",
             model="smoke-model",
             cwd=str(root),
             session_root=str(sessions),
@@ -481,7 +486,7 @@ def smoke_direct(base_url: str, executable: Path) -> None:
         }
         peer = RuntimePeer([str(executable)], root, environment)
         try:
-            peer.send({"jsonrpc": "2.0", "id": "initialize", "method": "initialize", "params": {"cwd": str(root), "model": "smoke-model"}})
+            peer.send({"jsonrpc": "2.0", "id": "initialize", "method": "initialize", "params": {"cwd": str(root), "provider": "deepseek", "model": "smoke-model"}})
             peer.read_until(lambda message: message.get("id") == "initialize")
             peer.send({
                 "jsonrpc": "2.0",
@@ -581,6 +586,14 @@ def assert_session_log(sessions: Path, cwd: Path, *expected_texts: str) -> None:
             raise AssertionError(f"session log has no {expected!r} response: {logs[0]}")
 
 
+def assert_zstd_session_log(sessions: Path) -> None:
+    logs = list(sessions.rglob("*.jsonl.zstd"))
+    if len(logs) != 1:
+        raise AssertionError(f"expected one Zstandard JSONL session log under {sessions}, found {logs}")
+    if not logs[0].read_bytes().startswith(bytes.fromhex("28b52ffd")):
+        raise AssertionError(f"session log has no Zstandard magic: {logs[0]}")
+
+
 def read_session_logs(sessions: Path) -> dict[str, list[dict[str, object]]]:
     """Parse every persisted JSONL session into a map keyed by header id."""
     logs: dict[str, list[dict[str, object]]] = {}
@@ -624,7 +637,7 @@ def build_snapshot_files(
     child_ids: list[str],
     cwd: Path,
 ) -> dict[str, str]:
-    """Render the SDK result and three persisted logs into stable goldens."""
+    """Render the SDK result and three persisted logs into stable expected outputs."""
     replacements = [(str(cwd), "{{cwd}}"), (SNAPSHOT_SESSION_ID, "{{parent}}")]
     for index, child_id in enumerate(child_ids, start=1):
         replacements.append((child_id, f"{{{{child-{index}}}}}"))
@@ -703,7 +716,7 @@ def normalize_snapshot_value(
 
 
 def scrub_snapshot_header(value: dict[object, object]) -> None:
-    """Tokenize request-header bulk while retaining delta tool names."""
+    """Tokenize full request-header bulk while retaining tool names."""
     data = value.get("data")
     if not isinstance(data, dict):
         return
@@ -721,29 +734,6 @@ def scrub_snapshot_header(value: dict[object, object]) -> None:
             ]
         if isinstance(header.get("messagePrefix"), list):
             header["messagePrefix"] = ["{{messagePrefix}}" for _ in header["messagePrefix"]]
-        return
-    if value.get("type") != "request/header-delta":
-        return
-    system = data.get("system")
-    if isinstance(system, dict) and isinstance(system.get("insert"), list):
-        system["insert"] = ["{{system}}" for _ in system["insert"]]
-    tools = data.get("tools")
-    if isinstance(tools, dict):
-        for key in ("added", "changed"):
-            if isinstance(tools.get(key), list):
-                tools[key] = [scrub_snapshot_tool_schema(tool) for tool in tools[key]]
-    if isinstance(data.get("messagePrefix"), list):
-        data["messagePrefix"] = ["{{messagePrefix}}" for _ in data["messagePrefix"]]
-
-
-def scrub_snapshot_tool_schema(value: object) -> object:
-    """Keep a changed tool's name while tokenizing its schema bulk."""
-    if not isinstance(value, dict):
-        return value
-    return {
-        key: item if key == "name" else "{{tools}}"
-        for key, item in value.items()
-    }
 
 
 def render_jsonl(records: list[object]) -> str:

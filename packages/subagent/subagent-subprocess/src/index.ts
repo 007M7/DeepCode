@@ -20,13 +20,12 @@ import { join } from 'node:path'
  * the scrub, so an intended `DEEPSEEK_API_KEY` survives while an incidental
  * `AWS_SECRET_ACCESS_KEY` does not.
  */
-export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
+const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
 /**
  * The ambient env minus credential-shaped vars, plus the caller's explicit
  * env. `PATH`, `HOME`, `TMPDIR`, locale, and proxy vars survive the scrub, so
- * a child CLI runs normally; only {@link SENSITIVE_ENV_PATTERN}-shaped names
- * are dropped.
+ * a child CLI runs normally; only credential-shaped names are dropped.
  * @param extra - explicit vars layered on top AFTER the scrub, so a
  * credential-shaped name supplied deliberately still reaches the child.
  * @returns the environment to spawn the child with.
@@ -53,16 +52,6 @@ export function spawnFailure(child: ChildProcess): Promise<Error> {
 }
 
 /**
- * Resolve once the child process exits (any code/signal); immediate if it is
- * already gone.
- * @param child - the child process to await.
- */
-export function waitForExit(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
-  return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
-}
-
-/**
  * Race the child's exit against a timer. Neither outcome leaves anything
  * behind on the child: the exit listener is removed on timeout and the timer
  * is cleared on exit, so repeated calls (the dispose ladder's tiers, a poll
@@ -72,7 +61,7 @@ export function waitForExit(child: ChildProcess): Promise<void> {
  * @returns `true` if the child exits within `ms` (immediately if it is
  * already gone), `false` on timeout.
  */
-export function exitsWithin(child: ChildProcess, ms: number): Promise<boolean> {
+function exitsWithin(child: ChildProcess, ms: number): Promise<boolean> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true)
   return new Promise<boolean>((resolve) => {
     const onExit = (): void => {
@@ -98,36 +87,85 @@ export interface DisposeLadderGraces {
   /**
    * Tier-1 window (ms): after stdin EOF, how long the child gets to quiesce
    * ON ITS OWN — flush durable state, tear down its own nested subprocesses —
-   * before the parent escalates to `SIGTERM`. A separate (usually WIDER)
+   * before the parent escalates to platform termination. A separate (usually WIDER)
    * grace than {@link DisposeLadderGraces.disposeGraceMs}: a cooperative
    * child's EOF-driven teardown may itself be waiting on a signal-trapping
    * grandchild plus a final flush, needing more than one signal-grace of
    * headroom.
    */
   disposeEofGraceMs: number
-  /** Tier-2 window (ms): between `SIGTERM` and the `SIGKILL` escalation. */
+  /**
+   * Termination confirmation window (ms): POSIX applies it after `SIGTERM` and again after
+   * `SIGKILL`; Windows applies it after the direct forced termination.
+   */
   disposeGraceMs: number
+}
+
+/** Force-terminate a child and reject if no exit edge arrives within the configured grace. */
+function forceTerminateWithin(child: ChildProcess, ms: number): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+  return new Promise<void>((resolve, reject) => {
+    let accepted = false
+    let settled = false
+    const cleanup = (): void => {
+      clearTimeout(timer)
+      child.off('exit', onExit)
+      child.off('error', onError)
+    }
+    const settle = (complete: () => void): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      complete()
+    }
+    const onExit = (): void => { settle(resolve) }
+    const onError = (error: Error): void => { settle(() => { reject(error) }) }
+    child.once('exit', onExit)
+    child.once('error', onError)
+    const timer = setTimeout(() => {
+      const disposition = accepted ? 'accepted' : 'refused'
+      settle(() => {
+        reject(new Error(`child process did not exit within ${ms}ms after SIGKILL was ${disposition}`))
+      })
+    }, ms).unref()
+    try {
+      accepted = child.kill('SIGKILL')
+      if (child.exitCode !== null || child.signalCode !== null) settle(resolve)
+    } catch (error: unknown) {
+      settle(() => { reject(new Error('SIGKILL failed', { cause: error })) })
+    }
+  })
 }
 
 /**
  * Tear a child process down to quiescence, resolving only after exit: close stdin and allow
- * cooperative flush, then send `SIGTERM`, then `SIGKILL` and await the forced exit.
+ * cooperative flush, then use the host's graceful and forced termination semantics. POSIX
+ * sends `SIGTERM` before `SIGKILL`; Windows skips directly to forced termination because Node
+ * maps both signals to `TerminateProcess`.
  *
  * @param child - the child process to tear down.
  * @param graces - the two grace periods, from the consuming plugin's Config.
+ * @param platform - the host platform, injectable for unit coverage.
+ * @throws When forced termination errors or the child does not report exit within
+ * `disposeGraceMs`.
  */
-export async function disposeChildProcess(child: ChildProcess, graces: DisposeLadderGraces): Promise<void> {
+export async function disposeChildProcess(
+  child: ChildProcess,
+  graces: DisposeLadderGraces,
+  platform: NodeJS.Platform = process.platform,
+): Promise<void> {
   // Already gone: nothing to reap.
   if (child.exitCode !== null || child.signalCode !== null) return
   // 1. Close stdin and allow cooperative teardown and durable-state flush.
   child.stdin?.end()
   if (await exitsWithin(child, graces.disposeEofGraceMs)) return
-  // 2. SIGTERM, escalating if the child still does not exit within the grace.
-  child.kill('SIGTERM')
-  if (await exitsWithin(child, graces.disposeGraceMs)) return
-  // 3. Force-kill and await the (now-certain) exit.
-  child.kill('SIGKILL')
-  await waitForExit(child)
+  // 2. POSIX gets a catchable graceful signal; Windows signals all force-terminate.
+  if (platform !== 'win32') {
+    child.kill('SIGTERM')
+    if (await exitsWithin(child, graces.disposeGraceMs)) return
+  }
+  // 3. Force-kill and await a bounded exit edge.
+  await forceTerminateWithin(child, graces.disposeGraceMs)
 }
 
 /**

@@ -9,10 +9,7 @@ import {
   buildChildEnv,
   createIsolatedConfigDir,
   disposeChildProcess,
-  exitsWithin,
-  SENSITIVE_ENV_PATTERN,
   spawnFailure,
-  waitForExit,
 } from '../src/index.ts'
 
 // `rm` is real-passthrough except for one deterministic failure. Permission-based recursive-rm
@@ -44,6 +41,8 @@ interface FakeChildScript {
   diesOn?: LethalTrigger
   /** Delay (ms) between the lethal trigger and the exit event. */
   delayMs?: number
+  /** Complete the scripted exit inside the triggering call. */
+  synchronousExit?: boolean
   /** `false` models a child spawned without a stdin pipe. */
   stdin?: boolean
 }
@@ -77,11 +76,13 @@ class FakeChild extends EventEmitter {
     // SIGKILL is uncatchable — it always fells the child; any other trigger
     // only when the scenario scripts it as the lethal one.
     if (trigger !== 'SIGKILL' && this.script.diesOn !== trigger) return
-    setTimeout(() => {
+    const exit = (): void => {
       if (trigger === 'eof') this.exitCode = 0
       else this.signalCode = trigger
       this.emit('exit', this.exitCode, this.signalCode)
-    }, this.script.delayMs ?? 0)
+    }
+    if (this.script.synchronousExit === true) exit()
+    else setTimeout(exit, this.script.delayMs ?? 0)
   }
 }
 
@@ -90,7 +91,7 @@ function asChild(fake: FakeChild): ChildProcess {
   return fake as unknown as ChildProcess
 }
 
-describe('buildChildEnv / SENSITIVE_ENV_PATTERN', () => {
+describe('buildChildEnv', () => {
   it('drops credential-shaped ambient vars (KEY/SECRET/TOKEN, case-insensitive)', () => {
     process.env.DSH_PROC_TEST_API_KEY = 'leak'
     process.env.dsh_proc_test_secret = 'leak'
@@ -108,7 +109,6 @@ describe('buildChildEnv / SENSITIVE_ENV_PATTERN', () => {
   })
 
   it('forwards normal ambient vars', () => {
-    expect(SENSITIVE_ENV_PATTERN.test('PATH')).toBe(false)
     expect(buildChildEnv({}).PATH).toBe(process.env.PATH)
   })
 
@@ -146,7 +146,7 @@ describe('spawnFailure', () => {
     const fake = new FakeChild({ diesOn: 'SIGTERM' })
     const failure = spawnFailure(asChild(fake))
     fake.kill('SIGTERM')
-    await waitForExit(asChild(fake))
+    await new Promise<void>(resolve => fake.once('exit', () => { resolve() }))
     // A clean lifecycle emits `exit`, never `error` — the capture stays
     // pending forever, so a race against it is decided by the other arms.
     const settled = await Promise.race([
@@ -154,51 +154,6 @@ describe('spawnFailure', () => {
       new Promise<string>(resolve => setTimeout(() => { resolve('pending') }, 30)),
     ])
     expect(settled).toBe('pending')
-  })
-})
-
-describe('waitForExit / exitsWithin', () => {
-  it('resolves immediately for a child that already exited by code', async () => {
-    const fake = new FakeChild()
-    fake.exitCode = 0
-    await expect(waitForExit(asChild(fake))).resolves.toBeUndefined()
-  })
-
-  it('resolves immediately for a child that already died by signal', async () => {
-    const fake = new FakeChild()
-    fake.signalCode = 'SIGTERM'
-    await expect(waitForExit(asChild(fake))).resolves.toBeUndefined()
-  })
-
-  it('resolves on the exit event of a live child', async () => {
-    const fake = new FakeChild({ diesOn: 'SIGTERM', delayMs: 5 })
-    const exited = waitForExit(asChild(fake))
-    fake.kill('SIGTERM')
-    await expect(exited).resolves.toBeUndefined()
-    expect(fake.signalCode).toBe('SIGTERM')
-  })
-
-  it('exitsWithin resolves true immediately for an already-exited child (no listener attached)', async () => {
-    const fake = new FakeChild()
-    fake.exitCode = 0
-    await expect(exitsWithin(asChild(fake), 1000)).resolves.toBe(true)
-    expect(fake.listenerCount('exit')).toBe(0)
-  })
-
-  it('exitsWithin resolves true when the child exits inside the window', async () => {
-    const fake = new FakeChild({ diesOn: 'SIGTERM', delayMs: 5 })
-    fake.kill('SIGTERM')
-    await expect(exitsWithin(asChild(fake), 1000)).resolves.toBe(true)
-    // The once-listener fired and the grace timer was cleared — nothing lingers.
-    expect(fake.listenerCount('exit')).toBe(0)
-  })
-
-  it('exitsWithin resolves false on timeout for a child that never exits', async () => {
-    const fake = new FakeChild() // nothing short of SIGKILL fells it; no signal sent
-    await expect(exitsWithin(asChild(fake), 20)).resolves.toBe(false)
-    // The timeout arm removed its exit listener: repeated waits (a poll loop,
-    // the ladder's tiers) never accumulate listeners on the same child.
-    expect(fake.listenerCount('exit')).toBe(0)
   })
 })
 
@@ -227,27 +182,137 @@ describe('disposeChildProcess', () => {
     expect(fake.exitCode).toBe(0)
   })
 
+  it('recognizes a child that exits synchronously on stdin EOF', async () => {
+    const fake = new FakeChild({ diesOn: 'eof', synchronousExit: true })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 1000, disposeGraceMs: 1000 })
+    expect(fake.exitCode).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
+
   it('tier 2: a child that ignores EOF but honors SIGTERM dies on the middle rung', async () => {
     const fake = new FakeChild({ diesOn: 'SIGTERM', delayMs: 5 })
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'linux')
     expect(fake.stdinEnded).toBe(true)
     expect(fake.kills).toEqual(['SIGTERM'])
     expect(fake.signalCode).toBe('SIGTERM')
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
+
+  it('recognizes a child that exits synchronously on SIGTERM', async () => {
+    const fake = new FakeChild({ diesOn: 'SIGTERM', synchronousExit: true })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'linux')
+    expect(fake.kills).toEqual(['SIGTERM'])
+    expect(fake.signalCode).toBe('SIGTERM')
+    expect(fake.listenerCount('exit')).toBe(0)
   })
 
   it('tier 3: a SIGTERM-trapping child is SIGKILLed, and dispose resolves only after the exit', async () => {
     const fake = new FakeChild({ delayMs: 5 }) // only SIGKILL fells it
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 20 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 20 }, 'linux')
     expect(fake.kills).toEqual(['SIGTERM', 'SIGKILL'])
     // Quiescence, not a request: at resolution the child has ACTUALLY exited
     // (the exit event landed, despite the scripted post-SIGKILL delay).
     expect(fake.signalCode).toBe('SIGKILL')
   })
 
+  it('recognizes a child already gone when the final exit wait begins', async () => {
+    const fake = new FakeChild({ synchronousExit: true })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 20 }, 'linux')
+    expect(fake.kills).toEqual(['SIGTERM', 'SIGKILL'])
+    expect(fake.signalCode).toBe('SIGKILL')
+  })
+
+  it.each(['exitCode', 'signalCode'] as const)('accepts a late OS %s marker before the final forced wait', async (marker) => {
+    const fake = new FakeChild()
+    vi.spyOn(fake, 'kill').mockImplementation((signal) => {
+      fake.kills.push(signal)
+      queueMicrotask(() => {
+        if (marker === 'exitCode') fake.exitCode = 0
+        else fake.signalCode = 'SIGTERM'
+      })
+      return true
+    })
+
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 1, disposeGraceMs: 10 }, 'linux')
+    expect(fake.kills).toEqual(['SIGTERM'])
+  })
+
   it('walks the ladder for a child spawned without a stdin pipe', async () => {
     const fake = new FakeChild({ stdin: false, diesOn: 'SIGTERM', delayMs: 5 })
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'linux')
     expect(fake.kills).toEqual(['SIGTERM'])
+  })
+
+  it('skips the redundant SIGTERM tier on Windows and awaits forced exit', async () => {
+    const fake = new FakeChild({ diesOn: 'SIGTERM', delayMs: 5 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'win32')
+    expect(fake.kills).toEqual(['SIGKILL'])
+    expect(fake.signalCode).toBe('SIGKILL')
+  })
+
+  it('propagates a forced-termination error without waiting for the grace', async () => {
+    const fake = new FakeChild()
+    const failure = Object.assign(new Error('kill EPERM'), { code: 'EPERM' })
+    vi.spyOn(fake, 'kill').mockImplementation((signal) => {
+      fake.kills.push(signal)
+      fake.emit('error', failure)
+      return false
+    })
+
+    await expect(disposeChildProcess(
+      asChild(fake),
+      { disposeEofGraceMs: 1, disposeGraceMs: 1000 },
+      'win32',
+    )).rejects.toBe(failure)
+    expect(fake.kills).toEqual(['SIGKILL'])
+    expect(fake.listenerCount('error')).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
+
+  it('wraps a synchronous forced-termination exception and removes its listeners', async () => {
+    const fake = new FakeChild()
+    const failure = new Error('invalid signal state')
+    vi.spyOn(fake, 'kill').mockImplementation(() => { throw failure })
+
+    await expect(disposeChildProcess(
+      asChild(fake),
+      { disposeEofGraceMs: 1, disposeGraceMs: 1000 },
+      'win32',
+    )).rejects.toMatchObject({ message: 'SIGKILL failed', cause: failure })
+    expect(fake.listenerCount('error')).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
+
+  it('bounds a refused forced termination that produces no error or exit', async () => {
+    const fake = new FakeChild()
+    vi.spyOn(fake, 'kill').mockImplementation((signal) => {
+      fake.kills.push(signal)
+      return false
+    })
+
+    await expect(disposeChildProcess(
+      asChild(fake),
+      { disposeEofGraceMs: 1, disposeGraceMs: 10 },
+      'win32',
+    )).rejects.toThrow('child process did not exit within 10ms after SIGKILL was refused')
+    expect(fake.listenerCount('error')).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
+
+  it('bounds an accepted forced termination that never reports exit', async () => {
+    const fake = new FakeChild()
+    vi.spyOn(fake, 'kill').mockImplementation((signal) => {
+      fake.kills.push(signal)
+      return true
+    })
+
+    await expect(disposeChildProcess(
+      asChild(fake),
+      { disposeEofGraceMs: 1, disposeGraceMs: 10 },
+      'win32',
+    )).rejects.toThrow('child process did not exit within 10ms after SIGKILL was accepted')
+    expect(fake.listenerCount('error')).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
   })
 })
 
@@ -258,8 +323,9 @@ describe('createIsolatedConfigDir', () => {
       expect(dir.path.startsWith(join(tmpdir(), 'dsh-subagent-subprocess-test-'))).toBe(true)
       const st = await stat(dir.path)
       expect(st.isDirectory()).toBe(true)
-      // Private (0700) per the defensive-patterns temp-dir rule.
-      expect(st.mode & 0o777).toBe(0o700)
+      // Windows reports synthetic POSIX mode bits; privacy comes from the
+      // inherited directory ACL rather than chmod-compatible mode bits.
+      if (process.platform !== 'win32') expect(st.mode & 0o777).toBe(0o700)
     } finally {
       await dir.remove()
     }

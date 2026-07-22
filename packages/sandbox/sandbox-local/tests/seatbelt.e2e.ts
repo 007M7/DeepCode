@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
-import { LocalSandboxProvider, seatbeltProfileArgs } from '@deepseek-ai/dsh-sandbox-local'
+import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
+import { seatbeltProfileArgs } from '../src/profiles.ts'
 
 /**
  * Keyless backend integration through `confine()` and a real macOS Seatbelt process, with Linux

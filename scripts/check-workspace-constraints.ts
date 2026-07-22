@@ -40,10 +40,12 @@ interface PackageManifest {
   bin?: string | Record<string, string>
   exports?: Record<
     string,
+    | string
     | {
       types?: string
       default?: string
     }
+    | null
     | undefined
   >
   files?: string[]
@@ -93,40 +95,61 @@ function workspaceManifests(): WorkspaceManifest[] {
   return manifests
 }
 
-const dshPackageFiles = [
-  'lib/index.js',
-  'lib/types/**/*.d.ts',
-  'lib/types/**/*.d.ts.map',
-  'src',
-] as const
-
-const dshBinPackageFiles = [
-  'lib/index.js',
-  'lib/bin.js',
-  'lib/types/**/*.d.ts',
-  'lib/types/**/*.d.ts.map',
-  'src',
-] as const
-
-const dshWorkerPackageFiles = [
-  'lib/index.js',
-  'lib/worker.cjs',
-  'lib/types/**/*.d.ts',
-  'lib/types/**/*.d.ts.map',
-  'src',
-] as const
+const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/dsh-helper': ['lib/assets'],
+  '@deepseek-ai/dsh-scripts': [
+    'lib/dev/tsdown-config.js',
+    'lib/local-plugin-loader-hooks.js',
+    'lib/assets',
+  ],
+}
 
 function sameStringList(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
   return !!actual && actual.length === expected.length && actual.every((value, index) => value === expected[index])
 }
 
 function expectedDshPackageFiles(manifest: PackageManifest): readonly string[] {
-  if (manifest.bin) return dshBinPackageFiles
-  // A declared "./worker" subpath export sanctions the one extra runtime
-  // bundle a worker-thread entry needs (and NodeNext/publint then validate
-  // that subpath's targets like any other export).
-  if (manifest.exports?.['./worker']) return dshWorkerPackageFiles
-  return dshPackageFiles
+  const extras = manifest.name ? packageFileExtras[manifest.name] ?? [] : []
+  return [
+    'lib/index.js',
+    // Every package publishes its invariant ownership companion as a separate
+    // bundle; the package-invariant gate validates the companion itself.
+    'lib/invariant.js',
+    ...manifest.bin ? ['lib/bin.js'] : [],
+    ...manifest.exports?.['./worker'] ? ['lib/worker.cjs'] : [],
+    // UI plugin packages ship their browser bundle beside the node lib
+    // (single-artifact ruling: dist/ retired, ./client resolves lib/client.js).
+    // Keyed on the artifact path, not the subpath name: apiproxy's ./client is
+    // a browser-safe source channel, not a bundle.
+    ...exportDefault(manifest, './client') === './lib/client.js' ? ['lib/client.js'] : [],
+    // runtime's shell-held loader subpath ships as its own bundle beside the client half.
+    ...exportDefault(manifest, './loader') === './lib/loader.js' ? ['lib/loader.js'] : [],
+    // web-react's store subpath ships its own bundle (single-entry builds; no shared chunk).
+    ...exportDefault(manifest, './store') === './lib/store/index.js' ? ['lib/store/index.js'] : [],
+    ...extras,
+    // Subpaths whose runtime default is the tsc-emitted tree (lib/types/*.js —
+    // browser-safe source channels rehomed off src so plain Node can import
+    // them without type stripping) publish the emitted JS alongside the
+    // declarations.
+    ...usesEmittedTreeDefaults(manifest) ? ['lib/types/**/*.js'] : [],
+    'lib/types/**/*.d.ts',
+    'lib/types/**/*.d.ts.map',
+    'src',
+  ]
+}
+
+/** Runtime target of an export entry: conditional `default`, or the bare-string shorthand. */
+function exportDefault(manifest: PackageManifest, subpath: string): string | undefined {
+  const entry = manifest.exports?.[subpath]
+  if (typeof entry === 'string') return entry
+  if (typeof entry === 'object' && entry !== null) return entry.default
+  return undefined
+}
+
+/** Whether any export's runtime default points into the tsc-emitted lib/types tree. */
+function usesEmittedTreeDefaults(manifest: PackageManifest): boolean {
+  return Object.keys(manifest.exports ?? {}).some(subpath =>
+    exportDefault(manifest, subpath)?.startsWith('./lib/types/') === true)
 }
 
 function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
@@ -162,11 +185,24 @@ function checkWorkspace({ dir, manifest }: WorkspaceManifest): string[] {
     if (manifest.types !== 'lib/types/index.d.ts') {
       errors.push(`${label}: package.json must set "types": "lib/types/index.d.ts"`)
     }
-    if (manifest.exports?.['.']?.types !== './lib/types/index.d.ts') {
+    const rootExport = manifest.exports?.['.']
+    const rootEntry = typeof rootExport === 'object' && rootExport !== null ? rootExport : undefined
+    if (rootEntry?.types !== './lib/types/index.d.ts') {
       errors.push(`${label}: package.json exports["."].types must be "./lib/types/index.d.ts"`)
     }
-    if (manifest.exports?.['.']?.default !== './lib/index.js') {
+    if (rootEntry?.default !== './lib/index.js') {
       errors.push(`${label}: package.json exports["."].default must be "./lib/index.js"`)
+    }
+    const invariantRaw = manifest.exports?.['./invariant']
+    const invariantExport = typeof invariantRaw === 'object' && invariantRaw !== null ? invariantRaw : undefined
+    if (invariantExport?.types !== undefined && invariantExport.types !== './lib/types/invariant.d.ts') {
+      errors.push(`${label}: package.json exports["./invariant"].types must be "./lib/types/invariant.d.ts"`)
+    }
+    if (invariantExport?.default !== undefined && invariantExport.default !== './lib/invariant.js') {
+      errors.push(`${label}: package.json exports["./invariant"].default must be "./lib/invariant.js"`)
+    }
+    if (invariantExport && (invariantExport.types === undefined || invariantExport.default === undefined)) {
+      errors.push(`${label}: package.json exports["./invariant"] must declare both types and default targets`)
     }
     const expectedFiles = expectedDshPackageFiles(manifest)
     if (!sameStringList(manifest.files, expectedFiles)) {
