@@ -386,6 +386,7 @@ describe('cordis_mount', () => {
     ['parameters: { type: \'object\', properties: {}, required: undefined }', 'parameters.required must be an array of declared property names'],
     ['parameters: { type: \'object\', properties: {}, required: [42] }', 'parameters.required must be an array of declared property names'],
     ['parameters: (() => { const required = []; required.length = 1; return { type: \'object\', properties: {}, required } })()', 'parameters.required must be an array of declared property names'],
+    ['parameters: (() => { const required = []; required.length = 1; required.extra = true; return { type: \'object\', properties: {}, required } })()', 'parameters.required must be an array of declared property names'],
     ['parameters: (() => { class Names extends Array { *[Symbol.iterator]() {} }; const required = new Names(); required[0] = \'text\'; required.length = 1; return { type: \'object\', properties: { text: { type: \'string\' } }, required } })()', 'parameters.required must be an array of declared property names'],
     ['parameters: { type: \'object\', properties: {}, required: [\'text\'] }', 'parameters.required names undeclared property "text"'],
     ['parameters: { type: \'object\', properties: { text: { type: \'string\', required: true } } }', 'parameters.text.required belongs to the containing raw object schema'],
