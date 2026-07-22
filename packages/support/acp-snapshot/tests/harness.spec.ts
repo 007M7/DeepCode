@@ -95,8 +95,8 @@ describe('runScenario', () => {
     expect(clientClosed).toBe(true)
   })
 
-  it('centralizes ACP boot, captures, updates, fail-closed permissions, and shutdown', { timeout: 20_000 }, async () => {
-    const { dir, fixtureFile } = await scenario({ permissionProbe: true, echoEnv: true, stderrNote: 'launcher stderr' })
+  it('centralizes ACP boot, captures, updates, fail-closed interactions, and shutdown', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ permissionProbe: true, elicitationProbe: true, echoEnv: true, stderrNote: 'launcher stderr' })
     const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-launcher-sessions-'))
     tempDirs.push(sessionsRoot)
     const launched = launchAcpTestAgent({
@@ -120,6 +120,7 @@ describe('runScenario', () => {
     expect((await nextChunk).sessionUpdate).toBe('agent_message_chunk')
     expect(launched.updates.some(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
     expect(launched.rawStdout()).toContain('permission:{\\"outcome\\":\\"cancelled\\"}')
+    expect(launched.rawStdout()).toContain('elicitation:{\\"action\\":\\"cancel\\"}')
     expect(launched.stderr()).toContain('launcher stderr')
     const unmatched = expect(launched.waitForUpdate(() => false)).rejects.toThrow(/update stream closed/)
     await launched.close()
@@ -716,6 +717,69 @@ describe('runScenario', () => {
     expect(result.sessionLogs).toHaveLength(0)
   })
 
+  it('drives session/set_mode and swallows the expected rejection of setModeExpectError', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({})
+    const result = await runScenario(
+      { steps: [...boot, { op: 'setMode', modeId: 'plan' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.rawStdout).toContain('setMode:plan')
+
+    const rejecting = await scenario({ setMode: 'error' })
+    const rejected = await runScenario(
+      { steps: [...boot, { op: 'setModeExpectError', modeId: 'yolo' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile: rejecting.fixtureFile },
+    )
+    expect(rejected.rawStdout).toContain('unknown mode')
+  })
+
+  it('fails the run when setModeExpectError unexpectedly succeeds, and both mode ops require a session', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({})
+    await expect(runScenario(
+      { steps: [...boot, { op: 'setModeExpectError', modeId: 'plan' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )).rejects.toThrow(/expected session\/set_mode to be rejected/)
+    await expect(runScenario(
+      { steps: [{ op: 'initialize' }, { op: 'setMode', modeId: 'plan' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )).rejects.toThrow(/setMode before newSession/)
+    await expect(runScenario(
+      { steps: [{ op: 'initialize' }, { op: 'setModeExpectError', modeId: 'plan' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )).rejects.toThrow(/setModeExpectError before newSession/)
+  })
+
+  it('answers elicitations from the scripted queue, falling back to cancel on exhaustion', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ elicitationProbe: true })
+    // Three prompts → three elicitations: an accept-with-choice, an
+    // accept-with-custom (feedback), then the exhausted-queue cancel.
+    const result = await runScenario(
+      {
+        steps: [...boot, { op: 'prompt', text: 'one' }, { op: 'prompt', text: 'two' }, { op: 'prompt', text: 'three' }],
+        elicitationAnswers: [
+          { action: 'accept', choice: 'Approve' },
+          { action: 'accept', custom: 'add tests first' },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    const first = result.rawStdout.indexOf('elicitation:{\\"action\\":\\"accept\\",\\"content\\":{\\"choice\\":\\"Approve\\"}}')
+    const second = result.rawStdout.indexOf('elicitation:{\\"action\\":\\"accept\\",\\"content\\":{\\"custom\\":\\"add tests first\\"}}')
+    const third = result.rawStdout.indexOf('elicitation:{\\"action\\":\\"cancel\\"}')
+    expect(first).toBeGreaterThanOrEqual(0)
+    expect(second).toBeGreaterThan(first)
+    expect(third).toBeGreaterThan(second)
+  })
+
+  it('a scripted elicitation cancel answers cancel', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ elicitationProbe: true })
+    const result = await runScenario(
+      { steps: [...boot, { op: 'prompt', text: 'one' }], elicitationAnswers: [{ action: 'cancel' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.rawStdout).toContain('elicitation:{\\"action\\":\\"cancel\\"}')
+  })
+
   it('answers permission requests from the scripted queue by option kind, falling back to cancelled', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ permissionProbe: true })
     // Two prompts → two permission round-trips; one scripted answer, so the
@@ -744,8 +808,11 @@ describe('runScenario', () => {
 
   it('rejects the run on a scripted permission kind the agent never offered', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ permissionProbe: true })
-    // The fake offers only allow_once/reject_once. The harness must reject an impossible click,
-    // not merely send an RPC error that a tolerant agent could absorb.
+    // The fake bin offers allow_once/reject_once; scripting allow_always is a
+    // scenario bug. The agent is answered `cancelled` (it must not be able to
+    // absorb the bug as an error-means-denial), and the RUN fails: a callback
+    // throw would only reach the agent as a JSON-RPC error response, letting
+    // a tolerant agent carry on and the scenario pass — or record.
     await expect(runScenario(
       { steps: [...boot, { op: 'prompt', text: 'impossible click' }], permissionAnswers: [{ kind: 'allow_always' }] },
       { agent: AGENT, mode: 'replay', fixtureFile },

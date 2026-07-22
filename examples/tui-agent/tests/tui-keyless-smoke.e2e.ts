@@ -70,17 +70,21 @@ const SELECT_PRO_MODEL = [
 ] as const
 
 describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
-  it('boots pi-tui, sweeps the borderless banner in, accepts /exit, and restores the terminal', async () => {
+  it('boots pi-tui, sweeps the borderless banner in, enters plan mode, and restores the terminal', async () => {
     // With no configured welcome the borderless banner sweeps in left-to-right;
     // the detail line's session id (`main-session-<uuid>`) renders only once
     // the sweep reaches it, so it marks a settled banner.
     const output = await smoke({
       label: 'tui-agent boot',
-      actions: [{ waitFor: 'main-session-', send: '/exit\r' }],
+      actions: [
+        { waitFor: 'main-session-', send: '/plan\r' },
+        { waitFor: 'Entering plan mode (applies from the next step).', send: '/exit\r' },
+      ],
     })
     expect(output).toContain('DEEPSEEK')
     expect(output).toContain('HARNESS')
     expect(output).toContain('main-session-')
+    expect(output).toContain('Entering plan mode (applies from the next step).')
     // Borderless: no box-drawing frame around the banner.
     expect(output).not.toContain('╭')
     expect(output).not.toContain('╮')
@@ -94,7 +98,7 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
       configPath: scriptedConfigPath,
       actions: [
         ...SELECT_PRO_MODEL,
-        { waitFor: 'Model selected: tui-scripted/tui-scripted-model-pro.', send: 'exercise the TUI\r' },
+        { waitFor: 'Model selected: tui-scripted/tui-scripted-model-pro.', send: '/plan exercise the TUI\r' },
         { waitFor: 'How should the scripted run proceed?', send: '\r' },
         { waitFor: 'Decision received. Scripted TUI run complete.', send: '' },
         // Session title: the first user message drives the first-message-llm
@@ -108,6 +112,7 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
       ],
     })
     expect(output).toContain('I need one decision before I continue.')
+    expect(output).toContain('Entering plan mode (applies from the next step).')
     expect(output).toContain(String.raw`\x1b]2;MODEL_CONTROLLED\x07`)
     expect(output).toContain(String.raw`\x1b[999CMODEL_CURSOR`)
     expect(output).toContain(String.raw`\x9b31mMODEL_C1`)

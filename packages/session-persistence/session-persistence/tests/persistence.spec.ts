@@ -22,6 +22,16 @@ function legacyHeaderDelta(seq = 0): SessionEvent {
   } as unknown as SessionEvent
 }
 
+/** An unsupported named-mode fixture emulating an untyped producer. */
+function legacyModeSet(seq = 0): SessionEvent {
+  return {
+    type: 'mode/set',
+    seq,
+    time: 1,
+    data: { mode: 'plan' },
+  } as unknown as SessionEvent
+}
+
 /** An obsolete full-header reason fixture from the removed delta codec. */
 function legacyFallbackHeader(seq = 0): SessionEvent {
   return {
@@ -507,6 +517,19 @@ describe('SessionPersistence service registration', () => {
 
     await expect(ctx.sessionPersistence.load(id))
       .rejects.toThrow('unsupported legacy request/header reason "fallback" at seq 0')
+    await fiber.dispose()
+  })
+
+  it('rejects a stored legacy named-mode event during load', async () => {
+    const id = SessionId('legacy-mode-load')
+    const m = meta(id, '/legacy')
+    const store: MemoryStore = new Map([[id, { meta: m, events: [legacyModeSet()] }]])
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(MemoryPersistence, { store })
+
+    await expect(ctx.sessionPersistence.load(id))
+      .rejects.toThrow('unsupported legacy mode/set event at seq 0')
     await fiber.dispose()
   })
 

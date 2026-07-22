@@ -122,6 +122,7 @@
     { "path": "./packages/workflow/tool-workflow" },
     { "path": "./packages/workflow/tool-ralph" },
     { "path": "./packages/todo/tool-todo" },
+    { "path": "./packages/plan/plan-mode" },
     { "path": "./packages/guard/repeat-tool-guard" },
     { "path": "./packages/cordis/tool-cordis" },
     { "path": "./packages/hooks/hook-protocol" },
