@@ -663,13 +663,24 @@ describe('pi-tui chat lifecycle and transcript', () => {
   })
 
   it('refreshes the running status elapsed time on its own timer', async () => {
-    const result = await setup({ status: 'running' })
-    result.terminal.output = ''
-    // The loader repaints "0s" until the controller's own interval fires; a
-    // non-zero elapsed proves the refresh, not just the loader's animation.
-    await new Promise(resolve => setTimeout(resolve, 1_300))
-    expect(result.terminal.output).toMatch(/Waiting for the first token [1-9]s/)
-    await dispose(result)
+    let now = 0
+    const intervals = vi.spyOn(globalThis, 'setInterval')
+    let result: Awaited<ReturnType<typeof setup>> | undefined
+    try {
+      result = await setup({ status: 'running', now: () => now })
+      const refresh = intervals.mock.calls.find(([, interval]) => interval === 1_000)?.[0]
+      if (typeof refresh !== 'function') throw new Error('TUI did not register its elapsed-status refresh interval')
+      result.terminal.output = ''
+      // The loader repaints "0s" until the controller's own interval fires; a
+      // non-zero elapsed proves the refresh, not just the loader's animation.
+      now = 1_000
+      refresh()
+      await tick()
+      expect(result.terminal.output).toContain('Waiting for the first token 1s')
+    } finally {
+      if (result !== undefined) await dispose(result)
+      intervals.mockRestore()
+    }
   })
 
   it('shows minutes and seconds once a step passes a minute', async () => {
