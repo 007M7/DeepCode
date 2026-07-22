@@ -440,10 +440,6 @@ export function apply(ctx: Context, config: Config = {}): void {
         })
         return [{ type: 'text', text: `started background task ${id}` }]
       }
-      // A durability or policy wrapper may yield before dispatch. Normalize a
-      // cancellation that arrived during that boundary before the executor can
-      // expose its backend-specific pre-spawn error.
-      if (exec.signal.aborted) throw new Error('command aborted')
       const result = await ctx.bash.run(ctx.bash.resolve({
         ...request,
         signal: exec.signal,

@@ -476,7 +476,9 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     const walPath = await freshDbPath()
     const bWal = await backend(walPath)
     await bWal.ctx.sessionPersistence.create(meta('jm-wal'))
-    expect((openDatabase(walPath, 'wal').prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe('wal')
+    const probe = openDatabase(walPath, 'wal')
+    expect((probe.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe('wal')
+    probe.close()
     await bWal.dispose()
 
     const deletePath = await freshDbPath()

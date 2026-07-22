@@ -70,7 +70,12 @@ const SCENARIOS: Scenario[] = [
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
   { name: 'lsp-definition', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'lsp', configPath: LSP_CONFIG },
-  { name: 'workspace-edit', hasModelTurn: true, recorded: true },
+  {
+    name: 'workspace-edit',
+    hasModelTurn: true,
+    recorded: true,
+    pinsNativeWindowsStdout: true,
+  },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },
   { name: 'fs-edit', hasModelTurn: true, recorded: true },
@@ -109,7 +114,9 @@ const SCENARIOS: Scenario[] = [
     configPath: WORKSPACE_CONTEXT_CONFIG,
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
-  { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true },
+  // Cancelling a live bash call relies on POSIX process-group termination;
+  // Windows bash process-tree kill is deferred with the Bash execution domain.
+  { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true, posixOnly: true },
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },

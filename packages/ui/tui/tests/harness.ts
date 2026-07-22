@@ -12,7 +12,7 @@ import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
-import { createTuiChat, type Config } from '../src/index.ts'
+import { createTuiChat, type Config, type TuiRuntime } from '../src/index.ts'
 
 interface FakeAgent extends Agent {
   status: AgentStatus
@@ -28,6 +28,7 @@ export interface TuiHarnessOptions {
   configureContext?: (ctx: Context) => Promise<void>
   beforeMount?: (session: Session) => void
   cwd?: string | null
+  formatCwd?: TuiRuntime['formatCwd']
   agentOptions?: AgentOptions
   contextWindow?: number
   contextTokens?: number
@@ -144,7 +145,12 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     welcome: 'Coding agent ready.',
     sessionId,
     color: false,
-  }, options.config), { terminal, exit, now: options.now ?? (() => 0) })
+  }, options.config), {
+    terminal,
+    exit,
+    now: options.now ?? (() => 0),
+    ...(options.formatCwd === undefined ? {} : { formatCwd: options.formatCwd }),
+  })
   return { ctx, session, agent, terminal, exit, controller }
 }
 
