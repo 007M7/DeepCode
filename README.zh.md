@@ -2,15 +2,17 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 coding agent（编程智能体），一切皆插件。
+DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 coding agent（编程智能体），**一切皆插件**。
 
 ## 安装
 
-使用一条命令安装 `dsh`。安装器要求系统已安装 `git` 和 Node `^22.19 || >=24`，缺少 `pnpm` 时可代为安装，并会提示输入 DeepSeek API 密钥：
+使用一条命令安装 `dsh`：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
 ```
+
+安装器要求系统已安装 `git` 和 Node `^22.19 || >=24`，缺少 `pnpm` 时可代为安装，并会提示输入 DeepSeek API 密钥。
 
 安装器会将 DeepSeek Harness 克隆到 `~/.dsh/source`，把 `dsh` 链接到 `~/.local/bin`，然后启动它。再次运行该命令会更新源码目录。其他安装位置和选项见 [`scripts/install.sh`](scripts/install.sh)。
 
@@ -48,7 +50,7 @@ dsh -p "summarize this workspace"
 内置功能涵盖文件读取、编辑与搜索、shell 执行、可复用 skill（技能）、任务跟踪、subagent 与工作流、持久化会话，以及上下文压缩（context compaction）。TUI 还包含 Plan Mode。
 
 - **一切皆插件。** 模型、工具、策略、存储、上下文管理和界面均可组合为 [Cordis 插件](docs/user/develop/basic/index.md)，部署方无需 fork agent loop（智能体循环）即可扩展或替换行为。底层设计见[架构文档](docs/architecture.md)。
-- **Code Mode 需显式启用。** 它会提供 `run_code` 工具和生成的 TypeScript SDK，只有程序输出会重新进入模型上下文。参见 [Code Mode](packages/core/tools/README.md#code-mode)。
+- **Code Mode（需显式启用）。** 它会提供 `run_code` 工具和生成的 TypeScript SDK，只有程序输出会重新进入模型上下文。参见 [Code Mode](packages/core/tools/README.md#code-mode)。
 - **自指 Cordis 工具需显式启用。** 这些工具可让 agent 检查自身的实时运行时，并在运行中挂载或卸载插件。参见 [Cordis 工具](packages/cordis/tool-cordis/README.md)。
 
 ## 社区
@@ -66,7 +68,9 @@ pnpm install
 pnpm run test:coverage
 ```
 
-请先阅读[开发指南](docs/development.md)；修改包之前，请阅读[架构文档](docs/architecture.md)；在本仓库工作时，请遵循 [AGENTS.md](AGENTS.md)。
+请先阅读[开发指南](docs/development.md)；修改包之前，请阅读[架构文档](docs/architecture.md)。
+
+面向 agent：遵循 [AGENTS.md](AGENTS.md)。
 
 DeepSeek Harness 目前处于预发布阶段。
 
