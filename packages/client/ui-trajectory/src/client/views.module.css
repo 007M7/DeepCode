@@ -1,0 +1,37 @@
+.root {
+  padding: 16px;
+  overflow-y: auto;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.empty {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.turnTag {
+  flex: none;
+  width: 64px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.bar {
+  height: 12px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-skeleton);
+}
+
+.barCalls {
+  background: var(--dsw-alias-brand-primary);
+}
+
+.meta {
+  color: var(--dsw-alias-label-caption);
+}

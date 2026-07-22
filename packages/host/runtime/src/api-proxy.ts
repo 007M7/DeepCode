@@ -1,0 +1,429 @@
+/**
+ * Host-side ApiProxy implementation (minimal-first —
+ * describe/list/create/history/prompt/cancel and both streams are real,
+ * respond is a stub). Signature discipline: unary takes the narrow
+ * RpcRequest<P> and echoes request.rpcId on the RpcResponse<T>.
+ */
+
+import { randomUUID } from 'node:crypto'
+import { stat } from 'node:fs/promises'
+import type { Context } from 'cordis'
+import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import type { ApiProxy, HistoryEntry, HostFrame, MuxFrame, SessionSummary, ToolEventView } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+
+/** Page size when history is called without maxMessages. */
+const DEFAULT_MAX_MESSAGES = 50
+
+/** Surface message event types (the pagination counting unit). */
+const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
+
+/**
+ * Message-boundary pagination: count maxMessages surface messages backwards from
+ * the window tail; the cut is the starting seq of the oldest message group
+ * (chunks group via sourceEventSeqs — never cut mid-message). The tail page
+ * naturally includes the in-progress partial.
+ */
+function paginate(
+  events: readonly SessionEvent[],
+  beforeSeq: number | undefined,
+  maxMessages: number,
+): { events: SessionEvent[]; hasMore: boolean } {
+  const window = beforeSeq === undefined ? [...events] : events.filter(event => event.seq < beforeSeq)
+  let count = 0
+  let cut = 0
+  for (let i = window.length - 1; i >= 0; i--) {
+    const event = window[i] as SessionEvent
+    if (!MESSAGE_TYPES.has(event.type)) continue
+    count++
+    const sources = (event as { sourceEventSeqs?: number[] }).sourceEventSeqs
+    const groupStart = sources !== undefined && sources.length > 0 ? Math.min(event.seq, ...sources) : event.seq
+    if (count >= maxMessages) {
+      cut = groupStart
+      break
+    }
+  }
+  const page = window.filter(event => event.seq >= cut)
+  return { events: page, hasMore: cut > 0 }
+}
+
+/** Wrap an ok result echoing the request's rpcId. */
+function ok<T>(request: RpcRequest<unknown>, value: T): RpcResponse<T> {
+  return { rpcId: request.rpcId, result: { ok: true, value } }
+}
+
+/** Wrap an error result echoing the request's rpcId. */
+function err<T>(request: RpcRequest<unknown>, error: RpcError): RpcResponse<T> {
+  return { rpcId: request.rpcId, result: { ok: false, error } }
+}
+
+/** Simple async queue: core callbacks push, the AsyncIterable pulls; abort/return cleans up. */
+class FrameQueue<F> {
+  private buffer: F[] = []
+  private waiter: (() => void) | undefined
+  private done = false
+
+  push(item: F): void {
+    if (this.done) return
+    this.buffer.push(item)
+    this.waiter?.()
+  }
+
+  end(): void {
+    this.done = true
+    this.waiter?.()
+  }
+
+  async *iterate(signal: AbortSignal, cleanup: () => void): AsyncGenerator<F> {
+    const onAbort = (): void => { this.end() }
+    signal.addEventListener('abort', onAbort, { once: true })
+    try {
+      while (true) {
+        while (this.buffer.length > 0) yield this.buffer.shift() as F
+        if (this.done || signal.aborted) return
+        await new Promise<void>((resolve) => { this.waiter = resolve })
+        this.waiter = undefined
+      }
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+      cleanup()
+    }
+  }
+}
+
+/**
+ * Server-side frame mint: pure pushes get a fresh rpcId per frame (stable ids
+ * for answerable frames belong to the approval/question registry, absent in
+ * this minimal version).
+ */
+function frame<F>(payload: F): RpcRequest<F> {
+  return { rpcId: RpcId(randomUUID()), payload }
+}
+
+/** SessionSummary projection for attached (in-memory) sessions. */
+function summarize(session: Session, running: boolean): SessionSummary {
+  return {
+    sessionId: session.id,
+    updatedAt: session.events.at(-1)?.time ?? session.header.createdAt,
+    running,
+    ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
+    ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
+  }
+}
+
+/**
+ * SessionSummary projection for cold (persisted, unattached) sessions.
+ * updatedAt is the log file's mtime; backends without a per-session file
+ * (locate() undefined) fall back to the header's createdAt.
+ */
+async function summarizeCold(persistence: SessionPersistence, meta: SessionHeader): Promise<SessionSummary> {
+  let updatedAt = meta.createdAt
+  const location = persistence.locate(meta)
+  if (location !== undefined) {
+    try {
+      updatedAt = (await stat(location.path)).mtimeMs
+    } catch {
+      // The log vanished between list() and stat() (concurrent cleanup); createdAt stands in.
+    }
+  }
+  return {
+    sessionId: meta.id,
+    updatedAt,
+    running: false,
+    ...meta.parentSession === undefined ? {} : { parentSessionId: meta.parentSession },
+    /* v8 ignore next -- the empty arm needs a cwd-less meta, but list()
+    filters those out (legacy logs are not served); the conditional mirrors
+    summarize() shape. */
+    ...meta.cwd === undefined ? {} : { cwd: meta.cwd },
+  }
+}
+
+/** Host-level default agent routing (same shape as bootHost's HostDefaults; avoids an impl→index reverse import). */
+export interface ApiProxyDefaults {
+  provider: string
+  model: string
+  /** Default project directory for new sessions whose create request carries no cwd. */
+  cwd: string
+}
+
+/** The tool/call payload fields the presenter path reads. */
+interface ToolCallData { callId: string; name: string; arguments: string }
+/** The tool/result payload fields the presenter path reads. */
+interface ToolResultData { callId: string; content: ContentBlock[]; isError: boolean; meta?: unknown }
+
+/**
+ * Compute the render intent for a tool/call or tool/result event through the
+ * presenters registered at this moment; every other event type gets none. A
+ * result's presenter needs its call's parsed args — `argsFor` supplies them
+ * (live: the per-session call table; history: an in-page backscan), returning
+ * undefined when the pairing is unavailable (e.g. the call fell off the page),
+ * which soft-falls to no view. Presenter or JSON.parse throws also soft-fall:
+ * the client's documented default (generic JSON card) covers every miss.
+ */
+function viewFor(ctx: Context, event: SessionEvent, argsFor: (callId: string) => unknown): ToolEventView | undefined {
+  try {
+    if (event.type === 'tool/call') {
+      const { name, arguments: raw } = event.data as ToolCallData
+      const view = ctx.tools.get(name)?.presentCall?.(JSON.parse(raw))
+      return view === undefined ? undefined : { for: 'call', view }
+    }
+    if (event.type === 'tool/result') {
+      const { callId, content, isError, meta } = event.data as ToolResultData
+      const call = argsFor(callId) as { name: string; args: unknown } | undefined
+      if (call === undefined) return undefined
+      const view = ctx.tools.get(call.name)?.presentResult?.(call.args, { content, isError, ...meta === undefined ? {} : { meta } })
+      return view === undefined ? undefined : { for: 'result', view }
+    }
+  } catch (error: unknown) {
+    // A throwing presenter (or unparseable arguments) must not break delivery;
+    // the event still ships, just without a view.
+    console.error(`api-proxy: presenter failed for ${event.type}, falling back to generic: ${String(error)}`)
+  }
+  return undefined
+}
+
+/**
+ * Resolve a tool/result's call pairing by scanning a window of events backwards
+ * for the matching tool/call. Used by the history path (the page is the
+ * window — a cross-page pairing soft-falls to no view) and by live-path table
+ * misses after a reconnect-eviction.
+ */
+function backscanArgs(events: readonly SessionEvent[], callId: string): { name: string; args: unknown } | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i] as SessionEvent
+    if (event.type !== 'tool/call') continue
+    const data = event.data as ToolCallData
+    if (data.callId !== callId) continue
+    try {
+      return { name: data.name, args: JSON.parse(data.arguments) }
+    } catch {
+      // Unparseable stored arguments: same soft-fall as a live parse failure.
+      return undefined
+    }
+  }
+  return undefined
+}
+
+/**
+ * Thrown by the cold-resume path when the id names no servable session
+ * (absent from the store, or a pre-project legacy log without a cwd).
+ */
+class SessionNotFound extends Error {}
+
+/**
+ * Implement ApiProxy over the ctx composed by bootHost.
+ * @param ctx - the root context returned by bootHost (sessions/agents services mounted).
+ * @param defaults - host-level default provider/model: injected as
+ * agentOptions on create/resume, reported by describe from the same source.
+ * @returns the ApiProxy implementation (minimal-first; stubs noted per method).
+ */
+export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
+  const agentOptions = { provider: defaults.provider, model: defaults.model }
+  /** Implicit resume of cold sessions, deduplicating concurrent calls (follows the jsonrpc sessionCreations precedent). */
+  const resumes = new Map<SessionId, Promise<Agent>>()
+
+  /**
+   * Gate the cold path on the store: an id absent from it, or naming a legacy
+   * log without a cwd (pre-release stance: not served, no compatibility), is
+   * not-found before any resume is attempted. With the gate passed, a later
+   * resume failure is genuinely internal. No persistence configured skips the
+   * gate — resume itself then fails loud with its own diagnostic.
+   */
+  async function assertServable(sessionId: SessionId): Promise<void> {
+    const persistence = ctx.get('sessionPersistence')
+    if (persistence === undefined) return
+    const meta = (await persistence.list()).find(m => m.id === sessionId)
+    if (meta === undefined || meta.cwd === undefined) throw new SessionNotFound(`session "${sessionId}" not found`)
+  }
+
+  async function agentFor(sessionId: SessionId): Promise<{ agent: Agent } | { error: RpcError }> {
+    const live = ctx.agents.get(sessionId)
+    if (live !== undefined) return { agent: live }
+    let resume = resumes.get(sessionId)
+    if (resume === undefined) {
+      resume = (async () => {
+        try {
+          await assertServable(sessionId)
+          const handle = await ctx.agents.resume({ resumeSessionId: sessionId, agentOptions })
+          return handle.agent
+        } finally {
+          resumes.delete(sessionId)
+        }
+      })()
+      resumes.set(sessionId, resume)
+    }
+    try {
+      return { agent: await resume }
+    } catch (error: unknown) {
+      if (error instanceof SessionNotFound) {
+        return { error: { code: 'session-not-found', message: error.message, details: { sessionId } } }
+      }
+      // The internal details slot is contractually {}; the reason rides the message.
+      return { error: { code: 'internal', message: `resume failed for session "${sessionId}": ${String(error)}`, details: {} } }
+    }
+  }
+
+  return {
+    sessions: {
+      // Attached sessions summarize from memory; persisted-but-unattached (cold)
+      // sessions merge in from the persistence store so history survives restarts.
+      // Legacy logs without a cwd (pre-project stance) are not served — every
+      // session now records its project at create time.
+      async list(request) {
+        const items = ctx.sessions.list().map((session) => {
+          const agent = ctx.agents.get(session.id)
+          return summarize(session, agent?.status === 'running')
+        })
+        const attached = new Set(items.map(item => item.sessionId))
+        const persistence = ctx.get('sessionPersistence')
+        if (persistence !== undefined) {
+          const cold = (await persistence.list()).filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
+          items.push(...await Promise.all(cold.map(meta => summarizeCold(persistence, meta))))
+        }
+        items.sort((a, b) => b.updatedAt - a.updatedAt)
+        return ok(request, { items })
+      },
+
+      async create(request) {
+        const sessionId = `session-${randomUUID()}` as SessionId
+        // A session's cwd is its project path. When the creator does not choose
+        // one, the default project is the host-level default (the host process
+        // working directory unless boot overrides it).
+        const cwd = request.payload.cwd ?? defaults.cwd
+        const handle = await ctx.agents.create({ sessionId, agentOptions, meta: { cwd } })
+        return ok(request, { sessionId: handle.agent.id })
+      },
+
+      async history(request) {
+        const { sessionId, beforeSeq, maxMessages } = request.payload
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const page = paginate(found.agent.session.events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
+        // Views are computed against the registry at pagination time; result
+        // pairing scans within the page only (message-boundary pagination keeps
+        // a call and its result on one page — a cross-page miss soft-falls).
+        const entries: HistoryEntry[] = page.events.map((event) => {
+          const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
+          return { event, ...view === undefined ? {} : { view } }
+        })
+        return ok(request, { events: entries, hasMore: page.hasMore })
+      },
+
+      async prompt(request) {
+        const { sessionId, mode, content } = request.payload
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const agent = found.agent
+        // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
+        const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
+        try {
+          if (mode === 'steer') agent.steer(content, { source })
+          else agent.send(content, { source })
+        } catch (error: unknown) {
+          // A synchronous throw from send/steer means disposed or invalid input; surface as agent-busy with the reason attached.
+          return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
+        }
+        return ok(request, { accepted: true as const })
+      },
+
+      cancel(request) {
+        const { sessionId } = request.payload
+        const agent = ctx.agents.get(sessionId)
+        if (agent === undefined) {
+          return Promise.resolve(err(request, {
+            code: 'session-not-found',
+            message: `session "${sessionId}" not found (not attached)`,
+            details: { sessionId },
+          }))
+        }
+        agent.cancel()
+        return Promise.resolve(ok(request, { accepted: true as const }))
+      },
+    },
+
+    host: {
+      describe(request) {
+        // TODO(step2): version should read apps/cli's package.json; placeholder for now.
+        return Promise.resolve(ok(request, {
+          version: '0.0.1',
+          cwd: process.cwd(),
+          provider: defaults.provider,
+          model: defaults.model,
+          attachedSessions: ctx.agents.list().length,
+        }))
+      },
+    },
+
+    events: {
+      mux(_request, signal) {
+        const queue = new FrameQueue<RpcRequest<MuxFrame>>()
+        for (const session of ctx.sessions.list()) {
+          queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
+        }
+        // Per-session open-call table for result-view pairing. Bounded by the
+        // per-turn call count: entries clear on turn/end; a table miss (stream
+        // opened mid-turn) backscans the session's in-memory events instead.
+        const openCalls = new Map<SessionId, Map<string, { name: string; args: unknown }>>()
+        const disposers = [
+          ctx.on('session/event', (session: Session, event: SessionEvent) => {
+            if (event.type === 'tool/call') {
+              const data = event.data as ToolCallData
+              try {
+                let table = openCalls.get(session.id)
+                if (table === undefined) openCalls.set(session.id, table = new Map<string, { name: string; args: unknown }>())
+                table.set(data.callId, { name: data.name, args: JSON.parse(data.arguments) })
+              } catch {
+                // Unparseable model arguments: leave the table unset; the result view soft-falls.
+              }
+            } else if (event.type === 'turn/end') {
+              openCalls.delete(session.id)
+            }
+            const view = viewFor(ctx, event, callId =>
+              openCalls.get(session.id)?.get(callId) ?? backscanArgs(session.events, callId))
+            queue.push(frame({ type: 'session/event', sessionId: session.id, event, ...view === undefined ? {} : { view } }))
+          }),
+          ctx.on('session/created', (session: Session) => {
+            queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
+          }),
+          ctx.on('session/disposed', (session: Session) => {
+            openCalls.delete(session.id)
+          }),
+        ]
+        return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })
+      },
+
+      host(_request, signal) {
+        const queue = new FrameQueue<RpcRequest<HostFrame>>()
+        const disposers = [
+          ctx.on('session/created', (session: Session) => {
+            queue.push(frame({
+              type: 'host/session-added',
+              sessionId: session.id,
+              ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
+            }))
+          }),
+          ctx.on('session/disposed', (session: Session) => {
+            queue.push(frame({ type: 'host/session-removed', sessionId: session.id }))
+          }),
+          ctx.on('agent/status', (agent: Agent, status: AgentStatus) => {
+            if (status === 'disposed') return
+            queue.push(frame({ type: 'host/session-status', sessionId: agent.id, running: status === 'running' }))
+          }),
+          ctx.on('agent/error', (agent: Agent, _turn: number, _step: number, error: Error) => {
+            queue.push(frame({ type: 'host/agent-error', sessionId: agent.id, message: String(error) }))
+          }),
+        ]
+        return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })
+      },
+    },
+
+    // TODO(step2): approval/question pending registry (wire answerer + proxy provider).
+    respond(_message: ClientResponse): Promise<RpcReceipt> {
+      return Promise.resolve({ accepted: false, reason: 'not-pending' })
+    },
+  }
+}

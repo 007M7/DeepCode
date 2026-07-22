@@ -126,6 +126,20 @@ flowchart TD
     pkg_user_approval["user-approval"]
     pkg_user_interaction["user-interaction"]
   end
+  subgraph group_client["packages/client"]
+    pkg_client_connection["client-connection"]
+    pkg_client_i18n["client-i18n"]
+    pkg_client_runtime["client-runtime"]
+    pkg_client_ui_conversation["client-ui-conversation"]
+    pkg_client_ui_layout["client-ui-layout"]
+    pkg_client_ui_primitives["client-ui-primitives"]
+    pkg_client_ui_sidebar["client-ui-sidebar"]
+    pkg_client_ui_slots["client-ui-slots"]
+    pkg_client_ui_theme["client-ui-theme"]
+    pkg_client_ui_trajectory["client-ui-trajectory"]
+    pkg_client_web["client-web"]
+    pkg_client_web_react["client-web-react"]
+  end
   subgraph group_code_runtime["packages/code-runtime"]
     pkg_code_runtime["code-runtime"]
     pkg_code_runtime_worker["code-runtime-worker"]
@@ -143,6 +157,11 @@ flowchart TD
   end
   subgraph group_guard["packages/guard"]
     pkg_repeat_tool_guard["repeat-tool-guard"]
+  end
+  subgraph group_host["packages/host"]
+    pkg_host_apiproxy["host-apiproxy"]
+    pkg_host_runtime["host-runtime"]
+    pkg_host_webserver["host-webserver"]
   end
   subgraph group_lsp["packages/lsp"]
     pkg_lsp["lsp"]
@@ -182,8 +201,23 @@ flowchart TD
   pkg_acp_snapshot --> pkg_invariants
   pkg_loader_smoke --> pkg_invariants
   pkg_app_boot --> pkg_invariants
+  pkg_client_connection --> pkg_invariants
+  pkg_client_i18n --> pkg_invariants
+  pkg_client_runtime --> pkg_invariants
+  pkg_client_ui_conversation --> pkg_invariants
+  pkg_client_ui_layout --> pkg_invariants
+  pkg_client_ui_primitives --> pkg_invariants
+  pkg_client_ui_sidebar --> pkg_invariants
+  pkg_client_ui_slots --> pkg_invariants
+  pkg_client_ui_theme --> pkg_invariants
+  pkg_client_ui_trajectory --> pkg_invariants
+  pkg_client_web --> pkg_invariants
+  pkg_client_web_react --> pkg_invariants
   pkg_code_runtime --> pkg_invariants
   pkg_jsonrpc_demo --> pkg_invariants
+  pkg_host_apiproxy --> pkg_invariants
+  pkg_host_runtime --> pkg_invariants
+  pkg_host_webserver --> pkg_invariants
   pkg_llm --> pkg_brand
   pkg_llm --> pkg_invariants
   pkg_code_runtime_worker --> pkg_code_runtime
@@ -666,8 +700,23 @@ flowchart TD
 | [`acp-snapshot`](../packages/support/acp-snapshot) | `support` | [`invariants`](../packages/support/invariants) |
 | [`loader-smoke`](../packages/support/loader-smoke) | `support` | [`invariants`](../packages/support/invariants) |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | [`invariants`](../packages/support/invariants) |
+| [`client-connection`](../packages/client/connection) | `client` | [`invariants`](../packages/support/invariants) |
+| [`client-i18n`](../packages/client/i18n) | `client` | [`invariants`](../packages/support/invariants) |
+| [`client-runtime`](../packages/client/runtime) | `client` | [`invariants`](../packages/support/invariants) |
+| [`client-ui-conversation`](../packages/client/ui-conversation) | `client` | [`invariants`](../packages/support/invariants) |
+| [`client-ui-layout`](../packages/client/ui-layout) | `client` | [`invariants`](../packages/support/invariants) |
+| [`client-ui-primitives`](../packages/client/ui-primitives) | `client` | [`invariants`](../packages/support/invariants) |
+| [`client-ui-sidebar`](../packages/client/ui-sidebar) | `client` | [`invariants`](../packages/support/invariants) |
+| [`client-ui-slots`](../packages/client/ui-slots) | `client` | [`invariants`](../packages/support/invariants) |
+| [`client-ui-theme`](../packages/client/ui-theme) | `client` | [`invariants`](../packages/support/invariants) |
+| [`client-ui-trajectory`](../packages/client/ui-trajectory) | `client` | [`invariants`](../packages/support/invariants) |
+| [`client-web`](../packages/client/web) | `client` | [`invariants`](../packages/support/invariants) |
+| [`client-web-react`](../packages/client/web-react) | `client` | [`invariants`](../packages/support/invariants) |
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | [`invariants`](../packages/support/invariants) |
 | [`jsonrpc-demo`](../packages/examples/jsonrpc-demo) | `examples` | [`invariants`](../packages/support/invariants) |
+| [`host-apiproxy`](../packages/host/apiproxy) | `host` | [`invariants`](../packages/support/invariants) |
+| [`host-runtime`](../packages/host/runtime) | `host` | [`invariants`](../packages/support/invariants) |
+| [`host-webserver`](../packages/host/webserver) | `host` | [`invariants`](../packages/support/invariants) |
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
 | [`code-runtime-worker`](../packages/code-runtime/code-runtime-worker) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime), [`invariants`](../packages/support/invariants) |
 | [`helper`](../packages/sdk/helper) | `sdk` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |

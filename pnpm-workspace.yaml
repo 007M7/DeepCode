@@ -1,6 +1,7 @@
 packages:
   - vendor/*
   - packages/*/*
+  - apps/*
   - website
   # The runnable demo leaves join as ONE workspace member: examples/package.json
   # declares the union of every leaf's cordis.yml plugins as workspace:*, so a

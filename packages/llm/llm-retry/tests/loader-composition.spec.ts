@@ -84,7 +84,10 @@ async function loadYaml(lines: readonly string[]): Promise<Context> {
 }
 
 describe('real Loader composition', () => {
-  it('loads the flat policy and records recovery through the shipping loop', async () => {
+  // Real-Loader composition resolves workspace packages through tsx at test
+  // time; first resolution after the host/client program split is slow enough
+  // to trip the default 5s budget on cold caches.
+  it('loads the flat policy and records recovery through the shipping loop', { timeout: 60_000 }, async () => {
     const loaded = await loadYaml([
       "- name: '@deepseek-ai/dsh-llm'",
       "- name: '@deepseek-ai/dsh-session'",
