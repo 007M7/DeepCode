@@ -1,6 +1,6 @@
 # User Interaction
 
-The user-interaction seam of [dsh-user-interaction](../../packages/ui/user-interaction). It is the provider-neutral vocabulary a tool or permission plugin uses when it needs the human to answer before the agent can continue. UI surfaces provide the active `UserInteractionProvider`: `dsh-stdio-demo` selects keyboard-driven `dsh-tui` overlays or `dsh-stdio` readline prompts, and `dsh-acp` maps questions to ACP form elicitations.
+The user-interaction seam of [dsh-user-interaction](../../packages/ui/user-interaction). It is the provider-neutral vocabulary a tool or permission plugin uses when it needs the human to answer before the agent can continue. UI surfaces provide the active `UserInteractionProvider`: `dsh-tui` uses keyboard-driven overlays, and `dsh-acp` maps questions to ACP form elicitations.
 
 Source: [`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-interaction/src/index.ts)
 
@@ -20,15 +20,17 @@ interface AskUserQuestionOption {
 
 ## Question item
 
-`AskUserQuestionItem` is one question in a request. The model supplies a stable `id`, which is echoed back with the answer so batched questions remain routable.
+`AskUserQuestionItem` is one question in a request. The caller supplies a stable `id`, which is echoed back with the answer so batched questions remain routable. Optional `detail` carries supporting text that providers render with the question but keep out of selectable option labels.
 
 ```ts type-equiv
-/** One question in an ask_user_question request. */
+/** One question in a user-interaction request. */
 interface AskUserQuestionItem {
-  /** Stable model-provided question id, echoed in the answer. */
+  /** Stable caller-provided question id, echoed in the answer. */
   id: string
   /** The question to display. */
   question: string
+  /** Optional supporting detail rendered with the question but kept out of option labels. */
+  detail?: string
   /** Optional short heading/group label. */
   header?: string
   /** Optional choices the UI can render as a menu. */

@@ -87,7 +87,7 @@ export function apply(ctx: Context) {
 
 ## 可运行的组装示例
 
-六个可运行叶子从 `cordis.yml` 加载各自的插件树：[`examples/echo-agent`](../../examples/echo-agent)（mock 模型 + echo 工具，`pnpm run demo:echo`）、[`examples/repl-agent`](../../examples/repl-agent)（DeepSeek V4 + coding 工具，通过面向行的 readline REPL 交互，`pnpm run demo:repl`）、[`examples/tui-agent`](../../examples/tui-agent)（通过全屏 pi-tui 复用相同的 coding 组装，`pnpm run demo:tui`）、[`examples/headless-agent`](../../examples/headless-agent)（同类能力通过单次任务和 DSH 原生输出运行，`pnpm run demo:headless -- "task"`）、[`examples/cordis-agent`](../../examples/cordis-agent)（自我检查和动态插件挂载，`pnpm run demo:cordis`）与 [`examples/acp-agent`](../../examples/acp-agent)（通过 JSON-RPC stdio 暴露的 ACP 服务器，`pnpm run demo:acp`）。终端叶子加载 [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo)，headless 叶子加载 [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo)，ACP 叶子加载 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，三个 app 包都通过 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo) 共享主干。
+可运行叶子从 `examples/*/cordis.yml` 加载各自的插件树；根目录的 `demo:*` 脚本和这些叶子目录是权威清单。交互式叶子使用 [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo)，非交互式叶子使用 [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo)，ACP 叶子使用 [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo)，应用包共享 [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo)。
 
 ## 功能→机制映射
 
@@ -98,7 +98,7 @@ export function apply(ctx: Context) {
 | 产品功能 | 插件机制 |
 |---|---|
 | 钩子系统（用户级 + 项目级） | `agent/session-start`、`agent/prompt-submit`、`agent/request`、`agent/step-result`、`tools/pre-execute`、`tools/post-execute`、`agent/turn-continuation` 上的监听器——每个拦截 waterfall 返回一个类型化 Decision；`dsh-hooks-claude` / `dsh-hooks-codex` 桥接器将钩子配置文件映射到这些 seam 上 |
-| `/goal` | 通过 `agent/turn-continuation` 强制继续 + `steer()` 提醒 |
+| `/goal` | `ctx.goals` 管理持久状态，`dsh-goal-session` 通过公共 `Agent` 调度同会话回合，独立的命令/工具生产方分别提供人类/模型控制 |
 | `/loop` | 在 `turn/end` 会话事件上 `send()` 下一次迭代；或强制继续 |
 | 动态工作流 | `ctx.workflows` + worker-thread 引擎 + `workflow` 工具；结构化的进程内子任务通过作用域化的 prompt/工具注册、单调工具守卫、最终 `tools/result` 提交（包括外层 `run_code`）和终端 `agent/turn-stop` 来强制输出 |
 | 排队消息 + steering（中途引导） | 核心 `Agent.send()` / `Agent.steer()` |
@@ -113,7 +113,7 @@ export function apply(ctx: Context) {
 | 单调终端轮次策略 | 从串行 `agent/turn-stop` 返回 `{ action: 'stop' }`，此时 continuation 和 steering 已折叠完毕 |
 | 子进程沙箱（landlock / sandbox-exec） | 通过 `dsh-bash-sandbox` 使用 `ctx.sandbox` 后端；能力级别的拒绝使用 `tools/pre-execute` |
 | 权限系统 / AskUserQuestion | 从 `tools/pre-execute` 返回 `ask` 并通过 `ctx.approval` 应答；为普通用户提问注册一个独立的面向模型的 ask 工具 |
-| Plan mode | `tools/pre-execute`（拒绝写操作）+ 通过 `ctx.systemPrompt.section()` 或 `agent.inject()` 注入模式提示词段（model-visible ⟺ logged：`agent/request` 仅塑形调用配置） |
+| Plan mode | 已交付：[`@deepseek-ai/dsh-plan-mode`](../../packages/plan/plan-mode/README.md) — 落日志的 `plan/mode` 状态、`plan:policy` 引导段、`/plan [message]`，以及经用户评审的 `exit_plan_mode` 出口；强制约束留在独立的沙箱/审批轴上 |
 | 子 agent 委派 | `ctx.subagents` 提供方注册表（`dsh-subagent-spawn`/`-fork`/`-acp`）+ `dsh-tool-subagent` 向模型暴露一个已配置的提供方 |
 | MCP | 每个服务器一个插件：发现工具 → `ctx.tools.register()` |
 | Skill（技能） | section + 工具注册；调用时通过 `inject()` 注入 skill 内容 |

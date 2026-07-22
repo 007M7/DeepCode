@@ -49,6 +49,15 @@ describe('acp bridge — turn outcomes', () => {
       .rejects.toThrow(/turn failed: provider boom/)
   })
 
+  it('rejects an ordinary plugin turn failure through the same ACP boundary', async () => {
+    harness = await makeBridgeHarness({ storageDir, script: [textResponse('must not run')] })
+    harness.ctx.on('agent/pre-step', () => { throw new Error('plugin pre-step failed') })
+    const sessionId = await newSession(harness)
+
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
+      .rejects.toThrow(/turn failed: plugin pre-step failed/)
+  })
+
   it('streams a tool call as tool_call then tool_call_update', async () => {
     harness = await makeBridgeHarness({
       storageDir,
@@ -316,6 +325,10 @@ describe('acp bridge — turn outcomes', () => {
     await harness.client.cancel({ sessionId })
     const res = await promptDone
     expect(res.stopReason).toBe('cancelled')
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+    await agent.whenIdle()
+    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
   })
 
   it('cancel right after prompt settles cancelled and leaves the agent idle, no leaked turn', async () => {

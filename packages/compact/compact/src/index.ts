@@ -12,7 +12,6 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type { CompactionResult } from './types.ts'
 
 export type { CompactionResult } from './types.ts'
-export { renderContentBlocks, renderTranscript } from './render.ts'
 export { toolPairingBalancedAfter, toolPairingBalancedBefore } from './tool-pairing.ts'
 
 /** Why automatic policy is asking a backend to consider compaction. */

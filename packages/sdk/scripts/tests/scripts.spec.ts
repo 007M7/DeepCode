@@ -85,7 +85,7 @@ function commandContext(cwd: string): DshSdkCommandContext & { readStdout: () =>
 function creation(
   extra: ProjectCreationRequest['features'] = [],
   localPlugins: readonly LocalPluginBlueprint[] = [],
-  app: 'acp' | 'stdio' | 'embed' = 'embed',
+  app: 'acp' | 'tui' | 'embed' = 'embed',
 ): ProjectCreationRequest {
   return {
     name: 'config-agent',
@@ -107,7 +107,7 @@ function creation(
 async function committedProject(
   extra: ProjectCreationRequest['features'] = [],
   localPlugins: readonly LocalPluginBlueprint[] = [],
-  app: 'acp' | 'stdio' | 'embed' = 'embed',
+  app: 'acp' | 'tui' | 'embed' = 'embed',
 ): Promise<SdkProject> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-config-workflow-'))
   temporary.push(root)
@@ -135,6 +135,7 @@ describe('Commander launcher arguments', () => {
     expect(parseDshSdkArgs(['start'])).toEqual({ command: 'start', forwarded: [], help: false })
     expect(parseDshSdkArgs(['dev', 'index.ts'])).toMatchObject({ command: 'dev', target: 'index.ts' })
     expect(parseDshSdkArgs(['-h'])).toMatchObject({ help: true })
+    expect(parseDshSdkArgs(['--help'])).toMatchObject({ help: true })
     expect(() => parseDshSdkArgs(['unknown'])).toThrow()
     expect(() => parseDshSdkArgs(['config', 'extra'])).toThrow()
     expect(() => parseDshSdkArgs(['config', '--', 'extra'])).toThrow('does not accept forwarded')
@@ -525,7 +526,7 @@ describe('ConfigWorkflow', () => {
     const workflow = new ConfigWorkflow(new QueuePort([
       [
         { value: 'feature:provider', choices: ['custom'] },
-        { value: 'feature:app', choices: ['stdio'] },
+        { value: 'feature:app', choices: ['tui'] },
         { value: 'feature:persistence', choices: ['jsonl'] },
       ],
       'https://provider.example/v1',
@@ -536,7 +537,7 @@ describe('ConfigWorkflow', () => {
     const provider = result.commit?.project.cordis.entry('llm-pi-ai')
     expect(provider?.config?.apiKey).toBeDefined()
     expect(provider?.config?.baseURL).toBe('https://provider.example/v1')
-    expect(result.commit?.project.cordis.entry('stdio')).toBeDefined()
+    expect(result.commit?.project.cordis.entry('tui')).toBeDefined()
     expect(result.commit?.project.cordis.entry('agent-loop')).toBeDefined()
     expect(result.commit?.project.cordis.entry('agent-core')).toBeUndefined()
   })

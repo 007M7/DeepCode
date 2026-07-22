@@ -1,14 +1,17 @@
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
+import { zstdDecompress } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 
 const binScript = fileURLToPath(new URL('../../../packages/examples/jsonrpc-demo/src/bin.ts', import.meta.url))
 const configPath = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
+const decompress = promisify(zstdDecompress)
 
 function waitForLine(
   lines: string[],
@@ -152,6 +155,13 @@ describe('jsonrpc-agent keyless smoke', () => {
       } else {
         expect(child.exitCode, stderr).toBe(0)
       }
+      const sessionsRoot = join(root, '.sessions')
+      const files = await readdir(sessionsRoot, { recursive: true })
+      const log = files.find(file => file.endsWith('.jsonl.zstd'))
+      expect(log).toBeDefined()
+      const compressed = await readFile(join(sessionsRoot, log!))
+      expect(compressed.subarray(0, 4).toString('hex')).toBe('28b52ffd')
+      expect(JSON.parse((await decompress(compressed)).toString())).toMatchObject({ type: 'session', id: 'main' })
     } finally {
       if (child.exitCode === null) child.kill('SIGKILL')
       await new Promise<void>(resolve => modelServer.close(() => { resolve() }))

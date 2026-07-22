@@ -6,8 +6,8 @@
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
-import type { ScopeKey, Scoped } from '@deepseek-ai/dsh-scope'
+import { AnonymousEntries, NamedEntries, ScopedLayers, scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
+import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever, deepFreeze, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
@@ -72,7 +72,9 @@ declare module 'cordis' {
   interface Events {
     /**
      * Allow, deny, or ask before dispatch. `next()` delegates to allow; missing
-     * approval support turns `ask` into denial.
+     * approval support turns `ask` into denial. Async gates must observe
+     * `exec.signal`; the registry rechecks cancellation after they settle but
+     * never abandons their promise.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
      * @param exec - the pending call (name, parsed arguments, caller agent).
      * @mode waterfall
@@ -81,15 +83,20 @@ declare module 'cordis' {
     /**
      * Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns
      * a normalized result; wrappers may change only `exec.signal`, while call
-     * identity remains immutable.
+     * identity remains immutable. The registry re-fuses the original caller
+     * signal before the body, so replacement cannot detach caller cancellation;
+     * wrappers must still restore their signal and reach quiescence.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
      * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).
      * @mode waterfall
      */
-    'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
+    'tools/execute'(this: Scoped<ToolRegistry>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>
     /**
      * Accept, replace, enrich, or block a normalized dispatch result. `next()`
-     * accepts it unchanged; thrown tools still reach this seam as errors.
+     * accepts it unchanged; thrown tools still reach this seam as errors. Async
+     * listeners must observe `exec.signal`; after they settle, caller
+     * cancellation replaces only a successful accepted outcome with the code
+     * selected by whether the tool body was invoked.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent's calls.
      * @param exec - the call that just ran (name, parsed arguments, caller agent).
      * @param result - the dispatch outcome a listener may accept, replace, or block.
@@ -122,6 +129,15 @@ export type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta
 
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
+  /**
+   * Run one accepted call. Async work must observe or forward `exec.signal` and
+   * settle only after its owned work reaches quiescence. The registry preserves
+   * caller cancellation through around-dispatch signal replacement and does
+   * not abandon this promise, but it cannot hard-kill same-process code.
+   * @param args - losslessly snapshotted, frozen model arguments.
+   * @param exec - execution identity, cancellation signal, and context deferral.
+   * @returns model-facing content plus optional private presentation metadata.
+   */
   execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
@@ -203,7 +219,8 @@ export interface ToolExecutionInput {
    * the outer `run_code` outcome without receiving its live mutable execution.
    */
   readonly parent?: ToolExecutionToken
-  signal?: AbortSignal
+  /** Required caller-owned cancellation for this invocation. */
+  readonly signal: AbortSignal
 }
 
 /**
@@ -217,13 +234,23 @@ export type ToolExecutionMode =
 /**
  * One pending tool call inside the registry pipeline. Parsed arguments cross
  * one lossless-JSON materialization boundary before policy and are deep-frozen;
- * call identity and the registry-assigned {@link token} are readonly. An
- * around-dispatch wrapper may set, replace, or remove `signal`. The registry
- * freezes the complete object before `tools/result` observers run.
+ * call identity, the caller signal, and the registry-assigned {@link token} are
+ * readonly. The registry freezes the complete object before `tools/result`
+ * observers run.
  */
 export interface ToolExecution extends ToolExecutionInput {
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
   readonly token: ToolExecutionToken
+}
+
+/**
+ * Around-dispatch view of a {@link ToolExecution}. A `tools/execute` wrapper
+ * may replace the signal for its delegated lifetime, but it cannot remove it.
+ * The registry fuses every replacement with the captured caller signal.
+ */
+export interface ToolDispatchExecution extends Omit<ToolExecution, 'signal'> {
+  /** Cancellation signal visible to the next wrapper or tool body. */
+  signal: AbortSignal
 }
 
 /**
@@ -240,6 +267,9 @@ export interface ToolRunContext extends ToolExecution {
    */
   deferContext(context: HookContext): void
 }
+
+/** Registry-owned live execution object; public pipeline views stay readonly. */
+type MutableToolRunContext = Omit<ToolRunContext, 'signal'> & { signal: AbortSignal }
 
 /**
  * Scheduler-only result after ordered pre-execute and guards. A `post-result`
@@ -282,6 +312,13 @@ export interface ToolRegistryScheduler {
  * @internal
  */
 export const TOOL_REGISTRY_SCHEDULER: unique symbol = Symbol('@deepseek-ai/dsh-tools.scheduler')
+
+/** Canonical error code for cancellation after a tool body was invoked. */
+export const TOOL_ABORTED = 'ABORTED'
+
+/** Canonical error code for cancellation before a tool body was invoked. */
+export const TOOL_ABORTED_BEFORE_DISPATCH = 'ABORTED_BEFORE_DISPATCH'
+
 /** Structured error metadata for a failed tool call (alongside the model-facing text). */
 export interface ToolErrorInfo {
   name: string
@@ -426,9 +463,58 @@ interface ToolView {
  */
 export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
 
-/** One guard registration; the wrapper preserves independent duplicate registrations. */
-interface ToolGuardRegistration {
-  guard: ToolGuard
+/** One scope's complete tool-registry contribution. */
+class ToolLayer implements ScopeLayer {
+  readonly tools: NamedEntries<ToolDefinition>
+  readonly restrictions = new AnonymousEntries<CompiledToolRestriction>()
+  readonly guards = new AnonymousEntries<ToolGuard>()
+
+  constructor(scope: ScopeKey | undefined) {
+    this.tools = new NamedEntries(name => new Error(scope === undefined
+      ? `tool "${name}" is already registered (for a per-agent variant, register through that agent's \`agent.ctx\` instead)`
+      : `tool "${name}" is already registered in this scope`))
+  }
+
+  /** Whether every contribution table in this aggregate layer is empty. */
+  isEmpty(): boolean {
+    return this.tools.isEmpty() && this.restrictions.isEmpty() && this.guards.isEmpty()
+  }
+
+  /** Whether every compiled restriction in this layer admits a global tool name. */
+  admits(name: string): boolean {
+    for (const filter of this.restrictions.values()) {
+      if ((filter.allow !== undefined && !filter.allow.has(name))
+        || (filter.deny !== undefined && filter.deny.has(name))) return false
+    }
+    return true
+  }
+
+  /** First monotonic denial from this layer's live guard registrations. */
+  guardReason(exec: ToolExecution): string | undefined {
+    for (const guard of this.guards.values()) {
+      const reason = guard(exec)
+      if (reason !== undefined) return reason
+    }
+    return undefined
+  }
+}
+
+/** Approval decision plus whether the approval channel reported cancellation. */
+interface ToolAskResolution {
+  readonly decision: Extract<PreToolDecision, { kind: 'allow' | 'deny' }>
+  readonly approvalCancelled: boolean
+}
+
+/** Caller cancellation and dispatch state kept outside the around-wrapper view. */
+interface ToolCancellationState {
+  readonly callerSignal: AbortSignal
+  bodyInvoked: boolean
+}
+
+/** One dispatch-scoped fused signal plus listener cleanup after the body settles. */
+interface FusedToolSignal {
+  readonly signal: AbortSignal
+  dispose(): void
 }
 
 /**
@@ -452,13 +538,12 @@ export class ToolRegistry extends Service {
 
   /** Context deferred by a running tool body, keyed by its scheduler-owned execution. */
   private deferredContexts = new WeakMap<ToolRunContext, HookContext[]>()
-  private global = new Map<string, ToolDefinition>()
-  private scoped = new Map<ScopeKey, Map<string, ToolDefinition>>()
-  /** Compiled restriction filters, per scope (see {@link restrict}). */
-  private restrictions = new Map<ScopeKey, CompiledToolRestriction[]>()
-  /** Monotonic post-policy guards, split into global and per-agent layers. */
-  private globalGuards = new Set<ToolGuardRegistration>()
-  private scopedGuards = new Map<ScopeKey, Set<ToolGuardRegistration>>()
+  /** Original caller cancellation, kept outside the wrapper-mutable execution object. */
+  private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
+  private readonly layers = new ScopedLayers(
+    scope => new ToolLayer(scope),
+    () => { this.ctx.emit('tools/change') },
+  )
   private readonly mode: ToolPresentationMode
   /** Reserved presentation transport, kept outside the filterable registration layers. */
   private readonly codeTransport: ToolDefinition | undefined
@@ -536,7 +621,6 @@ export class ToolRegistry extends Service {
    * @returns the exact disposer that unregisters the tool.
    */
   register(definition: ToolDefinition): () => void {
-    const scope = scopeOf(this.ctx)
     const name = definition.name
     const timeoutMs = definition.timeoutMs
     if (timeoutMs !== undefined
@@ -546,26 +630,11 @@ export class ToolRegistry extends Service {
     if (this.codeTransport !== undefined && name === RUN_CODE_NAME) {
       throw new Error(`tool name "${RUN_CODE_NAME}" is reserved for the Code Mode presentation transport and cannot be registered or shadowed`)
     }
-    const dispose = this.ctx.effect(function* (this: ToolRegistry) {
-      const layer = scope === undefined ? this.global : this.layerFor(scope)
-      if (layer.has(name)) {
-        throw new Error(scope === undefined
-          ? `tool "${name}" is already registered (for a per-agent variant, register through that agent's \`agent.ctx\` instead)`
-          : `tool "${name}" is already registered in this scope`)
-      }
-      layer.set(name, definition)
-      // Install rollback before notifying listeners.
-      yield () => {
-        layer.delete(name)
-        // Drop empty scope layers.
-        if (scope !== undefined && layer.size === 0) this.scoped.delete(scope)
-        this.ctx.emit('tools/change')
-      }
-      this.ctx.emit('tools/change')
-    }.bind(this), 'tools.register()')
-    // Return the exact disposer so composite effects preserve teardown order.
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return dispose
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.tools.insert(name, definition),
+      { label: 'tools.register()' },
+    )
   }
 
   /**
@@ -598,22 +667,11 @@ export class ToolRegistry extends Service {
     if (unknown.length > 0) {
       throw new Error(`tools.restrict() names unknown global tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; known global tools: ${[...known].sort().join(', ') || '(none)'}`)
     }
-    const dispose = this.ctx.effect(function* (this: ToolRegistry) {
-      const list = this.restrictions.get(scope) ?? []
-      this.restrictions.set(scope, list)
-      list.push(compiled)
-      yield () => {
-        const index = list.indexOf(compiled)
-        /* v8 ignore next 3 -- defensive: the compiled restriction was pushed, so indexOf is guaranteed >= 0 */
-        if (index >= 0) list.splice(index, 1)
-        if (list.length === 0) this.restrictions.delete(scope)
-        this.ctx.emit('tools/change')
-      }
-      this.ctx.emit('tools/change')
-    }.bind(this), 'tools.restrict()')
-    // Return the exact disposer so composite effects preserve teardown order.
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return dispose
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.restrictions.append(compiled),
+      { label: 'tools.restrict()' },
+    )
   }
 
   /**
@@ -627,63 +685,18 @@ export class ToolRegistry extends Service {
    * @returns the exact disposer that unregisters the guard.
    */
   guard(guard: ToolGuard): () => void {
-    const scope = scopeOf(this.ctx)
-    const registration = { guard }
-    const dispose = this.ctx.effect(function* (this: ToolRegistry) {
-      const layer = scope === undefined ? this.globalGuards : this.guardLayerFor(scope)
-      layer.add(registration)
-      yield () => {
-        layer.delete(registration)
-        if (scope !== undefined && layer.size === 0) this.scopedGuards.delete(scope)
-      }
-    }.bind(this), 'tools.guard()')
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return dispose
-  }
-
-  /** The (created-on-demand) scoped layer for `scope`. */
-  private layerFor(scope: ScopeKey): Map<string, ToolDefinition> {
-    let layer = this.scoped.get(scope)
-    if (!layer) {
-      layer = new Map()
-      this.scoped.set(scope, layer)
-    }
-    return layer
-  }
-
-  /** Get or create the guard layer for one agent scope. */
-  private guardLayerFor(scope: ScopeKey): Set<ToolGuardRegistration> {
-    let layer = this.scopedGuards.get(scope)
-    if (layer === undefined) {
-      layer = new Set()
-      this.scopedGuards.set(scope, layer)
-    }
-    return layer
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.guards.append(guard),
+      { label: 'tools.guard()', notify: false },
+    )
   }
 
   /** First monotonic denial from the global then matching scoped guard layers. */
   private guardReason(exec: ToolExecution): string | undefined {
-    for (const { guard } of this.globalGuards) {
-      const reason = guard(exec)
-      if (reason !== undefined) return reason
-    }
-    if (exec.agent !== undefined) {
-      for (const { guard } of this.scopedGuards.get(exec.agent) ?? []) {
-        const reason = guard(exec)
-        if (reason !== undefined) return reason
-      }
-    }
-    return undefined
-  }
-
-  /** Whether every restriction registered for `scope` admits the global tool `name` (intersection semantics). */
-  private admits(scope: ScopeKey | undefined, name: string): boolean {
-    if (scope === undefined) return true
-    const filters = this.restrictions.get(scope)
-    if (!filters) return true
-    return filters.every(filter =>
-      (filter.allow === undefined || filter.allow.has(name))
-      && (filter.deny === undefined || !filter.deny.has(name)))
+    const globalReason = this.layers.global.guardReason(exec)
+    if (globalReason !== undefined) return globalReason
+    return exec.agent === undefined ? undefined : this.layers.peek(exec.agent)?.guardReason(exec)
   }
 
   /**
@@ -695,18 +708,18 @@ export class ToolRegistry extends Service {
    * @returns the complete derived view for that scope.
    */
   private view(scope?: ScopeKey): ToolView {
-    const layer = scope === undefined ? undefined : this.scoped.get(scope)
+    const layer = this.layers.peek(scope)
     const visible = new Map<string, ToolDefinition>()
     const knownNames = new Set<string>()
     const restrictableNames = new Set<string>()
-    for (const [name, definition] of this.global) {
+    for (const [name, definition] of this.layers.global.tools.entries()) {
       knownNames.add(name)
       restrictableNames.add(name)
-      if (this.admits(scope, name)) visible.set(name, definition)
+      if (layer?.admits(name) ?? true) visible.set(name, definition)
     }
     // Scoped layer second: same-name entries REPLACE (shadow) the global ones,
     // and scope-local registrations are never part of the global filter above.
-    for (const [name, definition] of layer ?? []) {
+    for (const [name, definition] of layer?.tools.entries() ?? []) {
       knownNames.add(name)
       visible.set(name, definition)
     }
@@ -774,7 +787,11 @@ export class ToolRegistry extends Service {
    * Execute through pre-policy, guards, around-dispatch, post-policy, and final
    * notification. Tool and listener failures resolve as materialized error
    * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
-   * the same lossless, frozen snapshot final observers receive.
+   * the same lossless, frozen snapshot final observers receive. Cancellation
+   * arriving after entry and before final result materialization skips a
+   * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a
+   * successful started outcome with `ABORTED`; already-started work is still
+   * drained and may retain a tool-owned structured error.
    * @param exec - the typed same-process call input. The registry assigns its
    *   correlation token before policy begins.
    * @returns the materialized final result.
@@ -801,7 +818,7 @@ export class ToolRegistry extends Service {
     }
   }
 
-  private createExecution(exec: ToolExecutionInput): ScheduledToolPreparation | { kind: 'ready'; exec: ToolRunContext } {
+  private createExecution(exec: ToolExecutionInput): ScheduledToolPreparation | { kind: 'ready'; exec: MutableToolRunContext } {
     const deferredContexts: HookContext[] = []
     const token = createExecutionToken()
     const callId = exec.callId
@@ -813,9 +830,9 @@ export class ToolRegistry extends Service {
       token,
       callId,
       name,
+      signal,
       ...agent !== undefined ? { agent } : {},
       ...parent !== undefined ? { parent } : {},
-      ...signal !== undefined ? { signal } : {},
       deferContext(context: HookContext): void {
         deferredContexts.push(context)
       },
@@ -825,11 +842,15 @@ export class ToolRegistry extends Service {
       if (detached === undefined) {
         throw new TypeError('tool execution arguments must be losslessly JSON-serializable')
       }
-      const execution: ToolRunContext = { ...base, arguments: deepFreeze(detached) }
+      const execution: MutableToolRunContext = { ...base, arguments: deepFreeze(detached) }
       this.deferredContexts.set(execution, deferredContexts)
+      this.cancellationStates.set(execution, {
+        callerSignal: signal,
+        bodyInvoked: false,
+      })
       return { kind: 'ready', exec: execution }
     } catch (error: unknown) {
-      const execution: ToolRunContext = { ...base, arguments: undefined }
+      const execution: MutableToolRunContext = { ...base, arguments: undefined }
       return { kind: 'final-result', exec: execution, result: toolErrorResult(error) }
     }
   }
@@ -851,13 +872,22 @@ export class ToolRegistry extends Service {
     const created = this.createExecution(input)
     if (created.kind !== 'ready') return next(created)
     const exec = created.exec
+    if (this.callerCancelled(exec)) {
+      return next({ kind: 'final-result', exec, result: toolAbortedBeforeDispatchResult() })
+    }
     try {
       const carrier = scopeTarget(this, exec.agent)
       const gate = await this.ctx.waterfall(
         carrier, 'tools/pre-execute', exec,
         () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
       )
-      const decision = gate.kind === 'ask' ? await this.serviceAsk(exec, gate) : gate
+      const askResolution: ToolAskResolution = gate.kind === 'ask'
+        ? await this.serviceAsk(exec, gate)
+        : { decision: gate, approvalCancelled: false }
+      const { decision } = askResolution
+      if (this.callerCancelled(exec) && askResolution.approvalCancelled) {
+        return await next({ kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() })
+      }
       const denialReason = decision.kind === 'allow'
         ? this.guardReason(exec)
         : decision.reason
@@ -871,9 +901,71 @@ export class ToolRegistry extends Service {
           },
         })
       }
+      if (this.callerCancelled(exec)) {
+        return await next({ kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() })
+      }
       return await next({ kind: 'dispatch', exec })
     } catch (error: unknown) {
       return next({ kind: 'final-result', exec, result: toolErrorResult(error) })
+    }
+  }
+
+  /** Whether the original caller signal is currently aborted. */
+  private callerCancelled(exec: ToolRunContext): boolean {
+    const state = this.cancellationStates.get(exec)
+    /* v8 ignore next -- only registry-minted executions reach the staged scheduler methods */
+    if (state === undefined) throw new Error('tool registry scheduler invariant violated: missing cancellation state')
+    return state.callerSignal.aborted
+  }
+
+  /** Canonical cancellation outcome selected by whether the tool body started. */
+  private cancellationResult(exec: ToolRunContext, prior?: ToolExecutionResult): ToolExecutionResult {
+    const state = this.cancellationStates.get(exec)
+    /* v8 ignore next -- only registry-minted executions reach the staged scheduler methods */
+    if (state === undefined) throw new Error('tool registry scheduler invariant violated: missing cancellation state')
+    return state.bodyInvoked
+      ? toolAbortedResult(prior)
+      : toolAbortedBeforeDispatchResult(prior)
+  }
+
+  /**
+   * Dispatch the registered body with the original caller signal fused back
+   * into any around-wrapper replacement. Cancellation never abandons the body:
+   * a started promise reaches quiescence before its outcome becomes `ABORTED`.
+   */
+  private async dispatchToolBody(exec: MutableToolRunContext): Promise<ToolExecutionResult> {
+    const state = this.cancellationStates.get(exec)
+    /* v8 ignore next -- only registry-minted executions reach the staged scheduler methods */
+    if (state === undefined) throw new Error('tool registry scheduler invariant violated: missing cancellation state')
+    const wrapperSignal = exec.signal
+    const fused = fuseToolSignals(state.callerSignal, wrapperSignal)
+    const signal = fused.signal
+
+    if (isAborted(signal)) {
+      fused.dispose()
+      return toolAbortedBeforeDispatchResult()
+    }
+    exec.signal = signal
+    try {
+      const tool = this.get(exec.name, exec.agent)
+      if (!tool) throw new ToolNotFoundError(exec.name)
+      state.bodyInvoked = true
+      const returned = await tool.execute(exec.arguments, exec)
+      const content = Array.isArray(returned) ? returned : returned.content
+      const meta = Array.isArray(returned) ? undefined : returned.meta
+      const result: ToolExecutionResult = {
+        content,
+        isError: false,
+        ...meta !== undefined ? { meta } : {},
+      }
+      return isAborted(signal)
+        ? toolAbortedResult(result)
+        : result
+    } catch (error: unknown) {
+      return toolErrorResult(error)
+    } finally {
+      fused.dispose()
+      exec.signal = wrapperSignal
     }
   }
 
@@ -886,21 +978,11 @@ export class ToolRegistry extends Service {
    */
   private async dispatchScheduledExecution(exec: ToolRunContext): Promise<ScheduledToolDispatch> {
     try {
+      const mutableExec = exec as MutableToolRunContext
       const carrier = scopeTarget(this, exec.agent)
       const result = await this.ctx.waterfall(
-        carrier, 'tools/execute', exec,
-        async (): Promise<ToolExecutionResult> => {
-          try {
-            const tool = this.get(exec.name, exec.agent)
-            if (!tool) throw new ToolNotFoundError(exec.name)
-            const returned = await tool.execute(exec.arguments, exec)
-            const content = Array.isArray(returned) ? returned : returned.content
-            const meta = Array.isArray(returned) ? undefined : returned.meta
-            return { content, isError: false, ...meta !== undefined ? { meta } : {} }
-          } catch (error: unknown) {
-            return toolErrorResult(error)
-          }
-        },
+        carrier, 'tools/execute', mutableExec,
+        () => this.dispatchToolBody(mutableExec),
       )
       const deferredContexts = this.deferredContexts.get(exec)
       /* v8 ignore next -- dispatch only receives executions minted by this registry's prepare stage */
@@ -914,7 +996,12 @@ export class ToolRegistry extends Service {
             ...result.additionalContexts ?? [],
           ],
         }
-      return { kind: 'post-result', result: resultWithDeferredContexts }
+      return {
+        kind: 'post-result',
+        result: this.callerCancelled(exec) && !resultWithDeferredContexts.isError
+          ? this.cancellationResult(exec, resultWithDeferredContexts)
+          : resultWithDeferredContexts,
+      }
     } catch (error: unknown) {
       return { kind: 'final-result', result: toolErrorResult(error) }
     }
@@ -929,7 +1016,13 @@ export class ToolRegistry extends Service {
    */
   private async finalizeScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
     try {
-      return this.finishScheduledExecution(exec, await this.postExecute(exec, result))
+      const postResult = await this.postExecute(exec, result)
+      return this.finishScheduledExecution(
+        exec,
+        this.callerCancelled(exec) && !postResult.isError
+          ? this.cancellationResult(exec, postResult)
+          : postResult,
+      )
     } catch (error: unknown) {
       return this.finishScheduledExecution(exec, toolErrorResult(error))
     }
@@ -955,8 +1048,8 @@ export class ToolRegistry extends Service {
 
   /** Notify observers without exposing a mutation or error channel into the outcome. */
   private notifyResult(exec: ToolExecution, result: ToolExecutionResult): void {
-    // Freeze the remaining mutable signal slot before observers receive the
-    // shared WeakMap-keyable execution object.
+    // Freeze the registry's live object before observers receive its readonly
+    // WeakMap-keyable view.
     Object.freeze(exec)
     const { name: toolName, callId } = exec
     const reportFailure = (error: unknown): void => {
@@ -989,26 +1082,41 @@ export class ToolRegistry extends Service {
   private async serviceAsk(
     exec: ToolExecution,
     ask: Extract<PreToolDecision, { kind: 'ask' }>,
-  ): Promise<Extract<PreToolDecision, { kind: 'allow' | 'deny' }>> {
+  ): Promise<ToolAskResolution> {
     const approval = this.ctx.get('approval')
     if (approval === undefined) {
-      return { kind: 'deny', reason: ask.reason ?? `tool "${exec.name}" requires approval (not yet supported)` }
+      return {
+        decision: { kind: 'deny', reason: ask.reason ?? `tool "${exec.name}" requires approval (not yet supported)` },
+        approvalCancelled: false,
+      }
     }
     if (exec.agent === undefined) {
-      return { kind: 'deny', reason: `tool "${exec.name}" requires approval, but the call has no agent to route it through` }
+      return {
+        decision: { kind: 'deny', reason: `tool "${exec.name}" requires approval, but the call has no agent to route it through` },
+        approvalCancelled: false,
+      }
     }
     const outcome = await approval.request({
       agent: exec.agent,
       toolName: exec.name,
       callId: exec.callId,
       ...ask.reason !== undefined ? { reason: ask.reason } : {},
-      ...exec.signal !== undefined ? { signal: exec.signal } : {},
+      signal: exec.signal,
     })
     switch (outcome) {
-      case 'allowed-once': return { kind: 'allow' }
-      case 'rejected': return { kind: 'deny', reason: `the user rejected tool "${exec.name}"` }
-      case 'cancelled': return { kind: 'deny', reason: `approval for tool "${exec.name}" was cancelled` }
-      case 'unavailable': return { kind: 'deny', reason: `tool "${exec.name}" requires approval, but no approval channel is available` }
+      case 'allowed-once': return { decision: { kind: 'allow' }, approvalCancelled: false }
+      case 'rejected': return {
+        decision: { kind: 'deny', reason: `the user rejected tool "${exec.name}"` },
+        approvalCancelled: false,
+      }
+      case 'cancelled': return {
+        decision: { kind: 'deny', reason: `approval for tool "${exec.name}" was cancelled` },
+        approvalCancelled: true,
+      }
+      case 'unavailable': return {
+        decision: { kind: 'deny', reason: `tool "${exec.name}" requires approval, but no approval channel is available` },
+        approvalCancelled: false,
+      }
       default: return assertNever(outcome, 'ApprovalOutcome')
     }
   }
@@ -1071,6 +1179,66 @@ function toolErrorResult(error: unknown): ToolExecutionResult {
     content: [{ type: 'text', text: `Error: ${errorMessage(error)}` }],
     isError: true,
     ...info ? { error: info } : {},
+  }
+}
+
+/** Read live abort state across an await without treating it as synchronously immutable. */
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted
+}
+
+/**
+ * Fuse caller and wrapper cancellation without nesting `AbortSignal.any`.
+ * Keeping the relay dispatch-scoped also removes listeners when work settles.
+ */
+function fuseToolSignals(caller: AbortSignal, wrapper: AbortSignal): FusedToolSignal {
+  if (caller === wrapper) return { signal: caller, dispose() {} }
+
+  const controller = new AbortController()
+  let listening = false
+  const dispose = (): void => {
+    if (!listening) return
+    listening = false
+    caller.removeEventListener('abort', abortFromCaller)
+    wrapper.removeEventListener('abort', abortFromWrapper)
+  }
+  const abortFrom = (source: AbortSignal): void => {
+    const reason: unknown = source.reason
+    controller.abort(reason)
+    dispose()
+  }
+  const abortFromCaller = (): void => { abortFrom(caller) }
+  const abortFromWrapper = (): void => { abortFrom(wrapper) }
+
+  if (wrapper.aborted) abortFromWrapper()
+  else if (caller.aborted) abortFromCaller()
+  else {
+    listening = true
+    caller.addEventListener('abort', abortFromCaller, { once: true })
+    wrapper.addEventListener('abort', abortFromWrapper, { once: true })
+  }
+  return { signal: controller.signal, dispose }
+}
+
+/** Canonical result when cancellation supersedes success after body invocation. */
+function toolAbortedResult(prior?: ToolExecutionResult): ToolExecutionResult {
+  const additionalContexts = prior?.additionalContexts ?? []
+  return {
+    content: [{ type: 'text', text: 'Error: tool call aborted' }],
+    isError: true,
+    error: { name: 'AbortError', code: TOOL_ABORTED },
+    ...additionalContexts.length > 0 ? { additionalContexts } : {},
+  }
+}
+
+/** Canonical result when cancellation prevents tool body invocation. */
+function toolAbortedBeforeDispatchResult(prior?: ToolExecutionResult): ToolExecutionResult {
+  const additionalContexts = prior?.additionalContexts ?? []
+  return {
+    content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
+    isError: true,
+    error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    ...additionalContexts.length > 0 ? { additionalContexts } : {},
   }
 }
 

@@ -24,6 +24,12 @@
       "path": "../../ui/acp"
     },
     {
+      "path": "../../ui/commands"
+    },
+    {
+      "path": "../../goal/command-goal"
+    },
+    {
       "path": "../../core/agent"
     },
     {
@@ -40,6 +46,9 @@
     },
     {
       "path": "../../session-persistence/session-persistence-jsonl"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

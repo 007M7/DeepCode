@@ -13,7 +13,7 @@ import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, OutOfBandSessionEventType, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType, TurnTrigger } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
@@ -26,6 +26,27 @@ export { interruptedTurnClosers } from './repair.ts'
 export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
 export { foldSurface, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
+
+/**
+ * Find the latest closed message-triggered turn, excluding injection and
+ * plugin-owned zero-step turns.
+ * @param events - session events, or an owned suffix, to inspect.
+ * @returns the latest matching turn end, or `undefined`.
+ */
+export function findLastMessageTurnEnd(
+  events: readonly SessionEvent[],
+): SessionEvent<'turn/end'> | undefined {
+  const messageTurns = new Set<number>()
+  let latest: SessionEvent<'turn/end'> | undefined
+  for (const event of events) {
+    if (event.type === 'turn/start') {
+      if (event.data.trigger.kind === 'message') messageTurns.add(event.data.turn)
+      continue
+    }
+    if (event.type === 'turn/end' && messageTurns.delete(event.data.turn)) latest = event
+  }
+  return latest
+}
 
 declare module 'cordis' {
   interface Context {
@@ -113,6 +134,10 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
     && (typeof record.seedLength !== 'number' || !Number.isSafeInteger(record.seedLength) || record.seedLength < 0)) {
     throw new Error('session header seedLength must be a non-negative safe integer')
   }
+  if (record.delegationDepth !== undefined
+    && (typeof record.delegationDepth !== 'number' || !Number.isSafeInteger(record.delegationDepth) || record.delegationDepth < 0)) {
+    throw new Error('session header delegationDepth must be a non-negative safe integer')
+  }
   return deepFreeze(record as unknown as SessionHeader)
 }
 
@@ -133,6 +158,7 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
     throw new Error(`seed event at index ${index} has an invalid event envelope`)
   }
   assertCurrentLlmShape(event, index)
+  assertCurrentTurnEndShape(event, index)
 }
 
 /** Reject pre-provider request headers and assistant messages at the seed/load boundary. */
@@ -147,6 +173,22 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
   }
   if (event['type'] === 'assistant/message' && !hasProviderModel(record['provenance'])) {
     throw new Error(`seed assistant/message at index ${index} lacks provider/model provenance`)
+  }
+}
+
+/** Reject legacy aborted outcomes that persisted caller-owned reason detail. */
+function assertCurrentTurnEndShape(event: Record<string, unknown>, index: number): void {
+  if (event['type'] !== 'turn/end') return
+  const data = event['data']
+  /* v8 ignore next -- this migration recognizes only the legacy object shape; format-wide payload validation is separate. */
+  if (typeof data !== 'object' || data === null) return
+  const reason = (data as Record<string, unknown>)['reason']
+  /* v8 ignore next -- non-object reasons cannot carry the legacy aborted detail this migration removes. */
+  if (typeof reason !== 'object' || reason === null || Array.isArray(reason)) return
+  const record = reason as Record<string, unknown>
+  if (record['kind'] === 'aborted'
+    && (Object.keys(record).length !== 1 || !Object.hasOwn(record, 'kind'))) {
+    throw new Error(`seed turn/end at index ${index} uses unsupported reason-bearing aborted format`)
   }
 }
 
@@ -206,6 +248,7 @@ interface SessionEntry {
   announced: boolean
   announcing: boolean
   appending: boolean
+  outOfBand: boolean
   detachRequested: boolean
   detach(): void
 }
@@ -380,7 +423,7 @@ export class Session {
     } finally {
       if (entry !== undefined) {
         entry.appending = false
-        if (entry.detachRequested && !entry.announcing) entry.detach()
+        if (entry.detachRequested && !entry.announcing && !entry.outOfBand) entry.detach()
       }
     }
   }
@@ -558,9 +601,9 @@ export class SessionStore extends Service {
    * Create a session owned by the calling fiber: disposing that fiber stops
    * event notification and removes the session from the store. `options.seed`
    * populates the session with a copy of those events (replay/fork);
-   * `options.meta` attaches creation metadata (validated absolute `cwd`,
-   * `parentSession` lineage) as the immutable {@link SessionHeader} (the store
-   * fills `version`/`id`/`createdAt`).
+   * `options.meta` attaches creation metadata (validated absolute `cwd`, seed
+   * and parent lineage, and delegation depth) as the immutable
+   * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).
    *
    * For an agent whose session must be torn down IN ORDER with its loop (so the
    * loop's final flush is captured before the store attachment ends), do NOT use this
@@ -622,6 +665,7 @@ export class SessionStore extends Service {
       ...meta?.cwd === undefined ? {} : { cwd: meta.cwd },
       ...meta?.parentSession === undefined ? {} : { parentSession: meta.parentSession },
       ...meta?.seedLength === undefined ? {} : { seedLength: meta.seedLength },
+      ...meta?.delegationDepth === undefined ? {} : { delegationDepth: meta.delegationDepth },
     }
     return new Session(sessionId, seed, header)
   }
@@ -663,6 +707,7 @@ export class SessionStore extends Service {
       announced: false,
       announcing: false,
       appending: false,
+      outOfBand: false,
       detachRequested: false,
       detach: () => { this.detachEntered(entry) },
     }
@@ -675,7 +720,7 @@ export class SessionStore extends Service {
       // A lifecycle listener may own the advanced detach capability. Keep the
       // entry and its publication hooks live until synchronous creation or append
       // publication unwinds, then publish the paired disposal edge.
-      if (entry.announcing || entry.appending) {
+      if (entry.announcing || entry.appending || entry.outOfBand) {
         entry.detachRequested = true
         return
       }
@@ -729,7 +774,7 @@ export class SessionStore extends Service {
       }
     } finally {
       entry.announcing = false
-      if (entry.detachRequested && !entry.appending) entry.detach()
+      if (entry.detachRequested && !entry.appending && !entry.outOfBand) entry.detach()
     }
   }
 
@@ -771,6 +816,87 @@ export class SessionStore extends Service {
     }))
     const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
     if (failure !== undefined) throw failure.reason
+  }
+
+  /**
+   * Append one plugin-declared log-only event without borrowing the agent
+   * loop's lifecycle. An open turn receives the event directly and remains
+   * responsible for its ordinary checkpoint. A closed log receives one
+   * zero-step turn around the event, followed by an awaited flush.
+   *
+   * Once the synthetic `turn/start` commits, this method always attempts its
+   * matching `turn/end` and flush, including when the target append fails.
+   * Detachment requested by an event or flush listener is deferred until that
+   * sequence settles, so publication cannot switch from a live scoped session
+   * to an unobserved bare `Session` halfway through the update.
+   *
+   * @param session - exact live session that owns the target log.
+   * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.
+   * @param data - typed JSON payload for the target event.
+   * @param trigger - plugin-owned turn trigger used only when the log is closed.
+   * @returns the accepted target event with its assigned sequence and timestamp.
+   * @throws when the session is detached, another out-of-band append is active,
+   *   event acceptance fails, the synthetic turn cannot close, or flushing fails.
+   */
+  async appendOutOfBand<T extends OutOfBandSessionEventType>(
+    session: Session,
+    type: T,
+    data: SessionEventMap[T],
+    trigger: TurnTrigger,
+  ): Promise<SessionEvent<T>> {
+    const entry = this.liveEntryFor(session)
+    if (entry.outOfBand) {
+      throw new Error(`session "${session.id}" already has an out-of-band append in progress`)
+    }
+    entry.outOfBand = true
+    // `T` is excluded from SurfaceEventType by OutOfBandSessionEventType, but
+    // TypeScript does not reduce Session.append's conditional rest parameter
+    // through a generic intersection. Preserve that proven two-argument call
+    // shape without widening the public Session.append overload.
+    const appendLogOnly = session.append.bind(session) as unknown as <K extends OutOfBandSessionEventType>(
+      eventType: K,
+      eventData: SessionEventMap[K],
+    ) => SessionEvent<K>
+    try {
+      const lastBoundary = session.events.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
+      if (lastBoundary?.type === 'turn/start') {
+        return appendLogOnly(type, data)
+      }
+
+      const lastStart = session.events.findLast(event => event.type === 'turn/start')
+      const turn = (lastStart?.data.turn ?? 0) + 1
+      let accepted: SessionEvent<T> | undefined
+      let failure: unknown
+      let opened = false
+      try {
+        session.append('turn/start', { turn, trigger })
+        opened = true
+        accepted = appendLogOnly(type, data)
+      } catch (error: unknown) {
+        failure = error
+      } finally {
+        if (opened) {
+          // The only target types admitted by OutOfBandSessionEventMap are
+          // log-only plugin events, so the synthetic turn remains open here.
+          session.append('turn/end', { turn, reason: { kind: 'completed' } })
+          try {
+            await this.flush(session)
+          } catch (error: unknown) {
+            if (failure === undefined) failure = error
+          }
+        }
+      }
+      if (failure !== undefined) {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error -- preserve an arbitrary flush-listener rejection exactly
+        throw failure
+      }
+      /* v8 ignore next -- accepted is assigned unless an append failure was captured above. */
+      if (accepted === undefined) throw new Error('out-of-band append completed without an accepted event')
+      return accepted
+    } finally {
+      entry.outOfBand = false
+      if (entry.detachRequested && !entry.announcing && !entry.appending) entry.detach()
+    }
   }
 
   /** Return the exact live entry; detached/prepared objects reject. */

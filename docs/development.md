@@ -9,7 +9,7 @@ This onboarding guide helps project contributors get started with the local envi
 - Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md).
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git.
-- Optional: a DeepSeek API key for the REPL/ACP agent demos and real-API e2e tests.
+- Optional: a DeepSeek API key for the TUI/Headless/ACP agent demos and real-API e2e tests.
 
 ## First-time setup
 
@@ -35,13 +35,13 @@ pnpm run typecheck
 
 That first typecheck runs the package/vendor build graph and the root no-emit `tsconfig.json` graph for examples, tests, and scripts. The root graph uses the same source `paths` map but relies on project references so vendored code is checked under its own tsconfig settings.
 
-If you are preparing to push from a fresh clone or worktree, also build once:
+If a relevant local check consumes built package output, build once first:
 
 ```sh
 pnpm run build
 ```
 
-`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs.
+`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs; ordinary commits and pushes do not require that build unless their selected checks consume it.
 
 ## Environment variables
 
@@ -56,14 +56,14 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 ## Git hooks
 
-lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
+lefthook is configured in `lefthook.yml` as a fast local checkpoint:
 
-- `pre-commit` runs staged-file ESLint fixes, `pnpm run typecheck`, and the vendor manifest guard.
-- `pre-push` runs `pnpm run check:pre-push`, whose scheduler runs runtime-closure verification, unit tests, duplication detection, snapshot tests, build, module-graph freshness, and the member gates of `pnpm run hygiene` and `pnpm run doc-sync` concurrently.
+- `pre-commit` runs staged-file ESLint fixes, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
+- `pre-push` runs only the incremental repository typecheck.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
-These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs echo-agent and built-bin smoke tests and exercises the compatibility matrix on Node 22.19, 24, and 26.
+The hooks intentionally do not run tests, snapshots, documentation checks, builds, or hygiene. Contributors run the [checks relevant to the changed behavior](../AGENTS.md#run-relevant-checks-locally) once; CI owns exhaustive coverage, built-artifact smokes, and the Node 22.19, 24, and 26 compatibility matrix.
 
 ## CI gates
 
@@ -90,7 +90,7 @@ pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README 
 pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
 pnpm run verify-doc-budgets  # fail if a budgeted standing doc exceeds its word ceiling
-pnpm run doc-sync       # all Markdown/doc gates; see the doc-sync script in package.json for the full list
+pnpm run doc-sync       # all Markdown/doc gates, scheduled concurrently; the doc-sync leaf list in scripts/run-gates.ts is the full list
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
 pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
@@ -102,19 +102,13 @@ When changing package public behavior, update the relevant README or JSDoc in th
 
 ## Demos
 
-The echo demo does not need API credentials:
+The one-shot Headless coding agent needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
-pnpm run demo:echo
+pnpm run demo:headless "summarize this workspace"
 ```
 
-The repl-agent demo uses the line-oriented readline front door and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
-
-```sh
-pnpm run demo:repl
-```
-
-The full-screen TUI reuses the repl-agent composition through the pi-tui front door and needs the same credentials:
+The full-screen interactive coding agent needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
 pnpm run demo:tui

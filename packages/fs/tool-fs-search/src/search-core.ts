@@ -162,7 +162,7 @@ export async function runRipgrep(
     command,
     stdoutMaxBytes: rawOutputMaxBytes,
     ...cwd !== undefined ? { workdir: cwd } : {},
-    ...exec.signal ? { signal: exec.signal } : {},
+    signal: exec.signal,
   })
   let result: BashRunResult
   try {

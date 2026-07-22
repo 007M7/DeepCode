@@ -9,7 +9,7 @@
 - Node.js 支持 22.19+ 与 24+。CI 覆盖 22.19、24 和 26；见 [Node 引擎下限 Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md)。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中固定使用 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，请先运行 `corepack enable`。
 - Git。
-- 可选：一个 DeepSeek API key，用于 REPL/ACP（Agent Client Protocol） agent（智能体）演示和真实 API 的 e2e 测试。
+- 可选：一个 DeepSeek API key，用于 TUI/Headless/ACP（Agent Client Protocol） agent（智能体）演示和真实 API 的 e2e 测试。
 
 ## 首次搭建
 
@@ -35,13 +35,13 @@ pnpm run typecheck
 
 首次类型检查会执行 package/vendor 的构建图，以及根目录下用于示例、测试和脚本的 no-emit `tsconfig.json` 项目图。根图使用同一份源码 `paths` 映射，但依赖 project references，因此 vendor 代码在它自己的 tsconfig 设置下被检查。
 
-如果准备从新克隆或新 worktree 推送，还需要构建一次：
+如果相关的本地检查需要使用构建后的包产物，请先构建一次：
 
 ```sh
 pnpm run build
 ```
 
-`pnpm run hygiene` 包含 `publint`（用构建出的 `lib/*.js` 文件校验 package 入口点）和 `verify-node-next-types`（用一个临时的 NodeNext 消费方校验构建出的声明文件）。新 worktree 在 `pnpm run build` 运行之前没有打包的 JS 和声明文件。
+`pnpm run hygiene` 包含 `publint`（用构建出的 `lib/*.js` 文件校验 package 入口点）和 `verify-node-next-types`（用一个临时的 NodeNext 消费方校验构建出的声明文件）。新 worktree 在 `pnpm run build` 运行之前没有打包的 JS 和声明文件；普通提交和推送无需构建，除非所选检查会使用这些产物。
 
 ## 环境变量
 
@@ -56,14 +56,14 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 ## Git 钩子
 
-lefthook 在 `lefthook.yml` 中配置，作为评审前的本地早期检查点：
+lefthook 在 `lefthook.yml` 中配置，作为快速的本地检查点：
 
-- `pre-commit` 运行对暂存文件的 ESLint 修复、`pnpm run typecheck` 和 vendor manifest（元数据清单）守卫；
-- `pre-push` 运行 `pnpm run check:pre-push`，其调度器并发运行 runtime-closure 校验、单元测试、重复代码检查、快照测试、构建、module-graph 新鲜度，以及 `pnpm run hygiene` 与 `pnpm run doc-sync` 的各成员门禁。
+- `pre-commit` 运行对暂存文件的 ESLint 修复，检查暂存 diff 中的空白错误，并运行 vendor manifest（元数据清单）守卫；
+- `pre-push` 只运行仓库增量类型检查。
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。
 
-这些钩子并不与 CI 完全一致。特别是：`pre-push` 运行不带覆盖率的单元测试，而 CI 运行 `pnpm run test:coverage`；CI 还会运行 echo-agent 和 built-bin 冒烟测试，并在 Node 22.19、24 和 26 上执行兼容性矩阵。
+这些钩子有意不运行测试、快照、文档检查、构建或 `hygiene`。贡献者只运行一次[与改动行为相关的检查](../AGENTS.md#run-relevant-checks-locally)；CI 负责全量覆盖率门禁、构建产物冒烟测试，以及 Node 22.19、24 和 26 兼容性矩阵。
 
 ## CI 门禁
 
@@ -90,7 +90,7 @@ pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README 
 pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
 pnpm run verify-doc-budgets  # fail if a budgeted standing doc exceeds its word ceiling
-pnpm run doc-sync       # all Markdown/doc gates; see the doc-sync script in package.json for the full list
+pnpm run doc-sync       # all Markdown/doc gates, scheduled concurrently; the doc-sync leaf list in scripts/run-gates.ts is the full list
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
 pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
@@ -102,19 +102,13 @@ pnpm run hygiene        # knip, publint, workspace constraints, and NodeNext dec
 
 ## 演示
 
-echo 演示不需要 API 凭证：
+单次运行的 Headless coding agent 需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
 
 ```sh
-pnpm run demo:echo
+pnpm run demo:headless "summarize this workspace"
 ```
 
-repl-agent 示例使用面向行的 readline 前端，并需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
-
-```sh
-pnpm run demo:repl
-```
-
-全屏 TUI 通过 pi-tui 前端复用 repl-agent 组装，并需要相同的凭证：
+全屏交互式 coding agent 需要环境变量或仓库根目录 `.env` 中的 `DEEPSEEK_API_KEY`：
 
 ```sh
 pnpm run demo:tui

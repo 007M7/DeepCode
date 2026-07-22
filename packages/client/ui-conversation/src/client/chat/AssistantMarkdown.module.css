@@ -1,0 +1,33 @@
+/* Assistant flow body: full-width narration (figma 16/28), block gap 16. */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-size: 16px;
+  line-height: 28px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.pulse {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  background: var(--dsw-alias-state-business-primary);
+  animation: pulse 1s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.2; }
+}
+
+/* Interrupted-turn terminal marker: quiet inline tag, no animation. */
+.stopped {
+  align-self: flex-start;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 18px;
+}

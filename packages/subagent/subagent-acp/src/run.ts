@@ -37,7 +37,11 @@ export interface AcpRunSpec {
   command: string
   /** Arguments passed to {@link command}. */
   args: string[]
-  /** Working directory for the child process AND its ACP session `cwd`. */
+  /**
+   * Absolute working directory for the child process AND its ACP session
+   * `cwd`. The provider resolves it before this spec exists: config override,
+   * else the delegating parent session's workspace.
+   */
   cwd: string
   /** How to auto-answer the child's permission prompts. */
   permission: PermissionPolicy
@@ -56,9 +60,9 @@ export interface AcpRunSpec {
    */
   disposeEofGraceMs: number
   /**
-   * Grace period (ms) between `SIGTERM` and the `SIGKILL` escalation in
-   * {@link SubagentRun.dispose}. The plugin fills this from its
-   * `disposeGraceMs` config.
+   * Termination confirmation window (ms) in {@link SubagentRun.dispose}; POSIX applies it after
+   * `SIGTERM` and `SIGKILL`, while Windows applies it after direct forced termination. The plugin
+   * fills this from its `disposeGraceMs` config.
    */
   disposeGraceMs: number
   /**
@@ -75,7 +79,7 @@ export interface AcpRunSpec {
 /** EOF grace for child flush and nested-process teardown; wider than the signal grace below. */
 export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6_000
 
-/** Default grace between SIGTERM and SIGKILL on dispose (the `disposeGraceMs` config; mirrors the bash executor). */
+/** Default POSIX grace between SIGTERM and SIGKILL on dispose (the `disposeGraceMs` config). */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
 /**
@@ -300,9 +304,9 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
       if (disposal !== undefined) return disposal
       request.signal.removeEventListener('abort', onAbort)
       requestCancel()
-      // The shared EOF → TERM → KILL ladder awaits exit. ACP normally quiesces
-      // from stdin EOF, including the final flush, so this backend uses a wider
-      // EOF grace before signals escalate.
+      // The shared platform-aware ladder awaits exit. ACP normally quiesces from
+      // stdin EOF, including the final flush, so this backend uses a wider EOF
+      // grace before process termination escalates.
       disposal = disposeProcess()
       return disposal
     },

@@ -87,7 +87,7 @@ export function apply(ctx: Context) {
 
 ## Runnable wirings
 
-Six runnable leaves load their plugin trees from `cordis.yml`: [`examples/echo-agent`](../../examples/echo-agent) (mock model + echo tool, `pnpm run demo:echo`), [`examples/repl-agent`](../../examples/repl-agent) (DeepSeek V4 + coding tools through a line-oriented readline REPL, `pnpm run demo:repl`), [`examples/tui-agent`](../../examples/tui-agent) (the same coding composition through full-screen pi-tui, `pnpm run demo:tui`), [`examples/headless-agent`](../../examples/headless-agent) (the same capability class behind a one-shot task and DSH-native output, `pnpm run demo:headless -- "task"`), [`examples/cordis-agent`](../../examples/cordis-agent) (self-inspection and dynamic plugin mounting, `pnpm run demo:cordis`), and [`examples/acp-agent`](../../examples/acp-agent) (an ACP server over JSON-RPC stdio, `pnpm run demo:acp`). The terminal leaves load [`@deepseek-ai/dsh-stdio-demo`](../../packages/examples/stdio-demo), the headless leaf loads [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo), the ACP leaf loads [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), and all three app packages share [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo).
+Runnable leaves load their plugin trees from `examples/*/cordis.yml`; the root `demo:*` scripts and those leaf directories are the authoritative inventory. Interactive leaves use [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo), non-interactive leaves use [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo), ACP leaves use [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), and the app packages share [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo).
 
 ## The feature → mechanism map
 
@@ -98,7 +98,7 @@ Every product feature maps to a listener on a documented extension seam — the 
 | Product feature | Plugin mechanism |
 |---|---|
 | Hook system (user + project level) | listeners on `agent/session-start`, `agent/prompt-submit`, `agent/request`, `agent/step-result`, `tools/pre-execute`, `tools/post-execute`, `agent/turn-continuation` — each interception waterfall returns a typed Decision; the `dsh-hooks-claude` / `dsh-hooks-codex` bridges map hook config files onto these seams |
-| `/goal` | force-continue via `agent/turn-continuation` + `steer()` reminders |
+| `/goal` | `ctx.goals` owns durable state, `dsh-goal-session` schedules same-session rounds through the public `Agent`, and separate command/tool producers expose human/model control |
 | `/loop` | on the `turn/end` session event, `send()` the next iteration; or force-continue |
 | Dynamic workflow | `ctx.workflows` + the worker-thread engine + the `workflow` tool; structured in-process children enforce output with scoped prompt/tool registrations, a monotonic tool guard, final `tools/result` commit (including enclosing `run_code`), and terminal `agent/turn-stop` |
 | Queued + steering messages | core `Agent.send()` / `Agent.steer()` |
@@ -113,7 +113,7 @@ Every product feature maps to a listener on a documented extension seam — the 
 | Monotonic terminal turn policy | return `{ action: 'stop' }` from serial `agent/turn-stop`, after continuation and steering have already been folded |
 | Subprocess sandbox (landlock / sandbox-exec) | use a `ctx.sandbox` backend through `dsh-bash-sandbox`; use `tools/pre-execute` for capability-level denial |
 | Permission system / AskUserQuestion | return `ask` from `tools/pre-execute` and answer through `ctx.approval`; register a separate model-facing ask tool for ordinary user questions |
-| Plan mode | `tools/pre-execute` (deny writes) + a mode prompt section via `ctx.systemPrompt.section()` or `agent.inject()` (model-visible ⟺ logged: `agent/request` shapes call config only) |
+| Plan mode | Shipped: [`@deepseek-ai/dsh-plan-mode`](../../packages/plan/plan-mode/README.md) — logged `plan/mode` state, the `plan:policy` guidance section, `/plan [message]`, and the user-reviewed `exit_plan_mode` exit; enforcement stays on the independent sandbox/approval axes |
 | Sub-agent delegation | the `ctx.subagents` provider registry (`dsh-subagent-spawn`/`-fork`/`-acp`) + `dsh-tool-subagent` exposing one configured provider to the model |
 | MCP | one plugin per server: discover tools → `ctx.tools.register()` |
 | Skills | section + tool registration; `inject()` skill content on invocation |

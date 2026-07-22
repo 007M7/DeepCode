@@ -1,5 +1,5 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, LlmFailure, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from './json.ts'
 
 /** Identifies one session in the store (and its persistence artifacts). */
@@ -47,6 +47,12 @@ export interface SessionHeader {
    * boundary lets resume and replay distinguish parent history from child work.
    */
   readonly seedLength?: number
+  /**
+   * Delegation depth: absent (zero) for a top-level session, parent depth + 1
+   * for a subagent child. Persisted so a recursion budget survives restart and
+   * resume — a runtime-only depth would reset a resumed child to top-level.
+   */
+  readonly delegationDepth?: number
 }
 
 /**
@@ -66,6 +72,7 @@ export interface CreateSessionOptions {
     readonly parentSession?: SessionId
     readonly createdAt?: number
     readonly seedLength?: number
+    readonly delegationDepth?: number
   }
 }
 
@@ -94,20 +101,25 @@ export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
  */
 export interface TurnEndReasonMap {
   completed: { kind: 'completed' }
-  aborted: { kind: 'aborted'; reason?: string }
+  /** A cancellation request interrupted the live turn. */
+  aborted: { kind: 'aborted' }
   /**
    * The turn failed: a step threw or the model reported a failure. `step` is the
    * step number the failure occurred on (the operational error's location — the
    * single durable record of an in-turn failure; live diagnostics also fire via
-   * `agent/error`). `code` is the error's code when one was attached.
+   * `agent/error`). Final model-request failures retain their normalized facts
+   * as one `failure`; other turn failures retain their live Error message/code.
    */
-  error: { kind: 'error'; step: number; message: string; code?: string }
+  error: { kind: 'error'; step: number } & (
+    | { failure: LlmFailure; message?: never; code?: never }
+    | { message: string; code?: string; failure?: never }
+  )
   disposed: { kind: 'disposed' }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
-   * Policy blocked every prompt before the first step. The zero-step turn still
-   * records a balanced durable boundary and the veto reason.
+   * Policy blocked the turn's claimed prompt before the first step. The
+   * zero-step turn still records a balanced durable boundary and veto reason.
    */
   rejected: { kind: 'rejected'; reason: string }
   /**
@@ -176,27 +188,28 @@ export type RequestHeaderReason = 'initial' | 'resume' | 'change'
  */
 export interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started it — a drained message
-   * batch or an idle-time injection. The turn is the durability/replay
+   * Opens turn `turn`. `trigger` records what started it — one claimed queued
+   * message or an idle-time injection. The turn is the durability/replay
    * boundary: every event sits between a `turn/start` and its matching
    * `turn/end` (the turn-enclosure invariant).
    */
   'turn/start': { turn: number; trigger: TurnTrigger }
   /**
    * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
-   * fires the awaited `session/flush` checkpoint at every turn end, so the turn
-   * boundary is also the durable-commit boundary.
+   * awaits `session/flush` after an ordinary turn ends before claiming the next
+   * queued item. Success commits the turn; rejection is reported live and does
+   * not prevent later work.
    */
   'turn/end': { turn: number; reason: TurnEndReason }
   /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
   'step/start': { turn: number; step: number }
   /** Closes step `step` of turn `turn`. */
   'step/end': { turn: number; step: number }
-  /** A user-visible prompt (queued message drained at turn start). */
+  /** A user-visible prompt (the queued message claimed for this turn). */
   'user/message': { content: ContentBlock[]; source: MessageSource }
   /**
    * Durable record of a prompt veto and its reason. It is log-only: the blocked
-   * prompt never enters the model-visible surface, including in a mixed batch.
+   * prompt never enters the model-visible surface, and its turn runs zero steps.
    */
   'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
   /**
@@ -251,8 +264,22 @@ export interface SessionEventMap {
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 }
 
+/**
+ * Marker map for plugin-owned log-only events accepted by
+ * `SessionStore.appendOutOfBand()`. A plugin extends this map with the same key
+ * it adds to {@link SessionEventMap}; surface and lifecycle events stay
+ * ineligible unless their owner explicitly opts them into this narrow seam.
+ */
+export interface OutOfBandSessionEventMap {}
+
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
 export type SessionEventType = keyof SessionEventMap
+
+/** Plugin-declared non-surface event types accepted by `SessionStore.appendOutOfBand()`. */
+export type OutOfBandSessionEventType = Exclude<
+  Extract<SessionEventType, keyof OutOfBandSessionEventMap>,
+  SurfaceEventType
+>
 
 /**
  * The subset of {@link SessionEventType} values whose events produce LLM

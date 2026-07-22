@@ -24,6 +24,9 @@ export class HarnessError extends Error {
 /** Canonical provider-neutral code for a model request rejected because its context window was exceeded. */
 export const CONTEXT_WINDOW_EXCEEDED_CODE = 'CONTEXT_WINDOW_EXCEEDED'
 
+/** Canonical provider-neutral code for an exhausted account quota or balance. */
+export const QUOTA_EXCEEDED_CODE = 'QUOTA'
+
 /** Structured codes and plain phrases that explicitly name a context bound being exceeded. */
 const STRUCTURED_CONTEXT_OVERFLOW = new RegExp(
   String.raw`(?:^|[^a-z0-9])context[\s_-](?:length|window)[\s_-]`
@@ -60,6 +63,65 @@ export function isContextWindowExceededError(detail: string): boolean {
     || TOO_LARGE_FOR_CONTEXT.test(detail)
     || /\b(?:input|prompt|request)\s+(?:is\s+)?too\s+(?:long|large)\s+for\s+(?:this|the)\s+model\b/i.test(detail)
     || EXCEEDS_MODEL_CONTEXT.test(detail)
+}
+
+/**
+ * Recognize provider wording that identifies an exhausted account quota rather
+ * than a transient request-rate limit.
+ * @param detail - provider error code/type/message text joined into one string.
+ * @returns true only for terminal quota, balance, credit, budget, or usage-limit wording.
+ */
+export function isQuotaExceededError(detail: string): boolean {
+  return /\binsufficient[\s_-]+(?:quota|balance|credits?)\b/i.test(detail)
+    || /\b(?:quota|usage[\s_-]+limit)[\s_-]+(?:exceeded|exhausted|reached)\b/i.test(detail)
+    || /\bexceed(?:ed|s)?[\s_-]+(?:(?:your|the)[\s_-]+)?(?:current[\s_-]+)?quota\b/i.test(detail)
+    || /\b(?:balance|credits?)[\s_-]+(?:exhausted|depleted)\b/i.test(detail)
+    || /\bout[\s_-]+of[\s_-]+(?:credits?|budget)\b/i.test(detail)
+}
+
+/**
+ * Render a thrown value with its full `cause` chain and AggregateError
+ * members, so transport wrappers like undici's `TypeError: fetch failed`
+ * surface the underlying failure instead of masking it. Diagnostic-surface
+ * rendering only (messages, notices, logs) — never parse the result; route on
+ * {@link HarnessError.code}.
+ * @param value - the caught value (`unknown` in catch clauses).
+ * @returns the outermost message first, each cause appended with `: ` (skipped
+ * when it repeats the wrapper message verbatim), and AggregateError members
+ * bracketed and `; `-joined.
+ */
+export function errorChain(value: unknown): string {
+  // Tracks the active recursion path (entries removed on exit), so only true
+  // cycles are flagged and a diamond-shared cause still renders in full.
+  const path = new Set<unknown>()
+  const render = (current: unknown): string => {
+    if (path.has(current)) return '<circular cause>'
+    path.add(current)
+    try {
+      if (!(current instanceof Error)) return String(current)
+      const message = current.message === '' ? current.name : current.message
+      const members = current instanceof AggregateError && current.errors.length > 0
+        ? ` [${current.errors.map(render).join('; ')}]`
+        : ''
+      const causeText = current.cause === undefined || current.cause === null
+        ? ''
+        : render(current.cause)
+      // Wrappers like `new HarnessError(String(value), code, { cause: value })`
+      // repeat their cause verbatim; rendering it again would only add noise.
+      const cause = causeText === '' || causeText === message ? '' : `: ${causeText}`
+      return `${message}${members}${cause}`
+    } catch {
+      // Only hostile coercion or hostile accessors (a throwing toString /
+      // Symbol.toPrimitive on a non-Error, or a throwing message/name/cause/
+      // errors getter on an Error subclass): this renderer feeds UI notices
+      // and logs, so nothing may escape. Inner frames catch their own throws,
+      // so only the hostile node collapses, not the whole chain.
+      return '<unrenderable value>'
+    } finally {
+      path.delete(current)
+    }
+  }
+  return render(value)
 }
 
 /**

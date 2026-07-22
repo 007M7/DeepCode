@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
 
-import { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -213,6 +213,64 @@ describe('HarnessSdkServer', () => {
     await server.shutdown()
     expect(mainHandle.dispose).toHaveBeenCalledOnce()
     expect(otherHandle.dispose).toHaveBeenCalledOnce()
+  })
+
+  it('reports the message-turn outcome when a later non-message turn settles before idle', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const transport = new FakeTransport()
+    const server = new HarnessSdkServer(ctx, transport) as unknown as {
+      prompt(params: { sessionId: string; contentBlocks: { type: 'text'; text: string }[] }): Promise<unknown>
+      sessions: Map<string, { handle: AgentHandle; lastTurnEnd: undefined; activePrompt: boolean }>
+      shutdown(): Promise<Record<string, never>>
+    }
+    const session = ctx.sessions.create(SessionId('message-outcome'))
+    const agent = {
+      session,
+      send(content: { type: 'text'; text: string }[]) {
+        session.append('turn/start', {
+          turn: 1,
+          trigger: { kind: 'message', source: { kind: 'user' } },
+        })
+        session.append('user/message', {
+          content,
+          source: { kind: 'user' },
+        }, { surfaceOp: 'append' })
+        session.append('turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+        session.append('turn/start', {
+          turn: 2,
+          trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
+        })
+        session.append('context/message', {
+          content: [{ type: 'text', text: 'late metadata' }],
+          source: { kind: 'plugin', plugin: 'late-metadata' },
+        }, { surfaceOp: 'append' })
+        session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+      },
+      whenIdle: () => Promise.resolve(),
+    } as unknown as Agent
+    server.sessions.set('message-outcome', {
+      handle: { agent, dispose: () => Promise.resolve() },
+      lastTurnEnd: undefined,
+      activePrompt: false,
+    })
+
+    await server.prompt({
+      sessionId: 'message-outcome',
+      contentBlocks: [{ type: 'text', text: 'bounded prompt' }],
+    })
+
+    expect(transport.notifications.findLast(notification => notification.method === 'session.finished'))
+      .toEqual({
+        method: 'session.finished',
+        params: {
+          sessionId: 'message-outcome',
+          status: 'error',
+          reason: { kind: 'max-tokens' },
+        },
+      })
+    await server.shutdown()
+    await ctx.fiber.dispose()
   })
 
   it('notifies the host when a child session is created with parent lineage', async () => {

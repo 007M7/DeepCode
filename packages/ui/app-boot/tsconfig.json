@@ -16,6 +16,9 @@
     },
     {
       "path": "../../../vendor/include"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

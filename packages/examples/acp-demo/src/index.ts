@@ -1,7 +1,7 @@
 /**
  * The ACP server app: the default agent spine ({@link @deepseek-ai/dsh-agent-spine-demo}),
- * JSONL session persistence, and the {@link @deepseek-ai/dsh-acp} bridge. It
- * writes nothing to stdout.
+ * human-command registry, JSONL session persistence, and the
+ * {@link @deepseek-ai/dsh-acp} bridge. It writes nothing to stdout.
  * It pre-creates no agents and leaves adapters, executors, and optional tools to
  * the leaf, which must likewise avoid stdout loggers. Named exports are
  * required so Loader retains this plugin's `Config` schema (see
@@ -12,10 +12,15 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
+import CommandService from '@deepseek-ai/dsh-commands'
+import * as commandGoal from '@deepseek-ai/dsh-command-goal'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionPersistenceJsonl, {
+  JsonlCompressionSchema,
+  type JsonlCompression,
+} from '@deepseek-ai/dsh-session-persistence-jsonl'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'acp-demo'
@@ -45,8 +50,12 @@ export interface Config {
   tools?: ToolsConfig
   /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
   dshHome?: string
+  /** Fallback session-title limits forwarded through agent-spine-demo. */
+  sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
+  persistenceCompression?: JsonlCompression
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
@@ -55,6 +64,10 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
+  goals?: agentCore.GoalConfig | false
+  /** Bounded transient model-request retry policy forwarded through agent-core. */
+  llmRetry?: NonNullable<agentCore.Config['llmRetry']>
 }
 
 // Each front door owns a complete, directly readable config schema; extracting
@@ -71,11 +84,15 @@ export const Config: z<Config> = z.object({
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
   dshHome: z.string(),
+  sessionTitle: agentCore.SessionTitleConfigSchema,
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
+  persistenceCompression: JsonlCompressionSchema,
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
+  goals: z.union([z.const(false), agentCore.GoalConfigSchema]),
+  llmRetry: agentCore.LlmRetryConfigSchema,
 })
 /* jscpd:ignore-end */
 
@@ -87,8 +104,14 @@ export const Config: z<Config> = z.object({
  * from the provider/model pair. No logger, no `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
-  ctx.plugin(agentCore, agentCore.pickSpineConfig(config))
+  const goals = config.goals ?? {}
+  ctx.plugin(CommandService)
+  if (goals !== false) ctx.plugin(commandGoal)
+  ctx.plugin(agentCore, { ...agentCore.pickSpineConfig(config), goals })
   ctx.plugin(UserInteractionService)
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT })
+  ctx.plugin(SessionPersistenceJsonl, {
+    root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
+    ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
+  })
   ctx.plugin(acp, { provider: config.provider, model: config.model })
 }

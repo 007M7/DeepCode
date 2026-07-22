@@ -6,7 +6,7 @@ This package is the interface tier of the compaction capability, split so each c
 
 | Package | Role |
 |---|---|
-| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + tool-pairing boundary helpers + the shared transcript renderer (`renderTranscript`/`renderContentBlocks`) |
+| `@deepseek-ai/dsh-compact` (this) | the interface: abstract service + `compact/*` events + `CompactionResult` + tool-pairing boundary helpers |
 | `@deepseek-ai/dsh-compact-basic` | a backend: `ctx.tokenMeter` pressure + token-budget retention + `llm.stream()` summarization |
 | `@deepseek-ai/dsh-tool-compact` (deferred) | the model-facing `/compact` tool over `ctx.compact` |
 
@@ -38,7 +38,7 @@ The private per-session cache is keyed by `session.surface.replaceGeneration` an
 1. appends `compact/start` (log-only) — acquires the lock,
 2. summarizes the range,
 3. appends `compact/summary` (log-only) — provenance: summary, range, shadowed seqs, token count, and provider/model call envelope,
-4. appends a single `user/message` with `surfaceOp: { op: 'replace', start, end }` carrying the summary — **the only surface mutation**,
+4. appends a single `user/message` with `surfaceOp: { op: 'replace', start, end }` carrying the summary — **the only surface mutation in this operation**,
 5. appends `compact/end` (log-only) — releases the lock.
 
 The surface mutation (step 4) sits **inside** the lock bracket: `compact/end` is the last event, so the lock is never released before the mutation lands. A crash between `compact/start` and `compact/end` therefore leaves a detectable orphaned lock (a `compact/start` with no matching `compact/end`) rather than a `compact/end` that falsely claims compaction finished while the surface was never shadowed.
@@ -47,7 +47,7 @@ The surface mutation (step 4) sits **inside** the lock bracket: `compact/end` is
 
 ## Blocking
 
-Compaction is serialized via a log-recorded lock: `compactRegion` refuses to start if the last `compact/start` has no matching `compact/end` after it. The lock is the log (not an in-memory mutex), so it survives replay and a persistence backend can detect an orphaned `compact/start` on reload. The lock brackets the **whole** operation — summarization, the `compact/summary` provenance record, *and* the `user/message` surface replacement all happen before `compact/end` — so a `session/event` listener firing on `compact/end` never observes the lock free while the surface mutation is still pending. `compact/end` is appended even when summarization throws, so a failure can never wedge the lock.
+Compaction is serialized via a log-recorded lock: `compactRegion` refuses to start if the last `compact/start` has no matching `compact/end` after it. The lock is the log (not an in-memory mutex), so it survives replay and a persistence backend can detect an orphaned `compact/start` on reload. The lock brackets the **whole** operation — summarization, the `compact/summary` provenance record, *and* the `user/message` surface replacement all happen before `compact/end` — so a `session/event` listener firing on `compact/end` never observes the lock free while the surface mutation is still pending. The basic backend revalidates the selected surface after summarization: a surface change rejects, while an unrelated log-only append does not invalidate the replacement. `compact/end` is appended even when summarization throws, so a failure can never wedge the lock.
 
 ## Events
 
@@ -63,7 +63,7 @@ Subclass `CompactService`, implement `compactIfNeeded` and `compactRegion`, and 
 
 #### What the model sees
 
-A successful implementation replaces an older surface range with one user-role summary checkpoint; the raw events stay logged but stop appearing in derived model messages. The seam itself performs no rewrite.
+A successful implementation replaces an older surface range with one user-role summary checkpoint — a `user/message` carrying `surfaceOp: { op: 'replace', start, end }`; the raw events stay logged but stop appearing in derived model messages. The seam itself performs no rewrite.
 
 #### Token effect
 
@@ -73,22 +73,8 @@ Zero direct tokens from this interface. A backend trades many retained history t
 
 A successful backend replacement invalidates reuse from the first shadowed history token; the seam itself does not alter a request.
 
-### Transcript supplied to a compaction consumer
-
-#### What the model sees
-
-`renderTranscript()` joins entries with one blank line and renders them exactly as `User: <content>`, `Assistant: <content>`, `Tool result (call <callId>): <content>`, `Tool error (call <callId>): <content>`, `[Context: <content>]`, or `[Steering: <content>]`. Non-text blocks render exactly as `[reasoning: <text>]`, `[tool-call: <name>(<arguments>)]`, `[tool-result: <content>]`, `[tool-result]`, or `[<block-type>]`.
-
-#### Token effect
-
-Data-dependent input tokens are paid only by the auxiliary model or consumer that requests this transcript; the conversation model does not receive a duplicate transcript.
-
-#### KV Cache effect
-
-No conversation-cache invalidation. A consumer's auxiliary request can reuse only the exact prefix produced by this rendering; changed or compacted entries invalidate reuse from their first difference.
-
 ## Known Limitations and Deferred Work
 
 - **No model-facing consumer tier yet** — `@deepseek-ai/dsh-tool-compact` (the `/compact` tool) is deferred; compaction is reachable only via direct `ctx.compact` calls or a backend's auto listener.
-- **Single-unit overflow is out of contract** — one indivisible unit (a closed tool pair or a large pasted `user/message`) alone exceeding the budget cannot be compacted.
+- **Some single-unit overflow is out of contract** — balanced summary compaction cannot split one indivisible unit. The optional pruning companion can still repair a closed tool pair when text-bearing tool-result bulk is removable; a large non-tool node or a tool unit whose non-prunable remainder is oversized cannot be compacted.
 - **An envelope that alone approaches the window is not surface-compaction work** — compaction shrinks derived history, never the system prompt, tools, or session prefix.

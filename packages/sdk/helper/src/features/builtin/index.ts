@@ -347,7 +347,7 @@ config:
       id: 'ask-user',
       summary: 'Ask the user from the model loop',
       mode: 'single',
-      supportedInterfaces: ['acp', 'stdio'],
+      supportedInterfaces: ['acp', 'tui'],
       options: [{
         id: 'default',
         label: 'ask_user_question tool',

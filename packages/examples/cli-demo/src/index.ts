@@ -11,7 +11,10 @@ import z from 'schemastery'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionPersistenceJsonl, {
+  JsonlCompressionSchema,
+  type JsonlCompression,
+} from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 
 const DEFAULT_PERSISTENCE_ROOT = './.sessions'
@@ -34,14 +37,20 @@ export interface Config {
   tools?: ToolsConfig
   /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
   dshHome?: string
+  /** Fallback session-title limits forwarded through agent-spine-demo. */
+  sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
+  persistenceCompression?: JsonlCompression
   /** Skill registry, local-provider, and model-facing consumer config. */
   skills?: agentCore.SkillConfig
   /** Model-facing bash tool config forwarded through agent-spine-demo. */
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task control-tool config forwarded through agent-spine-demo. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Bounded transient model-request retry policy forwarded through agent-spine-demo. */
+  llmRetry?: NonNullable<agentCore.Config['llmRetry']>
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
 }
@@ -54,14 +63,17 @@ export const Config: z<Config> = z.object({
   model: z.string().required(),
   maxParallelToolCalls: z.number().step(1).min(1),
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
+  persistenceCompression: JsonlCompressionSchema,
   persona: z.string(),
   dshHome: z.string(),
+  sessionTitle: agentCore.SessionTitleConfigSchema,
   skills: agentCore.SkillConfigSchema,
   // Absent means lexicographic order; schemastery's native array default is [].
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
+  llmRetry: agentCore.LlmRetryConfigSchema,
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
 /* jscpd:ignore-end */
@@ -78,5 +90,8 @@ export function apply(ctx: Context, config: Config): void {
     ...agentCore.pickSpineConfig(config),
     agents: [{ id: SessionId('main'), provider: config.provider, model: config.model, cwd: process.cwd() }],
   })
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT })
+  ctx.plugin(SessionPersistenceJsonl, {
+    root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
+    ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
+  })
 }

@@ -325,13 +325,19 @@ describe('probeTimeoutMs config', () => {
   })
 
   it('bounds the default probes: a launcher slower than the configured timeout reads as unusable', async () => {
-    // The same sleeping launcher passes under the default 5000ms budget and
-    // fails under a 250ms one — the config demonstrably reaches spawnSync.
+    // The same 1s launcher reads usable under a generous budget and unusable
+    // under a 250ms one — the config demonstrably reaches spawnSync. Both bounds
+    // keep a wide margin from the launcher's 1s runtime so a loaded host (where
+    // spawnSync blocks the worker and fork/exec latency inflates wall-clock)
+    // cannot flip either verdict; the vitest timeout clears the patient budget.
     const dir = mkdtempSync(join(tmpdir(), 'dsh-slow-landlock-'))
     const launcher = join(dir, 'landlock-run')
     writeFileSync(launcher, '#!/bin/sh\nsleep 1\necho "landlock: fully enforced"\nexit 0\n', { mode: 0o755 })
 
-    const patient = await setup({}, { platform: 'linux', probeBwrap: () => false, landlockLauncher: launcher })
+    const patient = await setup(
+      { probeTimeoutMs: 15_000 },
+      { platform: 'linux', probeBwrap: () => false, landlockLauncher: launcher },
+    )
     expect(patient.sandbox.confine(['true'], RO).enforcement).toBe('full')
 
     const impatient = await setup(
@@ -339,7 +345,7 @@ describe('probeTimeoutMs config', () => {
       { platform: 'linux', probeBwrap: () => false, landlockLauncher: launcher },
     )
     expect(() => impatient.sandbox.confine(['true'], RO)).toThrow(expect.objectContaining({ code: SANDBOX_UNAVAILABLE }))
-  })
+  }, 30_000)
 })
 
 describe('the default seatbelt probe (sandbox-exec contract)', () => {

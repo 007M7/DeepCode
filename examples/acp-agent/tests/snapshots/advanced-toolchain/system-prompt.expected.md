@@ -15,10 +15,14 @@ Check the [exit code: N] marker on every bash result; investigate failures befor
 
 Track every background task id you start. You are notified in-session when a task finishes — do not busy-poll or sleep on one; keep working on independent steps and do not duplicate a running task's work. Before giving a final answer, collect every still-relevant task with task_output (set wait: true only when you are genuinely blocked on it), and task_kill tasks that stopped mattering.
 
+Use goal tools for one long-running completion objective in the current session. create_goal may infer goal intent from a direct human request in any language; do not create a goal for routine single-turn work. Call get_goal before update_goal and copy its exact goal_id and revision. After session resume or fork, an active goal is disarmed: when a human asks to continue or resume in any wording or language, use update_goal action resume to rearm it. Mark complete only when the objective is actually achieved. Mark blocked only after the same blocking condition persists for at least 3 consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, or useful remaining work is not blocked.
+
 Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).
 <!-- dsh-user-approval-policy:never -->
 
 Use the workflow tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.
+
+Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop or fresh-agent iterative execution. Each Ralph round starts a fresh child with no conversation seed and uses the shared workspace as durable memory. Completion and blockers are worker reports, not independent evaluation. Use same-session goal tools for ordinary long-running objectives, and plain subagents or workflows for bounded delegation and fan-out.
 
 ## Writing code for run_code
 
@@ -33,6 +37,27 @@ The available tools:
 
 ```ts
 declare const tools: {
+  /** Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. Send one or more questions, each with a stable id that will be echoed in the answer. */
+  ask_user_question(args: {
+    /** Questions to ask the user before continuing. */
+    questions: {
+      /** Stable id for this question; echoed in the answer. */
+      id: string;
+      /** The specific question to ask the user. */
+      question: string;
+      /** Optional short heading for the question, such as "Confirm" or "Choose Mode". */
+      header?: string;
+      /** Optional choices to show the user. If you recommend one, put it first and append "(Recommended)" to that label. */
+      options?: {
+        /** Short user-facing option label. */
+        label: string;
+        /** One sentence explaining the tradeoff or impact. */
+        description?: string;
+      }[];
+      /** Whether the user may select more than one option. Defaults to false. */
+      multi_select?: boolean;
+    }[];
+  }): Promise<string>;
   /** Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a task id immediately; read its output with `task_output` and stop it with `task_kill`. Attempting a command the sandbox may deny is safe and expected: run it and read the marker rather than assuming the denial. When a command is denied and a wider mode would let it succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a one-sentence `justification`. Do not detour through chat to ask permission first — the approval prompt raised by that retry is how the user consents. If the session states approval prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. Never escalate speculatively: ground the request in a real denial — normally the one this command just hit; escalating up front is fine only when this session already denied the same access. A rejected escalation is final for that command — stop and explain, never work around it — but it does not forbid attempting or escalating other commands later. */
   bash(args: {
     /** The bash command to execute. */
@@ -67,6 +92,13 @@ declare const tools: {
     /** The dynamic mount id returned by cordis_mount (e.g. "dyn-1"). */
     id: string;
   }): Promise<string>;
+  /** Create one persisted same-session completion goal when the current direct human request is a long-running objective that should continue across autonomous goal rounds. You may infer that intent without requiring the user to say "create a goal". Do not use this for trivial single-turn work. Execution rejects non-human and subagent authority. */
+  create_goal(args: {
+    /** The concrete completion objective inferred from the direct human request. */
+    objective: string;
+    /** Optional positive safe-integer limit on automatic continuation rounds. */
+    max_goal_rounds?: number;
+  }): Promise<string>;
   /** Edit an existing UTF-8 text file by replacing literal text. */
   edit(args: {
     /** Path to edit, resolved by the filesystem backend. */
@@ -81,6 +113,20 @@ declare const tools: {
     sandbox_permissions?: "workspace-write" | "danger-full-access";
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. */
     justification?: string;
+  }): Promise<string>;
+  /** Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. Send the COMPLETE plan as markdown, starting with a # heading that names it. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again. */
+  exit_plan_mode(args: {
+    /** The complete plan, as markdown, starting with a # heading that names it. */
+    plan: string;
+  }): Promise<string>;
+  /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal. */
+  get_goal(args: Record<string, unknown>): Promise<string>;
+  /** Run a foreground fresh-agent Ralph loop toward one immutable objective. Use only when the direct human explicitly asks for Ralph or fresh-agent iteration. Each round opens a new child with no parent conversation or prior child session; the shared workspace is long-term memory, and only a bounded structured report crosses rounds. The call returns when a worker reports completion or a concrete blocker, or at the round limit. Ordinary long-running same-session work belongs to goal tools. */
+  ralph(args: {
+    /** The immutable completion objective for every fresh Ralph round. */
+    objective: string;
+    /** Optional positive safe-integer round cap, bounded by the deployment ceiling. */
+    maxRounds?: number;
   }): Promise<string>;
   /** Read a UTF-8 text file and return line-numbered content. */
   read(args: {
@@ -141,6 +187,21 @@ declare const tools: {
       /** pending (not started) | in_progress (now) | completed (done). */
       status: "pending" | "in_progress" | "completed";
     })[];
+  }): Promise<string>;
+  /** Update the exact current goal revision. edit, pause, and resume require a direct top-level human request. During an automatic continuation of the current goal, complete and blocked are also allowed. blocked is rejected before the configured minimum round count; the model remains responsible for judging that the same condition persisted across those rounds and must explain it in blocked_reason. */
+  update_goal(args: {
+    /** Exact id returned by get_goal. */
+    goal_id: string;
+    /** Exact positive revision returned by get_goal. */
+    revision: number;
+    /** edit | pause | resume | complete | blocked */
+    action: "edit" | "pause" | "resume" | "complete" | "blocked";
+    /** Replacement objective; valid only with action edit. */
+    objective?: string;
+    /** Replacement cap; valid only with action edit. */
+    max_goal_rounds?: number;
+    /** Concrete blocking condition; required only with action blocked. */
+    blocked_reason?: string;
   }): Promise<string>;
   /** Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn. The workflow's identity rides the `meta` parameter as JSON: required `name` (short kebab-case) and `description` strings, optional `whenToUse` string and `phases` array (`{title, detail?, provider?, model?}`). The `script` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO `export const meta` statement — meta is a parameter, not code), running with top-level await; end with `return <value>` — the value must be JSON-serializable and is this tool's result. Script-body hooks: - `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const — no oneOf/pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly. - `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages. - `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`. - `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim. Misused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) throw errors that ALWAYS kill the script — they never dissolve into a per-item `null`. Constraints: concurrency and total-agent caps apply; no filesystem, network, timers, or Node.js APIs are provided — the agents do the work, the script only coordinates them. The run executes in the foreground: this call returns when the whole script finishes. */
   workflow(args: {

@@ -12,6 +12,8 @@ import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 
+const testToolSignal = new AbortController().signal
+
 async function tempDir(name: string): Promise<string> {
   return await import('node:fs/promises').then(fs => fs.mkdtemp(join(tmpdir(), `dsh-${name}-`)))
 }
@@ -219,6 +221,7 @@ describe('dsh-tool-skill', () => {
     const ctx = await setup(home)
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('c1'),
       name: 'skill',
       arguments: { name: 'project-skill' },
@@ -271,9 +274,9 @@ describe('dsh-tool-skill', () => {
       content: 'Provider instructions.',
     })
 
-    const opaque = await ctx.tools.execute({ callId: CallId('c2'), name: 'skill', arguments: { name: 'opaque-skill' } })
-    const url = await ctx.tools.execute({ callId: CallId('c3'), name: 'skill', arguments: { name: 'url-skill' } })
-    const provider = await ctx.tools.execute({ callId: CallId('c4'), name: 'skill', arguments: { name: 'provider-skill' } })
+    const opaque = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c2'), name: 'skill', arguments: { name: 'opaque-skill' } })
+    const url = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c3'), name: 'skill', arguments: { name: 'url-skill' } })
+    const provider = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c4'), name: 'skill', arguments: { name: 'provider-skill' } })
 
     if (opaque.content[0]?.type !== 'text' || url.content[0]?.type !== 'text' || provider.content[0]?.type !== 'text') {
       throw new Error('expected text tool results')
@@ -295,7 +298,7 @@ describe('dsh-tool-skill', () => {
       content: 'Rogue instructions.',
     })
 
-    const result = await ctx.tools.execute({ callId: CallId('c5'), name: 'skill', arguments: { name: 'rogue-resource-skill' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c5'), name: 'skill', arguments: { name: 'rogue-resource-skill' } })
 
     expect(result.isError).toBe(true)
     const block = result.content[0]
@@ -309,9 +312,9 @@ describe('dsh-tool-skill', () => {
     await writeFile(join(home, '.dsh/skills/hidden-skill/SKILL.md'), '---\nname: hidden-skill\ndescription: Hidden skill\ndisableModelInvocation: true\n---\n\nHidden instructions.\n')
     const ctx = await setup(home)
 
-    const unknown = await ctx.tools.execute({ callId: CallId('c1'), name: 'skill', arguments: { name: 'missing' } })
-    const invalid = await ctx.tools.execute({ callId: CallId('c2'), name: 'skill', arguments: { name: 'Bad_Name' } })
-    const disabled = await ctx.tools.execute({ callId: CallId('c3'), name: 'skill', arguments: { name: 'hidden-skill' } })
+    const unknown = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'skill', arguments: { name: 'missing' } })
+    const invalid = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c2'), name: 'skill', arguments: { name: 'Bad_Name' } })
+    const disabled = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c3'), name: 'skill', arguments: { name: 'hidden-skill' } })
 
     expect(unknown.isError).toBe(true)
     expect(invalid.isError).toBe(true)

@@ -2,6 +2,9 @@
  * Surface layer on top of the session event log: an ordered view of events
  * that produce LLM messages. The append-only log remains the source of truth.
  *
+ * Browser-safe: web clients consume this subpath export, so it must stay free
+ * of `node:` imports (they break the vite bundle).
+ *
  * @module @deepseek-ai/dsh-session/surface
  */
 
@@ -187,11 +190,55 @@ function replacementRange(
   }
 }
 
+/**
+ * Deep structural equality over the session-event JSON value domain
+ * (null/boolean/number/string, arrays, plain objects). Replaces
+ * `node:util`'s isDeepStrictEqual to keep this module browser-safe.
+ */
+function isDeepEqualJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((item, i) => isDeepEqualJson(item, b[i]))
+  }
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  const aKeys = Object.keys(a)
+  const bRecord = b as Record<string, unknown>
+  if (aKeys.length !== Object.keys(b).length) return false
+  return aKeys.every(key => Object.hasOwn(b, key) && isDeepEqualJson((a as Record<string, unknown>)[key], bRecord[key]))
+}
+
+/** Restrict a tool-result replacement to one current result's content. */
+function assertToolResultRewrite(
+  event: SessionEvent,
+  shadowedSeqs: readonly number[],
+  events: readonly SessionEvent[],
+): void {
+  if (event.type !== 'tool/result') return
+  if (shadowedSeqs.length !== 1) {
+    throw new Error('tool/result surface replacement must rewrite exactly one current node')
+  }
+  for (const originalSeq of shadowedSeqs) {
+    const original = events[originalSeq]
+    if (original?.type !== 'tool/result') {
+      throw new Error('tool/result surface replacement must target a current tool/result')
+    }
+    const originalRest = { ...original.data } as Record<string, unknown>
+    const replacementRest = { ...event.data } as Record<string, unknown>
+    delete originalRest['content']
+    delete replacementRest['content']
+    if (!isDeepEqualJson(originalRest, replacementRest)) {
+      throw new Error('tool/result surface replacement may change only content')
+    }
+  }
+}
+
 /** Validate one event at its replay boundary and prepare its atomic fold transition. */
 function planSurfaceEvent(
   state: SurfaceFoldState,
   event: SessionEvent,
   expectedSeq: number,
+  events: readonly SessionEvent[],
 ): SurfacePlan | undefined {
   if (event.seq !== expectedSeq) {
     throw new Error(`session event seq ${event.seq} is not contiguous; expected ${expectedSeq}`)
@@ -204,6 +251,7 @@ function planSurfaceEvent(
   }
   const range = replacementRange(state, surfaceOp)
   assertProvenance(event, range.shadowedSeqs)
+  assertToolResultRewrite(event, range.shadowedSeqs, events)
   return {
     kind: 'replace',
     seq: event.seq,
@@ -218,8 +266,9 @@ function applySurfaceEvent(
   state: SurfaceFoldState,
   event: SessionEvent,
   expectedSeq: number,
+  events: readonly SessionEvent[],
 ): SurfaceFoldReplacement | undefined {
-  const plan = planSurfaceEvent(state, event, expectedSeq)
+  const plan = planSurfaceEvent(state, event, expectedSeq, events)
   if (plan?.kind === 'append') {
     state.nodes.push(plan.seq)
   } else if (plan?.kind === 'replace') {
@@ -239,13 +288,13 @@ function applySurfaceEvent(
  * Replay a complete session log through the canonical surface fold.
  * @param events - session events in contiguous seq order.
  * @returns detached current sequences and replacement history.
- * @throws when an event violates surface metadata, provenance, or range rules.
+ * @throws when an event violates surface metadata, provenance, range, or tool-result rewrite rules.
  */
 export function foldSurface(events: readonly SessionEvent[]): SurfaceFoldResult {
   const state = createFoldState()
   const replacements: SurfaceFoldReplacement[] = []
   for (const [index, event] of events.entries()) {
-    const replacement = applySurfaceEvent(state, event, index)
+    const replacement = applySurfaceEvent(state, event, index, events)
     if (replacement !== undefined) replacements.push(replacement)
   }
   return { nodes: [...state.nodes], replacements }
@@ -266,7 +315,7 @@ export class SurfaceManager implements SessionSurface {
    */
   validateNext(event: SessionEvent): void {
     if (this._lastProcessedSeq < this.log.length - 1) this._processDelta()
-    planSurfaceEvent(this._state, event, this.log.length)
+    planSurfaceEvent(this._state, event, this.log.length, this.log)
   }
 
   /** Monotonic count of folded positional replacements. */
@@ -285,7 +334,7 @@ export class SurfaceManager implements SessionSurface {
   private _processDelta(): void {
     for (let i = this._lastProcessedSeq + 1; i < this.log.length; i++) {
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded by the loop condition
-      applySurfaceEvent(this._state, this.log[i]!, i)
+      applySurfaceEvent(this._state, this.log[i]!, i, this.log)
       this._lastProcessedSeq = i
     }
   }

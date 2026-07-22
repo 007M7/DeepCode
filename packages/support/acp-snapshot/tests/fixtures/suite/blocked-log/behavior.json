@@ -3,7 +3,7 @@
   "logs": [{
     "file": "b/main.jsonl",
     "lines": [
-      { "type": "session", "id": "{{SID}}", "createdAt": 400, "cwd": "{{CWD}}" },
+      { "type": "session", "id": "{{SID}}", "createdAt": 400, "cwd": "{{CWD}}", "delegationDepth": 0 },
       { "type": "hook/result", "seq": 1, "time": 8, "data": { "decision": "block", "durationMs": 37 } }
     ]
   }]

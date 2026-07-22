@@ -10,7 +10,7 @@ import { resolve } from 'node:path'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
-import { SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { findLastMessageTurnEnd, SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -93,7 +93,9 @@ export class HarnessSdkServer {
     this.disposers.push(ctx.on('session/event', (session, event) => {
       if (event.type === 'turn/end') {
         const rec = this.sessions.get(String(session.id))
-        if (rec) rec.lastTurnEnd = event.data.reason
+        if (rec && findLastMessageTurnEnd(session.events)?.seq === event.seq) {
+          rec.lastTurnEnd = event.data.reason
+        }
       }
       this.transport.notify('session.event', { sessionId: String(session.id), event })
     }))

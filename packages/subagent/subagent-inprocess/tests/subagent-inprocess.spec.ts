@@ -4,22 +4,33 @@ import { type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import * as Invariants from '@deepseek-ai/dsh-invariants'
+import InvariantService from '@deepseek-ai/dsh-invariants'
+import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { maxTokensResponse, MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
+async function mountInvariants(ctx: Context): Promise<void> {
+  await ctx.plugin(InvariantService)
+  await ctx.plugin(SessionInvariant)
+  await ctx.plugin(AgentInvariant)
+  await ctx.plugin(AgentLoopInvariant)
+}
+
 async function setup(script: Script) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(Invariants)
+  await mountInvariants(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
-  ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
+  const adapter = new MockAdapter(script)
+  ctx.llm.registerAdapter(['mock'], adapter)
   const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
-  return { ctx, parent }
+  return { ctx, parent, adapter }
 }
 
 function request(parent: Agent, signal = new AbortController().signal) {
@@ -44,6 +55,36 @@ describe('startInProcessRun', () => {
     expect(ctx.agents.get(run.id)).toBeUndefined()
   })
 
+  it('reports the message-turn outcome when a later non-message turn completes during flush', async () => {
+    const { ctx, parent } = await setup([maxTokensResponse('partial answer')])
+    let injected = false
+    ctx.on('session/flush', (session) => {
+      if (injected || session.header.parentSession === undefined) return
+      const lastEnd = session.events.findLast(event => event.type === 'turn/end')
+      if (lastEnd?.type !== 'turn/end' || lastEnd.data.reason.kind !== 'max-tokens') return
+      injected = true
+      const turn = lastEnd.data.turn + 1
+      session.append('turn/start', {
+        turn,
+        trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
+      })
+      session.append('context/message', {
+        content: [{ type: 'text', text: 'late metadata' }],
+        source: { kind: 'plugin', plugin: 'late-metadata' },
+      }, { surfaceOp: 'append' })
+      session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    })
+
+    const run = await startInProcessRun(request(parent), {})
+    const result = await run.result
+    const child = ctx.agents.get(run.id)!
+
+    expect(child.session.events.findLast(event => event.type === 'turn/end'))
+      .toMatchObject({ data: { reason: { kind: 'completed' } } })
+    expect(result.stopReason).toBe('max-tokens')
+    await run.dispose()
+  })
+
   it('seeds a forked child but reads only the child-owned output', async () => {
     const { ctx, parent } = await setup([textResponse('parent answer'), textResponse('child answer')])
     parent.send([{ type: 'text', text: 'parent question' }])
@@ -58,6 +99,43 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
+  it('persists the child depth in its session header', async () => {
+    const { ctx, parent } = await setup([textResponse('child answer')])
+    const run = await startInProcessRun(request(parent), {})
+    await run.result
+    // The recursion budget is durable session data, not only runtime options —
+    // a depth that lived only in AgentOptions would reset to 0 on resume.
+    expect(ctx.agents.get(run.id)!.session.header.delegationDepth).toBe(1)
+    await run.dispose()
+  })
+
+  it('counts a RESUMED child by its persisted header depth, not the absent runtime depth', async () => {
+    // Resume rebuilds runtime options, so the durable header must keep this
+    // depth-1 child from delegating as though it were top-level.
+    const { ctx } = await setup([textResponse('unused')])
+    const resumed = (await ctx.agents.create({
+      sessionId: SessionId('resumed-child'),
+      meta: { parentSession: SessionId('root'), delegationDepth: 1 },
+      agentOptions: { provider: 'mock', model: 'mock' },
+      signal: new AbortController().signal,
+    })).agent
+    await expect(startInProcessRun({ ...request(resumed), maxDepth: 1 }, {}))
+      .rejects.toMatchObject({ name: 'SubagentDepthError', attemptedDepth: 2, maxDepth: 1 })
+  })
+
+  it('lets runtime options deepen but never lower the persisted depth', async () => {
+    const { ctx } = await setup([textResponse('unused')])
+    const parent = (await ctx.agents.create({
+      sessionId: SessionId('deep-parent'),
+      meta: { delegationDepth: 2 },
+      agentOptions: { provider: 'mock', model: 'mock', subagentDepth: 1 },
+      signal: new AbortController().signal,
+    })).agent
+    // Persisted 2 vs runtime 1: the child is depth 3, so maxDepth 2 rejects.
+    await expect(startInProcessRun({ ...request(parent), maxDepth: 2 }, {}))
+      .rejects.toMatchObject({ name: 'SubagentDepthError', attemptedDepth: 3, maxDepth: 2 })
+  })
+
   it('rejects invalid and exceeded depth before publication', async () => {
     const { parent } = await setup([])
     await expect(startInProcessRun({ ...request(parent), maxDepth: -1 }, {}))
@@ -65,11 +143,11 @@ describe('startInProcessRun', () => {
     await expect(startInProcessRun({ ...request(parent), maxDepth: 0 }, {}))
       .rejects.toMatchObject({ name: 'SubagentDepthError' })
     for (const value of [Number.NaN, 1.5, -1, -0, Number.MAX_SAFE_INTEGER + 1]) {
-      const malformed = { options: { subagentDepth: value } } as unknown as Agent
+      const malformed = { options: { subagentDepth: value }, session: { header: {} } } as unknown as Agent
       await expect(startInProcessRun(request(malformed), {}))
         .rejects.toThrow('agent subagentDepth must be a non-negative safe integer')
     }
-    const maxParent = { options: { subagentDepth: Number.MAX_SAFE_INTEGER } } as unknown as Agent
+    const maxParent = { options: { subagentDepth: Number.MAX_SAFE_INTEGER }, session: { header: {} } } as unknown as Agent
     await expect(startInProcessRun(request(maxParent), {})).rejects.toBeInstanceOf(RangeError)
   })
 
@@ -86,12 +164,16 @@ describe('startInProcessRun', () => {
   })
 
   it('uses the request signal after publication and dispose as cancellation paths', async () => {
-    const { parent } = await setup(['hang', 'hang'])
+    const { parent, adapter } = await setup(['hang', 'hang'])
     const controller = new AbortController()
     const signalled = await startInProcessRun(request(parent, controller.signal), {})
     await new Promise(resolve => setTimeout(resolve, 30))
     controller.abort('stop child')
     await expect(signalled.result).resolves.toMatchObject({ stopReason: 'aborted' })
+    expect(adapter.requests[0]?.signal?.reason).toEqual({ kind: 'parent' })
+    const child = parent.ctx.agents.get(signalled.id)
+    const turnEnd = child?.session.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
     await signalled.dispose()
 
     const disposed = await startInProcessRun(request(parent), {})
