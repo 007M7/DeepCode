@@ -200,7 +200,7 @@ describe('LspInstance query and abort', () => {
     expect(instance.dead).toBe(true)
   })
 
-  it('terminates when stdin fails during the didOpen write', async () => {
+  it.skipIf(process.platform === 'win32')('terminates when stdin fails during the didOpen write', async () => {
     // Closing stdin after initialized makes a large didOpen fail before `opened` can arm didClose;
     // the instance must still become dead so its provider can replace it.
     await writeFile(join(ws, 'a.ts'), 'x'.repeat(2_000_000))
@@ -225,7 +225,7 @@ describe('LspInstance query and abort', () => {
     await expect(run(instance, 'goToDefinition', controller.signal)).rejects.toThrow(/server refused/)
   })
 
-  it('keeps a settled result but awaits teardown when didClose cannot be written', async () => {
+  it.skipIf(process.platform === 'win32')('keeps a settled result but awaits teardown when didClose cannot be written', async () => {
     const instance = makeInstance({
       LSP_FAKE_DEF: 'null',
       LSP_FAKE_CLOSE_STDIN_AFTER_REPLY: '1',

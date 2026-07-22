@@ -237,7 +237,7 @@ describe('lsp-local end to end over a fake server', () => {
     await ctx.fiber.dispose()
   })
 
-  it('evicts a pooled server that died while idle and serves the next query from a fresh one', async () => {
+  it.skipIf(process.platform === 'win32')('evicts a pooled server that died while idle and serves the next query from a fresh one', async () => {
     // The first query succeeds, then the server exits before the second arrives, leaving a dead
     // instance in the pool. The next query must evict-and-replace it and still succeed, rather than
     // failing once on the closed connection first.

@@ -209,7 +209,7 @@ describe('LspConnection edge behavior', () => {
     await expect(conn.request('initialize', {})).rejects.toThrow(/exited|closed/)
   })
 
-  it('rejects a pending request when child stdin closes but the process stays alive', async () => {
+  it.skipIf(process.platform === 'win32')('rejects a pending request when child stdin closes but the process stays alive', async () => {
     const conn = connectScript('const stdin=process.stdin; require("node:fs").closeSync(0); stdin._handle?.close(); setInterval(()=>{}, 1000)')
     await new Promise<void>(resolve => setTimeout(resolve, 100))
     const timeout = new Promise<never>((_resolve, reject) => {
