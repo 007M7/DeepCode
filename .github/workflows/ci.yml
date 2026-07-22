@@ -35,8 +35,7 @@ jobs:
     runs-on: dsh-ubuntu-24-04-96core
     name: node 24 / complete
     env:
-      DSH_COVERAGE_MAX_WORKERS: '12'
-      DSH_ESLINT_CACHE: '1'
+      DSH_COVERAGE_MAX_WORKERS: '16'
       DSH_ESLINT_CONCURRENCY: '16'
       DSH_GATE_CONCURRENCY: '12'
       DSH_PUBLINT_CONCURRENCY: '16'
@@ -64,13 +63,6 @@ jobs:
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
-      - uses: actions/cache/restore@v4
-        with:
-          path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
       - name: Install dependencies and prepare bubblewrap
         run: |
@@ -170,12 +162,6 @@ jobs:
       DSH_PUBLINT_CONCURRENCY: '16'
     steps:
       - uses: actions/checkout@v6
-
-      - name: Enable Developer Mode (symlink support)
-        shell: pwsh
-        run: >-
-          reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
-          /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
 
       - uses: actions/setup-node@v6
         with:
