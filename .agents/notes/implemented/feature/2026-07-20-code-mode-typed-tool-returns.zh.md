@@ -49,7 +49,7 @@ declare const tools: {
 
 ### 绑定值与失败
 
-分发前，桥接层会把绑定参数快照为无损 JSON，并为执行和持久摘要事件分别创建独立副本。`undefined`、非有限数、`-0`、稀疏数组、循环引用、函数和非普通对象都会使该调用在工具运行前 reject。成功分发会返回 `ToolExecutionResult.value`；Native `content`、元数据和内部错误信息不会传入程序。
+分发前，桥接层会把绑定参数快照为无损 JSON，再对分离后的值生成一次快照，供独立的持久摘要事件使用。宿主侧的值分离、执行数据的不可变处理与输出 schema 投影均采用迭代遍历，而不使用嵌套结构化克隆或递归冻结。`undefined`、非有限数、`-0`、稀疏数组、循环引用、函数和非普通对象都会使该调用在工具运行前 reject。成功分发会返回 `ToolExecutionResult.value`；Native `content`、元数据和内部错误信息不会传入程序。
 
 worker 暴露的是真正用于 `tools` 绑定失败的 `ToolCallError` 构造函数，因此 `error instanceof ToolCallError` 能够成立。该错误包含标准的 `Error` 消息和确切的 `toolName`，并有意省略 `ToolFailure.info`、错误代码与 Native 内容。这是一项用于控制流的异常契约，而不是供程序分类的失败联合。
 

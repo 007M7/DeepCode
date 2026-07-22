@@ -7,7 +7,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
-import type { Config, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import type { Config, JsonSchemaNode, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { JsonValue, SessionEventMap } from '@deepseek-ai/dsh-session'
@@ -128,6 +128,30 @@ describe('mode-aware wire contribution', () => {
     expect(sdk?.text).toContain('declare const tools: {')
     expect(sdk?.text).toContain('echo: {')
     expect(sdk?.text).not.toContain('run_code:')
+  })
+
+  it('projects deeply nested output schemas into the Code Mode SDK without structured-clone recursion', async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'code' })
+    let output: JsonSchemaNode = { type: 'string' }
+    for (let depth = 0; depth < 5_000; depth++) {
+      output = { oneOf: [output, { type: 'null' }] }
+    }
+    ctx.tools.register({
+      name: 'deep_output',
+      description: 'Return a deeply nested output union.',
+      parameters: { type: 'object', properties: {} },
+      output: {
+        schema: output,
+        render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : 'null' }],
+      },
+      execute() { return Promise.resolve('ok') },
+    })
+
+    const assembly = await systemPrompt.assemble()
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
+
+    expect(sdk).toContain('deep_output: Record<string, JsonValue>;')
+    expect(sdk).toContain('deep_output: string | null')
   })
 
   it.each(['code', 'both'] as const)('treats expert assembly output as authoritative in mode %s', async (mode) => {
@@ -809,6 +833,57 @@ describe('the run_code dispatch bridge', () => {
     // None dispatched or logged.
     expect(calls).toEqual([])
     expect(events.filter(event => event.type === 'tool/code-dispatch')).toEqual([])
+  })
+
+  it('dispatches and durably logs binding arguments deeper than the structured-clone call stack', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const depth = 5_000
+    let observedDepth = 0
+    let observedLeaf: JsonValue | undefined
+    ctx.tools.register(defineTool({
+      name: 'deep_args',
+      description: 'Measure a deeply nested JSON argument.',
+      parameters: { nested: { type: 'json', required: true } },
+      output: {
+        schema: { type: 'integer' },
+        render: (_args, value) => [{ type: 'text', text: String(value) }],
+      },
+      execute(args) {
+        let cursor = args.nested
+        while (Array.isArray(cursor)) {
+          if (cursor.length !== 1) throw new Error('expected one item per nesting layer')
+          observedDepth++
+          cursor = cursor[0]!
+        }
+        observedLeaf = cursor
+        return Promise.resolve(observedDepth)
+      },
+    }))
+    const session = new Session(SessionId('deep-code-arguments'))
+    const agent = { session } as Agent
+    runtime.behavior = async (request) => {
+      let nested: JsonValue = 'leaf'
+      for (let index = 0; index < depth; index++) nested = [nested]
+      const value = await request.bindings[0]!.functions.deep_args!({ nested })
+      return { logs: [], value }
+    }
+
+    const result = await runCode(ctx, 'return tools.deep_args(...)', { agent })
+
+    expect(result.isError).toBe(false)
+    expect(result.isError ? undefined : result.value).toEqual({ logs: [], result: depth })
+    expect({ observedDepth, observedLeaf }).toEqual({ observedDepth: depth, observedLeaf: 'leaf' })
+    const dispatch = session.events.find(event => event.type === 'tool/code-dispatch')
+    if (dispatch === undefined) throw new Error('expected a durable tool/code-dispatch event')
+    const logged = dispatch.data.arguments as { nested: JsonValue }
+    let loggedDepth = 0
+    let loggedCursor = logged.nested
+    while (Array.isArray(loggedCursor)) {
+      if (loggedCursor.length !== 1) throw new Error('expected one logged item per nesting layer')
+      loggedDepth++
+      loggedCursor = loggedCursor[0]!
+    }
+    expect({ loggedDepth, loggedCursor }).toEqual({ loggedDepth: depth, loggedCursor: 'leaf' })
   })
 
   it('gives the tool and durable log the same immutable argument value', async () => {

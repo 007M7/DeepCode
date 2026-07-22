@@ -49,7 +49,7 @@ declare const tools: {
 
 ### Binding values and failures
 
-Before dispatch the bridge snapshots binding arguments as lossless JSON and makes independent clones for execution and the durable summary event. `undefined`, non-finite numbers, `-0`, sparse arrays, cycles, functions, and exotic objects reject that call before the tool runs. Successful dispatch returns `ToolExecutionResult.value`; Native `content`, metadata, and internal error information do not cross to the program.
+Before dispatch the bridge snapshots binding arguments as lossless JSON and snapshots the detached value again for an independent durable summary event. Host-side detachment, immutable execution, and output-schema projection all use iterative traversals rather than nested structured clone or recursive freezing. `undefined`, non-finite numbers, `-0`, sparse arrays, cycles, functions, and exotic objects reject that call before the tool runs. Successful dispatch returns `ToolExecutionResult.value`; Native `content`, metadata, and internal error information do not cross to the program.
 
 The worker exposes the actual `ToolCallError` constructor used for `tools` binding failures, so `error instanceof ToolCallError` works. The error has the standard `Error` message plus the exact `toolName`; it deliberately omits `ToolFailure.info`, error codes, and Native content. This is an exception contract for control flow, not a failure union for programmatic classification.
 

@@ -864,10 +864,17 @@ export class ToolRegistry extends Service {
   private sdkSchemas(scope?: ScopeKey): ToolSdkSchema[] {
     return [...this.view(scope).visible.values()]
       .filter(definition => definition.name !== RUN_CODE_NAME)
-      .map((definition): ToolSdkSchema => ({
-        ...this.schemaOf(definition, true),
-        output: structuredClone(definition.output.schema),
-      }))
+      .map((definition): ToolSdkSchema => {
+        const output = snapshotJsonValue(definition.output.schema)
+        /* v8 ignore next -- registration already validated and retained this schema as lossless JSON. */
+        if (output === undefined) {
+          throw new Error(`tool "${definition.name}" output schema must be lossless JSON before SDK projection`)
+        }
+        return {
+          ...this.schemaOf(definition, true),
+          output,
+        }
+      })
   }
 
   /** Project one definition onto the model-facing schema fields. */

@@ -85,9 +85,9 @@ function summarize(text: string, cwd: string | undefined): string {
 }
 
 /**
- * Snapshot one binding call's argument as lossless JSON, then clone it into
- * independent dispatch/log values so a tool mutation cannot desynchronize the
- * durable event from what was called.
+ * Snapshot one binding call's argument as lossless JSON, then snapshot that
+ * detached value again so dispatch and logging stay independent without
+ * reintroducing structured-clone's platform-specific nesting limit.
  */
 function jsonNormalizeArgs(value: unknown): { dispatched: unknown; logged: unknown } {
   let snapshot: JsonValue | undefined
@@ -99,7 +99,12 @@ function jsonNormalizeArgs(value: unknown): { dispatched: unknown; logged: unkno
   if (snapshot === undefined) {
     throw new Error('tool arguments must be lossless JSON (call the tool with an arguments object, e.g. `{}`)')
   }
-  return { dispatched: structuredClone(snapshot), logged: structuredClone(snapshot) }
+  const logged = snapshotJsonValue(snapshot)
+  /* v8 ignore next -- snapshot is already a detached lossless JSON value. */
+  if (logged === undefined) {
+    throw new Error('tool arguments could not be detached for durable logging')
+  }
+  return { dispatched: snapshot, logged }
 }
 
 /** Two-space JSON presentation, matching the existing shallow `run_code` text contract. */
