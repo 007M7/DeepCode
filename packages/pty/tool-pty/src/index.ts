@@ -28,6 +28,17 @@ export const inject = ['pty', 'tools', 'systemPrompt']
 
 /** Default cap for one complete model-facing terminal result. */
 export const DEFAULT_MAX_RESULT_BYTES = 256 * 1024
+/** Smallest cap that preserves every counter-backed PTY and task id in its creation acknowledgement. */
+export const MIN_MAX_RESULT_BYTES = 64
+
+const TOOL_NAMES = new Set([
+  'terminal_open',
+  'terminal_send',
+  'terminal_read',
+  'terminal_signal',
+  'terminal_close',
+  'terminal_list',
+])
 
 /** Model-facing terminal tool configuration. */
 export interface Config {
@@ -40,7 +51,7 @@ export interface Config {
 /** Schemastery configuration for the terminal tool consumer. */
 export const Config: z<Config> = z.object({
   enableRunInBackground: z.boolean().default(true),
-  maxResultBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULT_MAX_RESULT_BYTES),
+  maxResultBytes: z.number().step(1).min(MIN_MAX_RESULT_BYTES).max(Number.MAX_SAFE_INTEGER).default(DEFAULT_MAX_RESULT_BYTES),
 })
 
 interface SpawnArgs {
@@ -100,9 +111,15 @@ function sendDetail(result: PtySendResult): string {
 export function apply(ctx: Context, config: Config = {}): void {
   const enableRunInBackground = config.enableRunInBackground ?? true
   const maxResultBytes = config.maxResultBytes ?? DEFAULT_MAX_RESULT_BYTES
-  if (!Number.isSafeInteger(maxResultBytes) || maxResultBytes <= 0) {
-    throw new Error('tool-pty: maxResultBytes must be a positive safe integer')
+  if (!Number.isSafeInteger(maxResultBytes) || maxResultBytes < MIN_MAX_RESULT_BYTES) {
+    throw new Error(`tool-pty: maxResultBytes must be a safe integer of at least ${MIN_MAX_RESULT_BYTES}`)
   }
+  ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {
+    const result = await next()
+    if (!TOOL_NAMES.has(exec.name)) return result
+    const raw = rawResultText(result)
+    return raw === undefined ? result : { ...result, content: textResult(raw, maxResultBytes) }
+  })
   ctx.systemPrompt.section({
     name: 'tool:pty',
     order: 106,

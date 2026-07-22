@@ -1383,7 +1383,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/pty/tool-pty/src/index.ts:33`](../packages/pty/tool-pty/src/index.ts)
+Source: [`packages/pty/tool-pty/src/index.ts:44`](../packages/pty/tool-pty/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-ralph`
 

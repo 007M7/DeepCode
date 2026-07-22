@@ -9,9 +9,9 @@ Six model-facing tools over `ctx.pty`: `terminal_open`, `terminal_send`, `termin
 | key | default | meaning |
 |---|---:|---|
 | `enableRunInBackground` | `true` | expose and accept `run_in_background`; false omits the schema field and rejects a forced undeclared argument |
-| `maxResultBytes` | `262144` | UTF-8 cap for each complete terminal result or PTY task output after wait, session, pagination, truncation, and task-status metadata |
+| `maxResultBytes` | `262144` | UTF-8 cap (minimum `64`) for each complete terminal result or PTY task output after wait, session, pagination, truncation, and task-status metadata |
 
-Both values are validated at load. When a result exceeds `maxResultBytes`, rendering reserves space for control metadata and a truncation marker when they fit; cuts preserve UTF-8 boundaries.
+Both values are validated at load. The minimum result cap keeps every registry-issued session or task id visible in its creation acknowledgement. When a result exceeds `maxResultBytes`, rendering reserves space for control metadata and a truncation marker when they fit; cuts preserve UTF-8 boundaries.
 
 ## Model Experience
 
@@ -53,7 +53,7 @@ Prefix-stable while tool visibility and definitions are unchanged.
 
 #### What the model sees
 
-Spawn returns the id and bounded MOTD. Send/read return bounded terminal text plus readiness/history markers. Background mode returns a generic task id. Every complete result is capped by `maxResultBytes`, including generic task status text. Results remain in session history until compaction; incremental task reads do not repeat consumed output.
+Spawn returns the id and bounded MOTD. Send/read return bounded terminal text plus readiness/history markers. Background mode returns a generic task id. Every complete result is capped by `maxResultBytes`, including normalized error text and generic task status text. Results remain in session history until compaction; incremental task reads do not repeat consumed output.
 
 #### Token effect
 

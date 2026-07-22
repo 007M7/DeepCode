@@ -197,6 +197,32 @@ describe('tool-pty foreground surface', () => {
 
     const invalid = await setupBase(false)
     expect(() => { ToolPty.apply(invalid.ctx, { maxResultBytes: 0 }) }).toThrow('maxResultBytes')
+    expect(() => { ToolPty.apply(invalid.ctx, { maxResultBytes: 63 }) }).toThrow('at least 64')
+  })
+
+  it('bounds normalized errors and preserves allocated ids at the minimum result cap', async () => {
+    const { ctx, agent } = await setup(true, { maxResultBytes: 64 })
+    const failed = await call(ctx, 'terminal_open', { type: 'x'.repeat(1_000) }, agent)
+    expect(failed.isError).toBe(true)
+    expect(Buffer.byteLength(text(failed))).toBeLessThanOrEqual(64)
+    expect(text(failed)).toContain('[output truncated]')
+
+    const opened = await call(ctx, 'terminal_open', { type: 'stub', name: 'n'.repeat(1_000) }, agent)
+    expect(text(opened)).toContain('pty-1')
+    expect(Buffer.byteLength(text(opened))).toBeLessThanOrEqual(64)
+    const background = await call(ctx, 'terminal_send', {
+      sessionId: 'pty-1', text: 'work', run_in_background: true,
+    }, agent)
+    expect(text(background)).toContain('pty-send-1')
+    expect(Buffer.byteLength(text(background))).toBeLessThanOrEqual(64)
+  })
+
+  it('leaves a structured around-dispatch replacement unchanged', async () => {
+    const { ctx, agent } = await setup(false, { maxResultBytes: 64 })
+    ctx.on('tools/execute', async (exec, next) => exec.name === 'terminal_list'
+      ? { content: [], isError: false }
+      : next())
+    expect((await call(ctx, 'terminal_list', {}, agent)).content).toEqual([])
   })
 })
 
