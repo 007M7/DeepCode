@@ -875,24 +875,51 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     expect(agent.status).toBe('running')
     const content = [{ type: 'text' as const, text: 'accepted-steer' }]
     const source = { kind: 'plugin' as const, plugin: 'accepted-source' }
-    const contexts: HookContext[] = [{
-      content: [{ type: 'text', text: 'accepted-steering-context' }],
-      source: { kind: 'plugin', plugin: 'steering-context' },
-    }]
+    const contexts: HookContext[] = [
+      {
+        content: [{ type: 'text', text: 'accepted-steering-prefix' }],
+        source: { kind: 'plugin', plugin: 'steering-prefix' },
+        placement: 'prompt-prefix',
+      },
+      {
+        content: [{ type: 'text', text: 'accepted-steering-context' }],
+        source: { kind: 'plugin', plugin: 'steering-context' },
+        meta: { kind: 'separate-card' },
+      },
+      {
+        content: [{ type: 'text', text: 'accepted-steering-context-without-meta' }],
+        source: { kind: 'plugin', plugin: 'steering-context-without-meta' },
+      },
+    ]
     agent.steer(content, { source, contexts })
     content[0]!.text = 'caller-mutated-steer'
     source.plugin = 'caller-mutated-source'
-    contexts[0]!.content[0] = { type: 'text', text: 'caller-mutated-steering-context' }
+    contexts[0]!.content[0] = { type: 'text', text: 'caller-mutated-steering-prefix' }
+    contexts[0]!.placement = 'separate'
+    contexts[1]!.content[0] = { type: 'text', text: 'caller-mutated-steering-context' }
+    contexts[2]!.content[0] = { type: 'text', text: 'caller-mutated-steering-context-without-meta' }
     const idle = waitForIdle(ctx, agent)
     release.resolve(undefined)
     await idle
 
     expect(notifiedContent).toEqual([{ type: 'text', text: 'accepted-steer' }])
     expect(notifiedSource).toEqual({ kind: 'plugin', plugin: 'accepted-source' })
-    expect(notifiedContexts).toEqual([{
-      content: [{ type: 'text', text: 'accepted-steering-context' }],
-      source: { kind: 'plugin', plugin: 'steering-context' },
-    }])
+    expect(notifiedContexts).toEqual([
+      {
+        content: [{ type: 'text', text: 'accepted-steering-prefix' }],
+        source: { kind: 'plugin', plugin: 'steering-prefix' },
+        placement: 'prompt-prefix',
+      },
+      {
+        content: [{ type: 'text', text: 'accepted-steering-context' }],
+        source: { kind: 'plugin', plugin: 'steering-context' },
+        meta: { kind: 'separate-card' },
+      },
+      {
+        content: [{ type: 'text', text: 'accepted-steering-context-without-meta' }],
+        source: { kind: 'plugin', plugin: 'steering-context-without-meta' },
+      },
+    ])
     expect(Object.isFrozen(notifiedContent)).toBe(true)
     expect(Object.isFrozen(notifiedContent?.[0])).toBe(true)
     expect(Object.isFrozen(notifiedSource)).toBe(true)
@@ -900,14 +927,28 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     const recorded = agent.session.events.flatMap(event => event.type === 'steering/message' ? [event.data] : [])
     expect(recorded).toContainEqual({
       turn: 1,
-      content: [{ type: 'text', text: 'accepted-steer' }],
+      content: [
+        { type: 'text', text: 'accepted-steering-prefix' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'accepted-steer' },
+      ],
       source: { kind: 'plugin', plugin: 'accepted-source' },
+      envelope: {
+        displayContent: [{ type: 'text', text: 'accepted-steer' }],
+        prefixContexts: [{
+          source: { kind: 'plugin', plugin: 'steering-prefix' },
+        }],
+      },
     })
     const request = JSON.stringify(adapter.requests[1]!.messages)
     expect(request).toContain('accepted-steer')
+    expect(request).toContain('accepted-steering-prefix')
     expect(request).toContain('accepted-steering-context')
+    expect(request).toContain('accepted-steering-context-without-meta')
     expect(request).not.toContain('caller-mutated-steer')
+    expect(request).not.toContain('caller-mutated-steering-prefix')
     expect(request).not.toContain('caller-mutated-steering-context')
+    expect(request).not.toContain('caller-mutated-steering-context-without-meta')
 
     const steeringIndex = agent.session.events.findIndex(event => event.type === 'steering/message')
     const contextIndex = agent.session.events.findIndex(event => event.type === 'context/message'

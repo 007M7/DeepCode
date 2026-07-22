@@ -57,17 +57,24 @@ export type AgentStatus = 'idle' | 'running' | 'disposed'
 export interface HookContext {
   content: ContentBlock[]
   source: MessageSource
+  /**
+   * Model placement. Absent or `separate` records an independent
+   * `context/message`; `prompt-prefix` prepends this context and a stable
+   * request delimiter to the same user-role message as its attached prompt.
+   */
+  placement?: 'separate' | 'prompt-prefix'
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
 
 /**
- * Prompt interception result. `allow.content` replaces the prompt and each
- * `additionalContexts` entry becomes a separate context message. `block`
- * records a durable `prompt/blocked` and ends the claimed prompt's zero-step
- * turn as rejected. An `allow` returned by a listener is authoritative: a
- * listener wrapping `next()` preserves downstream `content` and
- * `additionalContexts` unless it intentionally replaces them.
+ * Prompt interception result. `allow.content` replaces the prompt. Each
+ * `additionalContexts` entry follows its declared placement: separate context
+ * message by default, or a prefix inside the prompt's user-role message.
+ * `block` records a durable `prompt/blocked` and ends the claimed prompt's
+ * zero-step turn as rejected. An `allow` returned by a listener is
+ * authoritative: a listener wrapping `next()` preserves downstream `content`
+ * and `additionalContexts` unless it intentionally replaces them.
  */
 export type PromptDecision =
   | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }

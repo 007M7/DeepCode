@@ -11,7 +11,7 @@ A `Requires:` line lists the service keys the plugin `inject`s: its `cordis.yml`
 
 ## `@deepseek-ai/dsh-acp`
 
-Requires: `agents` · `commands` · `sessionPersistence` · `tools` · `userInteraction` · `llm` · `systemPrompt`
+Requires: `agents` · `commands` · `sessionPersistence` · `sessionQuery` · `tools` · `userInteraction` · `llm` · `systemPrompt`
 
 ```ts config-catalog
 /** Plugin config: the agent template ACP sessions are created from. */
@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:256`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:264`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -983,7 +983,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session-title/session-title/src/index.ts:69`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:70`](../packages/session-title/session-title/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title-all-messages-llm`
 

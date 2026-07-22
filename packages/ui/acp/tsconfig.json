@@ -30,6 +30,9 @@
       "path": "../../context/session-reference"
     },
     {
+      "path": "../../session-query/session-query"
+    },
+    {
       "path": "../../session-title/session-title"
     },
     {

@@ -27,6 +27,8 @@ import {
   type EnumOption,
   type InitializeRequest,
   type InitializeResponse,
+  type ListSessionsRequest,
+  type ListSessionsResponse,
   type LoadSessionRequest,
   type LoadSessionResponse,
   type NewSessionRequest,
@@ -54,8 +56,8 @@ import {
   type AgentLlmTargetRef as LlmTargetRef,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
-import type {} from '@deepseek-ai/dsh-session-reference'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { encodeSessionReferenceUri } from '@deepseek-ai/dsh-session-reference'
+import { displayPromptContent, SessionId } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
 import type {} from '@deepseek-ai/dsh-permission'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -65,6 +67,9 @@ import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } f
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
+// Side-effect type import: declaration-merges the exact-read service used by
+// session/list for live-preferred title folding.
+import type {} from '@deepseek-ai/dsh-session-query'
 // Side-effect type import: declaration-merges prompt assembly onto Context and
 // the scoped waterfall used to keep persona variables aligned with requests.
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -89,7 +94,10 @@ import {
 
 export const name = 'acp'
 // Interface services back loading, presentation, interaction, and prompt assembly.
-export const inject = ['agents', 'commands', 'sessionPersistence', 'tools', 'userInteraction', 'llm', 'systemPrompt']
+export const inject = ['agents', 'commands', 'sessionPersistence', 'sessionQuery', 'tools', 'userInteraction', 'llm', 'systemPrompt']
+
+/** ACP `SessionInfo._meta` key carrying a ready-to-submit session-reference URI. */
+export const ACP_SESSION_REFERENCE_META_KEY = 'deepseek-harness/sessionReference'
 
 /** Preserve invalid-parameter detail in the SDK wire error message. */
 function invalidParams(detail: string): RequestError {
@@ -694,6 +702,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' },
           agentCapabilities: {
             loadSession: true,
+            sessionCapabilities: { list: {} },
             // Baseline prompt blocks only: text plus resource_link rendered as
             // text. No image/audio/embeddedContext, no mcpCapabilities.
             promptCapabilities: { image: false, audio: false, embeddedContext: false },
@@ -706,6 +715,41 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // No auth methods advertised; nothing to do. Present because the SDK
         // Agent interface requires it.
         return Promise.resolve()
+      },
+
+      async listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
+        assertOpen()
+        if (params.cursor !== undefined && params.cursor !== null) {
+          throw invalidParams('session/list does not paginate; omit cursor')
+        }
+        if (params.cwd !== undefined && params.cwd !== null && !isAbsolute(params.cwd)) {
+          throw invalidParams('session/list cwd must be absolute')
+        }
+        const records = (await ctx.sessionQuery.listSessions()).flatMap((record) => {
+          const cwd = record.header.cwd
+          if (cwd === undefined) return []
+          if (params.cwd !== undefined && params.cwd !== null && !sameWorkspaceCwd(cwd, params.cwd)) return []
+          return [{ record, cwd }]
+        })
+        const titles = await Promise.all(records.map(({ record }) => ctx.sessionQuery.readTitle(record.header.id)))
+        assertOpen()
+        const referencesAvailable = ctx.get('sessionReferences') !== undefined
+        return {
+          sessions: records.map(({ record, cwd }, index) => ({
+            sessionId: record.header.id,
+            cwd,
+            ...titles[index] === undefined ? {} : { title: titles[index].title },
+            ...referencesAvailable
+              ? {
+                _meta: {
+                  [ACP_SESSION_REFERENCE_META_KEY]: {
+                    uri: encodeSessionReferenceUri(record.header.id),
+                  },
+                },
+              }
+              : {},
+          })),
+        }
       },
 
       async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
@@ -1247,7 +1291,7 @@ export function streamSessionEventUpdate(
       // Replay the user's prompt so a loaded session shows both sides of each
       // turn. Live prompt turns suppress this path to avoid duplicating what
       // the client just sent.
-      for (const block of event.data.content) {
+      for (const block of displayPromptContent(event.data)) {
         const content = harnessBlockToAcpContent(block)
         if (content !== undefined) {
           notify({ sessionId, update: { sessionUpdate: 'user_message_chunk', content } })

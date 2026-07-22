@@ -204,6 +204,24 @@ describe('streamSessionEventUpdate', () => {
     expect(updatesFor(evt('user/message', { content: [], source: { kind: 'user' } }))).toEqual([])
   })
 
+  it('replays only the direct prompt from a prefixed user message', () => {
+    expect(updatesFor(evt('user/message', {
+      content: [
+        { type: 'text', text: 'internal prefix' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'visible request' },
+      ],
+      source: { kind: 'user' },
+      envelope: {
+        displayContent: [{ type: 'text', text: 'visible request' }],
+        prefixContexts: [{ source: { kind: 'plugin', plugin: 'reference' } }],
+      },
+    }))).toEqual([{
+      sessionUpdate: 'user_message_chunk',
+      content: { type: 'text', text: 'visible request' },
+    }])
+  })
+
   it('can suppress user/message chunks for live prompt turns', () => {
     expect(liveUpdatesFor(evt('user/message', {
       content: [{ type: 'text', text: 'hi' }],

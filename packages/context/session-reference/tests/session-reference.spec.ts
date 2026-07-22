@@ -228,6 +228,7 @@ describe('session reference discovery and preparation', () => {
     const context = prepared.contexts[0]
     if (context?.content[0]?.type !== 'text') throw new Error('expected text context')
     expect(context.source).toEqual({ kind: 'plugin', plugin: 'session-reference' })
+    expect(context.placement).toBe('prompt-prefix')
     expect(context.content[0].text).toContain('untrusted, read-only snapshot')
     expect(promptData(context.content[0].text)).toEqual([{
       sessionId: 'source',
@@ -259,6 +260,36 @@ describe('session reference discovery and preparation', () => {
       { surfaceOp: 'append' },
     )
     expect(context.content[0].text).not.toContain('later source mutation')
+  })
+
+  it('projects only the direct prompt when a source message contains baked prefix context', async () => {
+    const ctx = await harness()
+    const target = ctx.sessions.create(SessionId('target'))
+    const source = ctx.sessions.create(SessionId('source'))
+    source.append('user/message', {
+      content: [
+        { type: 'text', text: 'nested referenced snapshot must not propagate' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'direct source question' },
+      ],
+      source: { kind: 'user' },
+      envelope: {
+        displayContent: [{ type: 'text', text: 'direct source question' }],
+        prefixContexts: [{ source: { kind: 'plugin', plugin: 'session-reference' } }],
+      },
+    }, { surfaceOp: 'append' })
+
+    const prepared = await ctx.sessionReferences.prepare(
+      fakeAgent(target),
+      [{ type: 'text', text: 'inspect source' }],
+      [{ sessionId: source.id }],
+    )
+    const context = prepared.contexts[0]
+    if (context?.content[0]?.type !== 'text') throw new Error('expected text context')
+    expect(promptData(context.content[0].text)).toMatchObject([{
+      conversation: [{ role: 'user', text: 'direct source question' }],
+    }])
+    expect(context.content[0].text).not.toContain('nested referenced snapshot must not propagate')
   })
 
   it('keeps source text inside tag-safe JSON framing without changing its value', async () => {
@@ -447,14 +478,19 @@ describe('session reference discovery and preparation', () => {
       [{ type: 'text', text: 'use @source' }],
       [{ sessionId: source.id }],
     )
-    target.append(
-      'user/message',
-      { content: prepared.content, source: { kind: 'user' } },
-      { surfaceOp: 'append' },
-    )
-    for (const context of prepared.contexts) {
-      target.append('context/message', context, { surfaceOp: 'append' })
-    }
+    const context = prepared.contexts[0]
+    if (context === undefined) throw new Error('expected prepared context')
+    target.append('user/message', {
+      content: [...context.content, { type: 'text', text: '\n\n## My request:\n' }, ...prepared.content],
+      source: { kind: 'user' },
+      envelope: {
+        displayContent: prepared.content,
+        prefixContexts: [{
+          source: context.source,
+          ...context.meta === undefined ? {} : { meta: context.meta },
+        }],
+      },
+    }, { surfaceOp: 'append' })
     const before = target.deriveMessages()
 
     const later = source.append(
@@ -480,6 +516,7 @@ describe('session reference discovery and preparation', () => {
     expect(ctx.sessions.get(source.id)).toBeUndefined()
     expect(target.deriveMessages()).toEqual(before)
     expect(JSON.stringify(before)).toContain('durable referenced fact')
+    expect(JSON.stringify(before)).toContain('## My request:')
     expect(JSON.stringify(before)).not.toContain('later source mutation')
     expect(new Session(SessionId('replayed-target'), target.events).deriveMessages()).toEqual(before)
   })

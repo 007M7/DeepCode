@@ -218,8 +218,8 @@ export async function makeBridgeHarness(options: {
   await ctx.plugin(CommandService)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SessionPersistenceJsonl, { root: options.storageDir })
+  await ctx.plugin(SessionQueryService)
   if (options.withSessionReferences) {
-    await ctx.plugin(SessionQueryService)
     await ctx.plugin(SessionReferenceService)
   }
   await ctx.plugin(UserInteractionService)

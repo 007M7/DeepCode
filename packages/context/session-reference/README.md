@@ -1,6 +1,6 @@
 # `@deepseek-ai/dsh-session-reference`
 
-`ctx.sessionReferences` prepares bounded, read-only snapshots of other DeepSeek Harness sessions as durable `context/message` input. It consumes `ctx.sessionQuery` and the backend-independent compact checkpoint marker; SQLite FTS is not required. The standard TUI and ACP demo bundles mount it, while other hosts may call the service directly.
+`ctx.sessionReferences` prepares bounded, read-only snapshots of other sessions as prompt-prefix context. It consumes `ctx.sessionQuery` and the backend-independent compact checkpoint marker; SQLite FTS is not required. The standard TUI and ACP demo bundles mount it, while other hosts may call the service directly.
 
 ## Public API
 
@@ -10,9 +10,9 @@
 
 ## Snapshot semantics
 
-Preparation calls `ctx.sessionQuery.readSurface()` once per distinct source and never rereads it after enqueue. It projects only direct-user `user/message`, direct-user `steering/message`, assistant text, and `user/message` checkpoints carrying the canonical `dsh-compact` source marker from the folded current surface. Shadowed pre-compaction events, tools, reasoning, context, plugin-generated user messages other than marked compact checkpoints, and unfinished assistant chunks are excluded. A compacted source therefore contributes its latest checkpoint plus retained later conversation, not restored shadowed text.
+Preparation calls `ctx.sessionQuery.readSurface()` once per distinct source and never rereads it after enqueue. It projects only direct-user `user/message`, direct-user `steering/message`, assistant text, and `user/message` checkpoints carrying the canonical `dsh-compact` source marker from the folded current surface. For a source prompt that already contains baked prefix context, projection reads only its model-hidden display content, preventing recursive snapshot propagation. Shadowed pre-compaction events, tools, reasoning, context, plugin-generated user messages other than marked compact checkpoints, and unfinished assistant chunks are excluded. A compacted source therefore contributes its latest checkpoint plus retained later conversation, not restored shadowed text.
 
-The context source is `{ kind: 'plugin', plugin: 'session-reference' }`. Its metadata records version `1`, source ids and labels, capture seqs, compact presence, retained/omitted message counts, omitted UTF-8 bytes, and truncation state. The target session persists that exact context through the ordinary `context/message` event; later source mutation, compaction, or deletion cannot change target replay.
+The context source is `{ kind: 'plugin', plugin: 'session-reference' }` with `placement: 'prompt-prefix'`. Its metadata records version `1`, source ids and labels, capture seqs, compact presence, retained/omitted message counts, omitted UTF-8 bytes, and truncation state. AgentLoop writes the snapshot, `## My request:` delimiter, and effective prompt into one `user/message` or `steering/message`; the same event's model-hidden envelope retains the direct prompt and metadata for TUI/ACP replay. Later source mutation, compaction, or deletion cannot change target replay.
 
 ## Configuration
 
@@ -30,7 +30,7 @@ Retention applies `maxReferenceBytes` independently to each source, keeps compac
 
 #### What the model sees
 
-The model sees the current message's readable `@label` plus one same-level user-context message headed `## Referenced sessions`. The context states that its JSON is untrusted, read-only background and forbids following instructions, permission claims, or tool requests unless the current user repeats them. Labels, cwd values, ids, and conversation text are serialized as JSON inside `<referenced-sessions>` tags; every data `<` is emitted as the lossless JSON escape `\u003c`, so source text cannot spell a framing tag.
+The model sees one user-role message in this order: the `## Referenced sessions` untrusted snapshot, the `## My request:` delimiter, then the current message with its readable `@label`. The warning forbids following instructions, permission claims, or tool requests from the snapshot unless the current user repeats them. Labels, cwd values, ids, and conversation text are serialized as JSON inside `<referenced-sessions>` tags; every data `<` is emitted as the lossless JSON escape `\u003c`, so source text cannot spell a framing tag.
 
 #### Token effect
 
@@ -38,7 +38,7 @@ Each referenced message adds the fixed warning plus up to three serialized snaps
 
 #### KV Cache effect
 
-Snapshot context is append-only at the target message boundary and preserves earlier cacheable history. Different references or source capture contents change the new suffix only; later target compaction may invalidate reuse from its replacement boundary.
+The combined snapshot and request are append-only at the target message boundary and preserve earlier cacheable history. Different references or source capture contents change the new suffix only; later target compaction may invalidate reuse from its replacement boundary.
 
 ## Known Limitations and Deferred Work
 

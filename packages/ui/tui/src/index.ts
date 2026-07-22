@@ -56,7 +56,7 @@ import type {
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
-import { SessionId, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
+import { displayPromptContent, SessionId, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
 import {
   formatSessionReferenceMention,
   parseSessionReferenceText,
@@ -1113,6 +1113,13 @@ function sessionReferenceCard(meta: unknown): string[] | undefined {
   return labels
 }
 
+function promptReferenceCards(event: Extract<SessionEvent, { type: 'user/message' | 'steering/message' }>): string[][] {
+  return event.data.envelope?.prefixContexts.flatMap((context) => {
+    const card = sessionReferenceCard(context.meta)
+    return card === undefined ? [] : [card]
+  }) ?? []
+}
+
 function activeToolCallIds(session: Session, active: ReadonlySet<number>): Set<string> {
   const ids = new Set<string>()
   for (const event of session.events) {
@@ -1372,19 +1379,27 @@ export function createTuiChat(
   const renderEvent = (event: SessionEvent, options: { addHistory: boolean; renderChunks: boolean }): void => {
     switch (event.type) {
       case 'user/message': {
-        const text = displayText(contentText(event.data.content).trim())
+        const text = displayText(contentText(displayPromptContent(event.data)).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme))
           if (options.addHistory) editor.addToHistory(text)
         }
+        for (const references of promptReferenceCards(event)) {
+          chat.addChild(new Spacer(1))
+          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
+        }
         break
       }
       case 'steering/message': {
-        const text = displayText(contentText(event.data.content).trim())
+        const text = displayText(contentText(displayPromptContent(event.data)).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme, 'Steering'))
+        }
+        for (const references of promptReferenceCards(event)) {
+          chat.addChild(new Spacer(1))
+          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
         }
         break
       }

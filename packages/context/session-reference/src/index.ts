@@ -195,6 +195,7 @@ export class SessionReferenceService extends Service {
     const context: HookContext = {
       source: { kind: 'plugin', plugin: 'session-reference' },
       content: [{ type: 'text', text: prompt }],
+      placement: 'prompt-prefix',
       meta,
     }
     return { content: acceptedContent, contexts: [context] }

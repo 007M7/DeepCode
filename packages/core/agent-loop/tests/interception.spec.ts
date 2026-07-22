@@ -117,6 +117,55 @@ describe('agent/prompt-submit', () => {
     expect(sent).toContain('extra ctx')
   })
 
+  it('bakes prompt-prefix contexts and a request delimiter into one durable user message', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('prefixed'), { provider: 'mock', model: 'mock' })
+
+    ctx.on('agent/prompt-submit', async (_agent, _content, _source, _signal, next): Promise<PromptDecision> => {
+      const downstream = await next()
+      return downstream.kind === 'block'
+        ? downstream
+        : { ...downstream, content: [{ type: 'text', text: 'rewritten request' }] }
+    })
+    agent.send([{ type: 'text', text: 'original request' }], {
+      contexts: [{
+        content: [{ type: 'text', text: 'untrusted prefix' }],
+        source: { kind: 'plugin', plugin: 'prefix' },
+        placement: 'prompt-prefix',
+        meta: { kind: 'prefix-card' },
+      }],
+    })
+    await waitForIdle(ctx, agent)
+
+    const log = events(agent)
+    const user = log.find(event => event.type === 'user/message')
+    expect(user?.type === 'user/message' && user.data).toEqual({
+      content: [
+        { type: 'text', text: 'untrusted prefix' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'rewritten request' },
+      ],
+      source: { kind: 'user' },
+      envelope: {
+        displayContent: [{ type: 'text', text: 'rewritten request' }],
+        prefixContexts: [{
+          source: { kind: 'plugin', plugin: 'prefix' },
+          meta: { kind: 'prefix-card' },
+        }],
+      },
+    })
+    expect(log.some(event => event.type === 'context/message')).toBe(false)
+    expect(adapter.requests[0]?.messages.at(-1)).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'untrusted prefix' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'rewritten request' },
+      ],
+    })
+  })
+
   it('runs pre-step after prompt rewrites and injected context become durable', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)

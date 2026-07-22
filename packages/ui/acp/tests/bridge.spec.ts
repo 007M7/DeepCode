@@ -370,17 +370,22 @@ describe('acp bridge', () => {
 
     const target = harness.ctx.agents.get(SessionId(sessionId))!.session
     const user = target.events.find(event => event.type === 'user/message')
-    expect(user?.type === 'user/message' && user.data.content).toEqual([
-      { type: 'text', text: 'use @source-inline and @source-link' },
-    ])
-    const context = target.events.find(event => event.type === 'context/message')
-    expect(context?.type === 'context/message' && context.data.meta).toMatchObject({
-      kind: 'session-reference',
-      references: [{ sessionId: 'source', label: 'source-inline' }],
+    expect(user?.type === 'user/message' && user.data.envelope).toMatchObject({
+      displayContent: [{ type: 'text', text: 'use @source-inline and @source-link' }],
+      prefixContexts: [{
+        source: { kind: 'plugin', plugin: 'session-reference' },
+        meta: {
+          kind: 'session-reference',
+          references: [{ sessionId: 'source', label: 'source-inline' }],
+        },
+      }],
     })
+    expect(target.events.some(event => event.type === 'context/message')).toBe(false)
     const request = JSON.stringify(harness.adapter.requests[0]?.messages)
     expect(request).toContain('untrusted, read-only snapshot')
     expect(request).toContain('source background')
+    expect(request.indexOf('source background')).toBeLessThan(request.indexOf('## My request:'))
+    expect(request.indexOf('## My request:')).toBeLessThan(request.indexOf('use @source-inline and @source-link'))
   })
 
   it('rejects a failed referenced-session read before starting a turn', async () => {

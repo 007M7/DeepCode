@@ -1392,7 +1392,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'HookContext',
-    declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n    meta?: JsonValue;\n}',
+    declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n    placement?: \'separate\' | \'prompt-prefix\';\n    meta?: JsonValue;\n}',
   },
   {
     name: 'InjectOptions',
@@ -1467,6 +1467,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
   },
   {
+    name: 'PromptMessageData',
+    declaration: 'export interface PromptMessageData {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: PromptMessageEnvelope;\n}',
+  },
+  {
+    name: 'PromptMessageEnvelope',
+    declaration: 'export interface PromptMessageEnvelope {\n    displayContent: ContentBlock[];\n    prefixContexts: PromptPrefixContext[];\n}',
+  },
+  {
+    name: 'PromptPrefixContext',
+    declaration: 'export interface PromptPrefixContext {\n    source: MessageSource;\n    meta?: JsonValue;\n}',
+  },
+  {
     name: 'PromptSection',
     declaration: 'export interface PromptSection {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n}',
   },
@@ -1520,7 +1532,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': {\n        turn: number;\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'todo/write\': {\n         /* …truncated — full shape in source */',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: Req /* …truncated — full shape in source */',
   },
   {
     name: 'SessionEventReadRequest',
@@ -1785,6 +1797,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TerminalResultView',
     declaration: 'export interface TerminalResultView {\n    card: \'terminal\';\n    title?: string;\n    output?: string;\n    exitCode?: number;\n    signal?: string;\n}',
+  },
+  {
+    name: 'TodoItem',
+    declaration: 'export interface TodoItem {\n    content: string;\n    status: \'pending\' | \'in_progress\' | \'completed\';\n}',
   },
   {
     name: 'TokenMeasurement',

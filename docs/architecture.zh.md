@@ -80,10 +80,10 @@ forever:
   TURN:
     'turn/start'
     claimed message + contexts -> agent/prompt-submit
-      allowed prompt -> 'user/message' plus contexts
+      allowed prompt -> 'user/message' with prompt-prefix context baked in; append separate contexts
       blocked prompt -> 'prompt/blocked' -> 'turn/end'(rejected)
     STEP loop:
-      drain each steering message before its contexts (no prompt-submit)
+      drain steering with the same prefix/separate context placement (no prompt-submit)
       assemble system prompt and tool schemas
       agent/session-prefix (first step)
       agent/pre-step

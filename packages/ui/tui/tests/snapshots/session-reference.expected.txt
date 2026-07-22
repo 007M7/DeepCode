@@ -36,7 +36,7 @@ buffer
 12| <blank>
 13| " Assistant                                                                                      "
   style 1-9 fg=bright-magenta bold
-14| " Snapshot reference accepted.                                                                   "
+14| " Combined reference request accepted.                                                           "
 15| "────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-95 dim
 16| "                                                                                                "

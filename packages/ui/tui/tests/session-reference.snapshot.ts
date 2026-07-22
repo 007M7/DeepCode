@@ -24,9 +24,14 @@ class SnapshotAdapter extends LlmAdapter {
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
+    const prompt = options.messages.at(-1)
+    if (prompt?.role !== 'user' || prompt.content.length !== 3
+      || prompt.content[1]?.type !== 'text' || prompt.content[1].text !== '\n\n## My request:\n') {
+      throw new Error('session reference did not reach the model as one prefixed user message')
+    }
     yield { type: 'block-start', index: 0, blockType: 'text' }
-    yield { type: 'text-delta', index: 0, text: 'Snapshot reference accepted.' }
-    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'Snapshot reference accepted.' } }
+    yield { type: 'text-delta', index: 0, text: 'Combined reference request accepted.' }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'Combined reference request accepted.' } }
     yield { type: 'finish', reason: { kind: 'stop' } }
   }
 }
@@ -108,11 +113,22 @@ describe('TUI session-reference snapshot', () => {
     expect(request).toContain('Recent retained question.')
     expect(request).not.toContain('SHADOWED OLD USER')
     expect(request).not.toContain('SHADOWED OLD ASSISTANT')
-    const context = target.session.events.find(event => event.type === 'context/message')
-    expect(context?.type === 'context/message' && context.data.meta).toMatchObject({
-      kind: 'session-reference',
-      references: [{ sessionId: 'source-session', compacted: true }],
+    const user = target.session.events.find(event => event.type === 'user/message')
+    expect(user?.type === 'user/message' && user.data.envelope).toMatchObject({
+      displayContent: [{ type: 'text', text: 'Use @Source session' }],
+      prefixContexts: [{
+        source: { kind: 'plugin', plugin: 'session-reference' },
+        meta: {
+          kind: 'session-reference',
+          references: [{ sessionId: 'source-session', compacted: true }],
+        },
+      }],
     })
+    expect(user?.type === 'user/message' && user.data.content[1]).toEqual({
+      type: 'text',
+      text: '\n\n## My request:\n',
+    })
+    expect(target.session.events.some(event => event.type === 'context/message')).toBe(false)
 
     const snapshot = await terminal.snapshot({ includeScrollback: true })
     if (REFRESHING) {

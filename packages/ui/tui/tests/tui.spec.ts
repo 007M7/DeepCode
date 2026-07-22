@@ -750,6 +750,56 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Session reference failed')
     expect(result.terminal.output).toContain('keep @[')
 
+    result.session.append('user/message', {
+      content: [
+        { type: 'text', text: 'hidden baked snapshot payload' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'visible referenced question' },
+      ],
+      source: { kind: 'user' },
+      envelope: {
+        displayContent: [{ type: 'text', text: 'visible referenced question' }],
+        prefixContexts: [{
+          source: { kind: 'plugin', plugin: 'session-reference' },
+          meta: {
+            kind: 'session-reference',
+            references: [{ sessionId: 'prefixed', label: 'Prefixed source' }],
+          },
+        }],
+      },
+    }, { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('visible referenced question')
+    expect(result.terminal.output).toContain('Referenced sessions · Prefixed source (prefixed)')
+    expect(result.terminal.output).not.toContain('hidden baked snapshot payload')
+
+    result.session.append('steering/message', {
+      turn: 1,
+      content: [
+        { type: 'text', text: 'hidden non-reference prefix' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'visible steering prompt' },
+      ],
+      source: { kind: 'user' },
+      envelope: {
+        displayContent: [{ type: 'text', text: 'visible steering prompt' }],
+        prefixContexts: [
+          { source: { kind: 'plugin', plugin: 'other' }, meta: { kind: 'other' } },
+          {
+            source: { kind: 'plugin', plugin: 'session-reference' },
+            meta: {
+              kind: 'session-reference',
+              references: [{ sessionId: 'steering-source', label: 'Steering source' }],
+            },
+          },
+        ],
+      },
+    }, { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('visible steering prompt')
+    expect(result.terminal.output).toContain('Referenced sessions · Steering source (steering-source)')
+    expect(result.terminal.output).not.toContain('hidden non-reference prefix')
+
     result.session.append('context/message', {
       content: [{ type: 'text', text: 'secret full snapshot payload' }],
       source: { kind: 'plugin', plugin: 'session-reference' },
