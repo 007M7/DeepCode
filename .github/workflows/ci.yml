@@ -37,10 +37,10 @@ jobs:
     env:
       DSH_COVERAGE_MAX_WORKERS: '12'
       DSH_ESLINT_CACHE: '1'
-      DSH_ESLINT_CONCURRENCY: '32'
-      DSH_GATE_CONCURRENCY: '32'
-      DSH_PUBLINT_CONCURRENCY: '32'
-      DSH_SNAPSHOT_MAX_CONCURRENCY: '16'
+      DSH_ESLINT_CONCURRENCY: '16'
+      DSH_GATE_CONCURRENCY: '16'
+      DSH_PUBLINT_CONCURRENCY: '16'
+      DSH_SNAPSHOT_MAX_CONCURRENCY: '8'
     steps:
       - uses: actions/checkout@v6
 
@@ -54,14 +54,16 @@ jobs:
           corepack enable
           echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache@v4
+      # Pull requests consume the default-branch cache but do not put cache
+      # compression and upload on the paid latency-critical path.
+      - uses: actions/cache/restore@v4
         with:
           path: ${{ steps.pnpm-store.outputs.path }}
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: .cache/eslint
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
@@ -160,10 +162,10 @@ jobs:
     env:
       # Keep ESLint itself single-threaded: 16 ESLint workers took 174 seconds on
       # this image. The outer scheduler still overlaps lint with the other gates.
-      DSH_COVERAGE_MAX_WORKERS: '4'
+      DSH_COVERAGE_MAX_WORKERS: '12'
       DSH_ESLINT_CACHE: '1'
-      DSH_GATE_CONCURRENCY: '32'
-      DSH_PUBLINT_CONCURRENCY: '32'
+      DSH_GATE_CONCURRENCY: '16'
+      DSH_PUBLINT_CONCURRENCY: '16'
     steps:
       - uses: actions/checkout@v6
 
@@ -177,30 +179,20 @@ jobs:
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
-      - name: Enable corepack and resolve pnpm store path
-        id: pnpm-store
-        shell: pwsh
-        run: |
-          corepack enable
-          "path=$(pnpm store path --silent)" >> $env:GITHUB_OUTPUT
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: .cache/eslint
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
-      - name: Install (immutable)
+      # Extracting the many-file pnpm store cache is slower on this image than
+      # a clean parallel install, and saving it adds more latency after gates.
+      - name: Enable corepack and install (immutable)
         shell: pwsh
-        run: pnpm install --frozen-lockfile
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
 
       - name: Run blocking and observational Windows gates concurrently
         shell: pwsh
@@ -221,8 +213,26 @@ jobs:
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
-      - name: Enable corepack (pnpm)
-        run: corepack enable
+      - name: Enable corepack and resolve pnpm store path
+        id: pnpm-store
+        run: |
+          corepack enable
+          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      # Master refreshes the caches that pull requests restore without saving.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - uses: actions/cache@v4
+        with:
+          path: .cache/eslint
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
@@ -234,6 +244,7 @@ jobs:
         env:
           DSH_COVERAGE_MAX_WORKERS: '1'
           DSH_E2E_MAX_WORKERS: '1'
+          DSH_ESLINT_CACHE: '1'
           DSH_GATE_CONCURRENCY: '1'
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
@@ -286,6 +297,15 @@ jobs:
         shell: pwsh
         run: corepack enable
 
+      # Master refreshes the small cache that pull requests restore without
+      # putting package-store extraction back on the Windows critical path.
+      - uses: actions/cache@v4
+        with:
+          path: .cache/eslint
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
+
       - name: Install (immutable)
         shell: pwsh
         run: pnpm install --frozen-lockfile
@@ -295,6 +315,7 @@ jobs:
         env:
           DSH_COVERAGE_MAX_WORKERS: '1'
           DSH_E2E_MAX_WORKERS: '1'
+          DSH_ESLINT_CACHE: '1'
           DSH_GATE_CONCURRENCY: '1'
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
