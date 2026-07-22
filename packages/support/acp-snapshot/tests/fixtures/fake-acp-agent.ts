@@ -49,6 +49,8 @@ interface Behavior {
   cancelAtToolCall?: boolean
   /** Emit the parked tool call's terminal update after answering cancellation. */
   cancelToolCallUpdate?: boolean
+  /** Persist the scripted logs while handling cancellation, before stdin EOF. */
+  persistLogsOnCancel?: boolean
   /** Before responding to a prompt, send a `session/request_permission` request and echo its outcome as a chunk. */
   permissionProbe?: boolean
   /** Before responding to a prompt, send an `elicitation/create` request and echo its response as a chunk. */
@@ -63,7 +65,7 @@ interface Behavior {
   stderrNote?: string
   /** Let a short-lived descendant retain stdio and emit one final ACP update plus stderr line after this parent exits. */
   lateInheritedOutput?: boolean
-  /** Session logs to persist on stdin EOF. */
+  /** Session logs to persist on stdin EOF and, when selected, on cancellation. */
   logs?: ScriptedLog[]
   /** Leave a stray FILE directly under the sessions root (harvest must skip it). */
   strayRootFile?: boolean
@@ -304,6 +306,7 @@ function handleFrame(frame: Record<string, unknown>): void {
             },
           })
         }
+        if (behavior.persistLogsOnCancel === true) writeLogs()
       }
       return
     default:
@@ -313,12 +316,16 @@ function handleFrame(frame: Record<string, unknown>): void {
   }
 }
 
-function flushLogsAndExit(): void {
+function writeLogs(): void {
   for (const log of behavior.logs ?? []) {
     const target = join(sessionsRoot, log.file)
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, log.lines.map(l => JSON.stringify(instantiate(l))).join('\n') + '\n')
   }
+}
+
+function flushLogsAndExit(): void {
+  writeLogs()
   if (behavior.strayRootFile === true) writeFileSync(join(sessionsRoot, 'stray.txt'), 'not a bucket\n')
   if (behavior.strayBucketFile === true) {
     mkdirSync(join(sessionsRoot, 'bucket-noise'), { recursive: true })

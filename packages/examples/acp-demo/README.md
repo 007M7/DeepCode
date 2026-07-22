@@ -15,13 +15,14 @@ stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it
 | `@deepseek-ai/dsh-command-goal` | the discoverable direct `/goal` producer; the app enables the spine's persisted-goal stack with it |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by clients that can complete ACP elicitation requests |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log (the bridge advertises `loadSession`) |
+| `@deepseek-ai/dsh-session-checkpoint-policy` | semantic durability barriers before model requests and top-level tool effects, plus completed-step checkpoints |
 | `@deepseek-ai/dsh-acp` | the bridge that owns stdout for JSON-RPC and provides ACP-backed user answers when a leaf explicitly exposes a user-question tool |
 | ~~`@deepseek-ai/dsh-tool-ask-user`~~ | **omitted by default** — ACP elicitation support is still client-dependent, so leaves must opt in deliberately |
 | ~~`@deepseek-ai/dsh-user-approval`~~ | **omitted by default** — permission policy is deployment-specific; sandbox/approval leaves opt in and the ACP bridge then supplies the answerer |
 | ~~console logger~~ | **omitted** — it writes to stdout and would corrupt the protocol frames ([the stdout-purity footgun](../../ui/acp/README.md)) |
 | ~~`hmr`~~ | **omitted** — the editor owns the subprocess |
 
-Because the package wires no logger entry, an ACP leaf has **nothing to get wrong by default**: it only picks backends. A leaf author can still add `@cordisjs/plugin-logger-console` as a sibling entry, so the rule remains: never add a stdout logger to an ACP leaf; use a stderr exporter instead.
+The app owns this cluster through one ordered Cordis effect. Teardown drains the ACP bridge before removing the checkpoint policy or persistence backend, so a graceful disconnect persists the real closing `step/end` and `turn/end` events rather than leaving crash recovery to synthesize them. Because the package wires no logger entry, an ACP leaf has **nothing to get wrong by default**: it only picks backends. A leaf author can still add `@cordisjs/plugin-logger-console` as a sibling entry, so the rule remains: never add a stdout logger to an ACP leaf; use a stderr exporter instead.
 
 ## Config
 

@@ -35,7 +35,8 @@ const dshPackages = [
   'core/tools', 'core/agent-loop', 'llm/llm', 'bash/bash',
   'bash/bash-local', 'bash/tool-bash', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
-  'session-persistence/session-persistence-jsonl', 'ui/acp', 'examples/acp-demo', 'util/paths',
+  'session-persistence/session-checkpoint-policy', 'session-persistence/session-persistence-jsonl',
+  'ui/acp', 'examples/acp-demo', 'util/paths',
 ]
 const vendorPackages = [
   'cordis', 'loader', 'include', 'timer', 'hmr', 'logger-console',
