@@ -1,6 +1,6 @@
 # tui-agent
 
-The interactive coding agent: DeepSeek V4 + the `read`/`write`/`edit` filesystem tools + the bash tool suite + subagent delegation + workflows + compaction + JSONL persistence, on the full-screen `dsh-tui` front door, loaded from `cordis.yml`. The sibling [`headless-agent`](../headless-agent/README.md) runs the same capability class as a one-shot pipe-friendly task, and [`acp-agent`](../acp-agent/README.md) serves it over JSON-RPC.
+The full-screen interactive coding agent: DeepSeek V4, local bash and filesystem tools, compaction, subagents, workflows and fresh-agent Ralph iteration, plan mode (`/plan` enters and `exit_plan_mode` reviews the exit), timeout/spill policy, and JSONL persistence through [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo), loaded from `cordis.yml`. The sibling [`headless-agent`](../headless-agent/README.md) runs the same capability class as a one-shot pipe-friendly task, and [`acp-agent`](../acp-agent/README.md) serves it over JSON-RPC.
 
 ## Run it
 
@@ -17,7 +17,7 @@ Type a coding task. The agent works through the `read`/`write`/`edit` filesystem
 
 The `todo_write` task tracker is opt-in and not in the shipped config: add `@deepseek-ai/dsh-tool-todo` to `cordis.yml` (or a personal-config overlay under `~/.dsh`) to expose it. Once loaded, the model records a whole-list plan to the session log and the TUI renders it.
 
-The TUI renders Markdown history, reasoning, tool-owned terminal/diff/generic cards, token totals, and — when `todo_write` is loaded — the latest plan. Long tool bodies keep a head/tail preview; Ctrl+O expands or collapses every card. Enter submits or steers while the agent runs, Ctrl+R toggles reasoning, Escape cancels, and `/help` lists commands. `/status` expands the current session's identity, activity counts, exact token/cache buckets, context use, and timestamps without interrupting a running turn. `/model` opens a keyboard selector for the current provider catalog; use Up/Down and Enter, or `/model <model>` and `/model <provider>/<model>` for direct selection. `ask_user_question` opens a wide bottom-left keyboard panel with batch progress and numbered options.
+The TUI renders Markdown history, reasoning, tool-owned terminal/diff/generic cards, token totals, and — when `todo_write` is loaded — the latest plan. Long tool bodies keep a head/tail preview; Ctrl+O expands or collapses every card. Enter submits or steers while the agent runs, Ctrl+R toggles reasoning, Escape cancels, and `/help` lists commands. `/plan` selects plan mode for the next step; `/plan <message>` also submits the message into that step. `/status` expands the current session's identity, activity counts, exact token/cache buckets, context use, and timestamps without interrupting a running turn. `/model` opens a keyboard selector for the current provider catalog; use Up/Down and Enter, or `/model <model>` and `/model <provider>/<model>` for direct selection. `ask_user_question` opens a wide bottom-left keyboard panel with batch progress and numbered options.
 
 ### Resuming a prior session
 
@@ -57,6 +57,7 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 | `subagent`, `subagent-spawn`, `subagent-fork` | the subagent provider registry plus the two in-process backends: a fresh child and a child seeded with the parent's completed-turn prefix |
 | `tool-subagent`, `tool-subagent-fork` | two model-facing `dsh-tool-subagent` loads, each bound to a different provider and exposed under a distinct tool name (`subagent`, `subagent_fork`) |
 | `workflow-workerthread`, `tool-workflow` | the worker-thread workflow engine and its model-facing `workflow` tool, with child calls routed through the spawn backend |
+| `plan-mode` | the plugin-owned `/plan [message]` command, plan-mode prompt policy, tool restrictions, and reviewed `exit_plan_mode` transition |
 | `fs-local`, `fs-policy`, `tool-fs` | the filesystem stack: the local `ctx.fs` provider, the read-before-write/edit policy gate (on the `fs/*` event gate), and the model-facing `read`/`write`/`edit` tools. Relative paths resolve against the session workspace |
 
 ## End-to-end tests (`pnpm run test:e2e`)
@@ -70,7 +71,7 @@ The UI-independent with-key suites assemble the full stack programmatically thro
 - `tests/todo-write.e2e.ts` — loads the opt-in `todo_write` tool, then a real model drives it and the test verifies the resulting `todo/write` session event.
 - `tests/code-mode.e2e.ts` — the with-key Code Mode proof: a real model, a two-tool task, asserting the wire tool list was exactly `[run_code]`, the `tool/code-dispatch` events landed under the parent call, and the curated answer came back.
 
-These self-skip without `DEEPSEEK_API_KEY`. The keyless `tests/tui-keyless-smoke.e2e.ts` boots the real Loader tree in a PTY (the one sanctioned PTY surface): the base boot + `/exit`, a scripted-LLM conversation with a question dialog and tool round-trip, the Code Mode overlay welcome line, and the resume-failure exit path.
+These self-skip without `DEEPSEEK_API_KEY`. The keyless `tests/tui-keyless-smoke.e2e.ts` boots the real Loader tree in a PTY (the one sanctioned PTY surface): the base boot + `/plan` + `/exit`, a scripted-LLM conversation with a question dialog and tool round-trip, the Code Mode overlay welcome line, and the resume-failure exit path.
 
 ## Snapshot tests
 

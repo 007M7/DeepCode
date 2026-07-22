@@ -47,6 +47,8 @@ flowchart LR
   cfg --> plugin_tui_tool_workflow
   plugin_tui_tool_ralph["tool-ralph<br/>@deepseek-ai/dsh-tool-ralph"]
   cfg --> plugin_tui_tool_ralph
+  plugin_tui_plan_mode["plan-mode<br/>@deepseek-ai/dsh-plan-mode"]
+  cfg --> plugin_tui_plan_mode
   plugin_tui_fs_local["fs-local<br/>@deepseek-ai/dsh-fs-local"]
   cfg --> plugin_tui_fs_local
   plugin_tui_fs_policy["fs-policy<br/>@deepseek-ai/dsh-fs-policy"]
@@ -81,6 +83,7 @@ flowchart LR
 | `workflow-workerthread` | `@deepseek-ai/dsh-workflow-workerthread` |
 | `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
 | `tool-ralph` | `@deepseek-ai/dsh-tool-ralph` |
+| `plan-mode` | `@deepseek-ai/dsh-plan-mode` |
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
 | `tool-fs` | `@deepseek-ai/dsh-tool-fs` |

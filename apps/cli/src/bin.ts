@@ -1,23 +1,25 @@
 #!/usr/bin/env node
 /**
  * dsh — command-line entry. Coarse dispatch only; each surface module owns its
- * own argument handling. `web` and `-p`/`--prompt` are reserved for the
- * browser GUI and headless surfaces (PR #443) so that dispatch merges as a
- * union; everything else is the interactive TUI, the default surface.
+ * argument handling. Dynamic imports keep unrelated surfaces out of each
+ * dispatch path; everything except `web` and headless prompts opens the TUI.
  * @module @deepseek-ai/dsh/bin
  */
 
-/* v8 ignore file -- thin self-executing dispatch; the tui-agent PTY smoke
-   exercises the TUI path end to end */
+/* v8 ignore file -- built-bin and PTY tests exercise this self-executing dispatch. */
 
 import { loadEnv } from '@deepseek-ai/dsh-app-boot'
-import { runTui } from './tui.ts'
 
 loadEnv('dsh')
 const argv = process.argv.slice(2)
 
-if (argv[0] === 'web' || argv.includes('-p') || argv.includes('--prompt')) {
-  process.stderr.write('dsh: the web and headless surfaces are not on this branch (PR #443); run the TUI: dsh [config.yml]\n')
-  process.exit(1)
+if (argv[0] === 'web') {
+  const { runWeb } = await import('./web.ts')
+  await runWeb(argv.slice(1))
+} else if (argv.includes('-p') || argv.includes('--prompt')) {
+  const { runHeadless } = await import('./headless.ts')
+  await runHeadless(argv)
+} else {
+  const { runTui } = await import('./tui.ts')
+  await runTui(argv)
 }
-await runTui(argv)
