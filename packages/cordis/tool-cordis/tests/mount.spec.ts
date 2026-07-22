@@ -403,6 +403,9 @@ describe('cordis_mount', () => {
     ['parameters: { value: { type: \'json\', default: new (class DefaultValue { constructor() { this.ok = true } })() } }', 'parameters.value.default must be lossless JSON data'],
     ['parameters: { value: { type: \'json\', default: new (class DefaultList extends Array {})() } }', 'parameters.value.default must be lossless JSON data'],
     ['parameters: { value: { type: \'json\', default: new Date(0) } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: (() => { const p = Object.create(null); const C = function C() {}; Object.defineProperty(C, \'name\', { value: \'Object\' }); C.prototype = p; Object.defineProperty(p, \'constructor\', { value: C }); return Object.create(p) })()', 'must be a ParameterSchemaSpec object'],
+    ['parameters: (() => { const p = Object.create(null); const C = function C() {}; Object.defineProperty(C, \'name\', { value: \'Object\' }); C.prototype = p; const r = Proxy.revocable(C, {}); Object.defineProperty(p, \'constructor\', { value: r.proxy }); r.revoke(); return Object.create(p) })()', 'must be a ParameterSchemaSpec object'],
+    ['parameters: Object.create(Object.create(null))', 'must be a ParameterSchemaSpec object'],
   ])('rejects a malformed ParameterSchemaSpec (%s) with a teaching error', async (parameters, message) => {
     const ctx = await setup()
     const result = await call(ctx, 'cordis_mount', {

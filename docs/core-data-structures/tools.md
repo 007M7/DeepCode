@@ -96,35 +96,28 @@ type ParameterPropertySpec = ValueSchemaSpec & { required?: true }
  * Tool parameter schema. The map itself is an implicit open object root;
  * requiredness remains a per-property `required: true` annotation.
  */
-type ParameterSchemaSpec = Record<string, ParameterPropertySpec>
+type ParameterSchemaSpec = {
+  [key: string]: ParameterPropertySpec
+  [key: symbol]: never
+}
 ```
 
-`{ type: 'json' }` infers `JsonValue` and compiles to an annotation-only unconstrained raw schema. Output roots can be objects, arrays, scalars, or null. `InferValue<S>` honors literal constraints and object openness; `InferArgs<P>` turns per-property requiredness into required and optional keys:
+`{ type: 'json' }` infers `JsonValue` and compiles to an annotation-only unconstrained raw schema. Output roots can be objects, arrays, scalars, or null. `InferValue<S>` honors literal constraints and object openness through 16 container levels, then falls back to `JsonValue` instead of exhausting TypeScript's type-instantiation stack. `InferArgs<P>` turns per-property requiredness into required and optional string keys:
 
 ```ts type-equiv
 /**
- * Infer the TypeScript value accepted by an author-facing value schema.
- * Output schemas may therefore infer object, array, scalar, or null roots.
+ * Infer the TypeScript value accepted by an author-facing value schema. Exact
+ * inference is bounded to 16 container levels, then falls back to `JsonValue`.
  */
-type InferValue<S extends ValueSchemaSpec> =
-  S extends StringValueSchemaSpec ? InferScalar<S, string> :
-    S extends NumberValueSchemaSpec | IntegerValueSchemaSpec ? InferScalar<S, number> :
-      S extends BooleanValueSchemaSpec ? InferScalar<S, boolean> :
-        S extends NullValueSchemaSpec ? null :
-          S extends ArrayValueSchemaSpec
-            ? S extends { items: infer I extends ValueSchemaSpec } ? InferValue<I>[] : JsonValue[]
-            : S extends ObjectValueSchemaSpec ? InferObject<S> :
-              S extends JsonValueSchemaSpec ? JsonValue :
-                S extends OneOfValueSchemaSpec ? InferValue<S['oneOf'][number]> :
-                  never
+type InferValue<S> = InferValueAt<S, []>
 ```
 
 ```ts type-equiv
 /** Infer the TypeScript argument object for an implicit parameter schema. */
-type InferArgs<S extends ParameterSchemaSpec> = InferProperties<S>
+type InferArgs<S> = InferProperties<S, []>
 ```
 
-`defineTool({ name, description, parameters, execute, … })` ties parameter inference to `parameterSchemaSpecToJsonSchema()` and `validateArgs()`. `valueSchemaSpecToJsonSchema()` compiles value/output declarations through the same enforced raw subset. A parameter mismatch throws `ToolArgsError` (`INVALID_ARGS`), which the registry returns through the normal tool-error path. Raw JSON Schema remains open by default; unsupported keywords reject instead of being accepted without enforcement.
+`defineTool({ name, description, parameters, execute, … })` ties parameter inference to `parameterSchemaSpecToJsonSchema()` and `validateArgs()`. `valueSchemaSpecToJsonSchema()` compiles value/output declarations through the same enforced raw subset. Schema records contain only own enumerable string keys, and schema arrays are dense intrinsic arrays, so inference, compilation, and validation observe the same declaration. A parameter mismatch throws `ToolArgsError` (`INVALID_ARGS`), which the registry returns through the normal tool-error path. Raw JSON Schema remains open by default; unsupported keywords reject instead of being accepted without enforcement.
 
 Registration is a trusted same-process contract. The registry borrows the typed definition as readonly input and validates only semantic requirements such as a positive finite `timeoutMs`; `schemas()` materializes the explicit model-facing projection at the model boundary so execution and presentation share one resolved definition without leaking callbacks onto the wire.
 
