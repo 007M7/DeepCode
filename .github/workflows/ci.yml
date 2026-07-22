@@ -29,7 +29,7 @@ env:
 jobs:
   node-24:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
-    runs-on: dsh-ubuntu-24-04-4core
+    runs-on: ${{ startsWith(matrix.lane, 'snapshot-') && 'dsh-ubuntu-24-04-8core' || 'dsh-ubuntu-24-04-4core' }}
     name: node 24 / ${{ matrix.lane }}
     env:
       DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
