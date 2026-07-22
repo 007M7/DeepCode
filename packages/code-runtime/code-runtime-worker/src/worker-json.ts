@@ -3,13 +3,27 @@
 import type { CodeJsonValue } from '@deepseek-ai/dsh-code-runtime'
 
 /* jscpd:ignore-start -- the source worker mirrors session JSON helpers without workspace runtime imports */
-/** Whether a realm-owned intrinsic prototype names and points back to its constructor. */
+type IntrinsicCallable = (this: unknown, ...args: unknown[]) => unknown
+
+const intrinsicFunctionToString = Reflect.get(Function.prototype, 'toString') as IntrinsicCallable
+const intrinsicReflectApply = Reflect.get(Reflect, 'apply') as (
+  target: IntrinsicCallable,
+  thisArgument: unknown,
+  argumentsList: readonly unknown[],
+) => unknown
+
+/** Whether a realm-owned intrinsic prototype is backed by its native constructor. */
 function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): boolean {
   const descriptor = Object.getOwnPropertyDescriptor(prototype, 'constructor')
   const constructor: unknown = descriptor?.value
-  return typeof constructor === 'function'
-    && constructor.name === name
-    && constructor.prototype === prototype
+  if (typeof constructor !== 'function') return false
+  try {
+    return constructor.name === name
+      && constructor.prototype === prototype
+      && intrinsicReflectApply(intrinsicFunctionToString, constructor, []) === `function ${name}() { [native code] }`
+  } catch {
+    return false
+  }
 }
 
 /** Whether a candidate is one realm's intrinsic `Object.prototype`. */

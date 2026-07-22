@@ -97,6 +97,26 @@ describe('snapshotCodeJsonValue', () => {
     Object.setPrototypeOf(forgedPrototype, null)
     const forgedArray = [1]
     Object.setPrototypeOf(forgedArray, forgedPrototype)
+    const spoofedObjectPrototype = Object.create(null) as Record<string, unknown>
+    const SpoofedObject = function Object() {}
+    SpoofedObject.prototype = spoofedObjectPrototype
+    Object.defineProperty(spoofedObjectPrototype, 'constructor', { value: SpoofedObject })
+    const spoofedObject = Object.create(spoofedObjectPrototype) as Record<string, unknown>
+    spoofedObject.value = 1
+    const revokedPrototype = Object.create(null) as Record<string, unknown>
+    const RevokedObject = function Object() {}
+    RevokedObject.prototype = revokedPrototype
+    const revokedConstructor = Proxy.revocable(RevokedObject, {})
+    Object.defineProperty(revokedPrototype, 'constructor', { value: revokedConstructor.proxy })
+    const revokedObject = Object.create(revokedPrototype) as Record<string, unknown>
+    revokedConstructor.revoke()
+    const spoofedArrayPrototype: unknown[] = []
+    Object.setPrototypeOf(spoofedArrayPrototype, Object.prototype)
+    const SpoofedArray = function Array() {}
+    SpoofedArray.prototype = spoofedArrayPrototype
+    Object.defineProperty(spoofedArrayPrototype, 'constructor', { value: SpoofedArray })
+    const spoofedArray = [1]
+    Object.setPrototypeOf(spoofedArray, spoofedArrayPrototype)
 
     for (const value of [
       new ExoticObject(),
@@ -110,11 +130,16 @@ describe('snapshotCodeJsonValue', () => {
       symbolObject,
       customPrototypeObject,
       forgedArray,
+      spoofedObject,
+      revokedObject,
+      spoofedArray,
       cyclic,
       [undefined],
       { value: undefined },
     ]) {
-      expect(snapshotCodeJsonValue(value)).toBeUndefined()
+      const canonical = snapshotJsonValue(value)
+      expect(canonical).toBeUndefined()
+      expect(snapshotCodeJsonValue(value)).toEqual(canonical)
     }
   })
 

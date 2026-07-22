@@ -623,6 +623,40 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     }))
   })
 
+  it('rejects intrinsic-looking exotic objects as arguments and completions', async () => {
+    const { runtime } = await setup()
+    let calls = 0
+    const forgeObject = `
+      const prototype = Object.create(null);
+      const SpoofedObject = function Object() {};
+      SpoofedObject.prototype = prototype;
+      Object.defineProperty(prototype, 'constructor', { value: SpoofedObject });
+      const forged = Object.assign(Object.create(prototype), { value: 1 });
+      Function.prototype.toString = () => 'function Object() { [native code] }';
+    `
+    const argument = await runtime.run({
+      program: `${forgeObject}
+        try { await tools.never(forged) } catch (error) {
+          return { typed: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message };
+        }
+      `,
+      bindings: tools({ never: async () => { calls += 1; return null } }),
+    })
+    expect(calls).toBe(0)
+    expect(argument.value).toEqual({
+      typed: true,
+      name: 'ToolCallError',
+      toolName: 'never',
+      message: 'binding arguments must be lossless JSON',
+    })
+
+    const completion = await runtime.run({ program: `${forgeObject}\nreturn forged`, bindings: [] })
+    expect(completion).toEqual({
+      logs: [],
+      error: { kind: 'invalid-output', message: 'program completion must be lossless JSON' },
+    })
+  })
+
   it('rejects forged lossy binding arguments again at the host boundary', async () => {
     const { runtime } = await setup()
     let calls = 0
