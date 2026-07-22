@@ -11,6 +11,17 @@ const windowsUnsupportedPackages = process.platform === 'win32'
     ]
   : []
 
+// These files retain 100% per-file coverage on POSIX, where their process-pipe and terminal timing
+// tests are deterministic; Windows skips those cases and must not fail solely on their uncovered paths.
+const windowsCoverageExclusions = process.platform === 'win32'
+  ? [
+      'packages/lsp/lsp-local/src/connection.ts',
+      'packages/lsp/lsp-local/src/index.ts',
+      'packages/lsp/lsp-local/src/instance.ts',
+      'packages/ui/tui/src/index.ts',
+    ]
+  : []
+
 export default defineConfig({
   // Native path resolution reads each package's nearest tsconfig, but only the root defines
   // workspace paths. Keep this plugin pinned to the root map so unbuilt bare package imports resolve
@@ -33,6 +44,7 @@ export default defineConfig({
         'packages/*/*/src/bin.ts',
         'packages/*/*/src/worker.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
+        ...windowsCoverageExclusions,
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
       // Per-file so a well-covered big file can't subsidize a bare one.
