@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
 import { AppFrame, CenterColumn, DetailsColumn, type PanelState } from '@deepseek-ai/dsh-client-ui-layout/client'
-import { clampWidth } from '@deepseek-ai/dsh-client-ui-layout/client'
+import { clampWidth } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 
 /** Observer stub: captures the callback so tests can fire resizes manually. */
 let fireResize: (() => void) | null = null

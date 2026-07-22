@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CENTER_MIN, clampWidth, computeColumns,
   DETAILS_DEFAULT, DETAILS_MIN, SIDEBAR_DEFAULT, SIDEBAR_MIN,
-} from '@deepseek-ai/dsh-client-ui-layout/client'
+} from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 
 const open = (width: number) => ({ open: true, width })
 const closed = (width: number) => ({ open: false, width })

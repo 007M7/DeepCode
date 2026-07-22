@@ -15,16 +15,16 @@ import { SlotsService } from './slots.ts'
 import { SessionsService } from './sessions/service.ts'
 import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from './sessions/conversation.ts'
 
+// Contract face only: implementation internals (SessionManager, Session,
+// PAGE_MESSAGES, the lineage/list-snapshot shapes, the block classifier)
+// stay package-internal — tests reach them via src, and downstream packages
+// consume sessions exclusively through the service + snapshot types below.
 export { SlotsService } from './slots.ts'
 export { SessionsService, scopeOf } from './sessions/service.ts'
 export type { SessionBinding, SessionListState, SessionSummary } from './sessions/service.ts'
-export { SessionManager } from './sessions/manager.ts'
-export type { SessionListSnapshot } from './sessions/manager.ts'
-export { Session, PAGE_MESSAGES } from './sessions/session.ts'
-export type { SessionListEntry } from './sessions/lineage.ts'
 export type {
   AssistantBlock, AssistantMessageNode, ContextMessageNode, ConversationNode, ConversationSnapshot,
-  OpenState, PartialAssistant, PendingInteraction, PromptError, RunningToolCall, SteeringMessageNode,
+  PendingInteraction, RunningToolCall, SteeringMessageNode,
   ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
