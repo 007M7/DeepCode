@@ -17,6 +17,7 @@ type Mode =
   | 'ci-snapshot'
   | 'ci-artifacts'
   | 'node-compat'
+  | 'pre-push'
   | 'manual-push'
   | 'doc-sync'
 type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
@@ -87,12 +88,13 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-snapshot':
     case 'ci-artifacts':
     case 'node-compat':
+    case 'pre-push':
     case 'manual-push':
     case 'doc-sync':
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | manual-push | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | pre-push | manual-push | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -101,7 +103,7 @@ function defaultConcurrency(selectedMode: Mode, total: number): ConcurrencyDefau
   const available = availableParallelism()
   // Local modes cap workers: several doc gates each build a full ts.Program,
   // so an uncapped default on a large host trades wall clock for memory blowups.
-  const localCap = selectedMode === 'manual-push' || selectedMode === 'doc-sync'
+  const localCap = selectedMode === 'pre-push' || selectedMode === 'manual-push' || selectedMode === 'doc-sync'
   const modeLimit = localCap ? Math.min(4, available) : available
   return {
     workers: Math.min(total, modeLimit),
@@ -191,6 +193,7 @@ function gatesForMode(selected: Mode): Gate[] {
           'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
         ], { label: 'JSONL Zstandard smoke' }),
       ]
+    case 'pre-push': return []
     case 'manual-push':
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),

@@ -65,7 +65,7 @@ vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `v
 
 这些钩子有意不运行测试、快照、文档检查、构建或 `hygiene`。贡献者只运行一次[与改动行为相关的检查](../AGENTS.md#run-relevant-checks-locally)；CI 负责全量覆盖率门禁、构建产物冒烟测试，以及 Node 22.19、24 和 26 兼容性矩阵。
 
-贡献者可以选择运行 `pnpm run check:all`，执行当前主机上的完整 keyless Node 门禁集。该命令独立于两个 Git 钩子。
+贡献者可以选择运行 `pnpm run check:all`，执行全面的手动门禁集。该命令独立于两个 Git 钩子，也不是对 agent 的指令。
 
 ## CI 门禁
 
@@ -79,7 +79,7 @@ keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若�
 pnpm run test           # unit tests
 pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run check:all      # complete keyless Node gate set for the current host; not wired to Git hooks
+pnpm run check:all      # comprehensive manual gate set; not wired to Git hooks
 pnpm run typecheck      # build package/vendor outputs, then typecheck examples, tests, and scripts
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
