@@ -18,27 +18,31 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | 子页面 | 负责内容 |
 |---|---|
 | [llm-streaming.md](llm-streaming.md) | `StreamChunk` 协议格式（wire format）+ 适配器契约（adapter contract）、`BlockAssembler`、`LlmAdapter` seam |
+| [token-meter.md](token-meter.md) | 不可变的标量与位置回放度量，附带已消费日志修订号 |
 | [scope.md](scope.md) | 作用域注册标识、dispatch 载体，以及拥有的 `Scope` 上下文 |
+| [goal.md](goal.md) | 持久 goal 标识、生命周期快照、激活、变更记录与 round 归属 |
+| [commands.md](commands.md) | 人类命令 seam：定义、适配器发现、直接调用、结果与解析视图 |
 | [session.md](session.md) | 完整的 `SessionEventMap` 变体目录、`TurnTrigger`/`TurnEndReason`、`deriveMessages()`、轮次封闭不变式 |
 | [persistence.md](persistence.md) | 持久性 seam：`SessionPersistence`、JSONL + SQLite 后端、`session/flush`、崩溃恢复、`SessionHeader` |
-| [session-query.md](session-query.md) | 逻辑会话/事件记录与有界精确事件读取 |
+| [session-query.md](session-query.md) | 逻辑记录、有界精确事件读取与关系追踪 |
+| [session-title.md](session-title.md) | 持久标题快照、来源 provenance 与异步提供方契约 |
 | [system-prompt.md](system-prompt.md) | 逐次组装的上下文、工具提供方结果、prompt 段落与协作式组装 |
 | [tools.md](tools.md) | `ToolDefinition` 完整字段、schema DSL、`ToolExecution`/`ToolResult`、工具展示 UI 类型，以及受保护的执行流水线 |
 | [user-interaction.md](user-interaction.md) | UI 支持的人工问答 seam：`AskUserQuestionRequest`、answer/options 词汇、provider API、错误分类体系 |
 | [approval.md](approval.md) | 一次性用户审批 seam：`ApprovalRequest`、`ApprovalOutcome`、逐会话策略、审计与 answerer 契约 |
-| [bash.md](bash.md) | bash 执行器 seam：`BashExecRequest`/`Spec`、`BashRunResult`、后台 `BashTask` |
-| [sandbox.md](sandbox.md) | 进程隔离 seam：文件效果模式、`SandboxPolicy`、`ConfinedArgv`、强制执行与 fail-closed 错误 |
+| [bash.md](bash.md) | bash 执行器 seam：`BashExecRequest`/`Spec`、`BashRunResult`、后台 `BashProcess` 句柄 |
+| [sandbox.md](sandbox.md) | 每会话策略解析与进程约束 seam：文件效果模式、执行/提供方策略、`ConfinedArgv`、强制执行与故障关闭错误 |
 | [code-runtime.md](code-runtime.md) | 代码执行 seam：`CodeRunRequest`/`Result`、绑定命名空间、捕获日志、`CodeRunFailure` 分类体系 |
 | [filesystem.md](filesystem.md) | 文件系统 seam：`FsTarget`、读/写/编辑结果、观测到的文件状态、`FsErrorCode` |
+| [lsp.md](lsp.md) | LSP 导航 seam：`LspQueryRequest`/`Result`、`LspProvider`/`Service`、四种操作、`LspError` |
 | [skills.md](skills.md) | skill 服务：发现优先级、`SkillSummary`/`SkillDefinition`、会话前缀目录、面向模型的 `skill` 加载 |
 | [compaction.md](compaction.md) | 压缩（compaction）seam：`compact/*` 会话事件、`CompactionResult`、`CompactService` 接口 |
 | [subagent.md](subagent.md) | subagent seam：命名提供方注册表、`SubagentStartRequest`/`Result`/`Run`、启动时与运行时能力拆分 |
 | [web.md](web.md) | Web 访问 seam：`WebSearchRequest`/`Result`、`WebFetchRequest`/`Result`、`WebFetchBody`、provider 可用性、`WebError` |
+| [spill.md](spill.md) | spill 存储 seam：`SaveTextSpill`、`SpillOwner`/`SpillSource`、`SpillRef`、品牌类型 `SpillLocator` |
 | [workflow.md](workflow.md) | 工作流 seam：`WorkflowStartRequest`、`WorkflowMeta`、`WorkflowRun`/`Result`、`workflow/*` 事件载荷、`WorkflowError` 致命性 |
 
-> 本页的类型定义**逐字**粘贴自源码，并由 `pnpm run verify-type-equiv` 进行漂移检查（见 [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)）。为可读性省略了行内 JSDoc；完整契约请跟随源码链接查看。
-
-FIXME(catalog-verbs): the drift gate covers only the nouns (the pasted type shapes); every method surface on these pages is hand-written prose. core-data-structures should probably also generate the *verbs* — the public methods of the cataloged classes — so a signature change cannot silently outdate the catalog.
+> 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)）。普通 block 保留完整声明；`public-api` block 保留去除实现体的公开 class 声明。Cordis 服务使用生成的[服务目录](../cordis-catalog/services.md)。
 
 ## `…Map → derived-union` 模式
 
@@ -76,25 +80,30 @@ declare module '@deepseek-ai/dsh-llm' {
 
 ## 品牌化 ID
 
-跨包边界的 ID 是**品牌化**的——结构上是字符串，但在类型层面不可互换（`AgentId` 不能传给期望 `CallId` 的地方）。构造通过每个类型专属的工厂函数；比较、日志和 JSON 行为与普通字符串一致。
+跨越包边界的 ID 都经过**品牌化**——结构上是字符串，但在类型层面不可互换（不能把 `SessionId` 传给需要 `CallId` 的位置）。每种类型通过各自的工厂构造；比较、日志记录和 JSON 行为与普通字符串相同。
 
-`Branded<B>` 原语位于自己的纯类型包 [dsh-brand](../../packages/util/brand)（无运行时代码，不依赖 harness 包），因此任何包都可以为自己拥有的 ID 品牌化，而无需依赖不相关的能力包（例如 dsh-bash 仅通过 dsh-brand 品牌化 `BashTaskId`/`OwnerToken`，从不引入 dsh-llm）。
+`Branded<B>` 原语位于独立的纯类型包 [dsh-brand](../../packages/util/brand) 中（没有运行时代码，也不依赖 Harness 包），因此任何包都能品牌化其拥有的 id，而无需依赖无关的能力包。
 
-Source: [`packages/util/brand/src/index.ts`](../../packages/util/brand/src/index.ts)
+源码：[`packages/util/brand/src/index.ts`](../../packages/util/brand/src/index.ts)
 
 ```ts type-equiv
+/** A string carrying a compile-time-only brand `B`. */
 type Branded<B extends string> = string & { readonly [BRAND]: B }
 ```
 
-三个核心 ID：`CallId`（关联工具调用与其结果；dsh-llm）、`SessionId`（dsh-session）、`AgentId`（dsh-agent）。每个都是 `Branded<'CallId'>` 等加上同名工厂函数。能力 seam 也品牌化自己的 ID——见 [bash.md](bash.md) 中的 `BashTaskId`/`OwnerToken`。
+两个核心 ID 是 `CallId`（关联工具调用及其结果；dsh-llm）和 `SessionId`（活跃 agent 与持久 session 共享的标识；dsh-session）。能力包也会品牌化各自的 id，例如 [tasks.md](tasks.md) 中的 `TaskId`。
 
 ## 内容块与消息
 
 一段对话由 `Message` 组成；一条消息是一个类型化**内容块**的数组。块的联合类型从 `ContentBlockMap` 派生。
 
-Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+源码：[`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
 ```ts type-equiv
+/**
+ * Merge-extensible content blocks keyed by `type`. New core blocks must land
+ * with adapter, UI, and compaction support.
+ */
 interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock
@@ -105,18 +114,44 @@ interface ContentBlockMap {
 
 各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ToolCallBlock`（`id: CallId`、`name`、原始 JSON `arguments`）、`ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。`ContentBlock = ContentBlockMap[ContentBlockType]`。核心集仅限于每条交付路径都尊重的块——多模态内容（图像、音频等）没有核心块类型；需要的功能通过可合并扩展的 map 添加，同时提供适配器/UI/压缩支持。
 
-`Message` 是角色加块：
+`Message` 由角色和 block 组成。由循环派生的 assistant 消息携带其持久 provider/model 标识，以及可选的适配器私有回放元数据：
 
 ```ts type-equiv
+/** Provider ownership and adapter-private replay data for an assistant message. */
+interface AssistantProvenance {
+  /** Provider route that produced the message. */
+  provider: string
+  /** Provider model id that produced the message. */
+  model: string
+  /**
+   * Lossless-JSON adapter state needed to replay the provider response.
+   * `LlmService` exposes it to a target adapter only when that adapter instance
+   * currently owns both this historical provider and the target provider.
+   */
+  replayState?: unknown
+}
+```
+
+```ts type-equiv
+/**
+ * A single message in a conversation history. Loop-derived assistant messages
+ * always carry provenance; callers may omit it on hand-built foreign history.
+ */
 interface Message {
   role: 'system' | 'user' | 'assistant'
   content: ContentBlock[]
+  /** Present only on assistant messages produced by a routed adapter. */
+  provenance?: AssistantProvenance
 }
 ```
 
 消息来源本身也是一个可合并扩展的和类型：
 
 ```ts type-equiv
+/**
+ * Where a message (or injected content) came from.
+ * Merge-extensible sum type — plugins add their own `kind`s.
+ */
 interface MessageSourceMap {
   user: { kind: 'user' }
   plugin: { kind: 'plugin'; plugin: string }
@@ -133,10 +168,49 @@ interface MessageSourceMap {
 
 一次模型调用是一个完全组装好的 `GenerateOptions`。适配器以原始 `StreamChunk` 流作答；消费方用 `BlockAssembler` 组装它（见 [llm-streaming.md](llm-streaming.md)）。
 
-Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+源码：[`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
+提供方与模型发现使用小型、提供方中立的描述符。模型目录仅供参考：路由仍以已注册提供方为键，适配器也可以接受未列出的模型 id。
 
 ```ts type-equiv
+/** Display metadata for one registered provider route. */
+interface LlmProviderInfo {
+  /** Provider route key used by {@link GenerateOptions.provider}. */
+  id: string
+  /** Human-readable provider name for selectors and diagnostics. */
+  name: string
+}
+```
+
+```ts type-equiv
+/** One adapter-discovered model; catalog membership is advisory, not request validation. */
+interface LlmModelInfo {
+  /** Provider route that owns this model entry. */
+  provider: string
+  /** Model id passed to {@link GenerateOptions.model}. */
+  id: string
+  /** Human-readable model name for selectors. */
+  name: string
+  /** Optional user-facing distinction from otherwise similar models. */
+  description?: string
+}
+```
+
+对正确性敏感的模型容量与参考目录分开查询，并归服务该确切路由的适配器所有。
+
+```ts type-equiv
+/** Provider-owned context capacity for one exact provider/model route. */
+interface LlmModelContext {
+  /** Maximum combined request and response context in tokens. */
+  contextWindow: number
+}
+```
+
+```ts type-equiv
+/** A single model request, fully assembled. */
 interface GenerateOptions {
+  /** Registered provider route selecting the adapter instance. */
+  provider: string
   model: string
   /**
    * Ordered conversation messages, exactly as the provider sees them (after
@@ -163,18 +237,28 @@ interface GenerateOptions {
    * it; replay uses it to keep concurrent parent and child cursors independent.
    */
   sessionId?: Branded<'SessionId'>
+  /**
+   * Provider-neutral classification for an auxiliary model call. Adapters may
+   * map the purpose to model-hidden transport metadata. Ordinary conversation
+   * requests leave it unset.
+   */
+  purpose?: 'compaction'
 }
 ```
 
-模型停止生成的原因是一个可合并扩展的结束原因：
+模型响应为何停止由可合并扩展的原因表示。提供方终态失败携带流式契约的 [`LlmFailure`](llm-streaming.md#llmfailure)：
 
 ```ts type-equiv
+/**
+ * Why a model response stopped.
+ * Merge-extensible so adapters can surface provider-specific reasons.
+ */
 interface FinishReasonMap {
   'stop': { kind: 'stop' }
   'tool-calls': { kind: 'tool-calls' }
   'max-tokens': { kind: 'max-tokens' }
-  'aborted': { kind: 'aborted' }
-  'error': { kind: 'error'; message: string; code?: string }
+  'aborted': { kind: 'aborted'; failure: LlmFailure }
+  'error': { kind: 'error'; failure: LlmFailure }
 }
 ```
 
@@ -183,6 +267,13 @@ interface FinishReasonMap {
 `GenerateOptions.tools` 携带 `ToolSchema`——工具的 JSON Schema 描述，发送给模型。它声明在 dsh-llm（而非 dsh-tools）中，正是因为它是循环每一步组装请求的一部分：
 
 ```ts type-equiv
+/**
+ * JSON-schema description of a tool, as sent to the model.
+ *
+ * Declared here (not in dsh-tools) because it is part of {@link GenerateOptions};
+ * dsh-tools' ToolDefinition and dsh-system-prompt's PromptAssembly both import
+ * it from this package.
+ */
 interface ToolSchema {
   name: string
   description: string
@@ -195,16 +286,22 @@ interface ToolSchema {
 
 ### 请求信封：`LlmCallConfig` 与记录的 header
 
-循环从已记录的状态构建每个请求。`EpochHeader` 记录调用配置、渲染后的 prompt、权威的返回工具顺序（由 `toolOrder` 配置，未设置时按字典序）以及会话前缀，通过 `request/header` 快照和 delta 实现。结合派生历史，这使得请求可从会话日志重建。见 [session.md](session.md#the-request-header-events-requestheader-and-requestheader-delta) 和[可重建请求 RFC](../rfc/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、渲染后的 prompt、权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）以及 session prefix。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
-`agent/request` 接收一个冻结的 call-config 种子，可以返回替换值。`agent/session-prefix` 在每个循环实例中组合一次仅用于请求的前缀消息，header 记录实际使用的确切结果。到达 `llm/stream` 的请求已被深度冻结，因此突变会抛出异常。
+`agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型或采样参数。`agent/session-prefix` 为每个循环实例组合一次仅用于请求的 prefix 消息，header 记录实际使用的确切结果。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
 
 在协议格式上，循环构建的请求按此顺序读取：`system` 槽位（渲染后的 prompt 组装）→ `messagePrefix`（冻结的会话前缀）→ 派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。前缀从不进入派生历史；它的持久记录是 header 事件，开发不变式针对每个循环构建的请求精确重算此等式。
 
-FIXME(call-config-shape): revisit the exact definition of this type — which fields are genuinely epoch-level for cache purposes (`model` certainly; the sampling scalars sit here out of caution), and where provider-specific extras (reasoning options, extra body params) belong when an adapter needs them.
+FIXME(call-config-shape)：重新审视此类型的精确定义——出于缓存目的，哪些字段确实属于 epoch 层级（`model` 肯定属于；采样标量目前出于谨慎放在这里），以及适配器需要时，提供方特有的额外项（推理选项、额外 body 参数）应归属何处。
 
 ```ts type-equiv
+/**
+ * Provider + model + sampling scalars of one conversation's requests. Every field maps
+ * 1:1 onto the same-named `GenerateOptions` field; the loop builds requests
+ * from the logged header rather than accepting these per call.
+ */
 interface LlmCallConfig {
+  provider: string
   model: string
   temperature?: number
   maxTokens?: number
@@ -216,9 +313,22 @@ interface LlmCallConfig {
 
 `Session` 是一份类型化 `SessionEvent` 的**仅追加日志**——唯一的真源。LLM（大语言模型）消息历史从日志*派生*（`deriveMessages()`），而非单独存储。事件词汇从 `SessionEventMap` 派生：
 
-Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
+源码：[`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
 ```ts type-equiv
+/**
+ * One immutable entry in the session log.
+ *
+ * A proper discriminated union over `type` (not independent `type`/`data`
+ * unions), so `switch (event.type)` narrows `event.data` without casts.
+ *
+ * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
+ * they only exist on {@link SurfaceEventType} variants (`user/message`,
+ * `assistant/message`, `tool/result`, `context/message`, `steering/message`).
+ * Non-surface events (boundary markers, chunks, usage, errors) never carry
+ * surface metadata — the compiler enforces this at `Session.append()`
+ * call sites.
+ */
 type SessionEvent<T extends SessionEventType = SessionEventType> = {
   [K in SessionEventType]: {
     type: K
@@ -231,7 +341,9 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /**
      * Seq numbers of events that are provenance sources of this event
      * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
-     * or the surface nodes shadowed by a compaction replace node).
+     * or the surface nodes shadowed by a compaction replace node). An
+     * `assistant/message` may carry a present empty array for a known empty
+     * provider stream; omission means unrecorded provenance.
      */
     sourceEventSeqs?: number[]
     /** How this event entered the surface; absent for non-surface events. */
@@ -240,157 +352,166 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-十五个事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`prompt/blocked`、`context/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`、`request/header-delta`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因，以及轮次封闭不变式在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复和 `SessionHeader`——在 **[persistence.md](persistence.md)** 中。
+十四种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`prompt/blocked`、`context/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及 turn enclosure 不变量都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` checkpoint、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
 
 ## Agent 句柄
 
-`Agent` 是每个插件（UI、钩子、编排器）面向编程的接口。具体实现是 dsh-agent-loop 中的 `ReactLoopAgent`；循环之外没有任何东西依赖该实现。
+`Agent` 是每个插件（UI、hook、orchestrator）面向编程的 surface。具体实现为 dsh-agent-loop 包内部细节；循环外没有任何组件依赖它。
 
-Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
+源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
+
+`InjectOptions` 在普通消息归属信息之外，扩展了对模型隐藏的持久 JSON 元数据：
 
 ```ts type-equiv
+/** Options specific to durable synthetic context injection. */
+interface InjectOptions extends SendOptions {
+  /** Opaque JSON state retained in the session event but hidden from the model. */
+  meta?: JsonValue
+}
+```
+
+```ts type-equiv
+/** Stable runtime cause accepted by {@link Agent.cancel}. */
+type AgentCancelCause =
+  | { readonly kind: 'user' }
+  | { readonly kind: 'parent' }
+```
+
+```ts type-equiv
+/** Public agent handle; its concrete implementation is internal to `@deepseek-ai/dsh-agent-loop`. */
 interface Agent {
-  readonly id: AgentId
+  /** The single identity shared with {@link session}. */
+  readonly id: SessionId
   readonly options: AgentOptions
   readonly session: Session
   readonly status: AgentStatus
-
-  /**
-   * The agent's scope context (`@deepseek-ai/dsh-scope`, key = this agent):
-   * registrations through it — tools, prompt sections/variables, listeners,
-   * restrictions — are visible to this agent only and unwind when it is
-   * disposed; `agent.ctx.on('agent/…')` listeners fire only for this agent.
-   */
+  /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
 
   /**
-   * Queue a user message. Starts a turn when idle; otherwise waits for the next
-   * turn. Content and the resolved source are accepted as one detached,
-   * deeply-frozen lossless-JSON record before notification or enqueue, so
-   * caller or `agent/queued` listener in-place mutation cannot change later
-   * log/model input. Throws synchronously when either value is not losslessly
-   * JSON-serializable; `agent/prompt-submit` may still return an explicit
-   * replacement.
+   * Queue one detached, frozen lossless-JSON item. If claimed, it is the sole
+   * ordinary message in its FIFO-ordered turn; the next claimed item waits for
+   * that turn's checkpoint.
+   * Invalid input throws synchronously before notification or enqueue.
    */
   send(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Steer a running turn: content is injected between steps of the current
-   * turn. Uses the same owned-value and synchronous-validation boundary as
-   * {@link send}; when idle, behaves exactly like that method.
+   * Submit steering while the agent is `running`. An open turn records it at
+   * the next steering checkpoint before a request or continuation decision;
+   * policy may stop before another step. After turn close and its checkpoint,
+   * any remainder is queued for a later turn; terminal `agent/turn-stop`,
+   * cancellation, or disposal may discard it. Uses the same synchronous
+   * snapshot-and-validation boundary as {@link send}; when idle, delegates to it.
    */
   steer(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Inject in-session context (file-change notices, skill content, cron
-   * notifications, …): appends a `context/message` session event the next model
-   * request sees at its chronological position, rendered as tagged synthetic
-   * context rather than a user prompt. Does not run the model.
-   *
-   * Turn-enclosure (the turn-enclosure RFC): an inject while a turn is open joins that turn;
-   * an inject while idle wraps its `context/message` in a one-shot `injection`
-   * turn (`turn/start` → `context/message` → `turn/end`) and checkpoints it for
-   * durability, so every event stays inside a turn and a persistence backend
-   * never loses a between-turn notice. The idle checkpoint is fire-and-forget
-   * (inject is synchronous): a failing flush is reported via `agent/error`
-   * (step `0`) and the logger, never thrown into the caller.
-   *
-   * Live-adapter review has validated the tagged-envelope rendering against
-   * current DeepSeek behavior; provider-specific mismatches belong in that
-   * adapter, not in the canonical session vocabulary.
+   * Append detached model-facing context without running the model. An open-turn
+   * injection joins at the current log position unless the current tool batch is
+   * executing; then it waits FIFO until that batch settles and drains before turn
+   * close even when interrupted. Idle injection uses a one-shot turn and durability
+   * checkpoint. Disposal awaits idle checkpoints; flush failures report through `agent/error`.
    */
-  inject(content: ContentBlock[], options?: SendOptions): void
+  inject(content: ContentBlock[], options?: InjectOptions): void
 
   /**
-   * Cancel ALL pending work for the agent. `cancel()`:
-   *
-   * - clears the queued FIFO (un-started prompts never run) and the steering
-   *   FIFO (steering for the cancelled turn is dropped, not re-enqueued);
-   * - aborts the in-flight step if one is running (the turn ends `aborted`);
-   * - drops a turn that is about to start (a `cancel()` landing in the
-   *   pre-step window — after a `send()` queued but before the loop flips to
-   *   `running`, or after `running` is emitted but before the first step) so
-   *   that queued prompt does not run and cannot be batched into the cancelled
-   *   turn.
-   *
-   * After `cancel()`, `whenIdle()` resolves on the post-cancel quiescent state.
-   * `cancel()` on an idle agent with nothing queued or running is a safe no-op
-   * — it does NOT arm anything that would drop a later legitimate prompt.
+   * Clear all queued and steering work, including items waiting to start, and
+   * abort the active turn. An effective call first emits
+   * `agent/cancel-requested` with the resolved typed cause. The first cause wins
+   * for the active turn, and `whenIdle()` resolves after cancellation reaches
+   * quiescence. Omission means `{ kind: 'user' }`. Idle cancellation is a no-op
+   * and does not arm later work. The active turn snapshots and freezes the cause.
+   * @param cause - the stable caller intent carried by the current turn signal.
    */
-  cancel(reason?: string): void
+  cancel(cause?: AgentCancelCause): void
 
-  /**
-   * Resolve once the agent has reached quiescence after settling out of
-   * `running`, or immediately if it is already idle with no queued work. A
-   * non-owner's quiescence-observation hook: a consumer that does NOT own the
-   * agent's lifecycle awaits this to proceed only after queued/running work has
-   * fully stopped, rather than returning while the driver is still streaming or
-   * about to start a queued turn — without itself tearing the agent down. (A
-   * lifecycle OWNER does not need it: `AgentHandle.dispose()` already awaits the
-   * loop-exit promise directly as part of stopping and unregistering. So this is
-   * for a non-owning observer — e.g. a test awaiting a turn to settle, or a
-   * monitor — that wants the settle signal but must not dispose the agent.)
-   *
-   * "Quiescence", not merely "status changed": a disposed agent emits
-   * `agent/status('disposed')` from inside its disposer, BEFORE the driver loop
-   * has unwound — so `whenIdle()` resolving on `disposed` must wait for the loop
-   * to actually exit (the implementation chains the loop-exit promise), not just
-   * observe the status flip. A mid-step disposal that never reaches `idle` still
-   * unblocks the await this way.
-   */
+  /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
   whenIdle(): Promise<void>
 
-  // Subagent delegation is realized on top of this interface by the
-  // `@deepseek-ai/dsh-subagent` seam, not by a method here: a backend creates
-  // the child through `ctx.agents.create` (fork seeds the child Session with a
-  // balanced prefix of the parent's log via `CreateAgentOptions.seed`; spawn
-  // starts fresh) and drives it as an ordinary Agent handle, so steer() and
-  // event subscription work uniformly. See docs/core-data-structures/subagent.md.
 }
 ```
 
-`AgentStatus` 为 `'idle' | 'running' | 'disposed'`，`AgentId` 是品牌化的。`AgentOptions` 可合并扩展，当前包含 `model?`。Persona 属于 `dsh-system-prompt`：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
+`AgentStatus` 为 `'idle' | 'running' | 'disposed'`，`SessionId` 是品牌类型。`running` 描述整个驱动器的排空区间，可能跨越 turn 关闭、其持久化 checkpoint 以及连续的排队 turn；它不能证明某个 turn 仍然打开。`AgentOptions` 可合并扩展：core 声明 `provider?` 与 `model?`（在 `agent/request` 后，分发要求两者都存在）。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
 
-[事件分类体系](../architecture.md#event)拥有 `agent/*` 生命周期、检查点和 waterfall（瀑布式事件）契约。轮次和步骤边界是持久的会话事件，而非 agent 发射。
+cause 是由 TypeScript 强制约束的同进程输入。活跃持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`；该值在发布 `turn/end` 前退役。`agentInterruptReasonOf(signal)` 无需查询环境中的 initiator 状态，即可识别 `user`、`parent` 与仅用于生命周期的 `disposed`。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
+
+[事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、checkpoint 与 waterfall 契约。Turn 和 step 边界是持久 session 事件，而不是 agent emit。
+
+## 发起 Agent
+
+`ctx.agents` 携带的进程本地 initiator 就是上面的确切 `Agent`，不是单独的 frame 或复制的标识。环境中存在该值既不能证明存活，也不代表授权；其生命周期与边界规则由 [initiator 作用域决策](../../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)规定。
 
 ## 拦截决策
 
-每个 `agent/*` 拦截 waterfall 返回一个小型的、seam 特定的类型化联合——统一的 Decision 惯用法（工具 seam 的 `PreToolDecision`/`PostToolDecision` 在 [tools.md](tools.md) 中遵循相同形状）。CC/Codex 钩子桥将其 `permissionDecision`/`decision`/`continue`/`additionalContext` 字段映射到这些类型上；原生插件直接返回它们。它们共享一个面向模型的上下文信封 `HookContext`，通过 `inject()` 作为 `context/message` 注入，因此携带一个必需的 `source`（缺少 source 会默认为 `{kind:'user'}`，将插件上下文错误标记为用户提示词）。
+每个 `agent/*` 拦截 waterfall 都返回一个小型、特定于 seam 的类型化联合——统一的 Decision 惯用形状（[tools.md](tools.md) 中工具 seam 的 `PreToolDecision`/`PostToolDecision` 也采用相同形状）。CC/Codex hook bridge 把其 `permissionDecision`/`decision`/`continue`/`additionalContext` 字段映射到这些联合上；原生插件则直接返回它们。Prompt 与工具后决策共享一种面向模型的 context 形状 `HookContext`；它通过 `inject()` 作为 `context/message` 注入，因此必须携带 `source`（缺少 source 会默认成 `{kind:'user'}`，从而把插件 context 错标为用户 prompt）。其中的 `content` 作为 user-role 消息逐字到达模型，而 JSON `meta` 持久保存插件状态但不向模型暴露。两种决策都携带 `additionalContexts[]`，使每一项保留各自的 provenance 与元数据。Continuation reason 则是 steering 消息，并有意使用更窄的 content/source 形状。
 
-Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
+源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
 ```ts type-equiv
+/** Model-facing context injected by a listener; `source` prevents plugin text from being labeled as user input. */
 interface HookContext {
   content: ContentBlock[]
   source: MessageSource
+  /** Opaque JSON state retained in the session event but hidden from the model. */
+  meta?: JsonValue
 }
 ```
 
-`agent/prompt-submit` 返回 `PromptDecision`（允许一条已出队的排队消息——可选地重写其 `content` 或附加 `additionalContext`——或阻止它；一个批次中所有 prompt 都被阻止时，会打开一个零步骤轮次并以 `rejected` 结束）：
+`agent/prompt-submit` 返回 `PromptDecision`（允许 turn 已领取的排队消息——可选地改写其 `content` 或附加 `additionalContexts`——或者记录 `prompt/blocked` 并以 `rejected` 结束这个零 step turn）：
 
 ```ts type-equiv
+/**
+ * Prompt interception result. `allow.content` replaces the prompt and each
+ * `additionalContexts` entry becomes a separate context message. `block`
+ * records a durable `prompt/blocked` and ends the claimed prompt's zero-step
+ * turn as rejected.
+ */
 type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
   | { kind: 'block'; reason: string }
 ```
 
-`agent/turn-continuation` 返回 `ContinuationDecision`（循环的默认行为是：当步骤有工具调用或 steering（中途引导）被注入时 `continue`，否则 `stop`；`continue` 的 `reason` 被记录为同一轮次中下一步的 steering——类型化的 `/goal` 模式）：
+`agent/turn-continuation` 返回 `ContinuationDecision`（step 有工具调用或注入了 steering 时，循环默认为 `continue`，否则为 `stop`；`continue` 的 `reason` 会记录为同一 turn 中下一 step 的 steering，因此不携带 context 元数据——即类型化 `/goal` 模式）：
 
 ```ts type-equiv
+/** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
 type ContinuationDecision =
   | { action: 'stop' }
-  | { action: 'continue'; reason?: HookContext }
+  | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 ```
+
+`agent/request-error` 接收确切的原始 `RequestError`、其不可变 `LlmFailure`、在连续序列中已批准另一次请求的不可变失败列表、turn signal 以及 `next()`。恢复插件按 `failure.code` 路由，而不是按活跃错误的消息路由；每项策略只统计自身的 code，一次成功请求会清空历史：
+
+```ts type-equiv
+/** Model-request failure with an optional machine-routable provider code. */
+type RequestError = Error & { code?: string }
+```
+
+它返回 `RequestErrorDecision`；`retry` 在恢复 listener 的持久变更之后打开一个带新编号的 step，而 `fail` 在 `turn/end` 上保留结构化失败：
+
+```ts type-equiv
+/** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */
+type RequestErrorDecision = { action: 'fail' } | { action: 'retry' }
+```
+
+`agent/post-step` 会在 assistant 输出、真实或合成的工具结果、缓冲 context 与 steering 持久化之后、`step/end` 之前被 await。被取消的工具批次在排空后携带 aborted signal 到达这里；其签名为 `(agent, turn, step, signal)`，可回放事实保留在 session 日志中，而不是瞬态 payload 中。
 
 `agent/turn-stop` 返回仅停止的 `ContinuationStop` 子集或 `undefined`。循环在折叠普通决策、其 reason 和待处理 steering 之后调用此串行检查点；stop 是终态，会丢弃待处理的 steering。
 
 ```ts type-equiv
+/**
+ * The terminal subset of {@link ContinuationDecision}. A listener on
+ * `agent/turn-stop` returns this to make the already-composed continuation
+ * outcome terminal; `undefined` abstains.
+ */
 type ContinuationStop = Extract<ContinuationDecision, { action: 'stop' }>
 ```
 
 `agent/session-start` 携带 `SessionStartSource`（会话生命周期为何开始；桥接层据此匹配其 SessionStart）：
 
 ```ts type-equiv
+/** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 ```
 

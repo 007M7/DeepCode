@@ -2,7 +2,7 @@
 
 [English](web.md) | 中文
 
-Web 访问 seam 是一个[能力 seam](../rfc/implemented/architecture/2026-06-24-web-capability-seam.md)，在一个 `ctx.web` 服务上横跨**两项能力**（搜索与抓取），分布在多个包（package）中：接口（[dsh-web](../../packages/web/web)，`ctx.web` + 提供方注册表）、实现（[dsh-web-search-exa](../../packages/web/web-search-exa)、[dsh-web-search-perplexity](../../packages/web/web-search-perplexity)、[dsh-web-search-deepseek](../../packages/web/web-search-deepseek)、[dsh-web-fetch-local](../../packages/web/web-fetch-local)），以及消费方（[dsh-tool-web](../../packages/web/tool-web)，`web_search`/`web_fetch` 工具 schema）。Web 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此，而非 [core.md](core.md)。更换搜索提供方不会改变模型发起查询的方式，更换抓取实现也不会改变模型请求 URL 的方式。
+Web 访问 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-24-web-capability-seam.md)，在同一个 `ctx.web` 服务上横跨**两项能力**（search 与 fetch），并拆分到多个包：接口（[dsh-web](../../packages/web/web)，`ctx.web` + 提供方注册表）、实现（[dsh-web-search-exa](../../packages/web/web-search-exa)、[dsh-web-search-perplexity](../../packages/web/web-search-perplexity)、[dsh-web-search-deepseek](../../packages/web/web-search-deepseek)、[dsh-web-fetch-local](../../packages/web/web-fetch-local)）与消费方（[dsh-tool-web](../../packages/web/tool-web)，即 `web_search`/`web_fetch` 工具 schema）。Web 是**一项可选能力**，不属于 agent loop 主干，因此其词汇定义在此而非 [core.md](core.md) 中。更换 search 提供方不会改变模型请求 query 的方式，更换 fetch 实现也不会改变模型请求 URL 的方式。
 
 源码：[`packages/web/web/src/types.ts`](../../packages/web/web/src/types.ts)
 
@@ -15,20 +15,37 @@ Web 访问 seam 是一个[能力 seam](../rfc/implemented/architecture/2026-06-2
 面向模型的工具参数仅为一个 `query`；`maxResults` 是消费方自有的上限（`dsh-tool-web` 的 `searchMaxResults` 配置，默认 `8`），通过 seam 传递并在返回时强制执行——如果提供方返回超量，seam 截断 `sources[]` 并设置 `truncated`。
 
 ```ts type-equiv
+/**
+ * What one search-capable backend can return. The model-facing argument is just
+ * a query; `maxResults` is a `dsh-tool-web`-layer bound passed through unchanged
+ * and enforced on the way back by the seam (see {@link WebSearchResult}).
+ */
 interface WebSearchRequest {
   readonly query: string
   /**
    * Upper bound on returned sources; the seam truncates to it. Omitted = no
-   * bound. `dsh-tool-web` always sets it.
+   * bound. `dsh-tool-web` always sets it. A provider whose API supports a
+   * result-count control (Exa's `numResults`) should apply it at the request
+   * layer as a cost/latency optimization; the seam enforces the bound
+   * regardless.
    */
   readonly maxResults?: number
 }
 ```
 
 ```ts type-equiv
+/**
+ * Normalized search outcome. `content` is optional provider-generated answer
+ * text or summary (Exa returns none; Perplexity returns a generated answer).
+ * `sources[]` is the portable citation surface. `truncated` is set by the seam
+ * when it cut `sources[]` down to `maxResults`.
+ */
 interface WebSearchResult {
+  /** Optional provider-generated answer text, search context, or summary. */
   readonly content?: string
+  /** Citeable sources, already truncated to the request's `maxResults`. */
   readonly sources: readonly WebSearchSource[]
+  /** True when the seam dropped sources to honor `maxResults`. */
   readonly truncated: boolean
 }
 ```
@@ -36,10 +53,17 @@ interface WebSearchResult {
 `content` 是提供方可选生成的回答文本（Exa 和 DeepSeek 不返回；Perplexity 返回生成式回答）。`sources[]` 是可移植的引用表面。一个 source 必有 `url`；`title`/`snippet`/`publishedAt` 可选，因为并非每个提供方都返回它们——Perplexity 的引用可能只有 URL，强迫适配器编造其余字段会让 seam 说谎。`dsh-tool-web` 渲染时使用 `title ?? hostname(url)`。
 
 ```ts type-equiv
+/**
+ * One citeable source. A source always has a URL; `title`, `snippet`, and
+ * `publishedAt` are optional because not every provider returns them — forcing
+ * adapters to invent them would make the seam lie (Perplexity citations may be
+ * URL-only). `dsh-tool-web` renders `title ?? hostname(url)` for display.
+ */
 interface WebSearchSource {
   readonly url: string
   readonly title?: string
   readonly snippet?: string
+  /** Publication/crawl timestamp as a provider-supplied ISO-8601 string. */
   readonly publishedAt?: string
 }
 ```
@@ -47,6 +71,12 @@ interface WebSearchSource {
 ## 抓取请求与结果
 
 ```ts type-equiv
+/**
+ * What one fetch-capable backend is asked to retrieve. The request deliberately
+ * omits timeout, format, prompt, and extraction controls: cancellation is a
+ * direct execution argument, while presentation and higher-level LLM concerns
+ * belong outside safe retrieval.
+ */
 interface WebFetchRequest {
   readonly url: string
 }
@@ -55,10 +85,20 @@ interface WebFetchRequest {
 HTTP 状态码是被抓取资源状态的一部分，不自动视为失败：成功的网络抓取返回 `404`/`500` 时，仍产出一个带状态码和有界解码 body 的 `WebFetchResult`。`url` 是经过允许的重定向后的最终 URL。`WebError` 仅用于无法安全获取或表示资源的情况。
 
 ```ts type-equiv
+/**
+ * Normalized fetch outcome. A successful network fetch of a non-2xx response is
+ * a result, not an error: the status code is part of the fetched resource
+ * state. {@link WebError} is reserved for failures to safely retrieve or
+ * represent the resource.
+ */
 interface WebFetchResult {
+  /** The final URL after allowed redirects (the request URL is in the request). */
   readonly url: string
+  /** HTTP status code of the fetched response. */
   readonly statusCode: number
+  /** Decoded body, classified by content kind. */
   readonly body: WebFetchBody
+  /** True when the provider capped the decoded body. */
   readonly truncated: boolean
 }
 ```
@@ -66,6 +106,15 @@ interface WebFetchResult {
 `WebFetchBody` 是 `dsh-web` 拥有的**封闭**可辨识联合类型（不是可合并扩展的 map）：提供方解码 kind，`dsh-tool-web` 渲染它，因此新增一个 kind 是已知包之间的协调变更，而非插件扩展。消费方对 `kind` 做 `switch` 并以 `default: assertNever(...)` 结尾，所以新增 kind 会在每个消费方处编译失败，直到被处理。即使各分支当前字段一致，每个分支仍保持独立的对象字面量，为将来分支特有字段留出空间（例如未来 `pdf` body 的 `pageCount`）。
 
 ```ts type-equiv
+/**
+ * The decoded body of a fetched resource. A CLOSED discriminated union owned by
+ * `dsh-web`: the provider decodes the kind and `dsh-tool-web` renders it, so a
+ * new kind is a coordinated change across known packages, not a plugin
+ * extension. Consumers `switch` on `kind` ending in `default: assertNever(...)`
+ * so adding a kind breaks compilation at every consumer until handled. Each arm
+ * stays its own object literal even where fields coincide today, leaving room
+ * for arm-specific fields later (a `pdf` body's `pageCount`).
+ */
 type WebFetchBody =
   | { readonly kind: 'html'; readonly content: string }
   | { readonly kind: 'text'; readonly content: string }
