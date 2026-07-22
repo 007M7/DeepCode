@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:254`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:275`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -785,6 +785,20 @@ export interface PresetSpec {
 Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMode`](core-data-structures/sandbox.md)
 
 Source: [`packages/ui/permission/src/index.ts:83`](../packages/ui/permission/src/index.ts)
+
+## `@deepseek-ai/dsh-plan-mode`
+
+Requires: `tools` · `systemPrompt`
+
+```ts config-catalog
+/** Deployment-owned plan guidance. */
+export interface PlanModeConfig {
+  /** Guidance rendered as the `plan:policy` prompt section while plan mode is active. */
+  section: string
+}
+```
+
+Source: [`packages/plan/plan-mode/src/index.ts:57`](../packages/plan/plan-mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 

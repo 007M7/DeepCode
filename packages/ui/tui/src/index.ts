@@ -949,9 +949,15 @@ class QuestionDialog implements Component, Focusable {
     const lines = [
       this.palette.muted(header),
       ...wrapTextWithAnsi(this.palette.text(displayText(this.question.question)), innerWidth),
-      '',
     ]
     const push = (line: string): void => { lines.push(line) }
+    // Supporting detail (e.g. the full plan under review) renders between the
+    // question and the answer surface, kept out of option labels.
+    if (this.question.detail !== undefined) {
+      push('')
+      for (const line of wrapTextWithAnsi(displayText(this.question.detail), innerWidth)) push(line)
+    }
+    push('')
     if (this.mode === 'custom') {
       for (const line of this.input.render(innerWidth)) push(line)
       push(this.palette.dim(this.options.length > 0 ? 'Enter submit • Esc options' : 'Enter submit • Esc cancel'))

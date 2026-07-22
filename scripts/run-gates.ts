@@ -16,6 +16,9 @@ type Mode =
   | 'ci-coverage'
   | 'ci-snapshot'
   | 'ci-artifacts'
+  | 'ci-windows-blocking'
+  | 'ci-windows-complete'
+  | 'ci-windows-observational'
   | 'node-compat'
   | 'pre-push'
   | 'manual-push'
@@ -32,6 +35,7 @@ interface Gate {
   env?: Record<string, string | undefined>
   input?: string
   verify?: (result: GateResult) => Promise<void>
+  allowFailure?: boolean
 }
 
 interface GateResult {
@@ -77,7 +81,9 @@ console.log(`run-gates: ${mode} running ${gates.length} gate(s) with ${maxConcur
 const results = await runGates(gates, maxConcurrency)
 printSummary(results, performance.now() - startedAt)
 
-if (results.some(result => result.status === 'failed' || result.status === 'skipped')) process.exit(1)
+if (results.some(result => result.gate.allowFailure !== true && (result.status === 'failed' || result.status === 'skipped'))) {
+  process.exit(1)
+}
 
 function parseMode(raw: string | undefined): Mode {
   switch (raw) {
@@ -87,13 +93,17 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-coverage':
     case 'ci-snapshot':
     case 'ci-artifacts':
+    case 'ci-windows-blocking':
+    case 'ci-windows-complete':
+    case 'ci-windows-observational':
     case 'node-compat':
     case 'pre-push':
+    case 'manual-push':
     case 'doc-sync':
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | pre-push | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | pre-push | manual-push | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -167,31 +177,19 @@ function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('duplication', 'duplication'),
       ]
     case 'ci-coverage':
-      return [
-        pnpmScript('build', 'build'),
-        coverageGate(),
-      ]
+      return [coverageGate()]
     case 'ci-snapshot':
-      return [
-        pnpmScript('build', 'build'),
-        snapshotGate(),
-      ]
+      return [pnpmScript('build', 'build'), snapshotGate()]
     case 'ci-artifacts':
       return ciArtifactGates()
+    case 'ci-windows-blocking':
+      return ciWindowsBlockingGates()
+    case 'ci-windows-complete':
+      return ciWindowsCompleteGates()
+    case 'ci-windows-observational':
+      return ciWindowsObservationalGates()
     case 'node-compat':
-      return [
-        pnpmScript('typecheck', 'typecheck'),
-        pnpmExec('source-worker-smoke', [
-          'vitest',
-          'run',
-          'packages/workflow/workflow-workerthread/tests/source-worker.compat.spec.ts',
-        ], { label: 'source worker smoke' }),
-        pnpmExec('jsonl-zstd-smoke', [
-          'vitest',
-          'run',
-          'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
-        ], { label: 'JSONL Zstandard smoke' }),
-      ]
+      return nodeCompatGates()
     case 'pre-push': return []
     case 'manual-push':
       return [
@@ -225,11 +223,12 @@ function ciPrimaryGates(): Gate[] {
     lintGate(),
     pnpmScript('duplication', 'duplication'),
     coverageGate(),
+    ...nodeCompatSmokeGates(),
     snapshotGate(),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
-    pnpmScript('build', 'build', { needs: ['typecheck'] }),
+    pnpmScript('build', 'build'),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -240,13 +239,40 @@ function ciPrimaryGates(): Gate[] {
   ]
 }
 
+function nodeCompatGates(): Gate[] {
+  return [
+    ...flagEnabled('DSH_NODE_COMPAT_SKIP_TYPECHECK') ? [] : [pnpmScript('typecheck', 'typecheck')],
+    ...nodeCompatSmokeGates(),
+  ]
+}
+
+function nodeCompatSmokeGates(): Gate[] {
+  return [
+    pnpmExec('source-worker-smoke', [
+      'vitest',
+      'run',
+      'packages/workflow/workflow-workerthread/tests/source-worker.compat.spec.ts',
+    ], { label: 'source worker smoke' }),
+    pnpmExec('jsonl-zstd-smoke', [
+      'vitest',
+      'run',
+      'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
+    ], { label: 'JSONL Zstandard smoke' }),
+  ]
+}
+
 function ciStaticGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
-    ...docSyncLeafGates(),
+    pnpmScript('build', 'build'),
+    ...docSyncLeafGates({
+      docTypecheckNeeds: ['build'],
+      docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+      docsBuildScript: 'docs:build:mpa',
+    }),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
   ]
@@ -265,11 +291,54 @@ function ciArtifactGates(): Gate[] {
   ]
 }
 
-function lintGate(): Gate {
+function ciWindowsBlockingGates(): Gate[] {
+  return [
+    pnpmScript('windows-build', 'build', { label: 'build' }),
+    pnpmScript('windows-site', 'docs:build', { label: 'production site' }),
+  ]
+}
+
+function ciWindowsCompleteGates(): Gate[] {
+  const observational = ciWindowsObservationalGates()
+    // The required production site replaces the observational MPA build; both
+    // VitePress modes write the same output directory and cannot overlap.
+    .filter(gate => gate.id !== 'build' && gate.id !== 'docs-site-build')
+    .map(gate => ({ ...gate, allowFailure: true }))
+  return [
+    pnpmScript('build', 'build'),
+    pnpmScript('windows-site', 'docs:build', { label: 'production site' }),
+    ...observational,
+  ]
+}
+
+function ciWindowsObservationalGates(): Gate[] {
+  return [
+    ...ciStaticGates(),
+    lintGate(),
+    pnpmScript('duplication', 'duplication'),
+    {
+      ...coverageGate(),
+      env: { DSH_EXAMPLE_MODE: 'lib' },
+      needs: ['build'],
+    },
+    snapshotGate(),
+    pnpmScript('publint', 'publint', { needs: ['build'] }),
+    pnpmScript('node-next-types', 'verify-node-next-types', {
+      label: 'node-next types',
+      needs: ['build'],
+    }),
+    builtPackageInvariantsGate(['build']),
+    builtBinSmokeGate(),
+  ]
+}
+
+function lintGate(eslintTargets: readonly string[] = ['.']): Gate {
+  const concurrencyArgs = eslintConcurrencyArgs()
   if (process.env.DSH_ESLINT_CACHE === '1') {
     return pnpmExec('lint', [
       'eslint',
-      '.',
+      ...eslintTargets,
+      ...concurrencyArgs,
       '--cache',
       '--cache-location',
       '.cache/eslint/',
@@ -280,9 +349,26 @@ function lintGate(): Gate {
       env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
     })
   }
+  if (concurrencyArgs.length > 0) {
+    return pnpmExec('lint', ['eslint', ...eslintTargets, ...concurrencyArgs], {
+      label: 'lint',
+      env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
+    })
+  }
   return pnpmScript('lint', 'lint', {
     env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
   })
+}
+
+function eslintConcurrencyArgs(): string[] {
+  const raw = process.env.DSH_ESLINT_CONCURRENCY
+  if (raw === undefined || raw === '') return []
+  if (raw === 'auto') return ['--concurrency=auto']
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || String(parsed) !== raw) {
+    throw new Error(`run-gates: DSH_ESLINT_CONCURRENCY must be a positive integer or auto, got ${JSON.stringify(raw)}.`)
+  }
+  return [`--concurrency=${raw}`]
 }
 
 function coverageGate(): Gate {
@@ -293,8 +379,6 @@ function coverageGate(): Gate {
     ...positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers'),
   ], {
     label: 'test:coverage',
-    env: { DSH_EXAMPLE_MODE: 'lib' },
-    needs: ['build'],
   })
 }
 
@@ -325,6 +409,13 @@ function positiveIntArg(envName: string, flag: string): string[] {
   return [`${flag}=${raw}`]
 }
 
+function flagEnabled(envName: string): boolean {
+  const raw = process.env[envName]
+  if (raw === undefined || raw === '') return false
+  if (raw !== '1') throw new Error(`run-gates: ${envName} must be 1 when set, got ${JSON.stringify(raw)}.`)
+  return true
+}
+
 function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
   const artifactOptions = options.artifactNeeds === undefined ? {} : { needs: options.artifactNeeds }
   return [
@@ -343,6 +434,7 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
 function docSyncLeafGates(options: {
   docTypecheckNeeds?: string[]
   docTypecheckEnv?: Record<string, string | undefined>
+  docsBuildScript?: 'docs:build' | 'docs:build:mpa'
 } = {}): Gate[] {
   const docTypecheckOptions: Partial<Gate> = {}
   if (options.docTypecheckNeeds !== undefined) docTypecheckOptions.needs = options.docTypecheckNeeds
@@ -369,8 +461,11 @@ function docSyncLeafGates(options: {
     pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt' }),
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
     pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets' }),
-    // Keep the VitePress build in this single gate because projection rewrites website/.generated.
-    pnpmScript('docs-site', 'docs:check', { label: 'documentation site' }),
+    pnpmExec('docs-site-projection', ['vitest', 'run', 'scripts/project-doc-site.spec.ts'], {
+      label: 'documentation projection',
+    }),
+    // Keep the VitePress build itself in one gate because projection rewrites website/.generated.
+    pnpmScript('docs-site-build', options.docsBuildScript ?? 'docs:build', { label: 'documentation build' }),
     pnpmScript('package-readme-limitations', 'verify-package-readme-limitations', { label: 'package README limitations' }),
   ]
 }
@@ -540,7 +635,8 @@ function printSummary(results: GateResult[], durationMs: number): void {
   for (const result of unsuccessful) {
     const duration = (result.durationMs / 1000).toFixed(2)
     const reason = result.error ?? (result.exitCode === null ? 'no exit code' : `exit ${result.exitCode}`)
-    console.error(`  - ${result.status.toUpperCase()} ${result.gate.label} (${duration}s, ${reason})`)
+    const disposition = result.gate.allowFailure === true ? 'NON-BLOCKING ' : ''
+    console.error(`  - ${disposition}${result.status.toUpperCase()} ${result.gate.label} (${duration}s, ${reason})`)
     console.error(`    ${result.gate.displayCommand}`)
   }
 }
