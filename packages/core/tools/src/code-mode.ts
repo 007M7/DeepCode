@@ -370,10 +370,8 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       kind: 'execute',
       rawInput: args.code,
     }),
-    // Title omitted on the result: an update replaces only the fields it
-    // carries, so the pending card's program title persists through
-    // completion. The durable final content already includes logs plus the
-    // return value, failure, or post-policy spill preview.
-    presentResult: (_args, result) => ({ card: 'generic', content: result.content }),
+    // Deliberately no presentResult: the generic surface fallback keeps this
+    // title and reads durable result content without duplicating a large raw
+    // result into the host view payload.
   })
 }

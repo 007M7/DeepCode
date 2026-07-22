@@ -709,27 +709,41 @@ describe('the run_code dispatch bridge', () => {
   })
 
   it.each([
-    ['logs only', 'printed', false],
-    ['result only', 'returned', false],
-    ['logs plus result', 'printed\nreturned', false],
-    ['no output', '(run_code completed with no output)', false],
-    ['spilled result', 'HEAD\n\n(Omitted 100 bytes. Full formatted result stored at: /tmp/run-code.txt.)\n\nTAIL', false],
-  ] as const)('presents %s from the final post-policy content', async (_name, text, isError) => {
-    const { ctx } = await setup({ mode: 'code' })
+    ['logs only', { logs: ['printed'] }, 'printed'],
+    ['result only', { logs: [], value: 'returned' }, 'returned'],
+    ['logs plus result', { logs: ['printed'], value: 'returned' }, 'printed\nreturned'],
+    ['no output', { logs: [] }, '(run_code completed with no output)'],
+  ] as [string, CodeRunResult, string][])('keeps %s in durable content without a result presenter', async (_name, output, text) => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    runtime.behavior = () => Promise.resolve(output)
+
+    const result = await runCode(ctx, 'return 1')
     const tool = ctx.tools.get(RUN_CODE_NAME)!
-    // The result omits the title — an update replaces only provided fields,
-    // so the pending card's program title persists through completion.
-    const content = [{ type: 'text' as const, text }]
-    expect(tool.presentResult?.({ code: 'return 1' }, {
-      content,
-      isError,
-      // Stale or unrelated metadata must not replace the authoritative
-      // post-policy content used by the card.
-      meta: { logs: ['stale logs-only projection'] },
-    })).toEqual({ card: 'generic', content })
+
+    expect(result.content).toEqual([{ type: 'text', text }])
+    // Surfaces keep the pending program title and render this durable content
+    // through their generic fallback. Omitting a result view also prevents the
+    // host frame from carrying the same raw content a second time.
+    expect('presentResult' in tool).toBe(false)
   })
 
-  it('presents failure content produced by the canonical execution pipeline', async () => {
+  it('keeps a post-policy spill preview in durable content without a result presenter', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const preview = 'HEAD\n\n(Omitted 100 bytes. Full formatted result stored at: /tmp/run-code.txt.)\n\nTAIL'
+    runtime.behavior = () => Promise.resolve({ logs: ['printed'], value: 'returned' })
+    ctx.on('tools/post-execute', (exec, _result, next): Promise<PostToolDecision> => {
+      if (exec.name !== RUN_CODE_NAME) return next()
+      return Promise.resolve({ kind: 'accept', content: [{ type: 'text', text: preview }] })
+    })
+
+    const result = await runCode(ctx, 'return 1')
+    const tool = ctx.tools.get(RUN_CODE_NAME)!
+
+    expect(result.content).toEqual([{ type: 'text', text: preview }])
+    expect('presentResult' in tool).toBe(false)
+  })
+
+  it('keeps canonical failure content durable without a result presenter', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     runtime.behavior = () => Promise.resolve({
       logs: ['captured before failure'],
@@ -744,10 +758,7 @@ describe('the run_code dispatch bridge', () => {
       type: 'text',
       text: 'Error: code run failed (output-limit): outer output exceeded 8 bytes\nCaptured output:\ncaptured before failure',
     }])
-    expect(tool.presentResult?.({ code: 'return 1' }, result)).toEqual({
-      card: 'generic',
-      content: result.content,
-    })
+    expect('presentResult' in tool).toBe(false)
   })
 
   it('renders non-text sub-result blocks as placeholders and truncates long event summaries', async () => {
