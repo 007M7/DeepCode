@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 system-prompt.md: 63a750c74300b4353f132d3dae9da52a10631f23
-system-prompt.zh.md: 748e9e4406fe8ca1071aa87f5926bd043378ccdb
+system-prompt.zh.md: e04510dbf8b97d01a568ffbd878de691be267272

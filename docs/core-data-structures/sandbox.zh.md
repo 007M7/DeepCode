@@ -40,7 +40,7 @@ type SandboxEnforcement = 'full' | 'partial'
 
 ## 逐调用策略
 
-完整执行策略会按每次能力调用解析并携带。它包括 `danger-full-access`，因此消费方可以只解析一次策略，再决定是否绕过约束。普通工具调用从调用 session 的不可变 cwd 派生 `workspaceRoot`；部署配置是没有 agent 时的回退值。root 会先按文件系统语义规范化，再做词法规范化，因此包含 `symlink/..` 的 cwd 会标识所生成进程实际运行的目录。
+完整执行策略会按每次能力调用解析并携带。它包括 `danger-full-access`，因此消费方可以只解析一次策略，再决定是否绕过约束。普通工具调用从调用会话的不可变 cwd 派生 `workspaceRoot`；部署配置是没有 agent 时的回退值。root 会先按文件系统语义规范化，再做词法规范化，因此包含 `symlink/..` 的 cwd 会标识所生成进程实际运行的目录。
 
 ```ts type-equiv
 /**
@@ -56,7 +56,7 @@ interface SandboxExecutionPolicy {
 }
 ```
 
-`ctx.sandboxPolicy.resolve()` 接收活跃 session；对于已批准的重试，还接收显式模式。该服务拥有优先级与 root 回退规则，使 bash 和 fs 不必重复实现。
+`ctx.sandboxPolicy.resolve()` 接收活跃会话；对于已批准的重试，还接收显式模式。该服务拥有优先级与 root 回退规则，使 bash 和 fs 不必重复实现。
 
 ```ts type-equiv
 /** Inputs that select the sandbox policy for one capability call. */
@@ -68,7 +68,7 @@ interface SandboxPolicyRequest {
 }
 ```
 
-只有受约束的执行会到达 `ctx.sandbox`；其提供方策略在保留同一 root 的同时收窄模式。这使并发 session、消费方与一次性提权重试可以向同一提供方请求不同边界，而无需改变提供方状态。
+只有受约束的执行会到达 `ctx.sandbox`；其提供方策略在保留同一 root 的同时收窄模式。这使并发会话、消费方与一次性提权重试可以向同一提供方请求不同边界，而无需改变提供方状态。
 
 ```ts type-equiv
 /**

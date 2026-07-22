@@ -2,7 +2,7 @@
 
 [English](system-prompt.md) | 中文
 
-[system-prompt 包](../../packages/core/system-prompt)负责管理 prompt 贡献者与一次组装调用之间交换的数据。该包的 [README](../../packages/core/system-prompt/README.md) 记录了注册、排序、作用域与渲染行为；本页固定各插件实现或传递的跨包字面形状。
+[system-prompt 包](../../packages/core/system-prompt)负责管理提示词贡献者与一次组装调用之间交换的数据。该包的 [README](../../packages/core/system-prompt/README.md) 记录了注册、排序、作用域与渲染行为；本页固定各插件实现或传递的跨包字面形状。
 
 源码：[`packages/core/system-prompt/src/index.ts`](../../packages/core/system-prompt/src/index.ts)。
 
@@ -37,7 +37,7 @@ interface ToolProviderResult {
 }
 ```
 
-## Prompt 段落
+## 提示词段落
 
 `PromptSection` 是一份只读的同进程注册契约。其文本可以是静态的，也可以从当前组装上下文动态解析。
 

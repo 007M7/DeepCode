@@ -108,7 +108,7 @@ interface SessionEventMap {
 }
 ```
 
-`PromptMessageData.content` 始终是确切的模型可见内容。当附加 context 声明 `prompt-prefix` 放置方式时，AgentLoop 会依次把它的 block、一个 `## My request:` 分隔符以及最终生效的直接提示词拼接进该数组。可选且对模型隐藏的 `envelope` 会保留 `displayContent`，以及按顺序排列的前缀 context 来源/元数据描述信息，使 transcript（文本记录）、标题与重新引用消费方无需改变可重建历史，就能呈现人类提示词。`displayPromptContent()` 负责该选择，并为普通事件和较早的事件回退到 `content`。
+`PromptMessageData.content` 始终是确切的模型可见内容。当附加上下文声明 `prompt-prefix` 放置方式时，AgentLoop 会依次把它的块、一个 `## My request:` 分隔符以及最终生效的直接提示词拼接进该数组。可选且对模型隐藏的 `envelope` 会保留 `displayContent`，以及按顺序排列的前缀上下文来源/元数据描述信息，使 transcript（文本记录）、标题与重新引用消费方无需改变可重建历史，就能呈现人类提示词。`displayPromptContent()` 负责该选择，并为普通事件和较早的事件回退到 `content`。
 
 ### `OutOfBandSessionEventMap`：受限的带外追加显式准入
 

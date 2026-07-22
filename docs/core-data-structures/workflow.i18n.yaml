@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 workflow.md: 8d271b89e71de6f6bef548aa8da61402ef9ada6e
-workflow.zh.md: 335f08cefe057bdc0d0f78a90e8301d5e457aae7
+workflow.zh.md: f603a50fc33fb9ab4260e8281ee04e892f677255

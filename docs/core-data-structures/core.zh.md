@@ -26,9 +26,9 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [persistence.md](persistence.md) | 持久性 seam：`SessionPersistence`、JSONL + SQLite 后端、`session/flush`、崩溃恢复、`SessionHeader` |
 | [session-query.md](session-query.md) | 逻辑记录、有界精确事件读取与关系追踪 |
 | [session-title.md](session-title.md) | 持久标题快照、来源 provenance 与异步提供方契约 |
-| [system-prompt.md](system-prompt.md) | 逐次组装的上下文、工具提供方结果、prompt 段落与协作式组装 |
+| [system-prompt.md](system-prompt.md) | 逐次组装的上下文、工具提供方结果、提示词段落与协作式组装 |
 | [tools.md](tools.md) | `ToolDefinition` 完整字段、schema DSL、`ToolExecution`/`ToolResult`、工具展示 UI 类型，以及受保护的执行流水线 |
-| [user-interaction.md](user-interaction.md) | UI 支持的人工问答 seam：`AskUserQuestionRequest`、answer/options 词汇、provider API、错误分类体系 |
+| [user-interaction.md](user-interaction.md) | UI 支持的人工问答 seam：`AskUserQuestionRequest`、answer/options 词汇、提供方 API、错误分类体系 |
 | [approval.md](approval.md) | 一次性用户审批 seam：`ApprovalRequest`、`ApprovalOutcome`、逐会话策略、审计与 answerer 契约 |
 | [bash.md](bash.md) | bash 执行器 seam：`BashExecRequest`/`Spec`、`BashRunResult`、后台 `BashProcess` 句柄 |
 | [pty.md](pty.md) | 持久化终端 ID、后端/会话契约、发送就绪状态、有界读取与 owner 可见快照 |
@@ -39,11 +39,11 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [skills.md](skills.md) | skill 服务：发现优先级、`SkillSummary`/`SkillDefinition`、会话前缀目录、面向模型的 `skill` 加载 |
 | [compaction.md](compaction.md) | 压缩（compaction）seam：`compact/*` 会话事件、`CompactionResult`、`CompactService` 接口 |
 | [subagent.md](subagent.md) | subagent seam：命名提供方注册表、`SubagentStartRequest`/`Result`/`Run`、启动时与运行时能力拆分 |
-| [web.md](web.md) | Web 访问 seam：`WebSearchRequest`/`Result`、`WebFetchRequest`/`Result`、`WebFetchBody`、provider 可用性、`WebError` |
+| [web.md](web.md) | Web 访问 seam：`WebSearchRequest`/`Result`、`WebFetchRequest`/`Result`、`WebFetchBody`、提供方可用性、`WebError` |
 | [spill.md](spill.md) | spill 存储 seam：`SaveTextSpill`、`SpillOwner`/`SpillSource`、`SpillRef`、品牌类型 `SpillLocator` |
 | [workflow.md](workflow.md) | 工作流 seam：`WorkflowStartRequest`、`WorkflowMeta`、`WorkflowRun`/`Result`、`workflow/*` 事件载荷、`WorkflowError` 致命性 |
 
-> 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)）。普通 block 保留完整声明；`public-api` block 保留去除实现体的公开 class 声明。Cordis 服务使用生成的[服务目录](../cordis-catalog/services.md)。
+> 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)）。普通块保留完整声明；`public-api` 块保留去除实现体的公开 class 声明。Cordis 服务使用生成的[服务目录](../cordis-catalog/services.md)。
 
 ## `…Map → derived-union` 模式
 
@@ -92,7 +92,9 @@ declare module '@deepseek-ai/dsh-llm' {
 type Branded<B extends string> = string & { readonly [BRAND]: B }
 ```
 
-两个核心 ID 是 `CallId`（关联工具调用及其结果；dsh-llm）和 `SessionId`（活跃 agent 与持久 session 共享的标识；dsh-session）。能力包也会品牌化各自的 id，例如 [tasks.md](tasks.md) 中的 `TaskId`。
+两个核心 ID 是 `CallId`（关联工具调用及其结果；dsh-llm）和 `SessionId`（活跃 agent 与持久会话共享的标识；dsh-session）。能力包也会品牌化各自的 id，例如 [tasks.md](tasks.md) 中的 `TaskId`。
+
+<a id="content-blocks-and-messages"></a>
 
 ## 内容块与消息
 
@@ -115,7 +117,7 @@ interface ContentBlockMap {
 
 各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ToolCallBlock`（`id: CallId`、`name`、原始 JSON `arguments`）、`ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。`ContentBlock = ContentBlockMap[ContentBlockType]`。核心集仅限于每条交付路径都尊重的块——多模态内容（图像、音频等）没有核心块类型；需要的功能通过可合并扩展的 map 添加，同时提供适配器/UI/压缩支持。
 
-`Message` 由角色和 block 组成。由循环派生的 assistant 消息携带其持久 provider/model 标识，以及可选的适配器私有回放元数据：
+`Message` 由角色和块组成。由循环派生的 assistant 消息携带其持久提供方/模型标识，以及可选的适配器私有回放元数据：
 
 ```ts type-equiv
 /** Provider ownership and adapter-private replay data for an assistant message. */
@@ -164,6 +166,8 @@ interface MessageSourceMap {
 适配器发出原始**分片**协议；循环记录分片（回放保真度），同时将同一批分片送入 `BlockAssembler` 以重建块和消息。`StreamChunk` 是基于 `type` 的封闭判别联合——`block-start`、`text-delta`、`reasoning-delta`、`tool-call-delta`、`block-end`、`usage`、`finish`。
 
 完整联合类型、适配器契约（usage-before-finish、原始 JSON 工具参数、两条认可的错误路径）和 `BlockAssembler` 在 **[llm-streaming.md](llm-streaming.md)** 中。
+
+<a id="the-model-request-and-result"></a>
 
 ## 模型请求
 
@@ -287,11 +291,11 @@ interface ToolSchema {
 
 ### 请求信封：`LlmCallConfig` 与记录的 header
 
-循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、渲染后的 prompt、权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）以及 session prefix。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
+循环从已记录状态构建每个请求。`EpochHeader` 通过完整的 `request/header` 快照记录调用配置、渲染后的提示词、权威返回工具顺序（由 `toolOrder` 配置；未配置时按字典序）以及会话前缀。结合派生历史，请求便可由会话日志重建。见 [session.md](session.md#the-request-header-event-requestheader) 与[可重建性 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
 `agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型或采样参数。`agent/session-prefix` 为每个循环实例组合一次仅用于请求的 prefix 消息，header 记录实际使用的确切结果。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
 
-在协议格式上，循环构建的请求按此顺序读取：`system` 槽位（渲染后的 prompt 组装）→ `messagePrefix`（冻结的会话前缀）→ 派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。前缀从不进入派生历史；它的持久记录是 header 事件，开发不变式针对每个循环构建的请求精确重算此等式。
+在协议格式上，循环构建的请求按此顺序读取：`system` 槽位（渲染后的提示词组装）→ `messagePrefix`（冻结的会话前缀）→ 派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。前缀从不进入派生历史；它的持久记录是 header 事件，开发不变式针对每个循环构建的请求精确重算此等式。
 
 FIXME(call-config-shape)：重新审视此类型的精确定义——出于缓存目的，哪些字段确实属于 epoch 层级（`model` 肯定属于；采样标量目前出于谨慎放在这里），以及适配器需要时，提供方特有的额外项（推理选项、额外 body 参数）应归属何处。
 
@@ -353,11 +357,11 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-十四种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`prompt/blocked`、`context/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及 turn enclosure 不变量都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` checkpoint、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
+十四种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`prompt/blocked`、`context/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及 turn enclosure 不变量都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
 
 ## Agent 句柄
 
-`Agent` 是每个插件（UI、hook、orchestrator）面向编程的 surface。具体实现为 dsh-agent-loop 包内部细节；循环外没有任何组件依赖它。
+`Agent` 是每个插件（UI、钩子、orchestrator）面向编程的 surface。具体实现为 dsh-agent-loop 包内部细节；循环外没有任何组件依赖它。
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -450,11 +454,11 @@ interface Agent {
 }
 ```
 
-`AgentStatus` 为 `'idle' | 'running' | 'disposed'`，`SessionId` 是品牌类型。`running` 描述整个驱动器的排空区间，可能跨越 turn 关闭、其持久化 checkpoint 以及连续的排队 turn；它不能证明某个 turn 仍然打开。`AgentOptions` 可合并扩展：core 声明 `provider?` 与 `model?`（在 `agent/request` 后，分发要求两者都存在）。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
+`AgentStatus` 为 `'idle' | 'running' | 'disposed'`，`SessionId` 是品牌类型。`running` 描述整个驱动器的排空区间，可能跨越 turn 关闭、其持久化检查点以及连续的排队 turn；它不能证明某个 turn 仍然打开。`AgentOptions` 可合并扩展：core 声明 `provider?` 与 `model?`（在 `agent/request` 后，分发要求两者都存在）。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
 
 cause 是由 TypeScript 强制约束的同进程输入。活跃持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`；该值在发布 `turn/end` 前退役。`agentInterruptReasonOf(signal)` 无需查询环境中的 initiator 状态，即可识别 `user`、`parent` 与仅用于生命周期的 `disposed`。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 
-[事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、checkpoint 与 waterfall 契约。Turn 和 step 边界是持久 session 事件，而不是 agent emit。
+[事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall 契约。Turn 和 step 边界是持久会话事件，而不是 agent emit。
 
 ## 发起 Agent
 
@@ -462,7 +466,7 @@ cause 是由 TypeScript 强制约束的同进程输入。活跃持有者会把�
 
 ## 拦截决策
 
-每个 `agent/*` 拦截 waterfall 都返回一个小型、特定于 seam 的类型化联合——统一的 Decision 惯用形状（[tools.md](tools.md) 中工具 seam 的 `PreToolDecision`/`PostToolDecision` 也采用相同形状）。CC/Codex hook bridge 把其 `permissionDecision`/`decision`/`continue`/`additionalContext` 字段映射到这些联合上；原生插件则直接返回它们。Prompt 与工具后决策共享一种面向模型的 context 形状 `HookContext`，它必须携带 `source`（缺少 source 会默认成 `{kind:'user'}`，从而把插件 context 错标为用户 prompt）。其中的 `content` 作为 user-role 输入逐字到达模型，而 JSON `meta` 持久保存插件状态但不向模型暴露。未指定放置方式或指定为 `separate` 时，context 会成为 `context/message`；`prompt-prefix` 放置方式可用于 prompt 和 steering 收件箱附件，会在同一条消息中把 context 置于最终生效的请求之前。两种决策都携带 `additionalContexts[]`，使每一项保留各自的 provenance、元数据与放置方式。Continuation reason 则是 steering 消息，并有意使用更窄的 content/source 形状。
+每个 `agent/*` 拦截 waterfall 都返回一个小型、特定于 seam 的类型化联合——统一的 Decision 惯用形状（[tools.md](tools.md) 中工具 seam 的 `PreToolDecision`/`PostToolDecision` 也采用相同形状）。CC/Codex 钩子桥接层把其 `permissionDecision`/`decision`/`continue`/`additionalContext` 字段映射到这些联合上；原生插件则直接返回它们。提示词决策与工具后决策共享一种面向模型的上下文形状 `HookContext`，它必须携带 `source`（缺少 source 会默认成 `{kind:'user'}`，从而把插件上下文错标为用户提示词）。其中的 `content` 作为 user-role 输入逐字到达模型，而 JSON `meta` 持久保存插件状态但不向模型暴露。未指定放置方式或指定为 `separate` 时，上下文会成为 `context/message`；`prompt-prefix` 放置方式可用于提示词和 steering 收件箱附件，会在同一条消息中把上下文置于最终生效的请求之前。两种决策都携带 `additionalContexts[]`，使每一项保留各自的 provenance、元数据与放置方式。Continuation reason 则是 steering 消息，并有意使用更窄的 content/source 形状。
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -499,7 +503,7 @@ type PromptDecision =
   | { kind: 'block'; reason: string }
 ```
 
-`agent/turn-continuation` 返回 `ContinuationDecision`（step 有工具调用或注入了 steering 时，循环默认为 `continue`，否则为 `stop`；`continue` 的 `reason` 会记录为同一 turn 中下一 step 的 steering，因此不携带 context 元数据——即类型化 `/goal` 模式）：
+`agent/turn-continuation` 返回 `ContinuationDecision`（step 有工具调用或注入了 steering 时，循环默认为 `continue`，否则为 `stop`；`continue` 的 `reason` 会记录为同一 turn 中下一 step 的 steering，因此不携带上下文元数据——即类型化 `/goal` 模式）：
 
 ```ts type-equiv
 /** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
@@ -522,7 +526,7 @@ type RequestError = Error & { code?: string }
 type RequestErrorDecision = { action: 'fail' } | { action: 'retry' }
 ```
 
-`agent/post-step` 会在 assistant 输出、真实或合成的工具结果、缓冲 context 与 steering 持久化之后、`step/end` 之前被 await。被取消的工具批次在排空后携带 aborted signal 到达这里；其签名为 `(agent, turn, step, signal)`，可回放事实保留在 session 日志中，而不是瞬态 payload 中。
+`agent/post-step` 会在 assistant 输出、真实或合成的工具结果、缓冲上下文与 steering 持久化之后、`step/end` 之前被 await。被取消的工具批次在排空后携带 aborted signal 到达这里；其签名为 `(agent, turn, step, signal)`，可回放事实保留在会话日志中，而不是瞬态 payload 中。
 
 `agent/turn-stop` 返回仅停止的 `ContinuationStop` 子集或 `undefined`。循环在折叠普通决策、其 reason 和待处理 steering 之后调用此串行检查点；stop 是终态，会丢弃待处理的 steering。
 

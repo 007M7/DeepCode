@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 approval.md: c9b411e38508fc7e8ac2e2dd923d9c8cc2f475a3
-approval.zh.md: ee593298fece8b2782228f2e93c5509871e15166
+approval.zh.md: 54985cd32f6b16ef90a1ddd1f6da4b87a261788d

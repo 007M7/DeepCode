@@ -177,13 +177,13 @@ interface FsEditOutcome {
 
 ## fs 策略事件（提供方 seam 词汇）
 
-`dsh-fs` 拥有三个事件，由工具分发、策略插件监听，使发射方（`dsh-tool-fs`）与监听方（`dsh-fs-policy`）共享词汇，而发射方无需依赖策略插件。它们只携带 `dsh-fs` 词汇加一个不透明的 `object` actor，不含面向模型的概念，也不含 agent/session 所有者结构。
+`dsh-fs` 拥有三个事件，由工具分发、策略插件监听，使发射方（`dsh-tool-fs`）与监听方（`dsh-fs-policy`）共享词汇，而发射方无需依赖策略插件。它们只携带 `dsh-fs` 词汇加一个不透明的 `object` actor，不含面向模型的概念，也不含 agent/会话所有者结构。
 
 `fs/write-intent` 与 `fs/edit-intent` 是**单槽决策 waterfall**：工具分发时附带一个默认 thunk（返回 `undefined`，即裸提供方），监听方完全决策而不调用 `next()`。该槽按注册顺序先到先得——由策略插件占据是部署约定，而非强制不变式。`fs/observed` 是一个即发即弃的记录事件，通过普通 `ctx.emit` 分发；其监听方必须是同步的、仅产生副作用，因为工具不守卫该 emit——抛异常的监听方会在一次已成功的变更上表现为工具的 `isError` 结果。生成的目录在 [events.md](../cordis-catalog/events.md) 中展示确切签名。
 
 ## 执行上下文（策略插件）
 
-策略插件只需要足够的执行上下文，通过收窄 `fs/*` 事件携带的不透明 `object` actor 来推导观测状态的所有者。`ToolExecution` 满足此形状，因此 `dsh-tool-fs` 将其执行对象作为 actor 直接传递，而无需让 `dsh-fs-policy` 导入 tool、agent 或 session 包。
+策略插件只需要足够的执行上下文，通过收窄 `fs/*` 事件携带的不透明 `object` actor 来推导观测状态的所有者。`ToolExecution` 满足此形状，因此 `dsh-tool-fs` 将其执行对象作为 actor 直接传递，而无需让 `dsh-fs-policy` 导入工具、agent 或会话包。
 
 ```ts type-equiv
 /**
@@ -252,7 +252,7 @@ type FsErrorCode =
   | 'FS_ABORTED'
 ```
 
-目录列表使用 `FS_NOT_DIRECTORY`、`FS_PERMISSION_DENIED` 与 `FS_IO_ERROR` 区分已存在但并非目录的目标、被拒绝的列表操作和意外的后端 I/O 失败。`FS_SANDBOX_DENIED` 是强制执行 sandbox 的后端（`dsh-fs-sandbox`）所作的策略拒绝——模式边界拒绝了写入/编辑——与 `FS_PERMISSION_DENIED`（宿主内核拒绝）不同。`FS_NOT_OBSERVED` 表示策略插件没有此所有者的先前观察记录（或 `createIfAbsent` 遇到了现有文件）。`FS_STALE_VERSION` 表示后端版本不再与观察到的版本匹配（或编辑操作遇到缺失目标）。新鲜度授权没有部分/完整之分，因此不存在 `FS_PARTIAL_OBSERVATION`。
+目录列表使用 `FS_NOT_DIRECTORY`、`FS_PERMISSION_DENIED` 与 `FS_IO_ERROR` 区分已存在但并非目录的目标、被拒绝的列表操作和意外的后端 I/O 失败。`FS_SANDBOX_DENIED` 是强制执行沙箱的后端（`dsh-fs-sandbox`）所作的策略拒绝——模式边界拒绝了写入/编辑——与 `FS_PERMISSION_DENIED`（宿主内核拒绝）不同。`FS_NOT_OBSERVED` 表示策略插件没有此所有者的先前观察记录（或 `createIfAbsent` 遇到了现有文件）。`FS_STALE_VERSION` 表示后端版本不再与观察到的版本匹配（或编辑操作遇到缺失目标）。新鲜度授权没有部分/完整之分，因此不存在 `FS_PARTIAL_OBSERVATION`。
 
 ## 服务与插件
 

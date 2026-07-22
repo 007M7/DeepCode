@@ -161,9 +161,9 @@ interface CollectedOutput {
 
 ## 文件沙箱：`BashSandboxInfo`
 
-消费 sandbox 的执行器通过 `BashExecutor.sandboxMode` 暴露其已配置的模式回退值。工具层请求 [`@deepseek-ai/dsh-sandbox-policy`](../../packages/sandbox/sandbox-policy/README.md)，把每个调用会话的持久 `sandbox/mode` 覆盖值与不可变 cwd 解析为 `BashExecRequest.sandboxPolicy`；经用户批准、严格更宽松的调用只替换模式。模式/root/enforcement 词汇归 [`@deepseek-ai/dsh-sandbox` seam](sandbox.md) 所有；模式仅管辖文件效果。
+使用沙箱的执行器通过 `BashExecutor.sandboxMode` 暴露其已配置的模式回退值。工具层请求 [`@deepseek-ai/dsh-sandbox-policy`](../../packages/sandbox/sandbox-policy/README.md)，把每个调用会话的持久 `sandbox/mode` 覆盖值与不可变 cwd 解析为 `BashExecRequest.sandboxPolicy`；经用户批准、严格更宽松的调用只替换模式。模式/root/enforcement 词汇归 [`@deepseek-ai/dsh-sandbox` 沙箱 seam](sandbox.md) 所有；模式仅管辖文件效果。
 
-sandbox 化运行会报告其模式、保守的拒绝分类与强制执行完整度。`runnerFailed` 标记命令运行前 sandbox runner 已失败；前台执行会抛出 `SANDBOX_UNAVAILABLE`，而已结束的后台进程只能通过其事实通道报告。
+沙箱化运行会报告其模式、保守的拒绝分类与强制执行完整度。`runnerFailed` 标记命令运行前沙箱 runner 已失败；前台执行会抛出 `SANDBOX_UNAVAILABLE`，而已结束的后台进程只能通过其事实通道报告。
 
 ```ts type-equiv
 /**
@@ -183,11 +183,11 @@ interface BashSandboxInfo {
 }
 ```
 
-最后一项补全了这套词汇：当受限模式没有可用后端时，`ctx.sandbox` 提供方会抛出、执行器会传播由 [sandbox seam](sandbox.md) 所有的 `SANDBOX_UNAVAILABLE` 错误码。选定的 runner 拒绝其 profile 时会触达同一个故障关闭的前台错误；已结束的后台任务则记录 `runnerFailed`。模型会在结果中收到拒绝/runner 事实，仅当拒绝标记指出生效模式时才得知该模式，并可通过 `sandbox_permissions` 加 `justification` 请求一次性、严格更宽松的重试；执行任何操作前，`ctx.approval` 必须批准该次确切调用。完整的策略与切换设计见 [sandbox Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
+最后一项补全了这套词汇：当受限模式没有可用后端时，`ctx.sandbox` 提供方会抛出、执行器会传播由[沙箱 seam](sandbox.md)所有的 `SANDBOX_UNAVAILABLE` 错误码。选定的 runner 拒绝其 profile 时会触达同一个故障关闭的前台错误；已结束的后台任务则记录 `runnerFailed`。模型会在结果中收到拒绝/runner 事实，仅当拒绝标记指出生效模式时才得知该模式，并可通过 `sandbox_permissions` 加 `justification` 请求一次性、严格更宽松的重试；执行任何操作前，`ctx.approval` 必须批准该次确切调用。完整的策略与切换设计见[沙箱 Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
 
 ## 后台进程：`BashProcess`
 
-`start()` 返回不含 id 或所有者的句柄。`dsh-tool-bash` 将它适配为 `ctx.tasks.start()` hooks；随后由通用运行时拥有任务标识与生命周期。`done` 在进程关闭时 resolve 且绝不 reject；进程结束后仍可读取，并且 sandbox 事实会在 `done` resolve 前写入。
+`start()` 返回不含 id 或所有者的句柄。`dsh-tool-bash` 将它适配为 `ctx.tasks.start()` 钩子；随后由通用运行时拥有任务标识与生命周期。`done` 在进程关闭时 resolve 且绝不 reject；进程结束后仍可读取，并且沙箱事实会在 `done` resolve 前写入。
 
 ```ts type-equiv
 /**

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 filesystem.md: 3c9b041da92e71cd20429e8b1549c0b8e6f2436d
-filesystem.zh.md: 11e386c98e671f4147419eec587399a5a3bb0d07
+filesystem.zh.md: 04d7c63da151f7198099486106ce2fb9d0dd1520
