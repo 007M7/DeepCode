@@ -12,7 +12,7 @@ Session identity metadata is immutable, the event log is the replay and fork bou
 
 ## Decision
 
-The [`session-title` capability family](../../../../packages/session-title/README.md) owns title state and generation policy. `@deepseek-ai/dsh-session-title` provides `ctx.sessionTitle`, a deterministic first-message fallback, and a registry for at most one optional asynchronous provider. `@deepseek-ai/dsh-session-title-llm` owns the common auxiliary-model request policy; separate first-message and all-user-messages plugins choose input cadence. The shared agent spine mounts only the fallback service with overridable explicit example limits, leaving both model providers opt-in.
+The [`session-title` capability family](../../../../packages/session-title/README.md) owns title state and generation policy. `@deepseek-ai/dsh-session-title` provides `ctx.sessionTitle`, a deterministic first-message fallback, and a registry for at most one optional asynchronous provider. `@deepseek-ai/dsh-session-title-llm` owns the common auxiliary-model request policy; separate first-message and all-user-messages plugins choose input cadence. The shared agent spine and Web host runtime mount the fallback service with explicit overridable limits; neither composition mounts an asynchronous provider, so a fresh Web session persists a title without adding a model call. Either model provider remains opt-in.
 
 ### Event ownership and folding
 

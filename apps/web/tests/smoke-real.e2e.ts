@@ -183,6 +183,19 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     // near-empty here means that class of bug is back.
     await page.waitForFunction(() => document.body.innerText.length > 50, undefined, { timeout: 15_000 })
     expect(pageErrors).toEqual([])
+    await page.waitForFunction(
+      () => document.title !== 'DeepSeek Harness' && document.title.endsWith(' — DeepSeek Harness'),
+      undefined,
+      { timeout: 15_000 },
+    )
+    const durableTitle = (await page.title()).replace(/ — DeepSeek Harness$/, '')
+    const sessionTree = page.getByRole('tree', { name: 'Sessions' })
+    const projectRow = sessionTree.getByRole('treeitem').first()
+    if (await projectRow.getAttribute('aria-expanded') === 'false') await projectRow.click()
+    await Promise.all([
+      sessionTree.getByText(durableTitle, { exact: true }).waitFor({ timeout: 10_000 }),
+      page.getByRole('navigation').getByText(durableTitle, { exact: true }).waitFor({ timeout: 10_000 }),
+    ])
     await page.waitForFunction(() => document.body.innerText.includes('介绍完毕'), undefined, { timeout: 120_000 })
     await screen(page, '04-round-complete')
   }, 150_000)

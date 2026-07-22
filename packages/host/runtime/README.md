@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-host-runtime
 
-Host runtime assembly for `dsc`: `bootHost` composes the core plugin spine (LLM service + DeepSeek adapter, sessions with JSONL persistence, system prompt, tools, agents, agent loop, local bash), `createApiProxy` implements the [`dsh-host-apiproxy`](../apiproxy/README.md) contract over that composition, and `startHost` is the one-step shell seam returning `{ api, handler, defaults, ctx, dispose }`.
+Host runtime assembly for `dsh`: `bootHost` composes the core plugin spine (LLM service + DeepSeek adapter, sessions with JSONL persistence and deterministic fallback titles, system prompt, tools, agents, agent loop, local bash), `createApiProxy` implements the [`dsh-host-apiproxy`](../apiproxy/README.md) contract over that composition, and `startHost` is the one-step shell seam returning `{ api, handler, defaults, ctx, dispose }`.
 
 Which plugins mount and with what defaults is decided only here — shells must not `ctx.plugin` to alter the assembly. `RunningHost.ctx` is a formal seam with exactly two sanctioned uses: mounting protocol front-door plugins (e.g. a future `dsh acp`) and headless session-event subscription; consuming clients must not bypass `api` through it.
 
@@ -11,6 +11,8 @@ Which plugins mount and with what defaults is decided only here — shells must 
 | `persistenceRoot` | (required) | Root directory for JSONL session persistence. |
 | `provider` | `'deepseek'` | Default provider route injected as agentOptions on create/resume and reported by `host.describe`. |
 | `model` | `'deepseek-v4-flash'` | Default model id, same single source as `provider`. |
+| `cwd` | `process.cwd()` | Default project directory for a session whose create request omits `cwd`. |
+| `sessionTitle` | 5 words / 40 fallback bytes / 80 accepted bytes | Deterministic fallback-title limits. The host mounts no asynchronous title provider, so title creation adds no model call. |
 
 ## ApiProxy implementation notes
 

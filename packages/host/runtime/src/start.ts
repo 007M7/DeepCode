@@ -16,10 +16,9 @@ import { createApiProxy } from './api-proxy.ts'
 /** Options for startHost. */
 export interface StartHostOptions {
   /**
-   * Passed through to bootHost verbatim (persistenceRoot required +
-   * provider?/model?). Future host-level knobs (profile, log sink — any
-   * output added to the assembly MUST be switchable off here) land as
-   * additive fields.
+   * Passed through to bootHost verbatim. Future host-level knobs (profile,
+   * log sink — any output added to the assembly MUST be switchable off here)
+   * land as additive fields.
    */
   boot: BootHostOptions
 }

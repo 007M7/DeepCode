@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-[`session-title` 功能包族](../../../../packages/session-title/README.md)负责标题状态和生成策略。`@deepseek-ai/dsh-session-title` 提供 `ctx.sessionTitle`、确定性的首消息回退方案，以及一个至多接受单个可选异步提供方的注册表。`@deepseek-ai/dsh-session-title-llm` 负责通用的辅助模型请求策略；首消息插件和全部用户消息插件分别选择输入调度方式。共享 agent 主干只挂载回退服务，并为其显式设置可覆盖的示例限制；两种模型提供方均需按需启用。
+[`session-title` 功能包族](../../../../packages/session-title/README.md)负责标题状态和生成策略。`@deepseek-ai/dsh-session-title` 提供 `ctx.sessionTitle`、确定性的首消息回退方案，以及一个至多接受单个可选异步提供方的注册表。`@deepseek-ai/dsh-session-title-llm` 负责通用的辅助模型请求策略；首消息插件和全部用户消息插件分别选择输入调度方式。共享 agent 主干与 Web host 运行时都会挂载回退服务，并显式设置可覆盖的限制；两种组合均不挂载异步提供方，因此新建的 Web 会话无需增加模型调用即可持久化标题。两种模型提供方均仍需按需启用。
 
 ### 事件归属与折叠
 

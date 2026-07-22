@@ -8,6 +8,7 @@ import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { Config as SessionTitleConfig } from '@deepseek-ai/dsh-session-title'
 import type { HostFrame, MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -92,9 +93,17 @@ afterEach(async () => {
   vi.unstubAllEnvs()
 })
 
-async function boot(script: (StreamChunk[] | 'hang')[] = []): Promise<RunningHost> {
+async function boot(
+  script: (StreamChunk[] | 'hang')[] = [],
+  sessionTitle?: SessionTitleConfig,
+): Promise<RunningHost> {
   host = await startHost({
-    boot: { persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-host-runtime-')), provider: 'scripted', model: 'test-model' },
+    boot: {
+      persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-host-runtime-')),
+      provider: 'scripted',
+      model: 'test-model',
+      ...(sessionTitle === undefined ? {} : { sessionTitle }),
+    },
   })
   host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter(script))
   return host
@@ -149,6 +158,37 @@ describe('sessions.create / list', () => {
 })
 
 describe('sessions.prompt / cancel', () => {
+  it.each([
+    { name: 'host default', config: undefined, expected: 'Show the Web UI durable' },
+    {
+      name: 'configured limit',
+      config: { fallbackMaxWords: 2, fallbackMaxBytes: 40, maxTitleBytes: 80 },
+      expected: 'Show the',
+    },
+  ] satisfies { name: string; config: SessionTitleConfig | undefined; expected: string }[])(
+    'logs a durable fallback title with the $name',
+    async ({ config, expected }) => {
+      const running = await boot([textResponse('pong')], config)
+      const { api, ctx } = running
+      const { sessionId } = expectOk(await api.sessions.create(request({})))
+      const agent = ctx.agents.get(sessionId) as Agent
+      const idle = waitForIdle(ctx, agent)
+      expectOk(await api.sessions.prompt(request({
+        sessionId,
+        mode: 'queue' as const,
+        content: [{ type: 'text' as const, text: 'Show the Web UI durable session title' }],
+      })))
+      await idle
+
+      const title = agent.session.events.find(event => event.type === 'session/title')
+      expect(title?.data).toEqual({
+        title: expected,
+        messageSeqs: [1],
+        source: { kind: 'fallback' },
+      })
+    },
+  )
+
   it('queues a prompt whose rpcId rides into user/message, then the reply lands', async () => {
     const running = await boot([textResponse('pong')])
     const { api, ctx } = running
