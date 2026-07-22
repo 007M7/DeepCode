@@ -696,6 +696,11 @@
     },
     {
       "doc": "docs/core-data-structures/sandbox.md",
+      "symbol": "SandboxExecutionPolicy",
+      "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.md",
       "symbol": "SandboxEnforcement",
       "source": "packages/sandbox/sandbox/src/index.ts"
     },
@@ -703,6 +708,11 @@
       "doc": "docs/core-data-structures/sandbox.md",
       "symbol": "SandboxPolicy",
       "source": "packages/sandbox/sandbox/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/sandbox.md",
+      "symbol": "SandboxPolicyRequest",
+      "source": "packages/sandbox/sandbox-policy/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/sandbox.md",
