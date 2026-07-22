@@ -1,0 +1,39 @@
+# @deepseek-ai/dsh-session-telemetry-otel
+
+The OpenTelemetry backend for [the telemetry seam](../session-telemetry/) — the only entry a deployment loads. It composes the OTel JS SDK as-is (`LoggerProvider` → `BatchLogRecordProcessor` → OTLP/HTTP log exporter) and maps each record the seam hands over onto `logger.emit()`, under two instrumentation scopes: ledger records on `@deepseek-ai/dsh-session-telemetry-otel`, operational records on `@deepseek-ai/dsh-session-telemetry-otel/ops`. Resource identity (`service.name`/`service.version`) comes from `dsh-llm`'s `APP_IDENTITY`, the same source the attribution headers use.
+
+## Config
+
+```yaml
+- id: telemetry-otel
+  name: '@deepseek-ai/dsh-session-telemetry-otel'
+  config:
+    exporter:                # passed verbatim to the SDK's OTLP/HTTP log exporter
+      url: https://collector.example.com/v1/logs
+      headers:
+        authorization: !!js `Bearer ${process.env.OTLP_TOKEN}`
+    processor: {}            # optional; passed verbatim to BatchLogRecordProcessor
+```
+
+`exporter.url` is the one field this package validates itself — required, no default, must parse as `http(s)` — so a missing endpoint fails at plugin load. Everything else is the SDK's option shape, owned and documented by the SDK; batching, retry, queue bounds, and loss policy under sustained failure are its documented behavior, tuned through the `processor` passthrough. Removing this block from `cordis.yml` is the opt-out: no residual state, no `enabled` flag.
+
+## What leaves the machine
+
+Records carry the seam's REDACTED copy of `event.data` — user and assistant message content, tool arguments and results (command output, file contents), the full system prompt and tool schemas (`request/header`), todo text, compaction summaries, hook `stderrSummary`, and the session `cwd` (a local path) — after the seam's `telemetry/redact` waterfall has scrubbed credential-shaped substrings (see [the seam README](../session-telemetry/README.md#the-redact-waterfall)). Provider credentials never appear regardless: adapter API keys are constructor parameters, not session events, so they are structurally absent from the log and therefore from telemetry. A deployment with stricter requirements stacks `telemetry/redact` listeners or opts out structurally.
+
+## Field mapping
+
+Seam record → SDK log record: `time` → `timestamp`/`observedTimestamp`; `severity` → `severityNumber`/`severityText` (INFO 9 / WARN 13 / ERROR 17); `body` → the structured log body; `attributes` verbatim. Receivers dedupe on `(session.id, event.seq)`, alert on severity, and detect crashes by `shutdown`-record staleness (a session with activity, no `shutdown` ops record, gone stale ended uncleanly).
+
+## Model Experience
+
+None, as the backend only forwards the seam's redacted records into the OTel SDK pipeline; it never contributes to a model request.
+
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
+## Known Limitations and Deferred Work
+
+- **Upstream experimental tree** — `@opentelemetry/sdk-logs` is still published from the upstream experimental tree; SDK API churn lands here and only here — the seam contract does not move.
+- **Live-collector smoke is opt-in** — the e2e smoke (`tests/otel.e2e.ts`) self-skips without `$DSH_OTLP_E2E_ENDPOINT`; the keyless Loader-composition e2e (`tests/loader-composition.e2e.ts`) covers the wire shape against a mock collector on every run.

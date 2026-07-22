@@ -803,6 +803,33 @@ Emitted when any prompt provider changes. This registry notification is unfilter
 
 Source: [`packages/core/system-prompt/src/index.ts:35`](../../packages/core/system-prompt/src/index.ts)
 
+## `telemetry/*`
+
+### `telemetry/redact` — waterfall
+
+Redact one outbound record before it reaches the backend. The innermost `next()` applies the seam's conservative default rule set (credential-shape scrubbing); listeners stack stricter rules by transforming its return value, and returning without `next()` replaces the default — the exported record is then only as clean as the replacing rule. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Redaction applies to the exported copy only; the canonical session log is never rewritten.
+
+```ts cordis-catalog
+/**
+ * Redact one outbound record before it reaches the backend. The innermost
+ * `next()` applies the seam's conservative default rule set
+ * (credential-shape scrubbing); listeners stack stricter rules by
+ * transforming its return value, and returning without `next()` replaces
+ * the default — the exported record is then only as clean as the
+ * replacing rule. Dispatched synchronously on the capture hot path inside
+ * the coordinator's containment: a throwing listener withholds that one
+ * record (fail-closed) and never reaches the agent loop. Redaction
+ * applies to the exported copy only; the canonical session log is never
+ * rewritten.
+ * @param record - the candidate record, already the coordinator's own deep
+ *   copy; listeners return a (possibly new) record and must not mutate it.
+ * @mode waterfall
+ */
+'telemetry/redact'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord
+```
+
+Source: [`packages/telemetry/session-telemetry/src/index.ts:39`](../../packages/telemetry/session-telemetry/src/index.ts)
+
 ## `tools/*`
 
 ### `tools/change` — emit

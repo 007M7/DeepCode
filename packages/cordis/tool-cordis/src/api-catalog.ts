@@ -725,6 +725,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'telemetry',
+    summary: 'The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis\' standard behavior.',
+    methods: [
+      {
+        signature: 'abstract emit(record: TelemetryRecord): void',
+        jsDoc: '/**\n * See {@link TelemetryBackend.emit} — the seam declaration is the contract\'s one home.\n * @param record - the logical record to report; owned by the backend after the call.\n */',
+      },
+      {
+        signature: 'flush?(): void',
+        jsDoc: '/** See {@link TelemetryBackend.flush}. */',
+      },
+      {
+        signature: 'abstract shutdown(): Promise<void>',
+        jsDoc: '/**\n * See {@link TelemetryBackend.shutdown}.\n * @returns resolves when the backend\'s pipeline has quiesced.\n */',
+      },
+    ],
+  },
+  {
     key: 'tokenMeter',
     summary: 'Replay owner for one service-wide estimator and isolated per-session folds.',
     methods: [
@@ -1101,6 +1119,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'system-prompt/change\'(): void',
     jsDoc: '/**\n * Emitted when any prompt provider changes. This registry notification is\n * unfiltered because a global change affects every scope.\n * @mode emit\n */',
     summary: 'Emitted when any prompt provider changes.',
+  },
+  {
+    name: 'telemetry/redact',
+    mode: 'waterfall',
+    signature: '\'telemetry/redact\'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord',
+    jsDoc: '/**\n * Redact one outbound record before it reaches the backend. The innermost\n * `next()` applies the seam\'s conservative default rule set\n * (credential-shape scrubbing); listeners stack stricter rules by\n * transforming its return value, and returning without `next()` replaces\n * the default — the exported record is then only as clean as the\n * replacing rule. Dispatched synchronously on the capture hot path inside\n * the coordinator\'s containment: a throwing listener withholds that one\n * record (fail-closed) and never reaches the agent loop. Redaction\n * applies to the exported copy only; the canonical session log is never\n * rewritten.\n * @param record - the candidate record, already the coordinator\'s own deep\n *   copy; listeners return a (possibly new) record and must not mutate it.\n * @mode waterfall\n */',
+    summary: 'Redact one outbound record before it reaches the backend.',
   },
   {
     name: 'tools/change',
@@ -2086,6 +2111,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TaskStatus',
     declaration: 'export type TaskStatus = \'running\' | \'stopping\' | \'completed\' | \'killed\' | \'failed\';',
+  },
+  {
+    name: 'TelemetryRecord',
+    declaration: 'export interface TelemetryRecord {\n    channel: \'ledger\' | \'ops\';\n    time: number;\n    severity: TelemetrySeverity;\n    attributes: Record<string, string | number>;\n    body: unknown;\n}',
+  },
+  {
+    name: 'TelemetrySeverity',
+    declaration: 'export type TelemetrySeverity = \'info\' | \'warn\' | \'error\';',
   },
   {
     name: 'TerminalCallView',

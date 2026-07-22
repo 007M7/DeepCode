@@ -1533,6 +1533,29 @@ Types: [Agent](../core-data-structures/core.md) · [TaskDoneListener](../core-da
 
 Source: [`packages/tasks/tasks/src/index.ts:77`](../../packages/tasks/tasks/src/index.ts)
 
+## `ctx.telemetry` — `Telemetry` (abstract seam)
+
+The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
+
+```ts cordis-catalog
+/**
+ * See {@link TelemetryBackend.emit} — the seam declaration is the contract's one home.
+ * @param record - the logical record to report; owned by the backend after the call.
+ */
+abstract emit(record: TelemetryRecord): void
+
+/** See {@link TelemetryBackend.flush}. */
+flush?(): void
+
+/**
+ * See {@link TelemetryBackend.shutdown}.
+ * @returns resolves when the backend's pipeline has quiesced.
+ */
+abstract shutdown(): Promise<void>
+```
+
+Source: [`packages/telemetry/session-telemetry/src/index.ts:123`](../../packages/telemetry/session-telemetry/src/index.ts)
+
 ## `ctx.tokenMeter` — `TokenMeterService`
 
 Replay owner for one service-wide estimator and isolated per-session folds.

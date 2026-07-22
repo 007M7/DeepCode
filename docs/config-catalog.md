@@ -1047,6 +1047,37 @@ export interface Config {
 
 Source: [`packages/context/session-reference/src/config.ts:11`](../packages/context/session-reference/src/config.ts)
 
+## `@deepseek-ai/dsh-session-telemetry-otel`
+
+Requires: `sessions`
+
+```ts config-catalog
+/**
+ * Plugin configuration: two verbatim SDK option shapes plus nothing else.
+ * `exporter.url` is the one field this package validates itself — required,
+ * no default, must parse as an `http(s)` URL — because a missing endpoint
+ * must fail at plugin load, not at first export.
+ */
+export interface Config {
+  /** Passed verbatim to the SDK's OTLP/HTTP log exporter. */
+  exporter?: {
+    /** Full logs endpoint (e.g. `https://collector.example.com/v1/logs`). Required; validated at plugin load. */
+    url?: string
+    /** Extra request headers (auth etc.); owned and sent by the SDK exporter. */
+    headers?: Record<string, string>
+  }
+  /**
+   * Passed verbatim to `BatchLogRecordProcessor` (minus the exporter slot,
+   * which this plugin fills); the SDK owns and documents these knobs.
+   */
+  processor?: Omit<BatchLogRecordProcessorOptions, 'exporter'>
+}
+```
+
+Depends on: `BatchLogRecordProcessorOptions` (`@opentelemetry/sdk-logs`)
+
+Source: [`packages/telemetry/session-telemetry-otel/src/index.ts:39`](../packages/telemetry/session-telemetry-otel/src/index.ts)
+
 ## `@deepseek-ai/dsh-session-title`
 
 Requires: `sessions`
@@ -1958,6 +1989,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-retention` ([`packages/util/retention/src/index.ts`](../packages/util/retention/src/index.ts))
 - `@deepseek-ai/dsh-scope` ([`packages/core/scope/src/index.ts`](../packages/core/scope/src/index.ts))
 - `@deepseek-ai/dsh-scripts` ([`packages/sdk/scripts/src/index.ts`](../packages/sdk/scripts/src/index.ts))
+- `@deepseek-ai/dsh-session-telemetry` ([`packages/telemetry/session-telemetry/src/index.ts`](../packages/telemetry/session-telemetry/src/index.ts))
 - `@deepseek-ai/dsh-session-title-llm` ([`packages/session-title/session-title-llm/src/index.ts`](../packages/session-title/session-title-llm/src/index.ts))
 - `@deepseek-ai/dsh-subagent-inprocess` ([`packages/subagent/subagent-inprocess/src/index.ts`](../packages/subagent/subagent-inprocess/src/index.ts))
 - `@deepseek-ai/dsh-subagent-subprocess` ([`packages/subagent/subagent-subprocess/src/index.ts`](../packages/subagent/subagent-subprocess/src/index.ts))
