@@ -195,7 +195,7 @@ function gatesForMode(selected: Mode): Gate[] {
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
         pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
-        pnpmScript('test', 'test'),
+        prePushTestGate(),
         pnpmScript('duplication', 'duplication'),
         snapshotGate(),
         pnpmScript('build', 'build'),
@@ -292,6 +292,20 @@ function coverageGate(): Gate {
     env: { DSH_EXAMPLE_MODE: 'lib' },
     needs: ['build'],
   })
+}
+
+// The pre-push runner overlaps this all-core vitest gate with sibling gates (build, snapshot,
+// doc leaves). Bound its pool to half the cores by default (>=2 workers) so it does not
+// oversubscribe them; DSH_TEST_MAX_WORKERS overrides it, mirroring coverageGate's
+// DSH_COVERAGE_MAX_WORKERS. Pre-push only — CI runs the coverage gate — so the bound never
+// touches CI timing. Failure mode and rationale in the parallel pre-push gates Agent Note
+// (.agents/notes/implemented/process/2026-07-06-parallel-pre-push-gates.md).
+function prePushTestGate(): Gate {
+  const override = positiveIntArg('DSH_TEST_MAX_WORKERS', '--maxWorkers')
+  const workers = override.length > 0
+    ? override
+    : [`--maxWorkers=${Math.max(2, Math.floor(availableParallelism() / 2))}`]
+  return pnpmExec('test', ['vitest', 'run', ...workers], { label: 'test' })
 }
 
 // The snapshot suite boots the example bins in `lib` mode (built artifact under plain Node,
