@@ -44,4 +44,3 @@ export function transportError<T>(error: unknown): RpcResult<T> {
     error: { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} },
   }
 }
-
