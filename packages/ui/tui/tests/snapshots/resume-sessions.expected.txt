@@ -1,0 +1,32 @@
+terminal 92x32 buffer=normal length=32 base=0 viewport=0
+lifecycle started=1 stopped=0 progress=inactive
+title "DSH snapshot"
+cursor hidden column=1 viewportRow=10 bufferRow=10
+buffer
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Snapshot agent ready."
+  style 1-21 fg=bright-black
+2| " deepseek-v4-flash  •  main-session"
+  style 1-34 dim
+3| <blank>
+4| " Resumable sessions                                                                         "
+  style 1-18 fg=bright-blue bold
+5| " 2024-01-02 03:04 (current)                                                                 "
+  style 1-16 fg=bright-black
+  style 17-26 fg=green
+6| "   RESUME_SESSION_ID=main-session dsh                                                       "
+7| " 2024-01-01 00:00                                                                           "
+  style 1-16 fg=bright-black
+8| "   RESUME_SESSION_ID=earlier-session dsh                                                    "
+9| "────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-91 dim
+10| "                                                                                            "
+  style 1-1 inverse
+11| "────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-91 dim
+12| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                     0% context  tools:collapsed"
+  style 0-43 dim
+  style 65-91 dim
+13-31| <blank>

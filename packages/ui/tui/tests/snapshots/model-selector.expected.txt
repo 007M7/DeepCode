@@ -3,33 +3,23 @@ lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
 cursor hidden column=0 viewportRow=31 bufferRow=31
 buffer
-0| "╭──────────────────────────────────────────────────────────────────────────────────────────╮"
-  style 0-91 fg=bright-blue
-1| "│ DEEPSEEK HARNESS                                                                         │"
-  style 0-0 fg=bright-blue
-  style 2-9 fg=bright-blue bold
-  style 11-17 bold
-  style 91-91 fg=bright-blue
-2| "│ Snapshot agent ready.                                                                    │"
-  style 0-0 fg=bright-blue
-  style 2-22 fg=bright-black
-  style 91-91 fg=bright-blue
-3| "│ deepseek-v4-flash  •  main-session                                                       │"
-  style 0-0 fg=bright-blue
-  style 2-35 dim
-  style 91-91 fg=bright-blue
-4| "╰──────────────────────────────────────────────────────────────────────────────────────────╯"
-  style 0-91 fg=bright-blue
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Snapshot agent ready."
+  style 1-21 fg=bright-black
+2| " deepseek-v4-flash  •  main-session"
+  style 1-34 dim
+3| "────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-91 dim
+4| "                                                                                            "
+  style 1-1 inverse
 5| "────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-91 dim
-6| "                                                                                            "
-  style 1-1 inverse
-7| "────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-91 dim
-8| "/workspace/project  ↑0 ↓0         0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
-  style 0-24 dim
-  style 34-91 dim
-9-12| <blank>
+6| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                     0% context  tools:collapsed"
+  style 0-43 dim
+  style 65-91 dim
+7-12| <blank>
 13| "          ╭ Select model ────────────────────────────────────────────────────────╮          "
   style 10-81 fg=bright-blue
 14| "          │ → deepseek/deepseek-v4-flash      DeepSeek V4 Flash — current        │          "

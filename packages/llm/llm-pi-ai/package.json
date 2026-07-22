@@ -33,7 +33,7 @@
     "cordis": "^4.0.0-rc.7"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.79.1",
+    "@earendil-works/pi-ai": "^0.81.1",
     "schemastery": "^3.18.0"
   },
   "devDependencies": {
