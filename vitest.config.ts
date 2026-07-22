@@ -28,11 +28,13 @@ const testIncludes = [
   'scripts/**/*.spec.ts',
 ]
 
-// These suites exercise process-global state or process APIs that worker threads cannot isolate.
+// These suites exercise process-global state, process APIs, or timing-sensitive process I/O
+// that worker threads cannot isolate reliably under aggregate gate contention.
 // Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
 const processBoundTests = [
   'packages/bash/bash-local/tests/run.spec.ts',
   'packages/context/time-context/tests/time-context.spec.ts',
+  'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
   'packages/ui/app-boot/tests/app-boot.spec.ts',
   'packages/workflow/workflow-workerthread/tests/session.spec.ts',
 ]

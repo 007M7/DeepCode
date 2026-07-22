@@ -38,7 +38,7 @@ jobs:
       DSH_COVERAGE_MAX_WORKERS: '16'
       DSH_ESLINT_CACHE: '1'
       DSH_ESLINT_CONCURRENCY: '16'
-      DSH_GATE_CONCURRENCY: '8'
+      DSH_GATE_CONCURRENCY: '10'
       DSH_PUBLINT_CONCURRENCY: '16'
       DSH_SNAPSHOT_MAX_CONCURRENCY: '8'
     steps:
@@ -46,21 +46,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Enable corepack and resolve pnpm store path
-        id: pnpm-store
-        run: |
-          corepack enable
-          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
       # Pull requests consume the default-branch cache but do not put cache
       # compression and upload on the paid latency-critical path.
       - uses: actions/cache/restore@v4
         with:
-          path: ${{ steps.pnpm-store.outputs.path }}
+          path: /home/runner/.local/share/pnpm/store/v11
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
@@ -72,8 +62,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
-      - name: Install dependencies and prepare bubblewrap
+      - name: Select preinstalled Node, install dependencies, and prepare bubblewrap
         run: |
+          node_root="$(printf '%s\n' "$RUNNER_TOOL_CACHE"/node/"${PRIMARY_NODE_VERSION}".*/x64 | sort -V | tail -n 1)"
+          if [[ ! -d "$node_root" ]]; then
+            echo "preinstalled Node ${PRIMARY_NODE_VERSION}.x not found in $RUNNER_TOOL_CACHE" >&2
+            exit 1
+          fi
+          echo "$node_root/bin" >> "$GITHUB_PATH"
+          export PATH="$node_root/bin:$PATH"
+          [[ "$(node --version)" == "v${PRIMARY_NODE_VERSION}."* ]]
+          corepack enable
           pnpm install --frozen-lockfile &
           install_pid=$!
           bash scripts/prepare-ci-bubblewrap.sh &
@@ -171,10 +170,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
       - uses: actions/cache/restore@v4
         with:
           path: .cache/eslint
@@ -184,9 +179,25 @@ jobs:
 
       # Extracting the many-file pnpm store cache is slower on this image than
       # a clean parallel install, and saving it adds more latency after gates.
-      - name: Enable corepack and install (immutable)
+      - name: Select preinstalled Node and install (immutable)
         shell: pwsh
         run: |
+          $nodeRoot = Get-ChildItem -Path "$env:RUNNER_TOOL_CACHE\node" -Directory |
+            Where-Object { $_.Name -like "$env:PRIMARY_NODE_VERSION.*" } |
+            Sort-Object { [version]$_.Name } |
+            Select-Object -Last 1
+          if ($null -eq $nodeRoot) {
+            throw "preinstalled Node $env:PRIMARY_NODE_VERSION.x not found in $env:RUNNER_TOOL_CACHE"
+          }
+          $nodeBin = Join-Path $nodeRoot.FullName 'x64'
+          if (-not (Test-Path $nodeBin -PathType Container)) {
+            throw "preinstalled Node x64 directory not found at $nodeBin"
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $nodeBin
+          $env:PATH = "$nodeBin;$env:PATH"
+          if ((node --version) -notlike "v$env:PRIMARY_NODE_VERSION.*") {
+            throw "selected unexpected Node version $(node --version)"
+          }
           corepack enable
           pnpm install --frozen-lockfile
 
