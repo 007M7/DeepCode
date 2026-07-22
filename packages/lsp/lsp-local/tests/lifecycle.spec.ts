@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
-import Lsp, { type LspQueryRequest, type LspQueryResult } from '@deepseek-ai/dsh-lsp'
+import Lsp, { type LspProvider, type LspQueryRequest, type LspQueryResult } from '@deepseek-ai/dsh-lsp'
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
 import type { LspLocalServerConfig } from '@deepseek-ai/dsh-lsp-local'
@@ -38,12 +38,27 @@ function fakeServer(fakeEnv: Record<string, string> = {}, overrides: Partial<Lsp
 }
 
 /** Mount the real seam + lsp-local plugin driving one fake server. */
-async function mount(fakeEnv: Record<string, string> = {}, overrides: Partial<LspLocalServerConfig> = {}): Promise<Context> {
+async function mount(
+  fakeEnv: Record<string, string> = {},
+  overrides: Partial<LspLocalServerConfig> = {},
+  captureProvider?: (provider: LspProvider) => void,
+): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(Lsp)
-  await ctx.plugin(LspLocal, {
-    servers: { fake: fakeServer(fakeEnv, overrides) },
-  })
+  const register = ctx.lsp.registerProvider.bind(ctx.lsp)
+  const registrationSpy = captureProvider === undefined
+    ? undefined
+    : vi.spyOn(ctx.lsp, 'registerProvider').mockImplementation((provider) => {
+      captureProvider(provider)
+      return register(provider)
+    })
+  try {
+    await ctx.plugin(LspLocal, {
+      servers: { fake: fakeServer(fakeEnv, overrides) },
+    })
+  } finally {
+    registrationSpy?.mockRestore()
+  }
   return ctx
 }
 
@@ -247,10 +262,22 @@ describe('lsp-local end to end over a fake server', () => {
     // The first query succeeds, then the server exits before the second arrives, leaving a dead
     // instance in the pool. The next query must evict-and-replace it and still succeed, rather than
     // failing once on the closed connection first.
-    const ctx = await mount({ LSP_FAKE_EXIT_AFTER_REPLY: '1', LSP_FAKE_DEF: JSON.stringify(locationJson(0)) })
+    let provider: LspProvider | undefined
+    const ctx = await mount(
+      { LSP_FAKE_EXIT_AFTER_REPLY: '1', LSP_FAKE_DEF: JSON.stringify(locationJson(0)) },
+      {},
+      (registered) => { provider = registered },
+    )
     expect(await ctx.lsp.query(query('goToDefinition'))).toMatchObject({ kind: 'locations' })
-    // Wait past the fixture's post-reply exit so the pooled instance is observably dead.
-    await new Promise(resolve => setTimeout(resolve, 60))
+    if (provider === undefined) throw new Error('expected lsp-local to register a provider')
+    // This implementation-local test reaches the private pool only to synchronize with its actual
+    // close state. A fixed wall-clock sleep can expire before a CPU-starved child runs its exit timer.
+    const instances = (provider as unknown as {
+      readonly instances: ReadonlyMap<string, { readonly dead: boolean }>
+    }).instances
+    const instance = [...instances.values()][0]
+    if (instance === undefined) throw new Error('expected one pooled LSP instance')
+    await waitFor(async () => instance.dead)
     expect(await ctx.lsp.query(query('goToDefinition'))).toMatchObject({ kind: 'locations' })
     await ctx.fiber.dispose()
   })
