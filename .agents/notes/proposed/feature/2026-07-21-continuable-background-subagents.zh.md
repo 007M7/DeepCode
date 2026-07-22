@@ -25,7 +25,7 @@ durable child Session
 
 前台委派保持当前的一次性行为。第一版可继续实现覆盖进程内 spawn 和 fork child。提供方只有支持从持久化存储恢复后，才能将其 child 标记为可继续；在下述 ACP（Agent Client Protocol）后续工作完成前，ACP child 仍保持一次性行为。
 
-底层 `ctx.subagents` seam 不感知 child 集合、Task 与持久化。它注册提供方，校验并分发 `start` 或 `resume`，观察 run 生命周期，并返回由持有方负责的 run。`@deepseek-ai/dsh-subagent-control` 中单独的 `SubagentControlService` 负责管理可继续 child 的稳定 id、持久化描述符并按已知 child id 查找、由 Task 支撑的激活，以及消息路由。按提供方绑定的 `@deepseek-ai/dsh-tool-subagent` 插件及面向用户的适配器通过该控制服务处理可继续后台工作；前台一次性委派仍直接调用 `ctx.subagents.start()`。全局命名的模型工具是 `@deepseek-ai/dsh-tool-subagent-control` 中的轻量适配器。parent 到 child 的枚举与 `list_agents` 由单独的[持久化 subagent 目录](2026-07-22-durable-subagent-catalog-and-list-agents.md)规定。
+底层 `ctx.subagents` seam 不感知 child 集合、Task 与持久化。它注册提供方，校验并分发 `start` 或 `resume`，观察 run 生命周期，并返回由持有方负责的 run。`@deepseek-ai/dsh-subagent-control` 中单独的 `SubagentControlService` 负责管理可继续 child 的稳定 id、持久化描述符并按已知 child id 查找、由 Task 支撑的激活，以及消息路由。按提供方绑定的 `@deepseek-ai/dsh-tool-subagent` 插件及面向用户的适配器通过该控制服务处理可继续后台工作；前台一次性委派仍直接调用 `ctx.subagents.start()`。全局命名的模型工具是 `@deepseek-ai/dsh-tool-subagent-control` 中的轻量适配器。parent 到 child 的枚举与 `list_agents` 属于单独的持久化目录提案。
 
 ### Task 与取消的所有权
 
