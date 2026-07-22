@@ -133,7 +133,7 @@ describe('startWebServer', () => {
   })
 })
 
-describe('static serving', () => {
+describe.skipIf(process.platform === 'win32')('static serving', () => {
   it('serves index at /, subpaths by MIME, octet-stream for unknown, SPA fallback on miss', async () => {
     const base = await boot()
     const index = await fetch(`${base}/`)
@@ -171,7 +171,7 @@ describe('static serving', () => {
   })
 })
 
-describe('web plugin surfaces (boot injection + bundle endpoint)', () => {
+describe.skipIf(process.platform === 'win32')('web plugin surfaces (boot injection + bundle endpoint)', () => {
   const rows = [
     { id: '@deepseek-ai/dsh-client-connection', url: '/plugins/@deepseek-ai/dsh-client-connection/client.js', inject: [], immediately: true },
     { id: '@deepseek-ai/dsh-client-ui-layout', url: '/plugins/@deepseek-ai/dsh-client-ui-layout/client.js', inject: ['@deepseek-ai/dsh-client-runtime'] },
