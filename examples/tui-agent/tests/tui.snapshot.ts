@@ -1,6 +1,6 @@
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
@@ -9,11 +9,13 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import WorkerCodeRuntime from '@deepseek-ai/dsh-code-runtime-worker'
+import CommandService from '@deepseek-ai/dsh-commands'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SubagentService from '@deepseek-ai/dsh-subagent'
@@ -21,6 +23,7 @@ import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 import { createTuiChat } from '@deepseek-ai/dsh-tui'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -30,7 +33,7 @@ import { HeadlessTerminal } from '../../../packages/ui/tui/tests/headless-termin
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 // Keep pre-normalization layout widths identical across macOS and Linux.
 const SNAPSHOT_TMP_ROOT = process.platform === 'win32' ? tmpdir() : '/tmp'
-const PROVIDERS = [{ id: 'deepseek', models: [{ id: 'deepseek-v4-flash' }] }]
+const PROVIDERS = [{ id: 'deepseek', models: [{ id: 'deepseek-v4-flash', contextWindow: 128_000 }] }]
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 
 type SnapshotMode = 'replay' | 'record' | 'refresh'
@@ -106,6 +109,13 @@ function snapshotModeFromEnv(value: string | undefined): SnapshotMode {
 const MODE = snapshotModeFromEnv(process.env.DSH_SNAPSHOT)
 const observedScenarios = new Set<string>()
 
+function snapshotDisplayPath(displayPath: string, cwd: string, displayCwd: string): string {
+  const rel = relative(cwd, displayPath)
+  if (rel === '') return displayCwd
+  if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) return displayPath
+  return `${displayCwd}/${rel.split(sep).join('/')}`
+}
+
 function scenarioDir(scenario: Scenario): string {
   return join(SNAPSHOTS_DIR, scenario.name)
 }
@@ -136,9 +146,10 @@ function rawSessionLog(session: Session): string {
   ].join('\n')
 }
 
-function normalizeTerminalSnapshot(snapshot: string, cwd: string): string {
+function normalizeTerminalSnapshot(snapshot: string, cwd: string, displayCwd: string): string {
   return snapshot
     .split(`/private${cwd}`).join('/workspace/project')
+    .split(displayCwd).join('/workspace/project')
     .split(cwd).join('/workspace/project')
     .replace(UUID_RE, '{{uuid}}')
 }
@@ -157,9 +168,20 @@ async function settleTerminal(terminal: HeadlessTerminal): Promise<void> {
 async function mountScenarioContext(
   scenario: Scenario,
   cwd: string,
+  displayCwd: string,
   fixtureFile: string,
   childFiles: string[],
 ): Promise<Context> {
+  class SnapshotLocalFileSystem extends LocalFileSystem {
+    override async resolve(
+      path: string,
+      opts?: { cwd?: string; signal?: AbortSignal },
+    ): Promise<Awaited<ReturnType<LocalFileSystem['resolve']>>> {
+      const target = await super.resolve(path, opts)
+      return { ...target, displayPath: snapshotDisplayPath(target.displayPath, cwd, displayCwd) }
+    }
+  }
+
   const ctx = new Context()
   await ctx.plugin(AgentCore, {
     agents: [],
@@ -168,8 +190,9 @@ async function mountScenarioContext(
     tools: { mode: scenario.composition === 'code' ? 'code' : scenario.composition === 'advanced' ? 'both' : 'native' },
     skills: { local: { agentsHome: join(cwd, '.agents') } },
   })
+  await ctx.plugin(TokenMeterService)
   await ctx.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
-  await ctx.plugin(LocalFileSystem, { cwd: '/' })
+  await ctx.plugin(SnapshotLocalFileSystem, { cwd: '/' })
   await ctx.plugin(FsPolicy)
   await ctx.plugin(ToolFs)
   await ctx.plugin(UserInteractionService)
@@ -179,6 +202,8 @@ async function mountScenarioContext(
   await ctx.plugin(ToolSubagent, { provider: 'spawn', toolName: 'subagent', enableRunInBackground: false })
   await ctx.plugin(WorkerWorkflowEngine, { provider: 'spawn' })
   await ctx.plugin(ToolWorkflow)
+  await ctx.plugin(ToolRalph)
+  await ctx.plugin(CommandService)
   if (scenario.composition === 'code' || scenario.composition === 'advanced') {
     await ctx.plugin(WorkerCodeRuntime, {})
   }
@@ -207,6 +232,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
   expect(prompts.length, `${scenario.name} must carry at least one recorded user prompt`).toBeGreaterThan(0)
 
   const cwd = await mkdtemp(join(SNAPSHOT_TMP_ROOT, `dsh-tui-snapshot-${scenario.name}-`))
+  const displayCwd = `/tmp/${basename(cwd)}`
   let ctx: Context | undefined
   let controller: ReturnType<typeof createTuiChat> | undefined
   const terminal = new HeadlessTerminal(100, 36)
@@ -215,7 +241,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       const source = join(scenarioDir(scenario), 'workspace')
       await cp(source, cwd, { recursive: true })
     }
-    ctx = await mountScenarioContext(scenario, cwd, fixtureFile, childFiles)
+    ctx = await mountScenarioContext(scenario, cwd, displayCwd, fixtureFile, childFiles)
     const disposedSessions: Session[] = []
     ctx.on('session/disposed', (session) => { disposedSessions.push(session) })
     const workflowEvents: string[] = []
@@ -235,7 +261,11 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       title: 'DSH TUI snapshot',
       welcome: `Recorded replay: ${scenario.name}`,
       maxToolOutputLines: 8,
-    }, { terminal, exit: () => {} })
+    }, {
+      terminal,
+      exit: () => {},
+      formatCwd: () => displayCwd,
+    })
     await settleTerminal(terminal)
 
     for (const prompt of prompts) {
@@ -266,6 +296,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     const snapshot = normalizeTerminalSnapshot(
       await terminal.snapshot({ includeScrollback: true }),
       cwd,
+      displayCwd,
     )
     await handle.dispose()
     const children = disposedSessions

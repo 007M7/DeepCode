@@ -1,0 +1,41 @@
+# Test-only composition: the ACP subagent backend on the real Loader/app path.
+# The scripted model delegates once; the scripted mock ACP child (MOCK_ECHO_CWD)
+# echoes its process cwd and announced session cwd, so parent-session cwd
+# inheritance is asserted keylessly end to end. `cwd` is deliberately omitted —
+# the inheritance branch under test. The child command path is machine-absolute,
+# so the driving e2e supplies it via DSH_TEST_MOCK_ACP_SERVER.
+- id: mock-llm
+  name: './mock-delegating-llm.ts'
+
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-acp
+  name: '@deepseek-ai/dsh-subagent-acp'
+  config:
+    providerName: acp
+    command: !!js process.execPath
+    args:
+      - !!js process.env.DSH_TEST_MOCK_ACP_SERVER
+    permission: reject
+    env:
+      MOCK_ECHO_CWD: '1'
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: acp
+    toolName: subagent
+    # ACP advertises no depthLimit: the child harness owns its own recursion
+    # budget, so the local numeric default cannot apply here.
+    maxDepth: 'provider-managed'
+
+- id: cli-agent
+  name: '@deepseek-ai/dsh-cli-demo'
+  config:
+    provider: mock
+    model: mock-delegate
+    persona: 'Test ACP subagent cwd inheritance.'
+    persistenceRoot: './.sessions'
+    persistenceCompression: 'none'
+    workspaceContext: false

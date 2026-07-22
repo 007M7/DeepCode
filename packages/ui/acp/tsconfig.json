@@ -21,13 +21,22 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../llm/llm-retry"
+    },
+    {
       "path": "../../core/session"
+    },
+    {
+      "path": "../../session-title/session-title"
     },
     {
       "path": "../../core/agent"
     },
     {
       "path": "../../core/tools"
+    },
+    {
+      "path": "../commands"
     },
     {
       "path": "../user-interaction"
@@ -46,6 +55,9 @@
     },
     {
       "path": "../../bash/bash"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

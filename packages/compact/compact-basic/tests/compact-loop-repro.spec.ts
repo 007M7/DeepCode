@@ -8,9 +8,13 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import * as Invariants from '@deepseek-ai/dsh-invariants'
+import InvariantService from '@deepseek-ai/dsh-invariants'
+import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
+import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type SurfaceEvent } from '@deepseek-ai/dsh-session'
 
 /**
@@ -37,6 +41,10 @@ class StepwiseToolAdapter extends LlmAdapter {
     super()
   }
 
+  override resolveModelContext(): Promise<{ contextWindow: number }> {
+    return Promise.resolve({ contextWindow: 400 })
+  }
+
   async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
     const n = this.calls
     this.calls += 1
@@ -61,12 +69,24 @@ class OverflowRecoveryAdapter extends LlmAdapter {
   readonly conversationRequests: GenerateOptions[] = []
   readonly summaryRequests: GenerateOptions[] = []
 
-  constructor(private readonly delivery: 'thrown' | 'in-band') {
+  constructor(
+    private readonly delivery: 'thrown' | 'in-band',
+    private readonly transientAfterOverflow = false,
+  ) {
     super()
   }
 
+  override resolveModelContext(): Promise<{ contextWindow: number }> {
+    return Promise.resolve({ contextWindow: 128 })
+  }
+
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    if (options.system?.includes('You are a compaction engine')) {
+    // The cache-reusing summarizer replays the conversation prefix and marks
+    // its call only by the compaction instruction in the trailing user message.
+    const trailing = options.messages.at(-1)?.content
+      .map(block => (block.type === 'text' ? block.text : ''))
+      .join('') ?? ''
+    if (trailing.includes('acting as a compaction engine')) {
       this.summaryRequests.push(options)
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: 'RECOVERY CHECKPOINT' } }
@@ -83,11 +103,16 @@ class OverflowRecoveryAdapter extends LlmAdapter {
         type: 'finish',
         reason: {
           kind: 'error',
-          message: 'request too large for model context',
-          code: CONTEXT_WINDOW_EXCEEDED_CODE,
+          failure: {
+            message: 'request too large for model context',
+            code: CONTEXT_WINDOW_EXCEEDED_CODE,
+          },
         },
       }
       return
+    }
+    if (this.transientAfterOverflow && this.conversationRequests.length === 2) {
+      throw new LlmError('temporary provider outage', 'SERVER')
     }
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'block-end', index: 0, block: { type: 'text', text: 'recovered' } }
@@ -95,12 +120,19 @@ class OverflowRecoveryAdapter extends LlmAdapter {
   }
 }
 
+async function mountInvariants(ctx: Context): Promise<void> {
+  await ctx.plugin(InvariantService)
+  await ctx.plugin(SessionInvariant)
+  await ctx.plugin(AgentInvariant)
+  await ctx.plugin(AgentLoopInvariant)
+}
+
 async function harness(toolSteps: number): Promise<{ ctx: Context; compact: ReproCompactService }> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(Invariants)
+  await mountInvariants(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
-  await ctx.plugin(TokenMeterService, { contextWindow: 400 })
+  await ctx.plugin(TokenMeterService)
   ctx.llm.registerAdapter(['mock'], new StepwiseToolAdapter(toolSteps))
   ctx.tools.register(defineTool({
     name: 'work',
@@ -116,7 +148,6 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
     auto: true,
     thresholdRatio: 0.5,
     retainTokens: 50,
-    summarizationModel: '',
     maxTokens: 8192,
     compactionRetries: 1,
   })
@@ -132,6 +163,29 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
       }
     })
   })
+}
+
+function seedOverflowHistory(agent: Agent): void {
+  for (let turn = 1; turn <= 2; turn += 1) {
+    const sentinel = turn === 1 ? 'OLD HISTORY SENTINEL' : 'RECENT HISTORY'
+    agent.session.append('turn/start', {
+      turn,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    agent.session.append('user/message', {
+      content: [{ type: 'text', text: `${sentinel} ${'old context '.repeat(200)}` }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    agent.session.append('step/start', { turn, step: 1 })
+    agent.session.append('assistant/message', {
+      provenance: { provider: 'mock', model: 'mock' },
+      turn,
+      step: 1,
+      content: [{ type: 'text', text: `historical response ${turn} ${'detail '.repeat(200)}` }],
+    }, { surfaceOp: 'append' })
+    agent.session.append('step/end', { turn, step: 1 })
+    agent.session.append('turn/end', { turn, reason: { kind: 'completed' } })
+  }
 }
 
 describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', () => {
@@ -223,9 +277,9 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
       const ctx = new Context()
       const adapter = new OverflowRecoveryAdapter(delivery)
       await mountAgentLoopTestDependencies(ctx)
-      await ctx.plugin(Invariants)
+      await mountInvariants(ctx)
       await ctx.plugin(AgentLoop, { agents: [] })
-      await ctx.plugin(TokenMeterService, { contextWindow: 128 })
+      await ctx.plugin(TokenMeterService)
       ctx.llm.registerAdapter(['mock'], adapter)
       ctx.on('agent/request', async (_agent, _turn, _step, config) => ({ ...config, provider: 'mock', model: 'mock' }))
       await ctx.plugin(BasicCompactService, {
@@ -241,26 +295,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
           provider: 'unconfigured-agent-fallback',
           model: 'unconfigured-agent-fallback',
         })
-        for (let turn = 1; turn <= 2; turn += 1) {
-          const sentinel = turn === 1 ? 'OLD HISTORY SENTINEL' : 'RECENT HISTORY'
-          agent.session.append('turn/start', {
-            turn,
-            trigger: { kind: 'message', source: { kind: 'user' } },
-          })
-          agent.session.append('user/message', {
-            content: [{ type: 'text', text: `${sentinel} ${'old context '.repeat(200)}` }],
-            source: { kind: 'user' },
-          }, { surfaceOp: 'append' })
-          agent.session.append('step/start', { turn, step: 1 })
-          agent.session.append('assistant/message', {
-            provenance: { provider: 'mock', model: 'mock' },
-            turn,
-            step: 1,
-            content: [{ type: 'text', text: `historical response ${turn} ${'detail '.repeat(200)}` }],
-          }, { surfaceOp: 'append' })
-          agent.session.append('step/end', { turn, step: 1 })
-          agent.session.append('turn/end', { turn, reason: { kind: 'completed' } })
-        }
+        seedOverflowHistory(agent)
 
         agent.send([{ type: 'text', text: 'continue from history' }])
         await agent.whenIdle()
@@ -299,4 +334,47 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
       }
     },
   )
+
+  it('keeps context-overflow and transient retry budgets independent in one sequence', async () => {
+    const ctx = new Context()
+    const adapter = new OverflowRecoveryAdapter('thrown', true)
+    await mountAgentLoopTestDependencies(ctx)
+    await mountInvariants(ctx)
+    await ctx.plugin(LlmRetry, {
+      maxTransientRetries: 1,
+      initialDelayMs: 1,
+      maxDelayMs: 1,
+      jitterRatio: 0,
+    })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(TokenMeterService)
+    ctx.llm.registerAdapter(['mock'], adapter)
+    await ctx.plugin(BasicCompactService, {
+      thresholdRatio: 1,
+      retainTokens: 100,
+      maxTokens: 64,
+      compactionRetries: 0,
+      maxOverflowRetries: 1,
+    })
+
+    try {
+      const agent = ctx.agentLoop.create(SessionId('alternating-recovery'), { provider: 'mock', model: 'mock' })
+      seedOverflowHistory(agent)
+      agent.send([{ type: 'text', text: 'continue from history' }])
+      await agent.whenIdle()
+
+      expect(adapter.conversationRequests).toHaveLength(3)
+      expect(adapter.summaryRequests).toHaveLength(1)
+      expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => event.data))
+        .toEqual([expect.objectContaining({ step: 2, retry: 1, failure: { message: 'temporary provider outage', code: 'SERVER' } })])
+      expect(agent.session.events.filter(event => event.type === 'step/start').slice(-3).map(event => event.data.step))
+        .toEqual([1, 2, 3])
+      expect(agent.session.events.at(-1)).toMatchObject({
+        type: 'turn/end',
+        data: { reason: { kind: 'completed' } },
+      })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
 })

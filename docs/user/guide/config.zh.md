@@ -8,8 +8,8 @@ Harness 使用 `cordis.yml` 描述 Agent 加载哪些插件以及每个插件的
 
 仓库中的示例就是可以运行的配置，也是新项目最可靠的起点：
 
-- [echo-agent](../../../examples/echo-agent/cordis.yml) 使用本地 mock 模型，不需要 API key。
-- [repl-agent](../../../examples/repl-agent/cordis.yml) 组合 DeepSeek 模型、Bash、文件系统、压缩、子代理和工作流。
+- [tui-agent](../../../examples/tui-agent/cordis.yml) 组合 DeepSeek 模型、Bash、文件系统、压缩、子代理、工作流和交互式 TUI。
+- [headless-agent](../../../examples/headless-agent/cordis.yml) 以单次任务形式暴露 coding 组装。
 - [acp-agent](../../../examples/acp-agent/cordis.yml) 通过 ACP 接入编辑器客户端。
 
 最小配置由一组插件条目组成：
@@ -22,10 +22,15 @@ Harness 使用 `cordis.yml` 描述 Agent 加载哪些插件以及每个插件的
     models:
       - deepseek-v4-flash
 
-- id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-demo'
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+
+- id: tui-agent
+  name: '@deepseek-ai/dsh-tui-demo'
   config:
+    provider: deepseek
     model: deepseek-v4-flash
+    workspaceContext: false
 ```
 
 ## 插件条目

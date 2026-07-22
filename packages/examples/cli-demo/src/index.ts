@@ -37,6 +37,8 @@ export interface Config {
   tools?: ToolsConfig
   /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
   dshHome?: string
+  /** Fallback session-title limits forwarded through agent-spine-demo. */
+  sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
@@ -47,6 +49,8 @@ export interface Config {
   toolBash?: NonNullable<agentCore.Config['toolBash']>
   /** Generic background-task control-tool config forwarded through agent-spine-demo. */
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Bounded transient model-request retry policy forwarded through agent-spine-demo. */
+  llmRetry?: NonNullable<agentCore.Config['llmRetry']>
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
 }
@@ -62,12 +66,14 @@ export const Config: z<Config> = z.object({
   persistenceCompression: JsonlCompressionSchema,
   persona: z.string(),
   dshHome: z.string(),
+  sessionTitle: agentCore.SessionTitleConfigSchema,
   skills: agentCore.SkillConfigSchema,
   // Absent means lexicographic order; schemastery's native array default is [].
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
+  llmRetry: agentCore.LlmRetryConfigSchema,
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
 /* jscpd:ignore-end */

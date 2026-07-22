@@ -28,6 +28,9 @@
     },
     {
       "path": "../../subagent/subagent"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

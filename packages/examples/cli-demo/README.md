@@ -1,8 +1,8 @@
 # @deepseek-ai/dsh-cli-demo
 
-Headless one-shot app and bin for running one agent task without a readline or editor client. It composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), JSONL persistence, and exactly one fresh top-level agent. The bin submits the task, waits for its durable turn ending, renders the selected output, disposes to quiescence, and exits.
+Headless one-shot app and bin for running one agent task without an interactive UI or editor client. It composes [`@deepseek-ai/dsh-agent-spine-demo`](../agent-spine-demo/README.md), JSONL persistence, and exactly one fresh top-level agent. The bin submits the task, waits for its durable turn ending, renders the selected output, disposes to quiescence, and exits.
 
-The package mounts no console logger, readline UI, user-interaction service, or `ask_user_question` tool. Stdout is reserved for the selected output format; diagnostics use stderr.
+The package mounts no console logger, interactive UI, user-interaction service, or `ask_user_question` tool. Stdout is reserved for the selected output format; diagnostics use stderr.
 
 ## Config
 
@@ -15,9 +15,11 @@ The package mounts no console logger, readline UI, user-interaction service, or 
 | `toolOrder` | lexicographic | explicit model-facing tool order in `dsh-system-prompt` |
 | `tools` | `{ mode: 'native' }` | tool-registry presentation config through `dsh-agent-spine-demo` |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home exposed to model bash and used by local skill discovery |
+| `sessionTitle` | spine example limits | Fallback title word/byte limits through `dsh-agent-spine-demo` |
 | `skills` | owner defaults | skill registry, local provider, and model-facing skill tool |
 | `toolBash` | owner defaults | model-facing bash config, including this producer's background opt-in |
 | `toolTasks` | owner defaults | generic `task_output` wait bounds |
+| `llmRetry` | owner defaults | bounded transient model-request retry policy |
 | `persistenceRoot` | `./.sessions` | JSONL session root |
 | `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
 | `workspaceContext` | required | workspace-instruction byte budget, or `false` to disable loading |
@@ -33,7 +35,7 @@ dsh-cli-demo [--config path] [--output-format text|json|stream-json] <task>
 The root headless-agent example supplies its leaf:
 
 ```sh
-pnpm run demo:headless -- "inspect the failing test and fix it"
+pnpm run demo:headless "inspect the failing test and fix it"
 ```
 
 Loader configs with bare package specifiers require `node --expose-internals` or the Loader's optional native fallback. The root command supplies the Node flag.
@@ -41,7 +43,7 @@ Loader configs with bare package specifiers require `node --expose-internals` or
 ### Output formats
 
 - `text` writes the last assistant message containing text, followed by one newline.
-- `json` writes one DSH-native result record: `{ type: "result", success, sessionId, turn, result, reason, usage? }`. `usage` sums every model step in the task turn.
+- `json` writes one DSH-native result record: `{ type: "result", success, sessionId, turn, result, reason, usage? }`. `usage` sums each model step in the task turn once, including billed failed retry attempts that produced usage without a committed assistant message.
 - `stream-json` writes each canonical event from the top-level session's task turn as `{ type: "session_event", sessionId, event }`, then the same result record. Child-agent activity appears only through the parent tool events and results.
 
 Only `reason.kind === "completed"` exits successfully. Other durable turn endings still emit partial text or a result record, add a stderr diagnostic, and exit nonzero. Argument and boot failures leave stdout empty. SIGINT and SIGTERM cancel active work, await disposal, and exit 130 and 143 respectively.

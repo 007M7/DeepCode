@@ -8,7 +8,8 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-llm'
-import { DeepSeekAdapter } from './adapter.ts'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, DeepSeekAdapter } from './adapter.ts'
 import type { DeepSeekCatalogModel } from './adapter.ts'
 
 export { DeepSeekAdapter } from './adapter.ts'
@@ -20,8 +21,8 @@ export const name = 'llm-deepseek'
 export const inject = ['llm']
 
 const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
-  { id: 'deepseek-v4-flash' },
-  { id: 'deepseek-v4-pro' },
+  { id: 'deepseek-v4-flash', contextWindow: 128_000 },
+  { id: 'deepseek-v4-pro', contextWindow: 128_000 },
 ]
 
 /**
@@ -41,12 +42,15 @@ export interface Config {
   reasoningEffort?: 'high' | 'max'
   /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
   models?: DeepSeekCatalogModel[]
+  /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
+  streamIdleTimeoutMs?: number
 }
 
 const catalogModel: z<DeepSeekCatalogModel> = z.object({
   id: z.string().required(),
   name: z.string(),
   description: z.string(),
+  contextWindow: z.number().step(1).min(1),
 })
 
 export const Config: z<Config> = z.object({
@@ -55,6 +59,7 @@ export const Config: z<Config> = z.object({
   thinking: z.union(['enabled', 'disabled']),
   reasoningEffort: z.union(['high', 'max']),
   models: z.array(catalogModel).default(DEFAULT_MODELS),
+  streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
 })
 
 /** Public API default; the internal endpoint comes from $DEEPSEEK_BASE_URL. */
@@ -68,12 +73,19 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
     if (model.name !== undefined && model.name.length === 0) {
       throw new Error(`llm-deepseek: catalog model "${model.id}" has an empty name`)
     }
+    if (model.contextWindow !== undefined
+      && (!Number.isInteger(model.contextWindow) || model.contextWindow <= 0)) {
+      throw new Error(
+        `llm-deepseek: catalog model "${model.id}" contextWindow must be a positive integer`,
+      )
+    }
     if (seen.has(model.id)) throw new Error(`llm-deepseek: duplicate catalog model "${model.id}"`)
     seen.add(model.id)
     return {
       id: model.id,
       ...model.name === undefined ? {} : { name: model.name },
       ...model.description === undefined ? {} : { description: model.description },
+      ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
     }
   })
 }
@@ -92,5 +104,6 @@ export function apply(ctx: Context, config: Config): void {
       reasoningEffort: config.reasoningEffort,
     },
     models: resolveModels(config.models),
+    streamIdleTimeoutMs: config.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   }))
 }

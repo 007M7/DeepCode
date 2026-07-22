@@ -122,24 +122,24 @@ export default class MyService extends Service {
 
 ## 完整示例
 
-参考仓库中的 `examples/echo-agent/src/echo-tool.ts`，这是一个注册 tool 的插件：
+最小化的工具插件会在 `ctx.tools` 上注册其定义：
 
 ```ts
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
-export const name = 'echo-tool'
+export const name = 'greet-tool'
 export const inject = ['tools']
 
 export function apply(ctx: Context) {
   ctx.tools.register(defineTool({
-    name: 'echo',
-    description: 'Echo the given text back, uppercased.',
+    name: 'greet',
+    description: 'Greet the named person.',
     parameters: {
-      text: { type: 'string', required: true },
+      name: { type: 'string', required: true },
     },
     async execute(args) {
-      return [{ type: 'text', text: `ECHO: ${args.text.toUpperCase()}` }]
+      return [{ type: 'text', text: `Hello, ${args.name}!` }]
     },
   }))
 }

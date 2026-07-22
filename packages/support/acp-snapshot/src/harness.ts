@@ -18,8 +18,9 @@
 
 import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { join, delimiter } from 'node:path'
+import { basename, dirname, join, delimiter } from 'node:path'
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
@@ -41,12 +42,15 @@ export type { AgentUnderTest } from './launcher.ts'
  * the client observes the selected update (`agent_message_chunk` by default),
  * then cancels and awaits completion. A named `waitForToolCallUpdate` keeps the
  * step open for a terminal tool update that may follow the prompt response.
+ * `promptAndWaitForAgentMessage` arms an exact text-chunk waiter before sending
+ * the prompt, then keeps the application live until that later update arrives.
  */
 export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
   | { op: 'newSession' }
   | { op: 'newSessionExpectError'; additionalDirectories?: string[] }
   | { op: 'prompt'; text: string }
+  | { op: 'promptAndWaitForAgentMessage'; text: string; waitForText: string }
   | { op: 'promptExpectError'; text: string }
   | {
     op: 'promptAndCancel'
@@ -150,6 +154,23 @@ export interface RunOptions {
 }
 
 /**
+ * Derive one stable, fixed-length spill root owned by this scenario.
+ * Windows uses a two-character-shorter root because drive resolution adds its drive prefix.
+ * @param fixtureFile - The scenario fixture whose parent directory provides the stable identity.
+ * @param platform - the host platform, injectable for unit coverage.
+ * @returns the root-relative snapshot spill directory.
+ */
+export function snapshotSpillRoot(
+  fixtureFile: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const scenario = basename(dirname(fixtureFile))
+  const key = createHash('sha256').update(scenario).digest('hex').slice(0, 9)
+  const root = platform === 'win32' ? '/t' : '/tmp'
+  return `${root}/dsh-acp-snap-${key}`
+}
+
+/**
  * Run a scenario end-to-end against a freshly-spawned subprocess. Owns the
  * child and its temp dirs; always tears them down. Returns the captured stdout
  * and (record mode) the harvested session-log path.
@@ -163,7 +184,9 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
   // Fixed path length: spill-policy budgets the preview against the REAL path
   // before stdout normalization, so tmpdir() length differences churn expected outputs.
-  const spillRoot = '/tmp/dsh-acp-snapshot-spill'
+  // Scenario ownership also matters: replay runs concurrently, and one teardown
+  // must never delete another scenario's in-flight full-output recovery file.
+  const spillRoot = snapshotSpillRoot(opts.fixtureFile)
   // Everything past the temp-dir creation is followed by failure-safe cleanup,
   // so a failure in workspace seeding, spawn, or any step never leaks resources.
   let launched: LaunchedAcpTestAgent | undefined
@@ -329,6 +352,15 @@ async function runStep(
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: prompt before newSession')
       await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
+      return
+    }
+    case 'promptAndWaitForAgentMessage': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: promptAndWaitForAgentMessage before newSession')
+      const updateDone = waitForUpdate(update => update.sessionUpdate === 'agent_message_chunk'
+        && update.content.type === 'text' && update.content.text === step.waitForText)
+      await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
+      await updateDone
       return
     }
     case 'promptExpectError': {

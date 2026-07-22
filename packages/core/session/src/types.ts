@@ -1,5 +1,5 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, LlmFailure, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from './json.ts'
 
 /** Identifies one session in the store (and its persistence artifacts). */
@@ -101,14 +101,19 @@ export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
  */
 export interface TurnEndReasonMap {
   completed: { kind: 'completed' }
-  aborted: { kind: 'aborted'; reason?: string }
+  /** A cancellation request interrupted the live turn. */
+  aborted: { kind: 'aborted' }
   /**
    * The turn failed: a step threw or the model reported a failure. `step` is the
    * step number the failure occurred on (the operational error's location — the
    * single durable record of an in-turn failure; live diagnostics also fire via
-   * `agent/error`). `code` is the error's code when one was attached.
+   * `agent/error`). Final model-request failures retain their normalized facts
+   * as one `failure`; other turn failures retain their live Error message/code.
    */
-  error: { kind: 'error'; step: number; message: string; code?: string }
+  error: { kind: 'error'; step: number } & (
+    | { failure: LlmFailure; message?: never; code?: never }
+    | { message: string; code?: string; failure?: never }
+  )
   disposed: { kind: 'disposed' }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
@@ -259,8 +264,22 @@ export interface SessionEventMap {
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 }
 
+/**
+ * Marker map for plugin-owned log-only events accepted by
+ * `SessionStore.appendOutOfBand()`. A plugin extends this map with the same key
+ * it adds to {@link SessionEventMap}; surface and lifecycle events stay
+ * ineligible unless their owner explicitly opts them into this narrow seam.
+ */
+export interface OutOfBandSessionEventMap {}
+
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
 export type SessionEventType = keyof SessionEventMap
+
+/** Plugin-declared non-surface event types accepted by `SessionStore.appendOutOfBand()`. */
+export type OutOfBandSessionEventType = Exclude<
+  Extract<SessionEventType, keyof OutOfBandSessionEventMap>,
+  SurfaceEventType
+>
 
 /**
  * The subset of {@link SessionEventType} values whose events produce LLM

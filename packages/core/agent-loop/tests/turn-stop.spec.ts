@@ -7,8 +7,18 @@ import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent, type ContinuationStop } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import * as Invariants from '@deepseek-ai/dsh-invariants'
+import InvariantService from '@deepseek-ai/dsh-invariants'
+import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+
+async function mountInvariants(ctx: Context): Promise<void> {
+  await ctx.plugin(InvariantService)
+  await ctx.plugin(SessionInvariant)
+  await ctx.plugin(AgentInvariant)
+  await ctx.plugin(AgentLoopInvariant)
+}
 
 async function harness(adapter: MockAdapter): Promise<Context> {
   const ctx = new Context()
@@ -17,7 +27,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(Invariants)
+  await mountInvariants(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
@@ -50,7 +60,7 @@ describe('agent/turn-stop', () => {
     agent.ctx.on('agent/turn-stop', (): ContinuationStop => ({ action: 'stop' }))
 
     let steered = false
-    ctx.on('agent/turn-continuation', async (subject, _turn, _default, next) => {
+    ctx.on('agent/turn-continuation', async (subject, _turn, _default, _signal, next) => {
       const downstream = await next()
       if (subject === agent && !steered) {
         steered = true

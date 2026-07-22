@@ -17,7 +17,7 @@ import z from 'schemastery'
 import type Schema from 'schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
-import { resolveDshHome } from '@deepseek-ai/dsh-home'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import {
   isSkillName,
   type SkillCandidate,
@@ -316,7 +316,9 @@ async function nodeEntryKind(fullPath: string, entry: { isDirectory(): boolean; 
   try {
     const info = await stat(fullPath)
     if (info.isDirectory()) return 'directory'
+    /* v8 ignore else -- the special-file symlink branch relies on POSIX /dev/null. */
     if (info.isFile()) return 'file'
+    /* v8 ignore next -- The special-file symlink fixture relies on POSIX /dev/null. */
     return undefined
   } catch (error) {
     ctx.logger.warn(`skill entry ${fullPath} ignored: failed to follow symbolic link: ${errorMessage(error)}`)

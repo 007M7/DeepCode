@@ -12,8 +12,8 @@ import * as acpAgent from '../src/index.ts'
 /**
  * In-process unit coverage for the @deepseek-ai/dsh-acp-demo composition:
  * mounting it brings up the agent-spine-demo spine + JSONL persistence + the ACP
- * bridge in one `ctx.plugin`. Unlike the stdio app, this one loads NO
- * Loader-only plugin (no hmr), so it mounts in a plain Context.
+ * bridge in one `ctx.plugin`. It loads no Loader-only plugin (no hmr), so it
+ * mounts in a plain Context.
  *
  * The REAL Loader-path guard (export shape via `unwrapExports`, the headline
  * ACP operations end-to-end) is the keyless bin smoke in `load-path.e2e.ts`;
@@ -21,7 +21,14 @@ import * as acpAgent from '../src/index.ts'
  */
 async function mount(config: acpAgent.Config, withBash = false): Promise<Context> {
   const ctx = new Context()
-  if (withBash) ctx.provide('bash', { sandboxMode: undefined })
+  if (withBash) {
+    ctx.provide('bash', {
+      sandboxMode: undefined,
+      resolve() { throw new Error('composition test does not execute bash') },
+      run() { throw new Error('composition test does not execute bash') },
+      start() { throw new Error('composition test does not execute bash') },
+    })
+  }
   await ctx.plugin(acpAgent, config)
   // The bundle mounts its children inside apply() (not awaited there); let their
   // fibers settle so the spine services are ready.
@@ -86,8 +93,27 @@ describe('dsh-acp-demo composition', () => {
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('userInteraction')).toBeDefined()
     expect(ctx.get('tools')?.get('ask_user_question')).toBeUndefined()
+    expect(ctx.get('goals')).toBeDefined()
+    expect(ctx.get('tools')?.get('get_goal')).toBeDefined()
     // No pre-created agents — ACP session/new creates them on demand.
     expect(ctx.get('agents')!.list()).toHaveLength(0)
+    await ctx.fiber.dispose()
+  })
+
+  it('can explicitly omit the persisted-goal stack and its command', async () => {
+    const ctx = await mount({
+      provider: 'mock',
+      model: 'mock',
+      goals: false,
+      workspaceContext: false,
+    })
+    expect(ctx.get('goals')).toBeUndefined()
+    const handle = await ctx.agents.create({
+      sessionId: 'disabled-goals' as import('@deepseek-ai/dsh-session').SessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    expect(ctx.commands.find(handle.agent, 'goal')).toBeUndefined()
+    await handle.dispose()
     await ctx.fiber.dispose()
   })
 
@@ -188,7 +214,17 @@ describe('dsh-acp-demo composition', () => {
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()
-    expect(assembly.tools.map(tool => tool.name)).toEqual(['zulu', 'alpha', 'skill', 'task_kill', 'task_list', 'task_output'])
+    expect(assembly.tools.map(tool => tool.name)).toEqual([
+      'zulu',
+      'alpha',
+      'create_goal',
+      'get_goal',
+      'skill',
+      'task_kill',
+      'task_list',
+      'task_output',
+      'update_goal',
+    ])
     await ctx.fiber.dispose()
   })
 

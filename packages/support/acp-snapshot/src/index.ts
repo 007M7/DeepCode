@@ -37,10 +37,14 @@ export {
   scrubRequestHeaders,
   scrubSystemPrompts,
   scrubToolSchemas,
+  type CwdPathMode,
   type NormalizeContext,
+  type NormalizeOptions,
 } from './normalize.ts'
 export {
   defineAcpSnapshotSuite,
+  refreshFixtureReplacements,
+  stabilizeRefreshLog,
   type Scenario,
   type SnapshotSuiteOptions,
 } from './suite.ts'
