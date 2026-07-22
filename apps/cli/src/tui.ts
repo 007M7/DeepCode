@@ -18,11 +18,18 @@ import {
   installFailLoud,
   loadEnv,
   loadPersonalPatches,
+  parseResumeArg,
   resolveConfigPath,
   resolvePersonalConfigDir,
 } from '@deepseek-ai/dsh-app-boot'
 
 const NAME = 'dsh'
+
+// The env var the shipped tui-agent config reads (`resumeSessionId: !!js
+// process.env.RESUME_SESSION_ID`) to rehydrate a persisted session. The
+// `--resume <id>` flag is CLI sugar that sets it before boot, so the printed
+// `dsh --resume <id>` exit hint runs back through this same intake.
+const RESUME_SESSION_ID_ENV = 'RESUME_SESSION_ID'
 
 // Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
 // one directory under apps/cli, so the shipped default config resolves with
@@ -38,7 +45,8 @@ const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
    the tui-agent PTY smoke drives this path end to end, personal overlay included */
 /**
  * Run the interactive TUI from the invoking directory.
- * @param argv - arguments after the subcommand dispatch; `argv[0]` may name a
+ * @param argv - arguments after the subcommand dispatch; a `--resume <id>` flag
+ * resumes that persisted session, and the first non-flag argument may name a
  * config to boot instead of the shipped default.
  */
 export async function runTui(argv: string[]): Promise<void> {
@@ -53,7 +61,11 @@ export async function runTui(argv: string[]): Promise<void> {
   // The bin already loaded the invoking directory's .env; the personal .env
   // only fills what is still unset (process.loadEnvFile never overrides).
   loadEnv(NAME, resolvePersonalConfigDir())
-  const ctx = await boot(NAME, resolveConfigPath(argv[0] ?? DEFAULT_CONFIG, undefined), loadPersonalPatches(NAME))
+  // An explicit `--resume` flag beats any ambient RESUME_SESSION_ID, so set it
+  // after loadEnv and before boot reads it through the config's `!!js`.
+  const { resumeSessionId, rest } = parseResumeArg(argv)
+  if (resumeSessionId !== undefined) process.env[RESUME_SESSION_ID_ENV] = resumeSessionId
+  const ctx = await boot(NAME, resolveConfigPath(rest[0] ?? DEFAULT_CONFIG, undefined), loadPersonalPatches(NAME))
   addHarnessSourceSection(ctx, SOURCE_ROOT)
 }
 /* v8 ignore stop */

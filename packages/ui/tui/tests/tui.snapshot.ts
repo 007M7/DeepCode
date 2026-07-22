@@ -7,6 +7,7 @@ import { agentEvents } from '@deepseek-ai/dsh-agent'
 import { CallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import type { Session } from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolDefinition, type ToolResultView } from '@deepseek-ai/dsh-tools'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
@@ -30,6 +31,7 @@ const CHECKPOINTS = [
   'retry-recovered',
   'retry-cancelled',
   'retry-exhausted',
+  'banner-gradient',
   'code-mode-pending',
   'dynamic-workflow-pending',
   'cordis-tools-pending',
@@ -45,6 +47,7 @@ const CHECKPOINTS = [
   'model-switching',
   'errors-and-help',
   'disposed-terminal',
+  'resume-sessions',
 ] as const
 
 type Checkpoint = typeof CHECKPOINTS[number]
@@ -56,9 +59,23 @@ async function checkpoint(
   name: Checkpoint,
   terminal: HeadlessTerminal,
   options: TerminalSnapshotOptions = {},
+  bannerGradient = false,
 ): Promise<void> {
   observedCheckpoints.add(name)
-  expect(terminal.themeViolations(), `${name} must remain theme-agnostic`).toEqual([])
+  const violations = terminal.themeViolations()
+  if (bannerGradient) {
+    // The banner paints its product name in the DeepSeek brand gradient with
+    // 24-bit foreground codes: the sole sanctioned truecolor. Require it to be
+    // present and to never leak a background or extended-palette color into the
+    // otherwise theme-agnostic UI.
+    expect(violations, `${name} must render the banner gradient`).not.toEqual([])
+    expect(
+      violations.every(entry => entry.endsWith('rgb-fg')),
+      `${name} must confine truecolor to the banner foreground`,
+    ).toBe(true)
+  } else {
+    expect(violations, `${name} must remain theme-agnostic`).toEqual([])
+  }
   const snapshot = await terminal.snapshot(options)
   const path = join(SNAPSHOTS_DIR, `${name}.expected.txt`)
   if (REFRESHING) {
@@ -305,6 +322,12 @@ describe('TUI terminal-state snapshots', () => {
       })
     })
     await checkpoint('retry-exhausted', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+  })
+
+  it('paints the startup banner product name in the DeepSeek brand gradient on truecolor terminals', async () => {
+    const harness = await setupSnapshot({ config: { truecolor: true } })
+    await checkpoint('banner-gradient', harness.terminal, {}, true)
     await disposeSnapshot(harness)
   })
 
@@ -594,6 +617,24 @@ describe('TUI terminal-state snapshots', () => {
       harness.terminal.send('\r')
     })
     await checkpoint('model-switching', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+  })
+
+  it('lists this workspace\'s resumable sessions with their commands', async () => {
+    const harness = await setupSnapshot({
+      config: { resumeCommand: 'RESUME_SESSION_ID={session} dsh' },
+      sessionPersistence: { list: async () => [
+        { version: 0, id: SessionId('main-session'), createdAt: Date.parse('2024-01-02T03:04:00Z'), cwd: '/workspace/project' },
+        { version: 0, id: SessionId('earlier-session'), createdAt: Date.parse('2024-01-01T00:00:00Z'), cwd: '/workspace/project' },
+      ] },
+    }, { columns: 92, rows: 32 })
+    harness.terminal.send('/resume')
+    harness.terminal.send('\r')
+    // `/resume` scans persistence asynchronously, so the listing renders a tick
+    // after submit (the unit suite waits the same way); settle, then flush.
+    await new Promise(resolve => setTimeout(resolve, 60))
+    await harness.terminal.flush()
+    await checkpoint('resume-sessions', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
   })
 })

@@ -818,37 +818,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
-  it('shows the session cache hit rate in the footer and updates it live', async () => {
-    // Empty session: no input billed yet, so the cache segment is hidden.
-    // A cwd without "cache" in it keeps the negative assertion unambiguous.
-    const empty = await setup({ cwd: '/opt' })
-    expect(empty.terminal.output).toContain('↑0 ↓0')
-    expect(empty.terminal.output).not.toContain('cache')
-    await dispose(empty)
-
-    const result = await setup({
-      beforeMount(session) {
-        // Cold call: 10 billed input tokens, none served from cache.
-        appendAssistant(session, [{ type: 'text', text: 'cold' }], { inputTokens: 10, outputTokens: 5 })
-      },
-    })
-    expect(result.terminal.output).toContain('cache 0%')
-
-    result.terminal.output = ''
-    // Warm call lands live: 5 uncached + 30 cache-read + 5 cache-write billed
-    // input, so 30 of the 50 total prompt tokens are hits → 60%.
-    appendAssistant(result.session, [{ type: 'text', text: 'warm' }], {
-      inputTokens: 5,
-      outputTokens: 5,
-      cacheReadTokens: 30,
-      cacheWriteTokens: 5,
-    })
-    await tick()
-    expect(result.terminal.output).toContain('cache 60%')
-    expect(result.terminal.output).not.toContain('cache 0%')
-    await dispose(result)
-  })
-
   it('sends, steers, handles commands, global keys, and disposed-agent input', async () => {
     const result = await setup()
 

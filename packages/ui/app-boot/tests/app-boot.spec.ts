@@ -6,7 +6,7 @@ import { Context } from 'cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
   addHarnessSourceSection, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
-  installFailLoud, loadEnv, resolveConfigPath, type FailLoudProcess,
+  installFailLoud, loadEnv, parseResumeArg, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
 const NAME = 'dsh-test-bin'
@@ -27,6 +27,26 @@ describe('resolveConfigPath', () => {
   it('leaves a non-cordis basename alone in replay mode and defaults cwd to the process cwd', () => {
     expect(resolveConfigPath('custom.yml', 'replay', `${sep}base`)).toBe(resolve(`${sep}base`, 'custom.yml'))
     expect(resolveConfigPath('./x.yml', undefined)).toBe(resolve(process.cwd(), 'x.yml'))
+  })
+})
+
+describe('parseResumeArg', () => {
+  it('returns no resume id and passes arguments through when the flag is absent', () => {
+    expect(parseResumeArg([])).toEqual({ resumeSessionId: undefined, rest: [] })
+    expect(parseResumeArg(['custom.yml'])).toEqual({ resumeSessionId: undefined, rest: ['custom.yml'] })
+  })
+
+  it('parses the space form, the inline form, and leaves a positional config path in any position', () => {
+    expect(parseResumeArg(['--resume', 'sess-1'])).toEqual({ resumeSessionId: 'sess-1', rest: [] })
+    expect(parseResumeArg(['--resume=sess-2'])).toEqual({ resumeSessionId: 'sess-2', rest: [] })
+    expect(parseResumeArg(['--resume', 'sess-3', 'app.yml'])).toEqual({ resumeSessionId: 'sess-3', rest: ['app.yml'] })
+    expect(parseResumeArg(['app.yml', '--resume', 'sess-4'])).toEqual({ resumeSessionId: 'sess-4', rest: ['app.yml'] })
+  })
+
+  it('fails loud on a valueless, empty, or repeated flag rather than silently starting fresh', () => {
+    expect(() => parseResumeArg(['--resume'])).toThrow('--resume requires a session id')
+    expect(() => parseResumeArg(['--resume='])).toThrow('--resume requires a session id')
+    expect(() => parseResumeArg(['--resume', 'a', '--resume', 'b'])).toThrow('--resume may be given only once')
   })
 })
 
