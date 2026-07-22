@@ -19,6 +19,7 @@ import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import PlanModeService from '@deepseek-ai/dsh-plan-mode'
 import WebService from '@deepseek-ai/dsh-web'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
@@ -171,6 +172,18 @@ const TOOL_PACKAGES: ToolPackage[] = [
     async mount() {},
     note:
       'Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry\'s only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-plan-mode',
+    dir: 'plan-mode',
+    source: 'packages/plan/plan-mode/src/index.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.userInteraction (execution time, opportunistic)'],
+    writes: ['tool/call', 'plan/mode inactive on an approved review', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(PlanModeService, { section: 'Tool catalog schema harvest.' })
+    },
+    note:
+      'exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-interaction seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-bash',

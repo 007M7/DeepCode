@@ -40,10 +40,15 @@ function serializeAssistant(message: Message): WireMessage {
 
   return {
     role: 'assistant',
-    // Tool-call turns send "" rather than null: the live API answers both,
-    // but the official samples replay message.content verbatim (which is ""
-    // for pure tool-call responses) and some gateways reject null outright.
-    content: text.length > 0 ? text : toolCalls.length > 0 ? '' : null,
+    // Text-less turns send "" — NEVER null. Pure tool-call turns: the
+    // official samples replay message.content verbatim (which is "") and
+    // some gateways reject null outright. Reasoning-ONLY turns (the model
+    // can answer entirely in the reasoning channel, e.g. a v4-flash
+    // greeting): the live API rejects null-content/no-tool_calls assistant
+    // messages with a 400 ("content or tool_calls must be set"), and since
+    // the message sits durably in the session log, a null here bricks every
+    // later turn of that session.
+    content: text,
     // Official passback rule (guides/thinking_mode.mdx): reasoning_content
     // must return on tool-call turns; it is ignored on plain turns, so we
     // drop it there to save tokens.

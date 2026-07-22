@@ -106,7 +106,7 @@ Sources: [`packages/core/session/src/types.ts:307`](../packages/core/session/src
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:45`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:44`](../packages/ui/user-approval/src/index.ts)
 
 #### `approval/decided` — log-only
 
@@ -122,7 +122,7 @@ Source: [`packages/ui/user-approval/src/index.ts:45`](../packages/ui/user-approv
 }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:56`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approval/src/index.ts)
 
 #### `approval/policy` — log-only
 
@@ -138,7 +138,7 @@ Source: [`packages/ui/user-approval/src/index.ts:56`](../packages/ui/user-approv
 'approval/policy': { policy: ApprovalPolicy }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:68`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approval/src/index.ts)
 
 ### `assistant/*`
 
@@ -327,6 +327,21 @@ Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src
 ```
 
 Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src/index.ts)
+
+### `plan/*`
+
+#### `plan/mode` — log-only
+
+```ts persistence-catalog
+/**
+ * Whether plan mode is in force from this point on: log-only, non-surface,
+ * whole-value replace. The last `plan/mode` wins; a log with none folds to
+ * inactive through {@link foldPlanMode}.
+ */
+'plan/mode': { active: boolean }
+```
+
+Source: [`packages/plan/plan-mode/src/index.ts:40`](../packages/plan/plan-mode/src/index.ts)
 
 ### `prompt/*`
 

@@ -104,10 +104,10 @@ async function tick(): Promise<void> {
 async function setup(options: TuiHarnessOptions = {}) {
   const terminal = new FakeTerminal()
   const exit = vi.fn()
-  const result = await createTuiTestHarness(terminal, exit, {
-    ...options,
-    cwd: options.cwd === undefined ? process.cwd() : options.cwd,
-  })
+  // Let the harness default cwd ('/workspace') stand: a checkout-dependent
+  // process.cwd() longer than the 88-column fake terminal pushes the footer
+  // token counters off-screen and fails their assertions by location.
+  const result = await createTuiTestHarness(terminal, exit, options)
   await tick()
   return result
 }
@@ -322,7 +322,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
       { inputTokens: 500, outputTokens: 8 },
       { turn: 3, step: 1 },
     )
-    await tick()
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('final live answer')
+    })
 
     expect(result.terminal.output).toContain('◒ Working · 8s')
     expect(result.terminal.output).toContain('esc interrupt')
@@ -330,7 +332,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('user context')
     expect(result.terminal.output).toContain('Prompt blocked')
     expect(result.terminal.output).toContain('Turn cancelled')
-    expect(result.terminal.output).toContain('final live answer')
     expect(result.terminal.progress).toContain(true)
 
     result.session.append('assistant/chunk', {
@@ -1464,12 +1465,13 @@ describe('TUI user-interaction dialogs', () => {
 
     const single = result.ctx.userInteraction.ask({
       questions: [{
-        id: 'mode', header: 'Mode', question: 'Choose a mode',
+        id: 'mode', header: 'Mode', question: 'Choose a mode', detail: 'This choice controls the next turn.',
         options: [{ label: 'Safe', description: 'Use checks' }, { label: 'Fast' }],
       }],
     })
     await tick()
     expect(result.terminal.output).toContain('Choose a mode')
+    expect(result.terminal.output).toContain('This choice controls the next turn.')
     expect(result.terminal.output).toContain('Question 1/1 (1 unanswered) · Mode')
     expect(result.terminal.output).toContain('1/2')
     result.terminal.send('\x1b[B')

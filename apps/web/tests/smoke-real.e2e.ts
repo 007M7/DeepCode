@@ -1,0 +1,235 @@
+// W5 real-host smoke: spawn `dsh web` with a real key, walk the full W5 flow
+// list in a real chromium, screenshot every screen into .artifacts/ for the
+// figma comparison pass. Self-skips without DEEPSEEK_API_KEY (repo e2e
+// convention); the runner loads the repo-root .env explicitly because the CLI
+// only auto-loads .env from its cwd (a temp dir here, so sessions never land
+// in the repo's .sessions).
+//
+// Selector convention: CSS Modules hash as [hash]_[local], so class-substring
+// selectors are unreliable — anchor on data-* attributes (data-variant /
+// data-clickable / data-sample) or visible text. The one [class*=] use below
+// (frame/handle) rides local names that survive hashing as suffixes; prefer
+// data-* for anything new.
+//
+// Flow order matters: chat rounds first (5 depends on 3's session), geometry
+// and theme after, reload recovery last. Tests run sequentially in-file.
+import type { ChildProcess } from 'node:child_process'
+import { spawn } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import type { Browser, Page } from 'playwright'
+import { chromium } from 'playwright'
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { REPO_ROOT, probeFreePort, requireDist, saveFailureShot } from './support.ts'
+
+/** Repo-root .env → process.env (never overrides an already-set variable). */
+function loadRootEnv(): void {
+  const envPath = join(REPO_ROOT, '.env')
+  if (!existsSync(envPath)) return
+  for (const line of readFileSync(envPath, 'utf8').split('\n')) {
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.trim())
+    if (m !== null && process.env[m[1]!] === undefined) process.env[m[1]!] = m[2]
+  }
+}
+loadRootEnv()
+
+function waitForReadyLine(child: ChildProcess): Promise<string> {
+  return new Promise((resolveReady, reject) => {
+    let out = ''
+    const timer = setTimeout(() => reject(new Error(`dsh web not ready in 90s; output:\n${out}`)), 90_000)
+    const onData = (chunk: Buffer): void => {
+      out += chunk.toString()
+      const match = /dsh web: (http:\/\/[^\s]+)/.exec(out)
+      if (match?.[1] !== undefined) {
+        clearTimeout(timer)
+        resolveReady(match[1])
+      }
+    }
+    child.stdout?.on('data', onData)
+    child.stderr?.on('data', onData)
+    child.once('exit', (code) => {
+      clearTimeout(timer)
+      reject(new Error(`dsh web exited early (code ${code}); output:\n${out}`))
+    })
+  })
+}
+
+/** W5 screenshot: evidence for the figma comparison, not a failure artifact. */
+async function screen(page: Page, name: string): Promise<void> {
+  await page.screenshot({ path: join(REPO_ROOT, '.artifacts', `w5-${name}.png`) })
+}
+
+/** First column track (px string) of the frame grid. */
+async function firstTrack(page: Page): Promise<string> {
+  return (await page.locator('[class*="frame"]').evaluate(
+    (el) => getComputedStyle(el).gridTemplateColumns)).split(' ')[0]!
+}
+
+/** Last column track (details) as a number of pixels. */
+async function detailsTrack(page: Page): Promise<number> {
+  const cols = await page.locator('[class*="frame"]').evaluate(
+    (el) => getComputedStyle(el).gridTemplateColumns)
+  return Number(cols.split(' ').pop()!.replace('px', ''))
+}
+
+// Readiness gate: `dsh web` serves ALL eight manifest plugins; until every UI
+// plugin's client bundle exists and exports apply, the loader fail-louds and
+// the frame never appears.
+const UI_PLUGIN_DIRS = ['connection', 'runtime', 'ui-theme', 'i18n', 'ui-layout', 'ui-sidebar', 'ui-conversation', 'ui-trajectory']
+const notReady = UI_PLUGIN_DIRS.filter((dir) => {
+  const bundle = join(REPO_ROOT, 'packages/client', dir, 'lib/client.js')
+  return !existsSync(bundle) || !readFileSync(bundle, 'utf8').includes('exports.apply')
+})
+if (notReady.length > 0) console.warn(`[smoke-real] skipped — client bundles not ready: ${notReady.join(', ')}`)
+
+describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke (real host, real key, W5)', () => {
+  let child: ChildProcess
+  let sessionsDir: string
+  let baseUrl: string
+  let browser: Browser
+  let page: Page
+  const pageErrors: string[] = []
+
+  beforeAll(async () => {
+    requireDist()
+    sessionsDir = mkdtempSync(join(tmpdir(), 'dsh-web-w5-'))
+    const port = await probeFreePort()
+    // tsx boot mirrors demo:web — lib/ may be unbuilt in this worktree. cwd is a
+    // temp dir (persistenceRoot is cwd-relative), so tsx needs the repo's loader
+    // and tsconfig paths pointed at explicitly.
+    const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
+    child = spawn(
+      process.execPath,
+      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', String(port)],
+      {
+        cwd: sessionsDir,
+        env: { ...process.env, TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json') },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    baseUrl = (await waitForReadyLine(child)).replace('0.0.0.0', '127.0.0.1')
+    browser = await chromium.launch()
+    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page.on('pageerror', (e) => pageErrors.push(String(e)))
+    await page.goto(baseUrl, { waitUntil: 'load' })
+  }, 120_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    if (child !== undefined && child.exitCode === null) {
+      const gone = new Promise<void>((resolveExit) => child.once('exit', () => resolveExit()))
+      child.kill('SIGTERM')
+      await Promise.race([gone, new Promise((r) => setTimeout(r, 10_000).unref())])
+      if (child.exitCode === null) child.kill('SIGKILL')
+    }
+    if (sessionsDir !== undefined) rmSync(sessionsDir, { recursive: true, force: true })
+  })
+
+  it('1 cold start: loading page settles into the three-column frame', async () => {
+    onTestFailed(() => saveFailureShot(page, 'w5-cold-start'))
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    expect(await page.locator('text=Failed to load plugins').count()).toBe(0)
+    const template = await page.locator('[class*="frame"]').evaluate((el) => getComputedStyle(el).gridTemplateColumns)
+    expect(template.split(' ').length).toBe(3)
+    await screen(page, '01-cold-start')
+  })
+
+  it('2+3 empty-state first send completes a real model round', async () => {
+    onTestFailed(() => saveFailureShot(page, 'w5-first-round'))
+    const input = page.locator('textarea').first()
+    await input.waitFor({ timeout: 10_000 })
+    await screen(page, '02-empty-state')
+    await input.fill('请简单介绍事件溯源，两句话即可，最后以「介绍完毕」结尾')
+    await input.press('Enter')
+    // startSession chain: session mounts, composer moves to the bottom.
+    // Regression pin (P0, 585671106): this send used to white-screen the tree
+    // (scope tag lost to a duplicate inlined runtime instance) — body going
+    // near-empty here means that class of bug is back.
+    await page.waitForFunction(() => document.body.innerText.length > 50, undefined, { timeout: 15_000 })
+    expect(pageErrors).toEqual([])
+    await page.waitForFunction(() => document.body.innerText.includes('介绍完毕'), undefined, { timeout: 120_000 })
+    await screen(page, '04-round-complete')
+  }, 150_000)
+
+  it('4 view tabs: Chat / Trajectory / Waterfall all switch', async () => {
+    onTestFailed(() => saveFailureShot(page, 'w5-tabs'))
+    await page.locator('button', { hasText: /Trajectory/i }).first().click()
+    await screen(page, '05-trajectory-tab')
+    await page.locator('button', { hasText: /Waterfall/i }).first().click()
+    await screen(page, '06-waterfall-tab')
+    await page.locator('button', { hasText: /^Chat$/i }).first().click()
+    await screen(page, '07-back-to-chat')
+  })
+
+  it('5 bash differential rendering: tool row click opens the details column', async () => {
+    onTestFailed(() => saveFailureShot(page, 'w5-tool-details'))
+    const input = page.locator('textarea').first()
+    await input.fill('请用 bash 工具运行命令 echo w5marker 然后告诉我结果')
+    await input.press('Enter')
+    // Wait for the tool ROW, not response text (the reply echoes any marker).
+    // bash renders through the third-party sample registration (data-sample) —
+    // that IS the differential-rendering acceptance; the generic path renders
+    // data-variant rows with the handler on the data-clickable inner row.
+    const toolRow = page.locator('[data-sample], [data-variant] [data-clickable]').first()
+    await toolRow.waitFor({ timeout: 120_000 })
+    await screen(page, '08-bash-round')
+    expect(await detailsTrack(page)).toBe(0)
+    await toolRow.click()
+    // Selection channel: click writes selection + layout.openDetails.
+    await page.waitForFunction(() => {
+      const frame = document.querySelector('[class*="frame"]')
+      if (frame === null) return false
+      return Number(getComputedStyle(frame).gridTemplateColumns.split(' ').pop()!.replace('px', '')) > 0
+    }, undefined, { timeout: 10_000 })
+    await screen(page, '09-details-open')
+  }, 150_000)
+
+  it('6 sidebar drag widens the column and persists across reload', async () => {
+    onTestFailed(() => saveFailureShot(page, 'w5-drag'))
+    const before = await firstTrack(page)
+    const handle = page.locator('[class*="handle"]').first()
+    const box = await handle.boundingBox()
+    expect(box).not.toBeNull()
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + 300)
+    await page.mouse.down()
+    await page.mouse.move(box!.x + 70, box!.y + 300, { steps: 6 })
+    await page.mouse.up()
+    const after = await firstTrack(page)
+    expect(after).not.toBe(before)
+    await screen(page, '10-sidebar-dragged')
+    await page.reload({ waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    expect(await firstTrack(page)).toBe(after)
+  })
+
+  it('7 dark mode: the body attribute cascades the token sheets', async () => {
+    onTestFailed(() => saveFailureShot(page, 'w5-dark'))
+    // theme.apply === toggling this attribute (v3 §8); no switcher UI owns it
+    // in P-I, so the acceptance drives the documented mechanism directly.
+    const dark = await page.evaluate(() => {
+      document.body.setAttribute('data-ds-dark-theme', '')
+      return getComputedStyle(document.body).backgroundColor
+    })
+    await screen(page, '11-dark-mode')
+    const light = await page.evaluate(() => {
+      document.body.removeAttribute('data-ds-dark-theme')
+      return getComputedStyle(document.body).backgroundColor
+    })
+    expect(dark).not.toBe(light)
+  })
+
+  it('8 reload recovery: history replays after a fresh boot', async () => {
+    onTestFailed(() => saveFailureShot(page, 'w5-reload'))
+    await page.reload({ waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await page.waitForFunction(() => document.body.innerText.includes('介绍完毕'), undefined, { timeout: 30_000 })
+    await screen(page, '12-reload-recovery')
+  })
+
+  it('stayed clean: no page errors across every flow', () => {
+    expect(pageErrors).toEqual([])
+  })
+})

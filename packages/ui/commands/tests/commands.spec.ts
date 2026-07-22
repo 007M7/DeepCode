@@ -94,6 +94,19 @@ describe('CommandService', () => {
     expect((await ctx.commands.execute(agent, '/shared', new AbortController().signal))?.text).toBe('global')
   })
 
+  it('removes a registration when its contributing plugin fiber is disposed', async () => {
+    const ctx = await mount()
+    const { agent } = await mintAgentScope(ctx, 'a')
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.commands.register(command('temporary'))
+    }, { inject: ['commands'] }))
+    expect(ctx.commands.find(agent, 'temporary')).toBeDefined()
+
+    await fiber.dispose()
+
+    expect(ctx.commands.find(agent, 'temporary')).toBeUndefined()
+  })
+
   it('rejects duplicates within one layer while allowing a scoped shadow', async () => {
     const ctx = await mount()
     const { scope } = await mintAgentScope(ctx, 'a')
