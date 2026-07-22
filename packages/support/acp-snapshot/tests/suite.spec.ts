@@ -451,6 +451,30 @@ describe('refreshFixtureReplacements', () => {
 })
 
 describe('stabilizeRefreshLog', () => {
+  it('preserves unpacked member times when refresh first packs a chunk run', () => {
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200}',
+      '{"type":"reasoning-chunks","seq0":2,"time0":200,"data":{"turn":1,"step":1,"index":0,"dt":[5,7],"texts":["new",""," split"]}}',
+      '{"type":"assistant/message","seq":5,"time":220,"data":{}}',
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100}',
+      '{"type":"assistant/chunk","seq":2,"time":100,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"old"}}}',
+      '{"type":"assistant/chunk","seq":3,"time":101,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"chunk"}}}',
+      '{"type":"assistant/chunk","seq":4,"time":103,"data":{"turn":1,"step":1,"chunk":{"type":"reasoning-delta","index":0,"text":"shape"}}}',
+      '{"type":"assistant/message","seq":5,"time":104,"data":{}}',
+      '',
+    ].join('\n')
+
+    expect(stabilizeRefreshLog(fresh, existing, [])).toBe([
+      '{"type":"session","id":"same","createdAt":100}',
+      '{"type":"reasoning-chunks","seq0":2,"time0":100,"data":{"turn":1,"step":1,"index":0,"dt":[1,2],"texts":["new",""," split"]}}',
+      '{"type":"assistant/message","seq":5,"time":104,"data":{}}',
+      '',
+    ].join('\n'))
+  })
+
   it('preserves packed member times without flattening fresh chunk boundaries', () => {
     const fresh = [
       '{"type":"session","id":"same","createdAt":200}',
@@ -471,21 +495,30 @@ describe('stabilizeRefreshLog', () => {
   })
 
   it.each([
-    ['fresh data is null', null, { dt: [1, 2] }],
-    ['existing data is null', { dt: [5, 7] }, null],
-    ['fresh gaps are not an array', { dt: 'fresh' }, { dt: [1, 2] }],
-    ['existing gaps are not an array', { dt: [5, 7] }, { dt: 'existing' }],
-    ['the chunk arity changed', { dt: [5, 7, 9] }, { dt: [1, 2] }],
-  ])('keeps fresh packed gaps when %s', (_case, freshData, existingData) => {
-    const freshRow = { type: 'reasoning-chunks', seq0: 2, time0: 200, data: freshData }
-    const existingRow = { type: 'reasoning-chunks', seq0: 2, time0: 100, data: existingData }
+    ['the old run is absent', [], 200],
+    ['the old run is shorter', [100, 101], 100],
+    ['a later old time is invalid', [100, 'invalid', 103], 100],
+    ['an old gap is not exactly representable', [Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER - 1, Number.MAX_SAFE_INTEGER - 1], Number.MIN_SAFE_INTEGER],
+  ])('keeps fresh packed gaps when %s', (_case, existingTimes, expectedTime0) => {
+    const freshRow = {
+      type: 'reasoning-chunks',
+      seq0: 2,
+      time0: 200,
+      data: { turn: 1, step: 1, index: 0, dt: [5, 7], texts: ['new', '', ' split'] },
+    }
+    const existingRows = existingTimes.map((time, index) => ({
+      type: 'assistant/chunk',
+      seq: index + 2,
+      time,
+      data: {},
+    }))
     const output = stabilizeRefreshLog(
       `${JSON.stringify({ type: 'session', id: 'same', createdAt: 200 })}\n${JSON.stringify(freshRow)}\n`,
-      `${JSON.stringify({ type: 'session', id: 'same', createdAt: 100 })}\n${JSON.stringify(existingRow)}\n`,
+      `${JSON.stringify({ type: 'session', id: 'same', createdAt: 100 })}\n${existingRows.map(row => JSON.stringify(row)).join('\n')}\n`,
       [],
     ).trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
 
-    expect(output[1]).toStrictEqual({ ...freshRow, time0: 100 })
+    expect(output[1]).toStrictEqual({ ...freshRow, time0: expectedTime0 })
   })
 
   it('aligns volatile times across a newly inserted log event', () => {
