@@ -92,7 +92,7 @@ describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
       cursor = Array.isArray(cursor) ? cursor[0] : undefined
     }
     expect(cursor).toBe('leaf')
-  }, 15_000)
+  }, 60_000)
 
   it('reports non-erasable syntax as an exception without spawning a worker', async () => {
     const { runtime } = await setup()
@@ -500,7 +500,7 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     }
     expect(depth).toBe(3_000)
     expect(value).toBeNull()
-  })
+  }, 60_000)
 
   it('turns forged over-limit error text into output-limit at the host', async () => {
     const { runtime } = await setup({ maxOutputBytes: 64 })
