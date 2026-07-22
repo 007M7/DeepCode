@@ -18,8 +18,7 @@ import { Service } from 'cordis'
 import type { Context } from 'cordis'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  ChildrenDecl, ComposedProps, HandleOf, InjectParams, KindOptions, OwnerOf,
-  SlotComponent, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
+  OwnerOf, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
   SlotScope, SlotSpec, StoreDecl, StoredEntry, StoreInstanceLike,
 } from '@deepseek-ai/dsh-client-ui-slots'
 
@@ -57,34 +56,6 @@ interface StoreAxisRecord {
   instances: Map<string, EngineStoreInstance>
 }
 
-/**
- * Register options as the service face declares them (structurally the
- * core's BaseOptions, re-declared because ui-slots keeps it private).
- * FIXME(slot-parity): dedupe once ui-slots exports its options type.
- */
-type RegisterOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H> = {
-  /** Target slot key (the entry contributes INTO this slot). */
-  name: K
-  /** Child-slot declaration + render authorization + runtime spec, in one table. */
-  children?: D
-  /** Store seat: a shared handle (apply-constructed) or an exclusive factory (framework-called per entry). */
-  store?: H
-  /** Registrant identity label for diagnostics (defaults to the caller's fiber name). */
-  registrant?: string
-} & KindOptions<SlotMap[K]>
-
-/**
- * Compile-time presence check: an entry declaring children MUST consume
- * `renderSlot` (declaring is claiming). Structural copy of the core's
- * private RendersCheck; same FIXME as {@link RegisterOptions}.
- */
-type RendersCheck<C, D> =
-  [keyof D & keyof SlotMap & string] extends [never] ? unknown
-    : C extends (props: infer P) => unknown
-      ? ('renderSlot' extends keyof P ? unknown
-        : { 'children declared but the component consumes no renderSlot': keyof D & keyof SlotMap & string })
-      : unknown
-
 /** Type-erased options view the implementation works with (the typed overloads proved the shares). */
 interface ErasedRegisterOptions {
   name: string
@@ -118,46 +89,23 @@ export class SlotsService extends Service {
   }
 
   /**
-   * The single registration API (see SlotCore.register for the full
-   * semantics: children declaration, store seat, inject face, load-time
-   * validation, unload cascade). This layer adds: disposal through the
-   * caller's ctx.effect (fiber unload = cascade), exclusive-factory minting
-   * (`store: createXxxStore` becomes a per-entry handle), the registrant
-   * diagnostics stamp, and store-instance lifecycle on the entry axis.
-   * @param options - name + children + store + inject (+ kind-shaped key/id/order/label).
-   * @param component - pure component typed by the four-share composed props.
-   * @returns disposer (idempotent; stale calls after fiber teardown are no-ops).
+   * The single registration API. The typed face IS the core's register
+   * (both overloads reused verbatim — one authority, no structural copy;
+   * see SlotCore.register for children declaration, store seat, inject
+   * face, load-time validation, and the unload cascade). This layer adds:
+   * disposal through the caller's ctx.effect (fiber unload = cascade),
+   * exclusive-factory minting (`store: createXxxStore` becomes a per-entry
+   * handle), the registrant diagnostics stamp, and store-instance lifecycle
+   * on the entry axis.
+   *
+   * Declared here, implemented by prototype assignment below the class: it
+   * MUST stay a prototype method (never an instance arrow) — the cordis
+   * service proxy binds `this.ctx` to the CALLER's context at call time,
+   * which is what routes the effect (and the unload cascade) into the
+   * caller's fiber. An arrow property would freeze `this` to the service's
+   * own root ctx and silently break per-plugin disposal.
    */
-  register<
-    K extends keyof SlotMap & string,
-    const D extends ChildrenDecl = Record<never, never>,
-    H extends StoreDecl | undefined = undefined,
-    C extends SlotComponent<never> = SlotComponent<never>,
-  >(
-    options: RegisterOptions<K, D, H> & { inject?: undefined },
-    component: C
-      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, object>>
-      & RendersCheck<C, D>,
-  ): () => void
-  register<
-    K extends keyof SlotMap & string,
-    I extends object,
-    const D extends ChildrenDecl = Record<never, never>,
-    H extends StoreDecl | undefined = undefined,
-    C extends SlotComponent<never> = SlotComponent<never>,
-  >(
-    options: RegisterOptions<K, D, H> & { inject: (...args: InjectParams<K, H>) => I },
-    component: C
-      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, I>>
-      & RendersCheck<C, D>,
-  ): () => void
-  register(rawOptions: object, component: unknown): () => void {
-    // The typed overloads above proved the shares; the implementation works
-    // on the erased view (same pattern as the core's register).
-    const options = rawOptions as ErasedRegisterOptions
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return this.ctx.effect(() => this._register(options, component), 'slots.register()')
-  }
+  declare readonly register: SlotCore['register']
 
   /**
    * Install the shell's renderer (web-react's createSlotRenderer product).
@@ -251,11 +199,6 @@ export class SlotsService extends Service {
    */
   getVersion(key: keyof SlotMap & string): number {
     return this._core.getVersion(key)
-  }
-
-  /** The wrapped pure core (invariant checks read through this). */
-  get core(): SlotCore {
-    return this._core
   }
 
   /** Delegating registration path: factory minting + registrant stamp + core write + instance-axis bookkeeping. */
@@ -356,3 +299,16 @@ export class SlotsService extends Service {
     if (record.refs === 0) this._stores.delete(handle)
   }
 }
+
+// register's implementation (prototype assignment pairs with the `declare`
+// inside the class — see its JSDoc for why it must live on the prototype).
+// Element access reaches the private _register legally and keeps it a
+// TS-visible read.
+;(SlotsService.prototype as { register: (options: object, component: unknown) => () => void }).register
+  = function register(this: SlotsService, rawOptions: object, component: unknown): () => void {
+    // The core's overloads proved the shares; the implementation works on
+    // the erased view (same pattern as the core's own implementation arm).
+    const options = rawOptions as ErasedRegisterOptions
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    return this.ctx.effect(() => this['_register'](options, component), 'slots.register()')
+  }
