@@ -83,7 +83,7 @@ describe('jsonValueBytesUpTo', () => {
     let measured: number | undefined
     let prefix = ''
     try {
-      Array.isArray = () => false
+      Array.isArray = (_value: unknown): _value is never[] => false
       Array.prototype.pop = () => { throw new Error('mutated pop') }
       Array.prototype.push = () => { throw new Error('mutated push') }
       Buffer.byteLength = () => 0
