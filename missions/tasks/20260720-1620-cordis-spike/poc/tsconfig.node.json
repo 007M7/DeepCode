@@ -1,7 +1,0 @@
-{
-  "extends": "./tsconfig.shared.json",
-  "compilerOptions": {
-    "customConditions": ["dsh-node"]
-  },
-  "files": ["app/node-main.ts"]
-}

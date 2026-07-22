@@ -64,10 +64,7 @@ export interface ResolvedConfig {
   defaultMaxGoalRounds: number
 }
 
-/**
- * One accepted mutation waiting to enter or be observed in the session log.
- *
- */
+/** One accepted mutation waiting to enter or be observed in the session log. */
 interface PendingGoalChange {
   readonly change: GoalChangeMeta
   readonly activation: GoalActivation

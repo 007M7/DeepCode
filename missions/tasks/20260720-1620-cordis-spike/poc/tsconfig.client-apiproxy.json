@@ -1,5 +1,0 @@
-{
-  "extends": "./tsconfig.shared.json",
-  "compilerOptions": { "types": [], "lib": ["ES2024", "DOM", "DOM.Iterable"] },
-  "files": ["app/client-apiproxy-probe.ts", "types/buffer-shim.d.ts", "types/nodejs-timeout-shim.d.ts"]
-}

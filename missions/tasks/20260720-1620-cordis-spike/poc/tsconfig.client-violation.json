@@ -1,9 +1,0 @@
-{
-  "extends": "./tsconfig.shared.json",
-  "compilerOptions": {
-    "types": [],
-    "lib": ["ES2024", "DOM", "DOM.Iterable"],
-    "noImplicitAny": true
-  },
-  "files": ["app/client-violation-main.ts"]
-}
