@@ -217,6 +217,37 @@ describe('tool-pty foreground surface', () => {
     expect(Buffer.byteLength(text(background))).toBeLessThanOrEqual(64)
   })
 
+  it('bounds terminal results after pre- and post-execute policy', async () => {
+    const { ctx, agent } = await setup(false, { maxResultBytes: 64 })
+    ctx.on('tools/pre-execute', async (exec, next) => exec.name === 'terminal_list'
+      ? { kind: 'deny', reason: 'd'.repeat(1_000) }
+      : next())
+    ctx.on('tools/post-execute', async (exec, _result, next) => {
+      if (exec.name === 'terminal_open') {
+        return { kind: 'accept', content: [{ type: 'text', text: 'a'.repeat(1_000) }] }
+      }
+      if (exec.name === 'terminal_read') {
+        return { kind: 'block', feedback: [{ type: 'text', text: 'b'.repeat(1_000) }] }
+      }
+      return next()
+    })
+
+    const denied = await call(ctx, 'terminal_list', {}, agent)
+    expect(denied.isError).toBe(true)
+    expect(Buffer.byteLength(text(denied))).toBeLessThanOrEqual(64)
+    expect(text(denied)).toContain('[output truncated]')
+
+    const replaced = await call(ctx, 'terminal_open', { type: 'stub' }, agent)
+    expect(replaced.isError).toBe(false)
+    expect(Buffer.byteLength(text(replaced))).toBeLessThanOrEqual(64)
+    expect(text(replaced)).toContain('[output truncated]')
+
+    const blocked = await call(ctx, 'terminal_read', { sessionId: 'pty-1' }, agent)
+    expect(blocked.isError).toBe(true)
+    expect(Buffer.byteLength(text(blocked))).toBeLessThanOrEqual(64)
+    expect(text(blocked)).toContain('[output truncated]')
+  })
+
   it('leaves a structured around-dispatch replacement unchanged', async () => {
     const { ctx, agent } = await setup(false, { maxResultBytes: 64 })
     ctx.on('tools/execute', async (exec, next) => exec.name === 'terminal_list'

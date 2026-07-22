@@ -12,7 +12,7 @@ import { PtySessionId } from '@deepseek-ai/dsh-pty'
 import type { PtySendResult, PtySessionId as PtySessionIdType, PtySignal } from '@deepseek-ai/dsh-pty'
 import type {} from '@deepseek-ai/dsh-tasks'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolExecutionResult, ToolResult } from '@deepseek-ai/dsh-tools'
+import type { PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { boundTerminalText, renderList, renderRead, renderSend, renderSendRead, renderSpawn } from './render.ts'
 
 declare module '@deepseek-ai/dsh-tasks' {
@@ -95,9 +95,9 @@ function textResult(text: string, maxBytes: number): ContentBlock[] {
   return [{ type: 'text', text: boundTerminalText(text, maxBytes) }]
 }
 
-function rawResultText(result: ToolResult): string | undefined {
-  if (result.content.length !== 1) return undefined
-  const block = result.content[0]
+function rawContentText(content: readonly ContentBlock[]): string | undefined {
+  if (content.length !== 1) return undefined
+  const block = content[0]
   return block?.type === 'text' ? block.text : undefined
 }
 
@@ -114,12 +114,17 @@ export function apply(ctx: Context, config: Config = {}): void {
   if (!Number.isSafeInteger(maxResultBytes) || maxResultBytes < MIN_MAX_RESULT_BYTES) {
     throw new Error(`tool-pty: maxResultBytes must be a safe integer of at least ${MIN_MAX_RESULT_BYTES}`)
   }
-  ctx.on('tools/execute', async (exec, next): Promise<ToolExecutionResult> => {
-    const result = await next()
-    if (!TOOL_NAMES.has(exec.name)) return result
-    const raw = rawResultText(result)
-    return raw === undefined ? result : { ...result, content: textResult(raw, maxResultBytes) }
-  })
+  ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
+    const decision = await next()
+    if (!TOOL_NAMES.has(exec.name)) return decision
+    const content = decision.kind === 'block' ? decision.feedback : decision.content ?? result.content
+    const raw = rawContentText(content)
+    if (raw === undefined) return decision
+    const bounded = textResult(raw, maxResultBytes)
+    return decision.kind === 'block'
+      ? { ...decision, feedback: bounded }
+      : { ...decision, content: bounded }
+  }, { prepend: true })
   ctx.systemPrompt.section({
     name: 'tool:pty',
     order: 106,
@@ -206,7 +211,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     presentResult(args, result) {
       if ((args as Partial<SendArgs>).run_in_background === true || result.isError) return undefined
-      const raw = rawResultText(result)
+      const raw = rawContentText(result.content)
       return raw === undefined ? undefined : { card: 'terminal', output: raw }
     },
   }))

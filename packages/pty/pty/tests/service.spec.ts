@@ -160,6 +160,7 @@ describe('PtyService ownership and lifecycle', () => {
 
     const created = await ctx.pty.spawn(owner, { type: 'stub', name: 'main', cwd: '/tmp' })
     expect(created).toMatchObject({ sessionId: 'pty-1', name: 'main', type: 'stub', pid: 123, motd: 'stub ready', status: { kind: 'running' } })
+    expect(ctx.pty.hasOwnerActivity(owner)).toBe(true)
     expect(ctx.pty.list(owner)).toHaveLength(1)
     expect(ctx.pty.list(foreign)).toEqual([])
     expect(() => ctx.pty.read(foreign, created.sessionId)).toThrow('belongs to another agent')
@@ -254,6 +255,40 @@ describe('PtyService ownership and lifecycle', () => {
     controller.abort(reason)
 
     await expect(pending).rejects.toBe(reason)
+  })
+
+  it.each(['owner', 'service'] as const)('retains caller-triggered backend cleanup failure until %s disposal', async (scope) => {
+    const ctx = await harness()
+    const started = Promise.withResolvers<undefined>()
+    const cleanupFailure = new Error('backend cleanup failed')
+    ctx.pty.registerBackend({
+      type: 'cleanup-failing',
+      spawn: ({ signal }) => new Promise((_resolve, reject) => {
+        if (signal === undefined) throw new Error('missing spawn signal')
+        started.resolve(undefined)
+        signal.addEventListener('abort', () => {
+          reject(new PtyBackendCleanupError(signal.reason, cleanupFailure))
+        }, { once: true })
+      }),
+    })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const controller = new AbortController()
+    const reason = new Error('cancelled by caller')
+
+    const pending = ctx.pty.spawn(owner, { type: 'cleanup-failing' }, controller.signal)
+    await started.promise
+    controller.abort(reason)
+
+    await expect(pending).rejects.toBe(reason)
+    expect(ctx.pty.hasOwnerActivity(owner)).toBe(true)
+    const internal = ctx.pty as unknown as {
+      disposeOwned(owner: Agent): Promise<void>
+      disposeAll(): Promise<void>
+    }
+    const disposal = scope === 'owner' ? internal.disposeOwned(owner) : internal.disposeAll()
+    await expect(disposal).rejects.toThrow('failed to clean up PTY lifecycle')
+    expect(ctx.pty.hasOwnerActivity(owner)).toBe(false)
   })
 
   it.each([

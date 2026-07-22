@@ -11,7 +11,7 @@ Six model-facing tools over `ctx.pty`: `terminal_open`, `terminal_send`, `termin
 | `enableRunInBackground` | `true` | expose and accept `run_in_background`; false omits the schema field and rejects a forced undeclared argument |
 | `maxResultBytes` | `262144` | UTF-8 cap (minimum `64`) for each complete terminal result or PTY task output after wait, session, pagination, truncation, and task-status metadata |
 
-Both values are validated at load. The minimum result cap keeps every registry-issued session or task id visible in its creation acknowledgement. When a result exceeds `maxResultBytes`, rendering reserves space for control metadata and a truncation marker when they fit; cuts preserve UTF-8 boundaries.
+Both values are validated at load. The minimum result cap keeps every registry-issued session or task id visible in its creation acknowledgement. When a result exceeds `maxResultBytes`, rendering reserves space for control metadata and a truncation marker when they fit; cuts preserve UTF-8 boundaries. An outer `tools/post-execute` wrapper applies the same cap after a terminal pre-execute denial or single-text post-execute replacement/block; a structured multi-block policy result retains its shape.
 
 ## Model Experience
 
@@ -53,11 +53,11 @@ Prefix-stable while tool visibility and definitions are unchanged.
 
 #### What the model sees
 
-Spawn returns the id and bounded MOTD. Send/read return bounded terminal text plus readiness/history markers. Background mode returns a generic task id. Every complete result is capped by `maxResultBytes`, including normalized error text and generic task status text. Results remain in session history until compaction; incremental task reads do not repeat consumed output.
+Spawn returns the id and bounded MOTD. Send/read return bounded terminal text plus readiness/history markers. Background mode returns a generic task id. Every terminal-owned or policy-produced single-text result is capped by `maxResultBytes` after normalized errors, denials, replacements, blocks, and generic task status text. Structured multi-block policy results retain their shape. Results remain in session history until compaction; incremental task reads do not repeat consumed output.
 
 #### Token effect
 
-Data-dependent and bounded by `maxResultBytes`; each returned result remains in history until compaction.
+Terminal-owned and policy-produced single-text results are data-dependent and bounded by `maxResultBytes`; a policy that deliberately substitutes structured multi-block content owns that content's bound. Each returned result remains in history until compaction.
 
 #### KV Cache effect
 

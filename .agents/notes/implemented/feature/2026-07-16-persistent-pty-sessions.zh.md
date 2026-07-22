@@ -34,7 +34,7 @@ idle 检测属于后端行为，不是第二条公共 seam。远程或容器后�
 
 实现不提供插件加载期 auto-start 会话。`terminal_open` 只在 agent 工具调用期间创建会话，此时所有权和所属的事件溯源会话都已确定。未来的声明式启动功能必须通过尚未发布的 agent setup 组合，而不能创建全局共享终端。
 
-agent scope dispose 时先关闭注册，再等待全部所属 PTY 静默退出。未发布的后端 setup 同样是受追踪的生命周期操作：owner 或服务 dispose 会中止服务自有的 signal，等待后端结算与回滚完成后才返回。即使后端响应取消而 reject，调用方取消仍原样保留其 `AbortSignal.reason`；服务侧回滚 close 失败会使 spawn 与正在执行的 lifecycle dispose 都 reject，而 `PtyBackendCleanupError` 让后端在不替换该调用方原因的前提下，为正在执行的 dispose 保留自身的启动清理失败。后端或工具插件 reload 不会遗留会话：所有权持续存放在 `PtyService` 中，直到 agent 结束，与 [`ctx.tasks`](../../../../packages/tasks/tasks/README.md) 的服务持有记录模式一致。服务会先同步把会话预留给一次活跃发送，再返回该操作；后台发送同样会在 task id 对外可见前完成预留。第二次发送会以 `SEND_ACTIVE` 失败，因此输出与取消无法跨越操作所有权。
+agent scope dispose 时先关闭注册，再等待全部所属 PTY 静默退出。未发布的后端 setup 同样是受追踪的生命周期操作：owner 或服务 dispose 会中止服务自有的 signal，等待后端结算与回滚完成后才返回。即使后端响应取消而 reject，调用方取消仍原样保留其 `AbortSignal.reason`；服务侧回滚 close 失败会使 spawn 与正在执行的 lifecycle dispose 都 reject，而 `PtyBackendCleanupError` 让后端在不替换该调用方原因的前提下，为正在执行的 dispose 保留自身的启动清理失败。若调用方取消先于 dispose 完成结算，该清理失败会继续作为受追踪的 owner activity 保留，直到后续 owner 或服务 dispose 消费并报告它，因此沙箱模式策略不会把清理失败误判为静默。后端或工具插件 reload 不会遗留会话：所有权持续存放在 `PtyService` 中，直到 agent 结束，与 [`ctx.tasks`](../../../../packages/tasks/tasks/README.md) 的服务持有记录模式一致。服务会先同步把会话预留给一次活跃发送，再返回该操作；后台发送同样会在 task id 对外可见前完成预留。第二次发送会以 `SEND_ACTIVE` 失败，因此输出与取消无法跨越操作所有权。
 
 ### 安全与进程边界
 
@@ -62,7 +62,7 @@ ACP 渲染契约精确且不携带位置信息。`terminal_send` 只为前台发
 
 `terminal_send({ sessionId, text, submit?, run_in_background? })` 将 `text` 视为 UTF-8 字节，并由工具实现在解析阶段把 `submit` 默认成 `true`。`submit` 为 true 时先写入文本，再写入平台 Enter 序列；为 false 时只写文本，使控制字符和 REPL 片段无需隐藏的内容启发式即可发送。`enableRunInBackground` 默认为 true；设为 false 时，schema 中会移除 `run_in_background`，调用方即使强行把这个未声明参数传入执行流程，也会被拒绝。
 
-前台发送返回有界的渲染增量和两个独立事实：`waitReason`（`stdin_read | inferred_idle | timeout | session_exit`）与 `sessionStatus`（`running`，或携带退出码或信号的 `exited`）。`session_exit` 指 PTY 顶层 shell 进程退出，不指由 shell 消费状态的任意前台命令。timeout 从不意味着进程已经退出。`dsh-tool-pty.maxResultBytes` 默认为 262144；低于 64 的值会被拒绝，以确保创建确认保留 registry 签发的 id；完整 UTF-8 结果在加入规范化错误、等待与会话状态、分页与截断元数据以及通用 task 状态包装后，仍受该值限制。渲染器会为后缀预留空间并保持代码点边界，而不会把后端载荷上限当作面向模型结果的最终上限。
+前台发送返回有界的渲染增量和两个独立事实：`waitReason`（`stdin_read | inferred_idle | timeout | session_exit`）与 `sessionStatus`（`running`，或携带退出码或信号的 `exited`）。`session_exit` 指 PTY 顶层 shell 进程退出，不指由 shell 消费状态的任意前台命令。timeout 从不意味着进程已经退出。`dsh-tool-pty.maxResultBytes` 默认为 262144；低于 64 的值会被拒绝，以确保创建确认保留 registry 签发的 id；每个单文本 UTF-8 结果在加入规范化错误、等待与会话状态、分页与截断元数据、通用 task 状态包装、pre-execute 拒绝以及 post-execute 替换或阻断后，仍受该值限制；位于外层的 post-execute wrapper 会原样保留策略刻意返回的结构化多 block 内容。渲染器会为后缀预留空间并保持代码点边界，而不会把后端载荷上限当作面向模型结果的最终上限。
 
 当 `run_in_background: true` 时，`dsh-tool-pty` 在 `ctx.tasks` 上注册进行中的发送，并立即返回 `taskId`。生产方把 `maxResultBytes` 写入 task 快照，使 `task_output`、kill 返回的终态状态和完成通知在加上通用元数据后，仍对完整结果执行同一上限。`task_output(wait: true)` 负责等待、读取增量输出并记录最终结果；`task_kill` 会解析当前前台 PGID 并发送真正的 `SIGINT`，即使应用已禁用终端 `ISIG` 也同样如此，且后续升级仍只通过 PTY 后端拥有的 teardown 路径进行。若 task 对外接口不存在，后台模式必须在写入输入前失败。设计不新增 PTY 专用的 `sleep` 工具或通用唤醒 seam。
 

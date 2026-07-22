@@ -90,6 +90,7 @@ interface SessionRecord {
 }
 
 interface PendingSpawn {
+  readonly owner: Agent
   readonly controller: AbortController
   readonly settled: Promise<void>
   cleanupFailure: { error: unknown } | undefined
@@ -349,7 +350,7 @@ export class PtyService extends Service {
   private reserveSpawn(owner: Agent): SpawnReservation {
     const controller = new AbortController()
     const settlement = Promise.withResolvers<void>()
-    const pending: PendingSpawn = { controller, settled: settlement.promise, cleanupFailure: undefined }
+    const pending: PendingSpawn = { owner, controller, settled: settlement.promise, cleanupFailure: undefined }
     const owned = this.pendingSpawns.get(owner) ?? new Set<PendingSpawn>()
     owned.add(pending)
     this.pendingSpawns.set(owner, owned)
@@ -357,11 +358,17 @@ export class PtyService extends Service {
       signal: controller.signal,
       release: (cleanupFailure) => {
         pending.cleanupFailure = cleanupFailure
-        owned.delete(pending)
-        if (owned.size === 0) this.pendingSpawns.delete(owner)
+        if (cleanupFailure === undefined) this.removePendingSpawn(pending)
         settlement.resolve()
       },
     }
+  }
+
+  private removePendingSpawn(pending: PendingSpawn): void {
+    const owned = this.pendingSpawns.get(pending.owner)
+    if (owned === undefined) return
+    owned.delete(pending)
+    if (owned.size === 0) this.pendingSpawns.delete(pending.owner)
   }
 
   private async abortPendingSpawns(owner: Agent | undefined, reason: PtyError): Promise<void> {
@@ -371,6 +378,7 @@ export class PtyService extends Service {
     for (const spawn of pending) spawn.controller.abort(reason)
     await Promise.all(pending.map(spawn => spawn.settled))
     const failures = pending.flatMap(spawn => spawn.cleanupFailure === undefined ? [] : [spawn.cleanupFailure.error])
+    for (const spawn of pending) this.removePendingSpawn(spawn)
     if (failures.length > 0) {
       throw new AggregateError(failures, 'failed to roll back unpublished PTY setup')
     }
