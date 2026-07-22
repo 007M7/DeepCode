@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 cordis-primer.md: 39d3d97b9ac43fec50cb0c832af449fc8bc6232f
-cordis-primer.zh.md: 4915f665cae51b44f89190d43d147e5cda0df146
+cordis-primer.zh.md: f941c90489e1153910ed809d2cef30ece8539f8f
