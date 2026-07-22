@@ -1,7 +1,7 @@
 terminal 96x36 buffer=normal length=36 base=0 viewport=0
-lifecycle started=1 stopped=0 progress=inactive
+lifecycle started=1 stopped=0 progress=active
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=15 bufferRow=15
+cursor hidden column=1 viewportRow=17 bufferRow=17
 viewport
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
@@ -30,13 +30,17 @@ viewport
   style 1-9 fg=bright-magenta bold
 13| " Streaming visible state…                                                                       "
   style 11-23 bold
-14| "────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-95 dim
-15| "                                                                                                "
-  style 1-1 inverse
+14| <blank>
+15| " ⠋ Responding 0s · total 0s — Enter sends steering, Esc cancels                                 "
+  style 1-1 fg=bright-blue
+  style 3-62 fg=bright-black
 16| "────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-95 dim
-17| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                                     tools:collapsed"
+  style 0-95 fg=bright-blue
+17| "                                                                                                "
+  style 1-1 inverse
+18| "────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-95 fg=bright-blue
+19| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                         0% context  tools:collapsed"
   style 0-43 dim
-  style 81-95 dim
-18-35| <blank>
+  style 69-95 dim
+20-35| <blank>

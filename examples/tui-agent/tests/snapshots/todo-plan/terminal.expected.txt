@@ -1,12 +1,12 @@
 terminal 100x36 buffer=normal length=36 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
-title "DSH TUI snapshot"
+title "Use the todo_write tool to — DSH TUI snapshot"
 cursor hidden column=1 viewportRow=31 bufferRow=31
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
   style 10-16 bold
-1| " Recorded replay: todo-plan"
+1| " Use the todo_write tool to"
   style 1-26 fg=bright-black
 2| " deepseek-v4-flash  •  main-session"
   style 1-34 dim
@@ -66,7 +66,7 @@ buffer
   style 1-1 inverse
 32| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-33| "deepseek-v4-flash  /workspace/project  ↑3.1k ↓145  cache 47%     tools:collapsed"
+33| "deepseek-v4-flash  /workspace/project  ↑3.1k ↓145  cache 47%  3% context  tools:"
   style 0-79 dim
-  style 85-99 dim
+  style 82-99 dim
 34-35| <blank>

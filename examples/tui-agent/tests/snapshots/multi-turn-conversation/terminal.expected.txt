@@ -1,13 +1,13 @@
 terminal 100x36 buffer=normal length=36 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
-title "DSH TUI snapshot"
+title "Reply with exactly the word: — DSH TUI snapshot"
 cursor hidden column=1 viewportRow=26 bufferRow=26
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
   style 10-16 bold
-1| " Recorded replay: multi-turn-conversation"
-  style 1-40 fg=bright-black
+1| " Reply with exactly the word:"
+  style 1-28 fg=bright-black
 2| " deepseek-v4-flash  •  main-session"
   style 1-34 dim
 3| <blank>
@@ -54,7 +54,7 @@ buffer
   style 1-1 inverse
 27| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-28| "deepseek-v4-flash  /workspace/project  ↑2.9k ↓41  cache 49%  tools"
+28| "deepseek-v4-flash  /workspace/project  ↑2.9k ↓41  cache 49%  3% co"
   style 0-92 dim
   style 95-99 dim
 29-35| <blank>

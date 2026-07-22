@@ -43,7 +43,7 @@ buffer
   style 1-1 inverse
 17| "────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-95 dim
-18| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                                     tools:collapsed"
+18| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                         0% context  tools:collapsed"
   style 0-43 dim
-  style 81-95 dim
+  style 69-95 dim
 19-35| <blank>

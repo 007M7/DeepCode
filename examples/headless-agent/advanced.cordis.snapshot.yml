@@ -21,6 +21,9 @@
           provider: deepseek
           model: deepseek-v4-flash
           persistenceRoot: './.sessions'
+          # Replay fixtures are raw JSONL; the whole-config patch must restate
+          # the compression choice or the default zstd frames hide the logs.
+          persistenceCompression: none
           workspaceContext:
             maxBytes: 65536
           tools:

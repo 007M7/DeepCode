@@ -1,13 +1,13 @@
 terminal 100x36 buffer=normal length=37 base=1 viewport=1
 lifecycle started=1 stopped=0 progress=inactive
-title "DSH TUI snapshot"
+title "Use the read tool twice — DSH TUI snapshot"
 cursor hidden column=1 viewportRow=33 bufferRow=34
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
   style 10-16 bold
-1| " Recorded replay: parallel-file-reads"
-  style 1-36 fg=bright-black
+1| " Use the read tool twice"
+  style 1-23 fg=bright-black
 2| " deepseek-v4-flash  •  main-session"
   style 1-34 dim
 3| <blank>
@@ -76,6 +76,6 @@ buffer
   style 1-1 inverse
 35| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-36| "deepseek-v4-flash  /workspace/project  ↑20 ↓6  cache 0%  tools:collaps"
+36| "deepseek-v4-flash  /workspace/project  ↑20 ↓6  cache 0%  3% context  t"
   style 0-84 dim
   style 87-99 dim

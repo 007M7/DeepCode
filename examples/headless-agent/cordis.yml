@@ -29,7 +29,10 @@
   name: '@deepseek-ai/dsh-cli-demo'
   config:
     provider: deepseek
-    model: deepseek-v4-pro
+    # Stays on flash: the goal/ralph replay corpora were recorded on it, and
+    # their nested-include overlays cannot re-pin the app config (a config
+    # patch cannot target an entry behind a nested include).
+    model: deepseek-v4-flash
     persistenceRoot: './.sessions'
     persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
     workspaceContext:

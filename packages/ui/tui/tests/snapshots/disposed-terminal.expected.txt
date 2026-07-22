@@ -1,7 +1,7 @@
 terminal 92x32 buffer=normal length=32 base=0 viewport=0
 lifecycle started=1 stopped=1 progress=inactive
 title "DSH snapshot"
-cursor visible column=0 viewportRow=21 bufferRow=21
+cursor visible column=0 viewportRow=30 bufferRow=30
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
@@ -15,30 +15,47 @@ buffer
   style 1-18 fg=bright-blue bold
 5| " Enter send • Shift/Alt+Enter newline • Up/Down prompt history                              "
   style 1-61 fg=bright-black
-6| " Esc cancel active turn • Ctrl+O expand tool cards • Ctrl+R toggle reasoning                "
+6| " Esc cancel active turn • Ctrl+O toggle tool cards • Ctrl+R toggle reasoning                "
   style 1-75 fg=bright-black
 7| " Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit                  "
   style 1-73 fg=bright-black
-8| " /help /clear /reasoning /tools /redraw /reload /resume /exit                               "
-  style 1-60 fg=bright-black
-9| " /skill:<name> [instructions] load a skill into the conversation                            "
+8| "                                                                                            "
+9| " /clear — Clear the transcript view (session history is unchanged)                          "
+  style 1-65 fg=bright-black
+10| " /exit — Exit after the active turn reaches idle                                            "
+  style 1-47 fg=bright-black
+11| " /help — Show keyboard shortcuts and commands                                               "
+  style 1-44 fg=bright-black
+12| " /model [[provider/]model] — Show or switch this session's model                            "
   style 1-63 fg=bright-black
-10| <blank>
-11| " Unknown command: /unknown-advanced-command                                                 "
-  style 1-42 fg=yellow
-12| <blank>
-13| " provider stream failed after partial output                                                "
+13| " /reasoning — Toggle reasoning blocks                                                       "
+  style 1-36 fg=bright-black
+14| " /redraw — Invalidate components and redraw the terminal                                    "
+  style 1-55 fg=bright-black
+15| " /reload — EXPERIMENTAL (dev): re-read loader config files and apply the diff (idle only)   "
+  style 1-88 fg=bright-black
+16| " /resume — List this workspace's resumable sessions                                         "
+  style 1-50 fg=bright-black
+17| " /tools — Expand or collapse all tool cards                                                 "
+  style 1-42 fg=bright-black
+18| " /skill:<name> [instructions] — load a skill into the conversation                          "
+  style 1-65 fg=bright-black
+19| <blank>
+20| " provider stream failed after partial output                                                "
   style 1-43 fg=red
-14| <blank>
-15| " The previous process ended during this turn.                                               "
+21| <blank>
+22| " The previous process ended during this turn.                                               "
   style 1-44 fg=yellow
-16| "────────────────────────────────────────────────────────────────────────────────────────────"
+23| <blank>
+24| " Unknown command: /unknown-advanced-command                                                 "
+  style 1-42 fg=yellow
+25| "────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-91 dim
-17| "                                                                                            "
+26| "                                                                                            "
   style 1-1 inverse
-18| "────────────────────────────────────────────────────────────────────────────────────────────"
+27| "────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-91 dim
-19| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                                 tools:collapsed"
+28| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                     0% context  tools:collapsed"
   style 0-43 dim
-  style 77-91 dim
-20-31| <blank>
+  style 65-91 dim
+29-31| <blank>

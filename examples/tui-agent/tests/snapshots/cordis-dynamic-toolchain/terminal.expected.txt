@@ -1,13 +1,13 @@
 terminal 100x36 buffer=normal length=48 base=12 viewport=12
 lifecycle started=1 stopped=0 progress=inactive
-title "DSH TUI snapshot"
+title "Run this advanced flow exactly — DSH TUI snapshot"
 cursor hidden column=1 viewportRow=33 bufferRow=45
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
   style 10-16 bold
-1| " Recorded replay: cordis-dynamic-toolchain"
-  style 1-41 fg=bright-black
+1| " Run this advanced flow exactly"
+  style 1-30 fg=bright-black
 2| " deepseek-v4-flash  •  main-session"
   style 1-34 dim
 3| <blank>
@@ -101,6 +101,6 @@ buffer
   style 1-1 inverse
 46| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-47| "deepseek-v4-flash  /workspace/project  ↑18 ↓18  cache 0%  tools:c"
+47| "deepseek-v4-flash  /workspace/project  ↑18 ↓18  cache 0%  7% cont"
   style 0-90 dim
   style 93-99 dim

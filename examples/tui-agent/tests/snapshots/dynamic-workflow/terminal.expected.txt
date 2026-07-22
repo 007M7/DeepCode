@@ -1,13 +1,13 @@
 terminal 100x36 buffer=normal length=45 base=9 viewport=9
 lifecycle started=1 stopped=0 progress=inactive
-title "DSH TUI snapshot"
+title "Use the workflow tool exactly — DSH TUI snapshot"
 cursor hidden column=1 viewportRow=33 bufferRow=42
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
   style 10-16 bold
-1| " Recorded replay: dynamic-workflow"
-  style 1-33 fg=bright-black
+1| " Use the workflow tool exactly"
+  style 1-29 fg=bright-black
 2| " deepseek-v4-flash  •  main-session"
   style 1-34 dim
 3| <blank>
@@ -91,6 +91,6 @@ buffer
   style 1-1 inverse
 43| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-44| "deepseek-v4-flash  /workspace/project  ↑3.5k ↓227  cache 47%  tools:colla"
+44| "deepseek-v4-flash  /workspace/project  ↑3.5k ↓227  cache 47%  3% context "
   style 0-86 dim
   style 89-99 dim
