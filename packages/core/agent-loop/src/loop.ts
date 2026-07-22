@@ -12,7 +12,7 @@ import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorC
 import { agentEvents, agentInterruptReasonOf, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
-import type { Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
+import type { PromptMessageData, Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
 import type { TransmissionLog } from './request-log.ts'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -91,6 +91,45 @@ function stepFinishReason(finish: FinishReason): TurnEndReason | undefined {
 
 /** Internal control-flow sentinel; durable classification comes only from the turn signal. */
 const TURN_INTERRUPTED = new Error('turn interrupted')
+
+const PROMPT_PREFIX_REQUEST_DELIMITER: ContentBlock = {
+  type: 'text',
+  text: '\n\n## My request:\n',
+}
+
+interface PreparedPromptMessage {
+  data: PromptMessageData
+  separateContexts: HookContext[]
+}
+
+/** Bake declared prefix contexts into one reconstructable prompt message. */
+function preparePromptMessage(
+  content: ContentBlock[],
+  source: PromptMessageData['source'],
+  contexts: readonly HookContext[],
+): PreparedPromptMessage {
+  const prefixContexts = contexts.filter(context => context.placement === 'prompt-prefix')
+  const separateContexts = contexts.filter(context => context.placement !== 'prompt-prefix')
+  if (prefixContexts.length === 0) return { data: { content, source }, separateContexts }
+  return {
+    data: {
+      content: [
+        ...prefixContexts.flatMap(context => context.content),
+        PROMPT_PREFIX_REQUEST_DELIMITER,
+        ...content,
+      ],
+      source,
+      envelope: {
+        displayContent: content,
+        prefixContexts: prefixContexts.map(context => ({
+          source: context.source,
+          ...context.meta === undefined ? {} : { meta: context.meta },
+        })),
+      },
+    },
+    separateContexts,
+  }
+}
 
 /** Stop at an explicit cooperative boundary without stringifying the runtime reason. */
 function interruptionCheckpoint(signal: AbortSignal): void {
@@ -240,7 +279,15 @@ async function runTurn(
   const drainSteering = (): boolean => {
     const messages = handle.inbox.drainSteering()
     for (const message of messages) {
-      session.append('steering/message', { turn, content: message.content, source: message.source }, { surfaceOp: 'append' })
+      const prepared = preparePromptMessage(message.content, message.source, message.contexts)
+      session.append('steering/message', { turn, ...prepared.data }, { surfaceOp: 'append' })
+      for (const context of prepared.separateContexts) {
+        session.append('context/message', {
+          content: context.content,
+          source: context.source,
+          ...context.meta === undefined ? {} : { meta: context.meta },
+        }, { surfaceOp: 'append' })
+      }
     }
     return messages.length > 0
   }
@@ -301,7 +348,10 @@ async function runTurn(
     // throws) is caught below and the turn still closes.
     const promptDecision = await events.waterfall(
       'agent/prompt-submit', message.content, message.source, signal,
-      () => Promise.resolve<PromptDecision>({ kind: 'allow' }),
+      () => Promise.resolve<PromptDecision>({
+        kind: 'allow',
+        ...message.contexts.length === 0 ? {} : { additionalContexts: message.contexts },
+      }),
     )
     interruptionCheckpoint(signal)
     if (promptDecision.kind === 'block') {
@@ -310,11 +360,12 @@ async function runTurn(
     } else {
       // `allow.content` REPLACES the prompt bytes (a rewrite); absent keeps them.
       const content = promptDecision.content ?? message.content
-      session.append('user/message', { content, source: message.source }, { surfaceOp: 'append' })
-      // Every `allow.additionalContexts` entry is a separate context/message the
-      // next request also sees. The turn is open, so inject() appends each one
-      // into THIS turn without flattening provenance or metadata.
-      for (const context of promptDecision.additionalContexts ?? []) {
+      const prepared = preparePromptMessage(content, message.source, promptDecision.additionalContexts ?? [])
+      session.append('user/message', prepared.data, { surfaceOp: 'append' })
+      // Separate contexts still enter THIS turn through inject(). Prefix
+      // contexts are already baked into the user/message with their durable
+      // display envelope, so appending them again would duplicate model input.
+      for (const context of prepared.separateContexts) {
         agent.inject(context.content, {
           source: context.source,
           ...context.meta !== undefined ? { meta: context.meta } : {},
@@ -487,7 +538,7 @@ async function runTurn(
 
       // A continuation reason becomes next-step steering.
       if (decision.action === 'continue' && decision.reason) {
-        handle.inbox.steer({ content: decision.reason.content, source: decision.reason.source })
+        handle.inbox.steer({ content: decision.reason.content, source: decision.reason.source, contexts: [] })
       }
       let shouldContinue = decision.action === 'continue'
 

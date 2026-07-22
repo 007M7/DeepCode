@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
+  displayPromptContent,
   findLastMessageTurnEnd,
   SESSION_FORMAT_VERSION,
   Session,
@@ -133,6 +134,35 @@ describe('Session', () => {
     expect(contextMessage!.content).toEqual([{ type: 'text', text: 'file changed: a.ts' }])
     expect(steeringMessage!.role).toBe('user')
     expect(steeringMessage!.content).toEqual([{ type: 'text', text: 'focus on tests' }])
+  })
+
+  it('derives baked prompt context while exposing only the direct prompt for display', () => {
+    const session = new Session(SessionId('prompt-envelope'))
+    const event = session.append('user/message', {
+      content: [
+        { type: 'text', text: 'background' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'question' },
+      ],
+      source: { kind: 'user' },
+      envelope: {
+        displayContent: [{ type: 'text', text: 'question' }],
+        prefixContexts: [{ source: { kind: 'plugin', plugin: 'reference' }, meta: { kind: 'card' } }],
+      },
+    }, { surfaceOp: 'append' })
+
+    expect(session.deriveMessages()).toEqual([{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'background' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'question' },
+      ],
+    }])
+    expect(displayPromptContent(event.data)).toEqual([{ type: 'text', text: 'question' }])
+    expect(Object.isFrozen(event.data.envelope?.displayContent)).toBe(true)
+    expect(new Session(SessionId('prompt-envelope-replay'), session.events).deriveMessages())
+      .toEqual(session.deriveMessages())
   })
 
   it('keeps context meta durable in the event while hiding it from the projection', () => {

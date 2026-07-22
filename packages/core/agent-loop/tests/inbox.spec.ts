@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Inbox } from '../src/inbox.ts'
 
+function message(text: string) {
+  return { content: [{ type: 'text' as const, text }], source: { kind: 'user' as const }, contexts: [] }
+}
+
 function resolverPair() {
   let r!: () => void
   const p = new Promise<void>((resolve) => { r = resolve })
@@ -10,8 +14,8 @@ function resolverPair() {
 describe('Inbox', () => {
   it('dequeues one queued message at a time in FIFO order', () => {
     const inbox = new Inbox()
-    inbox.enqueue({ content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } })
-    inbox.enqueue({ content: [{ type: 'text', text: 'second' }], source: { kind: 'user' } })
+    inbox.enqueue(message('first'))
+    inbox.enqueue(message('second'))
     expect(inbox.hasQueued).toBe(true)
 
     expect(inbox.dequeueQueued()?.content[0]).toMatchObject({ text: 'first' })
@@ -23,7 +27,7 @@ describe('Inbox', () => {
 
   it('pushes and drains steering messages separately from queued', () => {
     const inbox = new Inbox()
-    inbox.steer({ content: [{ type: 'text', text: 'steer' }], source: { kind: 'user' } })
+    inbox.steer(message('steer'))
     expect(inbox.hasQueued).toBe(false)
     expect(inbox.hasSteering).toBe(true)
 
@@ -34,7 +38,7 @@ describe('Inbox', () => {
 
   it('waitForQueued returns immediately when a queued message is already present', async () => {
     const inbox = new Inbox()
-    inbox.enqueue({ content: [{ type: 'text', text: 'ready' }], source: { kind: 'user' } })
+    inbox.enqueue(message('ready'))
 
     const started = Date.now()
     await inbox.waitForQueued(new Promise(() => {})) // never-resolving cancel
@@ -45,7 +49,7 @@ describe('Inbox', () => {
     const inbox = new Inbox()
     const waiter = inbox.waitForQueued(new Promise(() => {})) // never-resolving cancel
     // enqueue after starting the wait
-    setTimeout(() => { inbox.enqueue({ content: [{ type: 'text', text: 'wake' }], source: { kind: 'user' } }) }, 5)
+    setTimeout(() => { inbox.enqueue(message('wake')) }, 5)
     await waiter
   })
 
@@ -69,7 +73,7 @@ describe('Inbox', () => {
     r1()
     await p1
 
-    inbox.enqueue({ content: [{ type: 'text', text: 'hey' }], source: { kind: 'user' } })
+    inbox.enqueue(message('hey'))
   })
 
   it('clears wakeup in finally handler when enqueue resolves', async () => {
@@ -77,7 +81,7 @@ describe('Inbox', () => {
     void inbox.waitForQueued(new Promise(() => {})) // never-resolving cancel
     // The wakeup is set. Now trigger it via enqueue → wakeup() calls resolve,
     // promise resolves, finally clears wakeup because wakeup === resolve.
-    inbox.enqueue({ content: [{ type: 'text', text: 'wake' }], source: { kind: 'user' } })
+    inbox.enqueue(message('wake'))
     // No explicit await needed — enqueue is synchronous, and the microtask
     // (finally) runs. The key coverage hit is finally with wakeup === resolve.
   })
@@ -94,6 +98,6 @@ describe('Inbox', () => {
     await c1
 
     // The replacement remains registered and is resolved by enqueue.
-    inbox.enqueue({ content: [{ type: 'text', text: 'hey' }], source: { kind: 'user' } })
+    inbox.enqueue(message('hey'))
   })
 })

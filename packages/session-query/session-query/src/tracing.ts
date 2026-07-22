@@ -1,7 +1,7 @@
 /** One-shot session-lineage and event-relationship tracing helpers. */
 
-import { foldSurface } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionId, SurfaceEventType } from '@deepseek-ai/dsh-session'
+import { foldSurface, isSurfaceEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import { SessionQueryError } from './config.ts'
 import type {
   SessionEventRecord,
@@ -15,6 +15,7 @@ interface EventLogAnalysis {
   records: SessionEventRecord[]
   replacedBy: Map<number, number>
   replacedEventSeqs: Map<number, number[]>
+  currentSeqs: number[]
 }
 
 /**
@@ -28,6 +29,30 @@ export function eventRecords(
   events: readonly SessionEvent[],
 ): SessionEventRecord[] {
   return analyzeEventLog(sessionId, events).records
+}
+
+/**
+ * Fold and return the current model surface after validating the whole log.
+ * @param sessionId - owner used in query diagnostics.
+ * @param events - detached raw event log from one corpus observation.
+ * @returns detached current surface events in folded order.
+ */
+export function currentSurfaceEvents(
+  sessionId: SessionId,
+  events: readonly SessionEvent[],
+): SurfaceEvent[] {
+  const analysis = analyzeEventLog(sessionId, events)
+  return analysis.currentSeqs.map((seq) => {
+    const event = events[seq]
+    /* v8 ignore next 6 -- analyzeEventLog validated contiguous seqs and foldSurface returned only surface-event seqs. */
+    if (event === undefined || event.seq !== seq || !isSurfaceEvent(event)) {
+      throw new SessionQueryError(
+        `invalid session surface: current node ${seq} is not a surface event`,
+        'SESSION_QUERY_INVALID_SURFACE',
+      )
+    }
+    return structuredClone(event)
+  })
 }
 
 /**
@@ -184,6 +209,7 @@ function analyzeEventLog(
     })),
     replacedBy,
     replacedEventSeqs,
+    currentSeqs: [...folded.nodes],
   }
 }
 
