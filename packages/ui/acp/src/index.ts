@@ -27,6 +27,8 @@ import {
   type EnumOption,
   type InitializeRequest,
   type InitializeResponse,
+  type ListSessionsRequest,
+  type ListSessionsResponse,
   type LoadSessionRequest,
   type LoadSessionResponse,
   type NewSessionRequest,
@@ -57,7 +59,8 @@ import {
   type AgentLlmTargetRef as LlmTargetRef,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-commands'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { encodeSessionReferenceUri } from '@deepseek-ai/dsh-session-reference'
+import { displayPromptContent, SessionId } from '@deepseek-ai/dsh-session'
 // Side-effect type import: resolves `ctx.get('permission')` to the service.
 import type {} from '@deepseek-ai/dsh-permission'
 import type { SessionEvent, TodoItem, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -67,6 +70,9 @@ import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } f
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
+// Side-effect type import: declaration-merges the exact-read service used by
+// session/list for live-preferred title folding.
+import type {} from '@deepseek-ai/dsh-session-query'
 // Type-only edge: resolves `ctx.get('planMode')` when dsh-plan-mode is composed;
 // the runtime read stays opportunistic.
 import type {} from '@deepseek-ai/dsh-plan-mode'
@@ -86,6 +92,7 @@ import {
 } from '@deepseek-ai/dsh-user-interaction'
 import {
   acpPromptToText,
+  acpPromptToReferencedPrompt,
   harnessBlockToAcpContent,
   promptHasUnsupportedContent,
   turnEndToStopReason,
@@ -93,7 +100,10 @@ import {
 
 export const name = 'acp'
 // Interface services back loading, presentation, interaction, and prompt assembly.
-export const inject = ['agents', 'commands', 'sessionPersistence', 'tools', 'userInteraction', 'llm', 'systemPrompt']
+export const inject = ['agents', 'commands', 'sessionPersistence', 'sessionQuery', 'tools', 'userInteraction', 'llm', 'systemPrompt']
+
+/** ACP `SessionInfo._meta` key carrying a ready-to-submit session-reference URI. */
+export const ACP_SESSION_REFERENCE_META_KEY = 'deepseek-harness/sessionReference'
 
 /** Preserve invalid-parameter detail in the SDK wire error message. */
 function invalidParams(detail: string): RequestError {
@@ -324,6 +334,8 @@ interface SessionRecord {
   } | undefined
   /** Abort owner for a direct slash-command request, mutually exclusive with `inflight`. */
   commandAbort: AbortController | undefined
+  /** Abort owner while referenced sessions are snapshotted before enqueue. */
+  promptPreparation: AbortController | undefined
   /** Last idle switch per knob, anchored before the next prompt assembles. */
   pendingSwitches: { preset?: string }
 }
@@ -747,6 +759,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           agentInfo: { name: 'deepseek-harness-acp', version: '0.0.1' },
           agentCapabilities: {
             loadSession: true,
+            sessionCapabilities: { list: {} },
             // Baseline prompt blocks only: text plus resource_link rendered as
             // text. No image/audio/embeddedContext, no mcpCapabilities.
             promptCapabilities: { image: false, audio: false, embeddedContext: false },
@@ -759,6 +772,41 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // No auth methods advertised; nothing to do. Present because the SDK
         // Agent interface requires it.
         return Promise.resolve()
+      },
+
+      async listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
+        assertOpen()
+        if (params.cursor !== undefined && params.cursor !== null) {
+          throw invalidParams('session/list does not paginate; omit cursor')
+        }
+        if (params.cwd !== undefined && params.cwd !== null && !isAbsolute(params.cwd)) {
+          throw invalidParams('session/list cwd must be absolute')
+        }
+        const records = (await ctx.sessionQuery.listSessions()).flatMap((record) => {
+          const cwd = record.header.cwd
+          if (cwd === undefined) return []
+          if (params.cwd !== undefined && params.cwd !== null && !sameWorkspaceCwd(cwd, params.cwd)) return []
+          return [{ record, cwd }]
+        })
+        const titles = await Promise.all(records.map(({ record }) => ctx.sessionQuery.readTitle(record.header.id)))
+        assertOpen()
+        const referencesAvailable = ctx.get('sessionReferences') !== undefined
+        return {
+          sessions: records.map(({ record, cwd }, index) => ({
+            sessionId: record.header.id,
+            cwd,
+            ...titles[index] === undefined ? {} : { title: titles[index].title },
+            ...referencesAvailable
+              ? {
+                _meta: {
+                  [ACP_SESSION_REFERENCE_META_KEY]: {
+                    uri: encodeSessionReferenceUri(record.header.id),
+                  },
+                },
+              }
+              : {},
+          })),
+        }
       },
 
       async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
@@ -793,6 +841,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           target,
           inflight: undefined,
           commandAbort: undefined,
+          promptPreparation: undefined,
           pendingSwitches: {},
         }
         sessions.set(sessionId, record)
@@ -884,6 +933,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
             target,
             inflight: undefined,
             commandAbort: undefined,
+            promptPreparation: undefined,
             pendingSwitches: {},
           }
           sessions.set(sessionId, record)
@@ -940,23 +990,22 @@ export function apply(ctx: Context, config: AcpConfig): void {
       async prompt(params: PromptRequest): Promise<PromptResponse> {
         assertOpen()
         const rec = requireSession(SessionId(params.sessionId))
-        if (rec.inflight !== undefined || rec.commandAbort !== undefined) {
+        if (rec.inflight !== undefined || rec.commandAbort !== undefined || rec.promptPreparation !== undefined) {
           throw invalidParams('a prompt is already in flight for this session')
         }
         if (promptHasUnsupportedContent(params.prompt)) {
           throw invalidParams('only text and resource_link prompt content is supported; image/audio/embedded resource blocks are rejected rather than silently dropped')
         }
-        const text = acpPromptToText(params.prompt)
-        if (text.trim().length === 0) {
+        const flattenedText = acpPromptToText(params.prompt)
+        if (flattenedText.trim().length === 0) {
           // Reject up front rather than calling send(): an empty prompt would
           // queue no work, no turn would start, and the RPC would hang forever
           // waiting for a settle that never comes.
           throw invalidParams('empty prompt')
         }
-        // ACP command prompts may carry additional supported content blocks.
-        // The same lossless flattening used for model prompts supplies their
-        // unstructured command input; unsupported kinds were rejected above.
-        const commandLine = text.startsWith('/') ? text : undefined
+        // Direct commands consume ordinary ACP flattening before reference
+        // extraction, so URI-shaped arguments remain opaque to the bridge.
+        const commandLine = flattenedText.startsWith('/') ? flattenedText : undefined
         if (commandLine !== undefined) {
           const controller = new AbortController()
           rec.commandAbort = controller
@@ -999,6 +1048,39 @@ export function apply(ctx: Context, config: AcpConfig): void {
             rec.commandAbort = undefined
           }
         }
+        let referencedPrompt: ReturnType<typeof acpPromptToReferencedPrompt>
+        try {
+          referencedPrompt = acpPromptToReferencedPrompt(params.prompt)
+        } catch (error: unknown) {
+          throw invalidParams(`invalid session reference: ${renderThrown(error)}`)
+        }
+        const { text } = referencedPrompt
+        let preparedContent: ContentBlock[] = [{ type: 'text', text }]
+        let preparedContexts: NonNullable<Parameters<Agent['send']>[1]>['contexts'] = []
+        if (referencedPrompt.references.length > 0) {
+          const sessionReferences = ctx.get('sessionReferences')
+          if (sessionReferences === undefined) {
+            throw invalidParams('session reference capability unavailable')
+          }
+          const controller = new AbortController()
+          rec.promptPreparation = controller
+          try {
+            const prepared = await sessionReferences.prepare(
+              rec.agent,
+              preparedContent,
+              referencedPrompt.references,
+              controller.signal,
+            )
+            preparedContent = prepared.content
+            preparedContexts = prepared.contexts
+          } catch (error: unknown) {
+            if (controller.signal.aborted) return { stopReason: 'cancelled' }
+            throw invalidParams(`session reference preparation failed: ${renderThrown(error)}`)
+          } finally {
+            rec.promptPreparation = undefined
+          }
+          assertOpen()
+        }
         // Install the in-flight slot BEFORE send() (send does not synchronously
         // flip status to running; the session/event listener records the turn
         // number and settle/rejects it). Capture the log length now as the
@@ -1006,7 +1088,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // produces an error stop reason).
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
           rec.inflight = { resolve, reject, turn: undefined }
-          rec.agent.send([{ type: 'text', text }])
+          rec.agent.send(preparedContent, { contexts: preparedContexts })
         })
         return { stopReason }
       },
@@ -1026,7 +1108,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
         // settle it, because cancel() may drop the turn before any turn/end is
         // emitted, and removing this direct settle would move the RPC's
         // resolution onto a later observer path, changing its timing.
-        if (rec.commandAbort !== undefined) {
+        if (rec.promptPreparation !== undefined) {
+          rec.promptPreparation.abort(new Error('session/cancel'))
+        } else if (rec.commandAbort !== undefined) {
           rec.commandAbort.abort(new Error('session/cancel'))
         } else {
           rec.agent.cancel({ kind: 'user' })
@@ -1147,6 +1231,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
       await Promise.all(recs.map(async (rec) => {
         settlePrompt(rec, 'cancelled')
         rec.commandAbort?.abort(new Error('ACP connection closed'))
+        rec.promptPreparation?.abort(new Error('ACP connection closed'))
         // Per-agent dispose (the AgentHandle disposer): unregister this agent,
         // stop its loop (sets disposed + aborts the in-flight step), await
         // quiescence (the loop exit + final flush), and remove its session — so
@@ -1292,7 +1377,7 @@ export function streamSessionEventUpdate(
       // Replay the user's prompt so a loaded session shows both sides of each
       // turn. Live prompt turns suppress this path to avoid duplicating what
       // the client just sent.
-      for (const block of event.data.content) {
+      for (const block of displayPromptContent(event.data)) {
         const content = harnessBlockToAcpContent(block)
         if (content !== undefined) {
           notify({ sessionId, update: { sessionUpdate: 'user_message_chunk', content } })

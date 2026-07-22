@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { makeBridgeHarness, textResponse, toolCallResponse, type BridgeHarness } from './harness.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { encodeSessionReferenceUri, formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 
 /**
  * End-to-end bridge specs over an in-memory transport: a real
@@ -327,6 +328,102 @@ describe('acp bridge', () => {
     expect(result.stopReason).toBe('end_turn')
     const user = harness.ctx.agents.get(SessionId(sessionId))!.session.events.find(event => event.type === 'user/message')
     expect(JSON.stringify(user)).toContain('resource_link')
+  })
+
+  it('rejects canonical session references when the optional capability is not mounted', async () => {
+    harness = await makeBridgeHarness({ storageDir, script: [] })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await expect(harness.client.prompt({
+      sessionId,
+      prompt: [{ type: 'resource_link', uri: encodeSessionReferenceUri(SessionId('source')), name: 'source' }],
+    })).rejects.toThrow(/session reference capability unavailable/)
+    expect(harness.ctx.agents.get(SessionId(sessionId))?.session.events).toHaveLength(0)
+  })
+
+  it('reports malformed inline session references at the ACP request boundary', async () => {
+    harness = await makeBridgeHarness({ storageDir, script: [] })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await expect(harness.client.prompt({
+      sessionId,
+      prompt: [{ type: 'text', text: 'use dsh-session:IiJ' }],
+    })).rejects.toThrow(/invalid session reference/)
+    expect(harness.ctx.agents.get(SessionId(sessionId))?.session.events).toHaveLength(0)
+  })
+
+  it('prepares ACP session resource links and inline mentions before one atomic send', async () => {
+    harness = await makeBridgeHarness({ storageDir, withSessionReferences: true, script: [textResponse('ok')] })
+    const source = harness.ctx.sessions.create(SessionId('source'), { meta: { cwd: '/source' } })
+    source.append('user/message', {
+      content: [{ type: 'text', text: 'source background' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const mention = formatSessionReferenceMention({ sessionId: source.id, label: 'source-inline' })
+    const result = await harness.client.prompt({
+      sessionId,
+      prompt: [
+        { type: 'text', text: `use ${mention} and ` },
+        { type: 'resource_link', uri: encodeSessionReferenceUri(source.id), name: 'source-link' },
+      ],
+    })
+    expect(result.stopReason).toBe('end_turn')
+
+    const target = harness.ctx.agents.get(SessionId(sessionId))!.session
+    const user = target.events.find(event => event.type === 'user/message')
+    expect(user?.type === 'user/message' && user.data.envelope).toMatchObject({
+      displayContent: [{ type: 'text', text: 'use @source-inline and @source-link' }],
+      prefixContexts: [{
+        source: { kind: 'plugin', plugin: 'session-reference' },
+        meta: {
+          kind: 'session-reference',
+          references: [{ sessionId: 'source', label: 'source-inline' }],
+        },
+      }],
+    })
+    expect(target.events.some(event => event.type === 'context/message')).toBe(false)
+    const request = JSON.stringify(harness.adapter.requests[0]?.messages)
+    expect(request).toContain('untrusted, read-only snapshot')
+    expect(request).toContain('source background')
+    expect(request.indexOf('source background')).toBeLessThan(request.indexOf('## My request:'))
+    expect(request.indexOf('## My request:')).toBeLessThan(request.indexOf('use @source-inline and @source-link'))
+  })
+
+  it('rejects a failed referenced-session read before starting a turn', async () => {
+    harness = await makeBridgeHarness({ storageDir, withSessionReferences: true, script: [] })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await expect(harness.client.prompt({
+      sessionId,
+      prompt: [{ type: 'resource_link', uri: encodeSessionReferenceUri(SessionId('missing')), name: 'missing' }],
+    })).rejects.toThrow(/preparation failed/)
+    expect(harness.ctx.agents.get(SessionId(sessionId))?.session.events).toHaveLength(0)
+  })
+
+  it('cancels reference preparation before a turn is created', async () => {
+    harness = await makeBridgeHarness({ storageDir, withSessionReferences: true, script: [] })
+    const source = harness.ctx.sessions.create(SessionId('source'))
+    const snapshot = await harness.ctx.sessionQuery.readSurface(source.id)
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    let releaseRead: (() => void) | undefined
+    const readSurface = vi.spyOn(harness.ctx.sessionQuery, 'readSurface').mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { releaseRead = resolve })
+      return snapshot
+    })
+    const pending = harness.client.prompt({
+      sessionId,
+      prompt: [{ type: 'resource_link', uri: encodeSessionReferenceUri(source.id), name: 'source' }],
+    })
+    await vi.waitFor(() => { expect(releaseRead).toBeTypeOf('function') })
+    await harness.client.cancel({ sessionId })
+    await expect(pending).resolves.toEqual({ stopReason: 'cancelled' })
+    expect(harness.ctx.agents.get(SessionId(sessionId))?.session.events).toHaveLength(0)
+    releaseRead?.()
+    await Promise.resolve()
+    readSurface.mockRestore()
   })
 
   it('rejects a prompt for an unknown session', async () => {

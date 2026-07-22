@@ -68,6 +68,11 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "SendOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "AgentCancelCause",
       "source": "packages/core/agent/src/types.ts"
     },
@@ -281,6 +286,11 @@
     },
     {
       "doc": "docs/core-data-structures/session.md",
+      "symbol": "PromptMessageData",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
       "symbol": "SessionEventMap",
       "source": "packages/core/session/src/types.ts"
     },
@@ -373,6 +383,11 @@
     },
     {
       "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionSurfaceSnapshot",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionEventRecord",
       "source": "packages/session-query/session-query/src/types.ts"
     },
@@ -410,6 +425,27 @@
       "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionEventTrace",
       "source": "packages/session-query/session-query/src/types.ts"
+    },
+
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "SessionReferenceInput",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "SessionReferenceCandidate",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "PreparedReferencedMessage",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "SessionReferenceErrorCode",
+      "source": "packages/context/session-reference/src/config.ts"
     },
 
     { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProviderId", "source": "packages/session-title/session-title/src/index.ts" },
