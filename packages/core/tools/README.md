@@ -52,7 +52,7 @@ The live registry pipeline has three transformable waterfalls followed by the ob
 
 - Tool plugins call `ctx.tools.register()` — schemas flow into the assembly automatically.
 - `tools/pre-execute` is the reorderable allow/deny/ask gate; `ctx.tools.guard()` adds monotonic owner policy after it.
-- `tools/execute` wraps normalized canonical dispatch for timeout, retry, or metrics. Wrappers may replace only the operational signal; a wrapper-authored success is normalized through the resolved tool's output declaration.
+- `tools/execute` wraps normalized canonical dispatch for timeout, retry, or metrics. Wrappers may replace only the operational signal; a wrapper-authored success is normalized through the resolved tool's output declaration. Canonical-result provenance belongs to one immutable dispatch token, so a cached result from another call or tool is revalidated under the active declaration.
 - `tools/post-execute` may replace presentation content, replace the canonical value, block with feedback, or attach ordered contexts; `tools/result` observes the immutable final outcome. Content replacement is not a confidentiality boundary: block or replace the value when programmatic consumers must not receive it.
 - Exact signatures and ordering live in the generated [event catalog](../../../docs/cordis-catalog/events.md) and [pipeline](../../../docs/tool-execution-pipeline.md).
 - MCP servers: one plugin per server, discover tools, call `ctx.tools.register()` with the server's schemas.
