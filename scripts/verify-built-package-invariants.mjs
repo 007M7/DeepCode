@@ -33,7 +33,7 @@ function probeConcurrency(total) {
   const raw = process.env[CONCURRENCY_ENV]
   if (raw !== undefined && raw !== '') {
     const parsed = Number.parseInt(raw, 10)
-    if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    if (!Number.isSafeInteger(parsed) || parsed < 1 || String(parsed) !== raw) {
       throw new Error(`verify-built-package-invariants: ${CONCURRENCY_ENV} must be a positive integer, got ${JSON.stringify(raw)}.`)
     }
     return Math.min(total, parsed)
