@@ -13,6 +13,7 @@ import {
   Editor,
   Input,
   Key,
+  Loader,
   Markdown,
   Spacer,
   Text,
@@ -29,6 +30,7 @@ import {
   type MarkdownTheme,
   type OverlayHandle,
   type SelectListTheme,
+  type SlashCommand,
   type Terminal,
   type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
@@ -44,16 +46,21 @@ import {
 import type {} from '@deepseek-ai/dsh-agent-loop'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-commands'
-import { errorChain } from '@deepseek-ai/dsh-llm'
+import { assertNever, BlockAssembler, errorChain } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
+  GenerateOptions,
   LlmModelInfo,
   StreamChunk,
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
-import { SessionId, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
+import { SessionId, type Session, type SessionEvent, type SessionHeader, type TodoItem } from '@deepseek-ai/dsh-session'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
+// Side-effect type import: declaration-merges the optional `sessionPersistence`
+// service onto `Context` so `ctx.get('sessionPersistence')` is typed.
+import type {} from '@deepseek-ai/dsh-session-persistence'
+import type { SkillDefinition, SkillResourceBase, SkillService } from '@deepseek-ai/dsh-skill'
 import type {
   FileDiff,
   TerminalCallView,
@@ -94,8 +101,22 @@ export interface TuiConfig {
   showHardwareCursor?: boolean
   /** Apply the built-in ANSI color palette. */
   color?: boolean
+  /**
+   * Paint the startup banner's product name in the DeepSeek brand gradient
+   * using 24-bit truecolor. Requires {@link TuiConfig.color}; falls back to the
+   * flat accent color when either is off. Unset auto-detects `COLORTERM` at the
+   * process boundary, so most deployments leave it unset.
+   */
+  truecolor?: boolean
   /** Terminal window title while the UI is mounted. */
   title?: string
+  /**
+   * Replace {@link TuiConfig.title} with a short model-generated title derived
+   * from the session's first user message; a resumed session re-derives it from
+   * that stored message on mount. No-op without an `llm` service or an agent
+   * provider/model. On by default.
+   */
+  autoTitle?: boolean
 }
 
 const showReasoningSchema = z.boolean().default(true)
@@ -108,7 +129,10 @@ const modelDialogWidthSchema = z.number().step(1).min(20).default(72)
 const modelDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
 const showHardwareCursorSchema = z.boolean().default(false)
 const colorSchema = z.boolean().default(true)
+// No default: an unset value auto-detects truecolor from COLORTERM in `apply`.
+const truecolorSchema = z.boolean()
 const titleSchema = z.string().default('DeepSeek Harness')
+const autoTitleSchema = z.boolean().default(true)
 
 /** Schemastery schema for presentation settings embedded by app bundles. */
 export const TuiConfigSchema: z<TuiConfig> = z.object({
@@ -122,20 +146,31 @@ export const TuiConfigSchema: z<TuiConfig> = z.object({
   modelDialogMaxHeight: modelDialogMaxHeightSchema,
   showHardwareCursor: showHardwareCursorSchema,
   color: colorSchema,
+  truecolor: truecolorSchema,
   title: titleSchema,
+  autoTitle: autoTitleSchema,
 })
 
 /** Serializable plugin configuration. */
 export interface Config extends TuiConfig {
-  /** Header subtitle. Defaults to `ready.`. */
+  /** Banner subtitle line. When absent, the banner has no subtitle and sweeps in on start. */
   welcome?: string
   /** Exact shared agent/session identity driven by this terminal. Defaults to `main`. */
   sessionId?: string
+  /**
+   * Shell command template shown for resuming this session: printed on exit and
+   * listed by `/resume`, with every `{session}` occurrence replaced by the live
+   * session id. Absent disables both surfaces. Deployments set it only when a
+   * persistence backend makes the session resumable (e.g.
+   * `RESUME_SESSION_ID={session} dsh`).
+   */
+  resumeCommand?: string
 }
 
 export const Config: z<Config> = z.object({
-  welcome: z.string().default('ready.'),
+  welcome: z.string(),
   sessionId: z.string().default('main'),
+  resumeCommand: z.string(),
   showReasoning: showReasoningSchema,
   maxToolOutputLines: maxToolOutputLinesSchema,
   maxQuestionOptions: maxQuestionOptionsSchema,
@@ -146,7 +181,9 @@ export const Config: z<Config> = z.object({
   modelDialogMaxHeight: modelDialogMaxHeightSchema,
   showHardwareCursor: showHardwareCursorSchema,
   color: colorSchema,
+  truecolor: truecolorSchema,
   title: titleSchema,
+  autoTitle: autoTitleSchema,
 })
 
 /** Fully defaulted TUI presentation settings. */
@@ -161,7 +198,9 @@ export interface ResolvedTuiConfig {
   modelDialogMaxHeight: number
   showHardwareCursor: boolean
   color: boolean
+  truecolor: boolean
   title: string
+  autoTitle: boolean
 }
 
 /** Runtime boundary used by the interactive TUI. */
@@ -198,7 +237,9 @@ export function resolveTuiConfig(config: TuiConfig | undefined): ResolvedTuiConf
     modelDialogMaxHeight: config?.modelDialogMaxHeight ?? 20,
     showHardwareCursor: config?.showHardwareCursor ?? false,
     color: config?.color ?? true,
+    truecolor: config?.truecolor ?? false,
     title: config?.title ?? 'DeepSeek Harness',
+    autoTitle: config?.autoTitle ?? true,
   }
 }
 
@@ -269,6 +310,60 @@ function createPalette(enabled: boolean, scheme: TerminalColorScheme = 'dark'): 
   }
 }
 
+/**
+ * DeepSeek brand gradient stops (indigo → light blue) taken from the
+ * deepseek.com logo, painted across the startup banner's product name on
+ * truecolor terminals. Fixed brand identity, deliberately outside the
+ * theme-adaptive {@link Palette}.
+ */
+const BRAND_GRADIENT = [
+  [77, 107, 254], // #4D6BFE
+  [57, 130, 255], // #3982FF
+  [36, 152, 255], // #2498FF
+] as const
+
+/**
+ * Sample {@link BRAND_GRADIENT} at fraction `t` via piecewise-linear
+ * interpolation across its stops.
+ *
+ * @param t - Position along the gradient; clamped to [0, 1].
+ * @returns The interpolated `[r, g, b]` channels, each rounded to 0–255.
+ */
+function brandColorAt(t: number): readonly [number, number, number] {
+  const span = Math.min(Math.max(t, 0), 1) * (BRAND_GRADIENT.length - 1)
+  const index = Math.min(Math.floor(span), BRAND_GRADIENT.length - 2)
+  const local = span - index
+  // `index` is clamped to a valid adjacent pair, so both lookups are in-bounds.
+  const from = BRAND_GRADIENT[index] as readonly [number, number, number]
+  const to = BRAND_GRADIENT[index + 1] as readonly [number, number, number]
+  return [
+    Math.round(from[0] + (to[0] - from[0]) * local),
+    Math.round(from[1] + (to[1] - from[1]) * local),
+    Math.round(from[2] + (to[2] - from[2]) * local),
+  ]
+}
+
+/**
+ * Paint `text` left-to-right in the DeepSeek brand gradient with per-character
+ * 24-bit foreground codes, resetting to the default foreground at the end.
+ * Foreground-only, so it stays legible on any terminal background; the caller
+ * gates it on truecolor support and wraps it in bold.
+ *
+ * @param text - Text to colorize; sampled once per character.
+ * @returns `text` wrapped in truecolor SGR foreground codes.
+ */
+function gradientText(text: string): string {
+  // The sole caller passes the ASCII product name, so UTF-16 unit iteration
+  // samples exactly one color per visible letter.
+  const last = Math.max(1, text.length - 1)
+  let painted = ''
+  for (let index = 0; index < text.length; index += 1) {
+    const [r, g, b] = brandColorAt(index / last)
+    painted += `\x1b[38;2;${r};${g};${b}m${text.charAt(index)}`
+  }
+  return `${painted}\x1b[39m`
+}
+
 function markdownTheme(palette: Palette): MarkdownTheme {
   return {
     heading: text => palette.accent(text),
@@ -331,6 +426,24 @@ function contentText(content: readonly ContentBlock[]): string {
   return parts.join('')
 }
 
+/** Longest auto-generated title kept before the tail is elided; fits common tmux/tab widths. */
+const AUTO_TITLE_MAX_LENGTH = 40
+
+/** Task framing for the auto-title model call; written from the model's view, not the UI's. */
+const AUTO_TITLE_SYSTEM_PROMPT = [
+  "Summarize the user's request as a short title of 2 to 5 lowercase words.",
+  'Use no punctuation or quotation marks. Reply with only the title.',
+].join('\n')
+
+/** First non-empty line of the model's reply, trimmed and capped for a terminal title. */
+function titleLine(text: string): string {
+  const line = text.split('\n').map(part => part.trim()).find(part => part.length > 0) ?? ''
+  return line.length > AUTO_TITLE_MAX_LENGTH ? `${line.slice(0, AUTO_TITLE_MAX_LENGTH - 1)}…` : line
+}
+
+/** Auto-title is best-effort: a stream error or shutdown abort leaves the current title unchanged. */
+const ignoreTitleFailure = (): void => {}
+
 function textBlocks(content: readonly ContentBlock[], type: 'text' | 'reasoning'): string {
   return content
     .filter((block): block is Extract<ContentBlock, { type: typeof type }> => block.type === type)
@@ -378,31 +491,123 @@ async function readModelChoices(
   return groups.flat()
 }
 
+/** Milliseconds between banner sweep-reveal frames (~60 fps). */
+const BANNER_REVEAL_INTERVAL_MS = 15
+
+/** Number of sweep frames the banner reveal spreads the terminal width over. */
+const BANNER_REVEAL_STEPS = 24
+
+/**
+ * Borderless startup banner: product title, an optional configured subtitle,
+ * and the model/session detail line. No box frame — each line renders as plain
+ * left-padded text (matching transcript notices) so it reads on any theme.
+ */
 class HeaderComponent implements Component {
+  /** Columns of the banner currently revealed; `undefined` renders it whole. */
+  private revealWidth: number | undefined
+
   constructor(
     private readonly agent: Agent,
-    private readonly subtitle: () => string,
+    private readonly welcome: string | undefined,
     private readonly palette: Palette,
+    private readonly gradient: boolean,
     private readonly currentModel: () => string | undefined,
   ) {}
+
+  /** Clip the banner to `width` columns (the sweep reveal); `undefined` restores it. */
+  setRevealWidth(width: number | undefined): void {
+    this.revealWidth = width
+  }
 
   invalidate(): void {}
 
   render(width: number): string[] {
-    const usable = Math.max(1, width - 4)
-    const title = `${this.palette.bold(this.palette.accent('DEEPSEEK'))} ${this.palette.bold('HARNESS')}`
+    const usable = Math.max(1, width - 2)
+    const name = this.gradient
+      ? this.palette.bold(gradientText('DEEPSEEK'))
+      : this.palette.bold(this.palette.accent('DEEPSEEK'))
+    const title = `${name} ${this.palette.bold('HARNESS')}`
     const model = displayText(this.currentModel() ?? 'model unset')
     const detail = `${model}  •  ${displayText(this.agent.session.id)}`
-    const top = this.palette.accent(`╭${'─'.repeat(Math.max(0, width - 2))}╮`)
-    const bottom = this.palette.accent(`╰${'─'.repeat(Math.max(0, width - 2))}╯`)
-    const lines = [title, this.palette.muted(displayText(this.subtitle())), this.palette.dim(detail)]
+    const lines = [
+      title,
+      ...this.welcome === undefined ? [] : [this.palette.muted(displayText(this.welcome))],
+      this.palette.dim(detail),
+    ]
       .flatMap(line => wrapTextWithAnsi(line, usable))
-      .map((line) => {
-        const clipped = truncateToWidth(line, usable, '')
-        return `${this.palette.accent('│')} ${clipped}${' '.repeat(Math.max(0, usable - visibleWidth(clipped)))} ${this.palette.accent('│')}`
-      })
-    return [top, ...lines, bottom]
+      .map(line => ` ${truncateToWidth(line, usable, '')}`)
+    if (this.revealWidth === undefined) return lines
+    const revealed = this.revealWidth
+    return lines.map(line => truncateToWidth(line, revealed, ''))
   }
+}
+
+/** Milliseconds between elapsed-time refreshes of the running status line. */
+const STATUS_ELAPSED_INTERVAL_MS = 1000
+
+/** Steering/cancel affordance shown on every running status line. */
+const STATUS_HINT = 'Enter sends steering, Esc cancels'
+
+/**
+ * Fine-grained activity of a running turn, derived in the TUI from session
+ * lifecycle events for the status line. It is presentation-only, not a durable
+ * agent state: `waiting` spans a step from its `step/start` until the first
+ * reasoning or text chunk, `thinking`/`responding` track reasoning/text deltas,
+ * and `executing` covers tool calls until the next step begins.
+ */
+type TurnPhase = 'waiting' | 'thinking' | 'responding' | 'executing'
+
+/**
+ * Live controller for the running status line: its {@link Loader}, the derived
+ * {@link TurnPhase}, the elapsed-time baselines the label reads, and the timer
+ * that refreshes it. Present only while the turn runs; `undefined` when idle.
+ */
+interface RunningStatus {
+  loader: Loader
+  phase: TurnPhase
+  phaseStartedAt: number
+  stepStartedAt: number
+  timer: ReturnType<typeof setInterval>
+}
+
+/** Status-line label for each {@link TurnPhase}. */
+const TURN_PHASE_LABELS: Record<TurnPhase, string> = {
+  waiting: 'Waiting for the first token',
+  thinking: 'Thinking',
+  responding: 'Responding',
+  executing: 'Executing tools',
+}
+
+/**
+ * Format a non-negative elapsed span as a compact status duration: whole
+ * seconds under a minute (`8s`), else minutes and zero-padded seconds
+ * (`1m05s`).
+ * @param elapsedMs - Elapsed time in milliseconds; negatives clamp to zero.
+ * @returns The compact duration string.
+ */
+function formatStatusDuration(elapsedMs: number): string {
+  const total = Math.floor(Math.max(0, elapsedMs) / 1000)
+  if (total < 60) return `${total}s`
+  return `${Math.floor(total / 60)}m${(total % 60).toString().padStart(2, '0')}s`
+}
+
+/**
+ * Compose the running status-line text from the current phase, its timers, and
+ * the queued-steering badge. The waiting phase spans the whole step so it shows
+ * one duration; later phases show time in the phase plus the running step
+ * total, and a non-zero `queued` count surfaces as a badge before the hint.
+ * @param phase - The current turn phase.
+ * @param phaseMs - Elapsed time in the current phase, in milliseconds.
+ * @param stepMs - Elapsed time in the current step, in milliseconds.
+ * @param queued - Count of pending steering messages; zero hides the badge.
+ * @returns The status-line text, including the steering/cancel hint.
+ */
+function formatTurnStatus(phase: TurnPhase, phaseMs: number, stepMs: number, queued: number): string {
+  const timing = phase === 'waiting'
+    ? formatStatusDuration(stepMs)
+    : `${formatStatusDuration(phaseMs)} · total ${formatStatusDuration(stepMs)}`
+  const badge = queued > 0 ? `${queued} queued · ` : ''
+  return `${TURN_PHASE_LABELS[phase]} ${timing} — ${badge}${STATUS_HINT}`
 }
 
 /**
@@ -709,9 +914,16 @@ function formatCwd(cwd: string | undefined): string {
   return cwd
 }
 
+/**
+ * Running token totals for the footer, keyed per turn/step so replayed or
+ * re-emitted usage replaces rather than double-counts; `input` is uncached
+ * input, cache buckets are disjoint.
+ */
 interface SessionTokenTotals {
   input: number
   output: number
+  cacheRead: number
+  cacheWrite: number
   readonly byStep: Map<string, TokenUsage>
 }
 
@@ -721,10 +933,14 @@ function recordTokenUsage(totals: SessionTokenTotals, turn: number, step: number
   if (previous !== undefined) {
     totals.input -= previous.inputTokens
     totals.output -= previous.outputTokens
+    totals.cacheRead -= previous.cacheReadTokens ?? 0
+    totals.cacheWrite -= previous.cacheWriteTokens ?? 0
   }
   totals.byStep.set(key, usage)
   totals.input += usage.inputTokens
   totals.output += usage.outputTokens
+  totals.cacheRead += usage.cacheReadTokens ?? 0
+  totals.cacheWrite += usage.cacheWriteTokens ?? 0
 }
 
 function recordEventUsage(totals: SessionTokenTotals, event: SessionEvent): void {
@@ -735,8 +951,19 @@ function recordEventUsage(totals: SessionTokenTotals, event: SessionEvent): void
   }
 }
 
+/**
+ * Share of billed input (prompt) tokens served from the provider cache, as an
+ * integer percent, or `undefined` before any input is billed (avoids 0/0 and a
+ * meaningless rate on an empty session).
+ */
+function cacheHitRate(totals: SessionTokenTotals): number | undefined {
+  const billedInput = totals.input + totals.cacheRead + totals.cacheWrite
+  if (billedInput === 0) return undefined
+  return Math.round((totals.cacheRead / billedInput) * 100)
+}
+
 function sessionTokens(session: Session): SessionTokenTotals {
-  const totals: SessionTokenTotals = { input: 0, output: 0, byStep: new Map() }
+  const totals: SessionTokenTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, byStep: new Map() }
   for (const event of session.events) {
     recordEventUsage(totals, event)
   }
@@ -748,47 +975,31 @@ class FooterComponent implements Component {
     private readonly agent: Agent,
     private readonly palette: Palette,
     private readonly toolsExpanded: () => boolean,
-    private readonly showReasoning: () => boolean,
-    private readonly tokens: () => { input: number; output: number },
+    private readonly tokens: () => SessionTokenTotals,
     private readonly cwdFormatter: TuiRuntime['formatCwd'],
     private readonly currentModel: () => string | undefined,
     private readonly contextPercent: () => number | undefined,
-    private readonly runningSeconds: () => number,
   ) {}
 
   invalidate(): void {}
 
   render(width: number): string[] {
-    if (this.agent.status === 'running') {
-      const interrupt = this.palette.dim('esc interrupt')
-      const activityAvailable = Math.max(0, width - visibleWidth(interrupt) - 1)
-      const activity = truncateToWidth(this.palette.accent(`◒ Working · ${this.runningSeconds()}s`), activityAvailable, '')
-      const gap = ' '.repeat(Math.max(0, width - visibleWidth(activity) - visibleWidth(interrupt)))
-      return [`${activity}${gap}${interrupt}`]
-    }
-    const { input, output } = this.tokens()
-    const counters = `↑${formatTokens(input)} ↓${formatTokens(output)}`
+    const totals = this.tokens()
     const model = displayText(this.currentModel() ?? 'model unset')
-    const modelState = `${model}(reasoning:${this.showReasoning() ? 'on' : 'off'})`
-    const contextPercent = this.contextPercent()
-    const context = contextPercent === undefined ? 'context unknown' : `${contextPercent}% context`
-    const fullRight = `${context}  tools:${this.toolsExpanded() ? 'expanded' : 'compact'}  ${modelState}`
-    const compactRight = `${context}  ${modelState}`
+    const rate = cacheHitRate(totals)
+    const cache = rate === undefined ? '' : `  cache ${rate}%`
     const formattedCwd = displayText(
       this.cwdFormatter?.(this.agent.session.header.cwd) ?? formatCwd(this.agent.session.header.cwd),
     )
-    if (visibleWidth(counters) + visibleWidth(compactRight) + 1 > width) {
-      const compact = truncateToWidth(compactRight, width, '')
-      return [`${' '.repeat(Math.max(0, width - visibleWidth(compact)))}${this.palette.dim(compact)}`]
-    }
-    const rightAvailable = width - visibleWidth(counters) - 1
-    const right = visibleWidth(fullRight) <= rightAvailable ? fullRight : compactRight
-    const rightClipped = truncateToWidth(right, rightAvailable, '')
-    const cwdAvailable = Math.max(0, width - visibleWidth(counters) - visibleWidth(rightClipped) - 3)
-    const cwd = truncateToWidth(formattedCwd, cwdAvailable, '')
-    const left = [cwd, counters].filter(Boolean).join('  ')
-    const gap = ' '.repeat(Math.max(0, width - visibleWidth(left) - visibleWidth(rightClipped)))
-    return [`${this.palette.dim(left)}${gap}${this.palette.dim(rightClipped)}`]
+    const left = `${model}  ${formattedCwd}  ↑${formatTokens(totals.input)} ↓${formatTokens(totals.output)}${cache}`
+    const contextPercent = this.contextPercent()
+    const context = contextPercent === undefined ? '' : `${contextPercent}% context  `
+    const right = `${context}tools:${this.toolsExpanded() ? 'expanded' : 'collapsed'}`
+    const leftStyled = this.palette.dim(left)
+    const available = Math.max(0, width - visibleWidth(left) - 2)
+    const rightClipped = truncateToWidth(right, available, '')
+    const gap = ' '.repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(rightClipped)))
+    return [truncateToWidth(`${leftStyled}${gap}${this.palette.dim(rightClipped)}`, width, '')]
   }
 }
 
@@ -1020,6 +1231,65 @@ export interface TuiController {
   dispose(): Promise<void>
 }
 
+/** Prefix that marks an editor submission as a manual skill invocation. */
+const SKILL_COMMAND_PREFIX = '/skill:'
+
+/** Parsed `/skill:<name> [instructions]` submission; `name` is empty when the prefix carries no name. */
+interface ParsedSkillCommand {
+  /** Skill name typed after `/skill:`, up to the first space. */
+  name: string
+  /** Trimmed text after the name; empty when none was typed. */
+  instructions: string
+}
+
+/**
+ * Split a `/skill:<name> [instructions]` submission into its name and trailing instructions.
+ * @param text - trimmed submission that starts with {@link SKILL_COMMAND_PREFIX}.
+ * @returns the skill name and any trailing instructions.
+ */
+function parseSkillCommand(text: string): ParsedSkillCommand {
+  const rest = text.slice(SKILL_COMMAND_PREFIX.length)
+  const spaceIndex = rest.indexOf(' ')
+  if (spaceIndex === -1) return { name: rest, instructions: '' }
+  return { name: rest.slice(0, spaceIndex), instructions: rest.slice(spaceIndex + 1).trim() }
+}
+
+/** Model-visible line locating a manually invoked skill's relative resources, or `undefined` when the provider has no base. */
+function skillResourceReference(base: SkillResourceBase | undefined): string | undefined {
+  if (base === undefined) return undefined
+  switch (base.kind) {
+    case 'directory':
+      return `References in this skill are relative to ${base.path}.`
+    case 'url':
+      return `References in this skill are relative to ${base.url}.`
+    case 'opaque':
+      return base.description
+    default:
+      return assertNever(base, 'SkillResourceBase.kind')
+  }
+}
+
+/**
+ * Render a manually invoked skill into the model-visible user-message text. The
+ * `<skill>` block carries the body and, when the provider supplies one, its
+ * resource base; the trimmed `instructions` follow the block as the user's
+ * request for this turn. The name is registry-validated kebab-case
+ * ({@link SkillService} rejects any other) and the resource base is trusted
+ * same-process provider prose, so — unlike the model-facing `dsh-tool-skill`
+ * result, which escapes for a tool channel — this user turn is assembled raw.
+ * @param skill - the loaded skill definition.
+ * @param instructions - trimmed text typed after `/skill:<name>`; empty when absent.
+ * @returns the user-message text delivered to the agent.
+ */
+export function renderSkillInvocation(skill: SkillDefinition, instructions: string): string {
+  const lines = [`<skill name="${skill.name}">`]
+  const reference = skillResourceReference(skill.resourceBase)
+  if (reference !== undefined) lines.push(reference, '')
+  lines.push(skill.content, '</skill>')
+  const block = lines.join('\n')
+  return instructions === '' ? block : `${block}\n\n${instructions}`
+}
+
 function activeSurfaceSeqs(session: Session): Set<number> {
   return new Set(session.surface.nodes)
 }
@@ -1050,12 +1320,14 @@ export function createTuiChat(
   const sessionId = SessionId(config.sessionId ?? 'main')
   const agent = ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`ui-tui: session "${sessionId}" is not running`)
+  const persistence = ctx.get('sessionPersistence')
   const resolved = resolveTuiConfig(config)
   const palette = createPalette(resolved.color)
   const mdTheme = markdownTheme(palette)
   const ui = new TUI(runtime.terminal, resolved.showHardwareCursor)
   const chat = new Container()
   const todoContainer = new Container()
+  const statusContainer = new Container()
   const editor = new Editor(ui, {
     borderColor: palette.dim,
     selectList: selectTheme(palette),
@@ -1064,10 +1336,28 @@ export function createTuiChat(
   let showReasoning = resolved.showReasoning
   let toolsExpanded = false
   let streaming: StreamingAssistantComponent | undefined
-  let runningStartedAt: number | undefined
-  let statusTicker: ReturnType<typeof setInterval> | undefined
+  let runningStatus: RunningStatus | undefined
+  // Steering messages the user queued during the running turn that the loop has
+  // not yet drained, shown as a badge on the status line. Reset on the
+  // running→idle status transition, which also absorbs a cancellation that
+  // clears the queue without logging drains; the status line exists only while
+  // running, so idle carries no badge to keep current.
+  let pendingSteering = 0
   let disposed = false
   let shuttingDown: Promise<void> | undefined
+  // Optional: skills mount conditionally, so read the global service store
+  // rather than declaring an injection that would make the TUI require them.
+  const skills = ctx.get('skills')
+  const cwd = agent.session.header.cwd ?? process.cwd()
+  const skillAbort = new AbortController()
+  // Auto-title replaces the static title with a short model-generated title
+  // derived from the session's first user message. A resumed session re-derives
+  // it from that stored message on mount (see below); a fresh session derives it
+  // when the first message arrives. It is already settled — keeping the static
+  // title — only when the feature is off. The abort cancels an in-flight title
+  // stream at shutdown.
+  const titleAbort = new AbortController()
+  let titleSettled = !resolved.autoTitle
   const tokens = sessionTokens(agent.session)
   const toolCards = new Map<string, ToolCardComponent>()
   const allToolCards = new Set<ToolCardComponent>()
@@ -1085,24 +1375,30 @@ export function createTuiChat(
   let modelCommands = Promise.resolve()
   const now = (): number => runtime.now?.() ?? Date.now()
 
-  const welcome = config.welcome ?? 'ready.'
+  // A configured subtitle renders as a banner line; when absent, the banner has
+  // no subtitle. The banner itself sweeps in on start (see startBannerReveal).
   let sessionTitle = foldSessionTitle(agent.session.events)?.title
-  const header = new HeaderComponent(agent, () => sessionTitle ?? welcome, palette, () => target.current?.model)
+  const header = new HeaderComponent(
+    agent,
+    config.welcome,
+    palette,
+    resolved.color && resolved.truecolor,
+    () => target.current?.model,
+  )
   const footer = new FooterComponent(
     agent,
     palette,
     () => toolsExpanded,
-    () => showReasoning,
     () => tokens,
     runtime.formatCwd,
     () => target.current?.model,
     () => contextWindow === undefined
       ? undefined
       : Math.min(100, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens / contextWindow * 100)),
-    () => runningStartedAt === undefined ? 0 : Math.max(0, Math.floor((now() - runningStartedAt) / 1_000)),
   )
   ui.addChild(header)
   ui.addChild(chat)
+  ui.addChild(statusContainer)
   todoContainer.addChild(todo)
   ui.addChild(todoContainer)
   ui.addChild(editor)
@@ -1237,23 +1533,132 @@ export function createTuiChat(
     })
   }
 
+  // Fire-and-forget a title request. The prompt is the trimmed first-message
+  // text; an empty one is skipped without consuming the one-shot slot. The `llm`
+  // service is optional, so a deployment without it (or without an agent
+  // provider/model) silently keeps the static title.
+  const generateTitle = (prompt: string): void => {
+    if (titleSettled || prompt.length === 0) return
+    titleSettled = true
+    const llm = ctx.get('llm')
+    const { provider, model } = agent.options
+    if (llm === undefined || !provider || !model) return
+    const options: GenerateOptions = {
+      provider,
+      model,
+      system: AUTO_TITLE_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+      sessionId: agent.session.id,
+      signal: titleAbort.signal,
+    }
+    const applyTitle = async (): Promise<void> => {
+      const assembler = new BlockAssembler()
+      for await (const chunk of llm.stream(options)) assembler.push(chunk)
+      const title = titleLine(contentText(assembler.message().content))
+      if (!disposed && title.length > 0) {
+        sessionTitle = title
+        header.invalidate()
+        updateTerminalTitle()
+        requestRender()
+      }
+    }
+    void applyTitle().catch(ignoreTitleFailure)
+  }
+
+  // Resume: derive the title from the session's already-logged first user
+  // message. A fresh session has none here and titles from the live message via
+  // the session-event listener instead.
+  const firstUserMessage = agent.session.events.find(
+    (event): event is Extract<SessionEvent, { type: 'user/message' }> => event.type === 'user/message',
+  )
+  if (firstUserMessage !== undefined) generateTitle(contentText(firstUserMessage.data.content).trim())
+
   const clearStatus = (): void => {
-    if (statusTicker !== undefined) clearInterval(statusTicker)
-    statusTicker = undefined
-    runningStartedAt = undefined
+    if (runningStatus !== undefined) {
+      clearInterval(runningStatus.timer)
+      runningStatus.loader.stop()
+      runningStatus = undefined
+    }
+    statusContainer.clear()
     runtime.terminal.setProgress(false)
   }
 
+  // Refresh the status line's elapsed timers and queued badge from the
+  // controller's phase and the current steering count.
+  const renderStatus = (running: RunningStatus): void => {
+    const at = now()
+    running.loader.setMessage(formatTurnStatus(running.phase, at - running.phaseStartedAt, at - running.stepStartedAt, pendingSteering))
+  }
+
+  // Move to a derived phase, resetting the phase timer on a genuine change and
+  // the step timer when a new step begins; ignored unless a turn is running.
+  const enterPhase = (phase: TurnPhase, resetStep: boolean): void => {
+    const running = runningStatus
+    if (running === undefined) return
+    const at = now()
+    if (resetStep) running.stepStartedAt = at
+    if (phase !== running.phase || resetStep) running.phaseStartedAt = at
+    running.phase = phase
+    renderStatus(running)
+  }
+
   const setStatus = (status: AgentStatus): void => {
+    // A running→running rebuild (a mid-turn palette swap re-derives the border)
+    // carries the derived phase and both elapsed baselines across; only a fresh
+    // idle→running turn starts at `waiting`.
+    const prior = runningStatus
     clearStatus()
     editor.borderColor = status === 'running' ? text => palette.accent(text) : text => palette.dim(text)
     if (status === 'running') {
-      runningStartedAt = now()
-      statusTicker = setInterval(requestRender, 1_000)
-      statusTicker.unref()
+      const at = now()
+      const phase = prior?.phase ?? 'waiting'
+      const phaseStartedAt = prior?.phaseStartedAt ?? at
+      const stepStartedAt = prior?.stepStartedAt ?? at
+      const message = formatTurnStatus(phase, at - phaseStartedAt, at - stepStartedAt, pendingSteering)
+      const loader = new Loader(ui, text => palette.accent(text), text => palette.muted(text), message)
+      statusContainer.addChild(loader)
+      const running: RunningStatus = {
+        loader,
+        phase,
+        phaseStartedAt,
+        stepStartedAt,
+        timer: setInterval(() => { renderStatus(running) }, STATUS_ELAPSED_INTERVAL_MS),
+      }
+      runningStatus = running
       runtime.terminal.setProgress(true)
     }
     requestRender()
+  }
+
+  // Refresh the running status line's queued-steering badge from the current
+  // count; a no-op when idle because the controller only exists while running.
+  const refreshStatus = (): void => {
+    if (runningStatus !== undefined) renderStatus(runningStatus)
+    requestRender()
+  }
+
+  // Derive the status-line phase from live session lifecycle events. The event
+  // map is merge-extensible, so unhandled types fall through the default.
+  const advanceTurnPhase = (event: SessionEvent): void => {
+    switch (event.type) {
+      case 'step/start':
+        enterPhase('waiting', true)
+        break
+      case 'assistant/chunk': {
+        const chunk = event.data.chunk
+        if (chunk.type === 'reasoning-delta' || (chunk.type === 'block-start' && chunk.blockType === 'reasoning')) {
+          enterPhase('thinking', false)
+        } else if (chunk.type === 'text-delta' || (chunk.type === 'block-start' && chunk.blockType === 'text')) {
+          enterPhase('responding', false)
+        }
+        break
+      }
+      case 'tool/call':
+        enterPhase('executing', false)
+        break
+      default:
+        break
+    }
   }
 
   const parsedTool = (event: Extract<SessionEvent, { type: 'tool/call' }>): ToolCardComponent => {
@@ -1489,10 +1894,43 @@ export function createTuiChat(
     },
   })
 
+  /**
+   * Persisted sessions for this workspace, newest first. Empty when no
+   * persistence backend is mounted or a listing failure would otherwise block
+   * exit or crash `/resume`; the resume hint is best-effort convenience.
+   */
+  const listWorkspaceSessions = async (): Promise<SessionHeader[]> => {
+    if (persistence === undefined) return []
+    let all: readonly SessionHeader[]
+    try {
+      all = await persistence.list()
+    } catch {
+      // A listing failure must never block terminal exit or crash `/resume`.
+      return []
+    }
+    return all
+      .filter(header => header.cwd === agent.session.header.cwd)
+      .sort((a, b) => b.createdAt - a.createdAt)
+  }
+
+  /**
+   * The resume command for the current session — the configured template with
+   * every `{session}` filled — but only once the session is durably persisted,
+   * so a session abandoned before its first flush yields no hint (resuming that
+   * id would fail to load).
+   */
+  const currentResumeCommand = async (): Promise<string | undefined> => {
+    if (config.resumeCommand === undefined) return undefined
+    const sessions = await listWorkspaceSessions()
+    if (!sessions.some(header => header.id === agent.session.id)) return undefined
+    return config.resumeCommand.replaceAll('{session}', agent.session.id)
+  }
+
   const shutdown = (exitProcess: boolean): Promise<void> => {
     shuttingDown ??= (async () => {
       disposed = true
       contextResolution = undefined
+      titleAbort.abort()
       clearStatus()
       modelOverlay?.hide()
       modelOverlay = undefined
@@ -1507,7 +1945,13 @@ export function createTuiChat(
       disposeUserInteraction()
       await runtime.terminal.drainInput(100, 20)
       ui.stop()
-      if (exitProcess) runtime.exit(0)
+      if (exitProcess) {
+        const command = await currentResumeCommand()
+        if (command !== undefined) {
+          runtime.terminal.write(`${palette.muted('To resume this session:')} ${displayText(command)}\n`)
+        }
+        runtime.exit(0)
+      }
     })()
     return shuttingDown
   }
@@ -1528,6 +1972,7 @@ export function createTuiChat(
     currentScheme = scheme
     Object.assign(palette, createPalette(resolved.color, scheme))
     Object.assign(mdTheme, markdownTheme(palette))
+    // `setStatus` below re-derives `editor.borderColor` from the new palette.
     rebuildTranscript(false)
     setStatus(agent.status)
     requestRender()
@@ -1577,21 +2022,50 @@ export function createTuiChat(
       'Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit',
       '',
       ...commandLines,
+      '/skill:<name> [instructions] — load a skill into the conversation',
     ].map(line => palette.muted(line)).join('\n'), 1, 0))
     requestRender()
   }
 
+  // Skill listing is async while `createTuiChat` is synchronous, so the
+  // completions rebuild once the catalog resolves. Disabled-for-model skills
+  // are absent from `list()`, so they never appear as completions; a user can
+  // still invoke one by typing its exact name.
+  let skillCommands: SlashCommand[] = []
   const refreshCommandAutocomplete = (): void => {
     editor.setAutocompleteProvider(new CombinedAutocompleteProvider(
-      ctx.commands.list(agent).map(command => ({
-        name: command.name,
-        description: command.description,
-      })),
+      [
+        ...ctx.commands.list(agent).map(command => ({
+          name: command.name,
+          description: command.description,
+        })),
+        ...skillCommands,
+      ],
       agent.session.header.cwd ?? process.cwd(),
     ))
   }
   const disposeCommandChanges = ctx.on('commands/change', refreshCommandAutocomplete)
   refreshCommandAutocomplete()
+
+  const loadSkillCommands = (service: SkillService): void => {
+    service.list({ cwd, signal: skillAbort.signal }).then(
+      (summaries) => {
+        if (disposed || summaries.length === 0) return
+        skillCommands = summaries.map(skill => ({
+          name: `skill:${skill.name}`,
+          description: skill.description,
+          argumentHint: '[instructions]',
+        }))
+        refreshCommandAutocomplete()
+        requestRender()
+      },
+      () => {
+        // Discovery failed or was aborted on dispose; keep the base slash
+        // commands so autocomplete still works without skill entries.
+      },
+    )
+  }
+  if (skills !== undefined) loadSkillCommands(skills)
 
   // The agent scope is minted by agent-loop and intentionally inherits only
   // that core plugin's dependencies. A child command producer declares its own
@@ -1617,15 +2091,6 @@ export function createTuiChat(
       handler: () => { chat.clear(); requestRender(); return { kind: 'success' } },
     })
     commandCtx.commands.register({
-      name: 'cancel',
-      description: 'Cancel the active turn',
-      handler: () => {
-        if (agent.status !== 'running') return { kind: 'error', text: 'The agent is already idle.' }
-        agent.cancel({ kind: 'user' })
-        return { kind: 'success', text: 'Cancellation requested.' }
-      },
-    })
-    commandCtx.commands.register({
       name: 'reasoning',
       description: 'Toggle reasoning blocks',
       handler: () => { toggleReasoning(); return { kind: 'success' } },
@@ -1639,6 +2104,16 @@ export function createTuiChat(
       name: 'redraw',
       description: 'Invalidate components and redraw the terminal',
       handler: () => { ui.invalidate(); ui.requestRender(true); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'reload',
+      description: 'EXPERIMENTAL (dev): re-read loader config files and apply the diff (idle only)',
+      handler: () => { runReload(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'resume',
+      description: 'List this workspace\'s resumable sessions',
+      handler: () => { showResume(); return { kind: 'success' } },
     })
     commandCtx.commands.register({
       name: 'exit',
@@ -1667,22 +2142,140 @@ export function createTuiChat(
     ).finally(() => { commandControllers.delete(controller) })
   }
 
+  /** Deliver a user turn to the agent: steer while running, send while idle, or report a disposed agent. */
+  const deliver = (payload: string): void => {
+    if (agent.status === 'disposed') {
+      appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
+    } else if (agent.status === 'running') {
+      agent.steer([{ type: 'text', text: payload }])
+    } else {
+      agent.send([{ type: 'text', text: payload }])
+    }
+  }
+
+  /** Load a manually invoked skill and deliver its rendered body as a user turn, reporting lookup outcomes as notices. */
+  const invokeSkill = (name: string, instructions: string): void => {
+    if (skills === undefined) {
+      appendNotice('Skills are not available in this session.', 'warning')
+      return
+    }
+    skills.get(name, { cwd, signal: skillAbort.signal }).then(
+      (skill) => {
+        if (disposed) return
+        if (skill === undefined) {
+          appendNotice(`Unknown skill: ${name}`, 'warning')
+          return
+        }
+        deliver(renderSkillInvocation(skill, instructions))
+      },
+      (error: unknown) => {
+        if (disposed) return
+        appendNotice(`Skill "${name}" failed to load: ${errorChain(error)}`, 'error')
+      },
+    )
+  }
+
+  // EXPERIMENTAL, dev-only: manually re-read every file-backed loader config
+  // tree and apply the diff to the running app — the same path the HMR
+  // watcher's config-change branch drives, minus the watcher. Useful when the
+  // watcher misses an edit (replace-by-rename saves) or HMR is not mounted.
+  // Module-source hot reload stays watcher-owned; this refreshes configs only.
+  let reloadInFlight = false
+  const runReload = (): void => {
+    // Idle-only: a reload can dispose and re-mount entries mid-flight; doing
+    // that under an active turn could tear tools or the adapter out from
+    // under in-flight calls. Idleness is advisory (a send can race in after
+    // the check), but it removes the common footgun.
+    if (agent.status !== 'idle') {
+      appendNotice(`/reload requires an idle agent (status: ${agent.status}).`, 'warning')
+      return
+    }
+    // Re-entrancy guard: concurrent refreshes over a genuinely changed file
+    // would race unmutexed tree updates (create/remove interleaving); one
+    // reload at a time keeps the update pass single-writer.
+    if (reloadInFlight) {
+      appendNotice('A config reload is already running.', 'warning')
+      return
+    }
+
+    // Optional-service lookup: the TUI must not depend on the Loader (tests
+    // and embedders run without one), so `loader` stays out of `inject` and
+    // is read through the non-throwing `ctx.get` accessor — a bare `ctx.loader`
+    // proxy read would throw `cannot get property without inject` in a fiber.
+    const loader = ctx.get('loader') as { entries(): Iterable<{ subtree?: { refresh?(): Promise<void> } }> } | undefined
+    if (loader === undefined) {
+      appendNotice('/reload needs the cordis Loader; this runtime has none.', 'warning')
+      return
+    }
+    const refreshes: Promise<void>[] = []
+    for (const entry of loader.entries()) {
+      if (entry.subtree?.refresh !== undefined) refreshes.push(entry.subtree.refresh())
+    }
+    reloadInFlight = true
+    appendNotice(`Reloading ${refreshes.length} config tree(s)… (experimental)`)
+    // refresh() never rejects (it warns and keeps the running tree), so the
+    // join can only fulfill; the catch arm guards a future contract change.
+    void Promise.all(refreshes).then(() => {
+      appendNotice('Config reload complete. Unchanged files were skipped; invalid files keep the running tree (see logs).')
+    }).catch((error: unknown) => {
+      appendNotice(`Config reload failed: ${errorChain(error)}`, 'error')
+    }).finally(() => {
+      reloadInFlight = false
+    })
+  }
+
+  /**
+   * List this workspace's resumable sessions, newest first, each with its
+   * resume command and a marker on the current one. Warns when resume is not
+   * configured or no persistence backend is mounted; notes when nothing is
+   * persisted yet. The listing is asynchronous (a persistence scan), so the
+   * transcript updates once it resolves.
+   */
+  const showResume = (): void => {
+    const template = config.resumeCommand
+    if (template === undefined) {
+      appendNotice('Resume is not configured for this app.', 'warning')
+      return
+    }
+    if (persistence === undefined) {
+      appendNotice('Resume is not available: no persistence backend is mounted.', 'warning')
+      return
+    }
+    void listWorkspaceSessions().then((sessions) => {
+      if (sessions.length === 0) {
+        appendNotice('No resumable sessions found for this workspace yet.', 'info')
+        return
+      }
+      chat.addChild(new Spacer(1))
+      chat.addChild(new Text(palette.bold(palette.accent('Resumable sessions')), 1, 0))
+      const lines = sessions.map((header) => {
+        const when = new Date(header.createdAt).toISOString().slice(0, 16).replace('T', ' ')
+        const marker = header.id === agent.session.id ? palette.success(' (current)') : ''
+        return `${palette.muted(when)}${marker}\n  ${displayText(template.replaceAll('{session}', header.id))}`
+      })
+      chat.addChild(new Text(lines.join('\n'), 1, 0))
+      requestRender()
+    })
+  }
+
   editor.onSubmit = (value: string) => {
     const text = value.trim()
     if (text === '') return
     editor.addToHistory(text)
     editor.setText('')
+    // `/skill:<name>` carries a colon, which the command registry's name
+    // grammar rejects, so it is intercepted before generic command routing.
+    if (text.startsWith(SKILL_COMMAND_PREFIX)) {
+      const { name, instructions } = parseSkillCommand(text)
+      if (name === '') appendNotice('Usage: /skill:<name> [instructions]', 'warning')
+      else invokeSkill(name, instructions)
+      return
+    }
     if (value.startsWith('/')) {
       runCommand(value)
       return
     }
-    if (agent.status === 'disposed') {
-      appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
-    } else if (agent.status === 'running') {
-      agent.steer([{ type: 'text', text }])
-    } else {
-      agent.send([{ type: 'text', text }])
-    }
+    deliver(text)
   }
 
   const removeInputListener = ui.addInputListener((data) => {
@@ -1725,6 +2318,15 @@ export function createTuiChat(
   const disposeSessionEvents = ctx.on('session/event', (session, event) => {
     if (session !== agent.session) return
     recordEventUsage(tokens, event)
+    advanceTurnPhase(event)
+    if (event.type === 'user/message') generateTitle(contentText(event.data.content).trim())
+    if (event.type === 'steering/message' && pendingSteering > 0) {
+      // A queued steering message reached the model as it drained; drop it from
+      // the badge. Clamped because loop-authored steering (e.g. continuation
+      // reasons) also logs here without a matching user-queued increment.
+      pendingSteering -= 1
+      refreshStatus()
+    }
     if ('surfaceOp' in event && typeof event.surfaceOp === 'object') {
       rebuildTranscript(false)
       return
@@ -1732,8 +2334,17 @@ export function createTuiChat(
     renderEvent(event, { addHistory: false, renderChunks: true })
     requestRender()
   })
+  const disposeQueued = ctx.on('agent/queued', (subject, _content, info) => {
+    if (subject !== agent || !info.steering) return
+    pendingSteering += 1
+    refreshStatus()
+  })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {
     if (subject !== agent) return
+    // Leaving 'running' ends the turn's status line; clear any badge so the
+    // next running turn starts from zero (and a cancellation, which discards
+    // the queue without logging drains, cannot strand a stale count).
+    if (status !== 'running') pendingSteering = 0
     setStatus(status)
   })
   const disposeError = ctx.on('agent/error', (subject, turn, step, error) => {
@@ -1750,14 +2361,45 @@ export function createTuiChat(
   })
 
   const detachListeners = (): void => {
+    skillAbort.abort()
     removeInputListener()
     disposeCommandChanges()
+    stopBannerReveal()
     disposeSessionEvents()
+    disposeQueued()
     disposeStatus()
     disposeError()
     disposeAgent()
     disposeSchemeListener()
     disposeTargetListeners()
+  }
+
+  // Sweep reveal of the whole banner: the header wipes in left-to-right over
+  // ~BANNER_REVEAL_STEPS frames (started after `ui.start()` succeeds).
+  // Configured subtitles skip it so deployments (and snapshot fixtures) stay
+  // frame-deterministic.
+  let revealTimer: ReturnType<typeof setInterval> | undefined
+  const stopBannerReveal = (): void => {
+    if (revealTimer === undefined) return
+    clearInterval(revealTimer)
+    revealTimer = undefined
+    header.setRevealWidth(undefined)
+  }
+  const startBannerReveal = (): void => {
+    if (config.welcome !== undefined) return
+    const total = Math.max(1, runtime.terminal.columns)
+    const step = Math.max(1, Math.ceil(total / BANNER_REVEAL_STEPS))
+    let shown = 0
+    header.setRevealWidth(0)
+    revealTimer = setInterval(() => {
+      shown += step
+      if (shown >= total) {
+        stopBannerReveal()
+      } else {
+        header.setRevealWidth(shown)
+      }
+      requestRender()
+    }, BANNER_REVEAL_INTERVAL_MS)
   }
 
   rebuildTranscript(true)
@@ -1778,6 +2420,7 @@ export function createTuiChat(
     ui.stop()
     throw error
   }
+  startBannerReveal()
 
   return {
     async dispose(): Promise<void> {
@@ -1833,9 +2476,12 @@ export function mountTui(ctx: Context, config: Config, runtime: TuiRuntime): voi
    and the tui-agent PTY smoke covers the real entry */
 export function apply(ctx: Context, config: Config): void {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error('ui-tui: both stdin and stdout must be TTYs; use @deepseek-ai/dsh-cli-demo for non-interactive runs')
+    throw new Error('ui-tui: both stdin and stdout must be TTYs; use the one-shot @deepseek-ai/dsh-cli-demo app for pipes')
   }
-  mountTui(ctx, config, {
+  // Truecolor is a terminal capability, so detect it here at the process
+  // boundary from COLORTERM; an explicit `truecolor` config value still wins.
+  const truecolor = config.truecolor ?? ['truecolor', '24bit'].includes(process.env.COLORTERM ?? '')
+  mountTui(ctx, Object.assign({}, config, { truecolor }), {
     terminal: new ProcessTerminal(),
     exit: code => process.exit(code),
   })

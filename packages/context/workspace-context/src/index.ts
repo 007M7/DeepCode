@@ -92,6 +92,7 @@ export function apply(ctx: Context, config: Config): void {
     if (update !== undefined) {
       agent.inject(update.context.content, {
         source: update.context.source,
+        envelope: update.context.envelope,
         meta: update.context.meta,
       })
       applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)

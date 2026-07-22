@@ -1335,7 +1335,7 @@ describe('terminal mounting', () => {
     expect(terminal.output).toBe('')
     expect(exit).not.toHaveBeenCalled()
     ctx.emit('agent-loop/config-start-failed', SessionId('main-session'), new Error('resume \u001b]2;failure-controlled\u0007'))
-    expect(terminal.output).toBe('ui-tui: session "main-session" failed to start: resume \\x1b]2;failure-controlled\\x07\n')
+    expect(terminal.output).toBe('ui-tui: session "main-session" failed to start: Error: resume \\x1b]2;failure-controlled\\x07\n')
     expect(exit).toHaveBeenCalledWith(1)
 
     const session = ctx.sessions.create(SessionId('main-session'))
@@ -1365,7 +1365,7 @@ describe('terminal mounting', () => {
     })
 
     expect(terminal.started).toBe(0)
-    expect(terminal.output).toBe('ui-tui: session "main-session" failed to start: <unrenderable value>\n')
+    expect(terminal.output).toBe('ui-tui: session "main-session" failed to start: <unrenderable thrown value>\n')
     expect(exit).toHaveBeenCalledWith(1)
     await ctx.fiber.dispose()
   })

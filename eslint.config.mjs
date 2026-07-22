@@ -14,7 +14,6 @@ export default tseslint.config(
       '**/.doc-typecheck-*/**',
       'website/.generated/**',
       'vendor/**', // vendored source keeps upstream style and idioms
-      'native/**', // imported landlock-run subtree: self-contained workspace with its own gates (native/README.md)
       '**/*.js',
       '**/*.mjs',
       '*.config.ts', // root tool configs (vitest, tsdown) — no project service

@@ -1,52 +1,75 @@
-# Full-screen coding agent with swappable DeepSeek and local capability backends.
-# `dsh-tui-demo` supplies the spine, workspace instructions, generic task controls,
-# JSONL persistence, the TUI front door, and `main`. HMR remains a leaf because
-# it requires Loader internals; `demo:tui` passes `--expose-internals`.
+# Full-screen TUI coding agent with swappable DeepSeek and local-bash backends.
+# `dsh-tui-demo` supplies the agent spine, workspace instructions, generic
+# task controls, JSONL persistence, the pi-tui front door, and `main`.
+# HMR remains a leaf because it requires Loader internals; `demo:tui` passes
+# `--expose-internals`. The app bin loads the gitignored root `.env`; this file
+# reads `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL` through `!!js`.
 
+# Hot-module reload for the dev/demo loop (needs `node --expose-internals`).
 - id: hmr
   name: '@cordisjs/plugin-hmr'
   config:
     root: ['.']
 
+# The native DeepSeek adapter. Shipped default: full thinking at max effort on
+# every request (wire-only defaults; they never enter the request header).
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
+    thinking: enabled
+    reasoningEffort: max
 
+# Local executor for the app bundle's bash tool.
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:
     timeoutMs: 60000
 
+# The app bundle pre-creates the TUI's `main` agent.
 - id: tui-agent
   name: '@deepseek-ai/dsh-tui-demo'
   config:
     provider: deepseek
-    model: deepseek-v4-flash
+    model: deepseek-v4-pro
+    # Set RESUME_SESSION_ID to continue a prior persisted session (the ids live
+    # under ./.sessions); unset starts a fresh session each run.
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
     persistenceRoot: './.sessions'
+    # Printed on exit and listed by `/resume`; `{session}` fills the live id.
+    # `dsh --resume <id>` sets RESUME_SESSION_ID above, so run it from this cwd.
+    resumeCommand: 'dsh --resume {session}'
     workspaceContext:
       maxBytes: 65536
-    welcome: 'TUI agent ready. Give it a coding task.'
     ui:
       showReasoning: true
       maxToolOutputLines: 6
+      # Rename the terminal after the first message with a short model-made title.
+      autoTitle: true
+    # Keep the persona to identity and behavior; tool plugins own tool guidance.
+    # The loop resolves {{model}} from this agent's configuration.
     persona: |
       You are a coding agent powered by the {{model}} model.
 
       Verify your work by running the code or tests. Keep answers brief and
       factual.
 
+# Replay-aware request pressure with one service-wide context window.
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
 
 - id: tool-result-prune
   name: '@deepseek-ai/dsh-compact-tool-result-prune'
 
+# Summarize an older range after measured pressure or a canonical provider overflow.
+# Service-wide policy provides pressure, retention, and one overflow-retry default.
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
 
+# Expose fresh-child `spawn` and completed-prefix `fork` through independent
+# in-process backends. Each tool instance needs a distinct `toolName`; the registry
+# rejects duplicates. These leaves follow the app because it provides `ctx.agents` and `ctx.tools`.
 - id: subagent
   name: '@deepseek-ai/dsh-subagent'
 
@@ -72,6 +95,9 @@
     provider: fork
     toolName: subagent_fork
 
+
+# The worker-thread workflow engine fans a model-written JavaScript script's
+# `agent()` calls out through the spawn backend; the adjacent tool exposes it to the model.
 - id: workflow-workerthread
   name: '@deepseek-ai/dsh-workflow-workerthread'
   config:
@@ -85,9 +111,8 @@
 - id: tool-ralph
   name: '@deepseek-ai/dsh-tool-ralph'
 
-- id: tool-todo
-  name: '@deepseek-ai/dsh-tool-todo'
-
+# Policy loads before the model-facing filesystem tools so writes and edits require
+# an observed file. This single-session app resolves relative paths from the process cwd.
 - id: fs-local
   name: '@deepseek-ai/dsh-fs-local'
   config:
@@ -99,12 +124,24 @@
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
 
+# Bash-backed discovery tools (glob/grep): fixed ripgrep commands through the
+# local bash executor above — not ctx.fs. Capped results save the complete
+# formatted list through the spill backend below (ctx.spillStore, optional).
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'
 
+# The tool-call timeout enforcer: arms each declared ToolDefinition.timeoutMs
+# (the search tools above declare 30s) as a deadline on exec.signal. Without
+# it a declared budget is advisory and only the bash executor's own timeout
+# backstop applies.
 - id: timeout-policy
   name: '@deepseek-ai/dsh-timeout-policy'
 
+# Tool-output spill stack: a local backend that saves oversized tool text under
+# a private session-scoped dir, and the tools/post-execute policy that replaces
+# an over-budget plain-text result with a preview + the spill locator/retrieval
+# hint. A leaf pair after the app (needs ctx.tools). The policy is a no-op until
+# a tool returns more than maxInlineBytes of plain text.
 - id: spill-local
   name: '@deepseek-ai/dsh-spill-local'
 

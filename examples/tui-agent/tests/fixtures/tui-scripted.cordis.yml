@@ -27,3 +27,4 @@
     persona: 'Scripted model {{model}}.'
     ui:
       showReasoning: true
+      autoTitle: true
