@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 subagent.md: eb9160abaee26969aecdc533fb9fd56fae18b7fa
-subagent.zh.md: f29ebcd50b5d3a6d961583e381b81eb88ab95823
+subagent.zh.md: c8f680217a9f62f245a4de81cbc546deba87bbed

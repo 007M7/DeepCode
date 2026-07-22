@@ -2,13 +2,13 @@
 
 [English](user-interaction.md) | 中文
 
-[dsh-user-interaction](../../packages/ui/user-interaction) 的用户交互 seam。它是工具或权限插件在需要人类回答后 agent 才能继续时所使用的提供方无关词汇。UI 表面提供活跃的 `UserInteractionProvider`：`dsh-stdio-demo` 在 readline 中渲染问题，`dsh-acp` 将其映射为 ACP 表单引出。
+[dsh-user-interaction](../../packages/ui/user-interaction) 的用户交互 seam。它是提供方无关的词汇，工具或权限插件在需要人类回答后 agent（智能体）才能继续时使用这套词汇。UI 表面提供活跃的 `UserInteractionProvider`：`dsh-stdio-demo` 在 readline 中渲染问题，`dsh-acp` 将其映射为 ACP（Agent Client Protocol）表单征询。
 
 源码：[`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-interaction/src/index.ts)
 
 ## 问题选项
 
-`AskUserQuestionOption` 是可选择项的形状。`label` 是面向用户的选项文字，同时也是模型侧选中后的值；`description` 是可选的 UI 辅助文字。
+`AskUserQuestionOption` 是可选择项的形状。`label` 是面向用户的选项文字，同时也是面向模型的选中值；`description` 是可选的 UI 帮助文本。
 
 ```ts type-equiv
 interface AskUserQuestionOption {
@@ -40,7 +40,7 @@ interface AskUserQuestionItem {
 
 ## 提问请求
 
-`AskUserQuestionRequest` 是跨包请求。`questions` 是数组，这样 UI 可以在一次流程中展示相关问题，同时为每个回答保留稳定的 id。
+`AskUserQuestionRequest` 是跨包（package）的请求。`questions` 是数组，这样 UI 可以在一个流程中呈现相关提示，同时保持每个回答有稳定的 id。
 
 ```ts type-equiv
 interface AskUserQuestionRequest {
@@ -55,7 +55,7 @@ interface AskUserQuestionRequest {
 
 ## 回答
 
-提供方为每个已回答的问题 id 返回一条回答。`selected` 包含选中的选项 label，`custom` 在用户输入了自由文本"其他"答案时携带该内容。当 `custom` 存在时，`selected` 为空；自定义文本是对选中项的覆盖，而非补充。
+提供方为每个已回答的问题 id 返回一条回答。`selected` 包含选中的选项标签，`custom` 在用户输入自由文本时携带「其他」回答。当 `custom` 存在时，`selected` 为空；自定义文本是对选中项的覆盖，而非补充。
 
 ```ts type-equiv
 interface AskUserQuestionAnswerItem {
@@ -77,7 +77,7 @@ interface AskUserQuestionAnswer {
 
 ## 提供方
 
-同一上下文中只能有一个活跃的提供方。提供方注册与 effect 绑定，因此 HMR（热模块替换）或 dispose（资源释放）会移除活跃的 UI。
+同一上下文中只能有一个活跃的提供方。提供方注册绑定到 effect，因此 HMR（热模块替换）或 dispose（资源释放）会移除当前活跃的 UI。
 
 ```ts type-equiv
 interface UserInteractionProvider {
@@ -87,7 +87,7 @@ interface UserInteractionProvider {
 
 ## 错误
 
-`UserInteractionError` 继承 `HarnessError`，因此 `ctx.tools.execute()` 会为面向模型的工具失败保留 `{ name, code }`，例如 `EMPTY_QUESTIONS`、`NO_PROVIDER`、`ASK_ABORTED` 或 ACP 侧的取消。
+`UserInteractionError` 继承 `HarnessError`，因此 `ctx.tools.execute()` 会保留 `{ name, code }`，用于面向模型的工具失败，如 `EMPTY_QUESTIONS`、`NO_PROVIDER`、`ASK_ABORTED` 或 ACP 侧取消。
 
 ```ts type-equiv
 class UserInteractionError extends HarnessError {
