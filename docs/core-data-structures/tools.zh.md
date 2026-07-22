@@ -46,7 +46,7 @@ interface ToolDefinition extends ToolSchema {
 
 ## 类型化 schema DSL
 
-插件作者为每个属性编写带有布尔值 `required: true` 的规格，类型层面的辅助工具将规格映射为 `execute` 的参数类型——零类型断言。该 DSL 是为 `ToolDefinition` 提供类型的*机制*；它有意作为子页面细节，而非核心内容。
+插件作者为每个属性编写带有布尔值 `required: true` 的规格，类型层面的辅助工具将规格映射为 `execute` 的参数类型——零类型断言。该 DSL 是*提供类型推导的机制*，作用于 `ToolDefinition`；它有意作为子页面细节，而非核心内容。
 
 源码：[`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts)
 
@@ -193,7 +193,7 @@ type PostToolDecision =
 
 ## 结构化输出 schema 子集
 
-调用方用来向 subagent 要求机器可读结果的词汇（`SubagentStartRequest.outputSchema`，见 [subagent.md](subagent.md#the-start-request)），或工作流 `agent()` 调用使用的词汇。它有意**不是**完整的 JSON Schema：schema 原样传给模型作为强制工具的 `parameters`，产出的值由 `validateStructuredValue` 在客户端校验——因此每个被接受的关键字都必须是校验器实际执行的，`assertSupportedOutputSchema` 会大声拒绝其他任何内容（`OutputSchemaError`，列出所有违规项）。两个遍历器仅推理自有可枚举属性（JSON 不携带其他内容），并拒绝会有损序列化的非纯对象（`Date`、`Map`）。
+调用方用来向 subagent 要求机器可读结果的词汇（`SubagentStartRequest.outputSchema`，见 [subagent.md](subagent.md#the-start-request)），或工作流 `agent()` 调用使用的词汇。它有意不是完整的 JSON Schema：schema 原样传给模型作为强制工具的 `parameters`，产出的值由 `validateStructuredValue` 在客户端校验——因此每个被接受的关键字都必须是校验器实际执行的，`assertSupportedOutputSchema` 会大声拒绝其他任何内容（`OutputSchemaError`，列出所有违规项）。两个遍历器仅推理自有可枚举属性（JSON 不携带其他内容），并拒绝会有损序列化的非纯对象（`Date`、`Map`）。
 
 ```ts type-equiv
 type StructuredScalar = string | number | boolean | null
@@ -230,7 +230,7 @@ type StructuredOutputSchema = StructuredSchemaNode & { type: 'object' }
 工具希望其调用在 UI 中如何呈现（编辑器工具调用卡片、CLI 日志行），提供方无关，使工具在不依赖任何客户端协议的情况下描述自身。`presentCall`/`presentResult` 返回一个 **`card` 标签的渲染意图**——一个可辨识联合类型，UI 桥接层据此分发：
 
 - `ToolCallView`（待执行）：`{ card: 'generic', title, kind?, rawInput?, content?, locations? }`（默认卡片；`locations` 是 `{ path, line? }[]`，表示调用读取/修改的文件，供编辑器跟随）、`{ card: 'terminal', title, description?, cwd? }`（shell 命令→终端卡片）、或 `{ card: 'diff', title, diffs, locations? }`（文件创建/修改→行内 diff 卡片；`diffs` 是 `{ path, oldText, newText }[]`，新文件时 `oldText: null`）。
-- `ToolResultView`（已完成）：`{ card: 'generic', title?, content? }`、`{ card: 'terminal', title?, output?, exitCode?, signal? }`（捕获的运行输出 + 退出状态；有能力的 UI 显示退出状态标签，无能力的 UI 获得桥接层从 `output` 派生的围栏 ` ```console ` 回退）、或 `{ card: 'diff', title?, diffs }`（已完成的文件变更→要展示的变更，通常是从变更前后内容计算出带上下文行的已应用 hunk，或在没有前像时的整文件 diff——例如文件创建。`tool_call_update` 的内容会**替换**调用的内容，因此变更工具即使与调用时的片段重复也要返回此卡片，以防结果文本覆盖 diff）。
+- `ToolResultView`（已完成）：`{ card: 'generic', title?, content? }`、`{ card: 'terminal', title?, output?, exitCode?, signal? }`（捕获的运行输出 + 退出状态；有能力的 UI 显示退出状态标签，无能力的 UI 获得桥接层从 `output` 派生的围栏 ` ```console ` 回退）、或 `{ card: 'diff', title?, diffs }`（已完成的文件变更→要展示的变更，通常是从变更前后内容计算出带上下文行的已应用 hunk，或在没有前像时的整文件 diff——例如文件创建。`tool_call_update` 的内容会替换调用的内容，因此变更工具即使与调用时的片段重复也要返回此卡片，以防结果文本覆盖 diff）。
 
 `ToolCallKind`（`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`）为 generic 卡片选择图标。`FileLocation`（`{ path, line? }`）和 `FileDiff`（`{ path, oldText, newText }`）是共享的文件卡片词汇。该设计固定在[渲染意图联合类型 RFC](../rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md) 中；ACP 桥接层将 `diff` 卡片映射为 `{ type: 'diff' }` 内容块，将 `terminal` 卡片映射为 `_meta` 终端约定，并将文件卡片的标题相对于会话 cwd 做相对化处理。
 

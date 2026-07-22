@@ -16,6 +16,8 @@
 
 文件名中的日期是该主题**首次提出**的时间（以 git 历史为准）。RFC 之间的交叉引用使用相对 Markdown 链接（`[topic](../../implemented/architecture/2026-…-….md)`），从不使用纯文字或编号，这样既可机械检查，也能在文件夹间移动时保持有效。
 
+<a id="classification"></a>
+
 ## 分类
 
 每份 RFC 属于 `scripts/rfc-index.ts` 中封闭集合里的一个路径编码类别；分类门禁拒绝其他文件夹。[INDEX.md](INDEX.md) 由路径、标题和文件名日期生成，其新鲜度受门禁保护。新增类别需要同时更新规范集合与本节。见[分类 RFC](implemented/process/2026-06-20-rfc-classification.md) 与[索引生成 RFC](implemented/process/2026-07-04-generate-rfc-index-tables.md)。
@@ -23,7 +25,7 @@
 | 类别 | 覆盖范围 |
 |---|---|
 | `feature` | 面向用户或模型的新能力。 |
-| `bug-fix` | 修正缺陷或弥补事后复盘发现的缺口。 |
+| `bug-fix` | 修正缺陷或弥补事故复盘（postmortem）发现的缺口。 |
 | `simplification` | 在不增加能力的前提下移除代码、行为或对外表面积。 |
 | `architecture` | 关于**交付源码**的结构性决策：包之间的关系、运行时词汇。 |
 | `process` | 代码**周边**的工具、策略或工作流——门禁、包管理器、vendor 化——不涉及运行时行为。 |
@@ -35,7 +37,9 @@
 
 当一个决策具备以下三个特征时，请写一份 RFC：**持久性**（它的影响超出单个函数或包）、**争议性**（存在一个合理工程师可能选择的真实替代方案）、**意外性**（未来读者否则会问「为什么要这样做」）。对未来重大工作的提案从 `proposed/` 开始；已经做出的决策从 `implemented/` 开始。选择与决策匹配的类别文件夹（见[分类](#classification)）。
 
-以下情况**不要**写 RFC：机械性或局部的选择（一个变量名、一次单文件重构）；已由门禁或 AGENTS.md 中的约定强制执行并解释的事项；代码中标记为 `TODO(...)` 的临时决策——将其记为 TODO，待稳定后再升级为 RFC。RFC 永远不会被编辑为一个*不同的决策*：用新 RFC 取代旧的，并互相链接。（编辑 `implemented/` RFC 以跟踪其已做出的决策现在*位于*何处——移动的文件、重命名的包——不是不同的决策，这是必需的而非禁止的；见 [implemented/AGENTS.md](implemented/AGENTS.md)。）
+以下情况不要写 RFC：机械性或局部的选择（一个变量名、一次单文件重构）；已由门禁或 AGENTS.md 中的约定强制执行并解释的事项；代码中标记为 `TODO(...)` 的临时决策——将其记为 TODO，待稳定后再升级为 RFC。RFC 永远不会被编辑为一个*不同的决策*：用新 RFC 取代旧的，并互相链接。（编辑 `implemented/` RFC 以跟踪其已做出的决策现在*位于*何处——移动的文件、重命名的包——不是不同的决策，这是必需的而非禁止的；见 [implemented/AGENTS.md](implemented/AGENTS.md)。）
+
+<a id="the-file-format"></a>
 
 ## 文件格式
 

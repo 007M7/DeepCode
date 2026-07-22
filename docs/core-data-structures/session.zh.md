@@ -122,7 +122,7 @@ export interface EpochHeader {
 }
 ```
 
-规范形式：空的系统提示词、空的工具列表和空的会话前缀均为 ABSENT 字段，与请求构建方式一致。`messagePrefix` 是 `agent/session-prefix` waterfall（瀑布式事件）产物的持久记录（请求 = `messagePrefix` + 派生历史）；每个 agent loop（智能体循环）实例组合一次，由该实例的快照锚定，因此实际上 loop 不会产生前缀 delta。delta 分支（整数组替换，空数组编码「回到无前缀」的转换）存在是为了编解码的完备性。其他 delta payload（`SystemDelta`：公共前缀/后缀行裁剪；`ToolsDelta`：按名称键控的增/删/改）与事件一起定义在 [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)。
+规范形式：空的系统提示词、空的工具列表和空的会话前缀均为 ABSENT 字段，与请求构建方式一致。`messagePrefix` 是 `agent/session-prefix` waterfall（瀑布式事件）产物的持久记录（请求 = `messagePrefix + derived history`）；每个 agent loop（智能体循环）实例组合一次，由该实例的快照锚定，因此实际上 loop 不会产生前缀 delta。delta 分支（整数组替换，空数组编码「回到无前缀」的转换）存在是为了编解码的完备性。其他 delta payload（`SystemDelta`：公共前缀/后缀行裁剪；`ToolsDelta`：按名称键控的增/删/改）与事件一起定义在 [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)。
 
 ## `SessionEvent<T>`：一条日志条目
 
@@ -175,7 +175,7 @@ export type SurfaceOp =
   | { op: 'replace'; start: number; end: number }
 ```
 
-`'append'` 是正常的尾部追加路径。`replace` 遮蔽从 `start` 到 `end`（含两端）的 surface 节点（两者都必须是有效的 surface 节点 seq），并在其位置插入新节点。
+`'append'` 是正常的尾部追加路径。`replace` 遮蔽从 `start` 到 `end`（含两端）的 surface 节点（两者都必须是有效的 surface 节点 seq；`start === end` 时只替换一个节点），并在其位置插入新节点。
 
 ### `SurfaceIntent`：`session.append()` 的参数
 

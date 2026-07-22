@@ -8,7 +8,7 @@
 
 ## `compact/*` 会话事件
 
-上下文压缩通过声明合并为 [`SessionEventMap`](session.md) 扩展了三种事件类型。三者均为**仅日志**事件：它们记录压缩锁及其来源信息，永远不进入 surface。`SurfaceEventType` 被刻意**不**扩展（只有产生消息的事件才到达模型），因此摘要本身搭载在一条独立的 `user/message` 上，带有 `surfaceOp: { op: 'replace', start, end }`——唯一的 surface 变更。关于为何复用 `user/message` 是诚实的做法而非权宜之计，见 RFC。
+上下文压缩通过声明合并为 [`SessionEventMap`](session.md) 扩展了三种事件类型。三者均为**仅日志**事件：它们记录压缩锁及其来源信息，永远不进入 surface。`SurfaceEventType` 被刻意不扩展（只有产生消息的事件才到达模型），因此摘要本身搭载在一条独立的 `user/message` 上，带有 `surfaceOp: { op: 'replace', start, end }`——唯一的 surface 变更。关于为何复用 `user/message` 是诚实的做法而非权宜之计，见 RFC。
 
 | 事件 | 载荷 | 作用 |
 |---|---|---|

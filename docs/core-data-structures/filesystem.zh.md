@@ -121,7 +121,7 @@ interface FileReadOutcome {
 
 ## 已观测文件状态（策略插件）
 
-已观测状态是 `dsh-fs-policy` 插件内部持有的 `WeakMap<owner, Map<targetKey, { version }>>`。当且仅当所有者已读取、写入或编辑过该目标时（每次成功都 emit `fs/observed`），条目才存在，因此其存在本身就是先前观测的记录——没有单独的 `hasRead` 标志，也没有视图区分。所有者从事件 actor 推导（通常是 `exec.agent.session`），被视为不透明且从不读取。成功的 read/write/edit 会刷新该所有者对应的已记录版本；dispose（资源释放）时丢弃全部数据（HMR（热模块替换）安全）。
+已观测状态是 `dsh-fs-policy` 插件内部持有的 `WeakMap<owner, Map<targetKey, { version }>>`。**当且仅当**所有者已读取、写入或编辑过该目标时（每次成功都 emit `fs/observed`），条目才存在，因此其存在本身就是先前观测的记录——没有单独的 `hasRead` 标志，也没有视图区分。所有者从事件 actor 推导（通常是 `exec.agent.session`），被视为不透明且从不读取。成功的 read/write/edit 会刷新该所有者对应的已记录版本；dispose（资源释放）时丢弃全部数据（HMR（热模块替换）安全）。
 
 ## 错误分类体系（提供方 seam）
 
@@ -146,4 +146,4 @@ type FsErrorCode =
 
 ## 服务与插件
 
-`FileSystem`（`ctx.fs`，抽象）拥有提供方原语：`resolve`、`stat`、`readText`、`streamText`、`listDir`、`writeText` 和 `editText`。`dsh-fs-policy` 不注册任何服务——它是一个通过 `fs/*` 事件门控叠加策略的插件：它裁决 write/edit intent waterfall（提供 `createIfAbsent`/`replaceIfVersion`/`{ version }` 或抛出 `FS_NOT_OBSERVED`），并在 `fs/observed` 上记录。执行器是 `dsh-tool-fs`：它通过 `ctx.fs` 读取/写入/编辑，分发 waterfall，并 emit 记录事件。生成的接线目录在 [services.md](../cordis-catalog/services.md#ctxfs--filesystem-abstract-seam) 中展示确切的 `ctx.fs` 签名。
+`FileSystem`（`ctx.fs`，抽象）拥有提供方原语：`resolve`、`stat`、`readText`、`streamText`、`listDir`、`writeText` 和 `editText`。`dsh-fs-policy` **不注册任何服务**——它是一个通过 `fs/*` 事件门控叠加策略的插件：它裁决 write/edit intent waterfall（提供 `createIfAbsent`/`replaceIfVersion`/`{ version }` 或抛出 `FS_NOT_OBSERVED`），并在 `fs/observed` 上记录。执行器是 `dsh-tool-fs`：它通过 `ctx.fs` 读取/写入/编辑，分发 waterfall，并 emit 记录事件。生成的接线目录在 [services.md](../cordis-catalog/services.md#ctxfs--filesystem-abstract-seam) 中展示确切的 `ctx.fs` 签名。

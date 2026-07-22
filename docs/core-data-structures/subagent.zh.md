@@ -64,9 +64,11 @@ interface SubagentStopReasonMap {
 }
 ```
 
+<a id="a-live-run-subagentrun"></a>
+
 ## 活跃 run：`SubagentRun`
 
-`SubagentRun` 是消费方持有的、指向一个就绪子 agent 的句柄。消费方 await `result` 并始终 dispose（资源释放）该 run 以达到静止状态。子 agent 失败时以非 completed 的 stop reason resolve；只有不可表示的基础设施故障才会 reject。可选的 `sendMessage` 和 `resume` 方法通过自身的存在来公布运行时能力。
+`SubagentRun` 是消费方持有的、指向一个就绪子 agent 的句柄。消费方 await `result` 并始终 dispose（资源释放）该 run，直至其完全停稳。子 agent 失败时以非 completed 的 stop reason resolve；只有不可表示的基础设施故障才会 reject。可选的 `sendMessage` 和 `resume` 方法通过自身的存在来公布运行时能力。
 
 ```ts type-equiv
 interface SubagentRun {
@@ -91,7 +93,7 @@ interface SubagentProvider {
 }
 ```
 
-`start()` 仅在 run 就绪时 fulfill。服务观察其 result、发出 `subagent/start`，并返回同一个 run；rejection 意味着提供方已自行清理，不发出生命周期配对事件。进程内子 agent 可通过 `ctx.agents` 发现，远程子 agent 则不必如此。`subagent/end` 报告最终输出或基础设施故障。两个事件均为仅观察事件，包含监听器异常。
+`start()` 仅在 run 就绪时 fulfill。服务观察其 result、发出 `subagent/start`，并返回同一个 run；rejection 意味着提供方已自行清理，不发出生命周期配对事件。进程内子 agent 可通过 `ctx.agents` 发现，远程子 agent 则不必如此。`subagent/end` 报告最终输出或基础设施故障。两个事件均为仅观察事件；每个监听器异常都会被独立隔离。
 
 ## 进程内后端：深度与种子
 

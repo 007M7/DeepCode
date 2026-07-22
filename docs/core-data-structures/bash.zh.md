@@ -112,7 +112,7 @@ interface BashExecSpec {
 
 受信的进程内插件使用 `stdin` 和 `env` 传递钩子载荷与钩子专用变量。面向模型的 bash 工具从其命名的 schema 字段构造请求，不暴露这两个输入，因为 shell 语法本身已提供等价能力；测试防止未来出现 `...args` 展开。这是请求形状的纪律约束，而非安全边界：`dsh-bash-local` 无论这些字段如何都会清洗环境凭证，然后叠加调用方已持有的显式值。见 [bash stdin/env RFC](../rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md)。
 
-该 seam 处理的两个 id 都是[品牌化的](core.md)（零成本 `string` 品牌，与 `SessionId`/`AgentId` 相同的机制）：`BashTaskId`（被跟踪的后台任务，由本地执行器生成 `bash-N`）和 `OwnerToken`（不透明的隔离键）。`OwnerToken` 刻意是一个与 `SessionId` **不同**的品牌，而非别名：bash seam 是一个能力 seam，不得知道 owner token *意味着*什么，因此它从不导入 `dsh-session` 的词汇。`dsh-tool-bash` 消费方是唯一将拥有者 agent 的 `SessionId` 转换为 `OwnerToken` 的边界。对两者施加品牌化，可以防止裸 `string`（或在需要 `OwnerToken` 的地方传入 `BashTaskId`，反之亦然）在面向模型的 `task_id` 路径上通过类型检查。
+该 seam 处理的两个 id 都是[品牌化的](core.md)（零成本 `string` 品牌，与 `SessionId`/`AgentId` 相同的机制）：`BashTaskId`（被跟踪的后台任务，由本地执行器生成 `bash-N`）和 `OwnerToken`（不透明的隔离键）。`OwnerToken` 刻意是一个与 `SessionId` 不同的品牌，而非别名：bash seam 是一个能力 seam，不得知道 owner token *意味着*什么，因此它从不导入 `dsh-session` 的词汇。`dsh-tool-bash` 消费方是唯一将拥有者 agent 的 `SessionId` 转换为 `OwnerToken` 的边界。对两者施加品牌化，可以防止裸 `string`（或在需要 `OwnerToken` 的地方传入 `BashTaskId`，反之亦然）在面向模型的 `task_id` 路径上通过类型检查。
 
 ## 前台运行：`BashRunResult`
 

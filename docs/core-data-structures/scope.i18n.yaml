@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 scope.md: f95594329ee9ac83da2efcc31df377c53e64331a
-scope.zh.md: 277fa4ec5c365e5ff3ee6d9baeae525d3dfc9f96
+scope.zh.md: be423e62def89e03f15d438b9fd9db6fd41b68f3

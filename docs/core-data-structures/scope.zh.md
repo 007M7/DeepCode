@@ -22,7 +22,7 @@ type Scoped<T extends object> = object & { readonly [ScopedBrand]: T }
 
 ## 拥有所有权的注册上下文
 
-`Scope` 将带标签的注册上下文与两个拆卸接口配对。`rawDispose` 保留有序复合 effect 所需的精确 Cordis disposer 身份；`dispose()` 是面向直接调用方和竞争调用方的公共静默边界，用于 dispose（资源释放）。
+`Scope` 将带标签的注册上下文与两个拆卸接口配对。`rawDispose` 保留有序复合 effect 所需的精确 Cordis disposer 身份；`dispose()` 是面向直接调用方和竞态调用方的公共停稳边界。
 
 ```ts type-equiv
 interface Scope {
