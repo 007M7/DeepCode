@@ -17,6 +17,6 @@ if (argv[0] === 'web') {
   const { runHeadless } = await import('./headless.ts')
   await runHeadless(argv)
 } else {
-  process.stderr.write('usage: dsh web [--port N] | dsh -p "task"\n')
+  process.stderr.write('usage: dsh web [--host HOST] [--port N] | dsh -p "task"\n')
   process.exit(1)
 }

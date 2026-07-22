@@ -1,8 +1,8 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
-import { createServer as createNetServer, type AddressInfo } from 'node:net'
+import { createServer as createNetServer, Server as NetServer, type AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { startWebServer, type RunningWebServer } from '../src/index.ts'
 
 /** RunningWebServer.port echoes options.port, so tests must pick a concrete free port up front. */
@@ -107,7 +107,7 @@ afterEach(async () => {
 async function boot(onError: (err: Error) => void = () => undefined): Promise<string> {
   const { distIndex } = makeDist()
   const port = await freePort()
-  server = await startWebServer({ port, distIndex, apiHandler: echoingApi }, onError)
+  server = await startWebServer({ host: '127.0.0.1', port, distIndex, apiHandler: echoingApi }, onError)
   return `http://127.0.0.1:${String(server.port)}`
 }
 
@@ -115,7 +115,7 @@ describe('startWebServer', () => {
   it('reports the listening port and closes idempotently', async () => {
     const { distIndex } = makeDist()
     const port = await freePort()
-    server = await startWebServer({ port, distIndex, apiHandler: echoingApi }, () => undefined)
+    server = await startWebServer({ host: '127.0.0.1', port, distIndex, apiHandler: echoingApi }, () => undefined)
     expect(server.port).toBe(port)
     const first = server.close()
     const second = server.close()
@@ -124,11 +124,23 @@ describe('startWebServer', () => {
     server = undefined
   })
 
+  it.each(['127.0.0.1', '0.0.0.0'])('uses the configured bind address %s', async (host) => {
+    const { distIndex } = makeDist()
+    const port = await freePort()
+    const listen = vi.spyOn(NetServer.prototype, 'listen')
+    try {
+      server = await startWebServer({ host, port, distIndex, apiHandler: echoingApi }, () => undefined)
+      expect(listen).toHaveBeenCalledWith(port, host, expect.any(Function))
+    } finally {
+      listen.mockRestore()
+    }
+  })
+
   it('rejects when the port is already taken', async () => {
     const { distIndex } = makeDist()
     const port = await freePort()
-    server = await startWebServer({ port, distIndex, apiHandler: echoingApi }, () => undefined)
-    await expect(startWebServer({ port, distIndex, apiHandler: echoingApi }, () => undefined))
+    server = await startWebServer({ host: '127.0.0.1', port, distIndex, apiHandler: echoingApi }, () => undefined)
+    await expect(startWebServer({ host: '127.0.0.1', port, distIndex, apiHandler: echoingApi }, () => undefined))
       .rejects.toMatchObject({ code: 'EADDRINUSE' })
   })
 })
@@ -185,7 +197,9 @@ describe.skipIf(process.platform === 'win32')('web plugin surfaces (boot injecti
       clientPath: (id: string) => id === rows[0]?.id ? join(distRoot, 'bundle.js') : undefined,
     }
     const port = await freePort()
-    server = await startWebServer({ port, distIndex, apiHandler: echoingApi, webPlugins }, () => undefined)
+    server = await startWebServer(
+      { host: '127.0.0.1', port, distIndex, apiHandler: echoingApi, webPlugins }, () => undefined,
+    )
     return `http://127.0.0.1:${String(server.port)}`
   }
 
@@ -221,7 +235,9 @@ describe.skipIf(process.platform === 'win32')('web plugin surfaces (boot injecti
       clientPath: () => '/nonexistent/lib/client.js',
     }
     const port = await freePort()
-    server = await startWebServer({ port, distIndex, apiHandler: echoingApi, webPlugins }, () => undefined)
+    server = await startWebServer(
+      { host: '127.0.0.1', port, distIndex, apiHandler: echoingApi, webPlugins }, () => undefined,
+    )
     const res = await fetch(`http://127.0.0.1:${String(server.port)}/plugins/@deepseek-ai/dsh-client-connection/client.js`)
     expect(res.status).toBe(404)
   })
