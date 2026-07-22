@@ -103,6 +103,13 @@ describe('snapshotCodeJsonValue', () => {
     Object.defineProperty(spoofedObjectPrototype, 'constructor', { value: SpoofedObject })
     const spoofedObject = Object.create(spoofedObjectPrototype) as Record<string, unknown>
     spoofedObject.value = 1
+    const revokedPrototype = Object.create(null) as Record<string, unknown>
+    const RevokedObject = function Object() {}
+    RevokedObject.prototype = revokedPrototype
+    const revokedConstructor = Proxy.revocable(RevokedObject, {})
+    Object.defineProperty(revokedPrototype, 'constructor', { value: revokedConstructor.proxy })
+    const revokedObject = Object.create(revokedPrototype) as Record<string, unknown>
+    revokedConstructor.revoke()
     const spoofedArrayPrototype: unknown[] = []
     Object.setPrototypeOf(spoofedArrayPrototype, Object.prototype)
     const SpoofedArray = function Array() {}
@@ -124,6 +131,7 @@ describe('snapshotCodeJsonValue', () => {
       customPrototypeObject,
       forgedArray,
       spoofedObject,
+      revokedObject,
       spoofedArray,
       cyclic,
       [undefined],
