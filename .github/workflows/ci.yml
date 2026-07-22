@@ -438,7 +438,7 @@ jobs:
             name: node 24 / cpu
             runner: dsh-ubuntu-24-04-64core
             command: pnpm run check:ci:primary-cpu
-            coverage_workers: '16'
+            coverage_workers: '12'
             gate_concurrency: '6'
             primary_cpu: true
             snapshot_workers: '16'
