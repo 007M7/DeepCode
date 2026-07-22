@@ -17,7 +17,7 @@ const sid = (s: string): SessionId => s as SessionId
 const SCOPE_TAG: symbol = (() => {
   const recorded: (string | symbol)[] = []
   const spy = new Proxy(new Context(), {
-    get(target, prop, receiver) {
+    get(target, prop, receiver): unknown {
       recorded.push(prop)
       return Reflect.get(target, prop, receiver)
     },
@@ -46,6 +46,7 @@ async function bench(opts?: { layout?: boolean; sessions?: boolean }) {
     }
     return scoped
   }
+  const createMock = vi.fn(() => Promise.resolve(sid('new-1')))
   const sessionsFake = {
     manager: {
       get: (id: SessionId) => {
@@ -60,7 +61,7 @@ async function bench(opts?: { layout?: boolean; sessions?: boolean }) {
         return s
       },
     },
-    create: vi.fn(() => Promise.resolve(sid('new-1'))),
+    create: createMock,
     scope: (id: SessionId) => (id === sid('new-1') ? mint(id) : scopes.get(id)),
   } as unknown as SessionsService
   if (opts?.sessions !== false) ctx.provide('sessions', sessionsFake)
@@ -70,7 +71,7 @@ async function bench(opts?: { layout?: boolean; sessions?: boolean }) {
   await fiber.await()
   const svc = ctx.get('conversation') as ConversationService
   const scopedSvc = (id: SessionId) => mint(id).get('conversation') as ConversationService
-  return { ctx, svc, scopedSvc, mint, sessionDoubles, sessionsFake, layoutFake }
+  return { ctx, svc, scopedSvc, mint, sessionDoubles, sessionsFake, createMock, layoutFake }
 }
 
 describe('send / cancel', () => {
@@ -122,7 +123,7 @@ describe('startSession chain', () => {
   it('creates, navigates, then sends through the new scope', async () => {
     const b = await bench()
     await b.svc.startSession({ cwd: '/proj', text: 'first', mode: 'queue' })
-    expect(b.sessionsFake.create).toHaveBeenCalledWith({ cwd: '/proj' })
+    expect(b.createMock).toHaveBeenCalledWith({ cwd: '/proj' })
     expect(b.layoutFake.open).toHaveBeenCalledWith(sid('new-1'))
     expect(b.sessionDoubles.get(sid('new-1'))!.prompt).toHaveBeenCalledWith(
       [{ type: 'text', text: 'first' }], 'queue')
@@ -131,7 +132,7 @@ describe('startSession chain', () => {
   it('omits cwd from create when not chosen', async () => {
     const b = await bench()
     await b.svc.startSession({ text: 't', mode: 'steer' })
-    expect(b.sessionsFake.create).toHaveBeenCalledWith({})
+    expect(b.createMock).toHaveBeenCalledWith({})
   })
 
   it('fails loud when the created session resolves no scope', async () => {

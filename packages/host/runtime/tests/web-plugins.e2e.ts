@@ -50,9 +50,9 @@ describe.skipIf(!built)('mountWebPlugins + registry', () => {
       '@deepseek-ai/dsh-client-ui-theme',
       '@deepseek-ai/dsh-client-i18n',
     ])
-    // Every row resolves a client path under its own package dist/.
+    // Every row resolves a client path under its own package lib/.
     for (const row of rows) {
-      expect(registry.clientPath(row.id)).toMatch(/dist[/\\]client\.js$/)
+      expect(registry.clientPath(row.id)).toMatch(/lib[/\\]client\.js$/)
       expect(row.url).toBe(`/plugins/${row.id}/client.js`)
     }
     registry.dispose()

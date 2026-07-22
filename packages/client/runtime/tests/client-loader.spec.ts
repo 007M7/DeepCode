@@ -185,8 +185,105 @@ describe('failure modes (fail loud)', () => {
     expect(() => createClientLoader({ ctx: new Context(), modules: {}, boot: { plugins: [] } })).toThrow(/already installed/)
   })
 
+  it('direct load() before a dependency is active fails loud (same check start() sequences)', async () => {
+    const b = bench(
+      [entry('dep', [], true), entry('needy', ['dep'])],
+      { '/plugins/dep/client.js': okBundle(), '/plugins/needy/client.js': okBundle() },
+    )
+    await expect(b.loader.load('needy')).rejects.toThrow(/loaded before its dependency "dep" is active/)
+  })
+
+  it('direct load() naming an unknown inject target fails loud', async () => {
+    const b = bench([entry('solo', ['phantom'])], { '/plugins/solo/client.js': okBundle() })
+    await expect(b.loader.load('solo')).rejects.toThrow(/injects unknown plugin "phantom"/)
+  })
+
+  it('an immediately-group fetch failure surfaces through settled, not as an unhandled prefetch rejection', async () => {
+    // The fire-and-forget prefetch swallow arm must absorb the early
+    // rejection; the awaited load surfaces the same failure via settled().
+    const ctx = new Context()
+    delete win.DSHClientProxy
+    const loader = createClientLoader({
+      ctx,
+      modules: {},
+      boot: { plugins: [{ id: 'kaboom', url: '/plugins/kaboom/client.js', inject: [], immediately: true }] },
+      fetchBundle: () => Promise.reject(new Error('bundle fetch exploded')),
+      executeBundle: () => {},
+    })
+    loader.start()
+    await expect(loader.settled()).rejects.toThrow(/bundle fetch exploded/)
+  })
+
   it('unload is the P-I stub', async () => {
     const b = bench([], {})
     await expect(b.loader.unload('x')).rejects.toThrow(/not implemented/)
+  })
+})
+
+describe('DOM default seams (stubbed globals)', () => {
+  it('default fetchBundle uses fetch, rejects non-OK; default executeBundle injects an inline script; claimStyles tags orphans', async () => {
+    const origFetch = globalThis.fetch
+    const appended: { textContent?: string | null }[] = []
+    const styleTag = {
+      attrs: {} as Record<string, string>,
+      setAttribute(k: string, v: string) { this.attrs[k] = v },
+    }
+    const fakeDoc = {
+      createElement: () => {
+        const el = { textContent: null as string | null }
+        return el
+      },
+      head: { appendChild: (el: { textContent?: string | null }) => { appended.push(el) } },
+      querySelectorAll: () => [styleTag],
+    }
+    const g = globalThis as { document?: unknown; fetch: typeof fetch }
+    g.document = fakeDoc
+    g.fetch = ((url: URL | RequestInfo) => Promise.resolve(
+      String(url).includes('bad')
+        ? new Response('x', { status: 500 })
+        : new Response('window.DSHClientProxy.loadPlugin(globalThis.__seamHandoff)', { status: 200 }),
+    )) as typeof fetch
+    try {
+      delete win.DSHClientProxy
+      const ctx = new Context()
+      const loader = createClientLoader({
+        ctx,
+        modules: {},
+        boot: { plugins: [
+          { id: 'seam-ok', url: '/plugins/seam-ok/client.js', inject: [] },
+          { id: 'seam-bad', url: '/plugins/bad/client.js', inject: [] },
+        ] },
+        // NO seams injected (keys omitted, not undefined — exactOptional):
+        // the DOM defaults are under test.
+      })
+      const seamHandoff: ClientPluginHandoff = {
+        id: 'seam-ok',
+        factory: () => ({ apply: () => {} }),
+      }
+      // Default executeBundle only APPENDS the script element (no execution in
+      // our fake DOM), so drive the handoff manually before load resolves it.
+      const loadOk = loader.load('seam-ok')
+      await Promise.resolve()
+      ;(globalThis as Win).DSHClientProxy?.loadPlugin(seamHandoff)
+      await loadOk
+      expect(appended).toHaveLength(1)
+      expect(appended[0]?.textContent).toContain('sourceURL=/plugins/seam-ok/client.js')
+      expect(styleTag.attrs['data-plugin']).toBe('seam-ok')
+      await expect(loader.load('seam-bad')).rejects.toThrow(/answered 500/)
+    } finally {
+      g.fetch = origFetch
+      delete (globalThis as { document?: unknown }).document
+    }
+  })
+})
+
+describe('handoff slot protocol', () => {
+  it('rejects an overlapping loadPlugin before the loader claims the pending handoff', () => {
+    delete win.DSHClientProxy
+    createClientLoader({ ctx: new Context(), modules: {}, boot: { plugins: [] } })
+    const proxy = (globalThis as Win).DSHClientProxy
+    proxy?.loadPlugin({ id: 'first', factory: () => ({ apply: () => {} }) })
+    expect(() => proxy?.loadPlugin({ id: 'second', factory: () => ({ apply: () => {} }) }))
+      .toThrow(/overlapping loadPlugin handoff/)
   })
 })
