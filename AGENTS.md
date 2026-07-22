@@ -71,10 +71,10 @@ When required `gh`, `pnpm`, build, test, or generator commands fail because the 
 
 ### Run relevant checks locally
 
-Agents MUST run the tests and checks relevant to changed behavior before pushing; use [dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md) to select them and report only commands actually run.
+Agents MUST run relevant tests and checks before pushing; select them with [dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md) and report only commands run.
 
-- For product or tooling behavior, start with the narrowest unit, e2e, or purpose-built check that exercises the change. Add focused snapshots for model- or human-visible output, `doc-sync` for documentation, build/hygiene or built-artifact smoke for published runtime paths, and real-API e2e only when those surfaces change.
-- Do not default to the entire repository suite or rerun a passing check solely because commit or push occurs. CI owns exhaustive coverage and the platform matrix; run a full local rehearsal only when the user explicitly requests it, while diagnosing CI, or when a repository-wide change cannot be validated narrowly.
+- Match evidence to the surface: focused tests for behavior, snapshots for model or user output, `doc-sync` for docs, build/hygiene and built smokes for published paths, and real-API e2e for provider behavior.
+- Never default to the full suite or repeat a passing check for commit or push. CI owns exhaustive coverage and the platform matrix; rehearse all locally only by explicit request, for CI diagnosis, or for an irreducibly repository-wide change.
 - `test:coverage`, not `test`, is the CI coverage gate ([why](docs/testing.md)).
 
 ## Secrets / .env
