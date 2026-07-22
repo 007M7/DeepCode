@@ -2,15 +2,17 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import type { Terminal } from '@earendil-works/pi-tui'
+import { CombinedAutocompleteProvider, type Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
 import { type LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type JsonValue, type SessionHeader } from '@deepseek-ai/dsh-session'
 import SkillService, { type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import SessionQueryService from '@deepseek-ai/dsh-session-query'
+import SessionReferenceService, { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   createTuiChat,
@@ -550,7 +552,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).not.toContain('queued')
 
     const queueSteering = (text: string): void => {
-      result.ctx.emit('agent/queued', result.agent, [{ type: 'text', text }], { source: { kind: 'user' }, steering: true })
+      result.ctx.emit('agent/queued', result.agent, [{ type: 'text', text }], { source: { kind: 'user' }, contexts: [], steering: true })
     }
     const drainSteering = (text: string): void => {
       result.session.append('steering/message', { turn: 1, content: [{ type: 'text', text }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -559,7 +561,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A steering queue for a different agent never touches this status line.
     const other = { ...result.agent, id: SessionId('other') } as Agent
     result.terminal.output = ''
-    result.ctx.emit('agent/queued', other, [{ type: 'text', text: 'elsewhere' }], { source: { kind: 'user' }, steering: true })
+    result.ctx.emit('agent/queued', other, [{ type: 'text', text: 'elsewhere' }], { source: { kind: 'user' }, contexts: [], steering: true })
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
@@ -572,7 +574,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     // A non-steering queue (an idle-style send) leaves the badge untouched.
     result.terminal.output = ''
-    result.ctx.emit('agent/queued', result.agent, [{ type: 'text', text: 'sent' }], { source: { kind: 'user' }, steering: false })
+    result.ctx.emit('agent/queued', result.agent, [{ type: 'text', text: 'sent' }], { source: { kind: 'user' }, contexts: [], steering: false })
     drainSteering('first')
     await tick()
     expect(result.terminal.output).toContain('1 queued')
@@ -625,7 +627,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const idle = await setup()
     // A steering queue arriving while idle has no status line to badge, so the
     // refresh is a no-op beyond requesting a render.
-    idle.ctx.emit('agent/queued', idle.agent, [{ type: 'text', text: 'early' }], { source: { kind: 'user' }, steering: true })
+    idle.ctx.emit('agent/queued', idle.agent, [{ type: 'text', text: 'early' }], { source: { kind: 'user' }, contexts: [], steering: true })
     idle.session.append('tool/call', { turn: 1, step: 0, callId: 'pre' as never, name: 'bash', arguments: '{}' })
     await tick()
     expect(idle.terminal.output).not.toContain('Executing tools')
@@ -1005,6 +1007,349 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(disposedAgent)
   })
 
+  it('combines session autocomplete with files and prepares send/steer references asynchronously', async () => {
+    let sourceId = SessionId('uninitialized')
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+        const source = ctx.sessions.create(SessionId('source-session'), { meta: { cwd: process.cwd(), createdAt: 1 } })
+        sourceId = source.id
+        appendUser(source, 'source background')
+        source.append('session/title', {
+          title: 'Source chat',
+          messageSeqs: [0],
+          source: { kind: 'fallback' },
+        })
+        ctx.sessions.create(SessionId('no-cwd'), { meta: { createdAt: 2 } })
+      },
+    })
+
+    result.terminal.send('@no-cwd')
+    await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · no-cwd') })
+    expect(result.terminal.output).toContain('(no cwd)')
+    result.terminal.send('\x03')
+
+    result.terminal.send('@source-session')
+    await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · Source chat') })
+    expect(result.terminal.output).toContain('source-session')
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
+    expect(result.agent.sent).toEqual([[{ type: 'text', text: '@Source chat' }]])
+    expect(result.agent.sentOptions[0]?.contexts).toHaveLength(1)
+
+    const mention = formatSessionReferenceMention({ sessionId: sourceId, label: 'Source chat' })
+    expect(result.agent.sentOptions[0]?.contexts).toMatchObject([{
+      source: { kind: 'plugin', plugin: 'session-reference' },
+      meta: { kind: 'session-reference', references: [{ sessionId: 'source-session' }] },
+    }])
+
+    result.agent.status = 'running'
+    result.terminal.send(`steer ${mention}`)
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(result.agent.steered).toHaveLength(1) })
+    expect(result.agent.steered).toEqual([[{ type: 'text', text: 'steer @Source chat' }]])
+    expect(result.agent.steeredOptions[0]?.contexts).toHaveLength(1)
+    await dispose(result)
+  })
+
+  it('escapes session autocomplete metadata while preserving the referenced session id', async () => {
+    const unsafeId = SessionId('evil\x1b\x07\u009b\ns')
+    const unsafeCwd = '/x/\x1b\x07\u009b\nf'
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+        const source = ctx.sessions.create(unsafeId, { meta: { cwd: unsafeCwd, createdAt: 1 } })
+        appendUser(source, 'safe background')
+      },
+    })
+
+    result.terminal.send('@evil')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Session · evil\\x1b\\x07\\x9b\\x0a')
+    })
+    expect(result.terminal.output).toContain('/x/\\x1b\\x07\\x9b\\x0af')
+    expect(result.terminal.output).not.toContain('evil\x1b\x07')
+    expect(result.terminal.output).not.toContain('/x/\x1b\x07')
+
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
+    expect(result.agent.sent).toEqual([[
+      { type: 'text', text: '@evil\\x1b\\x07\\x9b\\x0as' },
+    ]])
+    expect(result.agent.sentOptions[0]?.contexts).toMatchObject([{
+      meta: { references: [{ sessionId: unsafeId }] },
+    }])
+    await dispose(result)
+  })
+
+  it('falls back cleanly for non-session, empty, failed, and superseded autocomplete requests', async () => {
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+      },
+    })
+    const originalListCandidates = result.ctx.sessionReferences.listCandidates.bind(result.ctx.sessionReferences)
+    const listCandidates = vi.spyOn(result.ctx.sessionReferences, 'listCandidates')
+
+    result.terminal.send('plain')
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('\x03')
+
+    result.terminal.send('/he')
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('\x03')
+
+    listCandidates.mockRejectedValueOnce(new Error('candidate lookup failed'))
+    result.terminal.send('@failed')
+    await vi.waitFor(() => { expect(listCandidates).toHaveBeenCalled() })
+    result.terminal.send('\x03')
+
+    result.terminal.send('@empty')
+    await tick()
+    result.terminal.send('\x03')
+
+    let releaseBase: (() => void) | undefined
+    const baseSuggestions = vi.spyOn(CombinedAutocompleteProvider.prototype, 'getSuggestions')
+      .mockImplementationOnce(async () => {
+        await new Promise<void>((resolve) => { releaseBase = resolve })
+        return null
+      })
+    listCandidates.mockResolvedValueOnce([])
+    result.terminal.send('@base-slow')
+    await vi.waitFor(() => { expect(releaseBase).toBeTypeOf('function') })
+    const baseWaitSignal = listCandidates.mock.calls.at(-1)?.[3]
+    result.terminal.send('x')
+    await vi.waitFor(() => { expect(baseWaitSignal?.aborted).toBe(true) })
+    releaseBase?.()
+    await tick()
+    baseSuggestions.mockRestore()
+
+    let delayedSignal: AbortSignal | undefined
+    let delayed = true
+    listCandidates.mockImplementation(async (...args) => {
+      if (!delayed) return originalListCandidates(...args)
+      delayed = false
+      delayedSignal = args[3]
+      if (delayedSignal === undefined) throw new Error('expected autocomplete cancellation signal')
+      await new Promise<void>((_resolve, reject) => {
+        delayedSignal?.addEventListener('abort', () => { reject(new Error('superseded')) }, { once: true })
+      })
+      return []
+    })
+    result.terminal.send('@slow')
+    await vi.waitFor(() => { expect(delayedSignal).toBeDefined() })
+    result.terminal.send('x')
+    await vi.waitFor(() => { expect(delayedSignal?.aborted).toBe(true) })
+    await dispose(result)
+  })
+
+  it('keeps failed mention input and renders durable reference contexts as compact cards', async () => {
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+      },
+    })
+    const missing = formatSessionReferenceMention({ sessionId: SessionId('missing'), label: 'Missing chat' })
+    result.terminal.send(`keep ${missing}`)
+    result.terminal.send('\r')
+    await tick()
+    expect(result.agent.sent).toHaveLength(0)
+    expect(result.terminal.output).toContain('Session reference failed')
+    expect(result.terminal.output).toContain('keep @[')
+
+    result.session.append('user/message', {
+      content: [
+        { type: 'text', text: 'hidden baked snapshot payload' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'visible referenced question' },
+      ],
+      source: { kind: 'user' },
+      envelope: {
+        displayContent: [{ type: 'text', text: 'visible referenced question' }],
+        prefixContexts: [{
+          source: { kind: 'plugin', plugin: 'session-reference' },
+          meta: {
+            kind: 'session-reference',
+            references: [{ sessionId: 'prefixed', label: 'Prefixed source' }],
+          },
+        }],
+      },
+    }, { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('visible referenced question')
+    expect(result.terminal.output).toContain('Referenced sessions · Prefixed source (prefixed)')
+    expect(result.terminal.output).not.toContain('hidden baked snapshot payload')
+
+    result.session.append('steering/message', {
+      turn: 1,
+      content: [
+        { type: 'text', text: 'hidden non-reference prefix' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'visible steering prompt' },
+      ],
+      source: { kind: 'user' },
+      envelope: {
+        displayContent: [{ type: 'text', text: 'visible steering prompt' }],
+        prefixContexts: [
+          { source: { kind: 'plugin', plugin: 'other' }, meta: { kind: 'other' } },
+          {
+            source: { kind: 'plugin', plugin: 'session-reference' },
+            meta: {
+              kind: 'session-reference',
+              references: [{ sessionId: 'steering-source', label: 'Steering source' }],
+            },
+          },
+        ],
+      },
+    }, { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('visible steering prompt')
+    expect(result.terminal.output).toContain('Referenced sessions · Steering source (steering-source)')
+    expect(result.terminal.output).not.toContain('hidden non-reference prefix')
+
+    result.session.append('context/message', {
+      content: [{ type: 'text', text: 'secret full snapshot payload' }],
+      source: { kind: 'plugin', plugin: 'session-reference' },
+      meta: {
+        kind: 'session-reference',
+        version: 1,
+        references: [{ sessionId: 'source', label: 'Source', capturedThroughSeq: 2 }],
+      },
+    }, { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('Referenced sessions · Source (source)')
+    expect(result.terminal.output).not.toContain('secret full snapshot payload')
+
+    const invalidCards: [JsonValue, string][] = [
+      [{ kind: 'other' }, 'invalid-kind'],
+      [{ kind: 'session-reference', references: [null] }, 'invalid-entry'],
+      [{ kind: 'session-reference', references: [{}] }, 'invalid-fields'],
+    ]
+    for (const [meta, text] of invalidCards) {
+      result.session.append('context/message', {
+        content: [{ type: 'text', text }],
+        source: { kind: 'plugin', plugin: 'session-reference' },
+        meta,
+      }, { surfaceOp: 'append' })
+    }
+    result.session.append('context/message', {
+      content: [{ type: 'text', text: 'same-label snapshot' }],
+      source: { kind: 'plugin', plugin: 'session-reference' },
+      meta: { kind: 'session-reference', references: [{ sessionId: 'same', label: 'same' }] },
+    }, { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('Referenced sessions · same')
+    await dispose(result)
+  })
+
+  it('reports malformed and unavailable references without enqueueing', async () => {
+    const malformed = await setup()
+    malformed.terminal.send('use dsh-session:IiJ')
+    malformed.terminal.send('\r')
+    await tick()
+    expect(malformed.agent.sent).toHaveLength(0)
+    expect(malformed.terminal.output).toContain('Invalid session reference')
+    await dispose(malformed)
+
+    const unavailable = await setup()
+    const mention = formatSessionReferenceMention({ sessionId: SessionId('source') })
+    unavailable.terminal.send(`use ${mention}`)
+    unavailable.terminal.send('\r')
+    await tick()
+    expect(unavailable.agent.sent).toHaveLength(0)
+    expect(unavailable.terminal.output).toContain('Session reference capability unavailable')
+    await dispose(unavailable)
+  })
+
+  it('clears a retyped successful mention and aborts pending preparation on disposal', async () => {
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+        ctx.sessions.create(SessionId('source'))
+      },
+    })
+    const mention = formatSessionReferenceMention({ sessionId: SessionId('source') })
+    const value = `use ${mention}`
+    let release: (() => void) | undefined
+    const prepare = vi.spyOn(result.ctx.sessionReferences, 'prepare').mockImplementation(
+      (_agent, content) => new Promise((resolve) => {
+        release = () => { resolve({ content, contexts: [] }) }
+      }),
+    )
+    result.terminal.send(value)
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(prepare).toHaveBeenCalledOnce() })
+    result.terminal.send(value)
+    release?.()
+    await tick()
+    expect(result.agent.sent).toEqual([[{ type: 'text', text: 'use @source' }]])
+
+    let rejectPreparation: (() => void) | undefined
+    prepare.mockImplementation(() => new Promise((_resolve, reject) => {
+      rejectPreparation = () => { reject(new Error('delayed failure')) }
+    }))
+    result.terminal.send(value)
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(rejectPreparation).toBeTypeOf('function') })
+    result.terminal.send('new draft')
+    rejectPreparation?.()
+    await tick()
+    expect(result.terminal.output).toContain('delayed failure')
+    result.terminal.send('\x03')
+
+    let pendingSignal: AbortSignal | undefined
+    prepare.mockImplementation((_agent, _content, _references, signal) => new Promise((_resolve, reject) => {
+      pendingSignal = signal
+      signal?.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
+    }))
+    result.terminal.send(value)
+    result.terminal.send('\r')
+    await vi.waitFor(() => { expect(pendingSignal).toBeDefined() })
+    await result.controller.dispose()
+    expect(pendingSignal?.aborted).toBe(true)
+    await tick()
+    await result.ctx.fiber.dispose()
+
+    const lateSuccess = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(SessionReferenceService)
+        ctx.sessions.create(SessionId('source'))
+      },
+    })
+    let resolveAfterDispose: (() => void) | undefined
+    const latePrepare = vi.spyOn(lateSuccess.ctx.sessionReferences, 'prepare').mockImplementation(
+      (_agent, content) => new Promise((resolve) => {
+        resolveAfterDispose = () => { resolve({ content, contexts: [] }) }
+      }),
+    )
+    lateSuccess.terminal.send(value)
+    lateSuccess.terminal.send('\r')
+    await vi.waitFor(() => { expect(latePrepare).toHaveBeenCalledOnce() })
+    await lateSuccess.controller.dispose()
+    resolveAfterDispose?.()
+    await tick()
+    expect(lateSuccess.agent.sent).toHaveLength(0)
+    await lateSuccess.ctx.fiber.dispose()
+  })
+
   it('opens a keyboard selector and switches the session model without sending slash text to the agent', async () => {
     const initialContext = Promise.withResolvers<{ contextWindow: number }>()
     const result = await setup({
@@ -1135,8 +1480,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
     })
     failed.terminal.send('/model')
     failed.terminal.send('\r')
-    await tick()
-    expect(failed.terminal.output).toContain('Could not read the model catalog: catalog offline')
+    await vi.waitFor(() => {
+      expect(failed.terminal.output).toContain('Could not read the model catalog: catalog offline')
+    })
     expect(failed.terminal.output).toContain('Could not resolve model context: capacity offline')
     await dispose(failed)
   })

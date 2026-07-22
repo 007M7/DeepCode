@@ -24,6 +24,12 @@
       "path": "../../ui/acp"
     },
     {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../context/session-reference"
+    },
+    {
       "path": "../../ui/commands"
     },
     {

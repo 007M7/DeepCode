@@ -261,6 +261,7 @@ const reference = mirroredPages([
     ['tools.md', '工具', 'Tools'],
     ['llm-streaming.md', 'LLM 流式响应', 'LLM streaming'],
     ['bash.md', 'Bash 执行', 'Bash execution'],
+    ['pty.md', 'PTY 会话', 'PTY sessions'],
     ['filesystem.md', '文件系统', 'Filesystem'],
     ['code-runtime.md', '代码运行时', 'Code runtime'],
     ['compaction.md', '上下文压缩', 'Compaction'],

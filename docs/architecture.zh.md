@@ -28,6 +28,7 @@
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | 适配器注册表和模型流式调用 |
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | 感知回放的单实例请求压力和会话表面压力 |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | 前台和后台命令执行 |
+| `ctx.pty` | [`pty/`](../packages/pty/README.md) | 按 owner 隔离的持久化终端会话 |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | 同一执行环境内的进程限制（argv 包装、逐调用策略） |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | 共享沙箱策略归属点 |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | 执行模型编写的程序 |
@@ -80,11 +81,11 @@ forever:
   emit agent/status(running)
   TURN:
     'turn/start'
-    claimed message -> agent/prompt-submit
-      allowed prompt -> 'user/message' plus injected context
+    claimed message + contexts -> agent/prompt-submit
+      allowed prompt -> 'user/message' with prompt-prefix context baked in; append separate contexts
       blocked prompt -> 'prompt/blocked' -> 'turn/end'(rejected)
     STEP loop:
-      drain steering
+      drain steering with the same prefix/separate context placement (no prompt-submit)
       assemble system prompt and tool schemas
       agent/session-prefix (first step)
       agent/pre-step
@@ -122,7 +123,7 @@ forever:
 
 ### 失败边界
 
-轮次负责隔离故障。适配器故障会先关闭步骤，再进入 `agent/request-error`；该事件会收到准确的 `Error`、`LlmFailure` 和历史记录。重试会开启另一个步骤；成功会清除历史记录；重试耗尽后，故障存入 `turn/end`。失败分片不会提交消息或工具。
+适配器故障会先关闭步骤，再进入 `agent/request-error`；该事件会收到准确的 `Error`、`LlmFailure` 和历史记录。重试会开启另一个步骤；成功会清除历史记录；重试耗尽后，故障存入 `turn/end`。失败分片不会提交消息或工具。
 
 其他故障使用 `agent/error`。取消和资源释放均优先于恢复；尚未分派的工具调用会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。轮次信号会在 `turn/end` 前失效。实际生效的 `cancel()` 会在清空队列和中止前发出类型化原因；观察方不能否决该操作，空闲状态下的调用不发出任何事件，持久化会记录 `aborted`。dispose（资源释放）会等待系统停稳（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
@@ -177,6 +178,7 @@ forever:
 | 添加模型提供方 | 在 `ctx.llm` 上注册适配器 |
 | 添加面向模型的功能 | 在 `ctx.tools` 上注册；schema 进入提示词组装流程 |
 | 添加 shell 执行 | 实现并注册 `ctx.bash` 后端 |
+| 添加持久化终端执行 | 注册 `ctx.pty` 后端和 `dsh-tool-pty` |
 | 添加用户命令 | 在 `ctx.commands` 上注册；适配器无需模型轮次即可发现并分派该命令 |
 | 添加后台工作 | 在 `ctx.tasks` 上注册；通用 `task_*` 工具负责收集或停止 |
 | 添加文件系统访问或策略 | 实现 `ctx.fs` 提供方，或监听 `fs/*` 策略事件 |
