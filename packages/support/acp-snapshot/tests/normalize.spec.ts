@@ -265,6 +265,27 @@ describe('normalizeSessionLog', () => {
     expect(out).toContain('"decision":"block"') // the decision is the behavior — kept
   })
 
+  it('zeroes a packed chunk row\'s time0 and dt gaps but keeps seq0 and payload', () => {
+    const row = JSON.stringify({
+      type: 'text-chunks', seq0: 7, time0: 999,
+      data: { turn: 1, step: 1, index: 0, dt: [212, 27, 0], texts: ['a', 'b', 'c', 'd'] },
+    })
+    const out = normalizeSessionLog(`${header({})}\n${row}\n`, ctx)
+    expect(out).toContain('"time0":0')
+    expect(out).toContain('"dt":[0,0,0]')
+    expect(out).toContain('"seq0":7') // seq0 is deterministic, like seq — NOT scrubbed
+    expect(out).toContain('"texts":["a","b","c","d"]')
+    expect(out).not.toContain('999')
+    expect(out).not.toContain('212')
+  })
+
+  it('zeroes time0 even when a malformed row carries no dt array', () => {
+    const row = JSON.stringify({ type: 'text-chunks', seq0: 1, time0: 999, data: 'not-an-object' })
+    const out = normalizeSessionLog(`${header({})}\n${row}\n`, ctx)
+    expect(out).toContain('"time0":0')
+    expect(out).not.toContain('999')
+  })
+
   it('leaves a non-hook event durationMs untouched (only hook/result is scrubbed)', () => {
     const ev = JSON.stringify({ type: 'tool/result', seq: 2, time: 5, data: { durationMs: 88 } })
     const out = normalizeSessionLog(`${header({})}\n${ev}\n`, ctx)
