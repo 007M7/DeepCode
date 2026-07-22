@@ -5,6 +5,7 @@ import AgentRegistry, {
   type AgentCancelCause,
   type AgentOptions,
   type AgentStatus,
+  type SendOptions,
 } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
@@ -17,7 +18,9 @@ import { createTuiChat, type Config, type TuiRuntime } from '../src/index.ts'
 interface FakeAgent extends Agent {
   status: AgentStatus
   sent: ContentBlock[][]
+  sentOptions: (SendOptions | undefined)[]
   steered: ContentBlock[][]
+  steeredOptions: (SendOptions | undefined)[]
   cancelled: AgentCancelCause[]
 }
 
@@ -132,6 +135,8 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
   const steered: ContentBlock[][] = []
+  const sentOptions: (SendOptions | undefined)[] = []
+  const steeredOptions: (SendOptions | undefined)[] = []
   const cancelled: AgentCancelCause[] = []
   const agent: FakeAgent = {
     id: sessionId,
@@ -140,13 +145,17 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     status: options.status ?? 'idle',
     ctx,
     sent,
+    sentOptions,
     steered,
+    steeredOptions,
     cancelled,
-    send(content) {
+    send(content, options) {
       sent.push(content)
+      sentOptions.push(options)
     },
-    steer(content) {
+    steer(content, options) {
       steered.push(content)
+      steeredOptions.push(options)
     },
     inject() {},
     cancel(cause = { kind: 'user' }) {

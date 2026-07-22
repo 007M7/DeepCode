@@ -176,6 +176,64 @@ describe('session-query exact reads', () => {
       .toEqual(['shadowed', 'log-only', 'current'])
   })
 
+  it('reads a detached current surface with its raw-log capture boundary', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('surface-snapshot'), { meta: { cwd: '/work' } })
+    const first = session.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'old' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
+    session.append('assistant/chunk', {
+      turn: 1,
+      step: 1,
+      chunk: { type: 'text-delta', index: 0, text: 'draft' },
+    })
+    session.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'checkpoint' }], source: { kind: 'plugin', plugin: 'compact' } },
+      { surfaceOp: { op: 'replace', start: first.seq, end: first.seq }, sourceEventSeqs: [first.seq] },
+    )
+    const retained = session.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'retained tail' }], source: { kind: 'user' } },
+      { surfaceOp: 'append' },
+    )
+    session.append(
+      'user/message',
+      { content: [{ type: 'text', text: 'latest checkpoint' }], source: { kind: 'plugin', plugin: 'compact' } },
+      { surfaceOp: { op: 'replace', start: 2, end: retained.seq }, sourceEventSeqs: [2, retained.seq] },
+    )
+    session.append(
+      'assistant/message',
+      { provenance: { provider: 'mock', model: 'mock' }, turn: 2, step: 1, content: [{ type: 'text', text: 'latest answer' }] },
+      { surfaceOp: 'append' },
+    )
+
+    const snapshot = await ctx.sessionQuery.readSurface(session.id)
+    expect(snapshot.session).toEqual(session.header)
+    expect(snapshot.capturedThroughSeq).toBe(5)
+    expect(snapshot.events.map(event => [event.seq, event.type])).toEqual([
+      [4, 'user/message'],
+      [5, 'assistant/message'],
+    ])
+    if (snapshot.events[0]?.type !== 'user/message') throw new Error('expected current user message')
+    snapshot.events[0].data.content = []
+    Object.assign(snapshot.session, { cwd: '/mutated' })
+
+    expect(session.events[4]?.type === 'user/message' && session.events[4].data.content).toHaveLength(1)
+    expect(session.header.cwd).toBe('/work')
+  })
+
+  it('returns an empty current surface with a null capture boundary', async () => {
+    const ctx = await liveContext()
+    const session = ctx.sessions.create(SessionId('empty-surface'))
+    await expect(ctx.sessionQuery.readSurface(session.id)).resolves.toMatchObject({
+      capturedThroughSeq: null,
+      events: [],
+    })
+  })
+
   it('returns a bounded detached raw-event window and validates the request', async () => {
     const ctx = await liveContext({ readWindowMax: 1 })
     const session = ctx.sessions.create(SessionId('window'), { meta: { cwd: '/work' } })
@@ -230,8 +288,15 @@ describe('session-query exact reads', () => {
     const liveRead = await ctx.sessionQuery.readEvent({ sessionId: shared.id, seq: 1 })
     expect(liveRead.target.type === 'user/message' && liveRead.target.data.content[0])
       .toMatchObject({ text: 'live' })
+    await expect(ctx.sessionQuery.readSurface(shared.id)).resolves.toMatchObject({
+      events: [{ data: { content: [{ text: 'live' }] } }],
+    })
     await expect(ctx.sessionQuery.readEvent({ sessionId: durable.id, seq: 0 }))
       .resolves.toMatchObject({ session: durable })
+    await expect(ctx.sessionQuery.readSurface(durable.id)).resolves.toMatchObject({
+      session: durable,
+      events: [{ data: { content: [{ text: 'durable' }] } }],
+    })
 
     const sharedEntry = TestPersistence.entries.get(shared.id)!
     sharedEntry.meta = { ...sharedEntry.meta, cwd: '/conflict' }

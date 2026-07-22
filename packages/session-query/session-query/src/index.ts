@@ -17,6 +17,7 @@ import type {
   SessionEventWindow,
   SessionLineageTrace,
   SessionRecord,
+  SessionSurfaceSnapshot,
 } from './types.ts'
 import {
   SESSION_QUERY_READ_WINDOW_MAX,
@@ -84,6 +85,21 @@ export class SessionQueryService extends Service {
   async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]> {
     const loaded = await this._corpus.load(sessionId)
     return tracing.eventRecords(sessionId, loaded.events)
+  }
+
+  /**
+   * Read one session's complete current model surface from one corpus observation.
+   * @param sessionId - live-preferred session id to read.
+   * @returns cloned header, current surface, and raw-log capture boundary.
+   * @throws when source resolution fails or the session surface is invalid.
+   */
+  async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot> {
+    const loaded = await this._corpus.load(sessionId)
+    return {
+      session: structuredClone(loaded.header),
+      capturedThroughSeq: loaded.events.at(-1)?.seq ?? null,
+      events: tracing.currentSurfaceEvents(sessionId, loaded.events),
+    }
   }
 
   /**

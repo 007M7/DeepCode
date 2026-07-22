@@ -1,0 +1,39 @@
+terminal 96x24 buffer=normal length=24 base=0 viewport=0
+lifecycle started=1 stopped=0 progress=inactive
+title "DSH session reference"
+cursor hidden column=1 viewportRow=14 bufferRow=14
+buffer
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Session reference snapshot."
+  style 1-27 fg=bright-black
+2| " mock  •  target-session"
+  style 1-23 dim
+3| <blank>
+4| "▌ "
+  style 0-0 fg=bright-blue
+5| "▌ You                                                                                           "
+  style 0-0 fg=bright-blue
+  style 2-4 fg=bright-blue bold
+6| "▌ Use @Source session                                                                           "
+  style 0-0 fg=bright-blue
+7| "▌ "
+  style 0-0 fg=bright-blue
+8| <blank>
+9| " Referenced sessions · Source session (source-session)                                          "
+  style 1-53 dim
+10| <blank>
+11| " Assistant                                                                                      "
+  style 1-9 fg=bright-magenta bold
+12| " Combined reference request accepted.                                                           "
+13| "────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-95 dim
+14| "                                                                                                "
+  style 1-1 inverse
+15| "────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-95 dim
+16| "mock  /workspace/project  ↑0 ↓0                                                  tools:collapsed"
+  style 0-30 dim
+  style 81-95 dim
+17-23| <blank>

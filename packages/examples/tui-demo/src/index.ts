@@ -23,12 +23,17 @@ import SessionPersistenceJsonl, {
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as sessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import SessionQueryService from '@deepseek-ai/dsh-session-query'
+import SessionReferenceService, { type Config as SessionReferenceConfig } from '@deepseek-ai/dsh-session-reference'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as uiTui from '@deepseek-ai/dsh-tui'
 
 export const name = 'tui-demo'
 const DEFAULT_PERSISTENCE_ROOT = './.sessions'
 
+// Each front door keeps a complete Loader contract so its deployment config is
+// readable without a cross-package facade.
+/* jscpd:ignore-start */
 /** App config routed to the spine, TUI, configured agent, and JSONL backend. */
 export interface Config {
   /** Provider route for the `main` agent. */
@@ -51,6 +56,8 @@ export interface Config {
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
+  /** Cross-session reference discovery and snapshot byte budgets. */
+  sessionReferences?: SessionReferenceConfig
   /** TUI transcript's optional first line; absent renders nothing on start. */
   welcome?: string
   /**
@@ -76,9 +83,6 @@ export interface Config {
   workspaceContext: agentCore.Config['workspaceContext']
 }
 
-// Each front door keeps a complete Loader schema so its deployment contract is
-// readable without a cross-package config facade.
-/* jscpd:ignore-start */
 export const Config: z<Config> = z.object({
   provider: z.string().required(),
   model: z.string().required(),
@@ -91,6 +95,7 @@ export const Config: z<Config> = z.object({
   sessionTitle: agentCore.SessionTitleConfigSchema,
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
   persistenceCompression: JsonlCompressionSchema,
+  sessionReferences: SessionReferenceService.Config,
   welcome: z.string(),
   resumeCommand: z.string(),
   ui: uiTui.TuiConfigSchema,
@@ -121,6 +126,8 @@ export function composeTuiApp(ctx: Context, config: Config): void {
     ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
   })
   ctx.plugin(sessionCheckpointPolicy)
+  ctx.plugin(SessionQueryService)
+  ctx.plugin(SessionReferenceService, config.sessionReferences ?? {})
   ctx.plugin(UserInteractionService)
   ctx.plugin(uiTui, {
     ...config.ui,

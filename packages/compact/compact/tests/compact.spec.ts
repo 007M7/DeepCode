@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { CompactService } from '@deepseek-ai/dsh-compact'
+import {
+  COMPACT_CHECKPOINT_SOURCE,
+  CompactService,
+  isCompactCheckpointSource,
+} from '@deepseek-ai/dsh-compact'
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { CompactAgentContext } from '@deepseek-ai/dsh-compact'
@@ -33,15 +37,27 @@ class StubCompactService extends CompactService {
     this.lastSignal = signal
     const session = agent.session
     const summary = [{ type: 'text' as const, text: 'stub' }]
+    const surface = session.surface.nodes
+    const startIndex = surface.indexOf(start)
+    const endIndex = surface.indexOf(end)
+    if (startIndex < 0 || endIndex < startIndex) throw new Error('stub compact range is invalid')
+    const shadowedSeqs = surface.slice(startIndex, endIndex + 1)
     // Minimal stub honoring the lock + log-only event contract.
     const startEvent = session.append('compact/start', { turn: 0 })
     const summaryEvent = session.append('compact/summary', {
       summary,
       shadowedRange: { start, end },
-      shadowedSeqs: [start],
+      shadowedSeqs,
       shadowedTokenCount: 0,
       provider: 'mock',
       model: 'stub',
+    })
+    session.append('user/message', {
+      content: summary,
+      source: COMPACT_CHECKPOINT_SOURCE,
+    }, {
+      surfaceOp: { op: 'replace', start, end },
+      sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
     })
     const endEvent = session.append('compact/end', { turn: 0 })
     return {
@@ -50,7 +66,7 @@ class StubCompactService extends CompactService {
       endSeq: endEvent.seq,
       summary,
       shadowedRange: { start, end },
-      shadowedSeqs: [start],
+      shadowedSeqs,
       shadowedTokenCount: 0,
     }
   }
@@ -87,8 +103,12 @@ describe('CompactService seam', () => {
     const ctx = new Context()
     const svc = new StubCompactService(ctx)
     const session = new Session(SessionId('s'))
+    const original = session.append('user/message', {
+      content: [{ type: 'text', text: 'original' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
 
-    const result = await svc.compactRegion(0, 0, stubAgent(session, 'm'))
+    const result = await svc.compactRegion(original.seq, original.seq, stubAgent(session, 'm'))
 
     const startEvent = session.events.find(e => e.type === 'compact/start')
     expect(startEvent).toBeDefined()
@@ -99,7 +119,13 @@ describe('CompactService seam', () => {
     expect(result.summary).toEqual([{ type: 'text', text: 'stub' }])
     expect(result.summarySeq).toBeGreaterThan(result.startSeq)
     expect(result.endSeq).toBeGreaterThan(result.summarySeq)
-    expect(result.shadowedRange).toEqual({ start: 0, end: 0 })
+    expect(result.shadowedRange).toEqual({ start: original.seq, end: original.seq })
+    expect(result.shadowedSeqs).toEqual([original.seq])
+    const checkpoint = session.events.find(event => event.type === 'user/message'
+      && isCompactCheckpointSource(event.data.source))
+    expect(checkpoint?.type === 'user/message' && checkpoint.data.source).toEqual(COMPACT_CHECKPOINT_SOURCE)
+    expect(isCompactCheckpointSource({ kind: 'plugin', plugin: 'other' })).toBe(false)
+    expect(isCompactCheckpointSource({ kind: 'user' })).toBe(false)
     expect(session.events.filter(e => e.type.startsWith('compact/')).map(e => e.type))
       .toEqual(['compact/start', 'compact/summary', 'compact/end'])
   })
@@ -109,8 +135,12 @@ describe('CompactService seam', () => {
     const svc = new StubCompactService(ctx)
     const session = new Session(SessionId('s'))
     const controller = new AbortController()
+    const original = session.append('user/message', {
+      content: [{ type: 'text', text: 'original' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
 
-    await svc.compactRegion(0, 0, stubAgent(session, 'm'), controller.signal)
+    await svc.compactRegion(original.seq, original.seq, stubAgent(session, 'm'), controller.signal)
     expect(svc.lastSignal).toBe(controller.signal)
 
     await svc.compactIfNeeded(stubAgent(session), 'context-overflow', controller.signal)

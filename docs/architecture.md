@@ -81,11 +81,11 @@ forever:
   emit agent/status(running)
   TURN:
     'turn/start'
-    claimed message -> agent/prompt-submit
-      allowed prompt -> 'user/message' plus injected context
+    claimed message + contexts -> agent/prompt-submit
+      allowed prompt -> 'user/message' with prompt-prefix context baked in; append separate contexts
       blocked prompt -> 'prompt/blocked' -> 'turn/end'(rejected)
     STEP loop:
-      drain steering
+      drain steering with the same prefix/separate context placement (no prompt-submit)
       assemble system prompt and tool schemas
       agent/session-prefix (first step)
       agent/pre-step
@@ -123,7 +123,7 @@ Pruning precedes summaries; overflow retries require durable progress. Bounded t
 
 ### Failure Boundaries
 
-The turn contains failures. Adapter failures close the step before `agent/request-error`, which receives exact `Error`, `LlmFailure`, and history. Retry opens another step; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit no message/tool.
+Adapter failures close the step before `agent/request-error` with exact `Error`, `LlmFailure`, and history. Retry opens another step; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit no message/tool.
 
 Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched tool calls get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. The turn signal retires before `turn/end`. Effective `cancel()` emits its typed cause before clearing queues and aborting; observers cannot veto, idle calls emit nothing, and durability records `aborted`. Disposal awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 

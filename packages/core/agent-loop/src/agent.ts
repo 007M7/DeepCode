@@ -201,9 +201,10 @@ export class ReactLoopAgent implements Agent {
    */
   private acceptMessage(content: ContentBlock[], options?: SendOptions): InboxMessage {
     const source = this.resolveSource(options)
-    const accepted = snapshotJsonValue({ content, source })
+    const contexts = options?.contexts ?? []
+    const accepted = snapshotJsonValue({ content, source, contexts })
     if (accepted === undefined) {
-      throw new TypeError('agent message content and source must be losslessly JSON-serializable')
+      throw new TypeError('agent message content, source, and contexts must be losslessly JSON-serializable')
     }
     return deepFreeze(accepted)
   }
@@ -226,7 +227,7 @@ export class ReactLoopAgent implements Agent {
     this.assertNotDisposed()
     const accepted = this.acceptMessage(content, options)
     this.#inbox.enqueue(accepted)
-    const info = { source: accepted.source, steering: false } as const
+    const info = { source: accepted.source, contexts: accepted.contexts, steering: false } as const
     agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
   }
 
@@ -235,7 +236,7 @@ export class ReactLoopAgent implements Agent {
     if (this._status !== 'running') { this.send(content, options); return }
     const accepted = this.acceptMessage(content, options)
     this.#inbox.steer(accepted)
-    const info = { source: accepted.source, steering: true } as const
+    const info = { source: accepted.source, contexts: accepted.contexts, steering: true } as const
     agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
   }
 
