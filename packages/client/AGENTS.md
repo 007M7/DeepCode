@@ -4,6 +4,14 @@ Rules for `packages/client/*` (the browser side of the dsh web GUI) plus its bui
 
 Packages here are named with the directory prefix: `@deepseek-ai/dsh-client-<name>`.
 
+## Export discipline (client plugin packages)
+
+The `/client` surface of a UI plugin package is a contract face, not a convenience barrel. Three rules, enforced package-wide (do not restate them as per-file comments):
+
+1. **A UI plugin exports no values beyond what cordis loading needs** — `apply` / `inject` (and `Config` where present). Types are the extra allowance: contract types (OwnerShare shapes, injected shapes, view/toolview entry types) export freely. Implementation components, pure helpers, constants, and stores stay internal. Existing value exports beyond this line (the ui-layout frame components consumed by the shell assembler, service classes kept for `import type`) are grandfathered per-consumer; adding a new one requires user sign-off, not a matching export.
+2. **Same-package tests import internals directly** — relative `../src/client/xxx.ts` from package tests, or the `./src/*` subpath where a spec lives outside the package. Never widen the public surface to make a test compile.
+3. **Cross-package imports of another plugin's symbols are in principle forbidden.** The sanctioned routes are the slot system (define/register/renderSlot, the view and toolview registries) and ctx services. If neither fits, stop and escalate — do not add an export to unblock yourself.
+
 ## Layering red lines
 
 The stack is three layers with one-way knowledge, settled in the [web client architecture note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md):

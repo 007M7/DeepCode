@@ -9,8 +9,11 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import type { ConversationSnapshot, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import { ConversationRoot, DetailsPanel, EmptyState } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SelectionTarget, ViewEntry } from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Export discipline: packages/client/AGENTS.md.
+import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
+import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
+import { EmptyState } from '../src/client/skeleton/EmptyState.tsx'
 
 afterEach(cleanup)
 

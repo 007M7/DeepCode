@@ -9,10 +9,8 @@ import { TrajectoryStatsHeader, type TrajectoryChromeProps } from './TrajectoryS
 import { TrajectoryView } from './TrajectoryView.tsx'
 import { WaterfallView, type WaterfallExtraProps } from './WaterfallView.tsx'
 
-export { deriveSpans, deriveSpanStats, type SpanStats, type TurnSpan } from './spans.ts'
-export { TrajectoryStatsHeader, type TrajectoryChromeProps } from './TrajectoryStatsHeader.tsx'
-export { TrajectoryView } from './TrajectoryView.tsx'
-export { WaterfallView, type WaterfallExtraProps } from './WaterfallView.tsx'
+export type { TrajectoryChromeProps } from './TrajectoryStatsHeader.tsx'
+export type { WaterfallExtraProps } from './WaterfallView.tsx'
 
 declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
   interface ConversationViewMap {

@@ -3,6 +3,7 @@
  * sidebar slot; tree derivation materialized in a plugin-owned snapshot
  * store (pure consumer — no ctx service). Contract: api-contracts v3
  * section 6; props composition in contract/slots.ts.
+ * Export discipline: packages/client/AGENTS.md.
  */
 import type { RootBinding } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
@@ -10,17 +11,6 @@ import type { SidebarRootInjected } from './contract/slots.ts'
 import { createSidebarTreeStore } from './store.ts'
 import { SidebarRoot } from './SidebarRoot.tsx'
 
-export {
-  deriveRows, formatRelativeTime, projectLabel,
-  UNGROUPED_KEY, UNGROUPED_LABEL,
-  type ProjectRow, type SessionRow, type SidebarRow, type TreeView,
-} from './tree.ts'
-export {
-  createSidebarTreeStore,
-  type GroupBy, type SidebarTreeState, type SidebarTreeStore,
-} from './store.ts'
-export { ProjectRowItem, SessionRowItem } from './Rows.tsx'
-export { SidebarRoot } from './SidebarRoot.tsx'
 export type {
   SidebarActions, SidebarRootComponentProps, SidebarRootInjected, SidebarTreeActions,
 } from './contract/slots.ts'

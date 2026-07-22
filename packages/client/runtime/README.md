@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-runtime
 
-Client cordis boot + core services: SlotsService (Service wrapper over SlotCore + 'slots/changed' bridge), SessionsService (list store projection, scope tree, bindings, ancestry), Session object layer, ClientLoader (`./loader` subpath, statically held by the shell). Contract: api-contracts v3 §4.
+Client cordis boot + core services: SlotsService (Service wrapper over SlotCore + 'slots/changed' bridge), SessionsService (list store projection, scope tree, bindings, ancestry), the Session object layer (exported as a type; instances are owned and handed out by SessionsService — the manager/paging internals stay package-internal, tests reach them via src), ClientLoader (`./loader` subpath, statically held by the shell). Contract: api-contracts v3 §4.
 
 ## Model Experience
 

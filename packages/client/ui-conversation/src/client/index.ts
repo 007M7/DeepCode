@@ -24,15 +24,7 @@ export type {
   ConversationInjected, ConversationSlotProps, DetailsInjected, DetailsSlotProps,
   EmptyStateInjected, EmptyStateSlotProps,
 } from './contract/slots.ts'
-
-export { ConversationRoot } from './skeleton/ConversationRoot.tsx'
-export type { ConversationRootProps } from './skeleton/ConversationRoot.tsx'
-export { InputBar } from './skeleton/InputBar.tsx'
-export type { InputBarError, InputBarProps } from './skeleton/InputBar.tsx'
-export { EmptyState } from './skeleton/EmptyState.tsx'
-export type { EmptyStateProps } from './skeleton/EmptyState.tsx'
-export { DetailsPanel } from './skeleton/DetailsPanel.tsx'
-export type { DetailsPanelProps } from './skeleton/DetailsPanel.tsx'
+// Export discipline: packages/client/AGENTS.md.
 
 declare module 'cordis' {
   interface Context {
