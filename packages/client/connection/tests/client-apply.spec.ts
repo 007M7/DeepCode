@@ -50,12 +50,13 @@ describe('connection client apply', () => {
     const handle = await mount()
     const original = globalThis.fetch
     const seen: string[] = []
-    globalThis.fetch = ((input: URL | RequestInfo) => {
-      seen.push(String(input))
+    globalThis.fetch = (input: URL | RequestInfo) => {
+      seen.push(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
       return Promise.resolve(new Response('{}', { status: 200 }))
-    }) as typeof fetch
+    }
     try {
-      await (handle.api as WebApiClient).host.describe({}).catch(() => undefined) // schema rejection is fine — the transport hop is the assertion
+      // Schema rejection is fine — the transport hop is the assertion.
+      await (handle.api as WebApiClient).host.describe({}).catch(() => undefined)
     } finally {
       globalThis.fetch = original
     }
