@@ -65,7 +65,7 @@ The vendor manifest guard checks that changes under `vendor/*/src` are staged wi
 
 The hooks intentionally do not run tests, snapshots, documentation checks, builds, or hygiene. Contributors run the [checks relevant to the changed behavior](../AGENTS.md#run-relevant-checks-locally) once; CI owns exhaustive coverage, built-artifact smokes, and the Node 22.19, 24, and 26 compatibility matrix.
 
-Contributors can opt into the comprehensive manual gate set with `pnpm run check:all`. The command is independent of both Git hooks and is not an agent instruction.
+Contributors can opt into the comprehensive local gate set with `pnpm run check:all`. The command is independent of both Git hooks and is not an agent instruction.
 
 ## CI gates
 
@@ -79,7 +79,7 @@ Use these from the repo root:
 pnpm run test           # unit tests
 pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run check:all      # comprehensive manual gate set; not wired to Git hooks
+pnpm run check:all      # comprehensive opt-in gate set; not wired to Git hooks
 pnpm run typecheck      # build package/vendor outputs, then typecheck examples, tests, and scripts
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
