@@ -16,8 +16,6 @@
  * - LSP_FAKE_OPEN_MARKER: appends each didOpen document text as one JSON line to this path.
  * - LSP_FAKE_INITIALIZED_MARKER: records when the initialized notification is received.
  * - LSP_FAKE_PAUSE_STDIN_AFTER_INITIALIZED: "1" stops consuming stdin after initialized.
- * - LSP_FAKE_CLOSE_STDIN_AFTER_INITIALIZED: "1" closes fd 0 after the initialized notification.
- * - LSP_FAKE_CLOSE_STDIN_AFTER_REPLY: "1" closes fd 0 before sending the first query response.
  * - LSP_FAKE_EXIT_DELAY_MS / LSP_FAKE_EXIT_MARKER: delay protocol exit and record exit/termination.
  * - LSP_FAKE_NO_SHUTDOWN: "1" ignores the shutdown request (forces kill escalation).
  * - LSP_FAKE_ON_OPEN: server→client request to emit when a didOpen arrives, one of
@@ -28,7 +26,7 @@
  * Run: node fixture-server.ts (Node's erasable TypeScript syntax support).
  */
 
-import { appendFileSync, closeSync } from 'node:fs'
+import { appendFileSync } from 'node:fs'
 
 const enc = process.env.LSP_FAKE_ENCODING ?? 'utf-16'
 const sync: unknown = process.env.LSP_FAKE_SYNC !== undefined ? JSON.parse(process.env.LSP_FAKE_SYNC) : 1
@@ -40,8 +38,6 @@ const replyDelayMs = Number(process.env.LSP_FAKE_REPLY_DELAY_MS ?? 0)
 const openMarker = process.env.LSP_FAKE_OPEN_MARKER
 const initializedMarker = process.env.LSP_FAKE_INITIALIZED_MARKER
 const pauseStdinAfterInitialized = process.env.LSP_FAKE_PAUSE_STDIN_AFTER_INITIALIZED === '1'
-const closeStdinAfterInitialized = process.env.LSP_FAKE_CLOSE_STDIN_AFTER_INITIALIZED === '1'
-const closeStdinAfterReply = process.env.LSP_FAKE_CLOSE_STDIN_AFTER_REPLY === '1'
 const exitDelayMs = Number(process.env.LSP_FAKE_EXIT_DELAY_MS ?? 0)
 const exitMarker = process.env.LSP_FAKE_EXIT_MARKER
 const noShutdown = process.env.LSP_FAKE_NO_SHUTDOWN === '1'
@@ -146,14 +142,12 @@ function handle(message: { id?: number; method?: string; params?: unknown; resul
   if (method === 'initialized') {
     if (initializedMarker !== undefined) appendFileSync(initializedMarker, 'INITIALIZED\n')
     if (pauseStdinAfterInitialized) process.stdin.pause()
-    if (closeStdinAfterInitialized) closeSync(0)
     return
   }
   if (method === 'textDocument/didClose') return
   if (method?.startsWith('textDocument/')) {
     if (hang) return
     const reply = (): void => {
-      if (closeStdinAfterReply) closeSync(0)
       if (errorReply) {
         send({ id, error: { code: -32000, message: 'server refused the request' } })
       } else {
@@ -202,6 +196,6 @@ function send(message: Record<string, unknown>): void {
 
 // Keep the event loop alive.
 process.stdin.resume()
-if (pauseStdinAfterInitialized || closeStdinAfterInitialized || closeStdinAfterReply) {
+if (pauseStdinAfterInitialized) {
   setInterval(() => {}, 1000)
 }

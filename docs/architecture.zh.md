@@ -14,7 +14,7 @@
 
 | ctx 键 | 包 | 职责 |
 |---|---|---|
-| — | [`dsh-scope`](../packages/core/scope/README.md) | 作用域上下文注册原语（库） |
+| — | [`dsh-scope`](../packages/core/scope/README.md) | 作用域上下文注册与共享层存储（库） |
 | `ctx.sessions` | `dsh-session` | 内存中的事件溯源会话 |
 | `ctx.systemPrompt` | `dsh-system-prompt` | 有序提示词片段、工具 schema 和提示词变量 |
 | `ctx.tools` | `dsh-tools` | 工具注册表和[执行流水线](tool-execution-pipeline.md) |
@@ -37,6 +37,7 @@
 | `ctx.web` | [`web/`](../packages/web/README.md) | 搜索与抓取提供方注册表 |
 | `ctx.compact`，`ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | 摘要压缩（compaction）；可选的无模型结果裁剪 |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | 具名委托提供方 |
+| `ctx.planMode` | [`plan/`](../packages/plan/README.md) | 落日志的 plan 协作状态 |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | 后台任务注册表和通用 `task_*` 控制工具 |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | 脚本驱动的多 agent 编排 |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | 持久化的同会话目标 |
@@ -133,7 +134,7 @@ forever:
 
 ### Agent 作用域
 
-每个 agent 都拥有一个作用域化的 `agent.ctx`；注册项会遮蔽全局项、过滤分派，并在撤销时等待清理完成。`CreateAgentOptions.setup(agentCtx)` 在发布前完成组合。类型化解析器从合并后的 `Events` 和 `scopeTarget` 推导载体检查（[语义门禁](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)）。参见 [agent 作用域](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md)和 [subagent 组合](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)。`AgentLoop` 在 `ctx.agents.withInitiator()` 内运行；私有编排会派生 `agent.session`，而轮次、步骤、信号、cwd 和权限仍保持显式（[决策](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)）。
+每个 agent 都拥有一个作用域化的 `agent.ctx`；共享存储会在全局工具、提示词和命令条目之上叠加作用域条目，同时保留各领域视图（[决策](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)）。作用域监听器会过滤分派，每项作用域贡献都会在撤销时等待清理完成。`CreateAgentOptions.setup(agentCtx)` 在发布前完成组合。类型化解析器从合并后的 `Events` 和 `scopeTarget` 推导载体检查（[语义门禁](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)）。参见 [agent 作用域](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md)和 [subagent 组合](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)。`AgentLoop` 在 `ctx.agents.withInitiator()` 内运行；私有编排会派生 `agent.session`，而轮次、步骤、信号、cwd 和权限仍保持显式（[决策](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)）。
 
 ## 状态
 

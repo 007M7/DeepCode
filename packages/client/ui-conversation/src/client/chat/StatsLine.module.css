@@ -1,0 +1,13 @@
+/* Session stats row: 12/20 tertiary text under the flow, aligned to the
+   736px message column axis. */
+
+.root {
+  max-width: 736px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 4px 24px 8px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
