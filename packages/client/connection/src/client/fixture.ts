@@ -547,6 +547,12 @@ export class FixtureApiClient extends AbstractApiClient {
     }
   }
 
+  /**
+   * Deliver a client response to the in-memory contract impl (no HTTP POST),
+   * echoing the envelope to the observation tap like every other path.
+   * @param message - the client-response envelope answering a server request.
+   * @returns the carrier receipt from the fixture impl.
+   */
   override async respond(message: ClientResponse): Promise<RpcReceipt> {
     this.onEnvelope(message)
     return this.api.respond(message)

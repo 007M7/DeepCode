@@ -25,7 +25,7 @@ const sid = (s: string): SessionId => s as SessionId
 const SCOPE_TAG: symbol = (() => {
   const recorded: (string | symbol)[] = []
   const spy = new Proxy(new Context(), {
-    get(target, prop, receiver) {
+    get(target, prop, receiver): unknown {
       recorded.push(prop)
       return Reflect.get(target, prop, receiver)
     },

@@ -1,7 +1,7 @@
 /**
  * Real-bundle smoke: the actual tsdown client bundle of ui-layout runs
  * through the loader chain (execute → handoff → factory(require) → apply →
- * export re-registration). Skips when the bundle is not built (dist/ is a
+ * export re-registration). Skips when the bundle is not built (lib/client.js is a
  * build product; `pnpm --filter @deepseek-ai/dsh-client-ui-layout build`).
  */
 import { readFileSync } from 'node:fs'
