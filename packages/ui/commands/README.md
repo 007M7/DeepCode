@@ -10,7 +10,7 @@ Plugin-owned human-command registry shared by the TUI and ACP adapters. The [plu
 
 `parseCommand()` recognizes a slash at byte zero, a lowercase name containing letters, digits, `_`, or `-`, and either end-of-input or whitespace. It returns every byte after the name as `rawInput`, including separator whitespace; consumers own their command-specific grammar and may normalize only what that grammar permits.
 
-Handlers return `success` or `error` plus optional UI text. Results are rendered directly by the adapter and never enter model history. The registry races handler completion against the supplied abort signal, but an uncooperative handler may continue its own external side effects after the caller stops awaiting it.
+Handlers return `success` or `error` plus optional UI text. Results are rendered directly by the adapter and never enter model history. The registry never submits `rawInput` to the agent implicitly; a command producer may explicitly schedule model-visible work through the receiving `Agent`, in which case that producer owns the resulting message contract. The registry races handler completion against the supplied abort signal, but an uncooperative handler may continue its own external side effects after the caller stops awaiting it.
 
 ## Composition
 
@@ -22,11 +22,11 @@ The terminal and ACP app bundles mount this service with their consuming front d
 
 #### What the model sees
 
-Nothing. Known slash commands execute in the UI command plane, and their `CommandResult` text is not submitted as a user message. Unknown slash-command input is rejected by shipped adapters instead of becoming a model prompt.
+The registry itself submits nothing. Known slash commands execute in the UI command plane, and their `CommandResult` text is not submitted as a user message. Unknown slash-command input is rejected by shipped adapters instead of becoming a model prompt. A command producer may explicitly use the receiving `Agent`; for example, [`dsh-plan-mode`](../../plan/plan-mode/README.md#model-and-human-surfaces) submits the optional message in `/plan [message]` after selecting plan mode.
 
 #### Token effect
 
-Command discovery, execution, and UI output add no model tokens. A command plugin may separately mutate a model-visible domain through that domain's durable APIs.
+Command discovery, execution, and UI output add no model tokens. Explicit agent work scheduled by a command producer has the same token effect as the corresponding agent input.
 
 #### KV Cache effect
 

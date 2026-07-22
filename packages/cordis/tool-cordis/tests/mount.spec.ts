@@ -321,6 +321,60 @@ describe('cordis_mount', () => {
     })
   })
 
+  it('normalizes and snapshots deeply nested sandbox schemas and annotations stack-safely', async () => {
+    const ctx = await setup()
+    const depth = 5_000
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'deep-unified-schema',
+          inject: ['tools'],
+          apply(ctx) {
+            let choice = { type: 'string' }
+            let example = 'leaf'
+            for (let index = 0; index < ${depth}; index++) {
+              choice = { oneOf: [choice, { type: 'null' }] }
+              example = [example]
+            }
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'deep_unified_schema_tool',
+              description: 'deep unified nodes',
+              parameters: {
+                choice: { ...choice, required: true },
+                any: { type: 'json', default: example },
+              },
+              ${CONTENT_OUTPUT_CODE}
+              async execute() { return [] },
+            }))
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(false)
+
+    const parameters = ctx.tools.schemas().find(s => s.name === 'deep_unified_schema_tool')!.parameters as {
+      properties: Record<string, Record<string, unknown>>
+    }
+    let choice = parameters.properties.choice!
+    let choiceDepth = 0
+    while (Array.isArray(choice.oneOf)) {
+      choice = choice.oneOf[0] as Record<string, unknown>
+      choiceDepth++
+    }
+    let example: unknown = parameters.properties.any!.default
+    let exampleDepth = 0
+    while (Array.isArray(example)) {
+      example = example[0]
+      exampleDepth++
+    }
+    expect({ choiceDepth, choice, exampleDepth, example }).toEqual({
+      choiceDepth: depth,
+      choice: { type: 'string' },
+      exampleDepth: depth,
+      example: 'leaf',
+    })
+  })
+
   it('normalizes unconstrained and closed nested nodes from a raw JSON Schema wrapper', async () => {
     const ctx = await setup()
     const result = await call(ctx, 'cordis_mount', {
@@ -411,6 +465,47 @@ describe('cordis_mount', () => {
               description: 'bad',
               ${parameters},
               ${CONTENT_OUTPUT_CODE}
+              async execute() { return [] },
+            }))
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain(message)
+  })
+
+  it.each([
+    [
+      `
+        const parameters = {}
+        const item = { type: 'array' }
+        item.items = item
+        parameters.item = item
+      `,
+      'parameters.item.items is circular',
+    ],
+    [
+      `
+        const parameters = {}
+        const item = { type: 'object', additionalProperties: true, properties: parameters }
+        parameters.item = item
+      `,
+      'parameters.item.properties is circular',
+    ],
+  ])('rejects circular sandbox schemas without exhausting the call stack', async (declaration, message) => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'circular-schema',
+          inject: ['tools'],
+          apply(ctx) {
+            ${declaration}
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'circular_schema_tool',
+              description: 'circular',
+              parameters,
               async execute() { return [] },
             }))
           },

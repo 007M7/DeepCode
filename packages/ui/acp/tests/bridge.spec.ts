@@ -143,15 +143,18 @@ describe('acp bridge', () => {
       questions: [{
         id: 'language',
         question: 'Which language?',
+        detail: 'Choose the implementation language for this project.',
         options: [{ label: 'TypeScript' }],
       }],
     })
 
     expect(result).toEqual({ answers: [{ id: 'language', selected: [], custom: 'Use Zig' }] })
     expect(harness.elicitationRequests[0]).toMatchObject({
+      message: 'Which language?\n\nChoose the implementation language for this project.',
       requestedSchema: {
         properties: {
           choice: {
+            title: 'Which language?',
             description: 'Choose one option, or fill a custom answer below.',
             oneOf: [{ const: 'TypeScript', title: 'TypeScript' }],
           },

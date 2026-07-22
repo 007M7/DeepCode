@@ -214,6 +214,14 @@ describe('the enforced raw JSON Schema subset', () => {
       .toEqual(['schema.properties.at must be a schema object'])
   })
 
+  it('asserts deeply nested raw unions without using the JavaScript call stack', () => {
+    const depth = 5_000
+    let schema: JsonSchemaNode = { type: 'string' }
+    for (let index = 0; index < depth; index++) schema = { oneOf: [schema, { type: 'null' }] }
+
+    expect(() => { assertSupportedJsonSchema(schema) }).not.toThrow()
+  })
+
   it('uses own-property semantics for required declarations', () => {
     expect(violationsOf({ type: 'object', properties: {}, required: ['toString'] }))
       .toEqual(['schema.required names "toString" which is not in properties'])
@@ -320,6 +328,17 @@ describe('validateJsonSchemaValue', () => {
     expect(validateJsonSchemaValue(overlap, 1))
       .toEqual(['"value" must match exactly one oneOf branch (matched 2)'])
     expect(validateJsonSchemaValue(overlap, 1.5)).toEqual([])
+  })
+
+  it('validates deeply nested exact-one unions without using the JavaScript call stack', () => {
+    const depth = 5_000
+    let schema: JsonSchemaNode = { type: 'string' }
+    for (let index = 0; index < depth; index++) schema = { oneOf: [schema, { type: 'null' }] }
+    assertSupportedJsonSchema(schema)
+
+    expect(validateJsonSchemaValue(schema, 'leaf')).toEqual([])
+    expect(validateJsonSchemaValue(schema, 42))
+      .toEqual(['"value" must match exactly one oneOf branch (matched 0)'])
   })
 
   it('an unconstrained schema accepts only lossless JSON values', () => {
