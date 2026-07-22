@@ -55,8 +55,7 @@
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/util/brand": {
-      "project": ["src/**/*.ts"],
-      "ignoreDependencies": ["cordis"]
+      "project": ["src/**/*.ts"]
     },
     "packages/util/timeout": {
       "entry": ["tests/**/*.spec.ts"],
