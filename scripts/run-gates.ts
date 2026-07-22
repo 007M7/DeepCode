@@ -20,6 +20,8 @@ type Mode =
   | 'ci-coverage'
   | 'ci-snapshot'
   | 'ci-artifacts'
+  | 'ci-windows-blocking'
+  | 'ci-windows-observational'
   | 'node-compat'
   | 'pre-push'
   | 'doc-sync'
@@ -90,13 +92,15 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-coverage':
     case 'ci-snapshot':
     case 'ci-artifacts':
+    case 'ci-windows-blocking':
+    case 'ci-windows-observational':
     case 'node-compat':
     case 'pre-push':
     case 'doc-sync':
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | pre-push | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-observational | node-compat | pre-push | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -179,6 +183,10 @@ function gatesForMode(selected: Mode): Gate[] {
         : [pnpmScript('build', 'build'), snapshotGate()]
     case 'ci-artifacts':
       return ciArtifactGates()
+    case 'ci-windows-blocking':
+      return ciWindowsBlockingGates()
+    case 'ci-windows-observational':
+      return ciWindowsObservationalGates()
     case 'node-compat':
       return [
         ...flagEnabled('DSH_NODE_COMPAT_SKIP_TYPECHECK') ? [] : [pnpmScript('typecheck', 'typecheck')],
@@ -273,6 +281,28 @@ function ciArtifactGates(): Gate[] {
     throw new Error(`run-gates: unknown DSH_ARTIFACT_SHARD ${JSON.stringify(shard)}.`)
   }
   return [...metadataGates, builtBinSmokeGate()]
+}
+
+function ciWindowsBlockingGates(): Gate[] {
+  return [
+    pnpmScript('windows-build', 'build', { label: 'build' }),
+    pnpmScript('windows-site', 'docs:build', { label: 'production site' }),
+  ]
+}
+
+function ciWindowsObservationalGates(): Gate[] {
+  return [
+    ...ciStaticGates(),
+    lintGate(),
+    pnpmScript('duplication', 'duplication'),
+    pnpmScript('publint', 'publint', { needs: ['build'] }),
+    pnpmScript('node-next-types', 'verify-node-next-types', {
+      label: 'node-next types',
+      needs: ['build'],
+    }),
+    builtPackageInvariantsGate(['build']),
+    builtBinSmokeGate(),
+  ]
 }
 
 function lintGate(eslintTargets: readonly string[] = ['.']): Gate {
