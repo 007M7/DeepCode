@@ -10,7 +10,7 @@ function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createNetServer()
     probe.once('error', reject)
-    probe.listen(0, () => {
+    probe.listen(0, '127.0.0.1', () => {
       const port = (probe.address() as AddressInfo).port
       probe.close(() => { resolve(port) })
     })
@@ -124,13 +124,21 @@ describe('startWebServer', () => {
     server = undefined
   })
 
-  it.each(['127.0.0.1', '0.0.0.0'])('uses the configured bind address %s', async (host) => {
+  it.each(['127.0.0.1', '0.0.0.0'])('forwards bind address %s without opening a socket', async (host) => {
     const { distIndex } = makeDist()
-    const port = await freePort()
-    const listen = vi.spyOn(NetServer.prototype, 'listen')
+    const port = 3080
+    const listen = vi.spyOn(NetServer.prototype, 'listen').mockImplementation(function (
+      this: NetServer, ...args: unknown[]
+    ): NetServer {
+      const callback = args.at(-1)
+      if (typeof callback !== 'function') throw new TypeError('listen callback missing')
+      queueMicrotask(callback as () => void)
+      return this
+    })
     try {
-      server = await startWebServer({ host, port, distIndex, apiHandler: echoingApi }, () => undefined)
+      const inertServer = await startWebServer({ host, port, distIndex, apiHandler: echoingApi }, () => undefined)
       expect(listen).toHaveBeenCalledWith(port, host, expect.any(Function))
+      await inertServer.close()
     } finally {
       listen.mockRestore()
     }
