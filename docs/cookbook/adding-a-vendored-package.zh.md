@@ -56,4 +56,4 @@ pnpm run typecheck
 pnpm run build && pnpm run test && pnpm run constraints
 ```
 
-源码 `paths` 映射只在 `tsconfig.base.json` 存在一份，服务所有图。重要的隔离边界是 project-reference 图：vendored 源码必须通过其自身的 `vendor/<dir>/tsconfig.json` 被引用，而非被拉入某个聚合的严格程序中（[布局](../development.zh.md#typescript-项目布局)）。
+源码 `paths` 映射只在 `tsconfig.base.json` 存在一份，服务所有图。重要的隔离边界是 project-reference 图：vendored 源码必须通过其自身的 `vendor/<dir>/tsconfig.json` 被引用，而非被拉入某个聚合的严格程序中（[布局](../development.md#typescript-project-layout)）。

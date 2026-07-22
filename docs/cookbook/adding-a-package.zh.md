@@ -32,7 +32,7 @@ package.json 不变式（由 `pnpm run constraints` / `scripts/check-workspace-c
 | 文件 | 变更 |
 |---|---|
 | `tsconfig.base.json` | 已有分组无需编辑；新分组需为 `@deepseek-ai/dsh-*` 通配符添加 `./packages/<group>/*/src` 候选路径 |
-| `tsconfig.host.json`（host 侧包）或 `tsconfig.client.json`（client 侧包） | 在 `references` 中添加 `{ "path": "./packages/<group>/<pkg>" }`——恰好一个聚合，绝不两个都加（[布局](../development.zh.md#typescript-项目布局)） |
+| `tsconfig.host.json`（host 侧包）或 `tsconfig.client.json`（client 侧包） | 在 `references` 中添加 `{ "path": "./packages/<group>/<pkg>" }`——恰好一个聚合，绝不两个都加（[布局](../development.md#typescript-project-layout)） |
 | `knip.json` | 仅当包有非 `*.spec.ts` 入口时需要（如 `*.e2e.ts` → 添加 per-workspace override，参照 `packages/llm/llm-deepseek`） |
 
 `packages/client/*` 包改为 extends `tsconfig.base.client.json`（而非 `tsconfig.base.json`）；client 插件包还需在 package.json 声明 `dshClient`、导出 `./client`、调用共享 tsdown preset（`packages/client/tsdown.client.ts`）——client 侧契约见 [packages/client/AGENTS.md](../../packages/client/AGENTS.md)。
