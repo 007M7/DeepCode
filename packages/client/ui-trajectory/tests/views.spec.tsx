@@ -109,6 +109,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
   const sessionSnapshot = createSnapshotStore({
     running: false, removed: false, promptError: null, nodes,
     partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'],
+    todos: [] as ConversationSnapshot['todos'],
   })
   const useSession = bindSnapshotSelector(sessionSnapshot) as unknown as UseSession<ConversationSnapshot>
   const chat = createChatStore().create()

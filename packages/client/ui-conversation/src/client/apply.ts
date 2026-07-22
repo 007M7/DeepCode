@@ -21,6 +21,7 @@ import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
 import { ChatView } from './chat/ChatView.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { todoToolview } from './toolviews/todo-row.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 import { EmptyState } from './skeleton/EmptyState.tsx'
@@ -139,6 +140,9 @@ export function apply(ctx: Context): void {
 
   // The bash sample rides that exact seam, in third-party posture.
   ctx.plugin(bashToolviewSample)
+
+  // The todo_write row rides the same seam (a product registration, not a sample).
+  ctx.plugin(todoToolview)
 
   slots.register({
     name: 'details',

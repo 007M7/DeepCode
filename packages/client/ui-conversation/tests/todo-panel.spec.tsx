@@ -1,0 +1,128 @@
+// @vitest-environment jsdom
+/**
+ * Todo display acceptance: the TodoPanel plan strip (empty-hidden, status
+ * rows, collapse with active hint) and the todo_write toolview row (progress
+ * summary from args, generic fallback on malformed JSON, error badge).
+ */
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { hookOf } from './hook.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Export discipline: packages/client/AGENTS.md.
+import { TodoRow, todoToolview } from '../src/client/toolviews/todo-row.tsx'
+import { TodoPanel } from '../src/client/skeleton/TodoPanel.tsx'
+
+afterEach(cleanup)
+
+function sessionWith(todos: readonly TodoItem[]) {
+  const store = createSnapshotStore<{ todos: readonly TodoItem[] }>({ todos })
+  return { store, useSession: hookOf(store) as unknown as UseSession }
+}
+
+const LIST: TodoItem[] = [
+  { content: '搭骨架', status: 'completed' },
+  { content: '写组件', status: 'in_progress' },
+  { content: '补测试', status: 'pending' },
+]
+
+describe('TodoPanel', () => {
+  it('renders nothing while the list is empty, appears when todos land', () => {
+    const { store, useSession } = sessionWith([])
+    render(<TodoPanel useSession={useSession} />)
+    expect(screen.queryByTestId('todo-panel')).toBeNull()
+    act(() => { store.set({ todos: LIST }) })
+    expect(screen.getByTestId('todo-panel')).toBeTruthy()
+  })
+
+  it('shows progress, one row per item with its status, and strikes done items', () => {
+    const { useSession } = sessionWith(LIST)
+    render(<TodoPanel useSession={useSession} />)
+    expect(screen.getByText('1/3')).toBeTruthy()
+    const items = screen.getAllByRole('listitem')
+    expect(items.map(li => li.getAttribute('data-status'))).toEqual(['completed', 'in_progress', 'pending'])
+    expect(screen.getByText('搭骨架')).toBeTruthy()
+    expect(screen.getByText('写组件')).toBeTruthy()
+  })
+
+  it('collapse hides the list and surfaces the active item in the header; expand restores', () => {
+    const { useSession } = sessionWith(LIST)
+    render(<TodoPanel useSession={useSession} />)
+    const header = screen.getByRole('button', { expanded: true })
+    fireEvent.click(header)
+    expect(screen.queryByRole('list')).toBeNull()
+    // Collapsed header carries the in-progress content as the one-line hint.
+    expect(screen.getByText('写组件')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+  })
+
+  it('collapsed header omits the hint when nothing is in progress', () => {
+    const { useSession } = sessionWith([{ content: '都完了', status: 'completed' }])
+    render(<TodoPanel useSession={useSession} />)
+    fireEvent.click(screen.getByRole('button', { expanded: true }))
+    expect(screen.queryByText('都完了')).toBeNull()
+    expect(screen.getByText('1/1')).toBeTruthy()
+  })
+})
+
+const resultNode = (argsRaw: string, over?: Partial<ToolResultNode>): ToolResultNode => ({
+  kind: 'tool-result', seq: 10, callId: 'c1',
+  call: { name: 'todo_write', argsRaw },
+  content: [], isError: false, callView: null, resultView: null, ...over,
+})
+
+function rowProps(block: unknown, openDetails = vi.fn()): ToolRowProps {
+  return {
+    callId: 'c1', toolName: 'todo_write', block,
+    openDetails,
+    sessionId: 's1',
+    useSessions: () => undefined,
+  } as unknown as ToolRowProps
+}
+
+describe('TodoRow', () => {
+  const ARGS = JSON.stringify({ todos: LIST })
+
+  it('summarizes counts and the active item from the call args', () => {
+    render(<TodoRow {...rowProps(resultNode(ARGS))} />)
+    expect(screen.getByText('更新任务清单')).toBeTruthy()
+    expect(screen.getByText('1/3 已完成 · 写组件')).toBeTruthy()
+  })
+
+  it('omits the active clause when no item is in progress and reads running-call args', () => {
+    const args = JSON.stringify({ todos: [{ content: 'x', status: 'completed' }] })
+    render(<TodoRow {...rowProps({ callId: 'c1', name: 'todo_write', argsRaw: args, turn: 1, step: 1, callView: null })} />)
+    expect(screen.getByText('1/1 已完成')).toBeTruthy()
+  })
+
+  it('falls back to the generic summary on malformed args and flags errors', () => {
+    render(<TodoRow {...rowProps(resultNode('not json', { isError: true }))} />)
+    expect(screen.getByText('failed')).toBeTruthy()
+    // Generic others summary: "<tool> · <raw>".
+    expect(screen.getByText('todo_write · not json')).toBeTruthy()
+  })
+
+  it('falls back when parsed args carry no todos array, and click opens details', () => {
+    const openDetails = vi.fn()
+    render(<TodoRow {...rowProps(resultNode('{"other":1}'), openDetails)} />)
+    expect(screen.getByText('todo_write · {"other":1}')).toBeTruthy()
+    fireEvent.click(screen.getByText('更新任务清单'))
+    expect(openDetails).toHaveBeenCalledTimes(1)
+  })
+
+  it('window-truncated result (call head lost) falls back to the callId summary', () => {
+    render(<TodoRow {...rowProps(resultNode('', { call: null }))} />)
+    expect(screen.getByText('todo_write · c1')).toBeTruthy()
+  })
+
+  it('todoToolview is a plain registrant riding the conversation load-order seam', () => {
+    expect(todoToolview.name).toBe('todo-toolview')
+    expect(todoToolview.inject).toEqual(['slots', 'conversation'])
+    const register = vi.fn()
+    todoToolview.apply({ slots: { register } } as never)
+    expect(register).toHaveBeenCalledWith({ name: 'conversation.chat.toolview', key: 'todo_write' }, TodoRow)
+  })
+})

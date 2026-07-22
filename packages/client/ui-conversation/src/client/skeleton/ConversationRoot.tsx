@@ -15,6 +15,7 @@ import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/d
 import type { ConversationSlotProps } from '../contract/slots.ts'
 import { InputBar } from './InputBar.tsx'
 import type { InputBarError } from './InputBar.tsx'
+import { TodoPanel } from './TodoPanel.tsx'
 import css from './ConversationRoot.module.css'
 
 /** Full props = the automatic shares & injected share — composed by reference
@@ -122,6 +123,8 @@ export function ConversationRoot({
       <div className={css.viewArea}>
         {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}
       </div>
+
+      <TodoPanel useSession={useSession} />
 
       {renderSlotChain('conversation.composer', { interactions: pending }, { fallback: composerBar })}
     </div>

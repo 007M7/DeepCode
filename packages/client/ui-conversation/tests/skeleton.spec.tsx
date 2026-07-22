@@ -59,11 +59,12 @@ interface FakeSnapshot {
   removed: boolean
   promptError: { op: 'send' | 'stop'; error: { message: string; code: string } } | null
   pending: readonly PendingInteraction[]
+  todos: readonly { content: string; status: 'pending' | 'in_progress' | 'completed' }[]
 }
 
 function fakeSession(init: Partial<FakeSnapshot> = {}) {
   const store = createSnapshotStore<FakeSnapshot>({
-    nodes: [], runningCalls: [], running: false, removed: false, promptError: null, pending: [], ...init,
+    nodes: [], runningCalls: [], running: false, removed: false, promptError: null, pending: [], todos: [], ...init,
   })
   return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
 }
