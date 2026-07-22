@@ -180,6 +180,37 @@ export interface EpochHeader {
  */
 export type RequestHeaderReason = 'initial' | 'resume' | 'change'
 
+/** Durable model-hidden annotation for one context baked into a prompt message. */
+export interface PromptPrefixContext {
+  /** Producer provenance retained for transcript presentation and inspection. */
+  source: MessageSource
+  /** Opaque JSON state retained in the session event but hidden from the model. */
+  meta?: JsonValue
+}
+
+/**
+ * Human-facing view of a prompt whose exact model content includes prefixed
+ * context. `content` on the owning event remains the reconstructable model
+ * input; this envelope prevents transcript, title, and re-reference consumers
+ * from treating the baked context as direct human text.
+ */
+export interface PromptMessageEnvelope {
+  /** Effective user prompt after interception rewrites, without baked context. */
+  displayContent: ContentBlock[]
+  /** Ordered descriptors for contexts already baked into the event content. */
+  prefixContexts: PromptPrefixContext[]
+}
+
+/** Shared payload for ordinary and steering prompt messages. */
+export interface PromptMessageData {
+  /** Exact model-facing blocks, including any baked prompt-prefix contexts. */
+  content: ContentBlock[]
+  /** Producer provenance for the direct prompt. */
+  source: MessageSource
+  /** Present only when prompt-prefix contexts were baked into `content`. */
+  envelope?: PromptMessageEnvelope
+}
+
 /**
  * The merge-extensible, append-only source of truth for an agent interaction.
  * Message history is derived from this log. Every event is lossless JSON and
@@ -206,7 +237,7 @@ export interface SessionEventMap {
   /** Closes step `step` of turn `turn`. */
   'step/end': { turn: number; step: number }
   /** A user-visible prompt (the queued message claimed for this turn). */
-  'user/message': { content: ContentBlock[]; source: MessageSource }
+  'user/message': PromptMessageData
   /**
    * Durable record of a prompt veto and its reason. It is log-only: the blocked
    * prompt never enters the model-visible surface, and its turn runs zero steps.
@@ -254,7 +285,7 @@ export interface SessionEventMap {
    */
   'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string }; meta?: unknown }
   /** Steering content injected between steps of a running turn. */
-  'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
+  'steering/message': PromptMessageData & { turn: number }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**

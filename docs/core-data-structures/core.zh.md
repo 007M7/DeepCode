@@ -31,6 +31,7 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [user-interaction.md](user-interaction.md) | UI 支持的人工问答 seam：`AskUserQuestionRequest`、answer/options 词汇、provider API、错误分类体系 |
 | [approval.md](approval.md) | 一次性用户审批 seam：`ApprovalRequest`、`ApprovalOutcome`、逐会话策略、审计与 answerer 契约 |
 | [bash.md](bash.md) | bash 执行器 seam：`BashExecRequest`/`Spec`、`BashRunResult`、后台 `BashProcess` 句柄 |
+| [pty.md](pty.md) | 持久化终端 ID、后端/会话契约、发送就绪状态、有界读取与 owner 可见快照 |
 | [sandbox.md](sandbox.md) | 每会话策略解析与进程约束 seam：文件效果模式、执行/提供方策略、`ConfinedArgv`、强制执行与故障关闭错误 |
 | [code-runtime.md](code-runtime.md) | 代码执行 seam：`CodeRunRequest`/`Result`、绑定命名空间、捕获日志、`CodeRunFailure` 分类体系 |
 | [filesystem.md](filesystem.md) | 文件系统 seam：`FsTarget`、读/写/编辑结果、观测到的文件状态、`FsErrorCode` |
@@ -360,11 +361,27 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`InjectOptions` 在普通消息归属信息之外，扩展了对模型隐藏的持久 JSON 元数据：
+```ts type-equiv
+/**
+ * Message options. An omitted source attests direct human input as `{ kind: 'user' }`
+ * and may authorize policy consumers, so non-human producers must label their content.
+ */
+interface SendOptions {
+  source?: MessageSource
+  /**
+   * Model-facing contexts captured with this inbox item. A queued prompt exposes
+   * them through the default `agent/prompt-submit` allow decision, while steering
+   * records them directly at its next checkpoint.
+   */
+  contexts?: HookContext[]
+}
+```
+
+`InjectOptions` 接受普通消息归属信息和对模型隐藏的持久 JSON 元数据。附加上下文只属于排队输入或 steering 输入，因此合成注入不接受这类上下文：
 
 ```ts type-equiv
 /** Options specific to durable synthetic context injection. */
-interface InjectOptions extends SendOptions {
+interface InjectOptions extends Omit<SendOptions, 'contexts'> {
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
@@ -392,7 +409,8 @@ interface Agent {
    * Queue one detached, frozen lossless-JSON item. If claimed, it is the sole
    * ordinary message in its FIFO-ordered turn; the next claimed item waits for
    * that turn's checkpoint.
-   * Invalid input throws synchronously before notification or enqueue.
+   * Attached contexts share the same snapshot and ownership boundary. Invalid
+   * input throws synchronously before notification or enqueue.
    */
   send(content: ContentBlock[], options?: SendOptions): void
 
@@ -444,15 +462,21 @@ cause 是由 TypeScript 强制约束的同进程输入。活跃持有者会把�
 
 ## 拦截决策
 
-每个 `agent/*` 拦截 waterfall 都返回一个小型、特定于 seam 的类型化联合——统一的 Decision 惯用形状（[tools.md](tools.md) 中工具 seam 的 `PreToolDecision`/`PostToolDecision` 也采用相同形状）。CC/Codex hook bridge 把其 `permissionDecision`/`decision`/`continue`/`additionalContext` 字段映射到这些联合上；原生插件则直接返回它们。Prompt 与工具后决策共享一种面向模型的 context 形状 `HookContext`；它通过 `inject()` 作为 `context/message` 注入，因此必须携带 `source`（缺少 source 会默认成 `{kind:'user'}`，从而把插件 context 错标为用户 prompt）。其中的 `content` 作为 user-role 消息逐字到达模型，而 JSON `meta` 持久保存插件状态但不向模型暴露。两种决策都携带 `additionalContexts[]`，使每一项保留各自的 provenance 与元数据。Continuation reason 则是 steering 消息，并有意使用更窄的 content/source 形状。
+每个 `agent/*` 拦截 waterfall 都返回一个小型、特定于 seam 的类型化联合——统一的 Decision 惯用形状（[tools.md](tools.md) 中工具 seam 的 `PreToolDecision`/`PostToolDecision` 也采用相同形状）。CC/Codex hook bridge 把其 `permissionDecision`/`decision`/`continue`/`additionalContext` 字段映射到这些联合上；原生插件则直接返回它们。Prompt 与工具后决策共享一种面向模型的 context 形状 `HookContext`，它必须携带 `source`（缺少 source 会默认成 `{kind:'user'}`，从而把插件 context 错标为用户 prompt）。其中的 `content` 作为 user-role 输入逐字到达模型，而 JSON `meta` 持久保存插件状态但不向模型暴露。未指定放置方式或指定为 `separate` 时，context 会成为 `context/message`；`prompt-prefix` 放置方式可用于 prompt 和 steering 收件箱附件，会在同一条消息中把 context 置于最终生效的请求之前。两种决策都携带 `additionalContexts[]`，使每一项保留各自的 provenance、元数据与放置方式。Continuation reason 则是 steering 消息，并有意使用更窄的 content/source 形状。
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
 ```ts type-equiv
-/** Model-facing context injected by a listener; `source` prevents plugin text from being labeled as user input. */
+/** Model-facing context injected by a listener or atomically attached to one inbox message. */
 interface HookContext {
   content: ContentBlock[]
   source: MessageSource
+  /**
+   * Model placement. Absent or `separate` records an independent
+   * `context/message`; `prompt-prefix` prepends this context and a stable
+   * request delimiter to the same user-role message as its attached prompt.
+   */
+  placement?: 'separate' | 'prompt-prefix'
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
@@ -462,10 +486,13 @@ interface HookContext {
 
 ```ts type-equiv
 /**
- * Prompt interception result. `allow.content` replaces the prompt and each
- * `additionalContexts` entry becomes a separate context message. `block`
- * records a durable `prompt/blocked` and ends the claimed prompt's zero-step
- * turn as rejected.
+ * Prompt interception result. `allow.content` replaces the prompt. Each
+ * `additionalContexts` entry follows its declared placement: separate context
+ * message by default, or a prefix inside the prompt's user-role message.
+ * `block` records a durable `prompt/blocked` and ends the claimed prompt's
+ * zero-step turn as rejected. An `allow` returned by a listener is
+ * authoritative: a listener wrapping `next()` preserves downstream `content`
+ * and `additionalContexts` unless it intentionally replaces them.
  */
 type PromptDecision =
   | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }

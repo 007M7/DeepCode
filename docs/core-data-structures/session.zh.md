@@ -11,6 +11,18 @@
 仅追加的事件类型。可通过声明合并扩展：插件通过 declaration merging 声明额外的事件类型。例如[上下文压缩（context compaction） seam](compaction.md) 添加了 `compact/start` / `compact/summary` / `compact/end`，`@deepseek-ai/dsh-hook-protocol` 添加了仅记录日志的 `hook/invoked` / `hook/result` 溯源事件，用于钩子桥接。与 `compact/*` 一样，这些都不是 `SurfaceEventType`（没有 `surfaceOp`）。生成的[持久化日志事件目录](../persistence-catalog.md)列举了所有成员（核心与合并扩展的），包含其 payload、surface 标记与声明位置。
 
 ```ts type-equiv
+/** Shared payload for ordinary and steering prompt messages. */
+interface PromptMessageData {
+  /** Exact model-facing blocks, including any baked prompt-prefix contexts. */
+  content: ContentBlock[]
+  /** Producer provenance for the direct prompt. */
+  source: MessageSource
+  /** Present only when prompt-prefix contexts were baked into `content`. */
+  envelope?: PromptMessageEnvelope
+}
+```
+
+```ts type-equiv
 /**
  * The merge-extensible, append-only source of truth for an agent interaction.
  * Message history is derived from this log. Every event is lossless JSON and
@@ -37,7 +49,7 @@ interface SessionEventMap {
   /** Closes step `step` of turn `turn`. */
   'step/end': { turn: number; step: number }
   /** A user-visible prompt (the queued message claimed for this turn). */
-  'user/message': { content: ContentBlock[]; source: MessageSource }
+  'user/message': PromptMessageData
   /**
    * Durable record of a prompt veto and its reason. It is log-only: the blocked
    * prompt never enters the model-visible surface, and its turn runs zero steps.
@@ -85,7 +97,7 @@ interface SessionEventMap {
    */
   'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string }; meta?: unknown }
   /** Steering content injected between steps of a running turn. */
-  'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
+  'steering/message': PromptMessageData & { turn: number }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
@@ -95,6 +107,8 @@ interface SessionEventMap {
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 }
 ```
+
+`PromptMessageData.content` 始终是确切的模型可见内容。当附加 context 声明 `prompt-prefix` 放置方式时，AgentLoop 会依次把它的 block、一个 `## My request:` 分隔符以及最终生效的直接提示词拼接进该数组。可选且对模型隐藏的 `envelope` 会保留 `displayContent`，以及按顺序排列的前缀 context 来源/元数据描述信息，使 transcript（文本记录）、标题与重新引用消费方无需改变可重建历史，就能呈现人类提示词。`displayPromptContent()` 负责该选择，并为普通事件和较早的事件回退到 `content`。
 
 ### `OutOfBandSessionEventMap`：受限的带外追加显式准入
 
@@ -440,11 +454,11 @@ declare class Session {
 
 `Session.deriveMessages()` 将事件日志投影为模型看到的 `Message[]`。它是缓存的（每个 surface 节点在首次出现时投影一次；surface 重写触发重建）且冻结的（每次调用返回一个新数组，引用共享的深冻结消息，因此通过投影修改已记录的历史在类型上不可表达）。`deriveEventMessage(event)` 是折叠所应用的逐节点纯函数，公开暴露以便外部重建器和开发不变式检查能以完全相同的规则投影日志前缀，不会与缓存产生分歧。投影规则：
 
-- `user/message` → 一条 user 消息。
-- `assistant/message` → 一条 assistant 消息，包含事件的提供方/模型溯源信息和可选的适配器私有回放状态。原始 `assistant/chunk` 事件属于回放/UI 数据，在派生时会被**跳过**（组装后的消息才是权威）。**内容为空的** `assistant/message` 也会跳过：因 max-tokens 而截断且无内容的步骤仍会记录一条 `assistant/message` 以承载用量和溯源信息，但无内容的 assistant 轮次不得进入提供方 transcript（文本记录）。
+- `user/message` → 一条携带确切 `content` 的 user 消息；可选 envelope 仅作为日志中的展示元数据保留。
+- `assistant/message` → 一条 assistant 消息，包含事件的提供方/模型溯源信息和可选的适配器私有回放状态。原始 `assistant/chunk` 事件属于回放/UI 数据，在派生时会被**跳过**（组装后的消息才是权威）。**内容为空的** `assistant/message` 也会跳过：因 max-tokens 而截断且无内容的步骤仍会记录一条 `assistant/message` 以承载用量和溯源信息，但无内容的 assistant 轮次不得进入提供方 transcript。
 - `tool/result` → 一条携带 `tool-result` 块的 user 消息。
 - `context/message` → 按时间顺序在相应位置生成一条 user-role 消息，并原样承载其 `content`。可选的 JSON `meta` 保留在事件日志中，绝不渲染。
-- `steering/message` → 按时间顺序在相应位置生成一条 user-role 消息，并原样承载其内容。
+- `steering/message` → 按时间顺序在相应位置生成一条携带确切 `content` 的 user-role 消息；可选 envelope 仅作为日志中的展示元数据保留。
 
 其余所有事件（`turn/*`、`step/*`、插件所有的 `llm/retry`）均为结构信息，不会投影为消息。token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息，因此其用量分片是持久化的记账记录。操作错误的步骤号记录在 `turn/end.reason`（`kind: 'error'`）中；如果是最终模型请求失败，其中包含规范化的 `LlmFailure` 事实，其他实时错误则包含消息/代码。由于这一尚未发布的格式有意不提供兼容性承诺，seed/load 校验会拒绝缺少提供方和模型的请求头，以及缺少提供方/模型溯源信息的 assistant 消息，而不会猜测历史数据应走的提供方路由。
 

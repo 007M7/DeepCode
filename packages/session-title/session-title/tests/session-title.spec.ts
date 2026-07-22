@@ -72,6 +72,33 @@ describe('SessionTitleService', () => {
     expect(session.surface.nodes).toEqual([message.seq])
   })
 
+  it('derives a fallback title from the direct prompt instead of baked prefix context', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionTitleService, CONFIG)
+    const session = ctx.sessions.create(SessionId('prefixed-title'))
+    session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    session.append('user/message', {
+      content: [
+        { type: 'text', text: 'referenced snapshot title must stay hidden' },
+        { type: 'text', text: '\n\n## My request:\n' },
+        { type: 'text', text: 'Explain this referenced session' },
+      ],
+      source: { kind: 'user' },
+      envelope: {
+        displayContent: [{ type: 'text', text: 'Explain this referenced session' }],
+        prefixContexts: [{ source: { kind: 'plugin', plugin: 'session-reference' } }],
+      },
+    }, { surfaceOp: 'append' })
+
+    await settleTitles()
+
+    expect(ctx.sessionTitle.get(session)?.title).toBe('Explain this referenced session')
+  })
+
   it('waits through synthetic, empty, and non-text messages, then keeps the first fallback', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

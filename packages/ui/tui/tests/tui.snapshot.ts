@@ -52,6 +52,10 @@ const CHECKPOINTS = [
   'status-diagnostics-narrow',
 ] as const
 
+// Real-loop scenarios own their assertions in separate snapshot suites but
+// share this directory, whose inventory remains exact.
+const STANDALONE_CHECKPOINTS = ['session-reference'] as const
+
 type Checkpoint = typeof CHECKPOINTS[number]
 type SnapshotHarness = TuiHarness<HeadlessTerminal, (code: number) => void>
 
@@ -685,5 +689,5 @@ afterAll(async () => {
   const files = (await readdir(SNAPSHOTS_DIR))
     .filter(file => file.endsWith('.expected.txt'))
     .sort()
-  expect(files).toEqual(CHECKPOINTS.map(name => `${name}.expected.txt`).sort())
+  expect(files).toEqual([...CHECKPOINTS, ...STANDALONE_CHECKPOINTS].map(name => `${name}.expected.txt`).sort())
 })

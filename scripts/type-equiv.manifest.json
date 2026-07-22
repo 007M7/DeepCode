@@ -68,6 +68,11 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "SendOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "AgentCancelCause",
       "source": "packages/core/agent/src/types.ts"
     },
@@ -285,6 +290,11 @@
     },
     {
       "doc": "docs/core-data-structures/session.md",
+      "symbol": "PromptMessageData",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
       "symbol": "SessionEventMap",
       "source": "packages/core/session/src/types.ts"
     },
@@ -381,6 +391,11 @@
     },
     {
       "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionSurfaceSnapshot",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
       "symbol": "SessionEventRecord",
       "source": "packages/session-query/session-query/src/types.ts"
     },
@@ -473,6 +488,26 @@
       "doc": "docs/core-data-structures/session-title.md",
       "symbol": "SessionTitleProvider",
       "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "SessionReferenceInput",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "SessionReferenceCandidate",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "PreparedReferencedMessage",
+      "source": "packages/context/session-reference/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-reference.md",
+      "symbol": "SessionReferenceErrorCode",
+      "source": "packages/context/session-reference/src/config.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.md",
@@ -698,6 +733,36 @@
       "doc": "docs/core-data-structures/tasks.md",
       "symbol": "TaskRead",
       "source": "packages/tasks/tasks/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/pty.md",
+      "symbol": "PtyWaitReason",
+      "source": "packages/pty/pty/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/pty.md",
+      "symbol": "PtySessionStatus",
+      "source": "packages/pty/pty/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/pty.md",
+      "symbol": "PtyBackend",
+      "source": "packages/pty/pty/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/pty.md",
+      "symbol": "PtyBackendSession",
+      "source": "packages/pty/pty/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/pty.md",
+      "symbol": "PtySendOperation",
+      "source": "packages/pty/pty/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/pty.md",
+      "symbol": "PtySendResult",
+      "source": "packages/pty/pty/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/sandbox.md",
@@ -1111,6 +1176,11 @@
     },
     {
       "doc": "docs/core-data-structures/core.zh.md",
+      "symbol": "SendOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.zh.md",
       "symbol": "AgentCancelCause",
       "source": "packages/core/agent/src/types.ts"
     },
@@ -1233,6 +1303,11 @@
     },
     {
       "doc": "docs/core-data-structures/session.zh.md",
+      "symbol": "PromptMessageData",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.zh.md",
       "symbol": "SessionEventMap",
       "source": "packages/core/session/src/types.ts"
     },
@@ -1325,6 +1400,11 @@
     {
       "doc": "docs/core-data-structures/session-query.zh.md",
       "symbol": "SessionRecord",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.zh.md",
+      "symbol": "SessionSurfaceSnapshot",
       "source": "packages/session-query/session-query/src/types.ts"
     },
     {

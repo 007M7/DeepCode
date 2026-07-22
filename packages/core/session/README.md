@@ -64,7 +64,7 @@ Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/
 
 `request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. `messagePrefix` remains separate from derived history. See the [reconstructable-requests Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
-`context/message` renders its `content` verbatim as a user-role message, and may attach JSON `meta` for replayable plugin state; metadata remains durable but is excluded from `deriveMessages()`.
+`context/message` renders its `content` verbatim as a user-role message, and may attach JSON `meta` for replayable plugin state; metadata remains durable but is excluded from `deriveMessages()`. A `user/message` or `steering/message` with prompt-prefix context keeps the exact combined model bytes in `content` and stores a model-hidden `envelope` containing the direct `displayContent` and prefix context source/metadata descriptors. `displayPromptContent()` selects the human-facing prompt without changing derived history.
 
 ### Session event vocabulary (`types.ts`)
 
@@ -97,7 +97,7 @@ Every `SessionEvent` carries two optional top-level fields (structural metadata)
 
 #### What the model sees
 
-The model receives projections of `user/message`, `assistant/message`, `tool/result`, `context/message`, and `steering/message` surface entries verbatim: each is a user- or assistant-role message carrying its content blocks unchanged. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
+The model receives projections of `user/message`, `assistant/message`, `tool/result`, `context/message`, and `steering/message` surface entries verbatim: each is a user- or assistant-role message carrying its content blocks unchanged. A prompt envelope changes only human presentation; its prefix context and request delimiter are already present in the event content. Tool calls live inside assistant messages. Chunks, boundaries, usage, hook records, todo records, and other log-only events add no message.
 
 #### Token effect
 
