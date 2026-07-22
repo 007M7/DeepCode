@@ -215,7 +215,8 @@ describe('cwd resolution', () => {
     await ctx.fiber.dispose()
   })
 
-  it('rejects a config cwd directory without search permission at load', async () => {
+  // Windows ACLs do not expose the POSIX directory search-bit state this fixture creates.
+  it.skipIf(process.platform === 'win32')('rejects a config cwd directory without search permission at load', async () => {
     // statSync().isDirectory() is true for a mode-600 directory, but a
     // subprocess cwd needs SEARCH permission — spawn would fail EACCES.
     const tmp = mkdtempSync(join(tmpdir(), 'acp-noexec-'))

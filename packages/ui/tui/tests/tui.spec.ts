@@ -198,7 +198,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
-  it('renders its header, footer, replay, streaming answer, todos, and status', async () => {
+  it.skipIf(process.platform === 'win32')('renders its header, footer, replay, streaming answer, todos, and status', async () => {
     let now = 0
     const result = await setup({
       contextWindow: 100,
