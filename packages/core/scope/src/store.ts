@@ -23,11 +23,12 @@ interface EntryValues<V> {
 /**
  * Insertion-ordered named entries with caller-owned duplicate diagnostics.
  *
- * Values are borrowed. Iterators are live native `Map` iterators, and each
+ * Values are borrowed. Iterators are live within one nonempty table
+ * generation; draining the table detaches them from later insertions. Each
  * successful insertion returns an idempotent undo for that exact entry.
  */
 export class NamedEntries<V> implements EntryValues<V> {
-  private readonly data = new Map<string, V>()
+  private data = new Map<string, V>()
 
   constructor(
     private readonly duplicateError: (name: string) => Error,
@@ -40,13 +41,15 @@ export class NamedEntries<V> implements EntryValues<V> {
    * @returns an idempotent undo that removes only this insertion.
    */
   insert(name: string, value: V): () => void {
-    if (this.data.has(name)) throw this.duplicateError(name)
-    this.data.set(name, value)
+    const data = this.data
+    if (data.has(name)) throw this.duplicateError(name)
+    data.set(name, value)
     let active = true
     return () => {
       if (!active) return
       active = false
-      this.data.delete(name)
+      data.delete(name)
+      if (data.size === 0 && this.data === data) this.data = new Map()
     }
   }
 
@@ -104,11 +107,12 @@ export class NamedEntries<V> implements EntryValues<V> {
 /**
  * Insertion-ordered anonymous entries with independent registration identity.
  *
- * Equal values remain separate registrations. Values are borrowed and the
- * returned iterator retains native live `Map` semantics.
+ * Equal values remain separate registrations. Values are borrowed, and
+ * iterators are live within one nonempty table generation; draining the table
+ * detaches them from later appends.
  */
 export class AnonymousEntries<V> implements EntryValues<V> {
-  private readonly data = new Map<symbol, V>()
+  private data = new Map<symbol, V>()
 
   /**
    * Append one independently owned value.
@@ -116,13 +120,15 @@ export class AnonymousEntries<V> implements EntryValues<V> {
    * @returns an idempotent undo for this exact append.
    */
   append(value: V): () => void {
+    const data = this.data
     const key = Symbol()
-    this.data.set(key, value)
+    data.set(key, value)
     let active = true
     return () => {
       if (!active) return
       active = false
-      this.data.delete(key)
+      data.delete(key)
+      if (data.size === 0 && this.data === data) this.data = new Map()
     }
   }
 

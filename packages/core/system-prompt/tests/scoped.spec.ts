@@ -101,6 +101,28 @@ describe('scoped variables', () => {
     const again = await mintScope(ctx, 'child2')
     again.ctx.systemPrompt.variable('v', () => '3')
   })
+
+  it('defers a scoped variable that replaces the last provider in its generation', async () => {
+    const ctx = await mount({ persona: 'Mode: {{mode}}.' })
+    const scope = await mintScope(ctx, 'child')
+    const key = scopeKeyOf(scope)
+    const calls: string[] = []
+    scope.ctx.systemPrompt.section({ name: 'scope:sibling', order: 1, text: 'Scoped.' })
+    const dispose = scope.ctx.systemPrompt.variable('mode', () => {
+      calls.push('first')
+      dispose()
+      scope.ctx.systemPrompt.variable('mode', () => {
+        calls.push('replacement')
+        return 'replacement'
+      })
+      return 'first'
+    })
+
+    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key }))).toContain('Mode: first.')
+    expect(calls).toEqual(['first'])
+    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key }))).toContain('Mode: replacement.')
+    expect(calls).toEqual(['first', 'replacement'])
+  })
 })
 
 describe('scoped tool providers and toolOrder × restriction', () => {

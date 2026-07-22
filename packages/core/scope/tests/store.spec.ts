@@ -59,6 +59,19 @@ describe('NamedEntries', () => {
     undoB()
     expect([...entries.entries()]).toEqual([['a', 3]])
   })
+
+  it('starts a fresh iterator generation after the table drains', () => {
+    const entries = new NamedEntries<number>(name => new Error(`duplicate: ${name}`))
+    const undo = entries.insert('first', 1)
+    const values = entries.values()
+
+    expect(values.next()).toEqual({ value: 1, done: false })
+    undo()
+    entries.insert('replacement', 2)
+
+    expect(values.next().done).toBe(true)
+    expect([...entries.values()]).toEqual([2])
+  })
 })
 
 describe('AnonymousEntries', () => {
@@ -77,6 +90,19 @@ describe('AnonymousEntries', () => {
     expect([...entries.values()]).toEqual([value])
     undoSecond()
     expect(entries.isEmpty()).toBe(true)
+  })
+
+  it('starts a fresh iterator generation after the table drains', () => {
+    const entries = new AnonymousEntries<number>()
+    const undo = entries.append(1)
+    const values = entries.values()
+
+    expect(values.next()).toEqual({ value: 1, done: false })
+    undo()
+    entries.append(2)
+
+    expect(values.next().done).toBe(true)
+    expect([...entries.values()]).toEqual([2])
   })
 })
 
