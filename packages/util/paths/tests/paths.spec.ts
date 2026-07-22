@@ -28,7 +28,7 @@ describe('dsh path helpers', () => {
   it('resolves explicit path before DSH_HOME and the default', () => {
     const envHome = join(homedir(), 'env-dsh')
 
-    expect(resolveDshHome('/tmp/explicit-dsh', { DSH_HOME: '~/env-dsh' })).toBe('/tmp/explicit-dsh')
+    expect(resolveDshHome('/tmp/explicit-dsh', { DSH_HOME: '~/env-dsh' })).toBe(resolve('/tmp/explicit-dsh'))
     expect(resolveDshHome(undefined, { DSH_HOME: '~/env-dsh' })).toBe(envHome)
     expect(resolveDshHome(undefined, {})).toBe(defaultDshHome())
   })

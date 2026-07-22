@@ -44,6 +44,56 @@ describe('normalizeStdout', () => {
     expect(out).not.toContain(ctx.sessionIds[0] as string)
   })
 
+  it('canonicalizes only cwd-rooted path separators', () => {
+    const windowsCtx: NormalizeContext = {
+      sessionIds: [],
+      cwd: String.raw`C:\Users\runner\AppData\Local\Temp\acp-snapshot`,
+    }
+    const raw = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        path: `${windowsCtx.cwd}\\nested\\proof.txt`,
+        regex: String.raw`\d+\w+`,
+        command: String.raw`printf "\\n"`,
+      },
+    })
+    const frame = JSON.parse(normalizeStdout(raw, windowsCtx)) as {
+      params: { path: string; regex: string; command: string }
+    }
+    expect(frame.params).toEqual({
+      path: '{{cwd}}/nested/proof.txt',
+      regex: String.raw`\d+\w+`,
+      command: String.raw`printf "\\n"`,
+    })
+  })
+
+  it('canonicalizes generated relative path fields and text markers without rewriting other text', () => {
+    const raw = JSON.stringify({
+      path: String.raw`nested\AGENTS.md`,
+      content: String.raw`<path>.\nested\task.txt</path>
+Additional instructions from: nested\AGENTS.md`,
+      regex: String.raw`\d+\w+`,
+    })
+    const frame = JSON.parse(normalizeStdout(raw, { sessionIds: [], cwd: '/unused' })) as {
+      path: string
+      content: string
+      regex: string
+    }
+    expect(frame).toEqual({
+      path: 'nested/AGENTS.md',
+      content: '<path>./nested/task.txt</path>\nAdditional instructions from: nested/AGENTS.md',
+      regex: String.raw`\d+\w+`,
+    })
+  })
+
+  it('can preserve native cwd-rooted separators for a platform golden', () => {
+    const windowsCtx: NormalizeContext = { sessionIds: [], cwd: String.raw`C:\work\snapshot` }
+    const raw = JSON.stringify({ path: `${windowsCtx.cwd}\\nested\\proof.txt` })
+    const frame = JSON.parse(normalizeStdout(raw, windowsCtx, { cwdPathMode: 'native' })) as { path: string }
+    expect(frame.path).toBe(String.raw`{{cwd}}\nested\proof.txt`)
+  })
+
   it('scrubs a stray UUID not in the known list', () => {
     const raw = JSON.stringify({ jsonrpc: '2.0', method: 'x', params: { id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' } })
     expect(normalizeStdout(raw, ctx)).toContain('{{sessionId}}')
@@ -170,6 +220,33 @@ describe('normalizeSessionLog', () => {
     const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
     expect(out).toContain('{{spillLocator:bash.txt}}')
     expect(out).not.toContain('/tmp/dsh-acp-snap-012345678')
+  })
+
+  it('scrubs scenario-owned snapshot spill paths with Windows drive and separators', () => {
+    const ev = JSON.stringify({
+      type: 'tool/result', seq: 2, time: 5,
+      data: {
+        content: [{
+          type: 'text',
+          text: String.raw`Full formatted result stored at: C:\t\dsh-acp-snap-012345678\session-c22bc3f1d2af\8a7b6c5d4e3f-bash.txt. Use read with offset/limit, or grep this path to search within it.`,
+        }],
+      },
+    })
+    const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
+    expect(out).toContain('{{spillLocator:bash.txt}}')
+    expect(out).not.toContain('C:\\t\\dsh-acp-snap-012345678')
+  })
+
+  it('shares cwd-rooted path handling with stdout normalization', () => {
+    const windowsCtx: NormalizeContext = { sessionIds: [], cwd: String.raw`C:\work\snapshot` }
+    const ev = JSON.stringify({
+      type: 'tool/result', seq: 2, time: 5,
+      data: { path: `${windowsCtx.cwd}\\nested\\proof.txt` },
+    })
+    expect(normalizeSessionLog(`${header({ cwd: windowsCtx.cwd })}\n${ev}\n`, windowsCtx))
+      .toContain('{{cwd}}/nested/proof.txt')
+    expect(normalizeSessionLog(`${header({ cwd: windowsCtx.cwd })}\n${ev}\n`, windowsCtx, { cwdPathMode: 'native' }))
+      .toContain(String.raw`{{cwd}}\\nested\\proof.txt`)
   })
 
   it('scrubs the session id in the header', () => {

@@ -1,0 +1,15 @@
+{
+  // Path-map scope for vite-tsconfig-paths in vitest only (never a tsc -b target):
+  // widens include to package src and .tsx so bare workspace imports resolve to source.
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "examples/*/src/**/*.ts",
+    "examples/*/start.ts",
+    "examples/*/tests/**/*.ts",
+    "packages/*/*/src/**/*.ts",
+    "packages/*/*/src/**/*.tsx",
+    "packages/*/*/tests/**/*.ts",
+    "packages/*/*/tests/**/*.tsx",
+    "scripts/**/*.ts"
+  ]
+}

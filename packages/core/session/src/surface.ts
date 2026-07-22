@@ -2,10 +2,12 @@
  * Surface layer on top of the session event log: an ordered view of events
  * that produce LLM messages. The append-only log remains the source of truth.
  *
+ * Browser-safe: web clients consume this subpath export, so it must stay free
+ * of `node:` imports (they break the vite bundle).
+ *
  * @module @deepseek-ai/dsh-session/surface
  */
 
-import { isDeepStrictEqual } from 'node:util'
 import type { SessionEvent, SurfaceEvent, SurfaceEventType, SurfaceOp } from './types.ts'
 
 /** Runtime counterpart of the message-producing event union. */
@@ -188,6 +190,24 @@ function replacementRange(
   }
 }
 
+/**
+ * Deep structural equality over the session-event JSON value domain
+ * (null/boolean/number/string, arrays, plain objects). Replaces
+ * `node:util`'s isDeepStrictEqual to keep this module browser-safe.
+ */
+function isDeepEqualJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((item, i) => isDeepEqualJson(item, b[i]))
+  }
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  const aKeys = Object.keys(a)
+  const bRecord = b as Record<string, unknown>
+  if (aKeys.length !== Object.keys(b).length) return false
+  return aKeys.every(key => Object.hasOwn(b, key) && isDeepEqualJson((a as Record<string, unknown>)[key], bRecord[key]))
+}
+
 /** Restrict a tool-result replacement to one current result's content. */
 function assertToolResultRewrite(
   event: SessionEvent,
@@ -207,7 +227,7 @@ function assertToolResultRewrite(
     const replacementRest = { ...event.data } as Record<string, unknown>
     delete originalRest['content']
     delete replacementRest['content']
-    if (!isDeepStrictEqual(originalRest, replacementRest)) {
+    if (!isDeepEqualJson(originalRest, replacementRest)) {
       throw new Error('tool/result surface replacement may change only content')
     }
   }

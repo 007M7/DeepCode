@@ -63,11 +63,11 @@ A log-only `session/title` event maps to ACP `session_info_update` with `title` 
 
 ## Tool-call presentation
 
-Tools return provider-neutral `generic`, `terminal`, or `diff` render intents from `presentCall()` and `presentResult()`. The bridge maps the discriminator to ACP without special-casing tool names and falls back to a generic card. Per-session call-id state supplies result events with their omitted name and arguments during live streaming and replay. See [`dsh-tools`](../../core/tools/README.md#tool-owned-ui-presentation).
+Tools return provider-neutral `generic`, `terminal`, or `diff` render intents from `presentCall()` and `presentResult()`. The bridge maps the discriminator to ACP without special-casing tool names and falls back to a generic card. Per-session call-id state supplies result events with their omitted name and arguments during live streaming and replay. File-card titles are relative to the session cwd and use the host separator, while location and diff paths remain raw so the editor opens the real file. See [`dsh-tools`](../../core/tools/README.md#tool-owned-ui-presentation).
 
 ## Terminal card (capability-gated)
 
-When the client advertises `_meta.terminal_output`, terminal intents map to Zed's terminal info, output, and exit metadata. The bridge resolves relative cwd against the session, places the description before the terminal block, and omits result content because ACP updates replace call content. Other clients receive a generic card and bridge-derived fenced console fallback. Session creation snapshots the capability so call and result agree. The command still executes through the harness, not ACP terminal creation. See the [terminal-rendering Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) and [render-intent Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md).
+When the client advertises `_meta.terminal_output`, terminal intents map to Zed's terminal info, output, and exit metadata. The bridge resolves relative cwd against the session and preserves the host filesystem separator, places the description before the terminal block, and omits result content because ACP updates replace call content. Other clients receive a generic card and bridge-derived fenced console fallback. Session creation snapshots the capability so call and result agree. The command still executes through the harness, not ACP terminal creation. See the [terminal-rendering Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) and [render-intent Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md).
 
 ## Settle-exactly-once
 

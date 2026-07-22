@@ -21,6 +21,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { type AgentUnderTest, type HarvestedLog, type InputScript, runScenario } from './harness.ts'
 import {
+  type CwdPathMode,
   type NormalizeContext,
   normalizeSessionLog,
   normalizeStdout,
@@ -34,6 +35,9 @@ const SYSTEM_PROMPT_SNAPSHOT = 'system-prompt.expected.md'
 
 /** The structured tool-schema snapshot beside each header-pinning fixture. */
 const TOOL_SCHEMAS_SNAPSHOT = 'tool-schemas.expected.json'
+
+/** The optional full Windows-native stdout transcript. */
+const WINDOWS_STDOUT_SNAPSHOT = 'stdout.expected.windows.jsonl'
 
 /** Stable session-log token standing in for the sidecar's initial schemas. */
 const TOOLS_TOKEN = '{{tools}}'
@@ -100,6 +104,61 @@ export interface Scenario {
    * {@link headerClass}.
    */
   configPath?: string
+  /**
+   * Whether Windows additionally compares stdout with native separators against
+   * `stdout.expected.windows.jsonl`. The shared canonical stdout expected output is still
+   * compared on every platform, and the fixture guard requires this sidecar
+   * exactly when the option is set.
+   */
+  pinsNativeWindowsStdout?: boolean
+  /**
+   * Whether the driven behavior needs POSIX process semantics the harness
+   * cannot exercise on Windows (e.g. cancelling a live bash tool call kills a
+   * detached process group). The scenario's run test is skipped on Windows;
+   * its fixtures stay guarded on every platform.
+   */
+  posixOnly?: boolean
+}
+
+/**
+ * Whether a scenario's run test is skipped for this mode and host: record mode
+ * skips authored (non-`recorded`) scenarios, and {@link Scenario.posixOnly}
+ * scenarios skip on Windows.
+ *
+ * @param scenario The scenario whose run test is being registered.
+ * @param recording Whether the suite runs in record mode.
+ * @param platform The running Node platform, injectable for unit coverage.
+ * @returns True when the scenario's run test must not execute.
+ */
+export function scenarioSkipped(
+  scenario: Scenario,
+  recording: boolean,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (recording && !scenario.recorded) return true
+  return scenario.posixOnly === true && platform === 'win32'
+}
+
+/** One stdout expected output selected for a platform run. */
+interface StdoutExpectedVariant {
+  file: string
+  cwdPathMode: CwdPathMode
+}
+
+/**
+ * Select the shared stdout expected output plus any platform-native assertion declared by a scenario.
+ *
+ * @param scenario The scenario whose stdout contract is being selected.
+ * @param platform The running Node platform, injectable for unit coverage.
+ * @returns The ordered expected-output variants: shared canonical first, then optional Windows native.
+ */
+export function stdoutExpectedVariants(
+  scenario: Scenario,
+  platform: NodeJS.Platform = process.platform,
+): StdoutExpectedVariant[] {
+  const canonical: StdoutExpectedVariant = { file: 'stdout.expected.jsonl', cwdPathMode: 'canonical' }
+  if (platform !== 'win32' || scenario.pinsNativeWindowsStdout !== true) return [canonical]
+  return [canonical, { file: WINDOWS_STDOUT_SNAPSHOT, cwdPathMode: 'native' }]
 }
 
 /** One suite's inputs: the agent to boot, where its fixtures live, and its scenario table. */
@@ -479,8 +538,9 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
   scenarioSuite('snapshot scenarios', () => {
     for (const scenario of scenarios) {
       // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the `authored` ones
-      // (sidecar-driven errors/cancel) are never re-recorded.
-      it.skipIf(RECORDING && !scenario.recorded)(`snapshot: ${scenario.name} matches the expected outputs`, async ({ expect }) => {
+      // (sidecar-driven errors/cancel) are never re-recorded. `posixOnly` scenarios skip on
+      // Windows, where their process semantics cannot be driven.
+      it.skipIf(scenarioSkipped(scenario, RECORDING))(`snapshot: ${scenario.name} matches the expected outputs`, async ({ expect }) => {
         const dir = join(snapshotsDir, scenario.name)
         const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
         const overrideFile = join(dir, 'replay.override.json')
@@ -584,11 +644,13 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           }
         }
 
-        const stdout = normalizeStdout(result.rawStdout, ctx)
-        if (REFRESHING) {
-          await writeFile(join(dir, 'stdout.expected.jsonl'), stdout)
+        for (const expected of stdoutExpectedVariants(scenario)) {
+          const stdout = normalizeStdout(result.rawStdout, ctx, { cwdPathMode: expected.cwdPathMode })
+          if (REFRESHING) {
+            await writeFile(join(dir, expected.file), stdout)
+          }
+          await expect(stdout, `${expected.file} mismatch`).toMatchFileSnapshot(join(dir, expected.file))
         }
-        await expect(stdout).toMatchFileSnapshot(join(dir, 'stdout.expected.jsonl'))
 
         // A model turn always produces a log worth comparing; a hook scenario can
         // produce one without a model turn (a `rejected` turn carrying `hook/*`).
@@ -675,10 +737,14 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
 
     it('every registered scenario has its required fixture files', async () => {
       // Every scenario needs input, stdout, a primary session fixture, and matching optional sidecars.
-      for (const { name, overridden, pinsHeader } of scenarios) {
+      for (const { name, overridden, pinsHeader, pinsNativeWindowsStdout } of scenarios) {
         const dir = join(snapshotsDir, name)
         expect(existsSync(join(dir, 'input.json')), `${name}/input.json`).toBe(true)
         expect(existsSync(join(dir, 'stdout.expected.jsonl')), `${name}/stdout.expected.jsonl`).toBe(true)
+        expect(
+          existsSync(join(dir, WINDOWS_STDOUT_SNAPSHOT)),
+          `${name}/${WINDOWS_STDOUT_SNAPSHOT} presence must match \`pinsNativeWindowsStdout\``,
+        ).toBe(pinsNativeWindowsStdout === true)
         expect(existsSync(join(dir, 'session.jsonl')), `${name}/session.jsonl`).toBe(true)
         expect(existsSync(join(dir, 'replay.override.json')), `${name}/replay.override.json presence must match \`overridden\``)
           .toBe(overridden === true)
