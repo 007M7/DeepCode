@@ -7,10 +7,13 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { BashEnvRegistry } from '@deepseek-ai/dsh-tool-bash'
 
+const testToolSignal = new AbortController().signal
+
 afterEach(() => vi.unstubAllEnvs())
 
 function execution(sessionId?: string): ToolExecution {
   return {
+    signal: testToolSignal,
     token: Symbol('bash-env-test') as ToolExecution['token'],
     callId: CallId('bash-env-call'),
     name: 'bash',

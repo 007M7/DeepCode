@@ -12,6 +12,13 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { TurnEndReason } from '@deepseek-ai/dsh-session'
 import * as goalSession from '../src/index.ts'
 
+declare module '@deepseek-ai/dsh-session' {
+  interface TurnTriggerMap {
+    /** Test-only plugin turn with no message source. */
+    'test-metadata': { kind: 'test-metadata' }
+  }
+}
+
 type ScriptEntry = StreamChunk[] | Error | 'hang' | ((options: GenerateOptions) => StreamChunk[])
 
 /** Small request-recording adapter with controllable failure and cancellation. */
@@ -123,7 +130,6 @@ async function waitForRequests(adapter: ScriptedAdapter, count: number): Promise
 describe('goal-round outcome policy', () => {
   it.each([
     [{ kind: 'completed' }, true, { kind: 'continue' }],
-    [{ kind: 'aborted', reason: 'operator stopped' }, true, { kind: 'pause', reason: 'operator stopped' }],
     [{ kind: 'aborted' }, true, { kind: 'pause', reason: 'cancelled' }],
     [{ kind: 'error', step: 1, message: 'slow down', code: 'RATE_LIMIT' }, true,
       { kind: 'blocked', code: 'usage-limited', message: 'slow down' }],
@@ -248,7 +254,7 @@ describe('same-session goal driving', () => {
 
   it('maps a downstream prompt veto to blocked without admitting the round', async () => {
     const test = await harness([])
-    test.ctx.on('agent/prompt-submit', (_agent, _content, source, next) => source.kind === 'goal'
+    test.ctx.on('agent/prompt-submit', (_agent, _content, source, _signal, next) => source.kind === 'goal'
       ? Promise.resolve({ kind: 'block', reason: 'deployment policy' })
       : next())
     test.ctx.goals.create(test.agent, { objective: 'respect policy' })
@@ -264,7 +270,7 @@ describe('same-session goal driving', () => {
 
   it('does not reserve again when a stopped-goal observer queues ordinary work', async () => {
     const test = await harness([textResponse('human follow-up')])
-    test.ctx.on('agent/prompt-submit', (_agent, _content, source, next) => source.kind === 'goal'
+    test.ctx.on('agent/prompt-submit', (_agent, _content, source, _signal, next) => source.kind === 'goal'
       ? Promise.resolve({ kind: 'block', reason: 'stop this round' })
       : next())
     test.ctx.on('goal/changed', (agent, change) => {
@@ -284,7 +290,7 @@ describe('same-session goal driving', () => {
     const cancel = test.ctx.on('agent/queued', (agent, _content, info) => {
       if (agent === test.agent && info.source.kind === 'goal') {
         cancel()
-        agent.cancel('operator cancelled pending goal')
+        agent.cancel({ kind: 'user' })
       }
     })
     test.ctx.goals.create(test.agent, { objective: 'do not start yet' })
@@ -302,7 +308,7 @@ describe('same-session goal driving', () => {
     test.ctx.goals.create(test.agent, { objective: 'stop in flight' })
     await waitForRequests(test.adapter, 1)
 
-    test.agent.cancel('operator stopped active goal')
+    test.agent.cancel({ kind: 'user' })
     await test.agent.whenIdle()
     const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'paused')
 
@@ -321,6 +327,31 @@ describe('same-session goal driving', () => {
     expect(requestText(test.adapter.requests[0]!)).toContain('human goes first')
     expect(requestText(test.adapter.requests[0]!)).not.toContain('<goal_round>')
     expect(requestText(test.adapter.requests[1]!)).toContain('<goal_round>')
+  })
+
+  it('ignores plugin-owned turn triggers while a goal round is queued', async () => {
+    const test = await harness([textResponse('goal answer')])
+    const warnings: string[] = []
+    test.ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof test.ctx.logger.warn
+    let inserted = false
+    test.ctx.on('agent/queued', (agent, _content, info) => {
+      if (agent !== test.agent || info.source.kind !== 'goal' || inserted) return
+      inserted = true
+      const lastStart = agent.session.events.findLast(event => event.type === 'turn/start')
+      const turn = (lastStart?.data.turn ?? 0) + 1
+      agent.session.append('turn/start', {
+        turn,
+        trigger: { kind: 'test-metadata' },
+      })
+      agent.session.append('turn/end', { turn, reason: { kind: 'completed' } })
+    })
+    test.ctx.goals.create(test.agent, { objective: 'ignore metadata', maxGoalRounds: 1 })
+
+    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
+
+    expect(inserted).toBe(true)
+    expect(test.adapter.requests).toHaveLength(1)
+    expect(warnings.some(warning => warning.includes('session/event listener threw'))).toBe(false)
   })
 
   it('makes a reserved round stale when a listener queues human work behind it', async () => {
@@ -369,7 +400,7 @@ describe('same-session goal driving', () => {
   it('rechecks revision after downstream prompt hooks before admitting', async () => {
     const test = await harness([textResponse('new revision')])
     let edited = false
-    test.ctx.on('agent/prompt-submit', (agent, _content, source, next) => {
+    test.ctx.on('agent/prompt-submit', (agent, _content, source, _signal, next) => {
       if (source.kind === 'goal' && !edited) {
         edited = true
         const current = test.ctx.goals.get(agent)
@@ -437,8 +468,10 @@ describe('same-session goal driving', () => {
     expect(goal?.phase).toBe('active')
     expect(test.adapter.requests).toHaveLength(1)
     const turns = test.agent.session.events.filter(event => event.type === 'turn/start')
-    const goalTurn = turns.findIndex(event => event.data.trigger.source.kind === 'goal')
-    const injectedTurn = turns.findIndex(event => event.data.trigger.source.kind === 'plugin')
+    const goalTurn = turns.findIndex(event => event.data.trigger.kind === 'message'
+      && event.data.trigger.source.kind === 'goal')
+    const injectedTurn = turns.findIndex(event => event.data.trigger.kind === 'injection'
+      && event.data.trigger.source.kind === 'plugin')
     expect(injectedTurn).toBeGreaterThan(goalTurn)
   })
 
@@ -543,7 +576,7 @@ describe('same-session goal driving', () => {
   it('fails a post-hook read closed before the prompt can enter history', async () => {
     const test = await harness([])
     let armed = true
-    test.ctx.on('agent/prompt-submit', (_agent, _content, source, next) => {
+    test.ctx.on('agent/prompt-submit', (_agent, _content, source, _signal, next) => {
       if (source.kind === 'goal' && armed) {
         armed = false
         vi.spyOn(test.ctx.goals, 'get').mockImplementationOnce(() => {
@@ -575,7 +608,7 @@ describe('same-session goal driving', () => {
   it('does not invent goal state when ordinary queued work is cancelled', async () => {
     const test = await harness([])
     test.agent.send([{ type: 'text', text: 'cancel ordinary work' }])
-    test.agent.cancel('ordinary cancellation')
+    test.agent.cancel({ kind: 'user' })
     await test.agent.whenIdle()
 
     expect(test.ctx.goals.get(test.agent)).toBeUndefined()
@@ -588,7 +621,7 @@ describe('same-session goal driving', () => {
     await waitForRequests(test.adapter, 1)
     const created = test.ctx.goals.create(test.agent, { objective: 'continue after inspection' })
 
-    test.agent.cancel('cancel the inspection')
+    test.agent.cancel({ kind: 'user' })
     await test.agent.whenIdle()
 
     expect(test.ctx.goals.get(test.agent)).toMatchObject({
@@ -608,7 +641,7 @@ describe('same-session goal driving', () => {
       vi.spyOn(test.ctx.goals, 'pause').mockImplementationOnce(() => {
         throw new Error('pause failed')
       })
-      agent.cancel('cancel the reserved goal round')
+      agent.cancel({ kind: 'user' })
     })
     test.ctx.goals.create(test.agent, { objective: 'fail closed after cancellation' })
 
@@ -621,10 +654,10 @@ describe('same-session goal driving', () => {
   it('blocks admission when downstream cancellation clears the reservation', async () => {
     const test = await harness([])
     let cancelled = false
-    test.ctx.on('agent/prompt-submit', (agent, _content, source, next) => {
+    test.ctx.on('agent/prompt-submit', (agent, _content, source, _signal, next) => {
       if (source.kind === 'goal' && !cancelled) {
         cancelled = true
-        agent.cancel('cancel from downstream admission policy')
+        agent.cancel({ kind: 'user' })
       }
       return next()
     })

@@ -420,8 +420,21 @@ export function stabilizeRefreshLog(fresh: string, existing: string, replacement
   for (const { from, to } of replacements) stable = stable.split(from).join(to)
   const existingRecords = parseJsonlRecords(existing)
   const records = parseJsonlRecords(stable)
+  let existingIndex = 0
+  let previousEventTime: unknown
   for (let i = 0; i < records.length; i++) {
-    preserveFixtureVolatiles(records[i] as Record<string, unknown>, existingRecords[i])
+    const record = records[i] as Record<string, unknown>
+    const existingRecord = existingRecords[existingIndex]
+    const insertedTitle = record.type === 'session/title' && existingRecord?.type !== 'session/title'
+    if (insertedTitle) {
+      /* v8 ignore next -- a title is turn-enclosed, so a preceding event time exists in every valid fixture. */
+      if (typeof previousEventTime !== 'number') throw new Error('acp-snapshot: inserted title has no preceding event time')
+      record.time = previousEventTime
+    } else {
+      preserveFixtureVolatiles(record, existingRecord)
+      existingIndex += 1
+    }
+    if (typeof record.time === 'number') previousEventTime = record.time
   }
   return records.map(record => JSON.stringify(record)).join('\n') + '\n'
 }

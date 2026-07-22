@@ -19,6 +19,8 @@ import {
   STRUCTURED_OUTPUT_TOOL,
 } from '../src/structured.ts'
 
+const testToolSignal = new AbortController().signal
+
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
 async function mountInvariants(ctx: Context): Promise<void> {
@@ -225,7 +227,7 @@ describe('in-process structured output', () => {
     ctx.on('agent/session-start', (child) => {
       if (child === parent) return
       wrapperInstalled = true
-      child.ctx.on('agent/turn-continuation', async (_subject, _turn, _decision, next): Promise<ContinuationDecision> => {
+      child.ctx.on('agent/turn-continuation', async (_subject, _turn, _decision, _signal, next): Promise<ContinuationDecision> => {
         const downstream = await next()
         expect(downstream).toEqual({ action: 'stop' })
         return { action: 'continue' }
@@ -251,7 +253,7 @@ describe('in-process structured output', () => {
     const run = await ctx.subagents.start('spawn', structuredRequest(parent))
     ctx.on('agent/session-start', (child) => {
       if (child.id !== run.id) return
-      child.ctx.on('agent/turn-continuation', async (subject, _turn, _decision, next): Promise<ContinuationDecision> => {
+      child.ctx.on('agent/turn-continuation', async (subject, _turn, _decision, _signal, next): Promise<ContinuationDecision> => {
         const downstream = await next()
         expect(downstream).toEqual({ action: 'stop' })
         subject.steer([{ type: 'text', text: 'late steering after downstream stop' }])
@@ -650,6 +652,7 @@ describe('in-process structured output', () => {
   it('a structured_output call from an agent WITHOUT a structured run is UNKNOWN_TOOL (the tool does not exist for it)', async () => {
     const { ctx, parent } = await setup([])
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: 'x' as never,
       name: STRUCTURED_OUTPUT_TOOL,
       arguments: { answer: 1 },
@@ -662,6 +665,7 @@ describe('in-process structured output', () => {
   it('a structured_output call with NO calling agent at all is UNKNOWN_TOOL', async () => {
     const { ctx } = await setup([])
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: 'x' as never,
       name: STRUCTURED_OUTPUT_TOOL,
       arguments: { answer: 1 },
@@ -694,6 +698,7 @@ describe('in-process structured output', () => {
     // …and a LATER invalid call (its own body staged nothing) must not
     // resurrect c1's discarded value: drive the pipeline directly.
     const invalid = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: 'c2' as never,
       name: STRUCTURED_OUTPUT_TOOL,
       arguments: { answer: 'not-a-number' },
@@ -702,6 +707,7 @@ describe('in-process structured output', () => {
     expect(invalid.isError).toBe(true)
     // A fresh valid call still captures ITS OWN value.
     const valid = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: 'c3' as never,
       name: STRUCTURED_OUTPUT_TOOL,
       arguments: { answer: 9 },
@@ -732,6 +738,7 @@ describe('in-process structured output', () => {
     // (invalid args throw before the stage): the discarded value must not ride
     // its acceptance.
     const reused = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: 'c1' as never,
       name: STRUCTURED_OUTPUT_TOOL,
       arguments: { answer: 'not-a-number' },
@@ -740,6 +747,7 @@ describe('in-process structured output', () => {
     expect(reused.isError).toBe(true)
     // Nothing was ever committed: a fresh valid call is still required.
     const valid = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: 'c1' as never,
       name: STRUCTURED_OUTPUT_TOOL,
       arguments: { answer: 5 },
@@ -774,6 +782,7 @@ describe('in-process structured output', () => {
       return undefined as never
     }, { prepend: true })
     const denied = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: 'c1' as never,
       name: STRUCTURED_OUTPUT_TOOL,
       arguments: { answer: 2 },
@@ -784,6 +793,7 @@ describe('in-process structured output', () => {
     // The discarded value was never promoted: a fresh valid call is required
     // (and succeeds, proving the runtime is not wedged).
     const valid = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: 'c1' as never,
       name: STRUCTURED_OUTPUT_TOOL,
       arguments: { answer: 5 },

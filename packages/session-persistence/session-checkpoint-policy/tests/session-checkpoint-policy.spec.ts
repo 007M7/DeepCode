@@ -7,7 +7,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import * as checkpointPolicy from '../src/index.ts'
 
 const contexts: Context[] = []
@@ -126,6 +126,7 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
 
     const pending = ctx.tools.execute({
       callId: CallId('write-1'), name: 'write', arguments: {}, agent,
+      signal: new AbortController().signal,
     })
     await Promise.resolve()
     expect(order).toEqual(['flush:start'])
@@ -161,9 +162,9 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     gate.resolve(undefined)
 
     await expect(pending).resolves.toEqual({
-      content: [{ type: 'text', text: 'Error: tool call skipped because the step was aborted before execution' }],
+      content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
       isError: true,
-      error: { name: 'AbortError', code: 'ABORTED' },
+      error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
     })
     expect(order).toEqual(['flush:start', 'flush:end'])
   })
@@ -180,6 +181,7 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     })
     const result = await ctx.tools.execute({
       callId: CallId('write-2'), name: 'write', arguments: {}, agent,
+      signal: new AbortController().signal,
     })
     expect(result.isError).toBe(true)
     expect(result.content).toEqual([{ type: 'text', text: 'Error: disk unavailable' }])
@@ -196,6 +198,7 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     await ctx.tools.execute({
       callId: CallId('nested-1'), name: 'nested', arguments: {}, agent,
       parent: Symbol('outer') as never,
+      signal: new AbortController().signal,
     })
     expect(flushes).toBe(0)
   })

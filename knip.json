@@ -57,10 +57,6 @@
     "packages/util/brand": {
       "project": ["src/**/*.ts"]
     },
-    "packages/util/home": {
-      "entry": ["tests/**/*.spec.ts"],
-      "project": ["src/**/*.ts", "tests/**/*.ts"]
-    },
     "packages/util/timeout": {
       "entry": ["tests/**/*.spec.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
@@ -102,6 +98,10 @@
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },
     "packages/llm/llm-pi-ai": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
+    "packages/session-title/session-title-first-message-llm": {
       "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
       "project": ["src/**/*.ts", "tests/**/*.ts"]
     },

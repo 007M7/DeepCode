@@ -23,7 +23,7 @@ import { ESCALATION_TARGETS, approveEscalation, validateEscalationArgs } from '@
 import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
 import type { DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
-import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-home'
+import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { processOutcome } from './background.ts'
 import { parseExitStatus, renderProcessRead, renderResult } from './render.ts'
 
@@ -357,7 +357,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         agent: exec.agent,
         callId: exec.callId,
         toolName: 'bash',
-        ...exec.signal ? { signal: exec.signal } : {},
+        signal: exec.signal,
       },
     )
   }
@@ -422,8 +422,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (tasks === undefined) {
           throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
         }
-        // Reject pre-start cancellation; returned tasks use their own lifecycle.
-        if (exec.signal?.aborted) throw new Error('command aborted')
+        // The caller owns cancellation until TaskService commits detached ownership.
+        if (exec.signal.aborted) return []
         // Task preflight finishes before the starter can spawn a process.
         const id = tasks.start({
           kind: 'bash',
@@ -443,10 +443,10 @@ export function apply(ctx: Context, config: Config = {}): void {
       // A durability or policy wrapper may yield before dispatch. Normalize a
       // cancellation that arrived during that boundary before the executor can
       // expose its backend-specific pre-spawn error.
-      if (exec.signal?.aborted) throw new Error('command aborted')
+      if (exec.signal.aborted) throw new Error('command aborted')
       const result = await ctx.bash.run(ctx.bash.resolve({
         ...request,
-        ...exec.signal ? { signal: exec.signal } : {},
+        signal: exec.signal,
       }))
       if (result.aborted) throw new Error('command aborted')
       return [{ type: 'text', text: renderResult(result, escalationModes) }]
