@@ -230,7 +230,7 @@ export type BindingErrorConstructor = new (memberName: string, message: string) 
  * @param descriptor - program-global class name and member-name property.
  * @returns the constructor injected into the program and used for rejections.
  */
-export function makeBindingErrorClass(
+function makeBindingErrorClass(
   descriptor: { name: string; memberNameProperty: string },
 ): BindingErrorConstructor {
   return class BindingCallError extends Error {
