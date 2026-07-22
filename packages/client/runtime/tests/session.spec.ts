@@ -153,6 +153,23 @@ describe('live event path', () => {
     })
   })
 
+  it('folds todo/write into snapshot.todos last-write-wins, live and on window replay', async () => {
+    const listA = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'in_progress' as const }]
+    const listB = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'completed' as const }]
+    const { session } = await opened()
+    expect(session.getSnapshot().todos).toEqual([])
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.todoWrite(6, listA))
+    expect(session.getSnapshot().todos).toEqual(listA)
+    feed(ev.todoWrite(7, listB))
+    expect(session.getSnapshot().todos).toEqual(listB)
+    // Window replay converges on the same last snapshot (history contains both writes).
+    const replayed = makeSession()
+    replayed.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ev.todoWrite(6, listA), ev.todoWrite(7, listB)])
+    await replayed.session.open()
+    expect(replayed.session.getSnapshot().todos).toEqual(listB)
+  })
+
   it('repairs a seq gap by repulling the tail page instead of appending a hole', async () => {
     const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
     const repaired = [...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]

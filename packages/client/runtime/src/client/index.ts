@@ -33,7 +33,7 @@ export type {
 export type {
   AssistantBlock, AssistantMessageNode, ContextMessageNode, ConversationNode, ConversationSnapshot,
   RunningToolCall, SteeringMessageNode,
-  ToolResultNode, UnknownSurfaceNode, UserMessageNode,
+  TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 // PendingWait is a value export: tests construct fixture waits directly.
 export { PendingWait } from './sessions/pending.ts'

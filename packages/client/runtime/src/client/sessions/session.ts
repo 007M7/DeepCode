@@ -4,7 +4,7 @@
 // subscribe/getSnapshot.
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import type { SessionEvent, TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
   SessionId, ToolEventView,
@@ -65,6 +65,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
+  /** Latest todo/write whole-list snapshot in the window (last write wins on replay). */
+  private todos: readonly TodoItem[] = []
   private running = false
   private removed = false
   private promptError: PromptError | null = null
@@ -444,6 +446,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         if (this.openCalls.delete(String(event.data.callId))) this.callsRev++
         return
       }
+      case 'todo/write': {
+        this.todos = event.data.todos
+        return
+      }
       case 'turn/end': {
         // Aborted turns never finalize. The accumulated partial is VALUE, not residue: freeze it
         // into an interrupted terminal node (pulse stops, text survives) instead of deleting it.
@@ -495,6 +501,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.callsRev++
     this.frozenNodes = []
     this.frozenRev++
+    this.todos = []
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
@@ -542,6 +549,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       loadingOlder: this.loadingOlder,
       promptError: this.promptError,
       lastAgentError: this.lastAgentError,
+      todos: this.todos,
     }
   }
 }

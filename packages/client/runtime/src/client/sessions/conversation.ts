@@ -4,8 +4,11 @@
 // string here (narrow to real brands when convenient).
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type { RpcError, SessionId, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
+
+export type { TodoItem }
 
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
@@ -174,4 +177,6 @@ export interface ConversationSnapshot {
   loadingOlder: boolean
   promptError: PromptError | null
   lastAgentError: string | null
+  /** Latest `todo/write` whole-list snapshot in the window (last write wins); empty = no plan. */
+  todos: readonly TodoItem[]
 }
