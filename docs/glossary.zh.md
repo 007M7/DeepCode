@@ -2,9 +2,9 @@
 
 [English](glossary.md) | 中文
 
-DeepSeek Harness SDK 的领域词汇对每个概念使用唯一的规范术语。各术语通过标准 Markdown 锚点互相链接；实现细节留在各 package README 与 RFC 中。
+DeepSeek Harness SDK 的领域词汇为每个概念规定一个规范术语。各术语通过标准 Markdown 锚点链接到相应条目；实现细节留在各包（package）的 README 与 Agent Note（agent 决策记录）中。
 
-FIXME(glossary-completeness): Expand this glossary before the first release so it covers the SDK's other core and capability subsystems, not only agent scope.
+FIXME(glossary-completeness): 首次发布前扩充本术语表，使其覆盖 SDK 的其他核心与能力子系统，而非仅限于 agent scope。
 
 ## agent-scope
 
@@ -16,4 +16,28 @@ FIXME(glossary-completeness): Expand this glossary before the first release so i
 - **shadowing**：最具体者胜出的名称解析：一个有范围的工具/片段/变量仅在该 scope 内替换同名的全局对应项。这是按 agent 定制 persona 和按 agent 定制工具变体的机制。
 - **restriction / scope-local 注册**：restriction（`tools.restrict`）为单个 scope 过滤全局工具表面（多个 restriction 取交集组合）；scope-local 注册在过滤之后合并。被过滤掉的全局工具既不出现在提示词中，也拒绝执行，与不存在的工具无法区分。
 - **setup window**：创建者组装 agent 有范围世界的创建时隙（`CreateAgentOptions.setup`）：在 scope 和 agent 对象已存在、但 agent 或会话尚未发布、`agent/session-start` 尚未触发、首次提示词尚未组装之前。setup 只做注册，从不驱动 agent。
-- **lineage**：以数据形式携带的父子关系事实（`parentSession`、`subagentDepth`）；从不影响可见性。<a id="lineage"></a>
+- **lineage**：以数据形式携带的父子关系事实（`parentSession`、持久的 `delegationDepth`、运行时 `subagentDepth`）；从不影响可见性。<a id="lineage"></a>
+
+## 目标
+
+- **目标**：附着在现有会话上的单个持久完成目标，带有按修订号演进的 `active` / `paused` / `blocked` / `complete` 阶段和目标回合上限；`blocked` 保留策略代码与说明。目标是一种状态，不是调度器，也不是一段独立对话；会话日志仍是其真源。
+- **目标回合**：为当前目标接纳的一次续行周期。同会话驱动器将目标回合具体化为一个来源为目标的[轮次](#turn)，其中可以包含多个步骤；同一会话中无关的人类轮次不消耗目标回合上限。<a id="goal-round"></a>
+- **目标激活**：续行消费方接纳下一个目标回合的进程本地权限。激活态为 `armed` 或 `disarmed`；它有意不参与持久回放，因此恢复和 fork 后，必须由人类随后通过 `/goal` 或模型工具授权恢复变更，自动工作才可开始。
+
+## 人类命令
+
+- **人类命令**：以斜杠开头的指令，由面向人类的适配器通过 `ctx.commands` 解释并执行，不会成为模型消息。它既不同于面向模型的工具，也不同于通过 `ctx.bash` 执行 shell 命令。
+- **命令平面**：由 UI 适配器与命令插件拥有的发现、解析、分发、取消和结果渲染。除非处理器另行改变持久领域，否则命令输出属于 UI 状态。
+- **目标命令**：`/goal` 是由 `dsh-command-goal` 提供的人类命令；它直接观察或更改当前目标，而目标领域拥有每条持久且模型可见的记录。
+
+## 循环层级
+
+- **轮次**：会话中一次对已接纳输入的排空过程，在模型及其工具停止工作或终止策略介入后结束。<a id="turn"></a>
+- **步骤**：一次模型请求，以及由模型响应引发的工具执行；一个轮次包含一个或多个步骤。<a id="step"></a>
+- **回合**：包含一个轮次的外层策略迭代，例如一个[目标回合](#goal-round)或一次全新 agent Ralph 尝试。回合计数器属于该策略，并不统计会话内的每个轮次。<a id="round"></a>
+
+## Ralph
+
+- **Ralph 循环**：一次面向不可变目标的前台全新 agent 工作流运行。它是由工作流和 subagent 原语组合而成的面向模型的工具策略，不是同会话目标、agent loop（智能体循环）模式、调度器或通用工作流脚本功能。<a id="ralph-loop"></a>
+- **Ralph 回合**：[Ralph 循环](#ralph-loop)中的一个全新子会话。子会话不接收父会话或此前子会话的对话种子；共享工作区和一份有界的 [Ralph 交接](#ralph-handoff)承载跨回合状态。<a id="ralph-round"></a>
+- **Ralph 交接**：从一个仍需继续的 Ralph 回合传给下一回合的规范化、有界结构化报告，包含状态、摘要、证据、后续步骤和阻塞说明。它补充共享工作区，而不取代工作区的权威地位。<a id="ralph-handoff"></a>
