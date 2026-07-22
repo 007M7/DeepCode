@@ -9,6 +9,7 @@ import * as nodePty from 'node-pty'
 import type { IPtyForkOptions } from 'node-pty'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { PtyBackendCleanupError } from '@deepseek-ai/dsh-pty'
 import type { PtyBackend, PtyBackendSpawnSpec } from '@deepseek-ai/dsh-pty'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
@@ -123,7 +124,7 @@ export class LocalPtyBackend implements PtyBackend {
       try {
         await session.close('PTY startup failed')
       } catch (closeError: unknown) {
-        throw new AggregateError([error, closeError], 'PTY startup and cleanup both failed')
+        throw new PtyBackendCleanupError(error, closeError)
       }
       throw error
     }

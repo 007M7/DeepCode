@@ -8,7 +8,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
-import PtyService, { PtySessionId } from '@deepseek-ai/dsh-pty'
+import PtyService, { PtyBackendCleanupError, PtySessionId } from '@deepseek-ai/dsh-pty'
 import { LocalPtyBackend } from '@deepseek-ai/dsh-pty-local'
 import * as ptyLocal from '@deepseek-ai/dsh-pty-local'
 import type { ResolvedConfig } from '@deepseek-ai/dsh-pty-local/src/config.ts'
@@ -112,12 +112,18 @@ describe('LocalPtyBackend startup rollback', () => {
     await expect(backend.spawn(spec(agent(ctx)))).rejects.toThrow('startup failed')
     expect(closed).toHaveBeenCalledWith('PTY startup failed')
 
+    const startupFailure = new Error('startup failed')
+    const cleanupFailure = new Error('cleanup failed')
     const doublyFailed = {
-      initialize: () => Promise.reject(new Error('startup failed')),
-      close: () => Promise.reject(new Error('cleanup failed')),
+      initialize: () => Promise.reject(startupFailure),
+      close: () => Promise.reject(cleanupFailure),
     } as unknown as LocalPtySession
     const aggregate = new LocalPtyBackend(ctx, config(), inspector, spawnTerminal, () => doublyFailed)
-    await expect(aggregate.spawn(spec(agent(ctx)))).rejects.toThrow('startup and cleanup both failed')
+    await expect(aggregate.spawn(spec(agent(ctx)))).rejects.toEqual(expect.objectContaining({
+      name: 'PtyBackendCleanupError',
+      spawnError: startupFailure,
+      cleanupError: cleanupFailure,
+    } satisfies Partial<PtyBackendCleanupError>))
   })
 
   it('wraps confined argv, scrubs the environment, and returns initialized sessions', async () => {

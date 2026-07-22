@@ -6,6 +6,7 @@
 
 import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { PtyBackendCleanupError } from './types.ts'
 import type {
   PtyBackend,
   PtyBackendSession,
@@ -39,6 +40,7 @@ export type {
   PtySpawnResult,
   PtyWaitReason,
 } from './types.ts'
+export { PtyBackendCleanupError } from './types.ts'
 
 /** Opaque identity minted by {@link PtyService} for one live PTY session. */
 export type PtySessionId = PtySessionIdValue
@@ -90,12 +92,12 @@ interface SessionRecord {
 interface PendingSpawn {
   readonly controller: AbortController
   readonly settled: Promise<void>
-  rollbackFailure: { error: unknown } | undefined
+  cleanupFailure: { error: unknown } | undefined
 }
 
 interface SpawnReservation {
   readonly signal: AbortSignal
-  release(rollbackFailure: { error: unknown } | undefined): void
+  release(cleanupFailure: { error: unknown } | undefined): void
 }
 
 /** In-process registry for replaceable PTY backends and exact-Agent sessions. */
@@ -162,7 +164,7 @@ export class PtyService extends Service {
       : AbortSignal.any([signal, spawnReservation.signal])
     const sessionId = PtySessionId(`pty-${++this.nextId}`)
     let session: PtyBackendSession | undefined
-    let rollbackFailure: { error: unknown } | undefined
+    let cleanupFailure: { error: unknown } | undefined
     try {
       session = await backend.spawn({
         sessionId,
@@ -191,11 +193,16 @@ export class PtyService extends Service {
       this.sessions.set(sessionId, record)
       return this.snapshot(record, session.motd)
     } catch (error) {
+      if (error instanceof PtyBackendCleanupError) {
+        cleanupFailure = { error: error.cleanupError }
+      }
+      let rollbackFailure: { error: unknown } | undefined
       if (session !== undefined && !this.sessions.has(sessionId)) {
         try {
           await session.close('PTY spawn rolled back')
         } catch (closeError: unknown) {
           rollbackFailure = { error: closeError }
+          cleanupFailure = rollbackFailure
         }
       }
       let failure: unknown = error
@@ -210,7 +217,7 @@ export class PtyService extends Service {
       }
       throw failure
     } finally {
-      spawnReservation.release(rollbackFailure)
+      spawnReservation.release(cleanupFailure)
       releaseName()
     }
   }
@@ -342,14 +349,14 @@ export class PtyService extends Service {
   private reserveSpawn(owner: Agent): SpawnReservation {
     const controller = new AbortController()
     const settlement = Promise.withResolvers<void>()
-    const pending: PendingSpawn = { controller, settled: settlement.promise, rollbackFailure: undefined }
+    const pending: PendingSpawn = { controller, settled: settlement.promise, cleanupFailure: undefined }
     const owned = this.pendingSpawns.get(owner) ?? new Set<PendingSpawn>()
     owned.add(pending)
     this.pendingSpawns.set(owner, owned)
     return {
       signal: controller.signal,
-      release: (rollbackFailure) => {
-        pending.rollbackFailure = rollbackFailure
+      release: (cleanupFailure) => {
+        pending.cleanupFailure = cleanupFailure
         owned.delete(pending)
         if (owned.size === 0) this.pendingSpawns.delete(owner)
         settlement.resolve()
@@ -363,7 +370,7 @@ export class PtyService extends Service {
       : [...(this.pendingSpawns.get(owner) ?? [])]
     for (const spawn of pending) spawn.controller.abort(reason)
     await Promise.all(pending.map(spawn => spawn.settled))
-    const failures = pending.flatMap(spawn => spawn.rollbackFailure === undefined ? [] : [spawn.rollbackFailure.error])
+    const failures = pending.flatMap(spawn => spawn.cleanupFailure === undefined ? [] : [spawn.cleanupFailure.error])
     if (failures.length > 0) {
       throw new AggregateError(failures, 'failed to roll back unpublished PTY setup')
     }

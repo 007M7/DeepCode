@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import PtyService, { PtyError, PtySessionId } from '@deepseek-ai/dsh-pty'
+import PtyService, { PtyBackendCleanupError, PtyError, PtySessionId } from '@deepseek-ai/dsh-pty'
 import type {
   PtyBackend,
   PtyBackendSession,
@@ -317,6 +317,52 @@ describe('PtyService ownership and lifecycle', () => {
     await pendingFailure
     await disposalFailure
     expect(session.closed).toEqual(['PTY spawn rolled back'])
+  })
+
+  it.each([
+    { scope: 'owner', code: 'OWNER_NOT_LIVE' },
+    { scope: 'service', code: 'SERVICE_DISPOSING' },
+  ] as const)('$scope disposal retains backend-side startup cleanup failure', async ({ scope, code }) => {
+    const ctx = await harness()
+    const started = Promise.withResolvers<undefined>()
+    const cleanupFailure = new Error('backend cleanup failed')
+    let backendAbortReason: unknown
+    ctx.pty.registerBackend({
+      type: 'cleanup-failing',
+      spawn: ({ signal }) => new Promise((_resolve, reject) => {
+        if (signal === undefined) throw new Error('missing spawn signal')
+        started.resolve(undefined)
+        signal.addEventListener('abort', () => {
+          backendAbortReason = signal.reason
+          reject(new PtyBackendCleanupError(signal.reason, cleanupFailure))
+        }, { once: true })
+      }),
+    })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+
+    const pending = ctx.pty.spawn(owner, { type: 'cleanup-failing' })
+    await started.promise
+    const internal = ctx.pty as unknown as {
+      disposeOwned(owner: Agent): Promise<void>
+      disposeAll(): Promise<void>
+    }
+    const disposal = scope === 'owner' ? internal.disposeOwned(owner) : internal.disposeAll()
+    const pendingError = await pending.then(
+      () => { throw new Error('pending spawn unexpectedly succeeded') },
+      (error: unknown) => error,
+    )
+
+    expect(pendingError).toBe(backendAbortReason)
+    expect(pendingError).toMatchObject({ code })
+    const disposalError = await disposal.then(
+      () => { throw new Error('disposal unexpectedly succeeded') },
+      (error: unknown) => error,
+    )
+    expect(disposalError).toMatchObject({ message: 'failed to clean up PTY lifecycle' })
+    const rollbackError = (disposalError as AggregateError).errors[0] as unknown
+    const cleanupErrors = (rollbackError as AggregateError).errors as unknown[]
+    expect(cleanupErrors).toEqual([cleanupFailure])
   })
 
   it('keeps independent reservations and handles provider failure before publication', async () => {

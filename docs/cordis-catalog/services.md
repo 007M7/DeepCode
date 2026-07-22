@@ -841,7 +841,7 @@ list(owner: Agent): PtySessionSnapshot[]
 
 Types: [Agent](../core-data-structures/core.md) · [PtyBackend](../core-data-structures/pty.md) · [PtyReadRequest](../core-data-structures/pty.md) · [PtyReadResult](../core-data-structures/pty.md) · [PtySendOperation](../core-data-structures/pty.md) · [PtySendRequest](../core-data-structures/pty.md) · [PtySessionId](../core-data-structures/pty.md) · [PtySessionSnapshot](../core-data-structures/pty.md) · [PtySignal](../core-data-structures/pty.md) · [PtySignalResult](../core-data-structures/pty.md) · [PtySpawnRequest](../core-data-structures/pty.md) · [PtySpawnResult](../core-data-structures/pty.md)
 
-Source: [`packages/pty/pty/src/index.ts:102`](../../packages/pty/pty/src/index.ts)
+Source: [`packages/pty/pty/src/index.ts:104`](../../packages/pty/pty/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
