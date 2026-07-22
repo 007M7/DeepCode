@@ -195,7 +195,7 @@ export function apply(ctx: Context): void {
       const result = await ctx.pty.signal(requireAgent(exec.agent), sessionId(args), args.signal)
       return textResult(`delivered ${args.signal} to foreground process group ${result.targetPgid}`)
     },
-    presentCall: args => ({ card: 'generic', title: `Signal terminal ${(args as SignalArgs).sessionId}`, kind: 'execute', rawInput: args }),
+    presentCall: args => ({ card: 'generic', title: `Signal terminal ${args.sessionId}`, kind: 'execute', rawInput: args }),
   }))
 
   ctx.tools.register(defineTool({
