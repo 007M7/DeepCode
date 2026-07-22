@@ -10,6 +10,8 @@ import clsx from 'clsx'
 import type { ConversationSlotProps } from '../contract/slots.ts'
 import { InputBar } from './InputBar.tsx'
 import type { InputBarError } from './InputBar.tsx'
+import { GoalBar } from './GoalBar.tsx'
+import type { GoalBarProps } from './GoalBar.tsx'
 import css from './ConversationRoot.module.css'
 
 /**
@@ -20,7 +22,7 @@ import css from './ConversationRoot.module.css'
 export type ConversationRootProps = ConversationSlotProps
 
 export function ConversationRoot({
-  sessionId, useSession, useAncestry, views, useActiveView, composer, actions, renderView,
+  sessionId, useSession, useAncestry, views, useActiveView, composer, actions, renderView, goalActions,
 }: ConversationRootProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const list = views.list()
@@ -33,6 +35,7 @@ export function ConversationRoot({
   const removed = useSession(s => (s as { removed: boolean }).removed)
   const promptError = useSession(s => (s as { promptError: { op: 'send' | 'stop'; error: { message: string; code: string } } | null }).promptError)
   const turns = useSession(s => countTurns(s as { nodes: readonly { kind: string }[] }))
+  const goal = useSession(s => (s as { goal: unknown }).goal)
 
   const error: InputBarError | null = promptError === null
     ? null
@@ -87,6 +90,11 @@ export function ConversationRoot({
         {active !== undefined && renderView(active)}
       </div>
 
+      {/* GoalBar docks directly above the composer (its CSS mirrors the
+          composer's horizontal geometry and tucks under the card's top edge). */}
+      {goalActions !== undefined && (
+        <GoalBar goal={goal as GoalBarProps['goal']} {...goalActions} />
+      )}
       <InputBar
         draft={draft}
         running={running}

@@ -423,6 +423,15 @@ export function createFixtureApi(): ApiProxy {
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions: 1 }),
     },
+    goals: {
+      get: request => err(request, { code: 'internal', message: 'fixture: goals not implemented', details: {} }),
+      create: request => err(request, { code: 'internal', message: 'fixture: goals not implemented', details: {} }),
+      edit: request => err(request, { code: 'internal', message: 'fixture: goals not implemented', details: {} }),
+      pause: request => err(request, { code: 'internal', message: 'fixture: goals not implemented', details: {} }),
+      resume: request => err(request, { code: 'internal', message: 'fixture: goals not implemented', details: {} }),
+      complete: request => err(request, { code: 'internal', message: 'fixture: goals not implemented', details: {} }),
+      clear: request => err(request, { code: 'internal', message: 'fixture: goals not implemented', details: {} }),
+    },
     events: {
       async *mux(_request, signal) {
         const conn = new FxInbox<MuxFrame>()
@@ -514,6 +523,13 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
+      case 'goal.get': return this.api.goals.get(request)
+      case 'goal.create': return this.api.goals.create(request)
+      case 'goal.edit': return this.api.goals.edit(request)
+      case 'goal.pause': return this.api.goals.pause(request)
+      case 'goal.resume': return this.api.goals.resume(request)
+      case 'goal.complete': return this.api.goals.complete(request)
+      case 'goal.clear': return this.api.goals.clear(request)
     }
   }
 

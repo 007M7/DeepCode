@@ -74,6 +74,16 @@ export class FakeApiClient implements IApiClient {
     describe: (payload: unknown) => this.record('host.describe', payload, this.onDescribe(payload)),
   }
 
+  readonly goals: IApiClient['goals'] = {
+    get: payload => this.record('goal.get', payload, Promise.resolve(ok({ goal: null }))),
+    create: payload => this.record('goal.create', payload, Promise.resolve(ok({ goal: null as unknown as never }))),
+    edit: payload => this.record('goal.edit', payload, Promise.resolve(ok({ goal: null as unknown as never }))),
+    pause: payload => this.record('goal.pause', payload, Promise.resolve(ok({ goal: null as unknown as never }))),
+    resume: payload => this.record('goal.resume', payload, Promise.resolve(ok({ goal: null as unknown as never }))),
+    complete: payload => this.record('goal.complete', payload, Promise.resolve(ok({ goal: null as unknown as never }))),
+    clear: payload => this.record('goal.clear', payload, Promise.resolve(ok({ cleared: true as const }))),
+  }
+
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */
   suppressStreamOpen = false
 

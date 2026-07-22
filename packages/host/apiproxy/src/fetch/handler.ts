@@ -22,6 +22,15 @@ import {
   sessionPromptRequestSchema,
 } from '../api/sessions.schema.ts'
 import { hostDescribeRequestSchema } from '../api/host.schema.ts'
+import {
+  goalGetRequestSchema,
+  goalCreateRequestSchema,
+  goalEditRequestSchema,
+  goalPauseRequestSchema,
+  goalResumeRequestSchema,
+  goalCompleteRequestSchema,
+  goalClearRequestSchema,
+} from '../api/goals.schema.ts'
 
 /**
  * Unary dispatch table, keyed by (and compiler-locked to) RpcMethodMap: a map row without a
@@ -44,6 +53,13 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.prompt': { schema: sessionPromptRequestSchema, invoke: (api, r) => api.sessions.prompt(r) },
   'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
+  'goal.get': { schema: goalGetRequestSchema, invoke: (api, r) => api.goals.get(r) },
+  'goal.create': { schema: goalCreateRequestSchema, invoke: (api, r) => api.goals.create(r) },
+  'goal.edit': { schema: goalEditRequestSchema, invoke: (api, r) => api.goals.edit(r) },
+  'goal.pause': { schema: goalPauseRequestSchema, invoke: (api, r) => api.goals.pause(r) },
+  'goal.resume': { schema: goalResumeRequestSchema, invoke: (api, r) => api.goals.resume(r) },
+  'goal.complete': { schema: goalCompleteRequestSchema, invoke: (api, r) => api.goals.complete(r) },
+  'goal.clear': { schema: goalClearRequestSchema, invoke: (api, r) => api.goals.clear(r) },
 }
 
 /** Route lookup that narrows an arbitrary path segment to a map key (single cast point for the string→key refinement). */

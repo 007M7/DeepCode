@@ -133,6 +133,92 @@ describe('ConversationRoot', () => {
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(send).toHaveBeenCalledWith('queue')
   })
+
+  it('renders GoalBar when goalActions and an active goal are provided', () => {
+    const goal = {
+      id: 'g1' as never,
+      revision: 1,
+      objective: 'test-objective',
+      phase: 'active' as const,
+      maxGoalRounds: 256,
+      roundsStarted: 0,
+      createdAt: 100,
+      updatedAt: 100,
+      activation: 'armed' as const,
+    }
+    const store = createSnapshotStore<FakeSnapshot & { goal: typeof goal }>({
+      nodes: [], runningCalls: [], running: false, removed: false, promptError: null, goal,
+    })
+    const useSession = bindSnapshotSelector(store) as unknown as UseSession
+    const activeStore = createSnapshotStore<string | undefined>('chat')
+    const views = [view('chat', 'Chat')]
+    render(
+      <ConversationRoot
+        sessionId={sid('s1')}
+        useSession={useSession}
+        useAncestry={() => []}
+        views={{
+          list: () => views,
+          subscribe: () => () => {},
+          version: () => 1,
+        }}
+        useActiveView={() => activeStore.useSelector(s => s) as ViewId | undefined}
+        composer={{
+          useDraft: () => '',
+          setDraft: () => {},
+          send: () => {},
+          stop: () => {},
+        }}
+        actions={{ openView: vi.fn() as (v: never) => void, open: vi.fn() }}
+        renderView={() => null}
+        goalActions={{
+          onEdit: vi.fn(),
+          onResume: vi.fn(),
+          onClear: vi.fn(),
+        }}
+      />)
+    expect(screen.getByText('Ongoing Goal')).toBeTruthy()
+    expect(screen.getByText('test-objective')).toBeTruthy()
+  })
+
+  it('hides GoalBar when goalActions is undefined (even with an active goal in the store)', () => {
+    const goal = {
+      id: 'g1' as never,
+      revision: 1,
+      objective: 'test-objective',
+      phase: 'active' as const,
+      maxGoalRounds: 256,
+      roundsStarted: 0,
+      createdAt: 100,
+      updatedAt: 100,
+      activation: 'armed' as const,
+    }
+    const store = createSnapshotStore<FakeSnapshot & { goal: typeof goal }>({
+      nodes: [], runningCalls: [], running: false, removed: false, promptError: null, goal,
+    })
+    const useSession = bindSnapshotSelector(store) as unknown as UseSession
+    render(
+      <ConversationRoot
+        sessionId={sid('s1')}
+        useSession={useSession}
+        useAncestry={() => []}
+        views={{
+          list: () => [],
+          subscribe: () => () => {},
+          version: () => 1,
+        }}
+        useActiveView={() => 'chat' as ViewId}
+        composer={{
+          useDraft: () => '',
+          setDraft: () => {},
+          send: () => {},
+          stop: () => {},
+        }}
+        actions={{ openView: vi.fn() as (v: never) => void, open: vi.fn() }}
+        renderView={() => null}
+      />)
+    expect(screen.queryByText('Ongoing Goal')).toBeNull()
+  })
 })
 
 describe('DetailsPanel', () => {

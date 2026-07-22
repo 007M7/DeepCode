@@ -5,7 +5,7 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult, SessionId, ToolEventView } from '@deepseek-ai/dsh-client-connection/client'
+import type { GoalView, HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult, SessionId, ToolEventView } from '@deepseek-ai/dsh-client-connection/client'
 import { transportError } from '@deepseek-ai/dsh-client-connection/client'
 import type { ObservableSnapshot, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -61,6 +61,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private removed = false
   private promptError: PromptError | null = null
   private lastAgentError: string | null = null
+  /** Current goal projection; undefined = not yet fetched, null = no goal set. */
+  private goal: GoalView | null | undefined = undefined
+  /** Coalesced goal refetch (the open() idiom): live goal-change events share one in-flight get. */
+  private goalFetch: Promise<void> | null = null
+  /** Bumped on every local goal write; a get result older than the latest write is stale and
+   *  dropped (a mutation response that landed mid-fetch is always newer than the get's read). */
+  private goalWriteRev = 0
   /** Buffer for live events arriving while open/resync is in flight (stitched by seq once history lands, §D.3). */
   private liveBuffer: { event: SessionEvent; view: ToolEventView | undefined }[] = []
   /** Gap-repair (resync-lite) in flight: acceptLiveEvent detours to liveBuffer until the tail page lands (audit S3). */
@@ -115,6 +122,180 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
     if (!result.ok) {
       this.promptError = { op: 'stop', error: result.error }
+      this.notifier.markDirty()
+    }
+    return result
+  }
+
+  /** Fetch the current goal, coalesced: concurrent triggers share the in-flight get (identity-guarded
+   *  like openPromise — a superseded fetch must not null out the one that replaced it). */
+  private fetchGoal(): Promise<void> {
+    if (this.goalFetch !== null) return this.goalFetch
+    const promise = this.doFetchGoal().finally(() => {
+      if (this.goalFetch === promise) this.goalFetch = null
+    })
+    this.goalFetch = promise
+    return promise
+  }
+
+  /** The get behind fetchGoal: folds transport failures (fail-soft like loadOlder, logged) and
+   *  drops the result when a mutation response landed mid-flight (write revision moved on). */
+  private async doFetchGoal(): Promise<void> {
+    const writeRev = this.goalWriteRev
+    try {
+      const { result } = await this.api.goals.get({ sessionId: this.sessionId })
+      if (!result.ok) return
+      if (writeRev !== this.goalWriteRev) return
+      this.goal = result.value.goal
+      this.notifier.markDirty()
+    } catch (error) {
+      console.error('[web-runtime] goal fetch failed:', error)
+    }
+  }
+
+  /**
+   * Create a goal for this session.
+   * @param objective - the goal's objective text.
+   * @param maxGoalRounds - optional cap on admitted goal rounds (host default when absent).
+   * @returns the created goal view; transport failures fold into a failed result, never a rejection.
+   */
+  async createGoal(objective: string, maxGoalRounds?: number): Promise<RpcResult<{ goal: GoalView }>> {
+    let result: RpcResult<{ goal: GoalView }>
+    try {
+      result = (await this.api.goals.create({
+        sessionId: this.sessionId, objective, ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+      })).result
+    } catch (error) {
+      result = transportError(error)
+    }
+    if (result.ok) {
+      this.goal = result.value.goal
+      this.goalWriteRev++
+      this.notifier.markDirty()
+    }
+    return result
+  }
+
+  /**
+   * Edit this session's goal objective or round cap (CAS with the locally held revision).
+   * @param objective - replacement objective text; absent leaves it unchanged.
+   * @param maxGoalRounds - replacement round cap; absent leaves it unchanged.
+   * @returns the updated goal view; fails without a current goal, and transport failures fold into a failed result.
+   */
+  async editGoal(objective?: string, maxGoalRounds?: number): Promise<RpcResult<{ goal: GoalView }>> {
+    if (this.goal === null || this.goal === undefined) {
+      return { ok: false, error: { code: 'internal', message: 'No goal to edit', details: {} } }
+    }
+    let result: RpcResult<{ goal: GoalView }>
+    try {
+      result = (await this.api.goals.edit({
+        sessionId: this.sessionId,
+        ref: { id: this.goal.id, revision: this.goal.revision },
+        ...(objective !== undefined ? { objective } : {}),
+        ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+      })).result
+    } catch (error) {
+      result = transportError(error)
+    }
+    if (result.ok) {
+      this.goal = result.value.goal
+      this.goalWriteRev++
+      this.notifier.markDirty()
+    }
+    return result
+  }
+
+  /**
+   * Pause the current goal (CAS with the locally held revision).
+   * @returns the updated goal view; fails without a current goal, and transport failures fold into a failed result.
+   */
+  async pauseGoal(): Promise<RpcResult<{ goal: GoalView }>> {
+    if (this.goal === null || this.goal === undefined) {
+      return { ok: false, error: { code: 'internal', message: 'No goal to pause', details: {} } }
+    }
+    let result: RpcResult<{ goal: GoalView }>
+    try {
+      result = (await this.api.goals.pause({
+        sessionId: this.sessionId, ref: { id: this.goal.id, revision: this.goal.revision },
+      })).result
+    } catch (error) {
+      result = transportError(error)
+    }
+    if (result.ok) {
+      this.goal = result.value.goal
+      this.goalWriteRev++
+      this.notifier.markDirty()
+    }
+    return result
+  }
+
+  /**
+   * Resume a paused/blocked goal (CAS with the locally held revision).
+   * @returns the updated goal view; fails without a current goal, and transport failures fold into a failed result.
+   */
+  async resumeGoal(): Promise<RpcResult<{ goal: GoalView }>> {
+    if (this.goal === null || this.goal === undefined) {
+      return { ok: false, error: { code: 'internal', message: 'No goal to resume', details: {} } }
+    }
+    let result: RpcResult<{ goal: GoalView }>
+    try {
+      result = (await this.api.goals.resume({
+        sessionId: this.sessionId, ref: { id: this.goal.id, revision: this.goal.revision },
+      })).result
+    } catch (error) {
+      result = transportError(error)
+    }
+    if (result.ok) {
+      this.goal = result.value.goal
+      this.goalWriteRev++
+      this.notifier.markDirty()
+    }
+    return result
+  }
+
+  /**
+   * Complete the current goal (CAS with the locally held revision).
+   * @returns the updated goal view; fails without a current goal, and transport failures fold into a failed result.
+   */
+  async completeGoal(): Promise<RpcResult<{ goal: GoalView }>> {
+    if (this.goal === null || this.goal === undefined) {
+      return { ok: false, error: { code: 'internal', message: 'No goal to complete', details: {} } }
+    }
+    let result: RpcResult<{ goal: GoalView }>
+    try {
+      result = (await this.api.goals.complete({
+        sessionId: this.sessionId, ref: { id: this.goal.id, revision: this.goal.revision },
+      })).result
+    } catch (error) {
+      result = transportError(error)
+    }
+    if (result.ok) {
+      this.goal = result.value.goal
+      this.goalWriteRev++
+      this.notifier.markDirty()
+    }
+    return result
+  }
+
+  /**
+   * Clear the current goal (tombstone; CAS with the locally held revision).
+   * @returns a cleared marker; fails without a current goal, and transport failures fold into a failed result.
+   */
+  async clearGoal(): Promise<RpcResult<{ cleared: true }>> {
+    if (this.goal === null || this.goal === undefined) {
+      return { ok: false, error: { code: 'internal', message: 'No goal to clear', details: {} } }
+    }
+    let result: RpcResult<{ cleared: true }>
+    try {
+      result = (await this.api.goals.clear({
+        sessionId: this.sessionId, ref: { id: this.goal.id, revision: this.goal.revision },
+      })).result
+    } catch (error) {
+      result = transportError(error)
+    }
+    if (result.ok) {
+      this.goal = null
+      this.goalWriteRev++
       this.notifier.markDirty()
     }
     return result
@@ -317,6 +498,8 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         if (result.ok) this.installWindow(result.value.events, result.value.hasMore)
       }
       this.openState = 'open'
+      // Fetch the current goal eagerly after the window lands.
+      void this.fetchGoal()
     } catch (error) {
       if (generation !== this.openGeneration) return
       this.openState = 'error'
@@ -353,6 +536,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     this.views.push(view)
     this.foldAdapter.append(event, view)
     this.applyEventSideEffects(event, view)
+    // Goal mutations surface as goal/change meta on a context/message (clear tombstones carry no
+    // goal key, so match the meta kind). LIVE events only: window rebuilds replay the same meta
+    // and would storm goal.get on open/resync/loadOlder; the refetch coalesces via goalFetch.
+    if (event.type === 'context/message'
+      && (event.data.meta as { kind?: unknown } | undefined)?.kind === 'goal/change') {
+      void this.fetchGoal()
+    }
   }
 
   /** Land a live session/event (open/repair in flight -> buffer; overlapping seq -> drop;
@@ -522,6 +712,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       loadingOlder: this.loadingOlder,
       promptError: this.promptError,
       lastAgentError: this.lastAgentError,
+      goal: this.goal,
     }
   }
 }

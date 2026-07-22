@@ -4,12 +4,11 @@
 
 import type { ReactNode } from 'react'
 import {
-  IconApiOutline14, IconBrowseOutline16, IconSearchOutline16, IconThinkOutline14,
+  IconApiOutline14, IconBrowseOutline16, IconSearchOutline16, IconSparkle16, IconThinkOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolViewProps } from '../contract/toolview.ts'
 import { toolRowModel, type ToolCallBlock, type ToolRowVariant } from '../contract/tool-call-model.ts'
 import { ToolRow } from './ToolRow.tsx'
-import { IconSparkle16 } from './IconSparkle16.tsx'
 
 /** Variant leading icons (figma table). */
 const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {

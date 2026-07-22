@@ -7,6 +7,7 @@
 import type { SessionsApi } from './sessions.ts'
 import type { HostApi } from './host.ts'
 import type { EventsApi } from './events.ts'
+import type { GoalsApi } from './goals.ts'
 import type { ClientResponse, RpcReceipt } from './rpc.ts'
 
 /** Root interface of the unified API surface. New client-request domain = one new file pair + one field here + one map row. */
@@ -14,6 +15,7 @@ export interface ApiProxy {
   sessions: SessionsApi
   host: HostApi
   events: EventsApi
+  goals: GoalsApi
   /** Response entry for server-requests (client-response, echoing their rpcId); not a domain method (four-quadrant model). */
   respond(message: ClientResponse): Promise<RpcReceipt>
 }
@@ -22,6 +24,7 @@ export interface ApiProxy {
 export type { HistoryEntry, SessionsApi, SessionSummary } from './sessions.ts'
 export type { HostApi } from './host.ts'
 export type { EventsApi, MuxFrame, HostFrame, ToolCallView, ToolEventView, ToolResultView } from './events.ts'
+export type { GoalsApi, GoalView, GoalRef, GoalPhase, GoalBlockReason, CreateGoalRequest, EditGoalRequest } from './goals.ts'
 export type { ApprovalResponsePayload } from './approvals.ts'
 export type { QuestionResponsePayload } from './questions.ts'
 

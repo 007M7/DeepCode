@@ -4,7 +4,7 @@
 // string here (narrow to real brands when convenient).
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { RpcError, RpcId, SessionId, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
+import type { GoalView, RpcError, RpcId, SessionId, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
@@ -162,4 +162,7 @@ export interface ConversationSnapshot {
   loadingOlder: boolean
   promptError: PromptError | null
   lastAgentError: string | null
+  /** Current goal projection (fetched on open / refreshed when a live context/message carries
+   *  goal/change meta). undefined = not yet loaded. */
+  goal: GoalView | null | undefined
 }

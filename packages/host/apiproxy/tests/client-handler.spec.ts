@@ -21,9 +21,12 @@ function scriptedApi(overrides: {
   sessions?: Partial<ApiProxy['sessions']>
   host?: Partial<ApiProxy['host']>
   events?: Partial<ApiProxy['events']>
+  goals?: Partial<ApiProxy['goals']>
   respond?: ApiProxy['respond']
 } = {}): ApiProxy {
   async function *empty<F>(): AsyncGenerator<RpcRequest<F>> { /* no frames */ }
+  const err = <T>(r: RpcRequest<unknown>): Promise<RpcResponse<T>> =>
+    Promise.resolve({ rpcId: r.rpcId, result: { ok: false, error: { code: 'internal' as const, message: 'stub', details: {} } } })
   return {
     sessions: {
       list: r => ok(r, { items: [] }),
@@ -34,6 +37,16 @@ function scriptedApi(overrides: {
       ...overrides.sessions,
     },
     host: { describe: r => ok(r, { version: '0-test', cwd: '/t', attachedSessions: 0 }), ...overrides.host },
+    goals: {
+      get: err,
+      create: err,
+      edit: err,
+      pause: err,
+      resume: err,
+      complete: err,
+      clear: err,
+      ...overrides.goals,
+    },
     events: { mux: () => empty<MuxFrame>(), host: () => empty<HostFrame>(), ...overrides.events },
     respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),
   }

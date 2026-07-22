@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import type { GoalView } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
@@ -621,5 +622,235 @@ describe('reference stability (the memo contract)', () => {
     const resolved = session.getSnapshot()
     expect(resolved.runningCalls).not.toBe(after.runningCalls)
     expect(resolved.pending).toBe(after.pending)
+  })
+})
+
+describe('goal session methods', () => {
+  const GID = 'g-1' as never
+  function makeGoal(overrides: Partial<GoalView> = {}): GoalView {
+    return {
+      id: GID, revision: 1, objective: 'test-goal', phase: 'active',
+      maxGoalRounds: 256, roundsStarted: 0, createdAt: 100, updatedAt: 100,
+      activation: 'armed',
+      ...overrides,
+    }
+  }
+
+  it('createGoal calls the API and updates snapshot.goal', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const goal = makeGoal()
+    api.goals.create = () => Promise.resolve(ok({ goal }))
+    const r = await session.createGoal('test-goal')
+    expect(r).toEqual({ ok: true, value: { goal } })
+    expect(session.getSnapshot().goal).toEqual(goal)
+  })
+
+  it('editGoal sends the current ref and updates snapshot', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const goal = makeGoal()
+    api.goals.create = () => Promise.resolve(ok({ goal }))
+    await session.createGoal('test-goal')
+    const edited = makeGoal({ revision: 2, objective: 'edited' })
+    api.goals.edit = () => Promise.resolve(ok({ goal: edited }))
+    const r = await session.editGoal('edited')
+    expect(r).toEqual({ ok: true, value: { goal: edited } })
+    expect(session.getSnapshot().goal).toEqual(edited)
+  })
+
+  it('editGoal returns an error when no goal exists', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const r = await session.editGoal('nothing')
+    expect(r.ok).toBe(false)
+    expect((r as { error: { code: string } }).error.code).toBe('internal')
+  })
+
+  it('pauseGoal pauses and updates snapshot', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const goal = makeGoal()
+    api.goals.create = () => Promise.resolve(ok({ goal }))
+    await session.createGoal('test-goal')
+    const paused = makeGoal({ revision: 2, phase: 'paused', activation: 'disarmed' })
+    api.goals.pause = () => Promise.resolve(ok({ goal: paused }))
+    const r = await session.pauseGoal()
+    expect(r).toEqual({ ok: true, value: { goal: paused } })
+    expect(session.getSnapshot().goal).toEqual(paused)
+  })
+
+  it('resumeGoal resumes a paused goal', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const goal = makeGoal({ phase: 'paused', activation: 'disarmed' })
+    api.goals.create = () => Promise.resolve(ok({ goal }))
+    await session.createGoal('test-goal')
+    const resumed = makeGoal({ revision: 2, phase: 'active', activation: 'armed' })
+    api.goals.resume = () => Promise.resolve(ok({ goal: resumed }))
+    const r = await session.resumeGoal()
+    expect(r).toEqual({ ok: true, value: { goal: resumed } })
+    expect(session.getSnapshot().goal).toEqual(resumed)
+  })
+
+  it('completeGoal marks the goal complete', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const goal = makeGoal()
+    api.goals.create = () => Promise.resolve(ok({ goal }))
+    await session.createGoal('test-goal')
+    const completed = makeGoal({ revision: 2, phase: 'complete', activation: 'disarmed' })
+    api.goals.complete = () => Promise.resolve(ok({ goal: completed }))
+    const r = await session.completeGoal()
+    expect(r).toEqual({ ok: true, value: { goal: completed } })
+    expect(session.getSnapshot().goal).toEqual(completed)
+  })
+
+  it('clearGoal removes the goal from snapshot', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const goal = makeGoal()
+    api.goals.create = () => Promise.resolve(ok({ goal }))
+    await session.createGoal('test-goal')
+    api.goals.clear = () => Promise.resolve(ok({ cleared: true as const }))
+    const r = await session.clearGoal()
+    expect(r).toEqual({ ok: true, value: { cleared: true } })
+    expect(session.getSnapshot().goal).toBeNull()
+  })
+
+  it('error responses from the API do not mutate local state', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const goal = makeGoal()
+    api.goals.create = () => Promise.resolve(ok({ goal }))
+    await session.createGoal('test-goal')
+    const before = session.getSnapshot().goal
+    api.goals.pause = () => Promise.resolve(err({ code: 'agent-busy', message: 'stale revision', details: { reason: 'stale revision' } }))
+    const r = await session.pauseGoal()
+    expect(r.ok).toBe(false)
+    expect(session.getSnapshot().goal).toBe(before)
+  })
+
+  it('fetchGoal runs on session open and populates goal', async () => {
+    const goal = makeGoal()
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse([])
+    api.goals.get = () => Promise.resolve(ok({ goal }))
+    await session.open()
+    expect(session.getSnapshot().goal).toEqual(goal)
+  })
+
+  const goalChangeEvent = (seq: number, operation: string): SessionEvent =>
+    at(seq, {
+      type: 'context/message', surfaceOp: 'append',
+      data: {
+        content: [{ type: 'text', text: `goal ${operation}` }],
+        source: { kind: 'goal', goalId: 'g-1', revision: 1, round: 0 },
+        meta: {
+          kind: 'goal/change', version: 1, operation,
+          goal: { id: 'g-1', revision: 1, objective: 'x', phase: 'active', maxGoalRounds: 256 },
+          roundsStarted: 0, createdAt: 100, updatedAt: 100,
+        },
+      },
+    })
+
+  // Clear tombstones carry no goal key — the trigger matches the meta kind, not a goal field.
+  const goalClearEvent = (seq: number): SessionEvent =>
+    at(seq, {
+      type: 'context/message', surfaceOp: 'append',
+      data: {
+        content: [{ type: 'text', text: 'goal cleared' }],
+        source: { kind: 'goal', goalId: 'g-1', revision: 2, round: 0 },
+        meta: { kind: 'goal/change', version: 1, operation: 'clear', cleared: { id: 'g-1', revision: 2 }, clearedAt: 100 },
+      },
+    })
+
+  it('live goal-change meta triggers one coalesced refetch; window replays never refetch', async () => {
+    const { api, session } = makeSession()
+    // The history window replays goal-change meta (a snapshot change AND a clear tombstone).
+    api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), goalChangeEvent(6, 'create'), goalClearEvent(7)])
+    await session.open()
+    await Promise.resolve()
+    expect(api.callsOf('goal.get')).toHaveLength(1) // the eager open fetch only — no replay storm
+
+    // A plain live context message is not a goal change.
+    let refetches = 0
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['goals']['get']>>>()
+    api.goals.get = () => { refetches++; return gate.promise } // replacement bypasses record(): count locally
+    session.handleMuxEnvelope('r0' as never, {
+      type: 'session/event', sessionId: SID,
+      event: at(8, { type: 'context/message', surfaceOp: 'append', data: { content: [{ type: 'text', text: 'plain' }], source: { kind: 'system' } } }),
+    })
+    expect(refetches).toBe(0)
+
+    // Two live goal events (change + clear tombstone) coalesce into a single refetch.
+    session.handleMuxEnvelope('r1' as never, { type: 'session/event', sessionId: SID, event: goalChangeEvent(9, 'edit') })
+    session.handleMuxEnvelope('r2' as never, { type: 'session/event', sessionId: SID, event: goalClearEvent(10) })
+    expect(refetches).toBe(1)
+    const goal = makeGoal({ revision: 3 })
+    gate.resolve(ok({ goal }))
+    await vi.waitFor(() => { expect(session.getSnapshot().goal).toEqual(goal) })
+  })
+
+  it('drops a goal.get result older than a mutation response that landed mid-flight', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    const goal = makeGoal()
+    api.goals.create = () => Promise.resolve(ok({ goal }))
+    await session.createGoal('test-goal')
+
+    let refetches = 0
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['goals']['get']>>>()
+    api.goals.get = () => { refetches++; return gate.promise } // replacement bypasses record(): count locally
+    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: goalChangeEvent(6, 'edit') })
+    expect(refetches).toBe(1) // the live refetch is parked on the gate
+    const completed = makeGoal({ revision: 2, phase: 'complete', activation: 'disarmed' })
+    api.goals.complete = () => Promise.resolve(ok({ goal: completed }))
+    await session.completeGoal() // newer write lands while the get is in flight
+    gate.resolve(ok({ goal: makeGoal({ objective: 'stale-read' }) }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(session.getSnapshot().goal).toEqual(completed) // the stale read never overwrote it
+  })
+
+  it('folds transport rejections from goal mutations into { ok: false } without rejecting', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    api.goals.create = () => Promise.reject(new Error('goal wire down'))
+    const created = await session.createGoal('test-goal')
+    expect(created).toMatchObject({ ok: false, error: { code: 'internal', message: 'goal wire down' } })
+    expect(session.getSnapshot().goal).toBeNull()
+
+    const goal = makeGoal()
+    api.goals.create = () => Promise.resolve(ok({ goal }))
+    await session.createGoal('test-goal')
+    api.goals.pause = () => Promise.reject(new Error('pause wire down'))
+    const paused = await session.pauseGoal()
+    expect(paused).toMatchObject({ ok: false, error: { code: 'internal', message: 'pause wire down' } })
+    expect(session.getSnapshot().goal).toEqual(goal) // local state untouched
+  })
+
+  it('a goal.get transport rejection on a live refetch is logged and swallowed', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    api.goals.get = () => Promise.reject(new Error('get wire down'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: goalChangeEvent(6, 'create') })
+      await vi.waitFor(() => { expect(errorSpy).toHaveBeenCalled() })
+      expect(session.getSnapshot().goal).toBeNull() // fail-soft: state untouched
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 })

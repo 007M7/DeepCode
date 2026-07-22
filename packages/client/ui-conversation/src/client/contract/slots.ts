@@ -13,6 +13,16 @@ import type { SnapshotSelectorHook, UseSession } from '@deepseek-ai/dsh-client-w
 import type { ConvOwnerProps, DetailsOwnerProps, EmptyOwnerProps } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SelectionTarget, ViewEntry, ViewId } from './views.ts'
 
+/** Goal strip callbacks (the docked GoalBar's verb set). State is read from useSession. */
+export interface GoalBarActions {
+  /** Replace the current goal's objective. */
+  onEdit(objective: string): void
+  /** Resume a paused goal. */
+  onResume(): void
+  /** Clear the current goal (tombstone). */
+  onClear(): void
+}
+
 /** Injected share of the conversation slot (assembled by apply's inject factory). */
 export interface ConversationInjected {
   /** Breadcrumb chain (root ancestor first, self last; ancestry(list) feed). */
@@ -38,6 +48,8 @@ export interface ConversationInjected {
   }
   /** Renders the active view's body (the owner closes over ConvViewProps assembly). */
   renderView: (entry: ViewEntry) => ReactNode
+  /** Goal callbacks (undefined = goal feature not available). State is read from useSession. */
+  goalActions?: GoalBarActions
 }
 
 /** Full conversation-slot component props: owner share & standard share & injected share. */

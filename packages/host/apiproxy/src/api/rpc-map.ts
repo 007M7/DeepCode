@@ -6,6 +6,7 @@
 
 import type { SessionsApi } from './sessions.ts'
 import type { HostApi } from './host.ts'
+import type { GoalsApi } from './goals.ts'
 import type { RpcResponse } from './rpc.ts'
 
 /** Method name → method signature. Signatures are the single source of truth; payload/value types are always derived from here. */
@@ -16,6 +17,13 @@ export interface RpcMethodMap {
   'session.prompt': SessionsApi['prompt']
   'session.cancel': SessionsApi['cancel']
   'host.describe': HostApi['describe']
+  'goal.get': GoalsApi['get']
+  'goal.create': GoalsApi['create']
+  'goal.edit': GoalsApi['edit']
+  'goal.pause': GoalsApi['pause']
+  'goal.resume': GoalsApi['resume']
+  'goal.complete': GoalsApi['complete']
+  'goal.clear': GoalsApi['clear']
 }
 
 /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */

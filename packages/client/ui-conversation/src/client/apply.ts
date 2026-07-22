@@ -15,7 +15,7 @@ import type {
 import type { LayoutService } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { I18nService } from '@deepseek-ai/dsh-client-i18n/client'
 import type { ConvViewProps, SelectionTarget, ViewEntry, ViewId } from './contract/views.ts'
-import type { ConversationInjected, DetailsInjected, EmptyStateInjected } from './contract/slots.ts'
+import type { ConversationInjected, DetailsInjected, EmptyStateInjected, GoalBarActions } from './contract/slots.ts'
 import { ConversationService } from './service.ts'
 import { ToolViewRegistry } from './toolviews/registry.ts'
 import { childSessionScope, registerChat } from './chat/register.ts'
@@ -153,6 +153,11 @@ export function apply(ctx: Context): void {
         }
         return createElement(Fragment, null, ...children)
       },
+      goalActions: {
+        onEdit: (objective) => { void session.editGoal(objective) },
+        onResume: () => { void session.resumeGoal() },
+        onClear: () => { void session.clearGoal() },
+      } satisfies GoalBarActions,
     }
     return injected
   }

@@ -28,6 +28,7 @@ export type {
   ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
+export type { GoalView, GoalRef, GoalPhase, GoalBlockReason } from '@deepseek-ai/dsh-client-connection/client'
 
 // ---- Narrowed aliases (the single narrowing point of the slot type chain:
 // ui-slots/web-react stay generic and dependency-inverted; the client-tree

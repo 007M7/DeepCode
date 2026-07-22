@@ -147,6 +147,11 @@ export function apply(ctx: Context): void {
         ctx.goals.block(state.agent, ref, { code: outcome.code, message: outcome.message })
         return
       case 'disarm':
+        // TODO(disarm-reason): `GoalRoundOutcome.disarm.reason` carries a
+        // specific string (durability-failed/disposed/interrupted) that is
+        // produced in `classifyGoalRound()` but discarded here. Either log it
+        // or remove it from the variant to stop dead payload being carried
+        // through the result type.
         ctx.goals.disarm(state.agent)
         return
       /* v8 ignore next 2 -- GoalRoundOutcome is closed and every member is handled above */
