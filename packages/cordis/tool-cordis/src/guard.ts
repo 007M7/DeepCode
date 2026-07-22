@@ -62,6 +62,24 @@ function hasPlainArrayPrototype(value: unknown[]): boolean {
 }
 /* jscpd:ignore-end */
 
+/** Whether a schema list is a dense intrinsic array with no JSON-invisible decorations. */
+function isDensePlainArray(value: unknown): value is unknown[] {
+  if (!Array.isArray(value) || !hasPlainArrayPrototype(value) || Reflect.ownKeys(value).length !== value.length + 1) {
+    return false
+  }
+  for (let index = 0; index < value.length; index++) {
+    if (!Object.hasOwn(value, index)) return false
+  }
+  return true
+}
+
+/** Reject schema records whose declarations would disappear from object enumeration. */
+function assertSchemaContainerKeys(value: Record<string, unknown>, path: string): void {
+  if (Reflect.ownKeys(value).some(key => typeof key !== 'string' || !Object.prototype.propertyIsEnumerable.call(value, key))) {
+    throw new Error(`harness.defineTool ${path} must contain only own enumerable string keys`)
+  }
+}
+
 /** Where one cloned JSON value is installed. */
 type CloneDestination =
   | { kind: 'root' }
@@ -173,6 +191,7 @@ function copyAnnotations(value: Record<string, unknown>, output: Record<string, 
 
 /** Reject sandbox schema keys that the unified DSL would otherwise ignore. */
 function assertSchemaKeys(value: Record<string, unknown>, path: string, allowed: readonly string[]): void {
+  assertSchemaContainerKeys(value, path)
   for (const key of Object.keys(value)) {
     if (!allowed.includes(key)) throw new Error(`harness.defineTool ${path}.${key} is not supported by the unified schema DSL`)
   }
@@ -215,11 +234,16 @@ function normalizeParameterSchemaSpec(value: unknown, path = 'parameters'): {
 /** Validate raw required names and return their lookup set. */
 function normalizeRequiredNames(value: unknown, properties: Record<string, unknown>, path: string): Set<string> {
   if (value === undefined) return new Set()
-  if (!Array.isArray(value) || value.some(name => typeof name !== 'string')) {
+  if (!isDensePlainArray(value)) {
     throw new Error(`harness.defineTool ${path} must be an array of declared property names`)
   }
-  const names = new Set(value as string[])
-  for (const name of names) {
+  const names = new Set<string>()
+  for (let index = 0; index < value.length; index++) {
+    const name = value[index]
+    if (typeof name !== 'string') {
+      throw new Error(`harness.defineTool ${path} must be an array of declared property names`)
+    }
+    names.add(name)
     if (!Object.hasOwn(properties, name)) throw new Error(`harness.defineTool ${path} names undeclared property ${JSON.stringify(name)}`)
   }
   return names
@@ -308,6 +332,7 @@ function normalizePropertyMap(
     }
     if (task.kind === 'map') {
       if (ancestors.has(task.entries)) throw new Error(`harness.defineTool ${task.path} is circular`)
+      assertSchemaContainerKeys(task.entries, task.path)
       ancestors.add(task.entries)
       const spec: Record<string, unknown> = {}
       assignNormalizedMap(task.destination, spec)
@@ -334,6 +359,7 @@ function normalizePropertyMap(
     if (!isPlainRecord(value)) {
       throw new Error(`harness.defineTool ${path} must be a ParameterSchemaSpec property object`)
     }
+    assertSchemaContainerKeys(value, path)
     if (ancestors.has(value)) throw new Error(`harness.defineTool ${path} is circular`)
     ancestors.add(value)
     const requiredKey = task.parameterProperty && !task.raw ? ['required'] : []
@@ -351,7 +377,9 @@ function normalizePropertyMap(
 
     if (Object.hasOwn(value, 'oneOf')) {
       assertSchemaKeys(value, path, ['oneOf', ...requiredKey, ...ANNOTATION_KEYS])
-      if (!Array.isArray(value.oneOf)) throw new Error(`harness.defineTool ${path}.oneOf must contain at least two schemas`)
+      if (!isDensePlainArray(value.oneOf) || value.oneOf.length < 2) {
+        throw new Error(`harness.defineTool ${path}.oneOf must contain at least two schemas`)
+      }
       const oneOf: Record<string, unknown>[] = []
       prop.oneOf = oneOf
       for (let index = value.oneOf.length - 1; index >= 0; index--) {
@@ -432,9 +460,10 @@ function normalizePropertyMap(
       case 'null':
         assertSchemaKeys(value, path, ['type', 'enum', 'const', ...requiredKey, ...ANNOTATION_KEYS])
         if (Object.hasOwn(value, 'enum')) {
-          prop.enum = Array.isArray(value.enum)
-            ? Array.from(value.enum, (entry, index) => cloneJson(entry, `${path}.enum[${index}]`))
-            : value.enum
+          if (!isDensePlainArray(value.enum) || value.enum.length === 0) {
+            throw new Error(`harness.defineTool ${path}.enum must be a non-empty array`)
+          }
+          prop.enum = cloneJson(value.enum, `${path}.enum`)
         }
         if (Object.hasOwn(value, 'const')) prop.const = cloneJson(value.const, `${path}.const`)
         break
