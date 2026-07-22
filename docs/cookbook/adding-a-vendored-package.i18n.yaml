@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 adding-a-vendored-package.md: 71ca9fccc9418348784dbb6668127242e4fb45d2
-adding-a-vendored-package.zh.md: b811aa5632acfeb059767efcb0532e03ee1becf4
+adding-a-vendored-package.zh.md: c340630aebeda0ec293a835cdfc8d15d71cd7801

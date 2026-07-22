@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 adding-a-package.md: 1859310965538b35a353ee05c94b01d1093a3e43
-adding-a-package.zh.md: 7a820c2c8892d429f98a4c8425da4a914e028177
+adding-a-package.zh.md: 94f0702859258febf8991fee0726a3b7893d0855
