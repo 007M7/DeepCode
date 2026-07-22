@@ -46,10 +46,9 @@ import {
 import type {} from '@deepseek-ai/dsh-agent-loop'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-commands'
-import { assertNever, BlockAssembler, errorChain } from '@deepseek-ai/dsh-llm'
+import { assertNever, errorChain } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
-  GenerateOptions,
   LlmModelInfo,
   StreamChunk,
   TokenUsage,
@@ -108,15 +107,8 @@ export interface TuiConfig {
    * process boundary, so most deployments leave it unset.
    */
   truecolor?: boolean
-  /** Terminal window title while the UI is mounted. */
+  /** Terminal window title while the UI is mounted; a logged session title prefixes it. */
   title?: string
-  /**
-   * Replace {@link TuiConfig.title} with a short model-generated title derived
-   * from the session's first user message; a resumed session re-derives it from
-   * that stored message on mount. No-op without an `llm` service or an agent
-   * provider/model. On by default.
-   */
-  autoTitle?: boolean
 }
 
 const showReasoningSchema = z.boolean().default(true)
@@ -132,7 +124,6 @@ const colorSchema = z.boolean().default(true)
 // No default: an unset value auto-detects truecolor from COLORTERM in `apply`.
 const truecolorSchema = z.boolean()
 const titleSchema = z.string().default('DeepSeek Harness')
-const autoTitleSchema = z.boolean().default(true)
 
 /** Schemastery schema for presentation settings embedded by app bundles. */
 export const TuiConfigSchema: z<TuiConfig> = z.object({
@@ -148,7 +139,6 @@ export const TuiConfigSchema: z<TuiConfig> = z.object({
   color: colorSchema,
   truecolor: truecolorSchema,
   title: titleSchema,
-  autoTitle: autoTitleSchema,
 })
 
 /** Serializable plugin configuration. */
@@ -183,7 +173,6 @@ export const Config: z<Config> = z.object({
   color: colorSchema,
   truecolor: truecolorSchema,
   title: titleSchema,
-  autoTitle: autoTitleSchema,
 })
 
 /** Fully defaulted TUI presentation settings. */
@@ -200,7 +189,6 @@ export interface ResolvedTuiConfig {
   color: boolean
   truecolor: boolean
   title: string
-  autoTitle: boolean
 }
 
 /** Runtime boundary used by the interactive TUI. */
@@ -239,7 +227,6 @@ export function resolveTuiConfig(config: TuiConfig | undefined): ResolvedTuiConf
     color: config?.color ?? true,
     truecolor: config?.truecolor ?? false,
     title: config?.title ?? 'DeepSeek Harness',
-    autoTitle: config?.autoTitle ?? true,
   }
 }
 
@@ -425,24 +412,6 @@ function contentText(content: readonly ContentBlock[]): string {
   }
   return parts.join('')
 }
-
-/** Longest auto-generated title kept before the tail is elided; fits common tmux/tab widths. */
-const AUTO_TITLE_MAX_LENGTH = 40
-
-/** Task framing for the auto-title model call; written from the model's view, not the UI's. */
-const AUTO_TITLE_SYSTEM_PROMPT = [
-  "Summarize the user's request as a short title of 2 to 5 lowercase words.",
-  'Use no punctuation or quotation marks. Reply with only the title.',
-].join('\n')
-
-/** First non-empty line of the model's reply, trimmed and capped for a terminal title. */
-function titleLine(text: string): string {
-  const line = text.split('\n').map(part => part.trim()).find(part => part.length > 0) ?? ''
-  return line.length > AUTO_TITLE_MAX_LENGTH ? `${line.slice(0, AUTO_TITLE_MAX_LENGTH - 1)}…` : line
-}
-
-/** Auto-title is best-effort: a stream error or shutdown abort leaves the current title unchanged. */
-const ignoreTitleFailure = (): void => {}
 
 function textBlocks(content: readonly ContentBlock[], type: 'text' | 'reasoning'): string {
   return content
@@ -1351,14 +1320,6 @@ export function createTuiChat(
   const skills = ctx.get('skills')
   const cwd = agent.session.header.cwd ?? process.cwd()
   const skillAbort = new AbortController()
-  // Auto-title replaces the static title with a short model-generated title
-  // derived from the session's first user message. A resumed session re-derives
-  // it from that stored message on mount (see below); a fresh session derives it
-  // when the first message arrives. It is already settled — keeping the static
-  // title — only when the feature is off. The abort cancels an in-flight title
-  // stream at shutdown.
-  const titleAbort = new AbortController()
-  let titleSettled = !resolved.autoTitle
   const tokens = sessionTokens(agent.session)
   const toolCards = new Map<string, ToolCardComponent>()
   const allToolCards = new Set<ToolCardComponent>()
@@ -1533,44 +1494,6 @@ export function createTuiChat(
       if (!disposed) appendNotice(`Could not read the model catalog: ${errorChain(error)}`, 'error')
     })
   }
-
-  // Fire-and-forget a title request. The prompt is the trimmed first-message
-  // text; an empty one is skipped without consuming the one-shot slot. The `llm`
-  // service is optional, so a deployment without it (or without an agent
-  // provider/model) silently keeps the static title.
-  const generateTitle = (prompt: string): void => {
-    if (titleSettled || prompt.length === 0) return
-    titleSettled = true
-    const llm = ctx.get('llm')
-    const { provider, model } = agent.options
-    if (llm === undefined || !provider || !model) return
-    const options: GenerateOptions = {
-      provider,
-      model,
-      system: AUTO_TITLE_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-      sessionId: agent.session.id,
-      signal: titleAbort.signal,
-    }
-    const applyTitle = async (): Promise<void> => {
-      const assembler = new BlockAssembler()
-      for await (const chunk of llm.stream(options)) assembler.push(chunk)
-      const title = titleLine(contentText(assembler.message().content))
-      // Unlike a logged `session/title` (which suffixes the product title), the
-      // process-local auto-title owns the whole terminal title. A logged title
-      // arriving later still wins through `updateTerminalTitle`.
-      if (!disposed && title.length > 0) runtime.terminal.setTitle(displayText(title))
-    }
-    void applyTitle().catch(ignoreTitleFailure)
-  }
-
-  // Resume: derive the title from the session's already-logged first user
-  // message. A fresh session has none here and titles from the live message via
-  // the session-event listener instead.
-  const firstUserMessage = agent.session.events.find(
-    (event): event is Extract<SessionEvent, { type: 'user/message' }> => event.type === 'user/message',
-  )
-  if (firstUserMessage !== undefined) generateTitle(contentText(firstUserMessage.data.content).trim())
 
   const clearStatus = (): void => {
     if (runningStatus !== undefined) {
@@ -1929,7 +1852,6 @@ export function createTuiChat(
     shuttingDown ??= (async () => {
       disposed = true
       contextResolution = undefined
-      titleAbort.abort()
       clearStatus()
       modelOverlay?.hide()
       modelOverlay = undefined
@@ -2318,7 +2240,6 @@ export function createTuiChat(
     if (session !== agent.session) return
     recordEventUsage(tokens, event)
     advanceTurnPhase(event)
-    if (event.type === 'user/message') generateTitle(contentText(event.data.content).trim())
     if (event.type === 'steering/message' && pendingSteering > 0) {
       // A queued steering message reached the model as it drained; drop it from
       // the badge. Clamped because loop-authored steering (e.g. continuation

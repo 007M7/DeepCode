@@ -38,8 +38,9 @@ class ScriptedTuiAdapter extends LlmAdapter {
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    // The TUI's auto-title request carries no tool schemas, unlike every agent
-    // turn; answer it with a fixed title so the PTY test can assert the OSC set.
+    // The session-title provider's auxiliary request carries no tool schemas,
+    // unlike every agent turn; answer it with a fixed title so the PTY test can
+    // assert the logged title reaches the terminal window title.
     if ((options.tools?.length ?? 0) === 0) {
       for (const chunk of textChunks(TITLE_TEXT)) yield chunk
       return

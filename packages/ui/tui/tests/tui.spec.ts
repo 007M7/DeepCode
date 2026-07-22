@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
-import LlmService, { LlmAdapter, type GenerateOptions, type LlmCallConfig, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { type LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
 import SkillService, { type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
@@ -148,7 +148,6 @@ describe('TUI config', () => {
       color: true,
       truecolor: false,
       title: 'DeepSeek Harness',
-      autoTitle: true,
     })
     expect(resolveTuiConfig({
       showReasoning: false,
@@ -163,7 +162,6 @@ describe('TUI config', () => {
       color: false,
       truecolor: true,
       title: 'DSH',
-      autoTitle: false,
     })).toEqual({
       showReasoning: false,
       maxToolOutputLines: 2,
@@ -177,7 +175,6 @@ describe('TUI config', () => {
       color: false,
       truecolor: true,
       title: 'DSH',
-      autoTitle: false,
     })
   })
 })
@@ -2146,224 +2143,5 @@ describe('banner sweep reveal', () => {
     await tick()
     await tick()
     expect(result.terminal.output.length).toBe(settled)
-  })
-})
-
-/** Streams one fixed reply (or throws) so a test can drive the auto-title call. */
-class TitleAdapter extends LlmAdapter {
-  lastOptions: GenerateOptions | undefined
-  calls = 0
-  constructor(private readonly reply: string | Error) {
-    super()
-  }
-
-  async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    this.calls += 1
-    this.lastOptions = options
-    if (this.reply instanceof Error) throw this.reply
-    yield { type: 'block-start', index: 0, blockType: 'text' }
-    yield { type: 'text-delta', index: 0, text: this.reply }
-    yield { type: 'block-end', index: 0, block: { type: 'text', text: this.reply } }
-    yield { type: 'finish', reason: { kind: 'stop' } }
-  }
-}
-
-/** Provide the `llm` service (with `adapter` on provider `mock`) plus the tools stub the TUI injects. */
-function withLlm(adapter: LlmAdapter): (ctx: Context) => Promise<void> {
-  return async (ctx: Context) => {
-    await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['mock'], adapter)
-    ctx.provide('tools', { get: () => undefined } as never)
-  }
-}
-
-describe('TUI auto-title', () => {
-  const agentOptions: Agent['options'] = { provider: 'mock', model: 'mock-model' }
-
-  it('replaces the title with a model-generated title after the first user message', async () => {
-    const adapter = new TitleAdapter('fix the login redirect')
-    const result = await setup({ config: { autoTitle: true }, agentOptions, configureContext: withLlm(adapter) })
-    appendUser(result.session, 'the login page throws a 500 on submit, please investigate')
-    await tick()
-    expect(result.terminal.title).toBe('fix the login redirect')
-    // The request carries the task framing, the user's first message, and no tools.
-    expect(adapter.lastOptions?.provider).toBe('mock')
-    expect(adapter.lastOptions?.model).toBe('mock-model')
-    expect(adapter.lastOptions?.system).toContain('short title')
-    expect(adapter.lastOptions?.tools).toBeUndefined()
-    expect(adapter.lastOptions?.messages).toEqual([
-      { role: 'user', content: [{ type: 'text', text: 'the login page throws a 500 on submit, please investigate' }] },
-    ])
-    await dispose(result)
-  })
-
-  it('requests a title only once, even after later user messages', async () => {
-    const adapter = new TitleAdapter('the settled title')
-    const result = await setup({ config: { autoTitle: true }, agentOptions, configureContext: withLlm(adapter) })
-    appendUser(result.session, 'the first request that earns the title')
-    await tick()
-    expect(result.terminal.title).toBe('the settled title')
-    appendUser(result.session, 'a second request that must not re-title')
-    await tick()
-    expect(adapter.calls).toBe(1)
-    expect(result.terminal.title).toBe('the settled title')
-    await dispose(result)
-  })
-
-  it('uses the first non-empty line and truncates an over-long title with an ellipsis', async () => {
-    const adapter = new TitleAdapter('\n  this title is deliberately far too long to fit a terminal tab  \nextra')
-    const result = await setup({ config: { autoTitle: true }, agentOptions, configureContext: withLlm(adapter) })
-    appendUser(result.session, 'do the big thing')
-    await tick()
-    expect(result.terminal.title).toBe('this title is deliberately far too long…')
-    expect(result.terminal.title.length).toBe(40)
-    await dispose(result)
-  })
-
-  it('skips a whitespace-only first message without consuming the one-shot slot', async () => {
-    const adapter = new TitleAdapter('the real title')
-    const result = await setup({ config: { autoTitle: true }, agentOptions, configureContext: withLlm(adapter) })
-    appendUser(result.session, '   ')
-    await tick()
-    expect(adapter.lastOptions).toBeUndefined()
-    expect(result.terminal.title).toBe('DeepSeek Harness')
-    appendUser(result.session, 'the first real request')
-    await tick()
-    expect(result.terminal.title).toBe('the real title')
-    await dispose(result)
-  })
-
-  it('leaves the title unchanged when the model returns no usable text', async () => {
-    const adapter = new TitleAdapter('   \n  ')
-    const result = await setup({ config: { autoTitle: true }, agentOptions, configureContext: withLlm(adapter) })
-    appendUser(result.session, 'anything at all')
-    await tick()
-    expect(result.terminal.title).toBe('DeepSeek Harness')
-    await dispose(result)
-  })
-
-  it('leaves the title unchanged when the title request fails', async () => {
-    const adapter = new TitleAdapter(new Error('router unavailable'))
-    const result = await setup({ config: { autoTitle: true }, agentOptions, configureContext: withLlm(adapter) })
-    appendUser(result.session, 'trigger a failing title request')
-    await tick()
-    expect(result.terminal.title).toBe('DeepSeek Harness')
-    await dispose(result)
-  })
-
-  it('re-derives the title on resume from the already-logged first user message', async () => {
-    const adapter = new TitleAdapter('resumed session title')
-    const result = await setup({
-      config: { autoTitle: true },
-      agentOptions,
-      configureContext: withLlm(adapter),
-      beforeMount: (session) => {
-        appendUser(session, 'the original first request')
-        appendUser(session, 'a later request that must not seed the title')
-      },
-    })
-    await tick()
-    // The title comes from the stored first message, not any later one.
-    expect(adapter.lastOptions?.messages).toEqual([
-      { role: 'user', content: [{ type: 'text', text: 'the original first request' }] },
-    ])
-    expect(result.terminal.title).toBe('resumed session title')
-    // A message that arrives after the resume must not re-title.
-    appendUser(result.session, 'a follow-up message')
-    await tick()
-    expect(adapter.calls).toBe(1)
-    expect(result.terminal.title).toBe('resumed session title')
-    await dispose(result)
-  })
-
-  it('keeps the static title when auto-title is disabled', async () => {
-    const adapter = new TitleAdapter('should not run')
-    const result = await setup({ config: { autoTitle: false }, agentOptions, configureContext: withLlm(adapter) })
-    appendUser(result.session, 'a normal message with the feature off')
-    await tick()
-    expect(adapter.lastOptions).toBeUndefined()
-    expect(result.terminal.title).toBe('DeepSeek Harness')
-    await dispose(result)
-  })
-
-  it('keeps the static title when no llm service is available', async () => {
-    const result = await setup({ config: { autoTitle: true }, agentOptions })
-    appendUser(result.session, 'no model can answer this')
-    await tick()
-    expect(result.terminal.title).toBe('DeepSeek Harness')
-    await dispose(result)
-  })
-
-  it('keeps the static title when the agent has no provider', async () => {
-    const adapter = new TitleAdapter('unused')
-    const result = await setup({
-      config: { autoTitle: true },
-      agentOptions: { model: 'mock-model' },
-      configureContext: withLlm(adapter),
-    })
-    appendUser(result.session, 'the provider is missing')
-    await tick()
-    expect(adapter.lastOptions).toBeUndefined()
-    expect(result.terminal.title).toBe('DeepSeek Harness')
-    await dispose(result)
-  })
-
-  it('keeps the static title when the agent has no model', async () => {
-    const adapter = new TitleAdapter('unused')
-    const result = await setup({
-      config: { autoTitle: true },
-      agentOptions: { provider: 'mock' },
-      configureContext: withLlm(adapter),
-    })
-    appendUser(result.session, 'the model is missing')
-    await tick()
-    expect(adapter.lastOptions).toBeUndefined()
-    expect(result.terminal.title).toBe('DeepSeek Harness')
-    await dispose(result)
-  })
-
-  it('aborts an in-flight title request on shutdown', async () => {
-    const seen: { aborted: boolean } = { aborted: false }
-    class HangingAdapter extends LlmAdapter {
-      async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-        await new Promise<void>((_resolve, reject) => {
-          options.signal?.addEventListener('abort', () => {
-            seen.aborted = true
-            reject(new Error('aborted'))
-          })
-        })
-        yield { type: 'finish', reason: { kind: 'stop' } }
-      }
-    }
-    const result = await setup({ config: { autoTitle: true }, agentOptions, configureContext: withLlm(new HangingAdapter()) })
-    appendUser(result.session, 'start a title request that never resolves')
-    await tick()
-    await dispose(result)
-    expect(seen.aborted).toBe(true)
-    expect(result.terminal.title).toBe('DeepSeek Harness')
-  })
-
-  it('does not set the title when the UI is torn down before the stream completes', async () => {
-    let release: () => void = () => {}
-    const gate = new Promise<void>((resolve) => { release = resolve })
-    class GatedAdapter extends LlmAdapter {
-      // Yields a full reply, then blocks on the gate so the post-stream title
-      // apply runs only after the test has torn the UI down. Ignores `signal`,
-      // so shutdown's abort cannot cut the stream short.
-      async *stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
-        yield { type: 'block-start', index: 0, blockType: 'text' }
-        yield { type: 'text-delta', index: 0, text: 'title that arrives too late' }
-        yield { type: 'block-end', index: 0, block: { type: 'text', text: 'title that arrives too late' } }
-        yield { type: 'finish', reason: { kind: 'stop' } }
-        await gate
-      }
-    }
-    const result = await setup({ config: { autoTitle: true }, agentOptions, configureContext: withLlm(new GatedAdapter()) })
-    appendUser(result.session, 'start a title that finishes after teardown')
-    await tick()
-    await dispose(result)
-    release()
-    await tick()
-    expect(result.terminal.title).toBe('DeepSeek Harness')
   })
 })

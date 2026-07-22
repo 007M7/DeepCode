@@ -256,9 +256,11 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('How should the scripted run proceed?')
     expect(output).toContain('Safe')
     expect(output).toContain('Decision received. Scripted TUI run complete.')
-    // Auto-title: the first user message drives a tool-less title call that the
-    // scripted adapter answers, and the TUI sets it via OSC 0.
-    expect(output).toContain('\u001B]0;scripted session title\u0007')
+    // Session title: the first user message drives the first-message-llm
+    // provider's tool-less title call; the scripted adapter answers it, the
+    // accepted title lands in the log, and the TUI renders the terminal window
+    // title as `<session title> — <configured title>` via OSC 0.
+    expect(output).toContain('\u001B]0;scripted session title — DeepSeek Harness\u0007')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 

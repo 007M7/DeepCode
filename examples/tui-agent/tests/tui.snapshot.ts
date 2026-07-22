@@ -268,9 +268,6 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       color: true,
       showReasoning: true,
       title: 'DSH TUI snapshot',
-      // Off so replay stays deterministic: an auto-title request is not among the
-      // recorded turns. Auto-title's PTY coverage lives in the keyless smoke.
-      autoTitle: false,
       welcome: `Recorded replay: ${scenario.name}`,
       maxToolOutputLines: 8,
     }, {

@@ -45,8 +45,6 @@
     ui:
       showReasoning: true
       maxToolOutputLines: 6
-      # Rename the terminal after the first message with a short model-made title.
-      autoTitle: true
     # Keep the persona to identity and behavior; tool plugins own tool guidance.
     # The loop resolves {{model}} from this agent's configuration.
     persona: |
@@ -54,6 +52,19 @@
 
       Verify your work by running the code or tests. Keep answers brief and
       factual.
+
+# Model-made session titles on the first-message cadence: replaces the spine's
+# deterministic fallback title with a short model summary. The TUI renders the
+# logged `session/title` as the banner subtitle and the terminal window title.
+# Omitting provider/model inherits the main request's exact route.
+- id: session-title-llm
+  name: '@deepseek-ai/dsh-session-title-first-message-llm'
+  config:
+    targetWords: 5
+    targetCjkCharacters: 10
+    maxInputBytes: 4096
+    maxOutputTokens: 64
+    timeoutMs: 60000
 
 # Replay-aware request pressure with one service-wide context window.
 - id: token-meter

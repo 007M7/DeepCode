@@ -30,4 +30,15 @@
     persona: 'Scripted model {{model}}.'
     ui:
       showReasoning: true
-      autoTitle: true
+
+# Model-made session titles, as in the shipped cordis.yml: the scripted adapter
+# answers the tool-less title request with a fixed string so the PTY test can
+# assert the logged title reaches the terminal window title.
+- id: session-title-llm
+  name: '@deepseek-ai/dsh-session-title-first-message-llm'
+  config:
+    targetWords: 5
+    targetCjkCharacters: 10
+    maxInputBytes: 4096
+    maxOutputTokens: 64
+    timeoutMs: 10000

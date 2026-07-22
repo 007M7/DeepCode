@@ -42,7 +42,6 @@ When `resumeCommand` is set and a `sessionPersistence` backend is mounted, exiti
 | `color` | `true` | Apply the built-in ANSI palette (see [Color](#color)) |
 | `title` | `DeepSeek Harness` | Product suffix for the terminal window title. |
 | `resumeCommand` | — | Shell command template for the exit hint and `/resume`, with `{session}` expanded to the session id; unset disables both. Needs a `sessionPersistence` backend |
-| `autoTitle` | `true` | Replace `title` with a short model-made title derived from the session's first user message; a resumed session re-derives it from that stored message on mount (needs an `llm` service and an agent provider/model) |
 
 ```yaml
 - id: terminal
