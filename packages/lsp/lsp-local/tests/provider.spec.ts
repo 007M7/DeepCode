@@ -116,7 +116,8 @@ describe('lsp-local provider resolution', () => {
     await ctx.fiber.dispose()
   })
 
-  it('rejects an absolute command that is not executable at load', async () => {
+  // Node's X_OK probe is an existence check on Windows, which has no executable mode bit.
+  it.skipIf(process.platform === 'win32')('rejects an absolute command that is not executable at load', async () => {
     const notExe = join(root, 'not-exe.txt')
     await writeFile(notExe, 'plain text, not executable')
     const ctx = new Context()

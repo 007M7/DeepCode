@@ -210,7 +210,7 @@ describe('LspConnection edge behavior', () => {
   })
 
   it('rejects a pending request when child stdin closes but the process stays alive', async () => {
-    const conn = connectScript('require("node:fs").closeSync(0); setInterval(()=>{}, 1000)')
+    const conn = connectScript('const stdin=process.stdin; require("node:fs").closeSync(0); stdin._handle?.close(); setInterval(()=>{}, 1000)')
     await new Promise<void>(resolve => setTimeout(resolve, 100))
     const timeout = new Promise<never>((_resolve, reject) => {
       setTimeout(() => { reject(new Error('request timed out')) }, 1000)
