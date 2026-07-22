@@ -7,6 +7,7 @@ import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@dee
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type JsonValue } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import SessionQueryService from '@deepseek-ai/dsh-session-query'
@@ -167,6 +168,34 @@ describe('TUI config', () => {
 })
 
 describe('pi-tui chat lifecycle and transcript', () => {
+  it('uses the latest log-backed title for the header subtitle and terminal window', async () => {
+    const result = await setup({
+      beforeMount(session) {
+        session.append('session/title', {
+          title: 'Restored session title',
+          messageSeqs: [1],
+          source: { kind: 'fallback' },
+        })
+      },
+    })
+
+    expect(result.terminal.title).toBe('Restored session title — DeepSeek Harness')
+    expect(result.terminal.output).toContain('Restored session title')
+    expect(result.terminal.output).not.toContain('Coding agent ready.')
+
+    result.session.append('session/title', {
+      title: 'Live title \u001B]0;unsafe\u0007',
+      messageSeqs: [1, 5],
+      source: { kind: 'fallback' },
+    })
+    await tick()
+
+    expect(result.terminal.title).toContain('Live title \\x1b]0;unsafe\\x07 — DeepSeek Harness')
+    expect(result.terminal.title).not.toContain('\u001B')
+    expect(result.terminal.output).toContain('Live title \\x1b]0;unsafe\\x07')
+    await dispose(result)
+  })
+
   it('renders its header, footer, replay, streaming answer, todos, and status', async () => {
     let now = 0
     const result = await setup({
@@ -550,6 +579,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
         const source = ctx.sessions.create(SessionId('source-session'), { meta: { cwd: process.cwd(), createdAt: 1 } })
         sourceId = source.id
         appendUser(source, 'source background')
+        source.append('session/title', {
+          title: 'Source chat',
+          messageSeqs: [0],
+          source: { kind: 'fallback' },
+        })
         ctx.sessions.create(SessionId('no-cwd'), { meta: { createdAt: 2 } })
       },
     })
@@ -560,12 +594,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\x03')
 
     result.terminal.send('@source-session')
-    await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · source-session') })
+    await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · Source chat') })
+    expect(result.terminal.output).toContain('source-session')
     result.terminal.send('\t')
     await tick()
     result.terminal.send('\r')
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
-    expect(result.agent.sent).toEqual([[{ type: 'text', text: '@source-session' }]])
+    expect(result.agent.sent).toEqual([[{ type: 'text', text: '@Source chat' }]])
     expect(result.agent.sentOptions[0]?.contexts).toHaveLength(1)
 
     const mention = formatSessionReferenceMention({ sessionId: sourceId, label: 'Source chat' })

@@ -100,12 +100,12 @@ export class SessionReferenceService extends Service {
   }
 
   /**
-   * List metadata-only reference candidates, ranked by working-directory affinity.
+   * List reference candidates, ranked by working-directory affinity.
    * @param agent - target agent; self is excluded and its cwd drives ranking.
    * @param query - optional case-insensitive session-id/cwd substring.
    * @param limit - optional positive result cap.
    * @param signal - optional cancellation boundary for host autocomplete teardown.
-   * @returns candidate records in stable source creation order within each rank.
+   * @returns candidates labeled by latest title or, when absent, session id.
    */
   async listCandidates(
     agent: Agent,
@@ -130,9 +130,13 @@ export class SessionReferenceService extends Service {
       .sort((a, b) => candidateRank(a.record.header.cwd, targetCwd) - candidateRank(b.record.header.cwd, targetCwd)
         || a.index - b.index)
       .slice(0, limit)
-    return records.map(({ record }) => ({
+    const titles = await settleWithCancellation(
+      Promise.all(records.map(({ record }) => this.ctx.sessionQuery.readTitle(record.header.id))),
+      signal,
+    )
+    return records.map(({ record }, index) => ({
       sessionId: record.header.id,
-      label: record.header.id,
+      label: titles[index]?.title ?? record.header.id,
       ...record.header.cwd === undefined ? {} : { cwd: record.header.cwd },
       createdAt: record.header.createdAt,
     }))

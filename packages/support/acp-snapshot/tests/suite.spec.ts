@@ -407,6 +407,36 @@ describe('refreshFixtureReplacements', () => {
 })
 
 describe('stabilizeRefreshLog', () => {
+  it('aligns volatile times across a newly inserted log event', () => {
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200}',
+      '{"type":"turn/start","seq":0,"time":21}',
+      '{"type":"user/message","seq":1,"time":22}',
+      '{"type":"session/title","seq":2,"time":999}',
+      '{"type":"step/start","seq":3,"time":1000}',
+      '{"type":"request/header","seq":4,"time":1001}',
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100}',
+      '{"type":"turn/start","seq":0,"time":11}',
+      '{"type":"user/message","seq":1,"time":12}',
+      '{"type":"step/start","seq":2,"time":13}',
+      '{"type":"request/header","seq":3,"time":14}',
+      '',
+    ].join('\n')
+
+    expect(stabilizeRefreshLog(fresh, existing, [])).toBe([
+      '{"type":"session","id":"same","createdAt":100}',
+      '{"type":"turn/start","seq":0,"time":11}',
+      '{"type":"user/message","seq":1,"time":12}',
+      '{"type":"session/title","seq":2,"time":12}',
+      '{"type":"step/start","seq":3,"time":13}',
+      '{"type":"request/header","seq":4,"time":14}',
+      '',
+    ].join('\n'))
+  })
+
   it('keeps volatile fixture fields while preserving fresh meaningful payloads', () => {
     const fresh = [
       '{"type":"session","id":"new-child","createdAt":200,"cwd":"/new","parentSession":"new-parent","seedLength":1}',

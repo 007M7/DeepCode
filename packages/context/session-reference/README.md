@@ -4,7 +4,7 @@
 
 ## Public API
 
-- `listCandidates(agent, query?, limit?)` lists sessions other than `agent.id`, filters case-insensitively by id or cwd, and ranks same-cwd, cwd-less, then other-cwd records while preserving `listSessions()` creation order within each group. It searches no title or message body.
+- `listCandidates(agent, query?, limit?)` lists sessions other than `agent.id`, filters case-insensitively by id or cwd, and ranks same-cwd, cwd-less, then other-cwd records while preserving `listSessions()` creation order within each group. Each selected candidate uses its latest log-backed title as the mention label and falls back to the session id; titles and message bodies are not searched.
 - `prepare(agent, content, references, signal?)` preserves first-mention order, deduplicates ids, rejects self-reference and more than the configured distinct-source limit, reads every source in parallel, and returns detached content plus zero or one aggregated `HookContext`. Any invalid reference, failed read, cancellation, or budget failure rejects before the host calls `send()` or `steer()`.
 - `encodeSessionReferenceUri()` and `decodeSessionReferenceUri()` implement `dsh-session:<base64url(JSON.stringify(sessionId))>` so every JavaScript string id round-trips exactly. `formatSessionReferenceMention()` emits `@[label](uri)`, and `parseSessionReferenceText()` replaces Markdown mentions or bare canonical URIs with readable `@label` text while returning structured references. Explicit Markdown mentions reject every malformed URI; bare text is considered a reference only when a non-empty base64url-shaped payload follows the scheme, and a matching noncanonical candidate still fails. Empty or punctuation-only scheme mentions remain ordinary discussion text.
 
@@ -42,7 +42,7 @@ Snapshot context is append-only at the target message boundary and preserves ear
 
 ## Known Limitations and Deferred Work
 
-- **No full-text discovery** — candidates use session id and cwd only. SQLite FTS or title metadata may replace discovery later without changing URI, snapshot, or persistence contracts.
+- **No title or full-text discovery** — candidates filter by session id and cwd only, although selected rows display the latest title. SQLite FTS may replace discovery later without changing URI, snapshot, or persistence contracts.
 - **Trusted caller boundary** — the service assumes its host is authorized to read every session exposed by `ctx.sessionQuery`; it is not a model-facing search tool.
 - **Text projection only** — non-text user and assistant blocks are not propagated across sessions.
 - **No live link** — references are snapshots, not forks, resumes, subscriptions, or source-session mutations.

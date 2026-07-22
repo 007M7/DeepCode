@@ -37,6 +37,8 @@ export interface Config {
   tools?: ToolsConfig
   /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
   dshHome?: string
+  /** Fallback session-title limits forwarded through agent-spine-demo. */
+  sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
@@ -64,6 +66,7 @@ export const Config: z<Config> = z.object({
   persistenceCompression: JsonlCompressionSchema,
   persona: z.string(),
   dshHome: z.string(),
+  sessionTitle: agentCore.SessionTitleConfigSchema,
   skills: agentCore.SkillConfigSchema,
   // Absent means lexicographic order; schemastery's native array default is [].
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),

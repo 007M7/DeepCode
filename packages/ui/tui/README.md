@@ -8,7 +8,7 @@ Interactive terminals on macOS, Linux, and Windows are supported. Windows uses p
 
 This package owns interactive terminal presentation and input only. It injects `agents`, [`commands`](../commands/README.md), `llm`, `systemPrompt`, `tokenMeter`, `tools`, and `userInteraction`, then drives an agent created or resumed by app or developer code. Agent lifecycle, persistence, and the model-facing [`ask_user_question`](../tool-ask-user/README.md) tool remain separate composition entries.
 
-The TUI rebuilds resumed history from the active session surface, renders Markdown responses and reasoning, applies each tool's `presentCall` / `presentResult` intent to terminal, diff, or generic cards, keeps the latest `todo/write` plan above the editor, and presents `ctx.userInteraction` questions in a wide bottom-left keyboard panel with progress, numbered options, and aligned descriptions. A durable `llm/retry` event retracts the failed step's live chunks and renders the scheduled retry count, delay, and failure in the transcript; success, exhaustion, and cancellation then settle through ordinary session events. The footer totals each logged model step's usage once, including failed attempts, while treating committed-message usage as a fallback for logs without a usage chunk. Its idle view compares token-meter pressure with `ctx.llm.resolveModelContext()` for the current route, displays `context unknown` when the adapter has no capacity metadata, and also shows tool-card mode and the current model with reasoning state; while the agent runs, an elapsed working indicator and `esc interrupt` replace that summary. Surface replacement events rebuild the transcript so compacted history does not reappear.
+The TUI rebuilds resumed history from the active session surface, renders Markdown responses and reasoning, applies each tool's `presentCall` / `presentResult` intent to terminal, diff, or generic cards, keeps the latest `todo/write` plan above the editor, and presents `ctx.userInteraction` questions in a wide bottom-left keyboard panel with progress, numbered options, and aligned descriptions. The latest logged session title becomes the header subtitle, with `welcome` before a title exists, and the terminal window title becomes `<session title> — <configured title>`. A durable `llm/retry` event retracts the failed step's live chunks and renders the scheduled retry count, delay, and failure in the transcript; success, exhaustion, and cancellation then settle through ordinary session events. The footer totals each logged model step's usage once, including failed attempts, while treating committed-message usage as a fallback for logs without a usage chunk. Its idle view compares token-meter pressure with `ctx.llm.resolveModelContext()` for the current route, displays `context unknown` when the adapter has no capacity metadata, and also shows tool-card mode and the current model with reasoning state; while the agent runs, an elapsed working indicator and `esc interrupt` replace that summary. Surface replacement events rebuild the transcript so compacted history does not reappear.
 
 Before model output, session events, tool presenters, questions, configuration, or diagnostics reach pi-tui's ANSI-aware renderers or the terminal title, the TUI renders C0 and C1 controls other than line feeds as visible `\xNN` text. Those sources cannot add terminal control sequences; the TUI and pi-tui retain ownership of terminal rendering and styling.
 
@@ -20,7 +20,7 @@ While the agent is running, ordinary editor submissions call `agent.steer()`; ot
 
 | Key | Default | Meaning |
 |---|---|---|
-| `welcome` | `ready.` | Header subtitle |
+| `welcome` | `ready.` | Header subtitle until the session has a logged title. |
 | `sessionId` | `main` | Exact shared agent/session identity driven by the terminal |
 | `showReasoning` | `true` | Render reasoning blocks |
 | `maxToolOutputLines` | `6` | Output lines retained across a collapsed tool card's head/tail preview |
@@ -32,7 +32,7 @@ While the agent is running, ordinary editor submissions call `agent.steer()`; ot
 | `modelDialogMaxHeight` | `20` | Model-selector maximum rows |
 | `showHardwareCursor` | `false` | Show the hardware cursor at pi-tui's IME marker |
 | `color` | `true` | Apply the built-in ANSI palette (see [Color](#color)) |
-| `title` | `DeepSeek Harness` | Terminal window title |
+| `title` | `DeepSeek Harness` | Product suffix for the terminal window title. |
 
 ```yaml
 - id: terminal
@@ -60,7 +60,7 @@ Each non-empty ordinary editor submission becomes one text block, sent with `age
 
 #### Token effect
 
-Submitted text is retained under the agent loop's normal session-history and compaction rules. Headers, cards, Markdown rendering, status lines, plans, and help text add no tokens.
+Submitted text is retained under the agent loop's normal session-history and compaction rules. Headers, the logged title, cards, Markdown rendering, status lines, plans, and help text add no tokens.
 
 #### KV Cache effect
 

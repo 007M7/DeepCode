@@ -177,10 +177,15 @@ describe('session reference discovery and preparation', () => {
     ctx.sessions.create(SessionId('other'), { meta: { cwd: '/else', createdAt: 40 } })
     ctx.sessions.create(SessionId('none'), { meta: { createdAt: 30 } })
     ctx.sessions.create(SessionId('same'), { meta: { cwd: '/same', createdAt: 20 } })
-    ctx.sessions.create(SessionId('same-later'), { meta: { cwd: '/same', createdAt: 25 } })
+    const sameLater = ctx.sessions.create(SessionId('same-later'), { meta: { cwd: '/same', createdAt: 25 } })
+    sameLater.append('session/title', {
+      title: 'Latest title',
+      messageSeqs: [],
+      source: { kind: 'fallback' },
+    })
 
     await expect(ctx.sessionReferences.listCandidates(fakeAgent(target))).resolves.toEqual([
-      { sessionId: SessionId('same-later'), label: 'same-later', cwd: '/same', createdAt: 25 },
+      { sessionId: SessionId('same-later'), label: 'Latest title', cwd: '/same', createdAt: 25 },
       { sessionId: SessionId('same'), label: 'same', cwd: '/same', createdAt: 20 },
       { sessionId: SessionId('none'), label: 'none', createdAt: 30 },
       { sessionId: SessionId('other'), label: 'other', cwd: '/else', createdAt: 40 },

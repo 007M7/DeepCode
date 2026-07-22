@@ -61,6 +61,7 @@ import {
   parseSessionReferenceText,
   type SessionReferenceService,
 } from '@deepseek-ai/dsh-session-reference'
+import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type {
   FileDiff,
   TerminalCallView,
@@ -383,7 +384,7 @@ async function readModelChoices(
 class HeaderComponent implements Component {
   constructor(
     private readonly agent: Agent,
-    private readonly welcome: string,
+    private readonly subtitle: () => string,
     private readonly palette: Palette,
     private readonly currentModel: () => string | undefined,
   ) {}
@@ -397,7 +398,7 @@ class HeaderComponent implements Component {
     const detail = `${model}  •  ${displayText(this.agent.session.id)}`
     const top = this.palette.accent(`╭${'─'.repeat(Math.max(0, width - 2))}╮`)
     const bottom = this.palette.accent(`╰${'─'.repeat(Math.max(0, width - 2))}╯`)
-    const lines = [title, this.palette.muted(displayText(this.welcome)), this.palette.dim(detail)]
+    const lines = [title, this.palette.muted(displayText(this.subtitle())), this.palette.dim(detail)]
       .flatMap(line => wrapTextWithAnsi(line, usable))
       .map((line) => {
         const clipped = truncateToWidth(line, usable, '')
@@ -1010,7 +1011,7 @@ interface PendingQuestion {
   overlay: OverlayHandle | undefined
 }
 
-/** Add metadata-only session candidates to pi-tui's existing command/file provider. */
+/** Add session candidates to pi-tui's existing command/file provider. */
 class SessionAutocompleteProvider implements AutocompleteProvider {
   constructor(
     private readonly base: CombinedAutocompleteProvider,
@@ -1040,10 +1041,13 @@ class SessionAutocompleteProvider implements AutocompleteProvider {
     if (options.signal.aborted) return base
     const items: AutocompleteItem[] = candidates.map((candidate) => {
       const mentionLabel = displayInlineText(candidate.label)
+      const sessionId = displayInlineText(candidate.sessionId)
+      const location = candidate.cwd === undefined ? '(no cwd)' : displayInlineText(candidate.cwd)
+      const description = `${candidate.label === candidate.sessionId ? '' : `${sessionId} · `}${location} · ${new Date(candidate.createdAt).toISOString()}`
       return {
         value: formatSessionReferenceMention({ sessionId: candidate.sessionId, label: mentionLabel }),
-        label: `Session · ${displayInlineText(candidate.sessionId)}`,
-        description: `${candidate.cwd === undefined ? '(no cwd)' : displayInlineText(candidate.cwd)} · ${new Date(candidate.createdAt).toISOString()}`,
+        label: `Session · ${mentionLabel}`,
+        description,
       }
     })
     if (items.length === 0) return base
@@ -1155,7 +1159,8 @@ export function createTuiChat(
   const now = (): number => runtime.now?.() ?? Date.now()
 
   const welcome = config.welcome ?? 'ready.'
-  const header = new HeaderComponent(agent, welcome, palette, () => target.current?.model)
+  let sessionTitle = foldSessionTitle(agent.session.events)?.title
+  const header = new HeaderComponent(agent, () => sessionTitle ?? welcome, palette, () => target.current?.model)
   const footer = new FooterComponent(
     agent,
     palette,
@@ -1175,7 +1180,12 @@ export function createTuiChat(
   ui.addChild(editor)
   ui.addChild(footer)
   ui.setFocus(editor)
-  runtime.terminal.setTitle(displayText(resolved.title))
+  const updateTerminalTitle = (): void => {
+    runtime.terminal.setTitle(displayText(
+      sessionTitle === undefined ? resolved.title : `${sessionTitle} — ${resolved.title}`,
+    ))
+  }
+  updateTerminalTitle()
 
   const requestRender = (): void => {
     footer.invalidate()
@@ -1420,6 +1430,11 @@ export function createTuiChat(
       }
       case 'todo/write':
         todo.update(event.data.todos)
+        break
+      case 'session/title':
+        sessionTitle = event.data.title
+        header.invalidate()
+        updateTerminalTitle()
         break
       case 'turn/end':
         clearStreaming()

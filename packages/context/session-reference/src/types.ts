@@ -16,7 +16,7 @@ export interface SessionReferenceInput {
 export interface SessionReferenceCandidate {
   /** Opaque source session identity. */
   sessionId: SessionId
-  /** Default display label. */
+  /** Latest log-backed title, falling back to the opaque session id. */
   label: string
   /** Source session working directory, when recorded. */
   cwd?: string

@@ -1,22 +1,22 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-home`.
- * @module @deepseek-ai/dsh-home/invariant
+ * Package-owned invariant companion for `@deepseek-ai/dsh-session-title-llm`.
+ * @module @deepseek-ai/dsh-session-title-llm/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-home'
+const PACKAGE_NAME = '@deepseek-ai/dsh-session-title-llm'
 
 /** Cordis companion plugin name. */
-export const name = 'home-invariant'
+export const name = 'session-title-llm-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this pure utility owns no event stream or mutable runtime data; its value
- * algebra is enforced by unit tests.
+ * No runtime invariant: this stateless helper validates and freezes each auxiliary request before
+ * dispatch; deadline, stream, and provenance relationships are checked synchronously and by tests.
  */
 const install: InvariantInstaller = () => {}
 

@@ -15,6 +15,7 @@ The package mounts no console logger, interactive UI, user-interaction service, 
 | `toolOrder` | lexicographic | explicit model-facing tool order in `dsh-system-prompt` |
 | `tools` | `{ mode: 'native' }` | tool-registry presentation config through `dsh-agent-spine-demo` |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness home exposed to model bash and used by local skill discovery |
+| `sessionTitle` | spine example limits | Fallback title word/byte limits through `dsh-agent-spine-demo` |
 | `skills` | owner defaults | skill registry, local provider, and model-facing skill tool |
 | `toolBash` | owner defaults | model-facing bash config, including this producer's background opt-in |
 | `toolTasks` | owner defaults | generic `task_output` wait bounds |

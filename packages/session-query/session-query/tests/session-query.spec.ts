@@ -6,6 +6,7 @@ import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import SessionQueryService, {
   type SessionQueryErrorCode,
 } from '@deepseek-ai/dsh-session-query'
+import { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
 
 function header(id: string, createdAt = 1, extra: Partial<SessionHeader> = {}): SessionHeader {
   return { version: SESSION_FORMAT_VERSION, id: SessionId(id), createdAt, ...extra }
@@ -85,6 +86,58 @@ function rejectUnknown<T>(reason: unknown): Promise<T> {
 }
 
 describe('session-query exact reads', () => {
+  it('reads the latest title from one live-preferred or persisted log without widening listSessions', async () => {
+    const persistedHeader = header('persisted-title', 2)
+    const sharedHeader = header('shared-title', 3)
+    TestPersistence.reset([
+      {
+        meta: persistedHeader,
+        events: [{
+          type: 'session/title',
+          seq: 0,
+          time: 20,
+          data: {
+            title: 'Persisted title',
+            messageSeqs: [4],
+            source: { kind: 'fallback' },
+          },
+        }],
+      },
+      {
+        meta: sharedHeader,
+        events: [{
+          type: 'session/title',
+          seq: 0,
+          time: 30,
+          data: {
+            title: 'Stale durable title',
+            messageSeqs: [1],
+            source: { kind: 'fallback' },
+          },
+        }],
+      },
+    ])
+    const ctx = await liveContext()
+    const shared = ctx.sessions.create(sharedHeader.id, { meta: { createdAt: 3 } })
+    shared.append('session/title', {
+      title: 'Live title',
+      messageSeqs: [7],
+      source: {
+        kind: 'provider',
+        provider: SessionTitleProviderId('query-test'),
+      },
+    })
+    await ctx.plugin(TestPersistence)
+
+    await expect(ctx.sessionQuery.readTitle(persistedHeader.id)).resolves.toMatchObject({
+      title: 'Persisted title', eventSeq: 0, updatedAt: 20,
+    })
+    await expect(ctx.sessionQuery.readTitle(shared.id)).resolves.toMatchObject({
+      title: 'Live title', eventSeq: 0,
+    })
+    expect(Object.keys((await ctx.sessionQuery.listSessions())[0]!)).toEqual(['header', 'live', 'persisted'])
+  })
+
   it('lists live sessions deterministically and returns detached headers', async () => {
     const ctx = await liveContext()
     const older = ctx.sessions.create(SessionId('older'), { meta: { createdAt: 1 } })

@@ -18,14 +18,14 @@ interface SessionReferenceInput {
 }
 ```
 
-`SessionReferenceCandidate` is metadata-only discovery output. Candidate search does not expose transcript text.
+`SessionReferenceCandidate` is host-facing discovery output. Its label uses the latest session title when present, while filtering still searches only session id and cwd and never transcript text.
 
 ```ts type-equiv
 /** One host-facing candidate from exact session metadata. */
 interface SessionReferenceCandidate {
   /** Opaque source session identity. */
   sessionId: SessionId
-  /** Default display label. */
+  /** Latest log-backed title, falling back to the opaque session id. */
   label: string
   /** Source session working directory, when recorded. */
   cwd?: string

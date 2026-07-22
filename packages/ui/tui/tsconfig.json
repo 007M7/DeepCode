@@ -27,6 +27,9 @@
       "path": "../../context/session-reference"
     },
     {
+      "path": "../../session-title/session-title"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

@@ -23,7 +23,7 @@ import { ESCALATION_TARGETS, approveEscalation, validateEscalationArgs } from '@
 import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
 import type { DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
-import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-home'
+import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { processOutcome } from './background.ts'
 import { parseExitStatus, renderProcessRead, renderResult } from './render.ts'
 
