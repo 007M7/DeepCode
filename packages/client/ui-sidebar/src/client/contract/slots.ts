@@ -37,6 +37,8 @@ export type SidebarRootInjected = {
   useTree: SnapshotSelectorHook<SidebarTreeState>
   /** Current session selector (row highlight); undefined selects nothing. */
   useCurrent: () => SessionId | undefined
+  /** Sidebar open selector; the collapsed render keeps only persistent rail controls. */
+  useSidebarOpen: () => boolean
   actions: SidebarActions
   tree: SidebarTreeActions
 }

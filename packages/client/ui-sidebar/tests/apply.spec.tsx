@@ -31,10 +31,12 @@ async function bench() {
     byId: { [sid('a')]: { id: sid('a'), title: 'alpha', cwd: '/proj', running: false, updatedAt: 1 } },
   })
   const sessions = { list, create: vi.fn(async () => sid('minted')) }
+  const sidebar = createSnapshotStore({ open: true, width: 300 })
   const layout = {
     current: createSnapshotStore<{ sessionId?: SessionId }>({}),
+    sidebar,
     open: vi.fn(),
-    toggleSidebar: vi.fn(),
+    toggleSidebar: vi.fn(() => { sidebar.update((d) => { d.open = !d.open }) }),
   }
   ctx.provide('sessions', sessions)
   ctx.provide('layout', layout)
@@ -83,6 +85,10 @@ describe('apply', () => {
 
     act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
     expect(layout.toggleSidebar).toHaveBeenCalledOnce()
+    expect(screen.getByLabelText('Expand sidebar')).toBeTruthy()
+    expect(screen.getByLabelText('Settings')).toBeTruthy()
+    act(() => { fireEvent.click(screen.getByLabelText('Expand sidebar')) })
+    expect(layout.toggleSidebar).toHaveBeenCalledTimes(2)
 
     act(() => { fireEvent.click(screen.getByText('proj')) })
     act(() => { fireEvent.click(screen.getByText('alpha')) })

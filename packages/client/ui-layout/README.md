@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-ui-layout
 
-Shell plugin: three-column AppFrame (drag handles, concession chain) + ctx.layout viewing-state service (nav, panel widths, persist); defines the sidebar/conversation/details/conversation.empty slots. Contract: api-contracts v3 §5.
+Shell plugin: three-column AppFrame (drag handles, concession chain) + ctx.layout viewing-state service (nav, panel widths, persist); defines the sidebar/conversation/details/conversation.empty slots. A closed sidebar retains a 60px control rail while details closes to zero width. Contract: api-contracts v3 §5.
 
 Slot declarations use the composed-props entry form (`owner` share, no full `props`): the exported OwnerShare contracts are `SidebarOwnerProps` / `ConvOwnerProps` / `DetailsOwnerProps` / `EmptyOwnerProps` — registrants reference them via `OwnerOf<'sidebar' | ...>` and compose their own injected share locally. The `conversation` entry authorizes `conversation.empty` delegation through `children`.
 

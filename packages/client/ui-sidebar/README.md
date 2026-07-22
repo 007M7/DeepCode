@@ -1,8 +1,8 @@
 # @deepseek-ai/dsh-client-ui-sidebar
 
-Sidebar plugin: session multi-level tree (cwd grouping + parentId nesting), search, by-workspace grouping, state dots, three creation entries. Contract: api-contracts v3 §6.
+Sidebar plugin: session multi-level tree (cwd grouping + parentId nesting), search, by-workspace grouping, state dots, three creation entries. Its collapsed render keeps the expand control and settings entry in the layout-owned compact rail. Contract: api-contracts v3 §6.
 
-`src/client/contract/slots.ts` is the single-domain contract file: `SidebarRootInjected` (the registrant's own injected share — tree hook, current-session hook, actions) and `SidebarRootComponentProps = OwnerOf<'sidebar'> & SidebarRootInjected` (the owner share referenced from ui-layout's slot declaration, never re-stated). `apply` registers SidebarRoot cast-free against that composition; the inject factory binds layout/sessions off `RootBinding<ClientContext>`.
+`src/client/contract/slots.ts` is the single-domain contract file: `SidebarRootInjected` (the registrant's own injected share — tree hook, current-session/sidebar-open hooks, actions) and `SidebarRootComponentProps = OwnerOf<'sidebar'> & SidebarRootInjected` (the owner share referenced from ui-layout's slot declaration, never re-stated). `apply` registers SidebarRoot cast-free against that composition; the inject factory binds layout/sessions off `RootBinding<ClientContext>`.
 
 ## Model Experience
 

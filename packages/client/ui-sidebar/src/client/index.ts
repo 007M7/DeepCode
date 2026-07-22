@@ -45,6 +45,7 @@ export function apply(ctx: ClientContext): void {
       return {
         useTree: tree.store.useSelector,
         useCurrent: () => layout.current.useSelector(s => s.sessionId),
+        useSidebarOpen: () => layout.sidebar.useSelector(s => s.open),
         actions: {
           open: (id) => { layout.open(id) },
           create: (cwd) => {

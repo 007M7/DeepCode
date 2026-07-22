@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
 import { AppFrame, CenterColumn, DetailsColumn, type PanelState } from '@deepseek-ai/dsh-client-ui-layout/client'
-import { clampWidth } from '@deepseek-ai/dsh-client-ui-layout/client'
+import { clampWidth, SIDEBAR_COLLAPSED } from '@deepseek-ai/dsh-client-ui-layout/client'
 
 /** Observer stub: captures the callback so tests can fire resizes manually. */
 let fireResize: (() => void) | null = null
@@ -117,6 +117,15 @@ describe('AppFrame', () => {
     expect(tracks(frame)).toEqual([300, 0])
     expect(getByTestId('details-content')).toBeTruthy()
     expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
+  })
+
+  it('closed sidebar keeps its compact rail and mounted slot content', () => {
+    const { frame, sidebar, getByTestId } = mountFrame()
+    act(() => { sidebar.update((d) => { d.open = false }) })
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 360])
+    expect(getByTestId('sidebar-content')).toBeTruthy()
+    expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
   })
 
   it('viewport shrink triggers the concession chain via ResizeObserver', () => {

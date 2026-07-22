@@ -24,12 +24,10 @@ const GROUP_BY_ITEMS = [
   { id: 'status', label: 'Status', disabled: true },
 ]
 
-/**
- * Render the sidebar column.
- * @param props - composed slot props (owner share + injected surface, contract/slots.ts).
- * @returns the sidebar element tree.
- */
-export function SidebarRoot({ useTree, useCurrent, actions, tree }: SidebarRootComponentProps) {
+type SidebarBodyProps = Pick<SidebarRootComponentProps, 'useTree' | 'useCurrent' | 'actions' | 'tree'>
+
+/** Expanded-only content; unmounting drops tree/current subscriptions while the rail is collapsed. */
+function SidebarBody({ useTree, useCurrent, actions, tree }: SidebarBodyProps) {
   const rows = useTree((s) => s.rows)
   const query = useTree((s) => s.query)
   const groupBy = useTree((s) => s.groupBy)
@@ -47,32 +45,7 @@ export function SidebarRoot({ useTree, useCurrent, actions, tree }: SidebarRootC
   }
 
   return (
-    <div className={css.root}>
-      <div className={css.headerBlock}>
-        <div className={css.logoRow}>
-          <span className={css.brand}>
-            {/* Wordmark svg not extracted yet (figma 88:8932) — text stands in at the same ink. */}
-            <FishLogo size={23} />
-            <span className={css.wordmark}>deepseek</span>
-            <span className={css.badge}>HARNESS</span>
-          </span>
-          <button
-            type="button"
-            className={css.iconButton}
-            aria-label="Collapse sidebar"
-            onClick={() => { actions.toggleSidebar() }}
-          >
-            <IconPanelLeftOutline16 />
-          </button>
-        </div>
-
-        <button type="button" className={css.newSession} onClick={() => { actions.create() }}>
-          <IconNewChatOutline16 size={14} />
-          New Session
-        </button>
-      </div>
-
-      <div className={css.listArea}>
+    <div className={css.listArea}>
       <div className={css.sectionHeader}>
         <span className={css.sectionLabel}>WorkSpace</span>
         <Menu
@@ -153,11 +126,66 @@ export function SidebarRoot({ useTree, useCurrent, actions, tree }: SidebarRootC
             ))}
       </div>
       <span className={css.fade} />
+    </div>
+  )
+}
+
+/**
+ * Render the sidebar column.
+ * @param props - composed slot props (owner share + injected surface, contract/slots.ts).
+ * @returns the sidebar element tree.
+ */
+export function SidebarRoot(props: SidebarRootComponentProps) {
+  const open = props.useSidebarOpen()
+
+  return (
+    <div className={clsx(css.root, !open && css.collapsed)}>
+      <div className={css.headerBlock}>
+        <div className={css.logoRow}>
+          {open
+            ? (
+                <span className={css.brand}>
+                  {/* Wordmark svg not extracted yet (figma 88:8932) — text stands in at the same ink. */}
+                  <FishLogo size={23} />
+                  <span className={css.wordmark}>deepseek</span>
+                  <span className={css.badge}>HARNESS</span>
+                </span>
+              )
+            : null}
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label={open ? 'Collapse sidebar' : 'Expand sidebar'}
+            onClick={() => { props.actions.toggleSidebar() }}
+          >
+            <IconPanelLeftOutline16 />
+          </button>
+        </div>
+
+        {open
+          ? (
+              <button type="button" className={css.newSession} onClick={() => { props.actions.create() }}>
+                <IconNewChatOutline16 size={14} />
+                New Session
+              </button>
+            )
+          : null}
       </div>
 
-      <div className={clsx(css.foot)} role="button" tabIndex={0} aria-label="Settings">
+      {open
+        ? (
+            <SidebarBody
+              useTree={props.useTree}
+              useCurrent={props.useCurrent}
+              actions={props.actions}
+              tree={props.tree}
+            />
+          )
+        : null}
+
+      <div className={css.foot} role="button" tabIndex={0} aria-label="Settings">
         <IconSettingsOutline14 />
-        Settings
+        {open ? <span>Settings</span> : null}
       </div>
     </div>
   )

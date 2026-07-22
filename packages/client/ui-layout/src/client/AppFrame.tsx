@@ -137,12 +137,14 @@ export function AppFrame(props: AppFrameProps) {
       ref={frameRef}
       className={css.frame}
       style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
-      data-sidebar-collapsed={cols.sidebar === 0 || undefined}
+      data-sidebar-collapsed={!sidebar.open || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
     >
       <div className={css.sidebarCol}>{props.sidebar}</div>
       {props.children}
-      {cols.sidebar > 0 && <DragHandle left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} />}
+      {sidebar.open && cols.sidebar > 0
+        ? <DragHandle left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} />
+        : null}
       {cols.details > 0 && <DragHandle left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} />}
     </div>
   )

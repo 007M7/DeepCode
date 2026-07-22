@@ -13,7 +13,8 @@ import { LayoutService } from './service.ts'
 export { AppFrame, CenterColumn, DetailsColumn, type AppFrameProps } from './AppFrame.tsx'
 export {
   clampWidth, computeColumns,
-  CENTER_MIN, DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
+  CENTER_MIN, DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN,
+  SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
   type Columns, type PanelInput,
 } from './columns.ts'
 export { LayoutService, type NavState, type PanelState, type ViewId } from './service.ts'

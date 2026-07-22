@@ -51,20 +51,22 @@ function mount(...summaries: SessionSummary[]) {
   const list = createSnapshotStore<SessionListState>(listStateOf(...summaries))
   const tree: SidebarTreeStore = createSidebarTreeStore({ list })
   const current = createSnapshotStore<{ id: SessionId | undefined }>({ id: undefined })
+  const sidebar = createSnapshotStore({ open: true })
   const actions: SidebarActions = {
     open: vi.fn((id: SessionId) => { current.update((d) => { d.id = id }) }),
     create: vi.fn(),
-    toggleSidebar: vi.fn(),
+    toggleSidebar: vi.fn(() => { sidebar.update((d) => { d.open = !d.open }) }),
   }
   const utils = render(
     <SidebarRoot
       useTree={tree.store.useSelector}
       useCurrent={() => current.useSelector((s) => s.id)}
+      useSidebarOpen={() => sidebar.useSelector((s) => s.open)}
       actions={actions}
       tree={tree}
     />,
   )
-  return { list, tree, current, actions, ...utils }
+  return { list, tree, current, sidebar, actions, ...utils }
 }
 
 const projectData = () => [
@@ -139,10 +141,22 @@ describe('SidebarRoot', () => {
     expect(actions.create).toHaveBeenLastCalledWith('/proj')
   })
 
-  it('collapse button and group-by menu behave', () => {
+  it('collapsed rail keeps the expand and settings controls', () => {
     const { actions } = mount(...projectData())
     act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
     expect(actions.toggleSidebar).toHaveBeenCalledOnce()
+    expect(screen.getByLabelText('Expand sidebar')).toBeTruthy()
+    expect(screen.getByLabelText('Settings')).toBeTruthy()
+    expect(screen.queryByText('HARNESS')).toBeNull()
+    expect(screen.queryByText('New Session')).toBeNull()
+    act(() => { fireEvent.click(screen.getByLabelText('Expand sidebar')) })
+    expect(actions.toggleSidebar).toHaveBeenCalledTimes(2)
+    expect(screen.getByLabelText('Collapse sidebar')).toBeTruthy()
+    expect(screen.getByText('New Session')).toBeTruthy()
+  })
+
+  it('group-by menu behaves', () => {
+    mount(...projectData())
     expect(screen.queryByText('Update')).toBeNull()
     act(() => { fireEvent.click(screen.getByLabelText('Group by')) })
     expect(screen.getByText('Update')).toBeTruthy()
