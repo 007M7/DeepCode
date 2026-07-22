@@ -1,0 +1,160 @@
+/* Floating capsule input (figma Input_Bottom 34:11445): card floats above the
+   viewport bottom inside the centered message column; textarea on top, action
+   row below, one primary circle button bottom-right. Input width rides the
+   column (776 is a cap, not a fixed size — layout rule: the box shrinks with
+   the center column keeping its padding). Hero variant = the same card
+   centered in the empty state; the transition between the two is a position
+   move of one component. */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* figma Input_Bottom 34:11445: pad L32/R32/B12; the bottom gradient mask is
+     owned by the chat scroller. Top 8 hosts the error strip's breathing room. */
+  padding: 8px 32px 12px;
+}
+
+.hero {
+  padding: 0;
+}
+
+.error {
+  width: 100%;
+  max-width: 776px;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  /* figma Input 34:11458: 12px between the text area and the button row. */
+  gap: 12px;
+  width: 100%;
+  max-width: 776px;
+  /* Input stroke: black/0.10 light, white/0.06 dark (figma darkmode note says
+     the input border is one notch weaker than buttons) — exactly the
+     l2-darkmode-thin pair. Fill: the input surface token (elevated in dark). */
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 20px;
+  background: var(--dsw-specific-input-major);
+  box-shadow: var(--dsw-shadow-lv2);
+  font-size: 16px;
+  line-height: 24px;
+}
+
+/* New-session state rounds up (figma: r24 and a taller box). */
+.hero .card {
+  border-radius: 24px;
+}
+
+.accessory {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+
+/* Mirror-div auto-grow wrapper: the hidden mirror is in normal flow and sets the height
+   (min 2 lines / max 14 lines); the textarea rides it absolutely. Mirror and textarea
+   MUST share font, line-height, padding and wrapping rules or heights diverge. */
+.grow {
+  position: relative;
+}
+
+.input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  overflow-y: auto;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  /* Business blue, not brand-primary: that token resolves to ink in this sheet. */
+  caret-color: var(--dsw-alias-state-business-primary);
+}
+
+.input,
+.mirror {
+  padding: 12px 16px 0;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* figma 34:10434: #ADB2B8 light / #81858C dark — the caption pair exactly. */
+.input::placeholder {
+  color: var(--dsw-alias-label-caption);
+  user-select: none;
+}
+
+/* Running lock: grayed but the draft stays visible; the turn ending re-enables. */
+.input:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: not-allowed;
+}
+
+.mirror {
+  visibility: hidden;
+  pointer-events: none;
+  /* 2-line floor: 2 × 24px line + 12px top padding; 14-line cap (336px). */
+  min-height: 60px;
+  max-height: 336px;
+  overflow: hidden;
+}
+
+.hero .mirror {
+  /* New-session box is taller at rest (figma 118px input area). */
+  min-height: 84px;
+}
+
+/* figma Frame 1123 (34:11463): pad 12/0/10/10, buttons vertically centered. */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 10px 10px 12px;
+}
+
+/* Primary send (figma IconButton 34:10465): 34px circle, #3964FE light /
+   #679EFE dark — the info-fill pair (500→400), NOT button-primary (ink);
+   white glyph; empty text = 0.4 opacity. */
+.primary {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 999px;
+  background: var(--dsw-alias-button-info-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+  cursor: pointer;
+}
+
+.primary:hover {
+  background: var(--dsw-alias-button-info-hover);
+}
+
+.primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Stop state: same slot, dimmed brand fill — the running-state send-key
+   replacement is a design gap filled by us (figma gives no stop form). */
+.stopping,
+.stopping:hover {
+  background: var(--dsw-alias-button-primary-dimmed);
+  color: var(--dsw-alias-brand-text);
+}

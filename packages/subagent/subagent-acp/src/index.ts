@@ -52,7 +52,7 @@ export interface Config {
    * before the parent escalates to a signal.
    */
   disposeEofGraceMs?: number
-  /** Grace period (ms) between `SIGTERM` and the `SIGKILL` escalation on dispose. */
+  /** Termination confirmation window (ms), including forced exit on every platform. */
   disposeGraceMs?: number
 }
 

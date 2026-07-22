@@ -1,0 +1,37 @@
+{
+  "name": "@deepseek-ai/dsh-host-webserver",
+  "description": "Web-shape HTTP carrier: static file serving plus the /api/* bridge to an injected fetch-shaped handler (SSE streamed through)",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./invariant": {
+      "types": "./lib/types/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/invariant.js",
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "src"
+  ],
+  "license": "BSD-3-Clause",
+  "peerDependencies": {
+    "cordis": "^4.0.0-rc.7",
+    "@deepseek-ai/dsh-invariants": "^0.0.1"
+  },
+  "devDependencies": {
+    "cordis": "^4.0.0-rc.7",
+    "@deepseek-ai/dsh-invariants": "workspace:^"
+  }
+}

@@ -14,7 +14,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts whose packages contribute serv
 
 | ctx key | Package | Role |
 |---|---|---|
-| — | [`dsh-scope`](../packages/core/scope/README.md) | scoped-context registration primitive (library) |
+| — | [`dsh-scope`](../packages/core/scope/README.md) | scoped-context registration and shared layer storage (library) |
 | `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
 | `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and prompt variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
@@ -102,8 +102,7 @@ forever:
           exclusive -> one-call barrier
           parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
           each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
-            body -> validate/snapshot -> Native/meta
-          each model-order result -> ordered tools/post-execute -> projected 'tool/result'
+          each model-order result -> ordered tools/post-execute -> 'tool/result'
         append accepted tool-batch context after all recorded results, then steering
         agent/post-step
         'step/end'
@@ -116,13 +115,13 @@ forever:
 
 Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona, while the loop supplies `model` and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Canonical JSON is execution-local; post-policy replaces value or presentation, or blocks; the loop persists projections ([contract](../.agents/notes/implemented/architecture/2026-07-20-canonical-tool-output-contract.md)). Tool context—including async `agent.inject()` and post-tool `additionalContexts`—settles after results. Before signal closure, `agent/post-step` observes durable results, context, and drained steering. Leftovers queue. Terminal `agent/turn-stop` follows continuation and steering folding, remains authoritative through close/flush, and discards later steering while preserving queued prompts.
+Tool-time context—including async `inject()` and post-tool `additionalContexts`—settles after results. Steering drains before `agent/post-step`, which sees durable output, results, context, and steering. Leftovers queue. Terminal `agent/turn-stop` remains authoritative through close/flush; later steering is discarded while queued prompts remain.
 
 Pruning precedes summaries; overflow retries require durable progress. Bounded transient retries compose on `agent/request-error`; cancellation wins ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)).
 
 ### Failure Boundaries
 
-Adapter failures close the step before `agent/request-error`, which receives exact `Error`, `LlmFailure`, and history. Retry opens a step; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit no message/tool.
+The turn contains failures. Adapter failures close the step before `agent/request-error`, which receives exact `Error`, `LlmFailure`, and history. Retry opens another step; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit no message/tool.
 
 Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched tool calls get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. The turn signal retires before `turn/end`. Effective `cancel()` emits its typed cause before clearing queues and aborting; observers cannot veto, idle calls emit nothing, and durability records `aborted`. Disposal awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
@@ -134,7 +133,7 @@ Every session event is turn-enclosed. Reloading preserves an interrupted tail an
 
 ### Agent Scope
 
-Each agent owns scoped `agent.ctx`; registrations shadow globals, receive its dispatches, and unwind with it while awaiting async cleanup. `CreateAgentOptions.setup(agentCtx)` composes before publication. Typed resolvers derive carrier checks from merged `Events` signatures and `scopeTarget` ([semantic gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition controls](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs drivers inside `ctx.agents.withInitiator()`; private orchestration derives `agent.session`; turn, step, signal, cwd, and authority stay explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
+Each agent owns a scoped `agent.ctx`; shared storage overlays global tool, prompt, and command entries while preserving domain views ([decision](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)). Scoped listeners filter dispatch, and every scoped contribution unwinds with awaited cleanup. `CreateAgentOptions.setup(agentCtx)` composes before publication. Typed resolvers derive carrier checks from merged `Events` and `scopeTarget` ([semantic gates](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)). See [agent scope](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md) and [subagent composition](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md). `AgentLoop` runs inside `ctx.agents.withInitiator()`; private orchestration derives `agent.session`, while turn, step, signal, cwd, and authority remain explicit ([decision](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)).
 
 ## State
 

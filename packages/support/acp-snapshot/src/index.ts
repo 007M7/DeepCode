@@ -37,7 +37,9 @@ export {
   scrubRequestHeaders,
   scrubSystemPrompts,
   scrubToolSchemas,
+  type CwdPathMode,
   type NormalizeContext,
+  type NormalizeOptions,
 } from './normalize.ts'
 export {
   defineAcpSnapshotSuite,

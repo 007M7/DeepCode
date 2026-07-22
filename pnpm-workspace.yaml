@@ -1,6 +1,7 @@
 packages:
   - vendor/*
   - packages/*/*
+  - apps/*
   - website
   # The runnable demo leaves join as ONE workspace member: examples/package.json
   # declares the union of every leaf's cordis.yml plugins as workspace:*, so a
@@ -33,6 +34,8 @@ allowBuilds:
   '@google/genai': false
   protobufjs: false
   node-addon-require-builtin: false
+  # JSONL durability calls MoveFileExW with write-through publication on Windows.
+  koffi: true
 
 # The Landlock launcher family is our own sibling-repo release, consumed
 # fresh (hours old at each coordinated bump) — the release-age quarantine

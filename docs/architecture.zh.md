@@ -14,7 +14,7 @@
 
 | ctx 键 | 包 | 职责 |
 |---|---|---|
-| — | [`dsh-scope`](../packages/core/scope/README.md) | 作用域上下文注册原语（库） |
+| — | [`dsh-scope`](../packages/core/scope/README.md) | 作用域上下文注册与共享层存储（库） |
 | `ctx.sessions` | `dsh-session` | 内存中的事件溯源会话 |
 | `ctx.systemPrompt` | `dsh-system-prompt` | 有序提示词片段、工具 schema 和提示词变量 |
 | `ctx.tools` | `dsh-tools` | 工具注册表和[执行流水线](tool-execution-pipeline.md) |
@@ -102,8 +102,7 @@ forever:
           exclusive -> one-call barrier
           parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
           each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
-            body -> validate/snapshot -> Native/meta
-          each model-order result -> ordered tools/post-execute -> projected 'tool/result'
+          each model-order result -> ordered tools/post-execute -> 'tool/result'
         append accepted tool-batch context after all recorded results, then steering
         agent/post-step
         'step/end'
@@ -116,13 +115,13 @@ forever:
 
 每个步骤都会组装有序提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定，循环则提供 `model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-规范 JSON 仅存在于执行期间；后置策略会替换值或展示内容，或阻止操作；循环会持久化投影（[契约](../.agents/notes/implemented/architecture/2026-07-20-canonical-tool-output-contract.md)）。工具上下文，包括异步 `agent.inject()` 和工具执行后的 `additionalContexts`，会在结果产生后稳定。信号关闭前，`agent/post-step` 会观察持久化结果、上下文和已排空的 steering。余留内容进入队列。终止型 `agent/turn-stop` 位于 continuation 和 steering 折叠之后，在关闭和刷写期间始终具有最终决定权；后续 steering 会被丢弃，而排队提示词仍予保留。
+工具执行阶段的上下文，包括异步 `inject()` 和工具执行后的 `additionalContexts`，会在结果产生后稳定。steering（中途引导）会在 `agent/post-step` 前排空；该事件会观察持久输出、结果、上下文和 steering。余留内容进入队列。终止型 `agent/turn-stop` 在关闭和刷写期间始终具有最终决定权；后续 steering 会被丢弃，排队提示词仍予保留。
 
 裁剪先于摘要；溢出重试必须取得持久进展。有界的瞬态重试在 `agent/request-error` 上组合；取消优先（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)）。
 
 ### 失败边界
 
-适配器故障会先关闭步骤，再进入 `agent/request-error`；该事件会收到准确的 `Error`、`LlmFailure` 和历史记录。重试会开启一个步骤；成功会清除历史记录；重试耗尽后，故障存入 `turn/end`。失败分片不会提交消息或工具。
+轮次负责隔离故障。适配器故障会先关闭步骤，再进入 `agent/request-error`；该事件会收到准确的 `Error`、`LlmFailure` 和历史记录。重试会开启另一个步骤；成功会清除历史记录；重试耗尽后，故障存入 `turn/end`。失败分片不会提交消息或工具。
 
 其他故障使用 `agent/error`。取消和资源释放均优先于恢复；尚未分派的工具调用会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。轮次信号会在 `turn/end` 前失效。实际生效的 `cancel()` 会在清空队列和中止前发出类型化原因；观察方不能否决该操作，空闲状态下的调用不发出任何事件，持久化会记录 `aborted`。dispose（资源释放）会等待系统停稳（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
@@ -134,7 +133,7 @@ forever:
 
 ### Agent 作用域
 
-每个 agent 都拥有作用域化的 `agent.ctx`；注册项会遮蔽全局项、接收该 agent 的分派，并随其一同撤销，同时等待异步清理完成。`CreateAgentOptions.setup(agentCtx)` 在发布前完成组合。类型化解析器从合并后的 `Events` 签名和 `scopeTarget` 推导载体检查（[语义门禁](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)）。参见 [agent 作用域](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md)和 [subagent 组合控制](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)。`AgentLoop` 在 `ctx.agents.withInitiator()` 内运行驱动器；私有编排会派生 `agent.session`；轮次、步骤、信号、cwd 和权限仍保持显式（[决策](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)）。
+每个 agent 都拥有一个作用域化的 `agent.ctx`；共享存储会在全局工具、提示词和命令条目之上叠加作用域条目，同时保留各领域视图（[决策](../.agents/notes/implemented/architecture/2026-07-12-scoped-layers-store.md)）。作用域监听器会过滤分派，每项作用域贡献都会在撤销时等待清理完成。`CreateAgentOptions.setup(agentCtx)` 在发布前完成组合。类型化解析器从合并后的 `Events` 和 `scopeTarget` 推导载体检查（[语义门禁](../.agents/notes/implemented/process/2026-07-14-typescript-program-backed-semantic-gates.md)）。参见 [agent 作用域](../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md)和 [subagent 组合](../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md)。`AgentLoop` 在 `ctx.agents.withInitiator()` 内运行；私有编排会派生 `agent.session`，而轮次、步骤、信号、cwd 和权限仍保持显式（[决策](../.agents/notes/implemented/architecture/2026-07-15-agent-initiator-scope.md)）。
 
 ## 状态
 

@@ -25,7 +25,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 describe('globalConfigDir', () => {
   it('prefers an explicit DSH_HOME override', () => {
-    expect(globalConfigDir({ env: { DSH_HOME: '/custom/dsh' } })).toBe('/custom/dsh')
+    expect(globalConfigDir({ env: { DSH_HOME: '/custom/dsh' } })).toBe(resolve('/custom/dsh'))
   })
 
   it('falls back to ~/.dsh when DSH_HOME is unset', () => {
