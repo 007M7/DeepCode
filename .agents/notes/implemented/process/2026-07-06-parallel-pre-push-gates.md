@@ -20,6 +20,8 @@ The build gate makes the hook self-contained from a clean worktree. `publint`, `
 
 [scripts/publint-all.ts](../../../../scripts/publint-all.ts) discovers the package list from `packages/<group>/<pkg>` and runs `publint` with a worker pool sized from `availableParallelism()`. `DSH_PUBLINT_CONCURRENCY` can cap or raise the worker count for local machines and CI runners with different resource profiles. Results are buffered per package and printed in deterministic package order, so parallel execution does not scramble each package's log block.
 
+[scripts/verify-built-package-invariants.mjs](../../../../scripts/verify-built-package-invariants.mjs) has the same per-package independence — each probe stages its packed view inside its own package and spawns its own `npm pack` and Node processes — so it uses the same bounded-pool shape with `DSH_BUILT_INVARIANTS_CONCURRENCY` as its cap. Serially it dominated the CI artifacts lane (about 4 minutes for 100+ packages, over half the lane's wall clock); the pool collapses that to the slowest probe batch, and failures keep manifest order.
+
 The per-gate package scripts remain the vocabulary for ad hoc local runs. `hygiene` stays an aggregate `&&` chain the scheduler mirrors, while `doc-sync` has since moved its member list into the scheduler itself ([doc-sync through the gate scheduler](2026-07-21-doc-sync-through-gate-scheduler.md)).
 
 ## Alternatives considered
