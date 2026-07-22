@@ -89,7 +89,7 @@ The logger fired first: `tools/result` is emitted as part of result materializat
 
 ## From here to a full agent
 
-A real agent is this composition plus more plugins: an LLM adapter, the agent loop, persistence, a front end. Compare [examples/headless-agent/cordis.yml](../../examples/headless-agent/cordis.yml) — you can read every entry in it now. Add your `greet-tool.ts` to a copy of that file and, with a `DEEPSEEK_API_KEY` in the root `.env`, the model can actually call your tool.
+A real agent is this composition plus more plugins: an LLM adapter, the agent loop, persistence, a front end. Compare [examples/headless-agent/cordis.yml](../../examples/headless-agent/cordis.yml) — you can read every entry in it now. Add your `greet-tool.ts` to a copy of that file.
 
 Where to go next:
 
