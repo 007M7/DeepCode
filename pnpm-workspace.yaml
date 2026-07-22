@@ -1,6 +1,9 @@
 packages:
   - vendor/*
   - packages/*/*
+  # Product assemblies over the packages tier (the structure introduced with
+  # the dsh CLI): apps/cli is the `dsh` bin.
+  - apps/*
   - website
   # The runnable demo leaves join as ONE workspace member: examples/package.json
   # declares the union of every leaf's cordis.yml plugins as workspace:*, so a

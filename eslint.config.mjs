@@ -23,7 +23,7 @@ export default tseslint.config(
 
   // --- our packages: full strictness -------------------------------------
   {
-    files: ['packages/*/*/src/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts'],
+    files: ['packages/*/*/src/**/*.ts', 'apps/*/src/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts'],
     extends: [
       ...tseslint.configs.strictTypeChecked,
     ],
@@ -110,7 +110,7 @@ export default tseslint.config(
 
   // --- file-local duplication (all owned TypeScript) ---------------------
   {
-    files: ['packages/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts'],
+    files: ['packages/**/*.ts', 'apps/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts'],
     plugins: { sonarjs },
     rules: {
       // Cross-file clones are covered separately by jscpd.
@@ -127,7 +127,7 @@ export default tseslint.config(
 
   // --- formatting (everything we own) -------------------------------------
   {
-    files: ['packages/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts', 'eslint.config.mjs'],
+    files: ['packages/**/*.ts', 'apps/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts', 'eslint.config.mjs'],
     plugins: { '@stylistic': stylistic },
     rules: {
       '@stylistic/indent': ['error', 2],

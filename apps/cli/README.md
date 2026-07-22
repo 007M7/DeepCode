@@ -1,0 +1,19 @@
+# `@deepseek-ai/dsh`
+
+The `dsh` command-line entry, following the `apps/` assembly tier proposed by the `dsh web` PR (#443): `apps/*` are product assemblies over `packages/*` libraries. This branch ships one surface — plain `dsh [config.yml]` boots the interactive TUI coding agent — and reserves the `web` and `-p`/`--prompt` subcommands for that PR so the dispatch merges as a union.
+
+The TUI surface:
+
+- boots the shipped default config (`examples/tui-agent/cordis.yml`) or an explicit config argument, through [`dsh-app-boot`](../../packages/ui/app-boot/README.md);
+- treats the **invoking directory** as the workspace — sessions, relative paths, and workspace instructions resolve from the cwd;
+- applies the personal overlay from `~/.config/dsh` (see [app-boot's Personal config](../../packages/ui/app-boot/README.md#personal-config)): `.env` fills environment gaps (ambient > project `.env` > personal `.env`), `config.yaml` patches the booted tree.
+
+## Install (developer machine)
+
+Symlink the source-running launcher onto your PATH; it resolves the checkout through its own real path, so code changes apply on the next launch with no build step:
+
+```sh
+ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh
+```
+
+`pnpm run demo:tui` runs the same entry from the repo root. The built form (`lib/bin.js`, via `pnpm run build`) needs `node --expose-internals` for the shipped config's HMR entry, exactly like the demo bins.

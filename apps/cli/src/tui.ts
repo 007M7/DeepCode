@@ -1,0 +1,50 @@
+/**
+ * `dsh` default surface — the interactive TUI coding agent. Boots the shipped
+ * tui-agent config (or an explicit config argument) with the personal overlay
+ * from `~/.config/dsh`: its `.env` fills environment gaps (precedence: ambient
+ * environment, then the invoking directory's `.env`, then the personal one)
+ * and its `config.yaml` patches the booted tree. The workspace is the invoking
+ * directory: sessions, relative paths, and workspace instructions resolve from
+ * the cwd, so `dsh` acts on whatever project it is launched in.
+ * @module @deepseek-ai/dsh/tui
+ */
+
+import { fileURLToPath } from 'node:url'
+import {
+  boot,
+  installFailLoud,
+  loadEnv,
+  loadPersonalPatches,
+  resolveConfigPath,
+  resolvePersonalConfigDir,
+} from '@deepseek-ai/dsh-app-boot'
+
+const NAME = 'dsh'
+
+// Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
+// one directory under apps/cli, so the shipped default config resolves with
+// the same relative hop from either artifact.
+const DEFAULT_CONFIG = fileURLToPath(new URL('../../../examples/tui-agent/cordis.yml', import.meta.url))
+
+/* v8 ignore start -- composition over the unit-tested dsh-app-boot helpers;
+   the tui-agent PTY smoke drives this path end to end, personal overlay included */
+/**
+ * Run the interactive TUI from the invoking directory.
+ * @param argv - arguments after the subcommand dispatch; `argv[0]` may name a
+ * config to boot instead of the shipped default.
+ */
+export async function runTui(argv: string[]): Promise<void> {
+  // Refuse pipes BEFORE booting: a compose-time throw inside the Loader tree
+  // is logged per-entry rather than rethrown, so a piped launch would
+  // otherwise settle into an idle UI-less process instead of exiting nonzero.
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    process.stderr.write(`${NAME}: the TUI requires stdin and stdout to be interactive TTYs\n`)
+    process.exit(1)
+  }
+  installFailLoud(NAME)
+  // The bin already loaded the invoking directory's .env; the personal .env
+  // only fills what is still unset (process.loadEnvFile never overrides).
+  loadEnv(NAME, resolvePersonalConfigDir())
+  await boot(NAME, resolveConfigPath(argv[0] ?? DEFAULT_CONFIG, undefined), loadPersonalPatches(NAME))
+}
+/* v8 ignore stop */
