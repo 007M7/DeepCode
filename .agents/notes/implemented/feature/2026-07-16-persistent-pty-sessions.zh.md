@@ -34,7 +34,7 @@ idle 检测属于后端行为，不是第二条公共 seam。远程或容器后�
 
 实现不提供插件加载期 auto-start 会话。`terminal_open` 只在 agent 工具调用期间创建会话，此时所有权和所属的事件溯源会话都已确定。未来的声明式启动功能必须通过尚未发布的 agent setup 组合，而不能创建全局共享终端。
 
-agent scope dispose 时先关闭注册，再等待全部所属 PTY 静默退出。后端或工具插件 reload 不会遗留会话：所有权持续存放在 `PtyService` 中，直到 agent 结束，与 [`ctx.tasks`](../../../../packages/tasks/tasks/README.md) 的服务持有记录模式一致。服务会先同步把会话预留给一次活跃发送，再返回该操作；后台发送同样会在 task id 对外可见前完成预留。第二次发送会以 `SEND_ACTIVE` 失败，因此输出与取消无法跨越操作所有权。
+agent scope dispose 时先关闭注册，再等待全部所属 PTY 静默退出。未发布的后端 setup 同样是受追踪的生命周期操作：owner 或服务 dispose 会中止服务自有的 signal，等待后端结算与回滚完成后才返回。即使后端响应取消而 reject，调用方取消仍原样保留其 `AbortSignal.reason`。后端或工具插件 reload 不会遗留会话：所有权持续存放在 `PtyService` 中，直到 agent 结束，与 [`ctx.tasks`](../../../../packages/tasks/tasks/README.md) 的服务持有记录模式一致。服务会先同步把会话预留给一次活跃发送，再返回该操作；后台发送同样会在 task id 对外可见前完成预留。第二次发送会以 `SEND_ACTIVE` 失败，因此输出与取消无法跨越操作所有权。
 
 ### 安全与进程边界
 
@@ -152,7 +152,7 @@ plugins:
 
 ## 验证
 
-- 每文件覆盖率固定 owner 隔离、并发预留、沙箱模式变更拒绝、可重试的生命周期清理、就绪层级、sanitizer carry state、完整 UTF-8 结果上限、task 集成、schema 和精确 render intent。
+- 每文件覆盖率固定 owner 隔离、并发预留、未发布 spawn 的取消与等待式 teardown、沙箱模式变更拒绝、可重试的生命周期清理、就绪层级、sanitizer carry state、完整 UTF-8 结果上限、task 集成、schema 和精确 render intent。
 - Linux 进程 fixture 覆盖非 leader 与非主线程的 stdin 等待、僵尸进程静止性、不可读进程状态、受支持的 syscall 表、不支持的架构和误报拒绝；同一单元测试套件通过注入覆盖 macOS 检查器逻辑。
 - 真实 `node-pty` 测试在受支持宿主上覆盖 shell 状态、共享沙箱策略、环境清洗、raw mode 下的前台 `SIGINT`、忽略 `SIGTERM` 的子进程，以及 dispose 返回后立即静默。
 - Loader 驱动的 `cordis.yml` 测试挂载真实三包组合；ACP 与 headless 快照通过 opt-in overlay 固定 6 个 schema、有界结果、错误渲染和 terminal/generic card。

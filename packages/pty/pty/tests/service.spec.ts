@@ -206,9 +206,10 @@ describe('PtyService ownership and lifecycle', () => {
     ctx.agents.register(owner)
     const pending = ctx.pty.spawn(owner, { type: 'slow', name: 'main' })
     await expect(ctx.pty.spawn(owner, { type: 'slow', name: 'main' })).rejects.toMatchObject({ code: 'DUPLICATE_NAME' })
-    await disposeAgentScope(owner)
+    const disposal = disposeAgentScope(owner)
     gate.resolve(session)
     await expect(pending).rejects.toMatchObject({ code: 'OWNER_NOT_LIVE' })
+    await disposal
     expect(session.closed).toEqual(['PTY spawn rolled back'])
   })
 
@@ -231,19 +232,70 @@ describe('PtyService ownership and lifecycle', () => {
     expect(ctx.agents.get(owner.id)).toBe(owner)
   })
 
-  it('rolls back an unpublished backend session when service disposal wins', async () => {
+  it('preserves caller cancellation when a backend rejects in response to it', async () => {
+    const ctx = await harness()
+    const started = Promise.withResolvers<undefined>()
+    const backendFailure = new Error('backend observed cancellation')
+    ctx.pty.registerBackend({
+      type: 'abortable',
+      spawn: ({ signal }) => new Promise((_resolve, reject) => {
+        if (signal === undefined) throw new Error('missing spawn signal')
+        started.resolve(undefined)
+        signal.addEventListener('abort', () => { reject(backendFailure) }, { once: true })
+      }),
+    })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const controller = new AbortController()
+    const reason = new Error('cancelled by caller')
+
+    const pending = ctx.pty.spawn(owner, { type: 'abortable' }, controller.signal)
+    await started.promise
+    controller.abort(reason)
+
+    await expect(pending).rejects.toBe(reason)
+  })
+
+  it.each([
+    { scope: 'owner', code: 'OWNER_NOT_LIVE' },
+    { scope: 'service', code: 'SERVICE_DISPOSING' },
+  ] as const)('$scope disposal aborts and awaits unpublished backend setup', async ({ scope, code }) => {
     const ctx = await harness()
     const gate = Promise.withResolvers<PtyBackendSession>()
+    const started = Promise.withResolvers<undefined>()
     const session = new StubSession()
-    ctx.pty.registerBackend({ type: 'slow', spawn: () => gate.promise })
+    let backendSignal: AbortSignal | undefined
+    ctx.pty.registerBackend({
+      type: 'slow',
+      spawn: (spec) => {
+        backendSignal = spec.signal
+        started.resolve(undefined)
+        return gate.promise
+      },
+    })
     const owner = stubAgent(ctx, 'owner')
     ctx.agents.register(owner)
 
     const pending = ctx.pty.spawn(owner, { type: 'slow' })
-    await disposePtyService(ctx)
+    const pendingFailure = pending.then(
+      () => { throw new Error('pending spawn unexpectedly succeeded') },
+      (error: unknown) => error,
+    )
+    await started.promise
+    let disposalSettled = false
+    const disposal = (scope === 'owner' ? disposeAgentScope(owner) : disposePtyService(ctx))
+      .then(() => { disposalSettled = true })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const signalAbortedBeforeRelease = backendSignal?.aborted ?? false
+    const signalReasonBeforeRelease = backendSignal?.reason as unknown
+    const disposalSettledBeforeRelease = disposalSettled
     gate.resolve(session)
 
-    await expect(pending).rejects.toMatchObject({ code: 'SERVICE_DISPOSING' })
+    expect(await pendingFailure).toMatchObject({ code })
+    await disposal
+    expect(signalAbortedBeforeRelease).toBe(true)
+    expect(signalReasonBeforeRelease).toMatchObject({ code })
+    expect(disposalSettledBeforeRelease).toBe(false)
     expect(session.closed).toEqual(['PTY spawn rolled back'])
   })
 
@@ -290,14 +342,22 @@ describe('PtyService ownership and lifecycle', () => {
     ctx.agents.register(owner)
     const failedSpawn = new StubSession()
     failedSpawn.rejectClose = true
+    let ownerDisposal = Promise.resolve()
     ctx.pty.registerBackend({
       type: 'bad-spawn',
-      async spawn() {
-        await disposeAgentScope(owner)
+      async spawn({ signal }) {
+        if (signal === undefined) throw new Error('missing spawn signal')
+        ownerDisposal = disposeAgentScope(owner)
+        if (!signal.aborted) {
+          await new Promise<undefined>((resolve) => {
+            signal.addEventListener('abort', () => { resolve(undefined) }, { once: true })
+          })
+        }
         return failedSpawn
       },
     })
     await expect(ctx.pty.spawn(owner, { type: 'bad-spawn' })).rejects.toThrow('spawn and rollback both failed')
+    await ownerDisposal
 
     const nextOwner = stubAgent(ctx, 'next')
     ctx.agents.register(nextOwner)

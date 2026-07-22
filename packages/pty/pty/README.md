@@ -6,6 +6,7 @@ Owner-scoped persistent PTY seam. `PtyService` registers as `ctx.pty`, mints opa
 
 - Backends register one stable `type` and return an unpublished `PtyBackendSession`; failed or cancelled setup must clean partial resources.
 - Spawn cancellation preserves the caller's exact abort reason. Service disposal and owner loss remain distinct machine-routable failures after backend setup.
+- Owner and service disposal abort unpublished setup through a service-owned signal and await backend settlement plus rollback before returning.
 - `hasOwnerActivity(owner)` spans unpublished setup through final close, so lifecycle policy can fence the exact owner without a publication race.
 - A successful spawn publishes one `PtySessionId`. The optional `name` is owner-local display metadata, never authority.
 - One session accepts at most one live send operation. Reads and signals may observe it; another send fails until the operation settles.

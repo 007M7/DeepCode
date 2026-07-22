@@ -34,7 +34,7 @@ Idle detection is backend behavior, not a second public seam. A remote or contai
 
 There are no plugin-load auto-start sessions. `terminal_open` creates a session only during an agent tool call, when ownership and the owning event-sourced session are known. A future declarative startup feature must compose through unpublished agent setup rather than create shared global terminals.
 
-Agent-scope disposal closes registrations first, then awaits quiescent teardown of every owned PTY. Backend or tool-plugin reload does not orphan sessions: ownership lives in `PtyService` until the agent ends, following the same service-owned-record pattern as [`ctx.tasks`](../../../../packages/tasks/tasks/README.md). The service reserves the session synchronously for one active send before returning its operation, including before a background task id becomes visible; a second send fails with `SEND_ACTIVE`, so output and cancellation cannot cross operation ownership.
+Agent-scope disposal closes registrations first, then awaits quiescent teardown of every owned PTY. Unpublished backend setup is a tracked lifecycle operation: owner or service disposal aborts its service-owned signal, waits for backend settlement and rollback, and only then returns. Caller cancellation retains its exact `AbortSignal.reason` even when the backend rejects in response. Backend or tool-plugin reload does not orphan sessions: ownership lives in `PtyService` until the agent ends, following the same service-owned-record pattern as [`ctx.tasks`](../../../../packages/tasks/tasks/README.md). The service reserves the session synchronously for one active send before returning its operation, including before a background task id becomes visible; a second send fails with `SEND_ACTIVE`, so output and cancellation cannot cross operation ownership.
 
 ### Security and process boundary
 
@@ -152,7 +152,7 @@ The package ships concise tool guidance explaining persistent state, owner isola
 
 ## Verification
 
-- Per-file coverage pins owner fencing, concurrent reservations, sandbox-mode change rejection, retriable lifecycle cleanup, readiness tiers, sanitizer carry state, complete UTF-8 bounds, task integration, schemas, and exact render intents.
+- Per-file coverage pins owner fencing, concurrent reservations, unpublished-spawn cancellation and awaited teardown, sandbox-mode change rejection, retriable lifecycle cleanup, readiness tiers, sanitizer carry state, complete UTF-8 bounds, task integration, schemas, and exact render intents.
 - Linux process fixtures cover non-leader and non-main-thread stdin waits, zombie quiescence, unreadable process state, supported syscall tables, unsupported architectures, and false-positive rejection; macOS inspector logic is injected into the same unit suite.
 - Real `node-pty` tests exercise shell state, shared sandbox policy, environment scrubbing, raw-mode foreground `SIGINT`, a TERM-ignoring descendant, and immediate post-disposal quiescence on supported hosts.
 - A Loader-driven `cordis.yml` test mounts the real three-package composition, while ACP and headless snapshots pin the six schemas, bounded results, error rendering, and terminal/generic cards through opt-in overlays.
