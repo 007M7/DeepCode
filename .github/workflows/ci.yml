@@ -38,27 +38,25 @@ jobs:
       DSH_COVERAGE_MAX_WORKERS: '12'
       DSH_ESLINT_CACHE: '1'
       DSH_ESLINT_CONCURRENCY: '16'
-      DSH_GATE_CONCURRENCY: '16'
+      DSH_GATE_CONCURRENCY: '12'
       DSH_PUBLINT_CONCURRENCY: '16'
       DSH_SNAPSHOT_MAX_CONCURRENCY: '8'
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
-      - name: Enable corepack and resolve pnpm store path
-        id: pnpm-store
-        run: |
-          corepack enable
-          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
       # Pull requests consume the default-branch cache but do not put cache
       # compression and upload on the paid latency-critical path.
       - uses: actions/cache/restore@v4
         with:
-          path: ${{ steps.pnpm-store.outputs.path }}
+          # Cache the versioned store through its stable parent so selecting
+          # the current pnpm store does not require a separate runner step.
+          path: ~/.local/share/pnpm/store
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
@@ -72,6 +70,7 @@ jobs:
 
       - name: Install dependencies and prepare bubblewrap
         run: |
+          corepack enable
           pnpm install --frozen-lockfile &
           install_pid=$!
           bash scripts/prepare-ci-bubblewrap.sh &
