@@ -68,4 +68,42 @@ describe('jsonValueBytesUpTo', () => {
     expect(jsonValueBytesUpTo(value, 10_004)).toBe(10_004)
     expect(jsonValueBytesUpTo(value, 10_003)).toBeUndefined()
   })
+
+  it('uses module-captured intrinsics after model-visible globals are mutated', () => {
+    const value: CodeJsonValue = { payload: ['€', 42] }
+    const bytes = Buffer.byteLength(JSON.stringify(value), 'utf8')
+    const arrayIsArrayDescriptor = Object.getOwnPropertyDescriptor(Array, 'isArray')!
+    const arrayPopDescriptor = Object.getOwnPropertyDescriptor(Array.prototype, 'pop')!
+    const arrayPushDescriptor = Object.getOwnPropertyDescriptor(Array.prototype, 'push')!
+    const byteLengthDescriptor = Object.getOwnPropertyDescriptor(Buffer, 'byteLength')!
+    const objectKeysDescriptor = Object.getOwnPropertyDescriptor(Object, 'keys')!
+    const charCodeAtDescriptor = Object.getOwnPropertyDescriptor(String.prototype, 'charCodeAt')!
+    const codePointAtDescriptor = Object.getOwnPropertyDescriptor(String.prototype, 'codePointAt')!
+    const sliceDescriptor = Object.getOwnPropertyDescriptor(String.prototype, 'slice')!
+    let measured: number | undefined
+    let prefix = ''
+    try {
+      Array.isArray = () => false
+      Array.prototype.pop = () => { throw new Error('mutated pop') }
+      Array.prototype.push = () => { throw new Error('mutated push') }
+      Buffer.byteLength = () => 0
+      Object.keys = () => []
+      String.prototype.charCodeAt = () => { throw new Error('mutated charCodeAt') }
+      String.prototype.codePointAt = () => { throw new Error('mutated codePointAt') }
+      String.prototype.slice = () => { throw new Error('mutated slice') }
+      measured = jsonValueBytesUpTo(value, bytes)
+      prefix = truncateJsonStringBytes('€x', 5)
+    } finally {
+      Object.defineProperty(Array, 'isArray', arrayIsArrayDescriptor)
+      Object.defineProperty(Array.prototype, 'pop', arrayPopDescriptor)
+      Object.defineProperty(Array.prototype, 'push', arrayPushDescriptor)
+      Object.defineProperty(Buffer, 'byteLength', byteLengthDescriptor)
+      Object.defineProperty(Object, 'keys', objectKeysDescriptor)
+      Object.defineProperty(String.prototype, 'charCodeAt', charCodeAtDescriptor)
+      Object.defineProperty(String.prototype, 'codePointAt', codePointAtDescriptor)
+      Object.defineProperty(String.prototype, 'slice', sliceDescriptor)
+    }
+    expect(measured).toBe(bytes)
+    expect(prefix).toBe('€')
+  })
 })

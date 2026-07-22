@@ -2,17 +2,62 @@
 
 import type { CodeJsonValue } from '@deepseek-ai/dsh-code-runtime'
 
-/** Control characters with a two-byte short JSON escape instead of `\u00XX`. */
-const SHORT_ESCAPE_CODES = new Set([0x08, 0x09, 0x0a, 0x0c, 0x0d])
+type IntrinsicCallable = (this: unknown, ...args: unknown[]) => unknown
+
+const intrinsicReflectApply = Reflect.apply as (
+  target: IntrinsicCallable,
+  thisArgument: unknown,
+  argumentsList: readonly unknown[],
+) => unknown
+const intrinsicArrayIsArray = Array.isArray
+const IntrinsicBuffer = Buffer
+const intrinsicBufferByteLength = Reflect.get(Buffer, 'byteLength') as IntrinsicCallable
+const intrinsicObjectDefineProperty = Object.defineProperty
+const intrinsicObjectKeys = Object.keys
+const intrinsicString = String
+const intrinsicStringCharCodeAt = Reflect.get(String.prototype, 'charCodeAt') as IntrinsicCallable
+const intrinsicStringCodePointAt = Reflect.get(String.prototype, 'codePointAt') as IntrinsicCallable
+const intrinsicStringSlice = Reflect.get(String.prototype, 'slice') as IntrinsicCallable
+
+/** UTF-8 byte length through the module-captured Node intrinsic. */
+function byteLength(text: string): number {
+  return intrinsicReflectApply(intrinsicBufferByteLength, IntrinsicBuffer, [text, 'utf8']) as number
+}
+
+/** Append without consulting a model-mutated `Array.prototype`. */
+function append<T>(target: T[], value: T): void {
+  intrinsicObjectDefineProperty(target, target.length, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  })
+}
+
+/** Pop without consulting a model-mutated `Array.prototype`. */
+function takeLast<T>(target: T[]): T | undefined {
+  if (target.length === 0) return undefined
+  const index = target.length - 1
+  const value = target[index]
+  intrinsicObjectDefineProperty(target, 'length', { value: index })
+  return value
+}
+
+/** One code-point-aligned character from a string. */
+function characterAt(text: string, index: number): string {
+  const codePoint = intrinsicReflectApply(intrinsicStringCodePointAt, text, [index]) as number
+  const width = codePoint > 0xffff ? 2 : 1
+  return intrinsicReflectApply(intrinsicStringSlice, text, [index, index + width]) as string
+}
 
 /** Serialized bytes contributed by one complete Unicode code point inside JSON quotes. */
 function serializedCharacterBytes(character: string): number {
   if (character.length === 2) return 4
   if (character === '"' || character === '\\') return 2
-  const code = character.charCodeAt(0)
+  const code = intrinsicReflectApply(intrinsicStringCharCodeAt, character, [0]) as number
   if (code >= 0xd800 && code <= 0xdfff) return 6
-  if (code < 0x20) return SHORT_ESCAPE_CODES.has(code) ? 2 : 6
-  return Buffer.byteLength(character, 'utf8')
+  if (code < 0x20) return code === 0x08 || code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d ? 2 : 6
+  return byteLength(character)
 }
 
 /**
@@ -24,9 +69,11 @@ function serializedCharacterBytes(character: string): number {
 export function jsonStringBytesUpTo(text: string, maxBytes: number): number | undefined {
   if (maxBytes < 2) return undefined
   let bytes = 2
-  for (const character of text) {
+  for (let index = 0; index < text.length;) {
+    const character = characterAt(text, index)
     bytes += serializedCharacterBytes(character)
     if (bytes > maxBytes) return undefined
+    index += character.length
   }
   return bytes
 }
@@ -49,7 +96,7 @@ export function jsonValueBytesUpTo(value: CodeJsonValue, maxBytes: number): numb
     return bytes <= maxBytes
   }
   const tasks: Task[] = [{ kind: 'value', value }]
-  for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
+  for (let task = takeLast(tasks); task !== undefined; task = takeLast(tasks)) {
     if (task.kind === 'value') {
       const current = task.value
       if (current === null) {
@@ -59,16 +106,16 @@ export function jsonValueBytesUpTo(value: CodeJsonValue, maxBytes: number): numb
         if (stringBytes === undefined) return undefined
         bytes += stringBytes
       } else if (typeof current === 'number') {
-        if (!add(Buffer.byteLength(String(current), 'utf8'))) return undefined
+        if (!add(byteLength(intrinsicString(current)))) return undefined
       } else if (typeof current === 'boolean') {
         if (!add(current ? 4 : 5)) return undefined
-      } else if (Array.isArray(current)) {
+      } else if (intrinsicArrayIsArray(current)) {
         if (!add(2)) return undefined
-        if (current.length > 0) tasks.push({ kind: 'array', value: current, index: 0 })
+        if (current.length > 0) append(tasks, { kind: 'array', value: current, index: 0 })
       } else {
         if (!add(2)) return undefined
-        const keys = Object.keys(current)
-        if (keys.length > 0) tasks.push({ kind: 'object', value: current, keys, index: 0 })
+        const keys = intrinsicObjectKeys(current)
+        if (keys.length > 0) append(tasks, { kind: 'object', value: current, keys, index: 0 })
       }
       continue
     }
@@ -77,8 +124,8 @@ export function jsonValueBytesUpTo(value: CodeJsonValue, maxBytes: number): numb
     if (task.kind === 'array') {
       const item = task.value[task.index]
       if (item === undefined) return undefined
-      if (task.index + 1 < task.value.length) tasks.push({ ...task, index: task.index + 1 })
-      tasks.push({ kind: 'value', value: item })
+      if (task.index + 1 < task.value.length) append(tasks, { ...task, index: task.index + 1 })
+      append(tasks, { kind: 'value', value: item })
       continue
     }
 
@@ -90,8 +137,8 @@ export function jsonValueBytesUpTo(value: CodeJsonValue, maxBytes: number): numb
     if (!add(keyBytes + 1)) return undefined
     const item = task.value[key]
     if (item === undefined) return undefined
-    if (task.index + 1 < task.keys.length) tasks.push({ ...task, index: task.index + 1 })
-    tasks.push({ kind: 'value', value: item })
+    if (task.index + 1 < task.keys.length) append(tasks, { ...task, index: task.index + 1 })
+    append(tasks, { kind: 'value', value: item })
   }
   return bytes
 }
@@ -108,11 +155,13 @@ export function truncateJsonStringBytes(text: string, maxBytes: number): string 
   if (maxBytes < 2) return ''
   let bytes = 2
   let end = 0
-  for (const character of text) {
+  for (let index = 0; index < text.length;) {
+    const character = characterAt(text, index)
     const cost = serializedCharacterBytes(character)
     if (bytes + cost > maxBytes) break
     bytes += cost
     end += character.length
+    index += character.length
   }
-  return end === text.length ? text : text.slice(0, end)
+  return end === text.length ? text : intrinsicReflectApply(intrinsicStringSlice, text, [0, end]) as string
 }
