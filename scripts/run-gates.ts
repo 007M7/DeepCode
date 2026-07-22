@@ -8,15 +8,9 @@ import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
-import { coverageArgs } from './coverage-shards.ts'
-import { selectLintShard } from './lint-shards.ts'
-import { selectSnapshotLane } from './snapshot-shards.ts'
-import { selectStaticGates } from './static-shards.ts'
 
 type Mode =
   | 'ci-primary'
-  | 'ci-primary-cpu'
-  | 'ci-primary-large-runner'
   | 'ci-static'
   | 'ci-lint'
   | 'ci-coverage'
@@ -92,8 +86,6 @@ if (results.some(result => result.gate.allowFailure !== true && (result.status =
 function parseMode(raw: string | undefined): Mode {
   switch (raw) {
     case 'ci-primary':
-    case 'ci-primary-cpu':
-    case 'ci-primary-large-runner':
     case 'ci-static':
     case 'ci-lint':
     case 'ci-coverage':
@@ -107,7 +99,7 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-primary-cpu | ci-primary-large-runner | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -173,25 +165,17 @@ function gatesForMode(selected: Mode): Gate[] {
   switch (selected) {
     case 'ci-primary':
       return ciPrimaryGates()
-    case 'ci-primary-cpu':
-      return ciPrimaryCpuGates()
-    case 'ci-primary-large-runner':
-      return ciPrimaryLargeRunnerGates()
     case 'ci-static':
       return ciStaticGates()
-    case 'ci-lint': {
-      const selection = selectLintShard(process.env.DSH_LINT_SHARD)
+    case 'ci-lint':
       return [
-        lintGate(selection.eslintTargets),
-        ...selection.includeDuplication ? [pnpmScript('duplication', 'duplication')] : [],
+        lintGate(),
+        pnpmScript('duplication', 'duplication'),
       ]
-    }
     case 'ci-coverage':
       return [coverageGate()]
     case 'ci-snapshot':
-      return flagEnabled('DSH_SNAPSHOT_PREBUILT')
-        ? [snapshotGate([])]
-        : [pnpmScript('build', 'build'), snapshotGate()]
+      return [pnpmScript('build', 'build'), snapshotGate()]
     case 'ci-artifacts':
       return ciArtifactGates()
     case 'ci-windows-blocking':
@@ -217,11 +201,12 @@ function ciPrimaryGates(): Gate[] {
     lintGate(),
     pnpmScript('duplication', 'duplication'),
     coverageGate(),
+    ...nodeCompatSmokeGates(),
     snapshotGate(),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
-    pnpmScript('build', 'build', { needs: ['typecheck'] }),
+    pnpmScript('build', 'build'),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -229,30 +214,6 @@ function ciPrimaryGates(): Gate[] {
     }),
     builtPackageInvariantsGate(['build']),
     builtBinSmokeGate(),
-  ]
-}
-
-function ciPrimaryLargeRunnerGates(): Gate[] {
-  // The CPU lane owns typecheck, coverage, and the build-to-snapshot chain.
-  // This core lane starts its own build eagerly for the remaining artifact consumers.
-  return ciPrimaryGates()
-    .filter(gate => !['coverage', 'docs-site-build', 'snapshot', 'typecheck'].includes(gate.id))
-    .map((gate) => {
-      if (gate.id !== 'build') return gate
-      const eagerBuild = { ...gate }
-      delete eagerBuild.needs
-      return eagerBuild
-    })
-}
-
-function ciPrimaryCpuGates(): Gate[] {
-  // Build and snapshot stay together so the dependent replay consumes this lane's output.
-  return [
-    pnpmScript('typecheck', 'typecheck'),
-    coverageGate(),
-    pnpmScript('build', 'build'),
-    snapshotGate(),
-    ...nodeCompatSmokeGates(),
   ]
 }
 
@@ -279,7 +240,7 @@ function nodeCompatSmokeGates(): Gate[] {
 }
 
 function ciStaticGates(): Gate[] {
-  const gates = [
+  return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
@@ -293,12 +254,10 @@ function ciStaticGates(): Gate[] {
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
   ]
-  return selectStaticGates(gates, process.env.DSH_STATIC_SHARD)
 }
 
 function ciArtifactGates(): Gate[] {
-  const shard = process.env.DSH_ARTIFACT_SHARD
-  const metadataGates = [
+  return [
     pnpmScript('build', 'build'),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
@@ -306,13 +265,8 @@ function ciArtifactGates(): Gate[] {
       needs: ['build'],
     }),
     builtPackageInvariantsGate(['build']),
+    builtBinSmokeGate(),
   ]
-  if (shard === 'metadata') return metadataGates
-  if (shard === 'smoke') return [pnpmScript('build', 'build'), builtBinSmokeGate()]
-  if (shard !== undefined && shard !== '') {
-    throw new Error(`run-gates: unknown DSH_ARTIFACT_SHARD ${JSON.stringify(shard)}.`)
-  }
-  return [...metadataGates, builtBinSmokeGate()]
 }
 
 function ciWindowsBlockingGates(): Gate[] {
@@ -396,12 +350,10 @@ function eslintConcurrencyArgs(): string[] {
 }
 
 function coverageGate(): Gate {
-  const shard = process.env.DSH_COVERAGE_SHARD
   return pnpmExec('coverage', [
     'vitest',
     'run',
     '--coverage',
-    ...(shard === undefined || shard === '' ? [] : coverageArgs(shard)),
     ...positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers'),
   ], {
     label: 'test:coverage',
@@ -409,23 +361,12 @@ function coverageGate(): Gate {
 }
 
 // The snapshot suite boots the example bins in `lib` mode (built artifact under plain Node,
-// plugins via real exports). CI normally pairs it with `build`, so it exercises what ships rather
-// than the tsx/source path dev uses; callers with prebuilt output may omit that dependency.
-function snapshotGate(needs: string[] = ['build']): Gate {
-  const lane = selectSnapshotLane(process.env.DSH_SNAPSHOT_LANE)
-  return pnpmExec('snapshot', [
-    'vitest',
-    'run',
-    '--config',
-    'vitest.snapshot.config.ts',
-    ...lane.files,
-  ], {
-    label: 'test:snapshot',
-    env: {
-      DSH_EXAMPLE_MODE: 'lib',
-      ...lane.scenarioShard === undefined ? {} : { DSH_SNAPSHOT_SCENARIO_SHARD: lane.scenarioShard },
-    },
-    ...needs.length === 0 ? {} : { needs },
+// plugins via real exports). CI pairs it with `build`, so it exercises what ships rather than
+// the tsx/source path dev uses and therefore waits on `build`.
+function snapshotGate(): Gate {
+  return pnpmScript('snapshot', 'test:snapshot', {
+    env: { DSH_EXAMPLE_MODE: 'lib' },
+    needs: ['build'],
   })
 }
 
@@ -492,7 +433,7 @@ function docSyncLeafGates(options: {
   ]
 }
 
-function builtBinSmokeGate(shard?: string): Gate {
+function builtBinSmokeGate(): Gate {
   return pnpmExec('built-bin-smoke', [
     'vitest',
     'run',
@@ -508,7 +449,6 @@ function builtBinSmokeGate(shard?: string): Gate {
     // (the e2e lane runs unbuilt, so these files self-skip there).
     'packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts',
     'packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts',
-    ...(shard === undefined ? [] : [`--shard=${shard}`]),
   ], {
     label: 'built-bin smoke',
     needs: ['build'],

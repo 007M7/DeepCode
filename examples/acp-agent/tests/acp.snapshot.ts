@@ -1,7 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
-import { snapshotScenarioShardFromEnv } from './snapshot-scenario-shard.ts'
 
 /**
  * The acp-agent example's snapshot suite: the scenario table for
@@ -199,12 +198,9 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
 ]
 
-const scenarioShard = snapshotScenarioShardFromEnv(process.env.DSH_SNAPSHOT_SCENARIO_SHARD)
-
 defineAcpSnapshotSuite({
   agent: AGENT,
   snapshotsDir: join(dirname(fileURLToPath(import.meta.url)), 'snapshots'),
   scenarios: SCENARIOS,
   mode: snapshotModeFromEnv(process.env.DSH_SNAPSHOT),
-  ...scenarioShard === undefined ? {} : { scenarioShard },
 })

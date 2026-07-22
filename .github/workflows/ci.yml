@@ -15,7 +15,6 @@ on:
           - serial-reference
           - larger-runner-benchmark
           - consolidated-runner-benchmark
-          - sharded-reference
           - optimized-larger-runners
 
 concurrency:
@@ -29,299 +28,21 @@ env:
   PRIMARY_NODE_VERSION: '24'
 
 jobs:
-  node-24-sharded:
-    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'sharded-reference'
-    runs-on: ${{ startsWith(matrix.lane, 'snapshot-') && 'dsh-ubuntu-24-04-8core' || 'dsh-ubuntu-24-04-4core' }}
-    name: node 24 / ${{ matrix.lane }}
-    env:
-      DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
-      DSH_PUBLINT_CONCURRENCY: ${{ matrix.publint_concurrency }}
-      DSH_ARTIFACT_SHARD: ${{ matrix.artifact_shard }}
-      DSH_COVERAGE_MAX_WORKERS: ${{ matrix.coverage_max_workers }}
-      DSH_COVERAGE_SHARD: ${{ matrix.coverage_shard }}
-      DSH_LINT_SHARD: ${{ matrix.lint_shard }}
-      DSH_SNAPSHOT_LANE: ${{ matrix.snapshot_lane }}
-      DSH_STATIC_SHARD: ${{ matrix.static_shard }}
-      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ matrix.snapshot_max_concurrency }}
-      DSH_SNAPSHOT_PREBUILT: ${{ matrix.snapshot_prebuilt }}
-      DSH_ESLINT_CACHE: ${{ matrix.eslint_cache }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - lane: static-foundation-projection
-            command: pnpm run check:ci:static
-            gate_concurrency: '4'
-            static_shard: 'foundation,site-projection'
-          - lane: static-doc-types
-            command: pnpm run check:ci:static
-            gate_concurrency: '1'
-            static_shard: doc-types
-          - lane: static-api-contracts
-            command: pnpm run check:ci:static
-            gate_concurrency: '4'
-            static_shard: api-contracts
-          - lane: static-catalogs
-            command: pnpm run check:ci:static
-            gate_concurrency: '4'
-            static_shard: catalogs
-          - lane: static-prose
-            command: pnpm run check:ci:static
-            gate_concurrency: '4'
-            static_shard: prose
-          - lane: static-site-mpa
-            command: pnpm run check:ci:static
-            gate_concurrency: '1'
-            static_shard: site-build
-          - lane: typecheck
-            command: pnpm run typecheck
-          - lane: lint-package-sources-a-c
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: package-sources-a-c
-          - lane: lint-package-sources-d-m
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: package-sources-d-m
-          - lane: lint-package-sources-n-s
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: package-sources-n-s
-          - lane: lint-package-sources-t-z
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: package-sources-t-z
-          - lane: lint-package-tests-a-c
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: package-tests-a-c
-          - lane: lint-package-tests-d-m
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: package-tests-d-m
-          - lane: lint-package-tests-n-s
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: package-tests-n-s
-          - lane: lint-package-tests-t-z
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: package-tests-t-z
-          - lane: lint-repository
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: repository
-          - lane: coverage-core-loop
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: core-loop
-          - lane: coverage-state-session
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: state-session
-          - lane: coverage-session-title
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: session-title
-          - lane: coverage-models
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: models
-          - lane: coverage-integrations
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: integrations
-          - lane: coverage-sdk-capabilities
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: sdk-capabilities
-          - lane: coverage-interfaces
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: interfaces
-          - lane: coverage-execution
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: execution
-          - lane: coverage-workflow
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: workflow
-          - lane: coverage-workflow-worker
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: workflow-worker
-          - lane: coverage-delegation
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: delegation
-          - lane: coverage-repository
-            command: pnpm run check:ci:coverage
-            gate_concurrency: '1'
-            coverage_max_workers: '4'
-            coverage_shard: repository
-          - lane: snapshot-support
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: support
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: snapshot-agents
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: agents
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: snapshot-acp-1
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: acp-1
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: snapshot-acp-2
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: acp-2
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: snapshot-acp-3
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: acp-3
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: snapshot-acp-4
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: acp-4
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: snapshot-acp-5
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: acp-5
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: snapshot-acp-6
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: acp-6
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: snapshot-acp-7
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: acp-7
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: snapshot-acp-8
-            command: pnpm run check:ci:snapshot
-            gate_concurrency: '1'
-            snapshot_lane: acp-8
-            snapshot_max_concurrency: '5'
-            snapshot_prebuilt: '1'
-          - lane: artifacts-metadata
-            command: pnpm run check:ci:artifacts
-            gate_concurrency: '3'
-            publint_concurrency: '8'
-            artifact_shard: metadata
-          - lane: artifacts-smoke
-            command: pnpm run check:ci:artifacts
-            gate_concurrency: '1'
-            artifact_shard: smoke
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Enable corepack and resolve pnpm store path
-        id: pnpm-store
-        run: |
-          corepack enable
-          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
-      - name: Install (immutable)
-        if: ${{ ! startsWith(matrix.lane, 'snapshot-') }}
-        run: pnpm install --frozen-lockfile
-
-      # The snapshot lanes REPLAY the sandbox example's recorded scenarios,
-      # re-executing their bash calls under a real runner. ubuntu-latest has
-      # no bubblewrap preinstalled and no built Landlock launcher, so without
-      # this the confined executions fail closed (SANDBOX_UNAVAILABLE). The
-      # pinned Ubuntu payload is verified and extracted into the ephemeral
-      # runner instead of paying for a system package transaction. Bubblewrap
-      # preparation is independent of dependency installation and the build,
-      # so it runs beside both.
-      - name: Prepare built snapshot runtime and bubblewrap
-        if: startsWith(matrix.lane, 'snapshot-')
-        run: |
-          pnpm install --frozen-lockfile &
-          install_pid=$!
-          bash scripts/prepare-ci-bubblewrap.sh &
-          sandbox_pid=$!
-          install_status=0
-          wait "$install_pid" || install_status=$?
-          build_status=0
-          if (( install_status == 0 )); then
-            pnpm run build || build_status=$?
-          fi
-          sandbox_status=0
-          wait "$sandbox_pid" || sandbox_status=$?
-          if (( install_status != 0 )); then exit "$install_status"; fi
-          if (( build_status != 0 )); then exit "$build_status"; fi
-          exit "$sandbox_status"
-
-      - uses: actions/cache@v4
-        if: startsWith(matrix.lane, 'lint-')
-        with:
-          path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ matrix.lint_shard }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ matrix.lint_shard }}-
-
-      - name: Run gates
-        run: ${{ matrix.command }}
 
   # One large runner pays hosted setup once, then the repository scheduler
-  # overlaps the unsharded core inventory. CPU and site chains use coarse lanes.
+  # overlaps the complete unsharded primary Node inventory. Build starts eagerly;
+  # only consumers of emitted output wait for it.
   node-24:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
     runs-on: dsh-ubuntu-24-04-96core
-    name: node 24 / core
+    name: node 24 / complete
     env:
+      DSH_COVERAGE_MAX_WORKERS: '12'
       DSH_ESLINT_CACHE: '1'
       DSH_ESLINT_CONCURRENCY: '32'
       DSH_GATE_CONCURRENCY: '32'
       DSH_PUBLINT_CONCURRENCY: '32'
+      DSH_SNAPSHOT_MAX_CONCURRENCY: '16'
     steps:
       - uses: actions/checkout@v6
 
@@ -362,53 +83,19 @@ jobs:
           if (( install_status != 0 )); then exit "$install_status"; fi
           exit "$sandbox_status"
 
-      - name: Run unsharded primary Node core CI concurrently
-        run: pnpm run check:ci:large-runner
+      - name: Run complete unsharded primary Node CI concurrently
+        run: pnpm run check:ci
 
-  # Keep the longest independent Linux gate on its own coarse-grained runner so
-  # cold install variance does not push either primary aggregate over a minute.
-  node-24-site:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
-    runs-on: dsh-ubuntu-24-04-16core
-    name: node 24 / production site
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Enable corepack and resolve pnpm store path
-        id: pnpm-store
-        run: |
-          corepack enable
-          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
-      - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
-
-      - name: Build documentation site (production SPA)
-        run: pnpm run docs:build
 
   node-compat:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
     # Distinct larger-runner pools avoid both standard-runner setup outliers and
-    # the delayed second allocation observed when two jobs shared one pool. The
-    # primary Node row also owns the CPU/dependency-critical primary gate chain.
+    # delayed allocation when independent environment contracts share one pool.
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.name }}
     env:
-      DSH_COVERAGE_MAX_WORKERS: ${{ matrix.coverage_workers }}
       DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
-      DSH_NODE_COMPAT_SKIP_TYPECHECK: ${{ matrix.skip_typecheck }}
-      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ matrix.snapshot_workers }}
+      DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
     strategy:
       fail-fast: false
       matrix:
@@ -416,24 +103,11 @@ jobs:
           - node: '22.19'
             name: node 22.19
             runner: dsh-ubuntu-24-04-4core
-            command: pnpm run check:node-compat
             gate_concurrency: '2'
-            skip_typecheck: '1'
-          - node: 24
-            name: node 24 / cpu
-            runner: dsh-ubuntu-24-04-64core
-            command: pnpm run check:ci:primary-cpu
-            coverage_workers: '12'
-            gate_concurrency: '6'
-            primary_cpu: true
-            snapshot_workers: '16'
-            skip_typecheck: '1'
           - node: 26
             name: node 26
             runner: dsh-ubuntu-24-04-32core
-            command: pnpm run check:node-compat
             gate_concurrency: '2'
-            skip_typecheck: '1'
     steps:
       - uses: actions/checkout@v6
 
@@ -455,25 +129,10 @@ jobs:
             ${{ runner.os }}-node-${{ matrix.node }}-pnpm-
 
       - name: Install (immutable)
-        if: matrix.primary_cpu != true
         run: pnpm install --frozen-lockfile
 
-      - name: Install dependencies and prepare bubblewrap
-        if: matrix.primary_cpu == true
-        run: |
-          pnpm install --frozen-lockfile &
-          install_pid=$!
-          bash scripts/prepare-ci-bubblewrap.sh &
-          sandbox_pid=$!
-          install_status=0
-          wait "$install_pid" || install_status=$?
-          sandbox_status=0
-          wait "$sandbox_pid" || sandbox_status=$?
-          if (( install_status != 0 )); then exit "$install_status"; fi
-          exit "$sandbox_status"
-
-      - name: Run assigned gates
-        run: ${{ matrix.command }}
+      - name: Run compatibility smokes
+        run: pnpm run check:node-compat
 
   python-sdk:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
@@ -492,145 +151,6 @@ jobs:
 
       - name: Run complete keyless Python suite
         run: uv run --python 3.10 --group test --project python/sdk pytest
-
-  # Manual sharded Windows reference matching the former production topology.
-  # Blocking build and production-site lanes keep the already-green
-  # native outputs protected without putting both critical paths in one job.
-  # The broader observational gate matrix below exposes the remaining
-  # portability work without blocking mainline merges.
-  windows-build-sharded:
-    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'sharded-reference'
-    runs-on: dsh-windows-2025-4core
-    name: windows / build
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Install (immutable)
-        run: |
-          corepack enable
-          pnpm install --frozen-lockfile
-
-      - name: Build (tsc -b + tsdown)
-        run: pnpm run build
-
-  windows-site-sharded:
-    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'sharded-reference'
-    runs-on: dsh-windows-2025-4core
-    name: windows / production site
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Install (immutable)
-        run: |
-          corepack enable
-          pnpm install --frozen-lockfile
-
-      - name: Build documentation site (production SPA)
-        run: pnpm run docs:build
-
-  # Observational, non-blocking Windows static, lint, and artifact lanes. Coverage
-  # and snapshot stay Linux-only until their platform-specific runtime failures
-  # have dedicated support. Run the gates from native PowerShell: an MSYS parent
-  # would change the environment being measured. This job intentionally stays
-  # out of all-checks-passed.needs.
-  windows-gates-sharded:
-    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'sharded-reference'
-    continue-on-error: true
-    runs-on: dsh-windows-2025-4core
-    name: windows node 24 / ${{ matrix.lane }}
-    env:
-      DSH_GATE_CONCURRENCY: ${{ matrix.gate_concurrency }}
-      DSH_PUBLINT_CONCURRENCY: ${{ matrix.publint_concurrency }}
-      DSH_ARTIFACT_SHARD: ${{ matrix.artifact_shard }}
-      DSH_LINT_SHARD: ${{ matrix.lint_shard }}
-      DSH_STATIC_SHARD: ${{ matrix.static_shard }}
-      DSH_ESLINT_CACHE: ${{ matrix.eslint_cache }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - lane: static-general
-            command: pnpm run check:ci:static
-            gate_concurrency: '4'
-            static_shard: 'foundation,catalogs,prose'
-          - lane: static-contracts
-            command: pnpm run check:ci:static
-            gate_concurrency: '4'
-            static_shard: 'doc-types,api-contracts'
-          - lane: lint-package-sources
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: package-sources
-          - lane: lint-package-tests
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: package-tests
-          - lane: lint-repository
-            command: pnpm run check:ci:lint
-            gate_concurrency: '1'
-            eslint_cache: '1'
-            lint_shard: repository
-          - lane: artifacts-metadata
-            command: pnpm run check:ci:artifacts
-            gate_concurrency: '3'
-            publint_concurrency: '8'
-            artifact_shard: metadata
-          - lane: artifacts-smoke
-            command: pnpm run check:ci:artifacts
-            gate_concurrency: '1'
-            artifact_shard: smoke
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Enable Developer Mode (symlink support)
-        shell: pwsh
-        run: >-
-          reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
-          /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Enable corepack and resolve pnpm store path
-        id: pnpm-store
-        shell: pwsh
-        run: |
-          corepack enable
-          "path=$(pnpm store path --silent)" >> $env:GITHUB_OUTPUT
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
-      - name: Install (immutable)
-        shell: pwsh
-        run: pnpm install --frozen-lockfile
-
-      - uses: actions/cache@v4
-        if: startsWith(matrix.lane, 'lint-')
-        with:
-          path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ matrix.lint_shard }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-${{ matrix.lint_shard }}-
-
-      - name: Run gates
-        shell: pwsh
-        run: ${{ matrix.command }}
 
   # One Windows box shares setup across the required build/site checks and the
   # complete observational portability inventory. run-gates reports failures
@@ -1035,7 +555,7 @@ jobs:
   all-checks-passed:
     name: all checks passed
     runs-on: ubuntu-latest
-    needs: [node-24, node-24-site, node-compat, python-sdk, windows]
+    needs: [node-24, node-compat, python-sdk, windows]
     if: always() && (github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners')
     steps:
       - name: Fail if any needed job did not succeed
