@@ -12,13 +12,18 @@
  */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
-/** Whether a realm-owned intrinsic prototype names and points back to its constructor. */
+/** Whether a realm-owned intrinsic prototype is backed by its native constructor. */
 function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): boolean {
   const descriptor = Object.getOwnPropertyDescriptor(prototype, 'constructor')
   const constructor: unknown = descriptor?.value
-  return typeof constructor === 'function'
-    && constructor.name === name
-    && constructor.prototype === prototype
+  if (typeof constructor !== 'function') return false
+  try {
+    return constructor.name === name
+      && constructor.prototype === prototype
+      && Function.prototype.toString.call(constructor) === `function ${name}() { [native code] }`
+  } catch {
+    return false
+  }
 }
 
 /** Whether a candidate is one realm's intrinsic `Object.prototype`. */

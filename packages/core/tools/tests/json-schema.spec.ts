@@ -30,6 +30,21 @@ function violationsOf(schema: unknown, objectRoot = false): string[] {
   throw new Error('expected schema rejection')
 }
 
+function recordWithForgedIntrinsicPrototype(
+  own: Record<string, unknown>,
+  inherited: Record<string, unknown> = {},
+  revoked = false,
+): Record<string, unknown> {
+  const prototype = Object.assign(Object.create(null) as Record<string, unknown>, inherited)
+  const ForgedObject = function ForgedObject(): void {}
+  Object.defineProperty(ForgedObject, 'name', { value: 'Object' })
+  ForgedObject.prototype = prototype
+  const constructor = revoked ? Proxy.revocable(ForgedObject, {}) : undefined
+  if (constructor !== undefined) constructor.revoke()
+  Object.defineProperty(prototype, 'constructor', { value: constructor?.proxy ?? ForgedObject })
+  return Object.assign(Object.create(prototype) as Record<string, unknown>, own)
+}
+
 describe('the enforced raw JSON Schema subset', () => {
   it('accepts every JSON root and every supported node', () => {
     for (const schema of [
@@ -81,6 +96,23 @@ describe('the enforced raw JSON Schema subset', () => {
       .toEqual(['schema.items is not supported beside oneOf'])
     expect(violationsOf({ oneOf: [{ type: 'string' }, { type: 'weird' }] })[0])
       .toContain('schema.oneOf[1].type')
+    const sparse = new Array<unknown>(2)
+    sparse[0] = { type: 'string' }
+    expect(violationsOf({ oneOf: sparse }))
+      .toEqual(['schema.oneOf must be an array of at least two schemas'])
+    const compensatedSparse = new Array<unknown>(2)
+    compensatedSparse[0] = { type: 'string' }
+    Object.defineProperty(compensatedSparse, 'extra', { value: true })
+    expect(violationsOf({ oneOf: compensatedSparse }))
+      .toEqual(['schema.oneOf must be an array of at least two schemas'])
+    class ExoticBranches extends Array<unknown> {}
+    expect(violationsOf({ oneOf: new ExoticBranches({ type: 'string' }, { type: 'null' }) }))
+      .toEqual(['schema.oneOf must be an array of at least two schemas'])
+    const explosiveArray = new Proxy([{ type: 'string' }, { type: 'null' }], {
+      getPrototypeOf() { throw new Error('prototype trap') },
+    })
+    expect(violationsOf({ oneOf: explosiveArray }))
+      .toEqual(['schema.oneOf must be an array of at least two schemas'])
   })
 
   it('rejects unknown and misplaced keywords without accepted-then-ignored behavior', () => {
@@ -134,6 +166,9 @@ describe('the enforced raw JSON Schema subset', () => {
         'schema.properties must be an object of schemas',
         'schema.required names "missing" which is not in properties',
       ])
+    const sparseRequired = new Array<string>(1)
+    expect(violationsOf({ type: 'object', required: sparseRequired }))
+      .toEqual(['schema.required must be an array of strings'])
   })
 
   it('requires type-correct scalar enum and const values', () => {
@@ -163,6 +198,9 @@ describe('the enforced raw JSON Schema subset', () => {
       .toEqual(['schema.enum must be a non-empty array of string values'])
     expect(violationsOf({ type: 'string', enum: ['a'], const: 'b' }))
       .toEqual(['schema.const must be one of schema.enum when both are declared'])
+    const sparseEnum = new Array<string>(1)
+    expect(violationsOf({ type: 'string', enum: sparseEnum }))
+      .toEqual(['schema.enum must be a non-empty array of string values'])
   })
 
   it('validates annotation types and lossless JSON payloads', () => {
@@ -195,6 +233,8 @@ describe('the enforced raw JSON Schema subset', () => {
   it('accepts lossless annotation containers from another JavaScript realm', () => {
     const schema = runInNewContext(`({
       type: 'object',
+      properties: { value: { type: 'string', enum: ['x'] } },
+      required: ['value'],
       default: { x: 1 },
       examples: [[{ ok: true }]],
     })`) as unknown
@@ -212,6 +252,28 @@ describe('the enforced raw JSON Schema subset', () => {
       .toEqual(['schema.properties must be an object of schemas'])
     expect(violationsOf({ type: 'object', properties: { at: new Date(0) } }))
       .toEqual(['schema.properties.at must be a schema object'])
+
+    const forgedSchema = recordWithForgedIntrinsicPrototype(
+      { type: 'object' },
+      { oneOf: [{ type: 'string' }, { type: 'null' }] },
+    )
+    expect(violationsOf(forgedSchema)).toEqual(['schema must be a schema object'])
+    expect(violationsOf(forgedSchema, true)).toEqual(['schema must be a schema object'])
+    expect(violationsOf(recordWithForgedIntrinsicPrototype({ type: 'string' }, {}, true)))
+      .toEqual(['schema must be a schema object'])
+    const prototypeWithoutConstructor = Object.create(null) as object
+    expect(violationsOf(Object.create(prototypeWithoutConstructor) as unknown))
+      .toEqual(['schema must be a schema object'])
+    expect(violationsOf(Object.defineProperty({ type: 'string' }, 'hidden', { value: true })))
+      .toEqual(['schema must be a schema object'])
+    expect(violationsOf({ type: 'string', [Symbol('hidden')]: true }))
+      .toEqual(['schema must be a schema object'])
+    expect(violationsOf(new Proxy({}, {
+      getPrototypeOf() { throw new Error('prototype trap') },
+    }))).toEqual(['schema must be a schema object'])
+    expect(violationsOf(new Proxy({}, {
+      ownKeys() { throw new Error('keys trap') },
+    }))).toEqual(['schema must be a schema object'])
   })
 
   it('asserts deeply nested raw unions without using the JavaScript call stack', () => {
@@ -367,6 +429,21 @@ describe('validateJsonSchemaValue', () => {
       .toEqual(['"value.toString" is not a declared property (additionalProperties: false)'])
     expect(validateJsonSchemaValue(
       asserted({ type: 'object', properties: { constructor: { type: 'string' } } }),
+      {},
+    )).toEqual([])
+
+    const inheritedUnion = Object.assign(
+      Object.create({ oneOf: [{ type: 'string' }, { type: 'null' }] }) as JsonSchemaNode,
+      { type: 'object' as const },
+    )
+    expect(validateJsonSchemaValue(inheritedUnion, {})).toEqual([])
+    expect(validateJsonSchemaValue(inheritedUnion, 'x')).toEqual(['"value" must be an object'])
+    expect(validateJsonSchemaValue(
+      { type: 'object', properties: undefined } as unknown as JsonSchemaNode,
+      {},
+    )).toEqual([])
+    expect(validateJsonSchemaValue(
+      { type: 'object', required: undefined } as unknown as JsonSchemaNode,
       {},
     )).toEqual([])
   })
