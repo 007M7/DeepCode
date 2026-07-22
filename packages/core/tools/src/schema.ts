@@ -4,7 +4,7 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition, ToolRunContext, ToolResult } from './index.ts'
-import { assertSupportedJsonSchema, isPlainJsonRecord, JsonSchemaError, validateJsonSchemaValue } from './json-schema.ts'
+import { assertSupportedJsonSchema, isJsonSchemaRecord, isPlainJsonArray, JsonSchemaError, validateJsonSchemaValue } from './json-schema.ts'
 import type { JsonSchemaNode, JsonSchemaScalar, ObjectJsonSchema } from './json-schema.ts'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
 
@@ -100,7 +100,10 @@ export type ParameterPropertySpec = ValueSchemaSpec & { required?: true }
  * Tool parameter schema. The map itself is an implicit open object root;
  * requiredness remains a per-property `required: true` annotation.
  */
-export type ParameterSchemaSpec = Record<string, ParameterPropertySpec>
+export type ParameterSchemaSpec = {
+  [key: string]: ParameterPropertySpec
+  [key: symbol]: never
+}
 
 /** Raw JSON Schema projection of the implicit parameter object. */
 export interface ParameterJsonSchema extends ObjectJsonSchema {
@@ -110,30 +113,29 @@ export interface ParameterJsonSchema extends ObjectJsonSchema {
 /** Flatten an intersection into one object type for readable hovers. */
 type Simplify<T> = { [K in keyof T]: T[K] } & {}
 
-/** Keys of a property map marked `required: true`. */
-type RequiredKeys<S extends ParameterSchemaSpec> = {
-  [K in keyof S]: S[K] extends { required: true } ? K : never
-}[keyof S]
+/** String keys of one property map; runtime compilation rejects symbol keys. */
+type StringKeyOf<S> = Extract<keyof S, string>
 
-/** Advance the bounded inference walk through one nested schema node. */
-type NextDepth<D extends readonly unknown[]> = readonly [...D, unknown]
+/** Keys of a property map marked `required: true`. */
+type RequiredKeys<S> = {
+  [K in StringKeyOf<S>]: S[K] extends { required: true } ? K : never
+}[StringKeyOf<S>]
 
 /** Infer the declared value of one parameter property without key optionality. */
-type InferProperty<P extends ParameterPropertySpec, D extends readonly unknown[]> =
-  P extends ValueSchemaSpec ? InferValue<P, D> : never
+type InferProperty<P, Depth extends unknown[]> = InferValueAt<P, Depth>
 
 /** Infer an implicit property map into required and optional object keys. */
-type InferProperties<S extends ParameterSchemaSpec, D extends readonly unknown[]> = Simplify<
-  & { [K in RequiredKeys<S>]: InferProperty<S[K], D> }
-  & { [K in Exclude<keyof S, RequiredKeys<S>>]?: InferProperty<S[K], D> }
+type InferProperties<S, Depth extends unknown[]> = Simplify<
+  & { [K in RequiredKeys<S>]: InferProperty<S[K], Depth> }
+  & { [K in Exclude<StringKeyOf<S>, RequiredKeys<S>>]?: InferProperty<S[K], Depth> }
 >
 
 /** Infer an explicit object node, including its declared openness. */
-type InferObject<S extends ObjectValueSchemaSpec, D extends readonly unknown[]> =
-  S extends { properties: infer P extends ParameterSchemaSpec }
+type InferObject<S extends { additionalProperties: boolean }, Depth extends unknown[]> =
+  S extends { properties: infer P }
     ? S['additionalProperties'] extends true
-      ? InferProperties<P, D> & Record<string, JsonValue>
-      : InferProperties<P, D>
+      ? InferProperties<P, Depth> & Record<string, JsonValue>
+      : InferProperties<P, Depth>
     : S['additionalProperties'] extends true
       ? Record<string, JsonValue>
       : Record<string, never>
@@ -144,25 +146,33 @@ type InferScalar<S, Fallback> =
     S extends { enum: readonly (infer E)[] } ? E :
       Fallback
 
+/** Add one schema-container level to bounded compile-time inference. */
+type NextInferenceDepth<Depth extends unknown[]> = [unknown, ...Depth]
+
+/** Infer one node without recursively checking it against the full author union. */
+type InferValueAt<S, Depth extends unknown[]> =
+  Depth['length'] extends 16 ? JsonValue :
+    S extends { type: 'string' } ? InferScalar<S, string> :
+      S extends { type: 'number' | 'integer' } ? InferScalar<S, number> :
+        S extends { type: 'boolean' } ? InferScalar<S, boolean> :
+          S extends { type: 'null' } ? null :
+            S extends { type: 'array' }
+              ? S extends { items: infer I } ? InferValueAt<I, NextInferenceDepth<Depth>>[] : JsonValue[]
+              : S extends { type: 'object'; additionalProperties: boolean }
+                ? InferObject<S, NextInferenceDepth<Depth>>
+                : S extends { type: 'json' } ? JsonValue :
+                  S extends { oneOf: readonly unknown[] }
+                    ? InferValueAt<S['oneOf'][number], NextInferenceDepth<Depth>>
+                    : never
+
 /**
- * Infer the TypeScript value accepted by an author-facing value schema.
- * Output schemas may therefore infer object, array, scalar, or null roots.
+ * Infer the TypeScript value accepted by an author-facing value schema. Exact
+ * inference is bounded to 16 container levels, then falls back to `JsonValue`.
  */
-export type InferValue<S extends ValueSchemaSpec, D extends readonly unknown[] = readonly []> =
-  D['length'] extends 12 ? JsonValue :
-    S extends StringValueSchemaSpec ? InferScalar<S, string> :
-      S extends NumberValueSchemaSpec | IntegerValueSchemaSpec ? InferScalar<S, number> :
-        S extends BooleanValueSchemaSpec ? InferScalar<S, boolean> :
-          S extends NullValueSchemaSpec ? null :
-            S extends ArrayValueSchemaSpec
-              ? S extends { items: infer I extends ValueSchemaSpec } ? InferValue<I, NextDepth<D>>[] : JsonValue[]
-              : S extends ObjectValueSchemaSpec ? InferObject<S, NextDepth<D>> :
-                S extends JsonValueSchemaSpec ? JsonValue :
-                  S extends OneOfValueSchemaSpec ? InferValue<S['oneOf'][number], NextDepth<D>> :
-                    never
+export type InferValue<S> = InferValueAt<S, []>
 
 /** Infer the TypeScript argument object for an implicit parameter schema. */
-export type InferArgs<S extends ParameterSchemaSpec> = InferProperties<S, readonly []>
+export type InferArgs<S> = InferProperties<S, []>
 
 const ANNOTATION_KEYS = ['description', 'title', 'default', 'examples'] as const
 
@@ -278,11 +288,11 @@ function runSchemaCompiler(initial: CompileTask): void {
       continue
     }
     if (task.kind === 'property') {
-      if (!isPlainJsonRecord(task.property)) authorError(`${task.path} must be a value schema object`)
+      if (!isJsonSchemaRecord(task.property)) authorError(`${task.path} must be a value schema object`)
       if (Object.hasOwn(task.property, 'required') && task.property.required !== true) {
         authorError(`${task.path}.required must be true when present`)
       }
-      if (task.property.required === true) task.required.push(task.key)
+      if (Object.hasOwn(task.property, 'required') && task.property.required === true) task.required.push(task.key)
       tasks.push({
         kind: 'value',
         input: task.property,
@@ -293,7 +303,7 @@ function runSchemaCompiler(initial: CompileTask): void {
       continue
     }
     if (task.kind === 'property-map') {
-      if (!isPlainJsonRecord(task.input)) authorError(`${task.path} must be an object of value schemas`)
+      if (!isJsonSchemaRecord(task.input)) authorError(`${task.path} must be an object of value schemas`)
       if (seen.has(task.input)) authorError(`${task.path} is circular`)
       seen.add(task.input)
       const compiled: CompiledPropertyMap = { properties: {} }
@@ -319,7 +329,7 @@ function runSchemaCompiler(initial: CompileTask): void {
     }
 
     const { input, path } = task
-    if (!isPlainJsonRecord(input)) authorError(`${path} must be a value schema object`)
+    if (!isJsonSchemaRecord(input)) authorError(`${path} must be a value schema object`)
     if (seen.has(input)) authorError(`${path} is circular`)
     seen.add(input)
     const authorKeys = [...ANNOTATION_KEYS, ...(task.allowRequired ? ['required'] : [])]
@@ -330,7 +340,7 @@ function runSchemaCompiler(initial: CompileTask): void {
     if (Object.hasOwn(input, 'oneOf')) {
       assertAuthorKeys(input, path, [...authorKeys, 'oneOf', 'type'])
       if (Object.hasOwn(input, 'type')) authorError(`${path} cannot declare both type and oneOf`)
-      if (!Array.isArray(input.oneOf)) authorError(`${path}.oneOf must be an array of at least two value schemas`)
+      if (!isPlainJsonArray(input.oneOf)) authorError(`${path}.oneOf must be an array of at least two value schemas`)
       const branches: JsonSchemaNode[] = []
       node.oneOf = branches
       copyAnnotations(input, node)
@@ -346,7 +356,8 @@ function runSchemaCompiler(initial: CompileTask): void {
       continue
     }
 
-    switch (input.type) {
+    const inputType = Object.hasOwn(input, 'type') ? input.type : undefined
+    switch (inputType) {
       case 'json':
         assertAuthorKeys(input, path, [...authorKeys, 'type'])
         copyAnnotations(input, node)
@@ -388,12 +399,11 @@ function runSchemaCompiler(initial: CompileTask): void {
       case 'boolean':
       case 'null':
         assertAuthorKeys(input, path, [...authorKeys, 'type', 'enum', 'const'])
-        node.type = input.type
+        node.type = inputType
         copyAnnotations(input, node)
         if (Object.hasOwn(input, 'enum')) {
-          node.enum = Array.isArray(input.enum)
-            ? Array.from(input.enum as unknown[], entry => entry as JsonSchemaScalar)
-            : input.enum as JsonSchemaScalar[]
+          if (!isPlainJsonArray(input.enum)) authorError(`${path}.enum must be a non-empty array of scalar values`)
+          node.enum = Array.from(input.enum, entry => entry as JsonSchemaScalar)
         }
         if (Object.hasOwn(input, 'const')) node.const = input.const as JsonSchemaScalar
         break

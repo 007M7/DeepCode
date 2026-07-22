@@ -86,6 +86,26 @@ const CONSTRAINT_KEYWORDS = new Set([
 const ANNOTATION_KEYWORDS = new Set(['description', 'title', 'default', 'examples'])
 const SCHEMA_TYPES: readonly JsonSchemaType[] = ['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']
 
+/* jscpd:ignore-start -- this realm boundary mirrors the session-owned lossless-JSON intrinsic test */
+/** Whether a realm-owned intrinsic prototype is backed by its native constructor. */
+function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): boolean {
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'constructor')
+  const constructor: unknown = descriptor?.value
+  if (typeof constructor !== 'function') return false
+  try {
+    return constructor.name === name
+      && constructor.prototype === prototype
+      && Function.prototype.toString.call(constructor) === `function ${name}() { [native code] }`
+  } catch {
+    return false
+  }
+}
+
+/** Whether a candidate is one realm's intrinsic `Object.prototype`. */
+function isIntrinsicObjectPrototype(value: object): boolean {
+  return Object.getPrototypeOf(value) === null && hasIntrinsicConstructor(value, 'Object')
+}
+
 /**
  * Test for a realm-agnostic plain JSON record without accepting arrays or
  * exotic objects.
@@ -94,8 +114,61 @@ const SCHEMA_TYPES: readonly JsonSchemaType[] = ['object', 'array', 'string', 'n
  */
 export function isPlainJsonRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const proto: unknown = Object.getPrototypeOf(value)
-  return proto === null || Object.getPrototypeOf(proto) === null
+  try {
+    const prototype: unknown = Object.getPrototypeOf(value)
+    return prototype === null
+      || typeof prototype === 'object' && isIntrinsicObjectPrototype(prototype)
+  } catch {
+    return false
+  }
+}
+
+/** Whether an array uses one realm's intrinsic `Array.prototype`. */
+function hasPlainArrayPrototype(value: unknown[]): boolean {
+  const prototype: unknown = Object.getPrototypeOf(value)
+  if (!Array.isArray(prototype) || !hasIntrinsicConstructor(prototype, 'Array')) return false
+  const objectPrototype: unknown = Object.getPrototypeOf(prototype)
+  return typeof objectPrototype === 'object'
+    && objectPrototype !== null
+    && isIntrinsicObjectPrototype(objectPrototype)
+}
+/* jscpd:ignore-end */
+
+/** Return whether a record contains only own enumerable string keys. */
+function hasOnlyEnumerableStringKeys(value: object): boolean {
+  try {
+    return Reflect.ownKeys(value)
+      .every(key => typeof key === 'string' && Object.prototype.propertyIsEnumerable.call(value, key))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Test for an ordinary schema record whose keys survive JSON projection.
+ * @param value - candidate record from any JavaScript realm.
+ * @returns Whether the record has an intrinsic prototype and only own enumerable string keys.
+ */
+export function isJsonSchemaRecord(value: unknown): value is Record<string, unknown> {
+  return isPlainJsonRecord(value) && hasOnlyEnumerableStringKeys(value)
+}
+
+/**
+ * Test for a dense ordinary array with no JSON-invisible decorations.
+ * @param value - candidate array from any JavaScript realm.
+ * @returns Whether the array is intrinsic, dense, and undecorated.
+ */
+export function isPlainJsonArray(value: unknown): value is unknown[] {
+  if (!Array.isArray(value)) return false
+  try {
+    if (!hasPlainArrayPrototype(value) || Reflect.ownKeys(value).length !== value.length + 1) return false
+    for (let index = 0; index < value.length; index++) {
+      if (!Object.hasOwn(value, index)) return false
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Lossless finite JSON number, excluding negative zero. */
@@ -133,12 +206,13 @@ function checkObjectSchemaTail(
   properties: unknown,
   violations: string[],
 ): void {
-  const required = node.required
-  if (Object.hasOwn(node, 'required')) {
-    if (!Array.isArray(required) || required.some(entry => typeof entry !== 'string')) {
+  const hasRequired = Object.hasOwn(node, 'required')
+  const required = hasRequired ? node.required : undefined
+  if (hasRequired) {
+    if (!isPlainJsonArray(required) || required.some(entry => typeof entry !== 'string')) {
       violations.push(`${path}.required must be an array of strings`)
     } else {
-      const declared = isPlainJsonRecord(properties) ? properties : {}
+      const declared = isJsonSchemaRecord(properties) ? properties : {}
       for (const key of required as string[]) {
         if (!Object.hasOwn(declared, key)) violations.push(`${path}.required names "${key}" which is not in properties`)
       }
@@ -169,7 +243,7 @@ function checkSchemaNode(root: unknown, rootPath: string, violations: string[], 
     }
 
     const { node, path } = task
-    if (!isPlainJsonRecord(node)) {
+    if (!isJsonSchemaRecord(node)) {
       violations.push(`${path} must be a schema object`)
       continue
     }
@@ -192,10 +266,10 @@ function checkSchemaNode(root: unknown, rootPath: string, violations: string[], 
       }
       violations.push(`${path}.${key} is not a supported keyword (subset: type/oneOf/properties/required/additionalProperties/items/enum/const + annotations)`)
     }
-    if (node.description !== undefined && typeof node.description !== 'string') {
+    if (Object.hasOwn(node, 'description') && typeof node.description !== 'string') {
       violations.push(`${path}.description must be a string`)
     }
-    if (node.title !== undefined && typeof node.title !== 'string') {
+    if (Object.hasOwn(node, 'title') && typeof node.title !== 'string') {
       violations.push(`${path}.title must be a string`)
     }
 
@@ -215,7 +289,7 @@ function checkSchemaNode(root: unknown, rootPath: string, violations: string[], 
     if (hasOneOf) {
       const oneOf = node.oneOf
       tasks.push({ kind: 'one-of-tail', node, path })
-      if (!Array.isArray(oneOf) || oneOf.length < 2) {
+      if (!isPlainJsonArray(oneOf) || oneOf.length < 2) {
         violations.push(`${path}.oneOf must be an array of at least two schemas`)
       } else {
         for (let index = oneOf.length - 1; index >= 0; index--) {
@@ -249,10 +323,10 @@ function checkSchemaNode(root: unknown, rootPath: string, violations: string[], 
 
     switch (schemaType) {
       case 'object': {
-        const properties = node.properties
+        const properties = Object.hasOwn(node, 'properties') ? node.properties : undefined
         tasks.push({ kind: 'object-tail', node, path, properties })
         if (Object.hasOwn(node, 'properties')) {
-          if (!isPlainJsonRecord(properties)) {
+          if (!isJsonSchemaRecord(properties)) {
             violations.push(`${path}.properties must be an object of schemas`)
           } else {
             const entries = Object.entries(properties)
@@ -275,18 +349,21 @@ function checkSchemaNode(root: unknown, rootPath: string, violations: string[], 
       case 'integer':
       case 'boolean':
       case 'null': {
-        const allowed = node.enum
-        const enumValid = Array.isArray(allowed)
+        const hasEnum = Object.hasOwn(node, 'enum')
+        const allowed = hasEnum ? node.enum : undefined
+        const enumValid = isPlainJsonArray(allowed)
           && allowed.length > 0
           && allowed.every(entry => scalarMatches(schemaType, entry))
-        if (Object.hasOwn(node, 'enum') && !enumValid) {
+        if (hasEnum && !enumValid) {
           violations.push(`${path}.enum must be a non-empty array of ${schemaType} values`)
         }
-        const constValid = scalarMatches(schemaType, node.const)
-        if (Object.hasOwn(node, 'const')) {
+        const hasConst = Object.hasOwn(node, 'const')
+        const declaredConst = hasConst ? node.const : undefined
+        const constValid = scalarMatches(schemaType, declaredConst)
+        if (hasConst) {
           if (!constValid) {
             violations.push(`${path}.const must be a ${schemaType} value`)
-          } else if (enumValid && !allowed.includes(node.const as JsonSchemaScalar)) {
+          } else if (enumValid && !allowed.includes(declaredConst)) {
             violations.push(`${path}.const must be one of ${path}.enum when both are declared`)
           }
         }
@@ -320,7 +397,8 @@ export function assertSupportedJsonSchema(schema: unknown): asserts schema is Js
 export function assertObjectJsonSchema(schema: unknown): asserts schema is ObjectJsonSchema {
   const violations: string[] = []
   checkSchemaNode(schema, 'schema', violations, new Set())
-  if (violations.length === 0 && (schema as JsonSchemaNode).type !== 'object') {
+  if (violations.length === 0
+    && (!isJsonSchemaRecord(schema) || !Object.hasOwn(schema, 'type') || schema.type !== 'object')) {
     violations.push('schema.type must be "object" (structured output is object-rooted)')
   }
   if (violations.length > 0) throw new JsonSchemaError(violations)
@@ -395,8 +473,9 @@ function valueFrame(node: JsonSchemaNode, value: unknown, path: string): ValueFr
 
 /** Validate one scalar node after its primitive type check. */
 function checkScalarValue(node: JsonSchemaNode, value: unknown, path: string): string[] {
-  if (node.enum !== undefined && !node.enum.includes(value as JsonSchemaScalar)) {
-    return [`"${diagnosticPath(path)}" must be one of ${JSON.stringify(node.enum)}`]
+  const allowed = Object.hasOwn(node, 'enum') ? node.enum : undefined
+  if (allowed !== undefined && !allowed.includes(value as JsonSchemaScalar)) {
+    return [`"${diagnosticPath(path)}" must be one of ${JSON.stringify(allowed)}`]
   }
   if (Object.hasOwn(node, 'const') && value !== node.const) {
     return [`"${diagnosticPath(path)}" must be ${JSON.stringify(node.const)}`]
@@ -455,9 +534,9 @@ function checkValue(schema: JsonSchemaNode, value: unknown, path: string): strin
         continue
       }
 
-      const nodeType = frame.node.type
+      const nodeType = Object.hasOwn(frame.node, 'type') ? frame.node.type : undefined
       frame.catches = !(nodeType !== undefined && !(SCHEMA_TYPES as readonly unknown[]).includes(nodeType))
-      const oneOf = frame.node.oneOf
+      const oneOf = Object.hasOwn(frame.node, 'oneOf') ? frame.node.oneOf : undefined
       if (oneOf !== undefined) {
         frame.kind = 'oneOf'
         frame.children = Array.from(oneOf, branch => ({ node: branch, value: frame.value, path: frame.path }))
@@ -477,9 +556,10 @@ function checkValue(schema: JsonSchemaNode, value: unknown, path: string): strin
             finish([`"${diagnosticPath(frame.path)}" must be an object`])
             break
           }
-          const properties = frame.node.properties ?? {}
+          const properties = Object.hasOwn(frame.node, 'properties') ? frame.node.properties ?? {} : {}
           const violations: string[] = []
-          for (const key of frame.node.required ?? []) {
+          const required = Object.hasOwn(frame.node, 'required') ? frame.node.required ?? [] : []
+          for (const key of required) {
             if (!Object.hasOwn(frame.value, key) || frame.value[key] === undefined) {
               violations.push(`missing required property "${propertyPath(frame.path, key)}"`)
             }
@@ -490,7 +570,7 @@ function checkValue(schema: JsonSchemaNode, value: unknown, path: string): strin
             children.push({ node: child, value: frame.value[key], path: propertyPath(frame.path, key) })
           }
           const tailViolations: string[] = []
-          if (frame.node.additionalProperties === false) {
+          if (Object.hasOwn(frame.node, 'additionalProperties') && frame.node.additionalProperties === false) {
             for (const key of Object.keys(frame.value)) {
               if (!Object.hasOwn(properties, key)) {
                 tailViolations.push(`"${propertyPath(frame.path, key)}" is not a declared property (additionalProperties: false)`)
@@ -510,7 +590,7 @@ function checkValue(schema: JsonSchemaNode, value: unknown, path: string): strin
             finish([`"${diagnosticPath(frame.path)}" must be an array`])
             break
           }
-          const items = frame.node.items
+          const items = Object.hasOwn(frame.node, 'items') ? frame.node.items : undefined
           const children = items === undefined
             ? []
             : frame.value.flatMap((entry, index): ValueChild[] => [{ node: items, value: entry, path: `${frame.path}[${index}]` }])

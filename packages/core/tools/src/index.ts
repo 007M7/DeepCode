@@ -1111,7 +1111,7 @@ export class ToolRegistry extends Service {
       if (deferredContexts === undefined) throw new Error('tool registry scheduler invariant violated: unprepared execution')
       const resultWithDeferredContexts: ToolExecutionResult = deferredContexts.length === 0
         ? normalized
-        : this.markCanonical({
+        : this.markCanonical(exec, {
           ...normalized,
           additionalContexts: [
             ...deferredContexts,
@@ -1262,7 +1262,7 @@ export class ToolRegistry extends Service {
     const decisionContexts = decision.additionalContexts ?? []
     if (decision.kind === 'block') {
       const message = failureMessageFromContent(decision.feedback)
-      return this.markCanonical({
+      return this.markCanonical(exec, {
         content: decision.feedback,
         isError: true,
         error: { message },
@@ -1283,24 +1283,24 @@ export class ToolRegistry extends Service {
       const tool = this.get(exec.name, exec.agent)
       if (tool === undefined) throw new ToolNotFoundError(exec.name)
       const replaced = this.createSuccessResult(exec, tool, decision.value)
-      return this.markCanonical({
+      return this.markCanonical(exec, {
         ...replaced,
         ...additionalContexts.length > 0 ? { additionalContexts } : {},
       })
     }
-    return this.markCanonical({
+    return this.markCanonical(exec, {
       ...result,
       ...decision.content !== undefined ? { content: decision.content } : {},
       ...additionalContexts.length > 0 ? { additionalContexts } : {},
     })
   }
 
-  /** Results created by the registry already own a validated, frozen canonical value. */
-  private readonly canonicalResults = new WeakSet<object>()
+  /** Registry-normalized results and the exact dispatch that validated each value. */
+  private readonly canonicalResults = new WeakMap<object, ToolExecutionToken>()
 
-  /** Mark a registry-normalized result without freezing presentation fields prematurely. */
-  private markCanonical<T extends ToolExecutionResult>(result: T): T {
-    this.canonicalResults.add(result)
+  /** Mark one registry-normalized result as canonical only for its owning dispatch. */
+  private markCanonical<T extends ToolExecutionResult>(exec: ToolExecution, result: T): T {
+    this.canonicalResults.set(result, exec.token)
     return result
   }
 
@@ -1327,7 +1327,7 @@ export class ToolRegistry extends Service {
       }
       meta = snapshotProjection(tool.name, 'presentationMeta', projected)
     }
-    return this.markCanonical(this.materializeFinalResult({
+    return this.markCanonical(exec, this.materializeFinalResult({
       isError: false,
       value,
       content,
@@ -1337,9 +1337,9 @@ export class ToolRegistry extends Service {
 
   /** Normalize an around-dispatch wrapper's authored result through the owning output contract. */
   private normalizeDispatchResult(exec: ToolExecution, result: ToolExecutionResult): ToolExecutionResult {
-    if (this.canonicalResults.has(result)) return result
+    if (this.canonicalResults.get(result) === exec.token) return result
     if (result.isError) {
-      return this.markCanonical({
+      return this.markCanonical(exec, {
         isError: true,
         error: result.error,
         content: result.content,
@@ -1350,7 +1350,7 @@ export class ToolRegistry extends Service {
     const tool = this.get(exec.name, exec.agent)
     if (tool === undefined) throw new ToolNotFoundError(exec.name)
     const normalized = this.createSuccessResult(exec, tool, result.value)
-    return this.markCanonical({
+    return this.markCanonical(exec, {
       ...normalized,
       ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
     })
