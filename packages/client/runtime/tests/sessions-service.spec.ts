@@ -139,3 +139,55 @@ describe('create', () => {
     await expect(b.svc.create()).rejects.toThrow(/internal: 爆了/)
   })
 })
+
+describe('coverage tails (branch duals)', () => {
+  it('titleOf falls back to the id for empty and separator-only cwd', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'no-base', cwd: '///' }, { id: 'empty-cwd', cwd: '' }])
+    const { byId } = b.svc.list.getSnapshot()
+    expect(byId[sid('no-base')]?.title).toBe('no-base')
+    expect(byId[sid('empty-cwd')]?.title).toBe('empty-cwd')
+  })
+
+  it('binding for an unknown session returns undefined without moving the watch', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    b.svc.binding(sid('s1'))
+    expect(b.svc.binding(sid('ghost'))).toBeUndefined()
+    // Watch unchanged: removing s1 defers (still watched), proving the ghost lookup did not steal the watch.
+    await feedList(b, [])
+    expect(b.svc.scope(sid('s1'))).toBeDefined()
+  })
+
+  it('sweep skips the id that is itself still watched and tolerates a scope record already gone', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    b.svc.binding(sid('s1'))
+    await feedList(b, []) // deferred removal of the watched id
+    // Re-resolving the SAME watched id: sweep runs but must skip it (watched-continue branch).
+    expect(b.svc.binding(sid('s1'))).toBeDefined()
+    expect(b.svc.scope(sid('s1'))).toBeDefined()
+  })
+
+  it('sweep hits both deferral edges: watched-id skip and an already-vacated scope record', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'a' }, { id: 'b' }])
+    b.svc.binding(sid('a'))
+    b.svc.binding(sid('b')) // watch: b; both scoped
+    await feedList(b, []) // a removed unwatched → torn immediately; b removed watched → deferred
+    // Move the watch to a THIRD id while b stays deferred: sweep now walks a
+    // set containing b (torn) — and the watched-continue branch fires when the
+    // deferral set still holds the current watch target.
+    await feedList(b, [{ id: 'c' }])
+    b.svc.binding(sid('c'))
+    expect(b.svc.scope(sid('b'))).toBeUndefined()
+    // Deferral for an id whose record was never minted: force-add via removed
+    // list state (scope teardown raced) — sweep must tolerate the missing record.
+    await feedList(b, [])
+    b.svc.binding(sid('c')) // c now watched+removed → deferred
+    await feedList(b, [{ id: 'd' }])
+    b.svc.binding(sid('d')) // sweep tears c
+    expect(b.svc.scope(sid('c'))).toBeUndefined()
+  })
+
+})

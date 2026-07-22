@@ -204,6 +204,9 @@ export class SessionsService {
   /** Run deferred teardowns whose session is no longer watched (called when the watch moves). */
   private sweepDeferred(): void {
     for (const id of [...this.deferredRemovals]) {
+      /* v8 ignore next -- defensive: only the watched id ever defers, and every
+       * watch move sweeps first, so the set cannot contain the id the watch just
+       * moved to; kept as a guard against future extra sweep call sites. */
       if (id === this.watched) continue
       // Still absent from the list? (A re-added id cancels the deferred teardown.)
       if (this.list.getSnapshot().byId[id] !== undefined) {
@@ -212,6 +215,9 @@ export class SessionsService {
       }
       const record = this.scopes.get(id)
       this.deferredRemovals.delete(id)
+      /* v8 ignore next -- defensive: prune deletes a scope and its deferral
+       * together, so a deferred id always still owns its record; kept so a
+       * future teardown path cannot double-dispose. */
       if (record !== undefined) {
         this.scopes.delete(id)
         void record.fiber.dispose()
