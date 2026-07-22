@@ -788,6 +788,13 @@ listBackends(): string[]
 async spawn(owner: Agent, request: PtySpawnRequest, signal?: AbortSignal): Promise<PtySpawnResult>
 
 /**
+ * Test whether an exact owner has a published session or unpublished spawn.
+ * @param owner - exact live owner to inspect.
+ * @returns true across the entire spawn-to-close interval, with no publication gap.
+ */
+hasOwnerActivity(owner: Agent): boolean
+
+/**
  * Start one exclusive interactive send.
  * @param owner - exact session owner.
  * @param id - target PTY identity.
@@ -833,7 +840,7 @@ list(owner: Agent): PtySessionSnapshot[]
 
 Types: [Agent](../core-data-structures/core.md) · [PtyBackend](../core-data-structures/pty.md) · [PtyReadRequest](../core-data-structures/pty.md) · [PtyReadResult](../core-data-structures/pty.md) · [PtySendOperation](../core-data-structures/pty.md) · [PtySendRequest](../core-data-structures/pty.md) · [PtySessionId](../core-data-structures/pty.md) · [PtySessionSnapshot](../core-data-structures/pty.md) · [PtySignal](../core-data-structures/pty.md) · [PtySignalResult](../core-data-structures/pty.md) · [PtySpawnRequest](../core-data-structures/pty.md) · [PtySpawnResult](../core-data-structures/pty.md)
 
-Source: [`packages/pty/pty/src/index.ts:95`](../../packages/pty/pty/src/index.ts)
+Source: [`packages/pty/pty/src/index.ts:91`](../../packages/pty/pty/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
@@ -1404,7 +1411,7 @@ attachSurface(name: string): () => void
 
 Types: [Agent](../core-data-structures/core.md) · [TaskDoneListener](../core-data-structures/tasks.md) · [TaskId](../core-data-structures/tasks.md) · [TaskRead](../core-data-structures/tasks.md) · [TaskSnapshot](../core-data-structures/tasks.md) · [TaskStart](../core-data-structures/tasks.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:76`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:77`](../../packages/tasks/tasks/src/index.ts)
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 

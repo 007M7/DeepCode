@@ -7,6 +7,7 @@
 import { Context } from 'cordis'
 import * as nodePty from 'node-pty'
 import type { IPtyForkOptions } from 'node-pty'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { PtyBackend, PtyBackendSpawnSpec } from '@deepseek-ai/dsh-pty'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
@@ -20,8 +21,8 @@ export type { Config as PtyLocalConfig } from './config.ts'
 
 /** Cordis plugin name. */
 export const name = 'pty-local'
-/** Required services: registry plus the one shared confinement policy. */
-export const inject = ['pty', 'sandbox', 'sandboxPolicy']
+/** Required services: owner/PTY registries plus the one shared confinement policy. */
+export const inject = ['agents', 'pty', 'sandbox', 'sandboxPolicy']
 
 const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
 
@@ -73,7 +74,7 @@ export class LocalPtyBackend implements PtyBackend {
   }
 
   async spawn(spec: PtyBackendSpawnSpec): Promise<LocalPtySession> {
-    if (spec.signal?.aborted === true) throw new Error('PTY spawn aborted')
+    spec.signal?.throwIfAborted()
     const argv = spawnArgv(this.ctx, this.config, spec)
     const file = argv[0]
     if (file === undefined) throw new Error('pty-local: sandbox returned empty argv')
@@ -105,4 +106,17 @@ export function apply(ctx: Context, config: Config): void {
   validateConfig(config)
   const inspector = createProcessInspector()
   ctx.pty.registerBackend(new LocalPtyBackend(ctx, config, inspector))
+  ctx.on('internal/dispatch', (_mode, eventName, args) => {
+    if (eventName !== 'session/event') return
+    const [session, event] = args as [Session, SessionEvent]
+    if (event.type !== 'sandbox/mode') return
+    const currentMode = effectiveSandboxMode(session.events) ?? ctx.sandboxPolicy.defaultMode
+    if (event.data.mode === currentMode) return
+    const owner = ctx.agents.get(session.id)
+    if (owner === undefined) return
+    if (!ctx.pty.hasOwnerActivity(owner)) return
+    throw new Error(
+      `cannot change sandbox mode from "${currentMode}" to "${event.data.mode}" while persistent terminal sessions are open or being created; wait for creation to settle and close them first`,
+    )
+  }, { global: true })
 }

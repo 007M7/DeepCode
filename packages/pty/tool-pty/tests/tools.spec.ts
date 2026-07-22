@@ -31,20 +31,23 @@ class StubSession implements PtyBackendSession {
   autoSettle = true
   rejectOperation = false
   closeGate: PromiseWithResolvers<undefined> | undefined
+  viewport = 'command output'
+  delta = 'live output'
+  deltaTruncated = false
 
   startSend(_request: PtySendRequest): PtySendOperation {
     let settle!: () => void
     let reject!: (error: unknown) => void
     let cancelled = false
     const done = new Promise<void>((resolve, rejectPromise) => { settle = resolve; reject = rejectPromise }).then(() => ({
-      viewport: cancelled ? '^C' : 'command output',
+      viewport: cancelled ? '^C' : this.viewport,
       waitReason: 'stdin_read' as const,
       sessionStatus: this.statusValue,
       truncated: false,
     }))
     const operation: PtySendOperation = {
       done,
-      readOutput: () => ({ delta: 'live output', truncated: false }),
+      readOutput: () => ({ delta: this.delta, truncated: this.deltaTruncated }),
       cancel: () => {
         if (cancelled) return false
         cancelled = true
@@ -87,7 +90,13 @@ function stubBackend() {
   return { backend, sessions }
 }
 
-async function setup(tasks: boolean) {
+async function setup(tasks: boolean, config: ToolPty.Config = {}) {
+  const base = await setupBase(tasks)
+  await base.ctx.plugin(ToolPty, config)
+  return base
+}
+
+async function setupBase(tasks: boolean) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
@@ -99,7 +108,6 @@ async function setup(tasks: boolean) {
     await ctx.plugin(TaskService)
     await ctx.plugin(ToolTasks)
   }
-  await ctx.plugin(ToolPty)
   return { ctx, stub, agent: fakeAgent(ctx, tasks ? 'with-tasks' : 'foreground') }
 }
 
@@ -172,6 +180,24 @@ describe('tool-pty foreground surface', () => {
     expect(ctx.tools.get('terminal_close')?.presentCall?.({ sessionId: 'pty-1' })).toMatchObject({ card: 'generic', title: 'Close terminal pty-1' })
     expect(ctx.tools.get('terminal_list')?.presentCall?.({})).toMatchObject({ card: 'generic', title: 'List terminal sessions' })
   })
+
+  it('configuration-gates background sends and validates the final result bound', async () => {
+    const disabled = await setup(true, { enableRunInBackground: false })
+    const definition = disabled.ctx.tools.get('terminal_send')
+    expect(definition?.parameters).not.toHaveProperty('properties.run_in_background')
+    expect(definition?.description).not.toContain('Background mode')
+    await call(disabled.ctx, 'terminal_open', { type: 'stub' }, disabled.agent)
+    expect((await call(disabled.ctx, 'terminal_send', {
+      sessionId: 'pty-1', text: 'work', run_in_background: true,
+    }, disabled.agent)).isError).toBe(true)
+
+    const defaults = await setupBase(false)
+    ToolPty.apply(defaults.ctx)
+    expect(defaults.ctx.tools.get('terminal_send')?.parameters).toHaveProperty('properties.run_in_background')
+
+    const invalid = await setupBase(false)
+    expect(() => { ToolPty.apply(invalid.ctx, { maxResultBytes: 0 }) }).toThrow('maxResultBytes')
+  })
 })
 
 describe('tool-pty task integration', () => {
@@ -182,6 +208,23 @@ describe('tool-pty task integration', () => {
     const output = await call(ctx, 'task_output', { task_id: 'pty-send-1', wait: true }, agent)
     expect(text(output)).toContain('live output')
     expect(text(output)).toContain('[status: completed, wait: stdin_read]')
+  })
+
+  it('bounds foreground and background results after terminal and task metadata', async () => {
+    const { ctx, agent, stub } = await setup(true, { maxResultBytes: 64 })
+    await call(ctx, 'terminal_open', { type: 'stub' }, agent)
+    stub.sessions[0]!.viewport = '界'.repeat(100)
+    const foreground = await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'foreground' }, agent)
+    expect(Buffer.byteLength(text(foreground))).toBeLessThanOrEqual(64)
+
+    stub.sessions[0]!.delta = '界'.repeat(100)
+    stub.sessions[0]!.deltaTruncated = true
+    await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'background', run_in_background: true }, agent)
+    const background = await call(ctx, 'task_output', { task_id: 'pty-send-1', wait: true }, agent)
+    expect(Buffer.byteLength(text(background))).toBeLessThanOrEqual(64)
+    expect(text(background)).toContain('[status: completed')
+    expect(text(background).match(/\[output truncated\]/g)).toHaveLength(1)
+    expect(text(background)).toContain('[output truncated]\n[status: completed')
   })
 
   it('rejects pre-aborted background calls, maps task cancellation, and contains operation failure', async () => {

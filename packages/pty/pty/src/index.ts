@@ -77,10 +77,6 @@ export function PtySessionId(value: string): PtySessionId {
   return value as PtySessionId
 }
 
-function isAborted(signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true
-}
-
 interface SessionRecord {
   readonly id: PtySessionId
   readonly owner: Agent
@@ -96,6 +92,7 @@ export class PtyService extends Service {
   private readonly backends = new Map<string, PtyBackend>()
   private readonly sessions = new Map<PtySessionId, SessionRecord>()
   private readonly reservedNames = new Map<Agent, Set<string>>()
+  private readonly pendingSpawns = new Map<Agent, number>()
   private readonly ownerCleanups = new Map<Agent, () => Promise<void> | void>()
   private readonly disposedOwners = new WeakSet<Agent>()
   private nextId = 0
@@ -142,13 +139,13 @@ export class PtyService extends Service {
    */
   async spawn(owner: Agent, request: PtySpawnRequest, signal?: AbortSignal): Promise<PtySpawnResult> {
     this.assertActive()
+    signal?.throwIfAborted()
     this.ensureOwnerCleanup(owner)
     const backend = this.backends.get(request.type)
     if (backend === undefined) throw new PtyError(`no PTY backend registered for "${request.type}"`, 'NO_BACKEND')
     if (request.name !== undefined && request.name.length === 0) throw new Error('PTY session name must be non-empty')
-    if (isAborted(signal)) throw new Error('PTY spawn aborted')
-
     const releaseName = this.reserveName(owner, request.name)
+    const releaseSpawn = this.reserveSpawn(owner)
     const sessionId = PtySessionId(`pty-${++this.nextId}`)
     let session: PtyBackendSession | undefined
     try {
@@ -160,7 +157,11 @@ export class PtyService extends Service {
         ...request.cwd !== undefined ? { cwd: request.cwd } : {},
         ...signal !== undefined ? { signal } : {},
       })
-      if (this.disposing || isAborted(signal) || !this.isLiveOwner(owner)) {
+      signal?.throwIfAborted()
+      if (this.disposing) {
+        throw new PtyError('PTY service is disposing', 'SERVICE_DISPOSING')
+      }
+      if (!this.isLiveOwner(owner)) {
         throw new PtyError('PTY owner is no longer live', 'OWNER_NOT_LIVE')
       }
       const record: SessionRecord = {
@@ -184,8 +185,19 @@ export class PtyService extends Service {
       }
       throw error
     } finally {
+      releaseSpawn()
       releaseName()
     }
+  }
+
+  /**
+   * Test whether an exact owner has a published session or unpublished spawn.
+   * @param owner - exact live owner to inspect.
+   * @returns true across the entire spawn-to-close interval, with no publication gap.
+   */
+  hasOwnerActivity(owner: Agent): boolean {
+    return (this.pendingSpawns.get(owner) ?? 0) > 0
+      || [...this.sessions.values()].some(record => record.owner === owner)
   }
 
   /**
@@ -302,6 +314,15 @@ export class PtyService extends Service {
     }
   }
 
+  private reserveSpawn(owner: Agent): () => void {
+    this.pendingSpawns.set(owner, (this.pendingSpawns.get(owner) ?? 0) + 1)
+    return () => {
+      const remaining = (this.pendingSpawns.get(owner) ?? 1) - 1
+      if (remaining === 0) this.pendingSpawns.delete(owner)
+      else this.pendingSpawns.set(owner, remaining)
+    }
+  }
+
   private expectOwned(owner: Agent, id: PtySessionId): SessionRecord {
     const record = this.sessions.get(id)
     if (record === undefined) throw new PtyError(`unknown PTY session ${id}`, 'NO_SESSION')
@@ -339,6 +360,7 @@ export class PtyService extends Service {
     } finally {
       this.backends.clear()
       this.reservedNames.clear()
+      this.pendingSpawns.clear()
       const cleanups = [...this.ownerCleanups.values()]
       this.ownerCleanups.clear()
       await Promise.all(cleanups.map(cleanup => Promise.resolve(cleanup())))

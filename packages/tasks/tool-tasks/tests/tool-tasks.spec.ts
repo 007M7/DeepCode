@@ -52,13 +52,19 @@ function detachAgent(agent: Agent): void {
 function producer(overrides: Partial<Omit<TaskStart, 'run'> & TaskHooks> = {}) {
   let settle!: (outcome: TaskOutcome) => void
   const cancels: (string | undefined)[] = []
-  const { kind = 'bash', label = 'sleep 60', owner, ...hookOverrides } = overrides
+  const { kind = 'bash', label = 'sleep 60', owner, outputLimitBytes, ...hookOverrides } = overrides
   const hooks: TaskHooks = {
     cancel(reason) { cancels.push(reason) },
     done: new Promise<TaskOutcome>((res) => { settle = res }),
     ...hookOverrides,
   }
-  const spec: TaskStart = { kind, label, ...owner !== undefined ? { owner } : {}, run: () => hooks }
+  const spec: TaskStart = {
+    kind,
+    label,
+    ...owner !== undefined ? { owner } : {},
+    ...outputLimitBytes !== undefined ? { outputLimitBytes } : {},
+    run: () => hooks,
+  }
   return { spec, settle, cancels }
 }
 
@@ -129,6 +135,18 @@ describe('task_output', () => {
     p.settle({ status: 'completed', detail: 'completed', output: 'the answer' })
     await tick()
     expect(text(await call(ctx, 'task_output', { task_id: 'subagent-1' }))).toBe('the answer\n[status: completed, completed]')
+  })
+
+  it('applies a producer limit to the complete body and status result', async () => {
+    const { ctx } = await setup()
+    ctx.tasks.start(producer({
+      outputLimitBytes: 48,
+      readOutput: () => '界'.repeat(100),
+    }).spec)
+
+    const output = text(await call(ctx, 'task_output', { task_id: 'bash-1' }))
+    expect(Buffer.byteLength(output)).toBeLessThanOrEqual(48)
+    expect(output).toContain('[status: running]')
   })
 
   it('wait: true blocks until settlement and reports the terminal state', async () => {

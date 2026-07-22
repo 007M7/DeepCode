@@ -7,6 +7,7 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import PtyService from '@deepseek-ai/dsh-pty'
+import type { PtySendOperation } from '@deepseek-ai/dsh-pty'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
@@ -60,6 +61,16 @@ async function harness(mode: 'danger-full-access' | 'workspace-write') {
   const agent = stubAgent(ctx, `agent-${mode}`)
   ctx.agents.register(agent)
   return { ctx, root, agent, fiber, sandbox: ctx.sandbox as PassthroughSandbox }
+}
+
+async function waitForOutput(operation: PtySendOperation, expected: string): Promise<void> {
+  const deadline = Date.now() + 2_000
+  let output = ''
+  while (!output.includes(expected) && Date.now() < deadline) {
+    output += operation.readOutput().delta
+    if (!output.includes(expected)) await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  expect(output).toContain(expected)
 }
 
 describe('pty-local real shell', () => {
@@ -118,5 +129,27 @@ describe('pty-local real shell', () => {
     expect(() => process.kill(pid, 0)).not.toThrow()
     await ctx.pty.kill(agent, created.sessionId)
     expect(() => process.kill(pid, 0)).toThrow()
+  }, 10_000)
+
+  it('cancels a raw-mode foreground process with a real SIGINT', async () => {
+    const { ctx, agent } = await harness('danger-full-access')
+    const created = await ctx.pty.spawn(agent, { type: 'shell' })
+    const controller = new AbortController()
+    const foreground = ctx.pty.startSend(agent, created.sessionId, {
+      text: 'python3 -c \'import signal,sys,termios,time; signal.signal(signal.SIGINT, lambda *_: (print("SIGINT_SEEN", flush=True), sys.exit(0))); attrs=termios.tcgetattr(0); attrs[3] &= ~termios.ISIG; termios.tcsetattr(0, termios.TCSANOW, attrs); print("RAW_READY", flush=True); time.sleep(60)\'',
+      submit: true,
+      signal: controller.signal,
+    })
+    await waitForOutput(foreground, 'RAW_READY')
+    controller.abort()
+    const result = await foreground.done
+    expect(result.waitReason).toBe('stdin_read')
+    const after = await ctx.pty.startSend(agent, created.sessionId, {
+      text: 'echo AFTER_SIGINT',
+      submit: true,
+    }).done
+    expect(after.viewport).toContain('AFTER_SIGINT')
+    expect(after.waitReason).toBe('stdin_read')
+    await ctx.pty.kill(agent, created.sessionId)
   }, 10_000)
 })

@@ -5,6 +5,7 @@
  */
 
 import { Context } from 'cordis'
+import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { PtySessionId } from '@deepseek-ai/dsh-pty'
@@ -12,7 +13,7 @@ import type { PtySendResult, PtySessionId as PtySessionIdType, PtySignal } from 
 import type {} from '@deepseek-ai/dsh-tasks'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionResult, ToolResult } from '@deepseek-ai/dsh-tools'
-import { renderList, renderRead, renderSend, renderSendRead, renderSpawn } from './render.ts'
+import { boundTerminalText, renderList, renderRead, renderSend, renderSendRead, renderSpawn } from './render.ts'
 
 declare module '@deepseek-ai/dsh-tasks' {
   interface TaskKindMap {
@@ -24,6 +25,23 @@ declare module '@deepseek-ai/dsh-tasks' {
 export const name = 'tool-pty'
 /** Required capability, registry, and prompt services. */
 export const inject = ['pty', 'tools', 'systemPrompt']
+
+/** Default cap for one complete model-facing terminal result. */
+export const DEFAULT_MAX_RESULT_BYTES = 256 * 1024
+
+/** Model-facing terminal tool configuration. */
+export interface Config {
+  /** Expose `run_in_background` and accept background sends (default true). */
+  enableRunInBackground?: boolean
+  /** Maximum UTF-8 bytes in one complete terminal or task-output result. */
+  maxResultBytes?: number
+}
+
+/** Schemastery configuration for the terminal tool consumer. */
+export const Config: z<Config> = z.object({
+  enableRunInBackground: z.boolean().default(true),
+  maxResultBytes: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULT_MAX_RESULT_BYTES),
+})
 
 interface SpawnArgs {
   type: string
@@ -62,8 +80,8 @@ function sessionId(args: SessionArgs): PtySessionIdType {
   return PtySessionId(args.sessionId)
 }
 
-function textResult(text: string): ContentBlock[] {
-  return [{ type: 'text', text }]
+function textResult(text: string, maxBytes: number): ContentBlock[] {
+  return [{ type: 'text', text: boundTerminalText(text, maxBytes) }]
 }
 
 function rawResultText(result: ToolResult): string | undefined {
@@ -79,7 +97,12 @@ function sendDetail(result: PtySendResult): string {
 }
 
 /** Register all terminal tools and the minimal usage guidance. */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: Config = {}): void {
+  const enableRunInBackground = config.enableRunInBackground ?? true
+  const maxResultBytes = config.maxResultBytes ?? DEFAULT_MAX_RESULT_BYTES
+  if (!Number.isSafeInteger(maxResultBytes) || maxResultBytes <= 0) {
+    throw new Error('tool-pty: maxResultBytes must be a positive safe integer')
+  }
   ctx.systemPrompt.section({
     name: 'tool:pty',
     order: 106,
@@ -101,7 +124,7 @@ export function apply(ctx: Context): void {
         ...args.name !== undefined ? { name: args.name } : {},
         ...args.cwd !== undefined ? { cwd: args.cwd } : {},
       }, exec.signal)
-      return textResult(renderSpawn(result))
+      return textResult(renderSpawn(result, maxResultBytes), maxResultBytes)
     },
     presentCall: (args) => {
       const parsed = args
@@ -111,18 +134,22 @@ export function apply(ctx: Context): void {
 
   ctx.tools.register(defineTool({
     name: 'terminal_send',
-    description: 'Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit. Background mode returns a task id for task_output/task_kill.',
+    description: 'Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit.'
+      + (enableRunInBackground ? ' Background mode returns a task id for task_output/task_kill.' : ''),
     parameters: {
       sessionId: { type: 'string', required: true, description: 'Terminal session id returned by terminal_open or terminal_list.' },
       text: { type: 'string', required: true, description: 'UTF-8 text to write to the terminal.' },
       submit: { type: 'boolean', description: 'Submit Enter after text (default true). Set false for control characters or incomplete REPL input.' },
-      run_in_background: { type: 'boolean', description: 'Return a task id immediately; collect with task_output or stop with task_kill.' },
+      ...enableRunInBackground
+        ? { run_in_background: { type: 'boolean' as const, description: 'Return a task id immediately; collect with task_output or stop with task_kill.' } }
+        : {},
     },
     async execute(args: SendArgs, exec): Promise<ToolExecutionResult> {
       const owner = requireAgent(exec.agent)
       const id = sessionId(args)
       const request = { text: args.text, submit: args.submit ?? true }
       if (args.run_in_background === true) {
+        if (!enableRunInBackground) throw new Error('background terminal sends are disabled by tool-pty configuration')
         const tasks = ctx.get('tasks')
         if (tasks === undefined) throw new Error('background terminal sends require @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
         let cancelRequested = false
@@ -130,6 +157,7 @@ export function apply(ctx: Context): void {
           kind: 'pty-send',
           label: `${id}: ${args.text || '(input)'}`,
           owner,
+          outputLimitBytes: maxResultBytes,
           run: () => {
             const operation = ctx.pty.startSend(owner, id, request)
             return {
@@ -145,12 +173,12 @@ export function apply(ctx: Context): void {
             }
           },
         })
-        return { content: textResult(`started background task ${taskId}`), isError: false }
+        return { content: textResult(`started background task ${taskId}`, maxResultBytes), isError: false }
       }
       const operation = ctx.pty.startSend(owner, id, { ...request, signal: exec.signal })
       const result = await operation.done
       if (exec.signal.aborted) throw new Error('terminal send aborted')
-      return { content: textResult(renderSend(result)), isError: false, meta: result }
+      return { content: textResult(renderSend(result, maxResultBytes), maxResultBytes), isError: false, meta: result }
     },
     presentCall(args) {
       const parsed = args as Partial<SendArgs>
@@ -179,7 +207,7 @@ export function apply(ctx: Context): void {
         ...args.offset !== undefined ? { offset: args.offset } : {},
         ...args.count !== undefined ? { count: args.count } : {},
       })
-      return Promise.resolve(textResult(renderRead(result)))
+      return Promise.resolve(textResult(renderRead(result, maxResultBytes), maxResultBytes))
     },
     presentCall: args => ({ card: 'generic', title: `Read terminal ${(args).sessionId}`, kind: 'read', rawInput: args }),
   }))
@@ -193,7 +221,7 @@ export function apply(ctx: Context): void {
     },
     async execute(args: SignalArgs, exec) {
       const result = await ctx.pty.signal(requireAgent(exec.agent), sessionId(args), args.signal)
-      return textResult(`delivered ${args.signal} to foreground process group ${result.targetPgid}`)
+      return textResult(`delivered ${args.signal} to foreground process group ${result.targetPgid}`, maxResultBytes)
     },
     presentCall: args => ({ card: 'generic', title: `Signal terminal ${(args as SignalArgs).sessionId}`, kind: 'execute', rawInput: args }),
   }))
@@ -207,7 +235,7 @@ export function apply(ctx: Context): void {
     async execute(args: SessionArgs, exec) {
       const id = sessionId(args)
       const closed = await ctx.pty.kill(requireAgent(exec.agent), id)
-      return textResult(closed ? `closed terminal session ${id}` : `terminal session ${id} was already closing`)
+      return textResult(closed ? `closed terminal session ${id}` : `terminal session ${id} was already closing`, maxResultBytes)
     },
     presentCall: args => ({ card: 'generic', title: `Close terminal ${(args).sessionId}`, kind: 'delete' }),
   }))
@@ -217,7 +245,7 @@ export function apply(ctx: Context): void {
     description: 'List persistent terminal sessions owned by the current agent.',
     parameters: {},
     execute(_args: Record<string, never>, exec) {
-      return Promise.resolve(textResult(renderList(ctx.pty.list(requireAgent(exec.agent)))))
+      return Promise.resolve(textResult(renderList(ctx.pty.list(requireAgent(exec.agent)), maxResultBytes), maxResultBytes))
     },
     presentCall: () => ({ card: 'generic', title: 'List terminal sessions', kind: 'read' }),
   }))

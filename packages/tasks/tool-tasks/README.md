@@ -10,6 +10,8 @@ The model-facing control surface for `ctx.tasks`: three kind-independent tools, 
 
 All three use generic ACP cards: `read` for output and list, `execute` for kill.
 
+When a producer supplies `outputLimitBytes`, `task_output`, terminal `task_kill`, and completion notices cap the complete UTF-8 result after adding status or notice text. The output tail and control suffix are retained when they fit; an existing producer truncation marker is reused rather than duplicated. Producers that omit the field retain the existing unbounded control-surface behavior.
+
 ## Completion notices
 
 An unreported completion injects `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` into the exact owner's session. Injection is durable context for the next request, not a wake-up. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice; owner-disposal races are contained.
@@ -67,7 +69,7 @@ Reads return output or `(no new output)` followed by `[status: <status>]` and op
 
 #### Token effect
 
-Results and notices remain in parent history until compaction. Stream reads do not repeat consumed output.
+Results and notices remain in parent history until compaction. Stream reads do not repeat consumed output; a producer-supplied `outputLimitBytes` bounds each complete read or notice.
 
 #### KV Cache effect
 

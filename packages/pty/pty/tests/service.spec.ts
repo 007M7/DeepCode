@@ -178,8 +178,9 @@ describe('PtyService ownership and lifecycle', () => {
     const created = await ctx.pty.spawn(owner, { type: 'stub', name: 'main' })
     await expect(ctx.pty.spawn(owner, { type: 'stub', name: '' })).rejects.toThrow('must be non-empty')
     const aborted = new AbortController()
-    aborted.abort()
-    await expect(ctx.pty.spawn(owner, { type: 'stub' }, aborted.signal)).rejects.toThrow('spawn aborted')
+    const abortReason = new Error('spawn aborted')
+    aborted.abort(abortReason)
+    await expect(ctx.pty.spawn(owner, { type: 'stub' }, aborted.signal)).rejects.toBe(abortReason)
     await expect(ctx.pty.spawn(owner, { type: 'stub', name: 'main' })).rejects.toMatchObject({ code: 'DUPLICATE_NAME' })
 
     const operation = ctx.pty.startSend(owner, created.sessionId, { text: 'echo hi', submit: true })
@@ -208,6 +209,41 @@ describe('PtyService ownership and lifecycle', () => {
     await disposeAgentScope(owner)
     gate.resolve(session)
     await expect(pending).rejects.toMatchObject({ code: 'OWNER_NOT_LIVE' })
+    expect(session.closed).toEqual(['PTY spawn rolled back'])
+  })
+
+  it('preserves caller cancellation when a pending backend spawn completes', async () => {
+    const ctx = await harness()
+    const gate = Promise.withResolvers<PtyBackendSession>()
+    const session = new StubSession()
+    ctx.pty.registerBackend({ type: 'slow', spawn: () => gate.promise })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const controller = new AbortController()
+    const reason = new Error('cancelled by caller')
+
+    const pending = ctx.pty.spawn(owner, { type: 'slow' }, controller.signal)
+    controller.abort(reason)
+    gate.resolve(session)
+
+    await expect(pending).rejects.toBe(reason)
+    expect(session.closed).toEqual(['PTY spawn rolled back'])
+    expect(ctx.agents.get(owner.id)).toBe(owner)
+  })
+
+  it('rolls back an unpublished backend session when service disposal wins', async () => {
+    const ctx = await harness()
+    const gate = Promise.withResolvers<PtyBackendSession>()
+    const session = new StubSession()
+    ctx.pty.registerBackend({ type: 'slow', spawn: () => gate.promise })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+
+    const pending = ctx.pty.spawn(owner, { type: 'slow' })
+    await disposePtyService(ctx)
+    gate.resolve(session)
+
+    await expect(pending).rejects.toMatchObject({ code: 'SERVICE_DISPOSING' })
     expect(session.closed).toEqual(['PTY spawn rolled back'])
   })
 

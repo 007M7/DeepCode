@@ -8,6 +8,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import { TextRetainer } from '@deepseek-ai/dsh-retention'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
@@ -39,6 +40,28 @@ export function statusLine(snapshot: TaskSnapshot): string {
   return snapshot.detail !== undefined
     ? `[status: ${snapshot.status}, ${snapshot.detail}]`
     : `[status: ${snapshot.status}]`
+}
+
+const encoder = new TextEncoder()
+
+function retainTail(text: string, maxBytes: number): string {
+  const retainer = new TextRetainer({ kind: 'tail', maxBytes })
+  retainer.push(text)
+  return retainer.finish().text
+}
+
+function fitWithSuffix(
+  content: string,
+  suffix: string,
+  maxBytes: number | undefined,
+  omitted: string,
+): string {
+  const complete = `${content}${suffix}`
+  if (maxBytes === undefined || encoder.encode(complete).byteLength <= maxBytes) return complete
+  const fixed = `${content.endsWith(omitted.trimStart()) ? '' : omitted}${suffix}`
+  const fixedBytes = encoder.encode(fixed).byteLength
+  if (fixedBytes >= maxBytes) return retainTail(fixed, maxBytes)
+  return `${retainTail(content, maxBytes - fixedBytes)}${fixed}`
 }
 
 /** Validate the non-empty constraint that SchemaSpec cannot express. */
@@ -75,8 +98,13 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tasks.onTaskDone((snapshot, owner) => {
     if (snapshot.reported || owner === undefined) return
     try {
+      const prefix = `background task ${snapshot.id} (${snapshot.kind}: ${snapshot.label})`
+      const suffix = ` finished ${statusLine(snapshot)}. Read its output with task_output.`
       owner.inject(
-        [{ type: 'text', text: `background task ${snapshot.id} (${snapshot.kind}: ${snapshot.label}) finished ${statusLine(snapshot)}. Read its output with task_output.` }],
+        [{
+          type: 'text',
+          text: fitWithSuffix(prefix, suffix, snapshot.outputLimitBytes, '\n[notice truncated]'),
+        }],
         { source: { kind: 'plugin', plugin: 'tool-tasks' } },
       )
     } catch (error: unknown) {
@@ -106,8 +134,16 @@ export function apply(ctx: Context, config: Config): void {
       }
       const read = ctx.tasks.read(id, exec.agent)
       const body = read.text.length > 0 ? read.text : '(no new output)'
-      const separator = body.endsWith('\n') ? '' : '\n'
-      return [{ type: 'text', text: `${body}${separator}${statusLine(read.snapshot)}` }]
+      const content = body.endsWith('\n') ? body.slice(0, -1) : body
+      return [{
+        type: 'text',
+        text: fitWithSuffix(
+          content,
+          `\n${statusLine(read.snapshot)}`,
+          read.snapshot.outputLimitBytes,
+          '\n[output truncated]',
+        ),
+      }]
     },
     presentCall: args => presentTaskCall(`Read output from background task ${args.task_id}`, 'read', args.task_id),
   }))
@@ -139,7 +175,15 @@ export function apply(ctx: Context, config: Config): void {
       if (result === 'already-finished') {
         // A snapshot describes terminal state without consuming pending output.
         const snapshot = ctx.tasks.get(id, exec.agent)
-        return Promise.resolve([{ type: 'text', text: `task ${id} had already finished ${statusLine(snapshot)}` }])
+        return Promise.resolve([{
+          type: 'text',
+          text: fitWithSuffix(
+            `task ${id} had already finished`,
+            ` ${statusLine(snapshot)}`,
+            snapshot.outputLimitBytes,
+            '\n[notice truncated]',
+          ),
+        }])
       }
       return Promise.resolve([{ type: 'text', text: `requested cancellation of task ${id}` }])
     },

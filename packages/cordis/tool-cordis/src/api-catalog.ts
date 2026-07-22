@@ -403,6 +403,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Create and publish one owner-scoped session after backend setup succeeds.\n * @param owner - exact registered Agent that owns access and cleanup.\n * @param request - backend type plus optional owner-local name and cwd.\n * @param signal - cancellation of unpublished setup.\n * @returns published identity, metadata, status, and MOTD.\n */',
       },
       {
+        signature: 'hasOwnerActivity(owner: Agent): boolean',
+        jsDoc: '/**\n * Test whether an exact owner has a published session or unpublished spawn.\n * @param owner - exact live owner to inspect.\n * @returns true across the entire spawn-to-close interval, with no publication gap.\n */',
+      },
+      {
         signature: 'startSend(owner: Agent, id: PtySessionId, request: PtySendRequest): PtySendOperation',
         jsDoc: '/**\n * Start one exclusive interactive send.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param request - explicit text, submit behavior, and cancellation.\n * @returns live operation handle for foreground await or task registration.\n */',
       },
@@ -1854,11 +1858,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TaskSnapshot',
-    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: TaskKind;\n    label: string;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
+    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: TaskKind;\n    label: string;\n    outputLimitBytes?: number;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
   },
   {
     name: 'TaskStart',
-    declaration: 'export interface TaskStart {\n    kind: TaskKind;\n    label: string;\n    owner?: Agent;\n    run(): TaskHooks;\n}',
+    declaration: 'export interface TaskStart {\n    kind: TaskKind;\n    label: string;\n    outputLimitBytes?: number;\n    owner?: Agent;\n    run(): TaskHooks;\n}',
   },
   {
     name: 'TaskStatus',

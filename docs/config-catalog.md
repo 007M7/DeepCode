@@ -802,7 +802,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:57`](../packages/plan/plan-mode/s
 
 ## `@deepseek-ai/dsh-pty-local`
 
-Requires: `pty` · `sandbox` · `sandboxPolicy`
+Requires: `agents` · `pty` · `sandbox` · `sandboxPolicy`
 
 ```ts config-catalog
 /** Public plugin configuration. */
@@ -1339,6 +1339,22 @@ export interface Config {
 
 Source: [`packages/lsp/tool-lsp/src/index.ts:58`](../packages/lsp/tool-lsp/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-pty`
+
+Requires: `pty` · `tools` · `systemPrompt`
+
+```ts config-catalog
+/** Model-facing terminal tool configuration. */
+export interface Config {
+  /** Expose `run_in_background` and accept background sends (default true). */
+  enableRunInBackground?: boolean
+  /** Maximum UTF-8 bytes in one complete terminal or task-output result. */
+  maxResultBytes?: number
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts:33`](../packages/pty/tool-pty/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-ralph`
 
 Requires: `tools` · `workflows` · `subagents` · `systemPrompt`
@@ -1443,7 +1459,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/tasks/tool-tasks/src/index.ts:21`](../packages/tasks/tool-tasks/src/index.ts)
+Source: [`packages/tasks/tool-tasks/src/index.ts:22`](../packages/tasks/tool-tasks/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-web`
 
@@ -1840,7 +1856,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-tasks` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
-- `@deepseek-ai/dsh-tool-pty` — requires `pty` · `tools` · `systemPrompt` ([`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
 

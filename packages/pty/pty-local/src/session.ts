@@ -17,7 +17,7 @@ import type {
   PtyWaitReason,
 } from '@deepseek-ai/dsh-pty'
 import type { ResolvedConfig } from './config.ts'
-import type { ProcessInspector } from './process-inspector.ts'
+import type { ProcessIdentity, ProcessInspector } from './process-inspector.ts'
 import { TerminalSanitizer } from './sanitize.ts'
 
 function delay(ms: number): Promise<void> {
@@ -148,9 +148,11 @@ export class LocalPtySession implements PtyBackendSession {
   private activeTimer: NodeJS.Timeout | undefined
   private activeAbort: (() => void) | undefined
   private promptSeen = false
+  private promptTextSeen = false
   private shellPgid: number | undefined
   private initializing = false
   private lastOutputAt = Date.now()
+  private closing = false
   private closePromise: Promise<void> | undefined
 
   constructor(
@@ -190,21 +192,20 @@ export class LocalPtySession implements PtyBackendSession {
   }
 
   startSend(request: PtySendRequest): PtySendOperation {
-    if (this.closePromise !== undefined) throw new Error('PTY session is closing')
+    if (this.closing) throw new Error('PTY session is closing')
     if (this.statusValue.kind === 'exited') throw new Error('PTY session has exited')
     if (this.active !== undefined) throw new Error('PTY session already has an active send')
     if (request.signal?.aborted === true) throw new Error('PTY send aborted before write')
 
-    const operation = new LocalSendOperation(this.config.maxReadBytes, Date.now(), () => {
-      try {
-        this.terminal.write('\x03')
-      } catch (error: unknown) {
-        operation.fail(error)
-      }
-    })
+    const operation = new LocalSendOperation(
+      this.config.maxReadBytes,
+      Date.now(),
+      () => { this.interrupt(operation) },
+    )
     this.active = operation
     this.lastOutputAt = Date.now()
     this.promptSeen = false
+    this.promptTextSeen = false
 
     if (request.signal !== undefined) {
       const onAbort = (): void => { operation.cancel() }
@@ -267,8 +268,15 @@ export class LocalPtySession implements PtyBackendSession {
   }
 
   close(reason: string): Promise<void> {
-    this.closePromise ??= this.closeOnce(reason)
-    return this.closePromise
+    this.closing = true
+    if (this.closePromise !== undefined) return this.closePromise
+    const closing = this.closeOnce(reason).catch((error: unknown) => {
+      this.closePromise = undefined
+      this.failActive(error)
+      throw error
+    })
+    this.closePromise = closing
+    return closing
   }
 
   private onData(data: string): void {
@@ -279,8 +287,11 @@ export class LocalPtySession implements PtyBackendSession {
       if (this.shellPgid === undefined) this.shellPgid = foregroundPgid
       if (foregroundPgid !== undefined && foregroundPgid === this.shellPgid) {
         this.promptSeen = true
+        this.promptTextSeen = sanitized.promptText === true
         this.lastOutputAt = Date.now()
       }
+    } else if (this.promptSeen && sanitized.promptText === true) {
+      this.promptTextSeen = true
     }
   }
 
@@ -297,7 +308,7 @@ export class LocalPtySession implements PtyBackendSession {
       this.settleActive('session_exit')
       return
     }
-    if (this.promptSeen && Date.now() - this.lastOutputAt >= this.config.pollIntervalMs) {
+    if (this.promptSeen && this.promptTextSeen && Date.now() - this.lastOutputAt >= this.config.pollIntervalMs) {
       this.settleActive('stdin_read')
       return
     }
@@ -337,58 +348,98 @@ export class LocalPtySession implements PtyBackendSession {
     this.active = undefined
   }
 
+  private failActive(error: unknown): void {
+    const operation = this.active
+    if (operation === undefined) return
+    this.clearActive()
+    operation.fail(error)
+  }
+
+  private interrupt(operation: LocalSendOperation): void {
+    if (this.active !== operation) return
+    try {
+      const pgid = this.inspector.foregroundPgid(this.pid)
+      if (pgid === undefined) throw new Error(`cannot resolve foreground process group for PTY ${this.pid}`)
+      this.inspector.signalGroup(pgid, 'SIGINT')
+    } catch (error: unknown) {
+      this.failActive(error)
+    }
+  }
+
+  private survivors(members: ProcessIdentity[]): ProcessIdentity[] {
+    return members.filter(member => this.inspector.isAlive(member))
+  }
+
+  private descendants(): ProcessIdentity[] {
+    return this.inspector.processTree(this.pid).filter(member => member.pid !== this.pid)
+  }
+
+  private async waitForExit(members: ProcessIdentity[]): Promise<ProcessIdentity[]> {
+    const deadline = Date.now() + this.config.disposeGraceMs
+    let survivors = this.survivors(members)
+    while (survivors.length > 0 && Date.now() < deadline) {
+      await delay(Math.min(25, Math.max(1, deadline - Date.now())))
+      survivors = this.survivors(members)
+    }
+    return survivors
+  }
+
+  private signalMembers(members: ProcessIdentity[], signal: 'SIGTERM' | 'SIGKILL'): void {
+    for (const member of members) {
+      try {
+        this.inspector.signalProcess(member, signal)
+      } catch (_alreadyExitedDuringSignal) {
+        // Identity is rechecked by the inspector; a same-tick exit is success.
+      }
+    }
+  }
+
+  private async stopDescendants(): Promise<ProcessIdentity[]> {
+    let members = this.descendants()
+    this.signalMembers(members, 'SIGTERM')
+    await this.waitForExit(members)
+    // A TERM-handling descendant may have forked while winding down. Rescan
+    // while the shell can still reap every member, then kill the fresh tree.
+    members = this.descendants()
+    this.signalMembers(members, 'SIGKILL')
+    await this.waitForExit(members)
+    return this.descendants().filter(member => this.inspector.isAlive(member))
+  }
+
+  private async stopShell(): Promise<void> {
+    try {
+      this.terminal.kill('SIGTERM')
+    } catch (_topLevelAlreadyExitedDuringTerm) {
+      // The exit notification remains authoritative.
+    }
+    if (this.statusValue.kind === 'running') {
+      await Promise.race([this.exitPromise.promise, delay(this.config.disposeGraceMs)])
+    }
+    if (this.statusValue.kind === 'running') {
+      try {
+        this.terminal.kill('SIGKILL')
+      } catch (_topLevelAlreadyExitedDuringKill) {
+        // The exit notification remains authoritative.
+      }
+      await Promise.race([this.exitPromise.promise, delay(this.config.disposeGraceMs)])
+    }
+    if (this.statusValue.kind === 'running') {
+      throw new Error(`PTY cleanup failed; surviving pids: ${this.pid}`)
+    }
+  }
+
   private async closeOnce(reason: string): Promise<void> {
     this.dataDisposable.dispose()
     // Stop readiness polling but retain the active operation: teardown settles
     // it as session_exit below, so an in-flight send is never mis-settled as
     // stdin_read/inferred_idle/timeout during the grace period.
     this.stopPolling()
-    const members = this.inspector.processTree(this.pid)
-    for (const member of members) {
-      try {
-        this.inspector.signalProcess(member, 'SIGTERM')
-      } catch (_alreadyExitedDuringTerm) {
-        // Identity is rechecked by the inspector; a same-tick exit is success.
-      }
-    }
-    try {
-      this.terminal.kill('SIGTERM')
-    } catch (_topLevelAlreadyExited) {
-      // onExit or identity checks below remain authoritative.
-    }
-
-    const deadline = Date.now() + this.config.disposeGraceMs
-    let survivors = members.filter(member => this.inspector.isAlive(member))
-    while (survivors.length > 0 && Date.now() < deadline) {
-      await delay(Math.min(25, this.config.disposeGraceMs))
-      survivors = members.filter(member => this.inspector.isAlive(member))
-    }
-    for (const survivor of survivors) {
-      try {
-        this.inspector.signalProcess(survivor, 'SIGKILL')
-      } catch (_alreadyExitedDuringKill) {
-        // Final identity check below decides success.
-      }
-    }
-    try {
-      this.terminal.kill('SIGKILL')
-    } catch (_topLevelAlreadyKilled) {
-      // The root may already have delivered onExit.
-    }
-
-    const killDeadline = Date.now() + this.config.disposeGraceMs
-    survivors = members.filter(member => this.inspector.isAlive(member))
-    while (survivors.length > 0 && Date.now() < killDeadline) {
-      await delay(Math.min(25, this.config.disposeGraceMs))
-      survivors = members.filter(member => this.inspector.isAlive(member))
-    }
-    const exitWaitMs = Math.max(0, killDeadline - Date.now())
-    await Promise.race([this.exitPromise.promise, delay(exitWaitMs)])
-    survivors = members.filter(member => this.inspector.isAlive(member))
-    this.settleActive('session_exit')
-    this.exitDisposable.dispose()
+    const survivors = await this.stopDescendants()
     if (survivors.length > 0) {
       throw new Error(`PTY cleanup failed (${reason}); surviving pids: ${survivors.map(member => member.pid).join(', ')}`)
     }
+    await this.stopShell()
+    this.settleActive('session_exit')
+    this.exitDisposable.dispose()
   }
 }
