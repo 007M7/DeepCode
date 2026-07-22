@@ -319,7 +319,7 @@ jobs:
         run: ${{ matrix.command }}
 
   # One large runner pays hosted setup once, then the repository scheduler
-  # overlaps the complete unsharded primary gate inventory inside that box.
+  # overlaps the unsharded primary inventory except the production site build.
   node-24:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
     runs-on: dsh-ubuntu-24-04-96core
@@ -382,6 +382,38 @@ jobs:
 
       - name: Run complete unsharded primary Node CI concurrently
         run: pnpm run check:ci:large-runner
+
+  # Keep only the longest independent Linux gate on a second coarse-grained
+  # runner so cold install variance does not push the primary box over a minute.
+  node-24-site:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
+    runs-on: dsh-ubuntu-24-04-16core
+    name: node 24 / production site
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack and resolve pnpm store path
+        id: pnpm-store
+        run: |
+          corepack enable
+          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build documentation site (production SPA)
+        run: pnpm run docs:build
 
   node-compat:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
@@ -583,49 +615,13 @@ jobs:
         shell: pwsh
         run: ${{ matrix.command }}
 
-  # The two blocking Windows build surfaces share one setup and run concurrently.
-  windows-build:
+  # One Windows box shares setup across the required build/site checks and the
+  # complete observational portability inventory. run-gates reports failures
+  # from observational gates without allowing them to fail the required job.
+  windows:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
-    runs-on: dsh-windows-2025-16core
-    name: windows / blocking builds
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Enable corepack and resolve pnpm store path
-        id: pnpm-store
-        shell: pwsh
-        run: |
-          corepack enable
-          "path=$(pnpm store path --silent)" >> $env:GITHUB_OUTPUT
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
-      - name: Install (immutable)
-        shell: pwsh
-        run: pnpm install --frozen-lockfile
-
-      - name: Run blocking Windows builds concurrently
-        shell: pwsh
-        env:
-          DSH_GATE_CONCURRENCY: '2'
-        run: pnpm run check:ci:windows-blocking
-
-  # Wider Windows portability gates remain observational, but one larger box
-  # now runs their complete unsharded inventory with in-runner concurrency.
-  windows-gates:
-    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
-    continue-on-error: true
     runs-on: dsh-windows-2025-32core
-    name: windows node 24 / observational
+    name: windows node 24 / complete
     env:
       # Keep ESLint itself single-threaded: 16 ESLint workers took 174 seconds on
       # this image. The outer scheduler still overlaps lint with the other gates.
@@ -670,9 +666,9 @@ jobs:
         shell: pwsh
         run: pnpm install --frozen-lockfile
 
-      - name: Run observational Windows gates concurrently
+      - name: Run blocking and observational Windows gates concurrently
         shell: pwsh
-        run: pnpm run check:ci:windows-observational
+        run: pnpm run check:ci:windows-complete
 
   # Manual reference runs deliberately avoid the optimized jobs above.
   # Each host executes the complete, unsharded primary Node aggregate with one
@@ -1011,7 +1007,7 @@ jobs:
           DSH_GATE_CONCURRENCY: ${{ matrix.workers }}
           DSH_PUBLINT_CONCURRENCY: ${{ matrix.workers }}
           DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ matrix.workers }}
-        run: pnpm run check:ci:large-runner
+        run: pnpm run check:ci
 
       - name: Run blocking Windows builds concurrently
         if: matrix.platform == 'windows'
@@ -1023,8 +1019,9 @@ jobs:
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
   # node versions evolve. Every blocking job in THIS workflow must be listed in
-  # `needs`; explicitly observational jobs such as windows-gates stay out
-  # (`needs` cannot reach across workflow files; e2e.yml stays its own check).
+  # `needs`; observational Windows gates share the required Windows job but are
+  # marked non-blocking inside run-gates. (`needs` cannot reach across workflow
+  # files; e2e.yml stays its own check.)
   # `if: always()` is load-bearing: without it a failed dependency
   # would SKIP this job, and GitHub counts a skipped required check as passing
   # — so this job always runs and fails on any non-success result, including
@@ -1032,7 +1029,7 @@ jobs:
   all-checks-passed:
     name: all checks passed
     runs-on: ubuntu-latest
-    needs: [node-24, node-compat, python-sdk, windows-build]
+    needs: [node-24, node-24-site, node-compat, python-sdk, windows]
     if: always() && (github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners')
     steps:
       - name: Fail if any needed job did not succeed

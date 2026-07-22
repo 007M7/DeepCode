@@ -22,6 +22,7 @@ type Mode =
   | 'ci-snapshot'
   | 'ci-artifacts'
   | 'ci-windows-blocking'
+  | 'ci-windows-complete'
   | 'ci-windows-observational'
   | 'node-compat'
   | 'pre-push'
@@ -38,6 +39,7 @@ interface Gate {
   env?: Record<string, string | undefined>
   input?: string
   verify?: (result: GateResult) => Promise<void>
+  allowFailure?: boolean
 }
 
 interface GateResult {
@@ -83,7 +85,9 @@ console.log(`run-gates: ${mode} running ${gates.length} gate(s) with ${maxConcur
 const results = await runGates(gates, maxConcurrency)
 printSummary(results, performance.now() - startedAt)
 
-if (results.some(result => result.status === 'failed' || result.status === 'skipped')) process.exit(1)
+if (results.some(result => result.gate.allowFailure !== true && (result.status === 'failed' || result.status === 'skipped'))) {
+  process.exit(1)
+}
 
 function parseMode(raw: string | undefined): Mode {
   switch (raw) {
@@ -95,6 +99,7 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-snapshot':
     case 'ci-artifacts':
     case 'ci-windows-blocking':
+    case 'ci-windows-complete':
     case 'ci-windows-observational':
     case 'node-compat':
     case 'pre-push':
@@ -102,7 +107,7 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-primary-large-runner | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-observational | node-compat | pre-push | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-primary-large-runner | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | pre-push | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -189,6 +194,8 @@ function gatesForMode(selected: Mode): Gate[] {
       return ciArtifactGates()
     case 'ci-windows-blocking':
       return ciWindowsBlockingGates()
+    case 'ci-windows-complete':
+      return ciWindowsCompleteGates()
     case 'ci-windows-observational':
       return ciWindowsObservationalGates()
     case 'node-compat':
@@ -254,6 +261,7 @@ function ciPrimaryLargeRunnerGates(): Gate[] {
   // Typecheck does not consume build output, so a large runner can start both
   // together while snapshot and artifact consumers still wait for the build.
   return ciPrimaryGates()
+    .filter(gate => gate.id !== 'docs-site-build')
     .map((gate) => {
       if (gate.id !== 'build') return gate
       const eagerBuild = { ...gate }
@@ -303,6 +311,19 @@ function ciWindowsBlockingGates(): Gate[] {
   return [
     pnpmScript('windows-build', 'build', { label: 'build' }),
     pnpmScript('windows-site', 'docs:build', { label: 'production site' }),
+  ]
+}
+
+function ciWindowsCompleteGates(): Gate[] {
+  const observational = ciWindowsObservationalGates()
+    // The required production site replaces the observational MPA build; both
+    // VitePress modes write the same output directory and cannot overlap.
+    .filter(gate => gate.id !== 'build' && gate.id !== 'docs-site-build')
+    .map(gate => ({ ...gate, allowFailure: true }))
+  return [
+    pnpmScript('build', 'build'),
+    pnpmScript('windows-site', 'docs:build', { label: 'production site' }),
+    ...observational,
   ]
 }
 
@@ -638,7 +659,8 @@ function printSummary(results: GateResult[], durationMs: number): void {
   for (const result of unsuccessful) {
     const duration = (result.durationMs / 1000).toFixed(2)
     const reason = result.error ?? (result.exitCode === null ? 'no exit code' : `exit ${result.exitCode}`)
-    console.error(`  - ${result.status.toUpperCase()} ${result.gate.label} (${duration}s, ${reason})`)
+    const disposition = result.gate.allowFailure === true ? 'NON-BLOCKING ' : ''
+    console.error(`  - ${disposition}${result.status.toUpperCase()} ${result.gate.label} (${duration}s, ${reason})`)
     console.error(`    ${result.gate.displayCommand}`)
   }
 }
