@@ -38,7 +38,10 @@ export interface Config {
    * nobody will resolve).
    */
   maxWallMs?: number
-  /** Hard cap for the combined serialized outer logs, completion value, and failure diagnostic. */
+  /**
+   * Hard cap for serialized log-array, completion-value, and failure-message payloads;
+   * fixed result-envelope syntax is excluded.
+   */
   maxOutputBytes?: number
   /** The worker's max old-generation heap in MiB (`resourceLimits`); overflow kills the worker, surfacing as kind `'worker-exit'`. */
   maxOldGenerationSizeMb?: number
@@ -56,7 +59,7 @@ type ResolvedConfig = Required<Config>
  */
 const ELU_POLL_INTERVAL_MS = 25
 
-/** Smallest cap that can represent the empty logs array plus an empty JSON failure diagnostic. */
+/** Smallest cap that can represent the counted payloads: an empty logs array plus an empty JSON failure message. */
 const MIN_OUTPUT_BYTES = 4
 
 /** ECMAScript reserved words that cannot be async-function parameter names — rejected as binding globals. */

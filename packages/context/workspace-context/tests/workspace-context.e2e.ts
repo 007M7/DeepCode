@@ -12,6 +12,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import * as WorkspaceContext from '@deepseek-ai/dsh-workspace-context'
+import { candidateScopeKey } from '../src/render.ts'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -112,7 +113,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workspace context e2e: real mode
       && !Array.isArray(event.data.meta)
       && event.data.meta.kind === 'workspace-instructions')
     expect(update?.type === 'context/message' && update.data.meta).toMatchObject({
-      changes: [{ action: 'replace', scope: '.', path: 'AGENTS.md' }],
+      changes: [{ action: 'replace', scope: candidateScopeKey('.', 'AGENTS.md'), path: 'AGENTS.md' }],
     })
     const updateText = update?.type === 'context/message'
       ? update.data.content.filter(block => block.type === 'text').map(block => block.text).join('')

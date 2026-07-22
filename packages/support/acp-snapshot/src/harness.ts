@@ -24,6 +24,8 @@ import { basename, dirname, join, delimiter } from 'node:path'
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
+  type CreateElicitationRequest,
+  type CreateElicitationResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
@@ -59,6 +61,8 @@ export type InputStep =
     waitForToolCallUpdate?: string
   }
   | { op: 'cancel' }
+  | { op: 'setMode'; modeId: string }
+  | { op: 'setModeExpectError'; modeId: string }
   | { op: 'setConfigOption'; configId: string; value: string }
   | { op: 'setConfigOptionExpectError'; configId: string; value: string }
 
@@ -78,12 +82,32 @@ export interface InputScript {
    * agent itself just sees `cancelled`, so it cannot absorb the bug).
    */
   permissionAnswers?: PermissionAnswer[]
+  /**
+   * Ordered answers for the agent's `elicitation/create` round-trips (the
+   * ask_user_question / plan-review forms), consumed FIFO — the Nth request
+   * gets the Nth answer. Exhaustion (or no queue) answers `cancel`, the same
+   * fail-closed stub an elicitation-free scenario relies on. Unlike permission
+   * kinds, the scripted strings are not validated against the offered form —
+   * a stray `choice` reaches the agent verbatim, which reads it as a custom
+   * (non-consenting) answer, so a scenario bug fails safe in the transcript.
+   */
+  elicitationAnswers?: ElicitationAnswer[]
 }
 
 /** One scripted answer to a permission request: which offered option kind to select. */
 export interface PermissionAnswer {
   /** The `PermissionOption.kind` to select (`allow_once`, `reject_always`, …). */
   kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always'
+}
+
+/** One scripted answer to an elicitation form (accept with choice/custom content, or cancel). */
+export interface ElicitationAnswer {
+  /** Accept the form with the content below, or cancel it. */
+  action: 'accept' | 'cancel'
+  /** The selected option label (the form's `choice` field). */
+  choice?: string
+  /** Free-form text (the form's `custom` field). */
+  custom?: string
 }
 
 /** One harvested session log plus the identifying facts off its header line. */
@@ -106,7 +130,7 @@ export interface RunResult {
   stderr: string
   /** The session id the server issued (undefined if no session was created). */
   sessionId?: string
-  /** The temp cwd the session ran in (the bash workspace). */
+  /** The generated cwd the session ran in (the bash workspace). */
   cwd: string
   /**
    * Every persisted session log harvested after the run, ordered primary-first:
@@ -137,11 +161,19 @@ export interface RunOptions {
   childFiles?: string[]
   /**
    * Optional `<scenario>/workspace/` directory whose contents are copied into
-   * the temp cwd BEFORE the run — the standard way to seed files the agent
+   * the generated cwd BEFORE the run — the standard way to seed files the agent
    * operates on (a file to read, edit, or grep). Absent for scenarios that
    * start from an empty workspace.
    */
   workspaceDir?: string
+  /**
+   * Parent directory for the generated session cwd. Defaults to
+   * `os.tmpdir()`. A scenario that must distinguish its workspace from the
+   * sandbox's always-writable temporary roots can place the generated child
+   * under `os.homedir()` instead. The harness removes only that generated
+   * child, never the supplied parent.
+   */
+  workspaceParent?: string
   /**
    * Alternate LIVE config path for the boot (absolute), overriding
    * {@link AgentUnderTest.configPath} for this run. A scenario needing a
@@ -172,15 +204,15 @@ export function snapshotSpillRoot(
 
 /**
  * Run a scenario end-to-end against a freshly-spawned subprocess. Owns the
- * child and its temp dirs; always tears them down. Returns the captured stdout
+ * child and its generated dirs; always tears them down. Returns the captured stdout
  * and (record mode) the harvested session-log path.
  *
  * @param input The scenario's input script (steps + optional permission answers).
  * @param opts The agent to boot, the mode, and the fixture wiring.
- * @returns The captured stdout/stderr, session id, temp cwd, and harvested logs.
+ * @returns The captured stdout/stderr, session id, generated cwd, and harvested logs.
  */
 export async function runScenario(input: InputScript, opts: RunOptions): Promise<RunResult> {
-  const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
+  const cwd = await mkdtemp(join(opts.workspaceParent ?? tmpdir(), 'acp-snap-cwd-'))
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
   // Fixed path length: spill-policy budgets the preview against the REAL path
   // before stdout normalization, so tmpdir() length differences churn expected outputs.
@@ -194,7 +226,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   let sessionLogs: HarvestedLog[] = []
   const outcome = await (async (): Promise<RunResult> => {
     // Seed the workspace if the scenario ships one (a file the agent reads/edits).
-    // Copied into the temp cwd so the agent's bash tools see it; the expected outputs
+    // Copied into the generated cwd so the agent's bash tools see it; the expected outputs
     // normalize the cwd, so the seeded paths stay stable across runs.
     if (opts.workspaceDir !== undefined && existsSync(opts.workspaceDir)) {
       await cp(opts.workspaceDir, cwd, { recursive: true })
@@ -215,6 +247,8 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // Permission answers are consumed FIFO across the whole run; exhaustion
     // falls back to `cancelled` so approval-free scenarios keep the plain stub.
     const permissionQueue = [...input.permissionAnswers ?? []]
+    // Elicitation answers mirror the permission queue: FIFO, cancel on exhaustion.
+    const elicitationQueue = [...input.elicitationAnswers ?? []]
     // A scenario bug detected inside a client callback (a scripted permission
     // kind the agent never offered). It cannot fail the run from in there: a
     // callback throw only becomes a JSON-RPC error RESPONSE to the agent, and
@@ -244,6 +278,17 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
         }
         return Promise.resolve({ outcome: { outcome: 'selected', optionId: option.optionId } })
       },
+      createElicitation(_params: CreateElicitationRequest): Promise<CreateElicitationResponse> {
+        const answer = elicitationQueue.shift()
+        if (answer === undefined || answer.action !== 'accept') return Promise.resolve({ action: 'cancel' })
+        return Promise.resolve({
+          action: 'accept',
+          content: {
+            ...answer.choice !== undefined ? { choice: answer.choice } : {},
+            ...answer.custom !== undefined ? { custom: answer.custom } : {},
+          },
+        })
+      },
     })
     const active = launched
     await active.spawned
@@ -261,7 +306,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // persistence) and exits. Then await exit so the harvested log is complete.
     await active.close()
     // Harvest EVERY persisted log (parent + any subagent children) while the
-    // temp dirs still exist, ordered primary-first.
+    // generated dirs still exist, ordered primary-first.
     sessionLogs = await harvestSessionLogs(sessionsRoot)
     return {
       rawStdout: launched.rawStdout(),
@@ -397,6 +442,24 @@ async function runStep(
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: cancel before newSession')
       await client.cancel({ sessionId })
+      return
+    }
+    case 'setMode': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: setMode before newSession')
+      await client.setSessionMode({ sessionId, modeId: step.modeId })
+      return
+    }
+    case 'setModeExpectError': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: setModeExpectError before newSession')
+      // The bridge rejects an unknown/uncomposed mode id with invalidParams;
+      // that rejection IS the expected wire behavior — swallow it so the run
+      // completes and the error frame is captured in the transcript.
+      await client.setSessionMode({ sessionId, modeId: step.modeId }).then(
+        () => { throw new Error('snapshot-harness: expected session/set_mode to be rejected but it succeeded') },
+        () => { /* expected: the bridge rejected the mode id */ },
+      )
       return
     }
     case 'setConfigOption': {

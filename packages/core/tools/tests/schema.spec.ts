@@ -92,6 +92,23 @@ describe('the unified author schema DSL', () => {
     expect(() => parameterSchemaSpecToJsonSchema(properties as ParameterSchemaSpec)).toThrow(/circular/)
   })
 
+  it('compiles deeply nested author unions without using the JavaScript call stack', () => {
+    const depth = 5_000
+    let spec: unknown = { type: 'string' }
+    for (let index = 0; index < depth; index++) spec = { oneOf: [spec, { type: 'null' }] }
+
+    const compiled = valueSchemaSpecToJsonSchema(spec as ValueSchemaSpec)
+
+    let cursor = compiled
+    let layers = 0
+    while (cursor.oneOf !== undefined) {
+      cursor = cursor.oneOf[0]!
+      layers++
+    }
+    expect(layers).toBe(depth)
+    expect(cursor).toEqual({ type: 'string' })
+  })
+
   it('preserves a property literally named __proto__ as schema data', () => {
     const properties = Object.create(null) as ParameterSchemaSpec
     properties.__proto__ = { type: 'string', required: true }

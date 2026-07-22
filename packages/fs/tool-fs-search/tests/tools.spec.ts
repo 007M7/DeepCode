@@ -75,7 +75,7 @@ class FakeBash extends BashExecutor {
       timeoutMs: request.timeoutMs ?? 60_000,
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       ...this.forwardSignal ? { signal: request.signal } : {},
-      sandboxMode: request.sandboxMode,
+      sandboxPolicy: request.sandboxPolicy,
     }
   }
   override async run(spec: BashExecSpec): Promise<BashRunResult> {

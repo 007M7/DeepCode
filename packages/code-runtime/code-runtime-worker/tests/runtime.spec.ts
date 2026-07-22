@@ -656,7 +656,7 @@ describe('WorkerCodeRuntime — seam misuse and lifecycle', () => {
     await expect(ctx.plugin(WorkerCodeRuntime, { computeMs: -1 })).rejects.toThrow(/positive number/)
   })
 
-  it('requires maxOutputBytes to fit the smallest outer failure envelope', async () => {
+  it('requires maxOutputBytes to fit the smallest counted outer payloads', async () => {
     const ctx = new Context()
     await expect(ctx.plugin(WorkerCodeRuntime, { maxOutputBytes: 3 })).rejects.toThrow(/safe integer of at least 4/)
     await expect(ctx.plugin(WorkerCodeRuntime, { maxOutputBytes: 4.5 })).rejects.toThrow(/safe integer of at least 4/)

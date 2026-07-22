@@ -11,7 +11,7 @@ const fixture = (name: string): string => fileURLToPath(new URL(`./fixtures/${na
 const canonicalTempPath = (path: string): string => path.replace(/^\/private(?=\/var\/)/, '')
 
 describe('runLoaderSmoke', () => {
-  it('isolates the process, writes stdin, captures output, and removes the cwd', async () => {
+  it('isolates the process, closes stdin, captures output, and removes the cwd', async () => {
     const result = await runLoaderSmoke({
       label: 'success fixture',
       tempDirPrefix: 'loader-smoke-success-',
@@ -20,7 +20,6 @@ describe('runLoaderSmoke', () => {
       tsconfigPath,
       mode: 'src',
       env: { LOADER_SMOKE_MARKER: 'present' },
-      stdinLines: ['one', 'two'],
     })
     const output = JSON.parse(result.stdout) as {
       configPath: string
@@ -35,7 +34,7 @@ describe('runLoaderSmoke', () => {
       configPath,
       args: [configPath],
       marker: 'present',
-      input: 'one\ntwo\n',
+      input: '',
     })
     expect(canonicalTempPath(output.dshHome)).toBe(canonicalTempPath(join(output.cwd, '.dsh')))
     expect(canonicalTempPath(output.agentsHome)).toBe(canonicalTempPath(join(output.cwd, '.agents')))

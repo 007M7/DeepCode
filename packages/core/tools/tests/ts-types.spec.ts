@@ -93,6 +93,17 @@ describe('jsonSchemaToTs', () => {
     expect(rendered).not.toContain('tool-*/ over')
     expect(rendered).toContain(String.raw`tool-*\/ over`)
   })
+
+  it('renders deeply nested unions without using the JavaScript call stack', () => {
+    const depth = 5_000
+    let schema: unknown = { type: 'string' }
+    for (let index = 0; index < depth; index++) schema = { oneOf: [schema, { type: 'null' }] }
+
+    const rendered = jsonSchemaToTs(schema)
+
+    expect(rendered.startsWith('string | null')).toBe(true)
+    expect(rendered.length).toBe('string'.length + depth * ' | null'.length)
+  })
 })
 
 describe('renderToolsSdk', () => {

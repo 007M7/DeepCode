@@ -3,23 +3,16 @@ lifecycle started=1 stopped=0 progress=inactive
 title "Reply with exactly the word: — DSH TUI snapshot"
 cursor hidden column=1 viewportRow=28 bufferRow=28
 buffer
-0| "╭──────────────────────────────────────────────────────────────────────────────────────────────────╮"
-  style 0-99 fg=bright-blue
-1| "│ DEEPSEEK HARNESS                                                                                 │"
-  style 0-0 fg=bright-blue
-  style 2-9 fg=bright-blue bold
-  style 11-17 bold
-  style 99-99 fg=bright-blue
-2| "│ Reply with exactly the word:                                                                     │"
-  style 0-0 fg=bright-blue
-  style 2-29 fg=bright-black
-  style 99-99 fg=bright-blue
-3| "│ deepseek-v4-flash  •  main-session                                                               │"
-  style 0-0 fg=bright-blue
-  style 2-35 dim
-  style 99-99 fg=bright-blue
-4| "╰──────────────────────────────────────────────────────────────────────────────────────────────────╯"
-  style 0-99 fg=bright-blue
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Reply with exactly the word:"
+  style 1-28 fg=bright-black
+2| " deepseek-v4-flash  •  main-session"
+  style 1-34 dim
+3| <blank>
+4| " Entering plan mode (applies from the next step).                                                   "
+  style 1-48 fg=bright-black
 5| <blank>
 6| "▌ "
   style 0-0 fg=bright-blue
@@ -64,7 +57,7 @@ buffer
   style 1-1 inverse
 29| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-30| "/tmp/dsh-tui-snapshot-multi-tu  ↑2.9k ↓41 3% context  tools:compact  deepseek-v4-flash(reasoning:on)"
-  style 0-29 dim
-  style 42-99 dim
+30| "deepseek-v4-flash  /workspace/project  ↑2.9k ↓41  cache 49%  3% co"
+  style 0-92 dim
+  style 95-99 dim
 31-35| <blank>
