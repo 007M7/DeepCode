@@ -5,8 +5,8 @@
 
 import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { scopeOf } from '@deepseek-ai/dsh-scope'
-import type { ScopeKey } from '@deepseek-ai/dsh-scope'
+import { NamedEntries, ScopedLayers } from '@deepseek-ai/dsh-scope'
+import type { ScopeKey, ScopeLayer } from '@deepseek-ai/dsh-scope'
 
 export const name = 'commands'
 
@@ -66,6 +66,26 @@ export interface ParsedCommand {
 interface RegisteredCommand {
   readonly definition: CommandDefinition
   readonly descriptor: CommandDescriptor
+}
+
+/** All command registrations owned by one global or scoped layer. */
+class CommandLayer implements ScopeLayer {
+  readonly commands: NamedEntries<RegisteredCommand>
+
+  /**
+   * Create one command layer with diagnostics specific to its ownership scope.
+   * @param scope - the scoped owner, or `undefined` for global registrations.
+   */
+  constructor(scope: ScopeKey | undefined) {
+    this.commands = new NamedEntries(name => new Error(scope === undefined
+      ? `command "${name}" is already registered (for a per-agent variant, mount a command-injected plugin under that agent's \`agent.ctx\`)`
+      : `command "${name}" is already registered in this scope`))
+  }
+
+  /** @returns whether this layer owns no command registrations. */
+  isEmpty(): boolean {
+    return this.commands.isEmpty()
+  }
 }
 
 declare module 'cordis' {
@@ -205,8 +225,10 @@ function normalizeResult(command: string, value: unknown): CommandResult {
  * globals for that agent.
  */
 export class CommandService extends Service {
-  private readonly global = new Map<string, RegisteredCommand>()
-  private readonly scoped = new Map<ScopeKey, Map<string, RegisteredCommand>>()
+  private readonly layers = new ScopedLayers(
+    scope => new CommandLayer(scope),
+    () => { this.notifyChange() },
+  )
 
   constructor(ctx: Context) {
     super(ctx, 'commands')
@@ -218,25 +240,12 @@ export class CommandService extends Service {
    * @returns the exact effect disposer that unregisters this definition.
    */
   register(definition: CommandDefinition): () => void {
-    const scope = scopeOf(this.ctx)
     const registered = normalizeDefinition(definition)
-    const dispose = this.ctx.effect(function* (this: CommandService) {
-      const layer = scope === undefined ? this.global : this.layerFor(scope)
-      if (layer.has(registered.definition.name)) {
-        throw new Error(scope === undefined
-          ? `command "${registered.definition.name}" is already registered (for a per-agent variant, mount a command-injected plugin under that agent's \`agent.ctx\`)`
-          : `command "${registered.definition.name}" is already registered in this scope`)
-      }
-      layer.set(registered.definition.name, registered)
-      yield () => {
-        layer.delete(registered.definition.name)
-        if (scope !== undefined && layer.size === 0) this.scoped.delete(scope)
-        this.notifyChange()
-      }
-      this.notifyChange()
-    }.bind(this), 'commands.register()')
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- exact synchronous disposer preserves composite teardown order
-    return dispose
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.commands.insert(registered.definition.name, registered),
+      { label: 'commands.register()' },
+    )
   }
 
   /**
@@ -285,19 +294,7 @@ export class CommandService extends Service {
 
   /** Resolve global definitions followed by exact scoped shadows. */
   private view(agent: Agent): Map<string, RegisteredCommand> {
-    const visible = new Map(this.global)
-    for (const [name, command] of this.scoped.get(agent) ?? []) visible.set(name, command)
-    return visible
-  }
-
-  /** Create the registration layer for one agent scope on demand. */
-  private layerFor(scope: ScopeKey): Map<string, RegisteredCommand> {
-    let layer = this.scoped.get(scope)
-    if (layer === undefined) {
-      layer = new Map()
-      this.scoped.set(scope, layer)
-    }
-    return layer
+    return this.layers.merge(agent, layer => layer.commands)
   }
 
   /** Notify every registry observer without making UI refresh load-bearing. */
