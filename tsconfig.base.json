@@ -113,6 +113,7 @@
         "./packages/prompt/*/src",
         "./packages/llm/*/src",
         "./packages/bash/*/src",
+        "./packages/pty/*/src",
         "./packages/code-runtime/*/src",
         "./packages/fs/*/src",
         "./packages/lsp/*/src",

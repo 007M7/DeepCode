@@ -387,6 +387,44 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'pty',
+    summary: 'In-process registry for replaceable PTY backends and exact-Agent sessions.',
+    methods: [
+      {
+        signature: 'registerBackend(backend: PtyBackend): () => void',
+        jsDoc: '/**\n * Register one backend type for this effect scope.\n * @param backend - provider with a non-empty unique type.\n * @returns disposer that removes exactly this contribution.\n */',
+      },
+      {
+        signature: 'listBackends(): string[]',
+        jsDoc: '/**\n * List registered backend types in registration order.\n * @returns fresh backend type names.\n */',
+      },
+      {
+        signature: 'async spawn(owner: Agent, request: PtySpawnRequest, signal?: AbortSignal): Promise<PtySpawnResult>',
+        jsDoc: '/**\n * Create and publish one owner-scoped session after backend setup succeeds.\n * @param owner - exact registered Agent that owns access and cleanup.\n * @param request - backend type plus optional owner-local name and cwd.\n * @param signal - cancellation of unpublished setup.\n * @returns published identity, metadata, status, and MOTD.\n */',
+      },
+      {
+        signature: 'startSend(owner: Agent, id: PtySessionId, request: PtySendRequest): PtySendOperation',
+        jsDoc: '/**\n * Start one exclusive interactive send.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param request - explicit text, submit behavior, and cancellation.\n * @returns live operation handle for foreground await or task registration.\n */',
+      },
+      {
+        signature: 'read(owner: Agent, id: PtySessionId, request: PtyReadRequest = {}): PtyReadResult',
+        jsDoc: '/**\n * Read one bounded scrollback page from an owned session.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param request - optional newest-relative offset and line count.\n * @returns bounded retained text and pagination metadata.\n */',
+      },
+      {
+        signature: 'signal(owner: Agent, id: PtySessionId, signal: PtySignal): Promise<PtySignalResult>',
+        jsDoc: '/**\n * Deliver an allowed signal through an owned backend session.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param signal - allowed POSIX signal name.\n * @returns delivered foreground process-group identity.\n */',
+      },
+      {
+        signature: 'async kill(owner: Agent, id: PtySessionId, reason = \'model request\'): Promise<boolean>',
+        jsDoc: '/**\n * Close one owned session and remove it only after quiescent backend cleanup.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param reason - diagnostic cleanup reason.\n * @returns true for a newly closed session, false when the same close is already in flight.\n */',
+      },
+      {
+        signature: 'list(owner: Agent): PtySessionSnapshot[]',
+        jsDoc: '/**\n * List fresh snapshots for exactly one owner.\n * @param owner - exact owner whose sessions are visible.\n * @returns owner-visible snapshots in publication order.\n */',
+      },
+    ],
+  },
+  {
     key: 'sandbox',
     summary: 'Abstract process-sandbox service.',
     methods: [
@@ -1478,6 +1516,78 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PruneResult',
     declaration: 'export interface PruneResult {\n    readonly pruned: readonly PrunedEntry[];\n    readonly charsRemoved: number;\n}',
+  },
+  {
+    name: 'PtyBackend',
+    declaration: 'export interface PtyBackend {\n    readonly type: string;\n    spawn(spec: PtyBackendSpawnSpec): Promise<PtyBackendSession>;\n}',
+  },
+  {
+    name: 'PtyBackendSession',
+    declaration: 'export interface PtyBackendSession {\n    readonly motd: string;\n    readonly pid?: number;\n    startSend(request: PtySendRequest): PtySendOperation;\n    read(request: PtyReadRequest): PtyReadResult;\n    signal(signal: PtySignal): Promise<PtySignalResult>;\n    status(): PtySessionStatus;\n    close(reason: string): Promise<void>;\n}',
+  },
+  {
+    name: 'PtyBackendSpawnSpec',
+    declaration: 'export interface PtyBackendSpawnSpec extends PtySpawnRequest {\n    sessionId: PtySessionIdValue;\n    owner: Agent;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'PtyReadRequest',
+    declaration: 'export interface PtyReadRequest {\n    offset?: number;\n    count?: number;\n}',
+  },
+  {
+    name: 'PtyReadResult',
+    declaration: 'export interface PtyReadResult {\n    text: string;\n    totalLines: number;\n    lineBegin: number;\n    lineEnd: number;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'PtySendOperation',
+    declaration: 'export interface PtySendOperation {\n    done: Promise<PtySendResult>;\n    readOutput(): PtySendRead;\n    cancel(): boolean;\n}',
+  },
+  {
+    name: 'PtySendRead',
+    declaration: 'export interface PtySendRead {\n    delta: string;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'PtySendRequest',
+    declaration: 'export interface PtySendRequest {\n    text: string;\n    submit: boolean;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'PtySendResult',
+    declaration: 'export interface PtySendResult {\n    viewport: string;\n    waitReason: PtyWaitReason;\n    sessionStatus: PtySessionStatus;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'PtySessionId',
+    declaration: 'export type PtySessionId = PtySessionIdValue;',
+  },
+  {
+    name: 'PtySessionIdValue',
+    declaration: 'export type PtySessionIdValue = Branded<\'PtySessionId\'>;',
+  },
+  {
+    name: 'PtySessionSnapshot',
+    declaration: 'export interface PtySessionSnapshot {\n    sessionId: PtySessionIdValue;\n    name?: string;\n    type: string;\n    pid?: number;\n    status: PtySessionStatus;\n}',
+  },
+  {
+    name: 'PtySessionStatus',
+    declaration: 'export type PtySessionStatus = {\n    kind: \'running\';\n} | {\n    kind: \'exited\';\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n};',
+  },
+  {
+    name: 'PtySignal',
+    declaration: 'export type PtySignal = \'SIGINT\' | \'SIGTERM\' | \'SIGKILL\' | \'SIGTSTP\' | \'SIGHUP\';',
+  },
+  {
+    name: 'PtySignalResult',
+    declaration: 'export interface PtySignalResult {\n    delivered: true;\n    targetPgid: number;\n}',
+  },
+  {
+    name: 'PtySpawnRequest',
+    declaration: 'export interface PtySpawnRequest {\n    type: string;\n    name?: string;\n    cwd?: string;\n}',
+  },
+  {
+    name: 'PtySpawnResult',
+    declaration: 'export interface PtySpawnResult extends PtySessionSnapshot {\n    motd: string;\n}',
+  },
+  {
+    name: 'PtyWaitReason',
+    declaration: 'export type PtyWaitReason = \'stdin_read\' | \'inferred_idle\' | \'timeout\' | \'session_exit\';',
   },
   {
     name: 'ReasoningBlock',

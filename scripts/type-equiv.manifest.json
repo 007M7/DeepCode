@@ -649,6 +649,36 @@
       "source": "packages/tasks/tasks/src/types.ts"
     },
     {
+      "doc": "docs/core-data-structures/pty.md",
+      "symbol": "PtyWaitReason",
+      "source": "packages/pty/pty/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/pty.md",
+      "symbol": "PtySessionStatus",
+      "source": "packages/pty/pty/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/pty.md",
+      "symbol": "PtyBackend",
+      "source": "packages/pty/pty/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/pty.md",
+      "symbol": "PtyBackendSession",
+      "source": "packages/pty/pty/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/pty.md",
+      "symbol": "PtySendOperation",
+      "source": "packages/pty/pty/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/pty.md",
+      "symbol": "PtySendResult",
+      "source": "packages/pty/pty/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/sandbox.md",
       "symbol": "SandboxMode",
       "source": "packages/sandbox/sandbox/src/index.ts"

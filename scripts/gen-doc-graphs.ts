@@ -60,6 +60,7 @@ const GROUP_ORDER = [
   'core',
   'goal',
   'bash',
+  'pty',
   'sandbox',
   'fs',
   'skill',
@@ -151,7 +152,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'system-prompt',
     title: 'System prompt assembly registry',
     mode: 'core',
-    consumers: ['agent-loop', 'tools', 'tool-fs', 'tool-web'],
+    consumers: ['agent-loop', 'tools', 'tool-fs', 'tool-pty', 'tool-web'],
     note: 'Collects prompt sections and model-facing tool schemas for each step.',
   },
   {
@@ -159,7 +160,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'tools',
     title: 'Tool registry and guarded execution pipeline',
     mode: 'core',
-    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-skill', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
+    consumers: ['agent-loop', 'tool-ask-user', 'tool-bash', 'tool-cordis', 'tool-fs', 'tool-pty', 'tool-skill', 'tool-subagent', 'tool-todo', 'tool-web', 'acp'],
     note: 'Registers capabilities, owns Code Mode transport, and routes calls through pre-policy, monotonic guards, around dispatch, post-policy, and final-result observation.',
   },
   {
@@ -236,12 +237,21 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Plugins declare effect-scoped DSH_* facts; tool-bash collects one trusted snapshot per execution and the executor rebuilds the namespace.',
   },
   {
+    key: 'pty',
+    pkg: 'pty',
+    title: 'Persistent PTY session registry',
+    mode: 'seam',
+    implementations: ['pty-local'],
+    consumers: ['tool-pty'],
+    note: 'The registry owns exact-Agent session identity and cleanup; backends own terminal mechanics, while tool-pty exposes the owner-scoped model surface.',
+  },
+  {
     key: 'sandbox',
     pkg: 'sandbox',
     title: 'Process-sandbox seam',
     mode: 'seam',
     implementations: ['sandbox-local'],
-    consumers: ['bash-sandbox'],
+    consumers: ['bash-sandbox', 'pty-local'],
     note: 'Consumers hand over the exact argv they are about to spawn; same-world backends wrap it under a per-call policy and report enforcement.',
   },
   {
@@ -250,7 +260,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Sandbox policy home',
     mode: 'core',
     implementations: [],
-    consumers: ['bash-sandbox', 'fs-sandbox'],
+    consumers: ['bash-sandbox', 'fs-sandbox', 'pty-local'],
     note: 'The one home for the deployment default mode + workspace root; only the sandboxed executor and provider read the service (the tool layers use the pure `sandbox/mode` fold it also exports). Both enforcing families read it so bash and fs cannot confine to different roots.',
   },
   {
@@ -313,8 +323,8 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'tasks',
     title: 'Background task registry',
     mode: 'core',
-    consumers: ['tool-bash', 'tool-subagent', 'tool-tasks'],
-    note: 'Producers (tool-bash background commands, tool-subagent background delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it.',
+    consumers: ['tool-bash', 'tool-pty', 'tool-subagent', 'tool-tasks'],
+    note: 'Producers (background bash, PTY sends, and subagent delegations) register running work; tool-tasks is the model-facing control surface that reads, lists, and kills it.',
   },
   {
     key: 'web',
