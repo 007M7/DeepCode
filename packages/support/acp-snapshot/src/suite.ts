@@ -451,6 +451,25 @@ function preserveFixtureVolatiles(record: Record<string, unknown>, existing: Rec
     return
   }
   if ('time' in record && 'time' in existing) record.time = existing.time
+  if (
+    (record.type === 'text-chunks' || record.type === 'reasoning-chunks' || record.type === 'tool-call-chunks')
+    && 'time0' in record && 'time0' in existing
+  ) {
+    record.time0 = existing.time0
+    const data = record.data
+    const existingData = existing.data
+    if (data !== null && typeof data === 'object' && existingData !== null && typeof existingData === 'object') {
+      const gaps = (data as { dt?: unknown }).dt
+      const existingGaps = (existingData as { dt?: unknown }).dt
+      // Equal arity means every preserved gap still belongs to the same fresh
+      // chunk position. Payload arrays remain fresh because their boundaries
+      // are meaningful replay behavior, not volatile timing.
+      if (Array.isArray(gaps) && Array.isArray(existingGaps) && gaps.length === existingGaps.length) {
+        const preservedGaps = existingGaps as unknown[]
+        (data as { dt: unknown[] }).dt = [...preservedGaps]
+      }
+    }
+  }
   if (record.type !== 'hook/result') return
   const data = record.data
   const existingData = existing.data
@@ -466,8 +485,9 @@ function preserveFixtureVolatiles(record: Record<string, unknown>, existing: Rec
 /**
  * Rewrite a fresh replay-produced log so repeated refreshes do not churn
  * volatile fixture fields. Meaningful event payloads come from `fresh`; the
- * existing fixture lends session ids, cwd, creation times, event times, and
- * hook durations where the record shape still matches.
+ * existing fixture lends session ids, cwd, creation times, event times,
+ * packed-run anchors and same-arity gaps, and hook durations where the record
+ * shape still matches.
  *
  * @param fresh The newly harvested session JSONL.
  * @param existing The committed fixture JSONL being refreshed.

@@ -451,6 +451,43 @@ describe('refreshFixtureReplacements', () => {
 })
 
 describe('stabilizeRefreshLog', () => {
+  it('preserves packed member times without flattening fresh chunk boundaries', () => {
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200}',
+      '{"type":"text-chunks","seq0":2,"time0":200,"data":{"turn":1,"step":1,"index":0,"dt":[5,7],"texts":["new",""," split"]}}',
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100}',
+      '{"type":"text-chunks","seq0":2,"time0":100,"data":{"turn":1,"step":1,"index":0,"dt":[1,2],"texts":["old","chunk","shape"]}}',
+      '',
+    ].join('\n')
+
+    expect(stabilizeRefreshLog(fresh, existing, [])).toBe([
+      '{"type":"session","id":"same","createdAt":100}',
+      '{"type":"text-chunks","seq0":2,"time0":100,"data":{"turn":1,"step":1,"index":0,"dt":[1,2],"texts":["new",""," split"]}}',
+      '',
+    ].join('\n'))
+  })
+
+  it.each([
+    ['fresh data is null', null, { dt: [1, 2] }],
+    ['existing data is null', { dt: [5, 7] }, null],
+    ['fresh gaps are not an array', { dt: 'fresh' }, { dt: [1, 2] }],
+    ['existing gaps are not an array', { dt: [5, 7] }, { dt: 'existing' }],
+    ['the chunk arity changed', { dt: [5, 7, 9] }, { dt: [1, 2] }],
+  ])('keeps fresh packed gaps when %s', (_case, freshData, existingData) => {
+    const freshRow = { type: 'reasoning-chunks', seq0: 2, time0: 200, data: freshData }
+    const existingRow = { type: 'reasoning-chunks', seq0: 2, time0: 100, data: existingData }
+    const output = stabilizeRefreshLog(
+      `${JSON.stringify({ type: 'session', id: 'same', createdAt: 200 })}\n${JSON.stringify(freshRow)}\n`,
+      `${JSON.stringify({ type: 'session', id: 'same', createdAt: 100 })}\n${JSON.stringify(existingRow)}\n`,
+      [],
+    ).trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+
+    expect(output[1]).toStrictEqual({ ...freshRow, time0: 100 })
+  })
+
   it('aligns volatile times across a newly inserted log event', () => {
     const fresh = [
       '{"type":"session","id":"same","createdAt":200}',
