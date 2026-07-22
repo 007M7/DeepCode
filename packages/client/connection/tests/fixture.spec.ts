@@ -4,6 +4,18 @@
  * baseline replay, timing hooks) — this is the vitest-side drift detector for
  * the hand-written fixture/host parallel implementations.
  */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment,
+   @typescript-eslint/no-unsafe-member-access,
+   @typescript-eslint/no-unsafe-call,
+   @typescript-eslint/no-unsafe-argument,
+   @typescript-eslint/no-unsafe-return --
+ * CI's no-build lint lane cannot resolve the wire types this suite drives
+ * (they arrive through apiproxy's lib/types exports, absent without a build),
+ * so every contract-typed expression collapses to `any` there while the same
+ * code lints clean locally (hence the locally-unused directive). The suite is
+ * exactly a traversal of that cross-package contract face (unary table,
+ * stream replay, envelope tap); typecheck runs with project references and
+ * keeps the real type safety. */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '../src/client/api.ts'
