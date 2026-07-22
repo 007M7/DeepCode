@@ -79,7 +79,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/acp-demo/src/index.ts:38`](../packages/examples/acp-demo/src/index.ts)
+Source: [`packages/examples/acp-demo/src/index.ts:41`](../packages/examples/acp-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -270,7 +270,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/cli-demo/src/index.ts:25`](../packages/examples/cli-demo/src/index.ts)
+Source: [`packages/examples/cli-demo/src/index.ts:26`](../packages/examples/cli-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
@@ -1576,7 +1576,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`uiTui`](../packages/ui/tui/src/index.ts)
 
-Source: [`packages/examples/tui-demo/src/index.ts:32`](../packages/examples/tui-demo/src/index.ts)
+Source: [`packages/examples/tui-demo/src/index.ts:33`](../packages/examples/tui-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
@@ -1796,6 +1796,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
+- `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session-persistence/session-checkpoint-policy/src/index.ts`](../packages/session-persistence/session-checkpoint-policy/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-tasks` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))

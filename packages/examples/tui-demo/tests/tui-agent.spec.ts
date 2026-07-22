@@ -45,6 +45,7 @@ describe('dsh-tui-demo app', () => {
       'CommandService',
       'command-goal',
       'SessionPersistenceJsonl',
+      'session-checkpoint-policy',
       'UserInteractionService',
       'ui-tui',
       'agent-spine-demo',
@@ -52,7 +53,7 @@ describe('dsh-tui-demo app', () => {
     ])
     expect(calls[0]?.config).toBeUndefined()
     expect(calls[2]?.config).toEqual({ root: '/tmp/tui-sessions', compression: 'none' })
-    const tuiConfig = calls[4]?.config as { sessionId: string }
+    const tuiConfig = calls[5]?.config as { sessionId: string }
     expect(tuiConfig).toMatchObject({
       welcome: 'TUI ready',
       resumeCommand: 'dsh --resume {session}',
@@ -60,7 +61,7 @@ describe('dsh-tui-demo app', () => {
       maxToolOutputLines: 3,
     })
     expect(tuiConfig.sessionId).toMatch(/^main-session-[0-9a-f-]{36}$/)
-    const spineConfig = calls[5]?.config as {
+    const spineConfig = calls[6]?.config as {
       readonly agents: Array<Record<string, unknown>>
       readonly goals: Record<string, never>
       readonly maxParallelToolCalls: number
@@ -95,8 +96,8 @@ describe('dsh-tui-demo app', () => {
 
     expect(calls[2]?.config).toEqual({ root: './.sessions' })
     // No configured welcome forwards none: the TUI banner sweeps in without a subtitle.
-    expect(calls[4]?.config).toEqual({ sessionId: 'persisted-session' })
-    expect((calls[5]?.config as { agents: Array<Record<string, unknown>> }).agents[0]).toMatchObject({
+    expect(calls[5]?.config).toEqual({ sessionId: 'persisted-session' })
+    expect((calls[6]?.config as { agents: Array<Record<string, unknown>> }).agents[0]).toMatchObject({
       id: 'main',
       resumeSessionId: 'persisted-session',
     })
@@ -112,12 +113,12 @@ describe('dsh-tui-demo app', () => {
       workspaceContext: false,
     })
 
-    const tuiConfig = calls[3]?.config as { sessionId: string }
+    const tuiConfig = calls[4]?.config as { sessionId: string }
     expect(tuiConfig.sessionId).toMatch(/^main-session-[0-9a-f-]{36}$/)
-    expect((calls[4]?.config as { agents: Array<Record<string, unknown>> }).agents[0])
+    expect((calls[5]?.config as { agents: Array<Record<string, unknown>> }).agents[0])
       .toMatchObject({ sessionId: tuiConfig.sessionId })
     expect(calls.map(call => call.name)).not.toContain('command-goal')
-    expect(calls[4]?.config).toMatchObject({ goals: false })
+    expect(calls[5]?.config).toMatchObject({ goals: false })
   })
 
   it('has the namespace-plugin export shape so the Loader keeps its schema', () => {
