@@ -7,9 +7,9 @@
  * and there is no external config store. The event is log-only (the
  * `approval/*` precedent): the model learns the mode from the boundary
  * markers in the enforcing tools, never from the event itself. EXECUTION
- * honors the fold in each tool layer — it stamps the effective mode onto the
- * per-call policy carrier (a bash request's `sandboxMode`, an fs mutation's
- * `sandboxMode`), weakest-precedence beneath an escalation grant.
+ * honors the fold through `ctx.sandboxPolicy.resolve()` — it stamps the mode
+ * together with the calling session's workspace root onto each capability
+ * call, weakest-precedence beneath an escalation grant.
  *
  * The override is policy state shared by every enforcing family (bash and
  * filesystem alike), so it lives here in the policy package rather than in any

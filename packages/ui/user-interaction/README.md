@@ -11,7 +11,7 @@ Abstract user-interaction seam. It owns `ctx.userInteraction`, the service a mod
 
 ### Key Types
 
-- `AskUserQuestionRequest` — `{ questions: [{ id, question, header?, options?, multiSelect? }], agent?, signal? }`.
+- `AskUserQuestionRequest` — `{ questions: [{ id, question, detail?, header?, options?, multiSelect? }], agent?, signal? }`; `detail` supplies supporting text that providers render with the question without turning it into an option label.
 - `AskUserQuestionOption` — `{ label, description? }`.
 - `AskUserQuestionAnswer` — `{ answers: [{ id, selected, custom? }] }`.
 - `UserInteractionProvider` — UI implementation with `ask(request)`.

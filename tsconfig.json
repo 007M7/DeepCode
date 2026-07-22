@@ -38,6 +38,7 @@
     { "path": "./packages/core/session" },
     { "path": "./packages/core/scope" },
     { "path": "./packages/session-persistence/session-persistence" },
+    { "path": "./packages/session-persistence/session-checkpoint-policy" },
     { "path": "./packages/session-persistence/session-persistence-jsonl" },
     { "path": "./packages/session-persistence/session-persistence-sqlite" },
     { "path": "./packages/session-query/session-query" },
@@ -53,6 +54,7 @@
     { "path": "./packages/goal/goal-session" },
     { "path": "./packages/goal/command-goal" },
     { "path": "./packages/context/time-context" },
+    { "path": "./packages/context/session-reference" },
     { "path": "./packages/ui/user-interaction" },
     { "path": "./packages/ui/user-approval" },
     { "path": "./packages/ui/permission" },
@@ -67,6 +69,9 @@
     { "path": "./packages/examples/agent-spine-demo" },
     { "path": "./packages/examples/cli-demo" },
     { "path": "./packages/bash/bash" },
+    { "path": "./packages/pty/pty" },
+    { "path": "./packages/pty/pty-local" },
+    { "path": "./packages/pty/tool-pty" },
     { "path": "./packages/code-runtime/code-runtime" },
     { "path": "./packages/code-runtime/code-runtime-worker" },
     { "path": "./packages/llm/llm-deepseek" },
@@ -122,6 +127,7 @@
     { "path": "./packages/workflow/tool-workflow" },
     { "path": "./packages/workflow/tool-ralph" },
     { "path": "./packages/todo/tool-todo" },
+    { "path": "./packages/plan/plan-mode" },
     { "path": "./packages/guard/repeat-tool-guard" },
     { "path": "./packages/cordis/tool-cordis" },
     { "path": "./packages/hooks/hook-protocol" },
@@ -137,6 +143,7 @@
     { "path": "./packages/sdk/telemetry" },
     { "path": "./packages/lsp/lsp" },
     { "path": "./packages/lsp/lsp-local" },
-    { "path": "./packages/lsp/tool-lsp" }
+    { "path": "./packages/lsp/tool-lsp" },
+    { "path": "./apps/cli" }
   ]
 }

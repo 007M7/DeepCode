@@ -39,7 +39,7 @@ loadRootEnv()
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
     let out = ''
-    const timer = setTimeout(() => reject(new Error(`dsh web not ready in 90s; output:\n${out}`)), 90_000)
+    const timer = setTimeout(() => { reject(new Error(`dsh web not ready in 90s; output:\n${out}`)) }, 90_000)
     const onData = (chunk: Buffer): void => {
       out += chunk.toString()
       const match = /dsh web: (http:\/\/[^\s]+)/.exec(out)
@@ -65,13 +65,13 @@ async function screen(page: Page, name: string): Promise<void> {
 /** First column track (px string) of the frame grid. */
 async function firstTrack(page: Page): Promise<string> {
   return (await page.locator('[class*="frame"]').evaluate(
-    (el) => getComputedStyle(el).gridTemplateColumns)).split(' ')[0]!
+    el => getComputedStyle(el).gridTemplateColumns)).split(' ')[0]!
 }
 
 /** Last column track (details) as a number of pixels. */
 async function detailsTrack(page: Page): Promise<number> {
   const cols = await page.locator('[class*="frame"]').evaluate(
-    (el) => getComputedStyle(el).gridTemplateColumns)
+    el => getComputedStyle(el).gridTemplateColumns)
   return Number(cols.split(' ').pop()!.replace('px', ''))
 }
 
@@ -84,6 +84,39 @@ const notReady = UI_PLUGIN_DIRS.filter((dir) => {
   return !existsSync(bundle) || !readFileSync(bundle, 'utf8').includes('exports.apply')
 })
 if (notReady.length > 0) console.warn(`[smoke-real] skipped — client bundles not ready: ${notReady.join(', ')}`)
+
+describe('dsh web keyless CLI smoke', () => {
+  it('listens on 127.0.0.1 by default', async () => {
+    requireDist()
+    const sessionsDir = mkdtempSync(join(tmpdir(), 'dsh-web-keyless-'))
+    const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
+    const child = spawn(
+      process.execPath,
+      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      {
+        cwd: sessionsDir,
+        env: {
+          ...process.env,
+          DEEPSEEK_API_KEY: 'keyless-web-no-call',
+          TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    try {
+      const readyUrl = await waitForReadyLine(child)
+      expect(readyUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+      expect((await fetch(readyUrl)).status).toBe(200)
+    } finally {
+      const closed = child.exitCode === null
+        ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
+        : Promise.resolve()
+      if (child.exitCode === null) child.kill('SIGTERM')
+      await closed
+      rmSync(sessionsDir, { recursive: true, force: true })
+    }
+  })
+})
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke (real host, real key, W5)', () => {
   let child: ChildProcess
@@ -113,16 +146,16 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     baseUrl = (await waitForReadyLine(child)).replace('0.0.0.0', '127.0.0.1')
     browser = await chromium.launch()
     page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
-    page.on('pageerror', (e) => pageErrors.push(String(e)))
+    page.on('pageerror', e => pageErrors.push(String(e)))
     await page.goto(baseUrl, { waitUntil: 'load' })
   }, 120_000)
 
   afterAll(async () => {
     await browser?.close()
     if (child !== undefined && child.exitCode === null) {
-      const gone = new Promise<void>((resolveExit) => child.once('exit', () => resolveExit()))
+      const gone = new Promise<void>(resolveExit => child.once('exit', () => { resolveExit() }))
       child.kill('SIGTERM')
-      await Promise.race([gone, new Promise((r) => setTimeout(r, 10_000).unref())])
+      await Promise.race([gone, new Promise(r => setTimeout(r, 10_000).unref())])
       if (child.exitCode === null) child.kill('SIGKILL')
     }
     if (sessionsDir !== undefined) rmSync(sessionsDir, { recursive: true, force: true })
@@ -132,7 +165,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     onTestFailed(() => saveFailureShot(page, 'w5-cold-start'))
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     expect(await page.locator('text=Failed to load plugins').count()).toBe(0)
-    const template = await page.locator('[class*="frame"]').evaluate((el) => getComputedStyle(el).gridTemplateColumns)
+    const template = await page.locator('[class*="frame"]').evaluate(el => getComputedStyle(el).gridTemplateColumns)
     expect(template.split(' ').length).toBe(3)
     await screen(page, '01-cold-start')
   })

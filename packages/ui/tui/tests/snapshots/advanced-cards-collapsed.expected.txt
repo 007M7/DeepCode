@@ -1,108 +1,99 @@
-terminal 100x40 buffer=normal length=41 base=1 viewport=1
+terminal 100x40 buffer=normal length=40 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=37 bufferRow=38
+cursor hidden column=1 viewportRow=36 bufferRow=36
 buffer
-0| "╭──────────────────────────────────────────────────────────────────────────────────────────────────╮"
-  style 0-99 fg=bright-blue
-1| "│ DEEPSEEK HARNESS                                                                                 │"
-  style 0-0 fg=bright-blue
-  style 2-9 fg=bright-blue bold
-  style 11-17 bold
-  style 99-99 fg=bright-blue
-2| "│ Snapshot agent ready.                                                                            │"
-  style 0-0 fg=bright-blue
-  style 2-22 fg=bright-black
-  style 99-99 fg=bright-blue
-3| "│ deepseek-v4-flash  •  main-session                                                               │"
-  style 0-0 fg=bright-blue
-  style 2-35 dim
-  style 99-99 fg=bright-blue
-4| "╰──────────────────────────────────────────────────────────────────────────────────────────────────╯"
-  style 0-99 fg=bright-blue
-5| <blank>
-6| "▌ "
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Snapshot agent ready."
+  style 1-21 fg=bright-black
+2| " deepseek-v4-flash  •  main-session"
+  style 1-34 dim
+3| <blank>
+4| "▌ "
   style 0-0 fg=green
-7| "▌ ✓ pnpm run test:coverage                                                                          "
+5| "▌ ✓ pnpm run test:coverage                                                                          "
   style 0-0 fg=green
   style 2-2 fg=green bold
   style 3-25 bold
-8| "▌ Run the coverage gate                                                                             "
+6| "▌ Run the coverage gate                                                                             "
   style 0-0 fg=green
   style 2-22 fg=bright-black
-9| "▌ /workspace/project                                                                                "
+7| "▌ /workspace/project                                                                                "
   style 0-0 fg=green
   style 2-19 dim
-10| "▌ … +4 lines (Ctrl+O to expand)                                                                     "
+8| "▌ … +4 lines (Ctrl+O to expand)                                                                     "
   style 0-0 fg=green
   style 2-30 dim
-11| "▌ [exit 0]                                                                                          "
+9| "▌ [exit 0]                                                                                          "
   style 0-0 fg=green
   style 2-9 dim
+10| "▌ "
+  style 0-0 fg=green
+11| <blank>
 12| "▌ "
   style 0-0 fg=green
-13| <blank>
-14| "▌ "
-  style 0-0 fg=green
-15| "▌ ✓ Edit renderer                                                                                   "
+13| "▌ ✓ Edit renderer                                                                                   "
   style 0-0 fg=green
   style 2-2 fg=green bold
   style 3-16 bold
-16| "▌ src/view.ts                                                                                       "
+14| "▌ src/view.ts                                                                                       "
   style 0-0 fg=green
   style 2-12 bold
-17| "▌ - old line                                                                                        "
+15| "▌ - old line                                                                                        "
   style 0-0 fg=green
   style 2-11 fg=red
-18| "▌ … +5 lines (Ctrl+O to expand)                                                                     "
+16| "▌ … +5 lines (Ctrl+O to expand)                                                                     "
   style 0-0 fg=green
   style 2-30 dim
-19| "▌ + expect(screen).toMatchSnapshot()                                                                "
+17| "▌ + expect(screen).toMatchSnapshot()                                                                "
   style 0-0 fg=green
   style 2-35 fg=green
+18| "▌ "
+  style 0-0 fg=green
+19| <blank>
 20| "▌ "
   style 0-0 fg=green
-21| <blank>
-22| "▌ "
-  style 0-0 fg=green
-23| "▌ ✓ Delegate renderer audit                                                                         "
+21| "▌ ✓ Delegate renderer audit                                                                         "
   style 0-0 fg=green
   style 2-2 fg=green bold
   style 3-26 bold
-24| "▌ The renderer has explicit lifecycle ownership.                                                    "
+22| "▌ The renderer has explicit lifecycle ownership.                                                    "
   style 0-0 fg=green
+23| "▌ "
+  style 0-0 fg=green
+24| <blank>
 25| "▌ "
   style 0-0 fg=green
-26| <blank>
-27| "▌ "
-  style 0-0 fg=green
-28| "▌ ✓ Read output from background task subagent-7                                                     "
+26| "▌ ✓ Read output from background task subagent-7                                                     "
   style 0-0 fg=green
   style 2-2 fg=green bold
   style 3-46 bold
-29| "▌ audit complete                                                                                    "
+27| "▌ audit complete                                                                                    "
   style 0-0 fg=green
-30| "▌ [status: completed]                                                                               "
+28| "▌ [status: completed]                                                                               "
   style 0-0 fg=green
+29| "▌ "
+  style 0-0 fg=green
+30| <blank>
 31| "▌ "
   style 0-0 fg=green
-32| <blank>
-33| "▌ "
-  style 0-0 fg=green
-34| "▌ ✓ Load skill dsh-code-review                                                                      "
+32| "▌ ✓ Load skill dsh-code-review                                                                      "
   style 0-0 fg=green
   style 2-2 fg=green bold
   style 3-29 bold
-35| "▌ Loaded review instructions.                                                                       "
+33| "▌ Loaded review instructions.                                                                       "
   style 0-0 fg=green
-36| "▌ "
+34| "▌ "
   style 0-0 fg=green
+35| "────────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-99 dim
+36| "                                                                                                    "
+  style 1-1 inverse
 37| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-38| "                                                                                                    "
-  style 1-1 inverse
-39| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-40| "/workspace/project  ↑0 ↓0                 0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
-  style 0-24 dim
-  style 42-99 dim
+38| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                             0% context  tools:collapsed"
+  style 0-43 dim
+  style 73-99 dim
+39| <blank>

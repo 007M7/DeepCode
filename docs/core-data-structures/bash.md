@@ -67,8 +67,8 @@ interface BashExecRequest {
    * reject non-`DSH_*` names supplied through this managed channel.
    */
   dshEnv?: DshEnvironment | undefined
-  /** Explicit per-call sandbox mode override. */
-  sandboxMode?: SandboxMode | undefined
+  /** Fully resolved per-call sandbox policy; sandboxing executors default it. */
+  sandboxPolicy?: SandboxExecutionPolicy | undefined
 }
 ```
 
@@ -100,8 +100,8 @@ interface BashExecSpec {
   env?: Record<string, string> | undefined
   /** Managed `DSH_*` snapshot; implementations reject ordinary names. */
   dshEnv?: DshEnvironment | undefined
-  /** Resolved sandbox mode; ignored by executors that do not confine. */
-  sandboxMode: SandboxMode | undefined
+  /** Resolved sandbox policy; ignored by executors that do not confine. */
+  sandboxPolicy: SandboxExecutionPolicy | undefined
 }
 ```
 
@@ -159,7 +159,7 @@ interface CollectedOutput {
 
 ## File sandbox: `BashSandboxInfo`
 
-A sandbox-consuming executor exposes its configured fallback through `BashExecutor.sandboxMode`. The tool layer folds each session's durable `sandbox/mode` override (owned by [`@deepseek-ai/dsh-sandbox-policy`](../../packages/sandbox/sandbox-policy/README.md)) and may replace it for one user-approved strictly wider call. The mode/enforcement vocabulary is owned by the [`@deepseek-ai/dsh-sandbox` seam](sandbox.md); modes govern file effects only.
+A sandbox-consuming executor exposes its configured mode fallback through `BashExecutor.sandboxMode`. The tool layer asks [`@deepseek-ai/dsh-sandbox-policy`](../../packages/sandbox/sandbox-policy/README.md) to resolve each calling session's durable `sandbox/mode` override and immutable cwd into `BashExecRequest.sandboxPolicy`; a user-approved strictly wider call replaces only the mode. The mode/root/enforcement vocabulary is owned by the [`@deepseek-ai/dsh-sandbox` seam](sandbox.md); modes govern file effects only.
 
 A sandboxed run reports its mode, conservative denial classification, and enforcement completeness. `runnerFailed` marks a sandbox runner failure before the command ran; foreground execution throws `SANDBOX_UNAVAILABLE`, while a settled background process has only its facts channel.
 

@@ -27,6 +27,12 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../context/session-reference"
+    },
+    {
       "path": "../../ui/commands"
     },
     {
@@ -46,6 +52,9 @@
     },
     {
       "path": "../../ui/tool-ask-user"
+    },
+    {
+      "path": "../../session-persistence/session-checkpoint-policy"
     },
     {
       "path": "../../session-persistence/session-persistence-jsonl"

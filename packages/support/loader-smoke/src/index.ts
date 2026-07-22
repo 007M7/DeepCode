@@ -138,8 +138,6 @@ export interface LoaderSmokeOptions {
   readonly mode?: ExampleMode
   /** Environment overrides layered over the parent and isolated DSH homes. */
   readonly env?: Readonly<NodeJS.ProcessEnv>
-  /** Lines written to stdin before EOF; omitted means immediate EOF. */
-  readonly stdinLines?: readonly string[]
   /** Process deadline override for harness tests. */
   readonly processTimeoutMs?: number
   /** Optional world-state setup run in the isolated cwd before process start. */
@@ -157,10 +155,10 @@ export interface LoaderSmokeResult {
 }
 
 /**
- * Boot one real Loader tree from an isolated cwd, write the requested stdin
- * script, close stdin, and await a clean exit. The helper owns process kill and
- * temp-directory cleanup on every outcome, and picks src/lib via {@link resolveExampleLaunch}.
- * @param options - example paths, mode, environment, stdin, and diagnostic identity.
+ * Boot one real Loader tree from an isolated cwd, close stdin immediately, and
+ * await a clean exit. The helper owns process kill and temp-directory cleanup on
+ * every outcome, and picks src/lib via {@link resolveExampleLaunch}.
+ * @param options - example paths, mode, environment, and diagnostic identity.
  * @returns captured stdout and stderr after a zero exit.
  */
 export async function runLoaderSmoke(options: LoaderSmokeOptions): Promise<LoaderSmokeResult> {
@@ -220,7 +218,7 @@ export async function runLoaderSmoke(options: LoaderSmokeOptions): Promise<Loade
       })
       /* v8 ignore stop */
 
-      child.stdin.end((options.stdinLines ?? []).map(line => `${line}\n`).join(''))
+      child.stdin.end()
     })
     await options.inspect?.(cwd)
     return result

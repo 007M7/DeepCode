@@ -11,7 +11,8 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
     <encoded-id>.jsonl           # only with compression: 'none'
 ```
 
-- The first logical line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength?, delegationDepth }`. `delegationDepth` is required on disk and is `0` for a top-level session; a missing or invalid value rejects the log. Every subsequent line is one `SessionEvent` JSON, **verbatim including `assistant/chunk`** so `seq` stays contiguous (`events[i].seq === i`).
+- The first logical line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength?, delegationDepth }`. `delegationDepth` is required on disk and is `0` for a top-level session; a missing or invalid value rejects the log. Every subsequent logical line is one storage record; `assistant/chunk` events are never dropped, and `seq` stays contiguous across the decoded log (`events[i].seq === i`).
+- A storage record is a `SessionEvent` JSON verbatim, or — written only under `packChunks` — a **packed chunk row** (`text-chunks` / `reasoning-chunks` / `tool-call-chunks`; bare slash-less tags like the header's `session`, so row tags cannot be confused with event types): one line holding a run of ≥3 consecutive same-block `assistant/chunk` delta events, `seq0`/`time0` plus per-member `dt` gaps reconstructing every member's `seq`/`time` exactly. The lossless codec lives in `@deepseek-ai/dsh-session` (`packChunkRuns`/`decodeStorageRecord`) and whitelists exact shapes — anything unrecognized stores verbatim. Reading is layout-blind: `load` always decodes rows, so packed, unpacked, and mixed files load identically.
 - Session ids are unvalidated branded strings, so they are injectively escaped to a single safe path segment before use (no traversal, no collision).
 
 ## Config
@@ -19,6 +20,7 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 | Key | Type | Notes |
 |---|---|---|
 | `root` | `string` (required) | Root directory for all session files. **No default** — a `process.cwd()` default would scatter files as the process's cwd changes (bash calls, subprocesses). |
+| `packChunks` | `boolean` (default `false`) | Write delta-chunk runs as packed rows (~60% smaller logical logs measured on a real coding session). Off, the written logical layout is byte-identical to the pre-packing format; reading packed rows works regardless of this switch. Off by default while the snapshot goldens stay one-event-per-line — recording with packing on rewrites every fixture `session.jsonl`. |
 | `compression` | `'zstd' \| 'none'` | Defaults to `'zstd'`; `'none'` retains newline-delimited UTF-8 text. |
 
 `locate(meta)` returns `{ kind: 'jsonl', path }` using the resolved absolute root and the same cwd-bucket/id encoding as materialization. It performs no filesystem I/O: the target can be returned before the file exists, and an existing file contains only the last flushed prefix.
@@ -32,7 +34,7 @@ A root belongs to one encoding. Startup discovery and targeted lookup reject the
 ## Durability and crash semantics
 
 - **Lazy materialization.** `create(meta)` writes nothing; on the first `append`, the backend writes and `fsync`s the encoded header and first batch in a temporary file. POSIX publishes it without overwrite via a hard link and `fsync`s the parent directory. Windows publishes it without overwrite via `MoveFileExW(..., MOVEFILE_WRITE_THROUGH)` and creates missing directories through the same write-through pattern. A created-but-never-appended session leaves nothing on disk and is absent from `list`.
-- **Append-only.** Committed events (at or below a flushed `turn/end`) are never rewritten. Subsequent raw batches append lines; compressed batches append one frame. Both paths `fsync`, and a caught write or sync failure rolls the file back to its prior byte length.
+- **Append-only.** Flushed events are never rewritten. Subsequent raw batches append lines; compressed batches append one frame. Both paths `fsync`, and a caught write or sync failure rolls the file back to its prior byte length.
 - **Crash recovery — preserve valid tail work.** `load` validates every complete compressed frame and scans their decompressed JSONL. If the last frame is structurally incomplete, the reader keeps its complete decoded records, truncates from that frame's start, and re-encodes those records with the synthetic tool, step, and turn closers required by the shared [persistence contract](../../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md). Raw mode truncates from its first incomplete line. A checksum/decompression failure in a complete frame, or a defect at or before the last committed `turn/end`, is corruption and rejects.
 - **Contiguous-seq.** `append` rejects a batch whose first `seq` does not continue the stored log, and rejects non-JSON-serializable `event.data` naming the offending event type.
 
@@ -46,7 +48,7 @@ The plugin buffers frozen session events and drains them on flush or disposal. A
 
 #### What the model sees
 
-JSONL storage contributes no live prompt or schema. Loading restores stored surface history and preserves prior request headers for reconstruction; the new loop composes its current envelope. Each unanswered call in an interrupted tail is balanced with the exact error text `Tool call interrupted by a crash; no result was recorded.` Raw `assistant/chunk` records do not duplicate messages.
+JSONL storage contributes no live prompt or schema. Loading restores stored surface history and preserves prior request headers for reconstruction; the new loop composes its current envelope. Recovery balances an assistant request without a durable call with `TOOL_NOT_STARTED`; a durable call without a result becomes `TOOL_OUTCOME_UNKNOWN`, which tells the model to retry only read-only or idempotent work and to verify possible side effects or ask the user. Raw `assistant/chunk` records do not duplicate messages.
 
 #### Token effect
 

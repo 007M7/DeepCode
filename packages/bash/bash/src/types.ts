@@ -4,7 +4,7 @@
  * @module dsh-bash/types
  */
 
-import type { SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxEnforcement, SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 
 /** Namespace prefix reserved for DeepSeek Harness-managed child environment facts. */
 export const DSH_ENV_PREFIX = 'DSH_' as const
@@ -75,8 +75,8 @@ export interface BashExecRequest {
    * reject non-`DSH_*` names supplied through this managed channel.
    */
   dshEnv?: DshEnvironment | undefined
-  /** Explicit per-call sandbox mode override. */
-  sandboxMode?: SandboxMode | undefined
+  /** Fully resolved per-call sandbox policy; sandboxing executors default it. */
+  sandboxPolicy?: SandboxExecutionPolicy | undefined
 }
 
 /**
@@ -106,8 +106,8 @@ export interface BashExecSpec {
   env?: Record<string, string> | undefined
   /** Managed `DSH_*` snapshot; implementations reject ordinary names. */
   dshEnv?: DshEnvironment | undefined
-  /** Resolved sandbox mode; ignored by executors that do not confine. */
-  sandboxMode: SandboxMode | undefined
+  /** Resolved sandbox policy; ignored by executors that do not confine. */
+  sandboxPolicy: SandboxExecutionPolicy | undefined
 }
 
 /** One captured stream: the (possibly truncated) text plus recovery info. */

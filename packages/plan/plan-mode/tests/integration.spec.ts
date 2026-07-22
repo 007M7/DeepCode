@@ -1,0 +1,170 @@
+import { describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import LlmService, { type StreamChunk } from '@deepseek-ai/dsh-llm'
+import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import PlanModeService, { foldPlanMode } from '@deepseek-ai/dsh-plan-mode'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+
+const PLAN_CONFIG = { section: 'Test plan mode instructions.' }
+
+/**
+ * Full-loop integration: a scripted mock model drives the REAL plan-mode plugin
+ * through the agent loop — the pending-intent flush at the turn boundary, the
+ * assembly the soft layer shapes (the exit tool + mode section), and the
+ * `request/header` snapshots every transition leaves.
+ * Only the model is mocked; the loop, the session log, and the plugin are
+ * real.
+ */
+async function harness(adapter: MockAdapter): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(LlmService)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(PlanModeService, PLAN_CONFIG)
+  ctx.llm.registerAdapter(['mock'], adapter)
+  for (const name of ['read', 'write']) {
+    ctx.tools.register(defineTool({
+      name,
+      description: `test tool ${name}`,
+      parameters: {},
+      execute: () => Promise.resolve([{ type: 'text', text: `ran ${name}` }]),
+    }))
+  }
+  return ctx
+}
+
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
+  return new Promise((resolve) => {
+    const dispose = ctx.on('agent/status', (subject, status) => {
+      if (subject === agent && status === 'idle') {
+        dispose()
+        resolve()
+      }
+    })
+  })
+}
+
+function findEvent<T extends SessionEvent['type']>(
+  log: readonly SessionEvent[],
+  type: T,
+  position: 'first' | 'last' = 'first',
+): Extract<SessionEvent, { type: T }> {
+  const found = position === 'first'
+    ? log.find(event => event.type === type)
+    : log.findLast(event => event.type === type)
+  if (!found) throw new Error(`no ${type} event in the session log`)
+  return found as Extract<SessionEvent, { type: T }>
+}
+
+describe('plan mode through the agent loop', () => {
+  it('a pre-turn set() makes the FIRST header plan-shaped, and a non-shell call is guidance-constrained only', async () => {
+    const adapter = new MockAdapter([
+      toolCallResponse('call-1', 'write', {}, 'Writing during plan.'),
+      textResponse('Noted in the plan.'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('it-plan-seed'), { provider: 'mock', model: 'mock' })
+    // Selected while idle (the ACP picker shape): the pending intent flushes at
+    // the first prompt-submit, BEFORE the first assembly.
+    ctx.planMode.set(agent, true)
+
+    agent.send([{ type: 'text', text: 'explore the repo' }])
+    await waitForIdle(ctx, agent)
+
+    const log = agent.session.events
+    const planMode = findEvent(log, 'plan/mode')
+    const header = findEvent(log, 'request/header')
+    expect(planMode.seq).toBeLessThan(header.seq)
+    expect(header.data.reason).toBe('initial')
+    expect(header.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
+    expect(header.data.header.system).toContain('plan mode')
+
+    // No tool gate: the write RUNS — plan restrains by the section's
+    // guidance alone (enforcement lives on the independent sandbox/approval
+    // axes). The mode itself stays plan throughout.
+    const result = findEvent(log, 'tool/result')
+    expect(result.data.isError).toBe(false)
+    expect(foldPlanMode(log)).toBe(true)
+    expect(log.some(event => event.type === 'context/message')).toBe(false)
+  })
+
+  it('a user flip between turns lands at the boundary: one notice and a changed header with stable tool schemas', async () => {
+    const adapter = new MockAdapter([
+      textResponse('First turn, default mode.'),
+      textResponse('Second turn, plan mode.'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('it-plan-flip'), { provider: 'mock', model: 'mock' })
+
+    agent.send([{ type: 'text', text: 'hello' }])
+    await waitForIdle(ctx, agent)
+    expect(foldPlanMode(agent.session.events)).toBe(false)
+    const first = findEvent(agent.session.events, 'request/header')
+    expect(first.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
+
+    ctx.planMode.set(agent, true)
+    agent.send([{ type: 'text', text: 'now plan' }])
+    await waitForIdle(ctx, agent)
+
+    const log = agent.session.events
+    expect(foldPlanMode(log)).toBe(true)
+    const notices = log.filter(event => event.type === 'context/message')
+    expect(notices).toHaveLength(1)
+    expect(findEvent(log, 'context/message').data.content).toEqual([
+      { type: 'text', text: 'The user switched this session to plan mode.' },
+    ])
+    // The changed request is logged as a complete snapshot.
+    const second = findEvent(log, 'request/header', 'last')
+    expect(second.data.reason).toBe('change')
+    expect(second.data.header.tools?.map(tool => tool.name)).toEqual(['exit_plan_mode', 'read', 'write'])
+    expect(second.data.header.tools).toEqual(first.data.header.tools)
+    expect(second.data.header.system).toContain('plan mode')
+  })
+
+  it('a mode flip during request recovery shapes the retry before its assembly', async () => {
+    const failedRequest = [{
+      type: 'finish',
+      reason: { kind: 'error', failure: { message: 'temporarily unavailable', code: 'SERVER', status: 503 } },
+    }] satisfies StreamChunk[]
+    const adapter = new MockAdapter([failedRequest, textResponse('Recovered in plan mode.')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('it-plan-retry-flip'), { provider: 'mock', model: 'mock' })
+    const recoveryEntered = Promise.withResolvers<true>()
+    const releaseRecovery = Promise.withResolvers<true>()
+    ctx.on('agent/request-error', async (subject, _turn, _step, _error, _failure, _history, _signal, next) => {
+      if (subject !== agent) return next()
+      recoveryEntered.resolve(true)
+      await releaseRecovery.promise
+      return { action: 'retry' }
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    agent.send([{ type: 'text', text: 'plan after the transient failure' }])
+    await recoveryEntered.promise
+    ctx.planMode.set(agent, true)
+    releaseRecovery.resolve(true)
+    await idle
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(adapter.requests[0]?.system).not.toContain(PLAN_CONFIG.section)
+    expect(adapter.requests[1]?.system).toContain(PLAN_CONFIG.section)
+    expect(adapter.requests[1]?.tools).toEqual(adapter.requests[0]?.tools)
+    const log = agent.session.events
+    const planMode = findEvent(log, 'plan/mode')
+    const firstEnd = log.find(event => event.type === 'step/end' && event.data.step === 1)
+    const retryStart = log.find(event => event.type === 'step/start' && event.data.step === 2)
+    expect(firstEnd?.seq).toBeLessThan(planMode.seq)
+    expect(planMode.seq).toBeLessThan(retryStart?.seq ?? 0)
+    expect(findEvent(log, 'request/header', 'last').data.header.system).toContain(PLAN_CONFIG.section)
+    expect(findEvent(log, 'context/message').data.content).toEqual([
+      { type: 'text', text: 'The user switched this session to plan mode.' },
+    ])
+  })
+})

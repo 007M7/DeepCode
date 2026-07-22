@@ -28,6 +28,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts whose packages contribute serv
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | singleton replay-aware request/surface pressure |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
+| `ctx.pty` | [`pty/`](../packages/pty/README.md) | owner-scoped persistent terminal sessions |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement (argv wrapping, per-call policy) |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
@@ -37,6 +38,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts whose packages contribute serv
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
 | `ctx.compact`, `ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | summary compaction; optional model-free result pruning |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
+| `ctx.planMode` | [`plan/`](../packages/plan/README.md) | logged plan collaboration state |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry + generic `task_*` control tools |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
@@ -61,7 +63,7 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 ## Default Loop Lifecycle
 
-The shipped loop drains prompt-to-checkpoint work through plugin-visible services and events.
+The shipped loop runs prompt-to-checkpoint work through plugin services and events.
 
 A **session** is append-only. Each ordinary **turn** claims one queued `send()` item; injection claims none. A successor awaits the preceding claimed turn's checkpoint but may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)). A turn ends when model and plugins stop it; a **step** is one model request plus tools. In the [sequence below](agent-lifecycle.md), quotes mark durable events.
 
@@ -79,17 +81,17 @@ forever:
   emit agent/status(running)
   TURN:
     'turn/start'
-    claimed message -> agent/prompt-submit
-      allowed prompt -> 'user/message' plus injected context
+    claimed message + contexts -> agent/prompt-submit
+      allowed prompt -> 'user/message' with prompt-prefix context baked in; append separate contexts
       blocked prompt -> 'prompt/blocked' -> 'turn/end'(rejected)
     STEP loop:
-      drain steering
+      drain steering with the same prefix/separate context placement (no prompt-submit)
       assemble system prompt and tool schemas
       agent/session-prefix (first step)
       agent/pre-step
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> log request/header -> llm/stream (frozen)
+      agent/request (config only) -> log request/header -> checkpoint -> llm/stream (frozen)
       on final adapter-path or terminal in-band failure:
         'step/end'
         agent/request-error(original error, failure facts, immutable prior failures, signal)
@@ -101,10 +103,10 @@ forever:
         schedule tool calls by ctx.tools.executionMode:
           exclusive -> one-call barrier
           parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
-          each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+          each start -> 'tool/call' -> ordered tools/pre-execute -> checkpoint -> concurrent tools/execute
           each model-order result -> ordered tools/post-execute -> 'tool/result'
         append accepted tool-batch context after all recorded results, then steering
-        agent/post-step
+        agent/post-step -> checkpoint complete response/results
         'step/end'
         agent/turn-continuation
         agent/turn-stop (terminal policy)
@@ -121,11 +123,11 @@ Pruning precedes summaries; overflow retries require durable progress. Bounded t
 
 ### Failure Boundaries
 
-The turn contains failures. Adapter failures close the step before `agent/request-error`, which receives exact `Error`, `LlmFailure`, and history. Retry opens another step; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit no message/tool.
+Adapter failures close the step before `agent/request-error` with exact `Error`, `LlmFailure`, and history. Retry opens another step; success clears history; exhaustion stores failure on `turn/end`. Failed chunks commit no message/tool.
 
 Other failures use `agent/error`. Cancellation and disposal beat recovery; undispatched tool calls get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. The turn signal retires before `turn/end`. Effective `cancel()` emits its typed cause before clearing queues and aborting; observers cannot veto, idle calls emit nothing, and durability records `aborted`. Disposal awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
-Every session event is turn-enclosed. Reloading preserves an interrupted tail and closes it with a synthetic `interrupted` turn end. Failures after durable turn close report only through `agent/error` because no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
+Session events are turn-enclosed. Reload closes an interrupted tail with a synthetic `interrupted` turn end. Post-close failures report only through `agent/error`; no safe in-turn position remains. Each turn has one `TurnEndReason`; [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) owns the variants.
 
 ### Agent Handles
 
@@ -143,7 +145,7 @@ The session log is authoritative. `deriveMessages()` projects model history; raw
 
 **Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, and headers by folding `request/header` — and the package-owned `dsh-agent-loop/invariant` can assert it through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
-Durability is a plugin concern. Backends buffer synchronous `session/event` notifications; the loop awaits a turn-end checkpoint. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, with SQLite under one contract.
+Durability is a plugin concern. Backends buffer synchronous `session/event` notifications. The semantic checkpoint policy drains requests before adapter dispatch, recorded top-level calls before tool dispatch, and complete response/result batches at `agent/post-step`; the loop retains the final turn-end checkpoint. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, with SQLite under one contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
 
 `ctx.sessions.appendOutOfBand()` joins plugin-owned log-only events to an open turn or creates a balanced, flushed zero-step turn. `session/title` folds latest-wins with source seqs and provenance; its immediate fallback and sole optional async provider never delay the agent response. Forks inherit titles ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
 
@@ -176,6 +178,7 @@ New behavior attaches to a documented extension point; a loop change updates thi
 | Add a model provider | register an adapter on `ctx.llm` |
 | Add a model-facing capability | register on `ctx.tools`; schemas enter prompt assembly |
 | Add shell execution | implement and register a `ctx.bash` backend |
+| Add persistent terminal execution | register a `ctx.pty` backend and `dsh-tool-pty` |
 | Add a human command | register on `ctx.commands`; adapters discover and dispatch it without a model turn |
 | Add background work | register on `ctx.tasks`; generic `task_*` tools collect or stop it |
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen on `fs/*` policy events |

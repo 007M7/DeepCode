@@ -79,7 +79,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:289`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:319`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:351`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:307`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:320`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:350`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:382`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -151,7 +151,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:232`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -167,7 +167,7 @@ Source: [`packages/core/session/src/types.ts:232`](../packages/core/session/src/
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:239`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:270`](../packages/core/session/src/types.ts)
 
 ### `compact/*`
 
@@ -246,7 +246,7 @@ Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
 
 ### `hook/*`
 
@@ -328,6 +328,21 @@ Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src
 
 Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src/index.ts)
 
+### `plan/*`
+
+#### `plan/mode` — log-only
+
+```ts persistence-catalog
+/**
+ * Whether plan mode is in force from this point on: log-only, non-surface,
+ * whole-value replace. The last `plan/mode` wins; a log with none folds to
+ * inactive through {@link foldPlanMode}.
+ */
+'plan/mode': { active: boolean }
+```
+
+Source: [`packages/plan/plan-mode/src/index.ts:40`](../packages/plan/plan-mode/src/index.ts)
+
 ### `prompt/*`
 
 #### `prompt/blocked` — log-only
@@ -342,7 +357,7 @@ Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:214`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
 
 ### `request/*`
 
@@ -356,7 +371,7 @@ Source: [`packages/core/session/src/types.ts:214`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:295`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -390,7 +405,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [SessionTitleEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:95`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:96`](../packages/session-title/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 
@@ -409,12 +424,10 @@ Source: [`packages/session-title/session-title-llm/src/index.ts:44`](../packages
 
 ```ts persistence-catalog
 /** Steering content injected between steps of a running turn. */
-'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
+'steering/message': PromptMessageData & { turn: number }
 ```
 
-Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
-
-Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:288`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -425,7 +438,7 @@ Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:207`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -434,7 +447,7 @@ Source: [`packages/core/session/src/types.ts:207`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:205`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:236`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -447,7 +460,7 @@ Source: [`packages/core/session/src/types.ts:205`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:259`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:290`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -464,7 +477,7 @@ Source: [`packages/core/session/src/types.ts:259`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -508,7 +521,7 @@ Source: [`packages/core/tools/src/code-mode.ts:34`](../packages/core/tools/src/c
 
 Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:255`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:286`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -526,7 +539,7 @@ Source: [`packages/core/session/src/types.ts:255`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:203`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:234`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -542,7 +555,7 @@ Source: [`packages/core/session/src/types.ts:203`](../packages/core/session/src/
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:196`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:227`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -550,9 +563,7 @@ Source: [`packages/core/session/src/types.ts:196`](../packages/core/session/src/
 
 ```ts persistence-catalog
 /** A user-visible prompt (the queued message claimed for this turn). */
-'user/message': { content: ContentBlock[]; source: MessageSource }
+'user/message': PromptMessageData
 ```
 
-Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
-
-Source: [`packages/core/session/src/types.ts:209`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:240`](../packages/core/session/src/types.ts)
