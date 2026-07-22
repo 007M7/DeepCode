@@ -1,4 +1,6 @@
 {
+  // Host aggregate. packages/client type-checks in tsconfig.client.json: the two
+  // sides merge cordis Context under the same keys, one program cannot see both.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
@@ -12,6 +14,10 @@
     "scripts/**/*.ts",
     "website/**/*.ts",
     "website/.vitepress/**/*.ts"
+  ],
+  "exclude": [
+    "packages/client/**",
+    "scripts/client-bundle-purity.spec.ts"
   ],
   "references": [
     { "path": "./vendor/cosmokit" },
@@ -122,6 +128,9 @@
     { "path": "./packages/hooks/hooks-claude" },
     { "path": "./packages/hooks/hooks-codex" },
     { "path": "./packages/mcp/mcp-client" },
+    { "path": "./packages/host/apiproxy" },
+    { "path": "./packages/host/runtime" },
+    { "path": "./packages/host/webserver" },
     { "path": "./packages/sdk/helper" },
     { "path": "./packages/sdk/scripts" },
     { "path": "./packages/sdk/create-sdk" },

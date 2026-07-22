@@ -20,6 +20,8 @@ type Mode =
   | 'ci-windows-complete'
   | 'ci-windows-observational'
   | 'node-compat'
+  | 'pre-push'
+  | 'manual-push'
   | 'doc-sync'
 type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
 
@@ -95,20 +97,22 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-windows-complete':
     case 'ci-windows-observational':
     case 'node-compat':
+    case 'pre-push':
+    case 'manual-push':
     case 'doc-sync':
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | pre-push | manual-push | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
 
 function defaultConcurrency(selectedMode: Mode, total: number): ConcurrencyDefault {
   const available = availableParallelism()
-  // The local doc mode caps workers: several gates each build a full ts.Program,
+  // Local modes cap workers: several doc gates each build a full ts.Program,
   // so an uncapped default on a large host trades wall clock for memory blowups.
-  const localCap = selectedMode === 'doc-sync'
+  const localCap = selectedMode === 'pre-push' || selectedMode === 'doc-sync'
   const modeLimit = localCap ? Math.min(4, available) : available
   return {
     workers: Math.min(total, modeLimit),
@@ -186,6 +190,24 @@ function gatesForMode(selected: Mode): Gate[] {
       return ciWindowsObservationalGates()
     case 'node-compat':
       return nodeCompatGates()
+    case 'pre-push': return []
+    case 'manual-push':
+      return [
+        pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
+        pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
+        pnpmScript('client-domain-graph', 'verify-client-domain-graph', { label: 'client domain graph' }),
+        pnpmScript('test', 'test'),
+        pnpmScript('duplication', 'duplication'),
+        snapshotGate(),
+        pnpmScript('build', 'build'),
+        pnpmScript('build:web', 'build:web'),
+        ...hygieneLeafGates({ artifactNeeds: ['build'] }),
+        ...docSyncLeafGates({
+          docTypecheckNeeds: ['build'],
+          docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+        }),
+        pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
+      ]
     case 'doc-sync':
       return docSyncLeafGates()
   }
@@ -361,8 +383,8 @@ function coverageGate(): Gate {
 }
 
 // The snapshot suite boots the example bins in `lib` mode (built artifact under plain Node,
-// plugins via real exports). CI pairs it with `build`, so it exercises what ships rather than
-// the tsx/source path dev uses and therefore waits on `build`.
+// plugins via real exports) — CI and pre-push already build, so they exercise what ships rather
+// than the tsx/source path dev uses. It therefore waits on `build`.
 function snapshotGate(): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
     env: { DSH_EXAMPLE_MODE: 'lib' },
@@ -392,6 +414,21 @@ function flagEnabled(envName: string): boolean {
   if (raw === undefined || raw === '') return false
   if (raw !== '1') throw new Error(`run-gates: ${envName} must be 1 when set, got ${JSON.stringify(raw)}.`)
   return true
+}
+
+function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
+  const artifactOptions = options.artifactNeeds === undefined ? {} : { needs: options.artifactNeeds }
+  return [
+    pnpmScript('knip', 'knip'),
+    pnpmScript('publint', 'publint', artifactOptions),
+    pnpmScript('constraints', 'constraints'),
+    pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
+    builtPackageInvariantsGate(options.artifactNeeds),
+    pnpmScript('node-next-types', 'verify-node-next-types', {
+      label: 'node-next types',
+      ...artifactOptions,
+    }),
+  ]
 }
 
 function docSyncLeafGates(options: {
