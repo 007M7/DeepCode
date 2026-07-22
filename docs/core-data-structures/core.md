@@ -1,5 +1,7 @@
 # Core Data Structures
 
+English | [中文](core.zh.md)
+
 This folder catalogs the **data structures** of the DeepSeek Harness — what each core type represents, its literal shape, and where the full detail lives. It complements [architecture.md](../architecture.md), which describes *behavior* (the service map, the session/turn/step lifecycle, the event taxonomy); this page describes the *vocabulary* that behavior moves around.
 
 ## What counts as "core"
