@@ -849,6 +849,7 @@ jobs:
         env:
           DSH_COVERAGE_MAX_WORKERS: ${{ matrix.workers }}
           DSH_ESLINT_CACHE: '1'
+          DSH_ESLINT_CONCURRENCY: ${{ matrix.workers }}
           DSH_GATE_CONCURRENCY: ${{ matrix.workers }}
           DSH_PUBLINT_CONCURRENCY: ${{ matrix.workers }}
           DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ matrix.workers }}
