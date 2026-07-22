@@ -182,7 +182,7 @@ export class DeepSeekAdapter extends LlmAdapter {
       ...options.sessionId !== undefined
         ? { 'x-deepseek-harness-session-id': String(options.sessionId) }
         : {},
-      ...options.compact === true
+      ...options.purpose === 'compaction'
         ? { 'x-deepseek-harness-compact': '1' }
         : {},
     }

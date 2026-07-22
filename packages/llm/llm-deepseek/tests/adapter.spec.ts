@@ -129,7 +129,6 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(server.headers[0]).not.toHaveProperty('http-referer')
     expect(server.headers[0]).not.toHaveProperty('x-openrouter-title')
     expect(server.headers[0]).not.toHaveProperty('x-openrouter-categories')
-    // A conversation request carries no compaction marker.
     expect(server.headers[0]).not.toHaveProperty('x-deepseek-harness-compact')
   })
 
@@ -168,7 +167,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     await assemble(ctx, {
       model: 'deepseek-v4-flash',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-      compact: true,
+      purpose: 'compaction',
     })
 
     expect(server.headers[0]?.['x-deepseek-harness-compact']).toBe('1')

@@ -227,10 +227,9 @@ export interface GenerateOptions {
    */
   sessionId?: Branded<'SessionId'>
   /**
-   * Marks the auxiliary compaction (summarization) call. The DeepSeek adapter
-   * forwards it as the `x-deepseek-harness-compact: 1` request header so the
-   * host can separate compaction traffic from conversation requests; it never
-   * enters the model-visible request body. Loop-built requests leave it unset.
+   * Provider-neutral classification for an auxiliary model call. Adapters may
+   * map the purpose to model-hidden transport metadata. Ordinary conversation
+   * requests leave it unset.
    */
-  compact?: boolean
+  purpose?: 'compaction'
 }
