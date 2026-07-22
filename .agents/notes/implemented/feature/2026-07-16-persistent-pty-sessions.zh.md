@@ -72,7 +72,7 @@ ACP 渲染契约精确且不携带位置信息。`terminal_send` 只为前台发
 
 ### 本地就绪检测
 
-本地后端先识别受控 bash 启动时发出的私有 OSC prompt marker，并且只有在该 marker 后出现可打印的 prompt 文本时才据此声明 prompt 就绪；除此之外，它还运行 3 个有界 fallback 层级。在 data callback 之间保留这项状态，可以适配 macOS 分开交付 OSC marker 与 `PS1` 的情况；单独的 marker 不会发布空 MOTD。marker 在输出到达模型前被移除，使两个平台上的普通 shell 命令都无需固定等待静默阈值。尚未发布的 startup 不会把零输出静默视为就绪；timeout 会拒绝 spawn。所有时间参数都是经校验的配置字段：`pollIntervalMs`、`exactProbeAfterMs`、`idleSilenceMs` 和 `timeoutMs`。
+本地后端先识别受控 bash 启动时发出的私有 OSC prompt marker，并且只有在该 marker 后出现可打印的 prompt 文本时才据此声明 prompt 就绪；除此之外，它还运行 3 个有界 fallback 层级。在 data callback 之间保留这项状态，可以适配 macOS 分开交付 OSC marker 与 `PS1` 的情况；单独的 marker 不会发布空 MOTD。marker 在输出到达模型前被移除，使两个平台上的普通 shell 命令都无需固定等待静默阈值。尚未发布的 startup 不会把零输出静默视为就绪；timeout 会拒绝 spawn。若调用方取消在 startup 期间胜出，后端会关闭私有会话并原样抛出 `AbortSignal.reason`；尚不可观察的前台 PGID 不会再用查找错误覆盖取消原因。所有时间参数都是经校验的配置字段：`pollIntervalMs`、`exactProbeAfterMs`、`idleSilenceMs` 和 `timeoutMs`。
 
 在 Linux 上，检查器从 `/proc/<shellPid>/stat` 读取 shell 的终端前台 PGID，枚举该进程组中的每个进程与线程，并检查它们当前的 syscall。Tier 1 只有观察到 stdin 等待才返回正结果：直接 `read(0)`、获准读取且含 fd 0 的 `select`/`pselect6` 或 `poll`/`ppoll` 参数，或者含 fd 0 的 epoll interest list。无法读取的进程内存和未识别的 syscall 都是 miss，绝不作为正向猜测。架构表只包含对应 Linux UAPI 定义的 syscall number；不支持的架构跳过 Tier 1。
 
@@ -90,9 +90,9 @@ Tier 2 在持续 `idleSilenceMs` 没有输出后返回 `inferred_idle`，因此 
 
 ### 进程树 teardown
 
-顶层 `node-pty` 子进程是所有权锚点。关闭时，后端先停止 callback，再按父 PID 以子进程优先顺序捕获其传递子进程、发送 `SIGTERM` 并等待，然后重新扫描关停期间 fork 出的子进程，向剩余子孙进程树发送 `SIGKILL`，并在 shell 仍存活、可以回收这些进程时，验证每个子孙进程都已离开进程表。完成这些步骤后，后端才用 shell 自身的 TERM、宽限等待、KILL 序列停止 shell。每个捕获的 PID 都包含进程启动身份，避免 PID 复用把升级信号发给无关进程。
+顶层 `node-pty` 子进程是所有权锚点。关闭时，后端先停止 callback，再按父 PID 以子进程优先顺序捕获其传递子进程、发送 `SIGTERM` 并等待，然后重新扫描关停期间 fork 出的子进程，向剩余子孙进程树发送 `SIGKILL`，并在 shell 仍存活时验证每个非僵尸子孙进程都已离开进程表。身份匹配的 Linux 僵尸进程已无可执行工作，因此视为静止；shell 关闭时会回收它或将其重新挂接给负责回收的父进程。完成这些步骤后，后端才用 shell 自身的 TERM、宽限等待、KILL 序列停止 shell。每个捕获的 PID 都包含进程启动身份，避免 PID 复用把升级信号发给无关进程。
 
-teardown 独立报告根进程退出与存活进程清理。它不会只因 shell 退出就声称成功；dispose 只有在已捕获的进程树成员全部消失后才完成，否则返回清理失败并列出存活者。失败的 close 不会永久缓存：注册表与本地会话会保留关闭围栏，但在外部存活进程状态改变后允许后续 close 重试。即使某个 close 失败，服务 dispose 仍会清空其后端、预留与 owner detacher 注册表。所有权绝不会扩大到根 PID 所属 POSIX 会话的全部成员。
+teardown 独立报告根进程退出与存活进程清理。它不会只因 shell 退出就声称成功；dispose 只有在已捕获的进程树中不再存在非静止成员后才完成，否则返回清理失败并列出存活者。失败的 close 不会永久缓存：注册表与本地会话会保留关闭围栏，但在外部存活进程状态改变后允许后续 close 重试。即使某个 close 失败，服务 dispose 仍会清空其后端、预留与 owner detacher 注册表。所有权绝不会扩大到根 PID 所属 POSIX 会话的全部成员。
 
 ### 组合与推行
 
@@ -153,7 +153,7 @@ plugins:
 ## 验证
 
 - 每文件覆盖率固定 owner 隔离、并发预留、沙箱模式变更拒绝、可重试的生命周期清理、就绪层级、sanitizer carry state、完整 UTF-8 结果上限、task 集成、schema 和精确 render intent。
-- Linux 进程 fixture 覆盖非 leader 与非主线程的 stdin 等待、不可读进程状态、受支持的 syscall 表、不支持的架构和误报拒绝；同一单元测试套件通过注入覆盖 macOS 检查器逻辑。
+- Linux 进程 fixture 覆盖非 leader 与非主线程的 stdin 等待、僵尸进程静止性、不可读进程状态、受支持的 syscall 表、不支持的架构和误报拒绝；同一单元测试套件通过注入覆盖 macOS 检查器逻辑。
 - 真实 `node-pty` 测试在受支持宿主上覆盖 shell 状态、共享沙箱策略、环境清洗、raw mode 下的前台 `SIGINT`、忽略 `SIGTERM` 的子进程，以及 dispose 返回后立即静默。
 - Loader 驱动的 `cordis.yml` 测试挂载真实三包组合；ACP 与 headless 快照通过 opt-in overlay 固定 6 个 schema、有界结果、错误渲染和 terminal/generic card。
 - 包契约、架构图、核心数据结构、生成目录和 website API 描述同一个已发布接口。

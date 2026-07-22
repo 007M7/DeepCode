@@ -186,6 +186,9 @@ export class LocalPtySession implements PtyBackendSession {
       if (result.waitReason === 'session_exit') throw new Error('PTY shell exited during startup')
       if (result.waitReason === 'timeout') throw new Error('PTY shell did not reach readiness before startup timeout')
       this.motd = result.viewport
+    } catch (error: unknown) {
+      signal?.throwIfAborted()
+      throw error
     } finally {
       this.initializing = false
     }

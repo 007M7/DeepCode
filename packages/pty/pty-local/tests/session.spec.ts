@@ -254,6 +254,21 @@ describe('LocalPtySession readiness and output', () => {
     await timedOut
   })
 
+  it('preserves the caller abort reason when startup cannot resolve a foreground group', async () => {
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    inspector.pgid = undefined
+    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    const controller = new AbortController()
+    const reason = new Error('startup cancelled')
+
+    const initializing = session.initialize(controller.signal)
+    const rejected = expect(initializing).rejects.toBe(reason)
+    controller.abort(reason)
+
+    await rejected
+  })
+
   it('waits for printable prompt text when the startup marker is split from PS1', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
