@@ -6,7 +6,7 @@
  */
 
 import type { ServerResponse } from 'node:http'
-import { extname, join, normalize, resolve } from 'node:path'
+import { extname, join, normalize, resolve, sep } from 'node:path'
 import { readFile } from 'node:fs/promises'
 
 const MIME: Record<string, string> = {
@@ -32,8 +32,10 @@ export async function serveStatic(
   renderIndex?: () => Promise<string>,
 ): Promise<void> {
   const target = resolve(normalize(join(distRoot, pathname)))
-  // Traversal rejection: the target must be distRoot itself (`/`) or stay under it.
-  if (target !== distRoot && !target.startsWith(distRoot + '/')) {
+  // Traversal rejection: the target must be distRoot itself (`/`) or stay under
+  // it. `sep`, not '/': resolve() emits backslash paths on Windows, where a '/'
+  // suffix would reject every legitimate subpath as traversal.
+  if (target !== distRoot && !target.startsWith(distRoot + sep)) {
     res.writeHead(403)
     res.end()
     return
