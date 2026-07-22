@@ -940,6 +940,14 @@ function sessionTokens(session: Session): SessionTokenTotals {
   return totals
 }
 
+function formatDiagnosticNumber(value: number): string {
+  return value.toLocaleString('en-US')
+}
+
+function formatDiagnosticTime(value: number): string {
+  return new Date(value).toISOString()
+}
+
 class FooterComponent implements Component {
   constructor(
     private readonly agent: Agent,
@@ -1953,6 +1961,44 @@ export function createTuiChat(
     requestRender()
   }
 
+  const showStatus = (): void => {
+    const events = agent.session.events
+    const latestActivity = events.at(-1)?.time ?? agent.session.header.createdAt
+    const usedContext = Math.max(0, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens))
+    const context = contextWindow === undefined
+      ? `${formatDiagnosticNumber(usedContext)} used · capacity unknown`
+      : `${formatDiagnosticNumber(usedContext)} / ${formatDiagnosticNumber(contextWindow)} (${String(Math.round(usedContext / contextWindow * 100))}%)`
+    const rate = cacheHitRate(tokens)
+    const rows = [
+      ['Session', agent.session.id],
+      ['Title', sessionTitle ?? 'untitled'],
+      ['Working dir', cwd],
+      ['Model', target.current === undefined ? 'unset' : targetLabel(target.current)],
+      ['Reasoning view', showReasoning ? 'shown' : 'hidden'],
+      ['Agent', agent.status],
+      ['Activity', [
+        `events ${String(events.length)}`,
+        `turns ${String(events.filter(event => event.type === 'turn/start').length)}`,
+        `steps ${String(events.filter(event => event.type === 'step/start').length)}`,
+        `tool calls ${String(events.filter(event => event.type === 'tool/call').length)}`,
+      ].join(' · ')],
+      ['Tokens', `input ${formatDiagnosticNumber(tokens.input)} · output ${formatDiagnosticNumber(tokens.output)}`],
+      ['Cache tokens', `read ${formatDiagnosticNumber(tokens.cacheRead)} · write ${formatDiagnosticNumber(tokens.cacheWrite)}`],
+      ['KV cache hit', rate === undefined ? 'n/a' : `${String(rate)}%`],
+      ['Context', context],
+      ['Created', formatDiagnosticTime(agent.session.header.createdAt)],
+      ['Last active', formatDiagnosticTime(latestActivity)],
+    ] as const
+    const labelWidth = Math.max(...rows.map(([label]) => label.length))
+    const card = new GutterBox(text => palette.accent(text), 0)
+    card.addChild(new Text(palette.bold(palette.accent('Session diagnostics')), 0, 0))
+    card.addChild(new Text(rows.map(([label, value]) =>
+      `${palette.muted(label.padEnd(labelWidth))}  ${displayText(value)}`).join('\n'), 0, 0))
+    chat.addChild(new Spacer(1))
+    chat.addChild(card)
+    requestRender()
+  }
+
   // Skill listing is async while `createTuiChat` is synchronous, so the
   // completions rebuild once the catalog resolves. Disabled-for-model skills
   // are absent from `list()`, so they never appear as completions; a user can
@@ -2040,6 +2086,11 @@ export function createTuiChat(
       name: 'resume',
       description: 'List this workspace\'s resumable sessions',
       handler: () => { showResume(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'status',
+      description: 'Show detailed session diagnostics',
+      handler: () => { showStatus(); return { kind: 'success' } },
     })
     commandCtx.commands.register({
       name: 'exit',

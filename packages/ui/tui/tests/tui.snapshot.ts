@@ -1,7 +1,7 @@
 import { mkdir, readdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import { CallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -48,6 +48,7 @@ const CHECKPOINTS = [
   'errors-and-help',
   'disposed-terminal',
   'resume-sessions',
+  'status-diagnostics',
 ] as const
 
 type Checkpoint = typeof CHECKPOINTS[number]
@@ -636,6 +637,43 @@ describe('TUI terminal-state snapshots', () => {
     await harness.terminal.flush()
     await checkpoint('resume-sessions', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
+  })
+
+  it('pins the detailed session diagnostics card', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-22T09:10:11.000Z'))
+    const harness = await setupSnapshot({
+      contextWindow: 128_000,
+      contextTokens: 42_000,
+      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+      beforeMount(session) {
+        appendUser(session, 'inspect this session')
+        appendAssistant(session, [{ type: 'text', text: 'Session inspected.' }], {
+          inputTokens: 1_250,
+          outputTokens: 340,
+          cacheReadTokens: 3_000,
+          cacheWriteTokens: 250,
+        })
+        session.append('tool/call', {
+          turn: 1,
+          step: 1,
+          callId: CallId('status-call'),
+          name: 'read',
+          arguments: '{"path":"README.md"}',
+        })
+        session.append('session/title', {
+          title: 'Inspect session diagnostics',
+          messageSeqs: [1],
+          source: { kind: 'fallback' },
+        })
+      },
+    }, { columns: 92, rows: 32 })
+    await renderAfter(harness, () => {
+      harness.terminal.send('/status')
+      harness.terminal.send('\r')
+    })
+    await checkpoint('status-diagnostics', harness.terminal, { includeScrollback: true })
+    await disposeSnapshot(harness)
+    dateNow.mockRestore()
   })
 })
 

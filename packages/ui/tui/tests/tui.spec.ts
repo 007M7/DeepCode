@@ -845,6 +845,92 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
+  it('shows detailed session diagnostics while the agent is running', async () => {
+    const timestamp = Date.parse('2026-07-22T09:10:11.000Z')
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(timestamp)
+    const result = await setup({
+      cwd: '/workspace/status',
+      contextWindow: 128_000,
+      contextTokens: 42_000,
+      config: { showReasoning: false },
+      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+      beforeMount(session) {
+        session.append('session/title', {
+          title: 'Inspect status \u001B]2;unsafe\u0007',
+          messageSeqs: [1],
+          source: { kind: 'fallback' },
+        })
+        appendAssistant(session, [{ type: 'text', text: 'measured' }], {
+          inputTokens: 1_250,
+          outputTokens: 340,
+          cacheReadTokens: 3_000,
+          cacheWriteTokens: 250,
+        })
+        session.append('tool/call', {
+          turn: 1, step: 1, callId: 'status-call-1' as never, name: 'read', arguments: '{}',
+        })
+        session.append('tool/call', {
+          turn: 1, step: 1, callId: 'status-call-2' as never, name: 'write', arguments: '{}',
+        })
+      },
+    })
+    result.agent.status = 'running'
+    agentEvents(result.ctx, result.agent).emit('agent/status', 'running')
+    result.terminal.send('/status')
+    result.terminal.send('\r')
+    await tick()
+
+    expect(result.terminal.output).toContain('Session diagnostics')
+    expect(result.terminal.output).toContain('Session         main-session')
+    expect(result.terminal.output).toContain('Title           Inspect status \\x1b]2;unsafe\\x07')
+    expect(result.terminal.output).toContain('Working dir     /workspace/status')
+    expect(result.terminal.output).toContain('Model           deepseek/deepseek-v4-pro')
+    expect(result.terminal.output).toContain('Reasoning view  hidden')
+    expect(result.terminal.output).toContain('Agent           running')
+    expect(result.terminal.output).toContain('Activity        events 6 · turns 1 · steps 1 · tool calls 2')
+    expect(result.terminal.output).toContain('Tokens          input 1,250 · output 340')
+    expect(result.terminal.output).toContain('Cache tokens    read 3,000 · write 250')
+    expect(result.terminal.output).toContain('KV cache hit    67%')
+    expect(result.terminal.output).toContain('Context         42,000 / 128,000 (33%)')
+    expect(result.terminal.output).toContain('Created         2026-07-22T09:10:11.000Z')
+    expect(result.terminal.output).toContain('Last active     2026-07-22T09:10:11.000Z')
+    expect(result.terminal.output).not.toContain('\u001B]2;unsafe\u0007')
+
+    await dispose(result)
+    dateNow.mockRestore()
+  })
+
+  it('labels unavailable status diagnostics without inventing values', async () => {
+    const timestamp = Date.parse('2026-07-22T10:11:12.000Z')
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(timestamp)
+    const result = await setup({
+      cwd: null,
+      omitInitialLifecycle: true,
+      contextTokens: 7,
+      agentOptions: {},
+      catalog: {
+        providers: [],
+        models: [],
+        resolveModelContext: () => Promise.resolve(undefined),
+      },
+    })
+    result.terminal.send('/status')
+    result.terminal.send('\r')
+    await tick()
+
+    expect(result.terminal.output).toContain('Title           untitled')
+    expect(result.terminal.output).toContain('Model           unset')
+    expect(result.terminal.output).toContain('Reasoning view  shown')
+    expect(result.terminal.output).toContain('Agent           idle')
+    expect(result.terminal.output).toContain('Activity        events 0 · turns 0 · steps 0 · tool calls 0')
+    expect(result.terminal.output).toContain('KV cache hit    n/a')
+    expect(result.terminal.output).toContain('Context         7 used · capacity unknown')
+    expect(result.terminal.output).toContain('Created         2026-07-22T10:11:12.000Z')
+    expect(result.terminal.output).toContain('Last active     2026-07-22T10:11:12.000Z')
+    await dispose(result)
+    dateNow.mockRestore()
+  })
+
   it('sends, steers, handles commands, global keys, and disposed-agent input', async () => {
     const result = await setup()
 
