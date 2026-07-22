@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { chmod, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile, mkdir, readdir, realpath } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rename, rm, stat, symlink, unlink, writeFile, mkdir, readdir, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:net'
@@ -23,6 +23,7 @@ import {
   writeFileAtomic,
 } from '../src/fsio.ts'
 import type { LocalTarget } from '../src/fsio.ts'
+import { copyFileDaclWin32, readFileDaclWin32 } from '../src/win32.ts'
 import { FsError, FsTargetKey } from '@deepseek-ai/dsh-fs'
 
 let dir: string
@@ -367,24 +368,135 @@ describe('streamWholeText', () => {
   })
 })
 
+// Windows drives only the read-only attribute through `chmod` and reports synthetic `stat` mode
+// bits, so mode assertions are POSIX-only; native DACL preservation is asserted separately.
+const posixModes = process.platform !== 'win32'
+
+function daclAcePolicy(descriptor: Buffer): string[] {
+  const daclOffset = descriptor.readUInt32LE(16)
+  if (daclOffset === 0) return []
+  const aceCount = descriptor.readUInt16LE(daclOffset + 4)
+  const policy: string[] = []
+  const seen = new Set<string>()
+  let offset = daclOffset + 8
+  for (let index = 0; index < aceCount; index++) {
+    const size = descriptor.readUInt16LE(offset + 2)
+    const ace = Buffer.from(descriptor.subarray(offset, offset + size))
+    // INHERITED_ACE records provenance, not the entry's access policy.
+    ace.writeUInt8(ace.readUInt8(1) & ~0x10, 1)
+    const key = ace.toString('hex')
+    if (!seen.has(key)) {
+      seen.add(key)
+      policy.push(key)
+    }
+    offset += size
+  }
+  return policy
+}
+
 describe('writeFileAtomic — temp-file safety', () => {
   it('writes through a private staging dir and owner-only temp file', async () => {
     const file = join(dir, 'a.txt')
+    await writeFile(file, 'old')
+    if (posixModes) await chmod(file, 0o640)
     let inspected = false
     await writeFileAtomic(file, 'hello', 0o640, undefined, {
       inspectTemp: async ({ stagingDir, tempPath }) => {
         inspected = true
-        expect((await stat(stagingDir)).mode & 0o777).toBe(0o700)
-        expect((await stat(tempPath)).mode & 0o777).toBe(0o600)
+        const [staging, temp] = await Promise.all([stat(stagingDir), stat(tempPath)])
+        expect(staging.isDirectory()).toBe(true)
+        expect(temp.isFile()).toBe(true)
+        if (posixModes) {
+          expect(staging.mode & 0o777).toBe(0o700)
+          expect(temp.mode & 0o777).toBe(0o600)
+        }
       },
     })
     expect(inspected).toBe(true)
     expect(await readFile(file, 'utf8')).toBe('hello')
-    expect((await stat(file)).mode & 0o777).toBe(0o640)
+    if (posixModes) expect((await stat(file)).mode & 0o777).toBe(0o640)
     expect((await readdir(dir)).filter(n => n.includes('.tmp'))).toEqual([])
   })
 
-  it('creates new files owner-only by default', async () => {
+  it.skipIf(process.platform !== 'win32')('protects staged content with the existing target DACL and preserves it after replacement', async () => {
+    const file = join(dir, 'protected.txt')
+    await writeFile(file, 'old')
+    await copyFileDaclWin32(file, file)
+    const expectedDacl = await readFileDaclWin32(file)
+
+    await writeFileAtomic(file, 'new', (await stat(file)).mode, undefined, {
+      inspectTemp: async ({ tempPath }) => {
+        expect(await readFileDaclWin32(tempPath)).toEqual(expectedDacl)
+      },
+    })
+
+    expect(await readFile(file, 'utf8')).toBe('new')
+    expect(daclAcePolicy(await readFileDaclWin32(file))).toEqual(daclAcePolicy(expectedDacl))
+  })
+
+  it('copies a Windows target DACL before content and publishes through secure replacement', async () => {
+    const file = join(dir, 'a.txt')
+    await writeFile(file, 'old')
+    const calls: string[] = []
+
+    await writeFileAtomic(file, 'new', 0o666, undefined, {
+      platform: 'win32',
+      copyFileDacl: async (source, temp) => {
+        calls.push(`copy:${source}`)
+        expect(await readFile(temp, 'utf8')).toBe('')
+      },
+      replaceFile: async (target, temp) => {
+        calls.push(`replace:${target}`)
+        await rename(temp, target)
+      },
+    })
+
+    expect(calls).toEqual([`copy:${file}`, `replace:${file}`])
+    expect(await readFile(file, 'utf8')).toBe('new')
+  })
+
+  it('creates a new Windows file through directory inheritance without replacement calls', async () => {
+    const file = join(dir, 'new.txt')
+    const unexpected = async (): Promise<void> => { throw new Error('unexpected native replacement call') }
+
+    await writeFileAtomic(file, 'new', undefined, undefined, {
+      platform: 'win32',
+      copyFileDacl: unexpected,
+      replaceFile: unexpected,
+    })
+
+    expect(await readFile(file, 'utf8')).toBe('new')
+  })
+
+  it('recreates a vanished Windows target with the already-protected temp', async () => {
+    const file = join(dir, 'a.txt')
+    await writeFile(file, 'old')
+    const missing = Object.assign(new Error('target vanished'), { code: 'ENOENT' })
+
+    await writeFileAtomic(file, 'new', 0o666, undefined, {
+      platform: 'win32',
+      copyFileDacl: () => Promise.resolve(),
+      replaceFile: async () => { throw missing },
+    })
+
+    expect(await readFile(file, 'utf8')).toBe('new')
+  })
+
+  it('surfaces a Windows secure-replacement failure and cleans the staging directory', async () => {
+    const file = join(dir, 'a.txt')
+    await writeFile(file, 'old')
+    const denied = Object.assign(new Error('replace denied'), { code: 'EACCES' })
+
+    await expect(writeFileAtomic(file, 'new', 0o666, undefined, {
+      platform: 'win32',
+      copyFileDacl: () => Promise.resolve(),
+      replaceFile: async () => { throw denied },
+    })).rejects.toBe(denied)
+    expect(await readFile(file, 'utf8')).toBe('old')
+    expect((await readdir(dir)).filter(name => name.includes('.tmp'))).toEqual([])
+  })
+
+  it.skipIf(!posixModes)('creates new files owner-only by default', async () => {
     const file = join(dir, 'a.txt')
     await writeFileAtomic(file, 'hello', undefined, undefined)
     expect((await stat(file)).mode & 0o777).toBe(0o600)

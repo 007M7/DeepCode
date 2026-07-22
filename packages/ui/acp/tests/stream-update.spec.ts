@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { join as pathJoin, resolve as pathResolve } from 'node:path'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -48,6 +49,16 @@ async function fsCtx(): Promise<Context> {
 
 function evt<T extends SessionEvent['type']>(type: T, data: Extract<SessionEvent, { type: T }>['data']): SessionEvent {
   return { type, seq: 0, time: 0, data } as SessionEvent
+}
+
+/** ACP path fields are filesystem paths; expectations use the host separator. */
+function nativePath(...segments: string[]): string {
+  return pathJoin(...segments)
+}
+
+/** Resolve root-relative fixtures the same way the bridge does on this host. */
+function nativeAbsolute(...segments: string[]): string {
+  return pathResolve(...segments)
 }
 
 describe('streamSessionEventUpdate', () => {
@@ -576,10 +587,10 @@ describe('terminal-card mapping (capability-gated)', () => {
   it('capability ON: an ABSOLUTE tool cwd wins; a RELATIVE one resolves against the session cwd', () => {
     const [absCall] = termUpdates(termTool({ card: 'terminal', cwd: '/explicit/abs' }, { output: 'x' }), true, '/work/proj', callEvent)
     expect((absCall as unknown as { _meta: { terminal_info: { cwd: string } } })._meta.terminal_info.cwd).toBe('/explicit/abs')
-    const [relCall] = termUpdates(termTool({ card: 'terminal', cwd: 'sub/dir' }, { output: 'x' }), true, '/work/proj', callEvent)
+    const [relCall] = termUpdates(termTool({ card: 'terminal', cwd: nativePath('sub', 'dir') }, { output: 'x' }), true, nativeAbsolute('/work/proj'), callEvent)
     // Relative workdir resolved against the session cwd — the card header matches
     // where execution actually ran (tool-bash resolves the same way).
-    expect((relCall as unknown as { _meta: { terminal_info: { cwd: string } } })._meta.terminal_info.cwd).toBe('/work/proj/sub/dir')
+    expect((relCall as unknown as { _meta: { terminal_info: { cwd: string } } })._meta.terminal_info.cwd).toBe(nativeAbsolute('/work/proj', 'sub', 'dir'))
     // No session cwd to resolve against → the relative tool cwd is passed through as-is.
     const [noSessionCwd] = termUpdates(termTool({ card: 'terminal', cwd: 'rel/only' }, { output: 'x' }), true, undefined, callEvent)
     expect((noSessionCwd as unknown as { _meta: { terminal_info: { cwd: string } } })._meta.terminal_info.cwd).toBe('rel/only')
@@ -792,10 +803,12 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
     // paths remain absolute so the editor can open the real file.
     const ctx = await fsCtx()
     const presenter = new ToolPresenter(ctx.tools)
-    const args = JSON.stringify({ file_path: '/work/proj/src/b.ts', old_string: 'OLD', new_string: 'NEW' })
-    const meta = { diffs: [{ path: '/work/proj/src/b.ts', oldText: 'a\nOLD\nb', newText: 'a\nNEW\nb' }] }
+    const workspace = nativeAbsolute('/work/proj')
+    const file = nativeAbsolute('/work/proj', 'src', 'b.ts')
+    const args = JSON.stringify({ file_path: file, old_string: 'OLD', new_string: 'NEW' })
+    const meta = { diffs: [{ path: file, oldText: 'a\nOLD\nb', newText: 'a\nNEW\nb' }] }
     const out: SessionNotification['update'][] = []
-    const rendering = { enabled: false, cwd: '/work/proj' }
+    const rendering = { enabled: false, cwd: workspace }
     for (const event of [
       evt('tool/call', { turn: 1, step: 1, callId: CallId('e1'), name: 'edit', arguments: args }),
       evt('tool/result', { turn: 1, step: 1, callId: CallId('e1'), content: [{ type: 'text', text: 'ok' }], isError: false, meta }),
@@ -804,8 +817,8 @@ describe('result-time diff card (REAL fs edit tool → tool_call_update diff blo
       sessionUpdate: 'tool_call_update',
       toolCallId: 'e1',
       status: 'completed',
-      title: 'Edit src/b.ts',
-      content: [{ type: 'diff', path: '/work/proj/src/b.ts', oldText: 'a\nOLD\nb', newText: 'a\nNEW\nb' }],
+      title: `Edit ${nativePath('src', 'b.ts')}`,
+      content: [{ type: 'diff', path: file, oldText: 'a\nOLD\nb', newText: 'a\nNEW\nb' }],
     })
     await ctx.fiber.dispose()
   })
@@ -856,21 +869,25 @@ describe('relative-path display titles (bridge relativizes the title against the
 
   it('read: an absolute path inside the workspace relativizes the TITLE; the location path stays absolute', async () => {
     const ctx = await fsCtx()
-    const update = callUpdate(ctx, '/work/proj', 'read', { file_path: '/work/proj/src/a.ts', offset: 5 })
+    const workspace = nativeAbsolute('/work/proj')
+    const file = nativeAbsolute('/work/proj', 'src', 'a.ts')
+    const update = callUpdate(ctx, workspace, 'read', { file_path: file, offset: 5 })
     expect(update).toMatchObject({
-      title: 'Read src/a.ts (from line 5)',
-      locations: [{ path: '/work/proj/src/a.ts', line: 5 }],
+      title: `Read ${nativePath('src', 'a.ts')} (from line 5)`,
+      locations: [{ path: file, line: 5 }],
     })
     await ctx.fiber.dispose()
   })
 
   it('edit: the diff TITLE relativizes; the diff/location paths stay absolute (the editor opens the real path)', async () => {
     const ctx = await fsCtx()
-    const update = callUpdate(ctx, '/work/proj', 'edit', { file_path: '/work/proj/src/b.ts', old_string: 'x', new_string: 'y' })
+    const workspace = nativeAbsolute('/work/proj')
+    const file = nativeAbsolute('/work/proj', 'src', 'b.ts')
+    const update = callUpdate(ctx, workspace, 'edit', { file_path: file, old_string: 'x', new_string: 'y' })
     expect(update).toMatchObject({
-      title: 'Edit src/b.ts',
-      locations: [{ path: '/work/proj/src/b.ts' }],
-      content: [{ type: 'diff', path: '/work/proj/src/b.ts', oldText: 'x', newText: 'y' }],
+      title: `Edit ${nativePath('src', 'b.ts')}`,
+      locations: [{ path: file }],
+      content: [{ type: 'diff', path: file, oldText: 'x', newText: 'y' }],
     })
     await ctx.fiber.dispose()
   })
@@ -887,8 +904,8 @@ describe('relative-path display titles (bridge relativizes the title against the
     // with the chars `..` but is not a parent segment. Segment-aware guarding must relativize it,
     // matching targets under `cwd + sep` in the reference adapter.
     const ctx = await fsCtx()
-    const update = callUpdate(ctx, '/work/proj', 'read', { file_path: '/work/proj/..cache/x.ts' })
-    expect((update as { title: string }).title).toBe('Read ..cache/x.ts')
+    const update = callUpdate(ctx, nativeAbsolute('/work/proj'), 'read', { file_path: nativeAbsolute('/work/proj', '..cache', 'x.ts') })
+    expect((update as { title: string }).title).toBe(`Read ${nativePath('..cache', 'x.ts')}`)
     await ctx.fiber.dispose()
   })
 
@@ -901,8 +918,8 @@ describe('relative-path display titles (bridge relativizes the title against the
 
   it('a relative path is passed through unchanged (already display-friendly)', async () => {
     const ctx = await fsCtx()
-    const update = callUpdate(ctx, '/work/proj', 'read', { file_path: 'src/a.ts' })
-    expect((update as { title: string }).title).toBe('Read src/a.ts')
+    const update = callUpdate(ctx, nativeAbsolute('/work/proj'), 'read', { file_path: nativePath('src', 'a.ts') })
+    expect((update as { title: string }).title).toBe(`Read ${nativePath('src', 'a.ts')}`)
     await ctx.fiber.dispose()
   })
 })

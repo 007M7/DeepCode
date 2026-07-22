@@ -13,18 +13,32 @@ const TOOLS = '{{tools}}'
 const MESSAGE_PREFIX = '{{messagePrefix}}'
 const UPDATED_AT = '{{updatedAt}}'
 
+/** A cwd-rooted path after volatile cwd replacement, through its last separator-delimited segment. */
+const CWD_ROOTED_PATH_RE = /\{\{cwd\}\}(?:[\\/][^\s<>"'`]+)+/g
+const PATH_TAG_RE = /(<path>)([^<]*)(<\/path>)/g
+const ADDITIONAL_INSTRUCTIONS_PATH_RE = /(Additional instructions from: )([^\r\n]+)/g
+
 /** A UUID v4 string, the shape `randomUUID()` produces for session ids. */
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 const LOCAL_SPILL_PATH_RE = new RegExp(
-  String.raw`\{\{cwd\}\}/\.spill/session-[0-9a-f]{12}/[0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
+  String.raw`\{\{cwd\}\}[\\/]\.spill[\\/]session-[0-9a-f]{12}[\\/][0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
   + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
   'g',
 )
 const SNAPSHOT_SPILL_PATH_RE = new RegExp(
-  String.raw`/tmp/(?:dsh-acp-snap-[0-9a-f]{9}|dsh-acp-snapshot-spill)/session-[0-9a-f]{12}/[0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
+  String.raw`(?:[A-Za-z]:)?[\\/](?:tmp|t)[\\/](?:dsh-acp-snap-[0-9a-f]{9}|dsh-acp-snapshot-spill)[\\/]session-[0-9a-f]{12}[\\/][0-9a-f]{12}-([A-Za-z0-9._~-]+?)`
   + String.raw`(?=\. Use read with offset/limit|[\s)]|$)`,
   'g',
 )
+
+/** Convert separators only inside generated path-bearing text markers. */
+function canonicalizeEmbeddedPaths(value: string): string {
+  return value
+    .replace(PATH_TAG_RE, (_match, open: string, path: string, close: string) =>
+      `${open}${path.replaceAll('\\', '/')}${close}`)
+    .replace(ADDITIONAL_INSTRUCTIONS_PATH_RE, (_match, prefix: string, path: string) =>
+      `${prefix}${path.replaceAll('\\', '/')}`)
+}
 
 /** Inputs the normalizers need to recognize a run's volatile values. */
 export interface NormalizeContext {
@@ -34,13 +48,28 @@ export interface NormalizeContext {
   cwd: string
 }
 
+/** How cwd-rooted path separators are represented after the cwd is tokenized. */
+export type CwdPathMode = 'canonical' | 'native'
+
+/** Optional controls shared by stdout and session-log normalization. */
+export interface NormalizeOptions {
+  /** Use `/` for shared goldens, or preserve captured separators for a platform-specific golden. */
+  cwdPathMode?: CwdPathMode
+}
+
 /** Replace cwd, session ids, and any stray UUID with stable tokens in a string. */
-function scrubString(value: string, ctx: NormalizeContext): string {
+function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathMode): string {
   let out = value
   // cwd first (longest, most specific), then explicit session ids, then any
   // residual UUID (covers ids that appear in places we didn't enumerate).
   out = out.split(ctx.cwd).join(CWD)
   out = out.split(`/private${CWD}`).join(CWD)
+  if (cwdPathMode === 'canonical') {
+    // Restrict separator conversion to paths rooted at the cwd token. A global
+    // backslash rewrite would corrupt regexes, commands, and model-authored text.
+    out = out.replace(CWD_ROOTED_PATH_RE, path => path.replaceAll('\\', '/'))
+    out = canonicalizeEmbeddedPaths(out)
+  }
   out = out.replace(LOCAL_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   out = out.replace(SNAPSHOT_SPILL_PATH_RE, (_match, name: string) => `{{spillLocator:${name}}}`)
   for (const id of ctx.sessionIds) out = out.split(id).join(SESSION_ID)
@@ -49,12 +78,15 @@ function scrubString(value: string, ctx: NormalizeContext): string {
 }
 
 /** Recursively scrub a parsed JSON value (strings replaced; structure kept). */
-function scrubValue(value: unknown, ctx: NormalizeContext): unknown {
-  if (typeof value === 'string') return scrubString(value, ctx)
-  if (Array.isArray(value)) return value.map(v => scrubValue(v, ctx))
+function scrubValue(value: unknown, ctx: NormalizeContext, cwdPathMode: CwdPathMode, key?: string): unknown {
+  if (typeof value === 'string') {
+    const scrubbed = scrubString(value, ctx, cwdPathMode)
+    return cwdPathMode === 'canonical' && key === 'path' ? scrubbed.replaceAll('\\', '/') : scrubbed
+  }
+  if (Array.isArray(value)) return value.map(v => scrubValue(v, ctx, cwdPathMode))
   if (value !== null && typeof value === 'object') {
     const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value)) out[k] = scrubValue(v, ctx)
+    for (const [k, v] of Object.entries(value)) out[k] = scrubValue(v, ctx, cwdPathMode, k)
     return out
   }
   return value
@@ -68,9 +100,15 @@ function scrubValue(value: unknown, ctx: NormalizeContext): unknown {
  *
  * @param rawStdout The captured stdout bytes, decoded utf8.
  * @param ctx The run's volatile values to scrub.
+ * @param options Separator output controls; shared canonical paths are the default.
  * @returns The normalized NDJSON transcript, one frame per line.
  */
-export function normalizeStdout(rawStdout: string, ctx: NormalizeContext): string {
+export function normalizeStdout(
+  rawStdout: string,
+  ctx: NormalizeContext,
+  options: NormalizeOptions = {},
+): string {
+  const cwdPathMode = options.cwdPathMode ?? 'canonical'
   const lines = rawStdout.split('\n').filter(line => line.trim().length > 0)
   // Map each distinct JSON-RPC id (request/response correlate by id) to a stable
   // sequence number, in first-seen order, so id churn doesn't perturb the expected output.
@@ -88,7 +126,7 @@ export function normalizeStdout(rawStdout: string, ctx: NormalizeContext): strin
     }
     const update = (frame.params as { update?: Record<string, unknown> } | undefined)?.update
     if (update?.sessionUpdate === 'session_info_update') update.updatedAt = UPDATED_AT
-    return scrubValue(frame, ctx) as Record<string, unknown>
+    return scrubValue(frame, ctx, cwdPathMode) as Record<string, unknown>
   })
   return frames.map(f => JSON.stringify(f)).join('\n') + '\n'
 }
@@ -102,9 +140,15 @@ export function normalizeStdout(rawStdout: string, ctx: NormalizeContext): strin
  *
  * @param rawLog The raw session `.jsonl` content.
  * @param ctx The run's volatile values to scrub.
+ * @param options Separator output controls; shared canonical paths are the default.
  * @returns The normalized JSONL log, one record per line.
  */
-export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): string {
+export function normalizeSessionLog(
+  rawLog: string,
+  ctx: NormalizeContext,
+  options: NormalizeOptions = {},
+): string {
+  const cwdPathMode = options.cwdPathMode ?? 'canonical'
   const lines = rawLog.split('\n').filter(line => line.trim().length > 0)
   const records = lines.map((line) => {
     const record = JSON.parse(line) as Record<string, unknown>
@@ -122,7 +166,7 @@ export function normalizeSessionLog(rawLog: string, ctx: NormalizeContext): stri
         if ('durationMs' in data) data.durationMs = 0
       }
     }
-    return scrubValue(record, ctx) as Record<string, unknown>
+    return scrubValue(record, ctx, cwdPathMode) as Record<string, unknown>
   })
   return records.map(r => JSON.stringify(r)).join('\n') + '\n'
 }
