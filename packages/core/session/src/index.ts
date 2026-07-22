@@ -11,9 +11,9 @@ import { isAbsolute } from 'node:path'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import type { Message } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, OutOfBandSessionEventType, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType, TurnTrigger } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, OutOfBandSessionEventType, PromptMessageData, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType, TurnTrigger } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
@@ -28,6 +28,15 @@ export type { ChunkRow, StorageRecord } from './chunk-rows.ts'
 export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
 export { foldSurface, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
+
+/**
+ * Return the human-facing prompt blocks from a durable prompt message.
+ * @param data - ordinary or steering prompt event data.
+ * @returns the effective direct prompt, excluding baked prefix context.
+ */
+export function displayPromptContent(data: PromptMessageData): ContentBlock[] {
+  return data.envelope?.displayContent ?? data.content
+}
 
 /**
  * Find the latest closed message-triggered turn, excluding injection and
@@ -523,9 +532,11 @@ export class Session {
     // trace/replay data.
 
     switch (event.type) {
-      // Injected context and mid-turn steering project identically to a user
-      // prompt: content verbatim, in user role. context's `source`/`meta` and
-      // steering's `turn` are log-only and do not reach the model. Do NOT
+      // Injected context, ordinary prompts, and mid-turn steering project
+      // identically in user role: the event's model-facing content stays
+      // verbatim. A prompt envelope is model-hidden display metadata; its
+      // prefix bytes are already present in content. context's `source`/`meta`
+      // and steering's `turn` are also log-only. Do NOT
       // re-add per-type framing (e.g. `<context>`/`<steering>`) here: framing is
       // caller-owned — a producer bakes it into `content`, as workspace-context
       // does with `<system-reminder>` — or, if reintroduced, must be driven by

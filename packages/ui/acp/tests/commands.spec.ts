@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { encodeSessionReferenceUri } from '@deepseek-ai/dsh-session-reference'
 import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness.ts'
 
 function commandUpdates(harness: BridgeHarness, sessionId: string) {
@@ -193,6 +194,28 @@ describe('ACP plugin commands', () => {
     }))
     expect(messageText(harness, sessionId)).toContain('combined')
     expect(harness.adapter.requests).toHaveLength(0)
+  })
+
+  it('keeps session-reference syntax opaque in direct command arguments', async () => {
+    harness = await makeBridgeHarness({ storageDir })
+    const command = vi.fn(() => ({ kind: 'success' as const }))
+    harness.ctx.commands.register({ name: 'direct', description: 'Direct', handler: command })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const sourceUri = encodeSessionReferenceUri(SessionId('source'))
+
+    await expect(harness.client.prompt({
+      sessionId,
+      prompt: [
+        { type: 'text', text: `/direct valid=${sourceUri} malformed=dsh-session:IiJ` },
+        { type: 'resource_link', name: 'source', uri: sourceUri },
+      ],
+    })).resolves.toEqual({ stopReason: 'end_turn' })
+    expect(command).toHaveBeenCalledWith(expect.objectContaining({
+      rawInput: ` valid=${sourceUri} malformed=dsh-session:IiJ\n[resource_link name="source" uri=${JSON.stringify(sourceUri)}]\n`,
+    }))
+    expect(harness.adapter.requests).toHaveLength(0)
+    expect(harness.ctx.agents.get(SessionId(sessionId))?.session.events).toHaveLength(0)
   })
 
   it('maps session cancellation to the in-flight command signal and isolates other sessions', async () => {

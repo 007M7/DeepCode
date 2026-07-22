@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { encodeSessionReferenceUri, formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import type { ContentBlock as AcpContentBlock } from '@agentclientprotocol/sdk'
 import {
+  acpPromptToReferencedPrompt,
   acpPromptToText,
   harnessBlockToAcpContent,
   promptHasUnsupportedContent,
@@ -52,6 +55,35 @@ describe('acpPromptToText', () => {
 
   it('returns empty string for a prompt with no text blocks', () => {
     expect(acpPromptToText([{ type: 'image', mimeType: 'image/png', data: 'AA==' }])).toBe('')
+  })
+})
+
+describe('acpPromptToReferencedPrompt', () => {
+  it('extracts resource links and inline mentions while preserving ordinary links', () => {
+    const sessionId = SessionId('source/会话')
+    const prompt: AcpContentBlock[] = [
+      { type: 'text', text: `compare ${formatSessionReferenceMention({ sessionId, label: 'inline' })} with ` },
+      { type: 'resource_link', uri: encodeSessionReferenceUri(sessionId), name: 'linked' },
+      { type: 'resource_link', uri: 'file:///x', name: 'x' },
+    ]
+    expect(acpPromptToReferencedPrompt(prompt)).toEqual({
+      text: 'compare @inline with @linked\n[resource_link name="x" uri="file:///x"]\n',
+      references: [{ sessionId, label: 'inline' }, { sessionId, label: 'linked' }],
+    })
+  })
+
+  it('rejects malformed session resource links', () => {
+    expect(() => acpPromptToReferencedPrompt([
+      { type: 'resource_link', uri: 'dsh-session:%%%', name: 'bad' },
+    ])).toThrow(/invalid session reference URI/)
+  })
+
+  it('uses the decoded id for an empty resource name and ignores unsupported direct inputs', () => {
+    const sessionId = SessionId('source')
+    expect(acpPromptToReferencedPrompt([
+      { type: 'resource_link', uri: encodeSessionReferenceUri(sessionId), name: '' },
+      { type: 'image', mimeType: 'image/png', data: 'AA==' },
+    ])).toEqual({ text: '@source', references: [{ sessionId, label: 'source' }] })
   })
 })
 

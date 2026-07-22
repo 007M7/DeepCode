@@ -18,6 +18,7 @@ import { Readable, Writable } from 'node:stream'
 import { promisify } from 'node:util'
 import { zstdDecompress } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
+import { ACP_SESSION_REFERENCE_META_KEY } from '@deepseek-ai/dsh-acp'
 
 /**
  * Published-entry smoke: run `lib/bin.js` under plain Node in a symlinked external consumer and
@@ -36,7 +37,7 @@ const dshPackages = [
   'bash/bash-local', 'bash/tool-bash', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
   'session-persistence/session-checkpoint-policy', 'session-persistence/session-persistence-jsonl',
-  'ui/acp', 'examples/acp-demo', 'util/paths',
+  'session-query/session-query', 'context/session-reference', 'ui/acp', 'examples/acp-demo', 'util/paths',
 ]
 const vendorPackages = [
   'cordis', 'loader', 'include', 'timer', 'hmr', 'logger-console',
@@ -166,10 +167,30 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, n
     // regression would exit before answering); loadSession proves the real app
     // mounted, not a collapsed export shape.
     expect(init.agentCapabilities?.loadSession).toBe(true)
-    const { sessionId } = await client.newSession({ cwd: consumer, mcpServers: [] })
+    expect(init.agentCapabilities?.sessionCapabilities?.list).toEqual({})
+    const sessionCwd = consumer
+    const { sessionId } = await client.newSession({ cwd: sessionCwd, mcpServers: [] })
     const result = await client.prompt({ sessionId, prompt: [{ type: 'text', text: 'reply' }] })
     expect(result.stopReason).toBe('end_turn')
-    const sessionsRoot = join(consumer, '.sessions')
+    await expect.poll(async () => {
+      return (await client.listSessions({ cwd: sessionCwd })).sessions.find(candidate => candidate.sessionId === sessionId)
+    }).toMatchObject({
+      sessionId,
+      cwd: sessionCwd,
+      title: 'reply',
+    })
+    const listed = await client.listSessions({ cwd: sessionCwd })
+    const reference = listed.sessions.find(candidate => candidate.sessionId === sessionId)
+      ?._meta?.[ACP_SESSION_REFERENCE_META_KEY]
+    expect(reference).toBeTypeOf('object')
+    expect(reference).not.toBeNull()
+    expect(reference).toHaveProperty('uri')
+    if (typeof reference !== 'object' || reference === null || !('uri' in reference)) {
+      throw new Error('expected session reference metadata')
+    }
+    expect(reference.uri).toBeTypeOf('string')
+    expect(reference.uri).toMatch(/^dsh-session:[A-Za-z0-9_-]+$/u)
+    const sessionsRoot = join(sessionCwd, '.sessions')
     let log: string | undefined
     await expect.poll(async () => {
       log = (await readdir(sessionsRoot, { recursive: true })).find(file => file.endsWith('.jsonl.zstd'))
