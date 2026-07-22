@@ -11,7 +11,8 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
     <encoded-id>.jsonl           # only with compression: 'none'
 ```
 
-- The first logical line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength?, delegationDepth }`. `delegationDepth` is required on disk and is `0` for a top-level session; a missing or invalid value rejects the log. Every subsequent line is one `SessionEvent` JSON, **verbatim including `assistant/chunk`** so `seq` stays contiguous (`events[i].seq === i`).
+- The first logical line is the immutable `SessionHeader` tagged `{ type: 'session', version, id, cwd?, createdAt, parentSession?, seedLength?, delegationDepth }`. `delegationDepth` is required on disk and is `0` for a top-level session; a missing or invalid value rejects the log. Every subsequent logical line is one storage record; `assistant/chunk` events are never dropped, and `seq` stays contiguous across the decoded log (`events[i].seq === i`).
+- A storage record is a `SessionEvent` JSON verbatim, or — written only under `packChunks` — a **packed chunk row** (`text-chunks` / `reasoning-chunks` / `tool-call-chunks`; bare slash-less tags like the header's `session`, so row tags cannot be confused with event types): one line holding a run of ≥3 consecutive same-block `assistant/chunk` delta events, `seq0`/`time0` plus per-member `dt` gaps reconstructing every member's `seq`/`time` exactly. The lossless codec lives in `@deepseek-ai/dsh-session` (`packChunkRuns`/`decodeStorageRecord`) and whitelists exact shapes — anything unrecognized stores verbatim. Reading is layout-blind: `load` always decodes rows, so packed, unpacked, and mixed files load identically.
 - Session ids are unvalidated branded strings, so they are injectively escaped to a single safe path segment before use (no traversal, no collision).
 
 ## Config
@@ -19,6 +20,7 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 | Key | Type | Notes |
 |---|---|---|
 | `root` | `string` (required) | Root directory for all session files. **No default** — a `process.cwd()` default would scatter files as the process's cwd changes (bash calls, subprocesses). |
+| `packChunks` | `boolean` (default `false`) | Write delta-chunk runs as packed rows (~60% smaller logical logs measured on a real coding session). Off, the written logical layout is byte-identical to the pre-packing format; reading packed rows works regardless of this switch. Off by default while the snapshot goldens stay one-event-per-line — recording with packing on rewrites every fixture `session.jsonl`. |
 | `compression` | `'zstd' \| 'none'` | Defaults to `'zstd'`; `'none'` retains newline-delimited UTF-8 text. |
 
 `locate(meta)` returns `{ kind: 'jsonl', path }` using the resolved absolute root and the same cwd-bucket/id encoding as materialization. It performs no filesystem I/O: the target can be returned before the file exists, and an existing file contains only the last flushed prefix.

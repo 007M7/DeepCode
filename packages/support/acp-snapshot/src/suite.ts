@@ -42,6 +42,8 @@ const WINDOWS_STDOUT_SNAPSHOT = 'stdout.expected.windows.jsonl'
 /** Stable session-log token standing in for the sidecar's initial schemas. */
 const TOOLS_TOKEN = '{{tools}}'
 
+const PACKED_CHUNK_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool-call-chunks'])
+
 /** A snapshot scenario and how its fixtures are produced. */
 export interface Scenario {
   name: string
@@ -404,6 +406,23 @@ function parseJsonlRecords(text: string): Record<string, unknown>[] {
     .map(line => JSON.parse(line) as Record<string, unknown>)
 }
 
+/** One packed row's member times, or `undefined` for an ordinary record. */
+function packedTimes(record: Record<string, unknown>): number[] | undefined {
+  if (!PACKED_CHUNK_ROW_TYPES.has(record.type as string)) return undefined
+  const row = record as unknown as { time0: number; data: { dt: number[] } }
+  const times = [row.time0]
+  for (const gap of row.data.dt) times.push((times[times.length - 1] as number) + gap)
+  return times
+}
+
+/** Expand packed timing envelopes so refresh alignment follows logical events, not physical lines. */
+function logicalRecords(records: Record<string, unknown>[]): Record<string, unknown>[] {
+  return records.flatMap((record) => {
+    const times = packedTimes(record)
+    return times === undefined ? [record] : times.map(time => ({ type: 'assistant/chunk', time }))
+  })
+}
+
 /**
  * Find tool calls whose structured result reports `UNKNOWN_TOOL`.
  *
@@ -469,11 +488,32 @@ function preserveFixtureVolatiles(record: Record<string, unknown>, existing: Rec
   }
 }
 
+/** Carry logical member times into a fresh packed row while leaving its fragment arrays untouched. */
+function preservePackedMemberTimes(
+  record: Record<string, unknown>,
+  existingMembers: Record<string, unknown>[],
+): void {
+  if (!PACKED_CHUNK_ROW_TYPES.has(record.type as string)) return
+  const row = record as unknown as { time0: number; data: { dt: number[] } }
+  const firstTime = existingMembers[0]?.time
+  if (!Number.isSafeInteger(firstTime)) return
+  row.time0 = firstTime as number
+  if (existingMembers.length !== row.data.dt.length + 1) return
+  const times = existingMembers.map(member => Number.isSafeInteger(member.time) ? member.time as number : undefined)
+  if (times.some(time => time === undefined)) return
+  const memberTimes = times as number[]
+  const gaps = memberTimes.slice(1).map((time, index) => time - (memberTimes[index] as number))
+  if (gaps.some(gap => !Number.isSafeInteger(gap))) return
+  row.data.dt = gaps
+}
+
 /**
  * Rewrite a fresh replay-produced log so repeated refreshes do not churn
  * volatile fixture fields. Meaningful event payloads come from `fresh`; the
- * existing fixture lends session ids, cwd, creation times, event times, and
- * hook durations where the record shape still matches.
+ * existing fixture lends session ids, cwd, creation times, logical event
+ * times, and hook durations where the record shape still matches. Packed
+ * timing envelopes expand for alignment, so packing does not shift later
+ * records; fresh fragment arrays remain authoritative.
  *
  * @param fresh The newly harvested session JSONL.
  * @param existing The committed fixture JSONL being refreshed.
@@ -483,21 +523,23 @@ function preserveFixtureVolatiles(record: Record<string, unknown>, existing: Rec
 export function stabilizeRefreshLog(fresh: string, existing: string, replacements: FixtureReplacement[]): string {
   let stable = fresh
   for (const { from, to } of replacements) stable = stable.split(from).join(to)
-  const existingRecords = parseJsonlRecords(existing)
+  const existingRecords = logicalRecords(parseJsonlRecords(existing))
   const records = parseJsonlRecords(stable)
   let existingIndex = 0
   let previousEventTime: unknown
   for (let i = 0; i < records.length; i++) {
     const record = records[i] as Record<string, unknown>
     const existingRecord = existingRecords[existingIndex]
+    const memberCount = packedTimes(record)?.length ?? 1
     const insertedTitle = record.type === 'session/title' && existingRecord?.type !== 'session/title'
     if (insertedTitle) {
       /* v8 ignore next -- a title is turn-enclosed, so a preceding event time exists in every valid fixture. */
       if (typeof previousEventTime !== 'number') throw new Error('acp-snapshot: inserted title has no preceding event time')
       record.time = previousEventTime
     } else {
+      preservePackedMemberTimes(record, existingRecords.slice(existingIndex, existingIndex + memberCount))
       preserveFixtureVolatiles(record, existingRecord)
-      existingIndex += 1
+      existingIndex += memberCount
     }
     if (typeof record.time === 'number') previousEventTime = record.time
   }

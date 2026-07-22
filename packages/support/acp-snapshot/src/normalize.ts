@@ -135,8 +135,10 @@ export function normalizeStdout(
  * Normalize a session JSONL log into a stable expected output: the header line's
  * volatile fields (`createdAt`, `id`, `cwd`) and every event's `time` are
  * zeroed/scrubbed, all volatile strings scrubbed, and `seq` is LEFT INTACT
- * (deterministic by contract). Output is JSONL in the same shape as the input —
- * one compact record per line.
+ * (deterministic by contract). A packed chunk row's timing (`time0`, the `dt`
+ * gaps) zeroes just like an event `time`; its `seq0` stays, like `seq`.
+ * Output is JSONL in the same shape as the input — one compact record per
+ * line.
  *
  * @param rawLog The raw session `.jsonl` content.
  * @param ctx The run's volatile values to scrub.
@@ -155,6 +157,13 @@ export function normalizeSessionLog(
     // Header line: { type: 'session', createdAt, id, cwd, … }.
     if (record.type === 'session') {
       if ('createdAt' in record) record.createdAt = 0
+    } else if ('time0' in record) {
+      // Packed chunk row: zero the anchor timestamp and every member gap.
+      record.time0 = 0
+      const data = record.data
+      if (data !== null && typeof data === 'object' && Array.isArray((data as { dt?: unknown }).dt)) {
+        (data as { dt: unknown[] }).dt = (data as { dt: unknown[] }).dt.map(() => 0)
+      }
     } else if ('time' in record) {
       // Event line: zero the epoch-ms timestamp; keep seq (deterministic).
       record.time = 0

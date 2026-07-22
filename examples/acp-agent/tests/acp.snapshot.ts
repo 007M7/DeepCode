@@ -1,7 +1,10 @@
 import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
+import { expect, it } from 'vitest'
 import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
+import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 
 /**
  * The acp-agent example's snapshot suite: the scenario table for
@@ -32,8 +35,18 @@ const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../workspace-context.cor
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
+const PACKED_CHUNKS_CONFIG = fileURLToPath(new URL('../packed-chunks.cordis.yml', import.meta.url))
 const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
+const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
+const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
+
+function fixtureRecords(name: string): unknown[] {
+  return readFileSync(join(SNAPSHOTS_DIR, name, 'session.jsonl'), 'utf8')
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line) as unknown)
+}
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
   switch (value) {
@@ -73,6 +86,10 @@ const SCENARIOS: Scenario[] = [
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  // Authored from the real PACKED_CHUNKS_SOURCE recording under the same app
+  // composition. The contract below pins decoded equality and all three row
+  // kinds; replay additionally proves the assembled app re-packs identically.
+  { name: 'packed-chunks', hasModelTurn: true, recorded: false, configPath: PACKED_CHUNKS_CONFIG },
   // The fs overlay only adds the spill stack (the sandboxed filesystem tools
   // live in the base tree), so these scenarios share the default header class.
   {
@@ -232,7 +249,20 @@ const SCENARIOS: Scenario[] = [
 
 defineAcpSnapshotSuite({
   agent: AGENT,
-  snapshotsDir: join(dirname(fileURLToPath(import.meta.url)), 'snapshots'),
+  snapshotsDir: SNAPSHOTS_DIR,
   scenarios: SCENARIOS,
   mode: snapshotModeFromEnv(process.env.DSH_SNAPSHOT),
+})
+
+it('packed ACP fixture retains every chunk row kind without changing the logical session', () => {
+  const source = fixtureRecords(PACKED_CHUNKS_SOURCE)
+  const packed = fixtureRecords('packed-chunks')
+  const rowTypes = packed.flatMap((record) => {
+    if (record === null || typeof record !== 'object') return []
+    const type = (record as { type?: unknown }).type
+    return type === 'text-chunks' || type === 'reasoning-chunks' || type === 'tool-call-chunks' ? [type] : []
+  })
+
+  expect([...new Set(rowTypes)].sort()).toStrictEqual(['reasoning-chunks', 'text-chunks', 'tool-call-chunks'])
+  expect([packed[0], ...packed.slice(1).flatMap(record => decodeStorageRecord(record))]).toStrictEqual(source)
 })
