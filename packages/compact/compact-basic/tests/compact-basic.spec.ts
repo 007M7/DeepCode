@@ -1094,6 +1094,7 @@ describe('default one-shot summarizer', () => {
       maxTokens: 321,
       signal: SIGNAL,
       sessionId: session.id,
+      purpose: 'compaction',
     })
     const instruction = adapter.lastOptions?.messages.at(-1)?.content[0]
     expect(instruction?.type === 'text' ? instruction.text : '').toContain('## Primary Request and Intent')
