@@ -1547,7 +1547,7 @@ Tool registry and execution pipeline. Scoped registrations shadow globals; one v
 /**
  * Register globally or in the calling agent scope. Scoped tools shadow
  * globals; duplicates within one layer and the reserved `run_code` name fail.
- * @param definition - the tool schema, execution, and optional presentation functions.
+ * @param definition - tool schema, execution, and optional finalization/presentation callbacks.
  * @returns the exact disposer that unregisters the tool.
  */
 register(definition: ToolDefinition): () => void
@@ -1602,10 +1602,11 @@ schemas(scope?: ScopeKey): ToolSchema[]
 executionMode(exec: ToolExecutionInput): ToolExecutionMode
 
 /**
- * Execute through pre-policy, guards, around-dispatch, post-policy, and final
- * notification. Tool and listener failures resolve as materialized error
- * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
- * the same lossless, frozen snapshot final observers receive. Cancellation
+ * Execute through pre-policy, guards, around-dispatch, post-policy,
+ * definition-owned content finalization, and final notification. Tool and
+ * listener failures resolve as materialized error results; an invisible tool
+ * reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen
+ * snapshot final observers receive. Cancellation
  * arriving after entry and before final result materialization skips a
  * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a
  * successful started outcome with `ABORTED`; already-started work is still
@@ -1619,7 +1620,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:524`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:536`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

@@ -12,7 +12,7 @@ import { PtySessionId } from '@deepseek-ai/dsh-pty'
 import type { PtySendResult, PtySessionId as PtySessionIdType, PtySignal } from '@deepseek-ai/dsh-pty'
 import type {} from '@deepseek-ai/dsh-tasks'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import type { ToolDefinition, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { boundTerminalText, renderList, renderRead, renderSend, renderSendRead, renderSpawn } from './render.ts'
 
 declare module '@deepseek-ai/dsh-tasks' {
@@ -30,15 +30,6 @@ export const inject = ['pty', 'tools', 'systemPrompt']
 export const DEFAULT_MAX_RESULT_BYTES = 256 * 1024
 /** Smallest cap that preserves every counter-backed PTY and task id in its creation acknowledgement. */
 export const MIN_MAX_RESULT_BYTES = 64
-
-const TOOL_NAMES = new Set([
-  'terminal_open',
-  'terminal_send',
-  'terminal_read',
-  'terminal_signal',
-  'terminal_close',
-  'terminal_list',
-])
 
 /** Model-facing terminal tool configuration. */
 export interface Config {
@@ -114,17 +105,10 @@ export function apply(ctx: Context, config: Config = {}): void {
   if (!Number.isSafeInteger(maxResultBytes) || maxResultBytes < MIN_MAX_RESULT_BYTES) {
     throw new Error(`tool-pty: maxResultBytes must be a safe integer of at least ${MIN_MAX_RESULT_BYTES}`)
   }
-  ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
-    const decision = await next()
-    if (!TOOL_NAMES.has(exec.name)) return decision
-    const content = decision.kind === 'block' ? decision.feedback : decision.content ?? result.content
-    const raw = rawContentText(content)
-    if (raw === undefined) return decision
-    const bounded = textResult(raw, maxResultBytes)
-    return decision.kind === 'block'
-      ? { ...decision, feedback: bounded }
-      : { ...decision, content: bounded }
-  }, { prepend: true })
+  const finalizeContent: NonNullable<ToolDefinition['finalizeContent']> = (_exec, result) => {
+    const raw = rawContentText(result.content)
+    return raw === undefined ? undefined : textResult(raw, maxResultBytes)
+  }
   ctx.systemPrompt.section({
     name: 'tool:pty',
     order: 106,
@@ -139,6 +123,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       name: { type: 'string', description: 'Optional owner-local display name such as "main" or "gdb".' },
       cwd: { type: 'string', description: 'Initial working directory. Defaults to the deployment workspace root.' },
     },
+    finalizeContent,
     async execute(args: SpawnArgs, exec) {
       if (args.type.length === 0) throw new Error('type must be a non-empty string')
       const result = await ctx.pty.spawn(requireAgent(exec.agent), {
@@ -166,6 +151,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         ? { run_in_background: { type: 'boolean' as const, description: 'Return a task id immediately; collect with task_output or stop with task_kill.' } }
         : {},
     },
+    finalizeContent,
     async execute(args: SendArgs, exec): Promise<ToolExecutionResult> {
       const owner = requireAgent(exec.agent)
       const id = sessionId(args)
@@ -224,6 +210,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       offset: { type: 'number', description: 'Newest-relative line offset (default 0).' },
       count: { type: 'number', description: 'Requested line count (default 500; backend caps apply).' },
     },
+    finalizeContent,
     execute(args: ReadArgs, exec) {
       const result = ctx.pty.read(requireAgent(exec.agent), sessionId(args), {
         ...args.offset !== undefined ? { offset: args.offset } : {},
@@ -241,6 +228,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       sessionId: { type: 'string', required: true, description: 'Terminal session id.' },
       signal: { type: 'string', required: true, enum: ['SIGINT', 'SIGTERM', 'SIGKILL', 'SIGTSTP', 'SIGHUP'], description: 'Signal to deliver. Shell-targeted SIGKILL is rejected; use terminal_close.' },
     },
+    finalizeContent,
     async execute(args: SignalArgs, exec) {
       const result = await ctx.pty.signal(requireAgent(exec.agent), sessionId(args), args.signal)
       return textResult(`delivered ${args.signal} to foreground process group ${result.targetPgid}`, maxResultBytes)
@@ -254,6 +242,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     parameters: {
       sessionId: { type: 'string', required: true, description: 'Terminal session id.' },
     },
+    finalizeContent,
     async execute(args: SessionArgs, exec) {
       const id = sessionId(args)
       const closed = await ctx.pty.kill(requireAgent(exec.agent), id)
@@ -266,6 +255,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     name: 'terminal_list',
     description: 'List persistent terminal sessions owned by the current agent.',
     parameters: {},
+    finalizeContent,
     execute(_args: Record<string, never>, exec) {
       return Promise.resolve(textResult(renderList(ctx.pty.list(requireAgent(exec.agent)), maxResultBytes), maxResultBytes))
     },

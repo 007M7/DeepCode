@@ -1,7 +1,15 @@
 /** Typed tool-parameter DSL with argument inference and JSON Schema output. @module dsh-tools/schema */
 
 import { assertNever, HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ToolDefinition, ToolExecuteReturn, ToolRunContext, ToolResult } from './index.ts'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type {
+  ToolDefinition,
+  ToolExecuteReturn,
+  ToolExecution,
+  ToolExecutionResult,
+  ToolRunContext,
+  ToolResult,
+} from './index.ts'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
 
 // ---------------------------------------------------------------------------
@@ -295,6 +303,15 @@ export interface DefineToolOptions<S extends SchemaSpec> {
    */
   execute(args: InferArgs<S>, exec: ToolRunContext): Promise<ToolExecuteReturn>
   /**
+   * Optional last-mile content transform for every normalized outcome. Unlike
+   * `execute`, arguments remain `unknown` because invalid-input failures also
+   * reach this callback. See {@link ToolDefinition.finalizeContent}.
+   * @param exec - immutable execution identity and arguments.
+   * @param result - complete normalized outcome before materialization.
+   * @returns replacement content, or `undefined` to preserve it.
+   */
+  finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined
+  /**
    * Optional: how to present the PENDING state of one call in a UI (an editor
    * tool-call card, a CLI log line). `args` is the typed, schema-validated
    * argument shape — zero casts. Pure and side-effect-free: a UI may call it
@@ -317,7 +334,7 @@ export interface DefineToolOptions<S extends SchemaSpec> {
  * inferred from its per-property schema. Raw JSON-Schema definitions remain
  * valid inputs to {@link ToolRegistry.register}; this helper is authoring sugar.
  * @param options - the tool's name, description, typed parameter schema,
- *   execute body, and optional presenters.
+ *   execute body, and optional finalization/presentation callbacks.
  * @returns a registry-ready definition with strict execution validation and
  *   soft presenter and classifier validation for replay compatibility.
  */
@@ -325,6 +342,8 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
   // Object-literal execute methods don't use `this`; the reference is safe.
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userExecute = options.execute
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const userFinalizeContent = options.finalizeContent
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userPresentCall = options.presentCall
   // eslint-disable-next-line @typescript-eslint/unbound-method
@@ -348,6 +367,9 @@ export function defineTool<S extends SchemaSpec>(options: DefineToolOptions<S>):
       if (violations.length > 0) throw new ToolArgsError(violations)
       return userExecute(args as InferArgs<S>, exec)
     },
+  }
+  if (userFinalizeContent) {
+    tool.finalizeContent = (exec, result) => userFinalizeContent(exec, result)
   }
   // Presentation is display-only and may run on REPLAY of arbitrary logged args
   // (possibly from an older schema), so it must never throw: validate softly and

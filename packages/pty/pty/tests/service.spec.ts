@@ -233,6 +233,29 @@ describe('PtyService ownership and lifecycle', () => {
     expect(ctx.agents.get(owner.id)).toBe(owner)
   })
 
+  it('preserves caller cancellation when unpublished rollback fails', async () => {
+    const ctx = await harness()
+    const gate = Promise.withResolvers<PtyBackendSession>()
+    const session = new StubSession()
+    session.rejectClose = true
+    ctx.pty.registerBackend({ type: 'slow', spawn: () => gate.promise })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+    const controller = new AbortController()
+    const reason = new Error('cancelled by caller')
+
+    const pending = ctx.pty.spawn(owner, { type: 'slow' }, controller.signal)
+    controller.abort(reason)
+    gate.resolve(session)
+
+    await expect(pending).rejects.toBe(reason)
+    expect(ctx.pty.hasOwnerActivity(owner)).toBe(true)
+    const internal = ctx.pty as unknown as { disposeAll(): Promise<void> }
+    await expect(internal.disposeAll()).rejects.toThrow('failed to clean up PTY lifecycle')
+    expect(ctx.pty.hasOwnerActivity(owner)).toBe(false)
+    expect(session.closed).toEqual(['PTY spawn rolled back'])
+  })
+
   it('preserves caller cancellation when a backend rejects in response to it', async () => {
     const ctx = await harness()
     const started = Promise.withResolvers<undefined>()

@@ -217,11 +217,17 @@ describe('tool-pty foreground surface', () => {
     expect(Buffer.byteLength(text(background))).toBeLessThanOrEqual(64)
   })
 
-  it('bounds terminal results after pre- and post-execute policy', async () => {
+  it('bounds terminal results after policy decisions and pipeline failures', async () => {
     const { ctx, agent } = await setup(false, { maxResultBytes: 64 })
-    ctx.on('tools/pre-execute', async (exec, next) => exec.name === 'terminal_list'
-      ? { kind: 'deny', reason: 'd'.repeat(1_000) }
-      : next())
+    ctx.on('tools/pre-execute', async (exec, next) => {
+      if (exec.name === 'terminal_list') return { kind: 'deny', reason: 'd'.repeat(1_000) }
+      if (exec.name === 'terminal_signal') throw new Error(`pre failed: ${'p'.repeat(1_000)}`)
+      return next()
+    })
+    ctx.on('tools/execute', async (exec, next) => {
+      if (exec.name === 'terminal_close') throw new Error(`around failed: ${'e'.repeat(1_000)}`)
+      return next()
+    })
     ctx.on('tools/post-execute', async (exec, _result, next) => {
       if (exec.name === 'terminal_open') {
         return { kind: 'accept', content: [{ type: 'text', text: 'a'.repeat(1_000) }] }
@@ -229,6 +235,7 @@ describe('tool-pty foreground surface', () => {
       if (exec.name === 'terminal_read') {
         return { kind: 'block', feedback: [{ type: 'text', text: 'b'.repeat(1_000) }] }
       }
+      if (exec.name === 'terminal_send') throw new Error(`post failed: ${'o'.repeat(1_000)}`)
       return next()
     })
 
@@ -246,6 +253,17 @@ describe('tool-pty foreground surface', () => {
     expect(blocked.isError).toBe(true)
     expect(Buffer.byteLength(text(blocked))).toBeLessThanOrEqual(64)
     expect(text(blocked)).toContain('[output truncated]')
+
+    const failures = [
+      await call(ctx, 'terminal_signal', { sessionId: 'pty-1', signal: 'SIGINT' }, agent),
+      await call(ctx, 'terminal_close', { sessionId: 'pty-1' }, agent),
+      await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'work' }, agent),
+    ]
+    for (const failure of failures) {
+      expect(failure.isError).toBe(true)
+      expect(Buffer.byteLength(text(failure))).toBeLessThanOrEqual(64)
+      expect(text(failure)).toContain('[output truncated]')
+    }
   })
 
   it('leaves a structured around-dispatch replacement unchanged', async () => {

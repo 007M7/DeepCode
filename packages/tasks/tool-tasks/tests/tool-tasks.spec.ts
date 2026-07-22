@@ -162,19 +162,27 @@ describe('task_output', () => {
     expect(text(result)).toContain('[result truncated]')
   })
 
-  it('captures producer limits before pre- and around-execute policy', async () => {
+  it('bounds pre-, around-, and post-execute policy outcomes and failures', async () => {
     const { ctx } = await setup()
-    ctx.tasks.start(producer({ outputLimitBytes: 64 }).spec)
-    ctx.tasks.start(producer({ outputLimitBytes: 64 }).spec)
+    for (let index = 0; index < 5; index += 1) {
+      ctx.tasks.start(producer({ outputLimitBytes: 64 }).spec)
+    }
     ctx.on('tools/pre-execute', async (exec, next) => {
       const taskId = (exec.arguments as { task_id?: unknown }).task_id
-      return taskId === 'bash-1' ? { kind: 'deny', reason: 'd'.repeat(1_000) } : next()
+      if (taskId === 'bash-1') return { kind: 'deny', reason: 'd'.repeat(1_000) }
+      if (taskId === 'bash-3') throw new Error(`pre failed: ${'p'.repeat(1_000)}`)
+      return next()
     })
     ctx.on('tools/execute', async (exec, next) => {
       const taskId = (exec.arguments as { task_id?: unknown }).task_id
-      return taskId === 'bash-2'
-        ? { content: [{ type: 'text', text: 'a'.repeat(1_000) }], isError: false }
-        : next()
+      if (taskId === 'bash-2') return { content: [{ type: 'text', text: 'a'.repeat(1_000) }], isError: false }
+      if (taskId === 'bash-4') throw new Error(`around failed: ${'e'.repeat(1_000)}`)
+      return next()
+    })
+    ctx.on('tools/post-execute', async (exec, _result, next) => {
+      const taskId = (exec.arguments as { task_id?: unknown }).task_id
+      if (taskId === 'bash-5') throw new Error(`post failed: ${'o'.repeat(1_000)}`)
+      return next()
     })
 
     const denied = await call(ctx, 'task_output', { task_id: 'bash-1' })
@@ -186,6 +194,17 @@ describe('task_output', () => {
     expect(shortCircuited.isError).toBe(false)
     expect(Buffer.byteLength(text(shortCircuited))).toBeLessThanOrEqual(64)
     expect(text(shortCircuited)).toContain('[result truncated]')
+
+    const failures = [
+      await call(ctx, 'task_output', { task_id: 'bash-3' }),
+      await call(ctx, 'task_output', { task_id: 'bash-4' }),
+      await call(ctx, 'task_output', { task_id: 'bash-5' }),
+    ]
+    for (const failure of failures) {
+      expect(failure.isError).toBe(true)
+      expect(Buffer.byteLength(text(failure))).toBeLessThanOrEqual(64)
+      expect(text(failure)).toContain('[result truncated]')
+    }
   })
 
   it('wait: true blocks until settlement and reports the terminal state', async () => {

@@ -7,7 +7,7 @@ Owner-scoped persistent PTY seam. `PtyService` registers as `ctx.pty`, mints opa
 - Backends register one stable `type` and return an unpublished `PtyBackendSession`; failed or cancelled setup must clean partial resources, and a failed cleanup rejects with `PtyBackendCleanupError` so the registry can retain it across cancellation.
 - Spawn cancellation preserves the caller's exact abort reason. Service disposal and owner loss remain distinct machine-routable failures after backend setup.
 - Owner and service disposal abort unpublished setup through a service-owned signal and await backend settlement plus rollback before returning.
-- A service rollback or backend-reported startup cleanup failure rejects the disposing lifecycle instead of claiming quiescence; the spawn caller still receives its exact cancellation reason.
+- A rollback-close or backend-reported startup cleanup failure rejects the disposing lifecycle instead of claiming quiescence. Caller-triggered cancellation still receives its exact reason; lifecycle-triggered rollback failure also rejects the pending spawn.
 - A backend cleanup failure that follows caller cancellation remains owner activity until owner or service disposal consumes and reports it, so lifecycle policy cannot mistake failed cleanup for quiescence.
 - `hasOwnerActivity(owner)` spans unpublished setup through final close, so lifecycle policy can fence the exact owner without a publication race.
 - A successful spawn publishes one `PtySessionId`. The optional `name` is owner-local display metadata, never authority.

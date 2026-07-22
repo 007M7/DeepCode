@@ -11,7 +11,7 @@ import z from 'schemastery'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { TextRetainer } from '@deepseek-ai/dsh-retention'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView, PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskSnapshot } from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -128,18 +128,11 @@ export function apply(ctx: Context, config: Config): void {
     if (maxBytes !== undefined) outputLimits.set(exec, maxBytes)
     return next()
   }, { prepend: true })
-  ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
-    const decision = await next()
-    const maxBytes = outputLimits.get(exec)
+  const finalizeTaskContent: NonNullable<ToolDefinition['finalizeContent']> = (exec, result) => {
+    const maxBytes = outputLimits.get(exec) ?? visibleOutputLimit(ctx, exec)
     outputLimits.delete(exec)
-    if (maxBytes === undefined) return decision
-    const content = decision.kind === 'block' ? decision.feedback : decision.content ?? result.content
-    const bounded = boundSingleText(content, maxBytes)
-    if (bounded === undefined) return decision
-    return decision.kind === 'block'
-      ? { ...decision, feedback: bounded }
-      : { ...decision, content: bounded }
-  }, { prepend: true })
+    return maxBytes === undefined ? undefined : boundSingleText(result.content, maxBytes)
+  }
 
   // Producers may start work only while a control surface is attached.
   ctx.tasks.attachSurface('tool-tasks')
@@ -181,6 +174,7 @@ export function apply(ctx: Context, config: Config): void {
       wait: { type: 'boolean', description: 'Block until the task reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the task alive.' },
       timeout_ms: { type: 'number', description: 'Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum.' },
     },
+    finalizeContent: finalizeTaskContent,
     async execute(args, exec) {
       const id = validateTaskId(args.task_id)
       if (args.wait === true) {
@@ -224,6 +218,7 @@ export function apply(ctx: Context, config: Config): void {
       task_id: { type: 'string', required: true, description: 'Task id returned by the tool that started the background work.' },
       reason: { type: 'string', description: 'Optional short reason, recorded in the log and forwarded to the task.' },
     },
+    finalizeContent: finalizeTaskContent,
     execute(args, exec) {
       const id = validateTaskId(args.task_id)
       const snapshot = ctx.tasks.get(id, exec.agent)

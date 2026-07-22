@@ -1383,7 +1383,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/pty/tool-pty/src/index.ts:44`](../packages/pty/tool-pty/src/index.ts)
+Source: [`packages/pty/tool-pty/src/index.ts:35`](../packages/pty/tool-pty/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-ralph`
 
@@ -1549,7 +1549,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:419`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:431`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui`
 

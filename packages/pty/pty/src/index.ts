@@ -213,7 +213,7 @@ export class PtyService extends Service {
       } catch (cancellation: unknown) {
         failure = cancellation
       }
-      if (rollbackFailure !== undefined) {
+      if (rollbackFailure !== undefined && signal?.aborted !== true) {
         throw new AggregateError([failure, rollbackFailure.error], 'PTY spawn and rollback both failed')
       }
       throw failure
