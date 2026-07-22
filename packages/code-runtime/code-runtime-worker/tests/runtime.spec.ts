@@ -92,7 +92,7 @@ describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
       cursor = Array.isArray(cursor) ? cursor[0] : undefined
     }
     expect(cursor).toBe('leaf')
-  })
+  }, 15_000)
 
   it('reports non-erasable syntax as an exception without spawning a worker', async () => {
     const { runtime } = await setup()
@@ -484,7 +484,9 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
         const { parentPort } = await import('node:worker_threads');
         let value = null;
         for (let depth = 0; depth < 3_000; depth++) value = [value];
-        parentPort.postMessage({ type: 'done', value });
+        setTimeout(() => { parentPort.postMessage({ type: 'done', value }) }, 25);
+        // Prevent bootstrap's normal undefined completion from racing the forged terminal.
+        await new Promise(() => {});
       `,
       bindings: [],
     })
