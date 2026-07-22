@@ -24,6 +24,8 @@
 #   DSH_SOURCE       checkout location                   (default: ~/.dsh/source)
 #   DSH_BIN_DIR      directory the `dsh` symlink lands in (default: ~/.local/bin)
 #   DSH_HOME         Harness home holding the personal config (default: ~/.dsh)
+# FIXME(install-ts): Move the post-checkout workflow into a tested TypeScript
+# entrypoint; keep this POSIX shell file as the curl/source bootstrap.
 set -eu
 
 DSH_REF=${DSH_REF:-master}
