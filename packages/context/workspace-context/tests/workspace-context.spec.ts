@@ -383,6 +383,20 @@ describe('workspace context instruction discovery', () => {
     }
   })
 
+  it('loads through a FileSystem provider without a cancellation signal', async () => {
+    // Direct-library callers may omit `signal`; the fs-backed probe must pass
+    // no options object rather than `{ signal: undefined }`.
+    const ctx = new Context()
+    await ctx.plugin(RecordingFileSystem)
+    const fs = ctx.fs as RecordingFileSystem
+    fs.entries.set('/repo/.git', { type: 'directory' })
+    fs.entries.set('/repo/AGENTS.md', { type: 'file', content: 'signalless rule' })
+    const rendered = await loadBaselineInstructions({ cwd: '/repo', maxBytes: 65536 }, fs)
+    expect(rendered?.text).toContain('signalless rule')
+    expect(fs.signals).toHaveLength(0)
+    await ctx.fiber.dispose()
+  })
+
   it('skips a file that becomes unreadable after discovery without failing the request', async () => {
     const root = await tempRepo()
     const home = await tempRepo()

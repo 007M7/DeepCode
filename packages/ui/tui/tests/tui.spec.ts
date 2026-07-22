@@ -1099,6 +1099,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
       description: 'Fail a plugin command',
       handler: () => { throw new Error('plugin command exploded') },
     })
+    result.ctx.commands.register({
+      name: 'plugin-error',
+      description: 'Return an error result',
+      handler: () => ({ kind: 'error' as const, text: 'plugin error result' }),
+    })
 
     result.terminal.send('/plugin-check  value  ')
     result.terminal.send('\r')
@@ -1115,6 +1120,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('Command failed: plugin command exploded')
+    result.terminal.send('/plugin-error')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('plugin error result')
     result.terminal.send('/help')
     result.terminal.send('\r')
     await tick()
@@ -1124,6 +1133,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await result.controller.dispose()
     expect(result.ctx.commands.list(result.agent).map(command => command.name)).toEqual([
       'plugin-check',
+      'plugin-error',
       'plugin-fail',
     ])
     await result.ctx.fiber.dispose()
