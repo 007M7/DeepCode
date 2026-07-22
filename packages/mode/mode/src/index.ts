@@ -142,6 +142,12 @@ export function resolveConfig(config: ModeConfig): ResolvedModes {
     if (name === DEFAULT_MODE) {
       throw new Error(`ModeConfig: "${DEFAULT_MODE}" is reserved (the absence of policy) and cannot be defined`)
     }
+    // The same shape the package invariant enforces on `mode/set`: accepting
+    // an empty or untrimmed KEY here would advertise a name whose selection
+    // the invariant then rejects, desynchronizing the picker forever.
+    if (name.trim() === '' || name.trim() !== name) {
+      throw new Error(`ModeConfig: mode name ${JSON.stringify(name)} must be non-empty and trimmed`)
+    }
     if (typeof definition.section !== 'string') {
       throw new Error(`ModeConfig: mode "${name}" needs a string \`section\``)
     }
@@ -231,22 +237,32 @@ export class ModesService extends Service {
     // flushed mode therefore lands before the prompt that should reflect it.
     // Contained: policy must never block a prompt or turn; onBoundary can throw
     // only when session.append rejects during teardown.
-    ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) => {
-      try {
-        this.onBoundary(agent)
-      } catch (error) {
-        ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
+    // Flush AFTER next() on every seam (the request-error wrapper below does
+    // the same): downstream listeners may await, and a `session/set_mode`
+    // arriving during that window must still shape the request this boundary
+    // precedes — a pre-next() flush would apply it one request late.
+    ctx.on('agent/prompt-submit', async (agent, _content, _source, _signal, next) => {
+      const decision = await next()
+      if (!disposed) {
+        try {
+          this.onBoundary(agent)
+        } catch (error) {
+          ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
+        }
       }
-      return next()
-    })
-    ctx.on('agent/turn-continuation', (agent, _turn, _decision, _signal, next) => {
-      try {
-        this.onBoundary(agent)
-      } catch (error) {
-        ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
+      return decision
+    }, { prepend: true })
+    ctx.on('agent/turn-continuation', async (agent, _turn, _decision, _signal, next) => {
+      const decision = await next()
+      if (!disposed) {
+        try {
+          this.onBoundary(agent)
+        } catch (error) {
+          ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
+        }
       }
-      return next()
-    })
+      return decision
+    }, { prepend: true })
     ctx.on('agent/request-error', async (
       agent,
       _turn,
@@ -337,6 +353,14 @@ export class ModesService extends Service {
           agent,
           signal: exec.signal,
         })
+        // The review may outlive this plugin fiber (HMR unload while the user
+        // decides): the boundary listeners that would flush the switch are
+        // already gone, so a success result here would claim an exit that can
+        // never land. Fail the call instead; a remounted service still holds
+        // plan mode and the model re-presents.
+        if (disposed) {
+          throw new Error('the mode service was reloaded while the plan was under review; present the plan again')
+        }
         const reviewItems = answer.answers.filter(entry => entry.id === 'plan-review')
         const item = reviewItems.length === 1 ? reviewItems[0] : undefined
         if (item?.selected.length !== 1 || item.selected[0] !== APPROVE_LABEL || item.custom !== undefined) {

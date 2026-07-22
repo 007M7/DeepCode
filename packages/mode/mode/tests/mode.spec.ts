@@ -143,6 +143,13 @@ describe('resolveConfig', () => {
       .toThrow('"default" is reserved')
   })
 
+  it('rejects an empty or untrimmed mode name loudly (the invariant would reject its selection)', () => {
+    expect(() => resolveConfig({ modes: { ...PLAN_CONFIG.modes, '': { section: 'x' } } }))
+      .toThrow('mode name "" must be non-empty and trimmed')
+    expect(() => resolveConfig({ modes: { ...PLAN_CONFIG.modes, ' review ': { section: 'x' } } }))
+      .toThrow('mode name " review " must be non-empty and trimmed')
+  })
+
   it('rejects a malformed definition loudly', () => {
     expect(() => resolveConfig({ modes: { ...PLAN_CONFIG.modes, bad: { section: 5 } as unknown as { section: string } } }))
       .toThrow('needs a string `section`')
@@ -225,6 +232,28 @@ describe('the boundary flush', () => {
     const agent = await agentWithSession(ctx)
     ctx.modes.set(agent, PLAN_MODE)
     await boundary(ctx, agent, 'turn/start')
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
+    expect(ctx.modes.get(agent)).toEqual({ current: PLAN_MODE })
+  })
+
+  it('flushes a set() that arrives while a downstream listener is still awaiting (post-next ordering)', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    // A downstream async listener (the shipped hooks listeners' shape): the
+    // selection lands DURING its await — after this boundary began, before it
+    // returns. The prepended flush runs after next(), so the mode/set still
+    // precedes the request this boundary gates.
+    ctx.on('agent/turn-continuation', async (_agent, _turn, decision, _signal, next) => {
+      await new Promise(resolve => setTimeout(resolve, 5))
+      ctx.modes.set(agent, PLAN_MODE)
+      await next()
+      return decision
+    })
+    agent.session.append('step/end', { turn: 1, step: 1 })
+    await agentEvents(ctx, agent).waterfall(
+      'agent/turn-continuation', 1, { action: 'stop' }, new AbortController().signal,
+      () => Promise.resolve({ action: 'stop' }),
+    )
     expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
     expect(ctx.modes.get(agent)).toEqual({ current: PLAN_MODE })
   })
@@ -811,6 +840,30 @@ describe('exit_plan_mode', () => {
     })
     expect(result.isError).toBe(false)
     expect(asked[0]?.signal).toBe(controller.signal)
+  })
+
+  it('fails the call when the plugin is disposed while the review awaits (no phantom exit)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const fiber = await ctx.plugin(ModesService, PLAN_CONFIG)
+    await ctx.plugin(UserInteractionService)
+    let answer!: (value: { answers: { id: string; selected: string[] }[] }) => void
+    ctx.userInteraction.registerProvider({
+      ask: () => new Promise((resolve) => { answer = resolve }),
+    })
+    const agent = await agentWithSession(ctx, 'agent-1', { mode: PLAN_MODE })
+    const pending = callExit(ctx, agent)
+    // Let execute reach the review await, then unload the plugin (HMR) and
+    // only afterwards approve. The boundary listeners are gone, so a success
+    // would claim an exit that can never flush — the call must fail instead.
+    await new Promise(resolve => setImmediate(resolve))
+    await fiber.dispose()
+    answer({ answers: [{ id: 'plan-review', selected: ['Approve'] }] })
+    const result = await pending
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: the mode service was reloaded while the plan was under review; present the plan again' }])
+    expect(foldMode(agent.session.events)).toBe(PLAN_MODE)
   })
 
   it('a throwing provider surfaces as the corrective isError and the mode stays plan', async () => {
