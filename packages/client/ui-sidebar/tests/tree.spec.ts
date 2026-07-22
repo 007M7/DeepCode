@@ -3,7 +3,7 @@ import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/d
 import {
   deriveRows, formatRelativeTime, projectLabel, UNGROUPED_KEY, UNGROUPED_LABEL,
   type SessionRow, type TreeView,
-} from '../src/client/tree.ts'
+} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
 const sid = (s: string) => s as SessionId
 
