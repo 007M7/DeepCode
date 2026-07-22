@@ -6,6 +6,7 @@ The TUI surface:
 
 - boots the shipped default config (`examples/tui-agent/cordis.yml`) or an explicit config argument, through [`dsh-app-boot`](../../packages/ui/app-boot/README.md);
 - treats the **invoking directory** as the workspace — sessions, relative paths, and workspace instructions resolve from the cwd;
+- tells the agent where its own source lives: after boot it adds a prompt section naming this harness checkout, resolved from the launcher's real path so it holds under a PATH symlink and an arbitrary cwd, so the self-referential `cordis` toolset can read and modify it;
 - applies the personal overlay from `~/.config/dsh` (see [app-boot's Personal config](../../packages/ui/app-boot/README.md#personal-config)): `.env` fills environment gaps (ambient > project `.env` > personal `.env`), `config.yaml` patches the booted tree.
 
 ## Install (developer machine)

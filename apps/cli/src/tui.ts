@@ -5,12 +5,15 @@
  * environment, then the invoking directory's `.env`, then the personal one)
  * and its `config.yaml` patches the booted tree. The workspace is the invoking
  * directory: sessions, relative paths, and workspace instructions resolve from
- * the cwd, so `dsh` acts on whatever project it is launched in.
+ * the cwd, so `dsh` acts on whatever project it is launched in. After boot, the
+ * agent's system prompt is told the path to this harness checkout so it can find
+ * its own source.
  * @module @deepseek-ai/dsh/tui
  */
 
 import { fileURLToPath } from 'node:url'
 import {
+  addHarnessSourceSection,
   boot,
   installFailLoud,
   loadEnv,
@@ -25,6 +28,11 @@ const NAME = 'dsh'
 // one directory under apps/cli, so the shipped default config resolves with
 // the same relative hop from either artifact.
 const DEFAULT_CONFIG = fileURLToPath(new URL('../../../examples/tui-agent/cordis.yml', import.meta.url))
+
+// The harness checkout root: three hops up from apps/cli/{src,lib}, resolved
+// from this bin's location so it holds however `dsh` is launched (a PATH
+// symlink, an arbitrary cwd). The agent is told where its own source lives.
+const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /* v8 ignore start -- composition over the unit-tested dsh-app-boot helpers;
    the tui-agent PTY smoke drives this path end to end, personal overlay included */
@@ -45,6 +53,7 @@ export async function runTui(argv: string[]): Promise<void> {
   // The bin already loaded the invoking directory's .env; the personal .env
   // only fills what is still unset (process.loadEnvFile never overrides).
   loadEnv(NAME, resolvePersonalConfigDir())
-  await boot(NAME, resolveConfigPath(argv[0] ?? DEFAULT_CONFIG, undefined), loadPersonalPatches(NAME))
+  const ctx = await boot(NAME, resolveConfigPath(argv[0] ?? DEFAULT_CONFIG, undefined), loadPersonalPatches(NAME))
+  addHarnessSourceSection(ctx, SOURCE_ROOT)
 }
 /* v8 ignore stop */
