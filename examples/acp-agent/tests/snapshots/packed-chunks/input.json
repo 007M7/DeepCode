@@ -2,6 +2,6 @@
   "steps": [
     { "op": "initialize" },
     { "op": "newSession" },
-    { "op": "prompt", "text": "Reply with exactly the word: PONG. Do not use any tools." }
+    { "op": "prompt", "text": "Use the bash tool to run exactly: echo HELLO. Report the tool result you got back verbatim, then stop." }
   ]
 }
