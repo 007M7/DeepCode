@@ -27,6 +27,9 @@
       "path": "../../context/session-reference"
     },
     {
+      "path": "../../session-persistence/session-persistence"
+    },
+    {
       "path": "../../session-title/session-title"
     },
     {
@@ -43,6 +46,9 @@
     },
     {
       "path": "../commands"
+    },
+    {
+      "path": "../../skill/skill"
     },
     {
       "path": "../user-interaction"

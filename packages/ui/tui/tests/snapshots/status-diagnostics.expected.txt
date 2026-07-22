@@ -1,0 +1,99 @@
+terminal 92x32 buffer=normal length=32 base=0 viewport=0
+lifecycle started=1 stopped=0 progress=inactive
+title "Inspect session diagnostics — DSH snapshot"
+cursor hidden column=1 viewportRow=28 bufferRow=28
+buffer
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Inspect session diagnostics"
+  style 1-27 fg=bright-black
+2| " deepseek-v4-pro  •  main-session"
+  style 1-32 dim
+3| <blank>
+4| "▌ "
+  style 0-0 fg=bright-blue
+5| "▌ You                                                                                       "
+  style 0-0 fg=bright-blue
+  style 2-4 fg=bright-blue bold
+6| "▌ inspect this session                                                                      "
+  style 0-0 fg=bright-blue
+7| "▌ "
+  style 0-0 fg=bright-blue
+8| <blank>
+9| " Assistant                                                                                  "
+  style 1-9 fg=bright-magenta bold
+10| " Session inspected.                                                                         "
+11| <blank>
+12| "╭─ Session status ─────────────────────────────────────────────────╮"
+  style 0-2 dim
+  style 3-16 fg=bright-blue bold
+  style 17-67 dim
+13| "│  Session:    main-session                                        │"
+  style 0-0 dim
+  style 3-12 fg=bright-black
+  style 67-67 dim
+14| "│  Title:      Inspect session diagnostics                         │"
+  style 0-0 dim
+  style 3-12 fg=bright-black
+  style 67-67 dim
+15| "│  Directory:  /workspace/project                                  │"
+  style 0-0 dim
+  style 3-12 fg=bright-black
+  style 67-67 dim
+16| "│  Model:      deepseek/deepseek-v4-pro (reasoning shown)          │"
+  style 0-0 dim
+  style 3-12 fg=bright-black
+  style 40-56 dim
+  style 67-67 dim
+17| "│                                                                  │"
+  style 0-0 dim
+  style 67-67 dim
+18| "│  Agent:      idle · 6 events · 1 turn · 1 step · 1 tool call     │"
+  style 0-0 dim
+  style 3-12 fg=bright-black
+  style 67-67 dim
+19| "│                                                                  │"
+  style 0-0 dim
+  style 67-67 dim
+20| "│  Tokens:     1,250 input + 340 output                            │"
+  style 0-0 dim
+  style 3-12 fg=bright-black
+  style 67-67 dim
+21| "│  KV cache:   [███████████░░░░░] 67% hit (3,000 read + 250 write) │"
+  style 0-0 dim
+  style 3-12 fg=bright-black
+  style 15-15 dim
+  style 16-26 fg=bright-blue
+  style 27-32 dim
+  style 67-67 dim
+22| "│  Context:    [█████░░░░░░░░░░░] 33% used (42,000 / 128,000)      │"
+  style 0-0 dim
+  style 3-12 fg=bright-black
+  style 15-15 dim
+  style 16-20 fg=bright-blue
+  style 21-32 dim
+  style 67-67 dim
+23| "│                                                                  │"
+  style 0-0 dim
+  style 67-67 dim
+24| "│  Created:    2026-07-22 09:10:11 UTC                             │"
+  style 0-0 dim
+  style 3-12 fg=bright-black
+  style 67-67 dim
+25| "│  Active:     2026-07-22 09:10:11 UTC                             │"
+  style 0-0 dim
+  style 3-12 fg=bright-black
+  style 67-67 dim
+26| "╰──────────────────────────────────────────────────────────────────╯"
+  style 0-67 dim
+27| "────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-91 dim
+28| "                                                                                            "
+  style 1-1 inverse
+29| "────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-91 dim
+30| "deepseek-v4-pro  /workspace/project  ↑1.3k ↓340  cache 67%      33% context  tools:collapsed"
+  style 0-57 dim
+  style 64-91 dim
+31| <blank>

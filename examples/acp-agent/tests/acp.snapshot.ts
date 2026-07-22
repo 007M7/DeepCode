@@ -116,8 +116,11 @@ const SCENARIOS: Scenario[] = [
   { name: 'repeat-tool-guard', hasModelTurn: true, recorded: false },
   // Authored replay: a root AGENTS.md pins the session prefix, then a read in
   // nested/ discovers its narrower AGENTS.md as a raw, metadata-bearing
-  // context/message. The scenario-specific config keeps home/root discovery
-  // hermetic, and the resulting prefix needs its own pinned header class.
+  // context/message. Both AGENTS.md fixtures are symlinks to a sibling
+  // AGENTS.canonical.md, so this scenario also guards that discovery follows a
+  // symlinked instruction file to its target's content. The scenario-specific
+  // config keeps home/root discovery hermetic, and the resulting prefix needs
+  // its own pinned header class.
   {
     name: 'workspace-context',
     hasModelTurn: true,

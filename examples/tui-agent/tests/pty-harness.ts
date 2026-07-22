@@ -10,6 +10,10 @@ node, launch_args_json, launch_env_json, cwd, actions_json, expected_exit, timeo
 env = os.environ.copy()
 env.update(json.loads(launch_env_json))
 env.update({"COLUMNS": "100", "LINES": "30"})
+# Deterministic banner: a developer shell's COLORTERM=truecolor would switch the
+# banner to the per-letter gradient (one SGR per letter), breaking literal
+# DEEPSEEK assertions. The gradient path has its own unit and snapshot coverage.
+env.pop("COLORTERM", None)
 actions = json.loads(actions_json)
 pid, fd = pty.fork()
 if pid == 0:
@@ -63,12 +67,19 @@ export interface TuiPtySmokeOptions {
   readonly label: string
   readonly tempDirPrefix: string
   readonly binScript: string
-  readonly configPath: string
+  /** Config argument; ignored when {@link configArgs} is set. */
+  readonly configPath?: string
+  /** Full argument vector for the bin (e.g. `[]` for a bin with a built-in default config). */
+  readonly configArgs?: readonly string[]
   readonly tsconfigPath: string
   readonly actions?: readonly TuiPtyAction[]
   readonly env?: Readonly<NodeJS.ProcessEnv>
   readonly expectedExitCode?: number
   readonly timeoutMs?: number
+  /** Seed the isolated workspace (`cwd`, with `$DSH_HOME` at `.dsh` and the agents home at `.agents`) before launch. */
+  readonly prepare?: (cwd: string) => Promise<void>
+  /** Inspect the workspace after a passing run, before the temp dir is removed. */
+  readonly inspect?: (cwd: string) => Promise<void>
 }
 
 function definedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
@@ -135,6 +146,9 @@ async function runWindowsPtySmoke(
       env: definedEnv({
         ...process.env,
         ...launch.env,
+        // Match the POSIX driver: no COLORTERM, so the banner never takes the
+        // truecolor gradient path under a developer's shell.
+        COLORTERM: undefined,
         COLUMNS: '100',
         LINES: '30',
       }),
@@ -175,9 +189,13 @@ export async function runTuiPtySmoke(options: TuiPtySmokeOptions): Promise<strin
   const cwd = await mkdtemp(join(tmpdir(), options.tempDirPrefix))
   const timeoutMs = options.timeoutMs ?? 25_000
   try {
+    await options.prepare?.(cwd)
     const launch = resolveExampleLaunch({
       srcBin: options.binScript,
-      configArgs: [options.configPath],
+      configArgs: options.configArgs !== undefined
+        ? [...options.configArgs]
+        /* v8 ignore next -- every caller passes configPath or configArgs; the fallback keeps the type total */
+        : [options.configPath ?? './cordis.yml'],
       tsconfigPath: options.tsconfigPath,
       exposeInternals: true,
       env: {
@@ -186,10 +204,12 @@ export async function runTuiPtySmoke(options: TuiPtySmokeOptions): Promise<strin
         ...options.env,
       },
     })
-    if (process.platform === 'win32') {
-      return await runWindowsPtySmoke(launch, cwd, options, timeoutMs)
-    }
-    return await runPosixPtySmoke(launch, cwd, options, timeoutMs)
+    const output = process.platform === 'win32'
+      ? await runWindowsPtySmoke(launch, cwd, options, timeoutMs)
+      : await runPosixPtySmoke(launch, cwd, options, timeoutMs)
+    // Inspect the workspace before `finally` removes it (e.g. the session log).
+    await options.inspect?.(cwd)
+    return output
   } finally {
     await rm(cwd, { recursive: true, force: true })
   }

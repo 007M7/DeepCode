@@ -10,7 +10,7 @@ import type { JsonValue, Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileSystem, FsVersion } from '@deepseek-ai/dsh-fs'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ResolvedConfig } from './config.ts'
-import { instructionContentSha1 } from './digest.ts'
+import { instructionContentSha1, trimmedInstructionDigest } from './digest.ts'
 import {
   ancestorChain,
   descendantDirsBetween,
@@ -21,8 +21,12 @@ import {
   type LoadedInstructionFile,
 } from './files.ts'
 import {
+  candidateScopeKey,
+  decodeScopeKey,
+  instructionScopeKey,
   renderInstructionChanges,
-  scopeForDisplayPath,
+  USER_GLOBAL_DIRECTORY,
+  USER_GLOBAL_FILE,
   type ChangeRenderItem,
   type WorkspaceInstructionChange,
 } from './render.ts'
@@ -44,6 +48,11 @@ export interface InstructionVersionState {
   path: string
   version: FsVersion
   digest: string
+  /**
+   * Trimmed-content identity ({@link trimmedInstructionDigest}) used to suppress
+   * per-directory duplicates on the metadata fast path without re-reading a sibling.
+   */
+  trimmedDigest: string
 }
 
 /** Session-isolated fast-path state keyed by logical instruction scope. */
@@ -71,7 +80,6 @@ function workspaceContextHook(text: string, changes: WorkspaceInstructionChange[
     action: change.action,
     scope: change.scope,
     path: change.path,
-    ...change.previousPath !== undefined ? { previousPath: change.previousPath } : {},
     ...change.digest !== undefined ? { digest: change.digest } : {},
   }))
   const meta: JsonValue = { kind: 'workspace-instructions', version: 1, changes: serializedChanges }
@@ -112,13 +120,11 @@ function workspaceInstructionChanges(meta: JsonValue | undefined): WorkspaceInst
     if (!isRecord(value)) continue
     if (value.action !== 'set' && value.action !== 'replace' && value.action !== 'remove') continue
     if (typeof value.scope !== 'string' || typeof value.path !== 'string') continue
-    if (value.previousPath !== undefined && typeof value.previousPath !== 'string') continue
     if (value.digest !== undefined && typeof value.digest !== 'string') continue
     changes.push({
       action: value.action,
       scope: value.scope,
       path: value.path,
-      ...value.previousPath !== undefined ? { previousPath: value.previousPath } : {},
       ...value.digest !== undefined ? { digest: value.digest } : {},
     })
   }
@@ -129,7 +135,6 @@ function sameInstructionChange(a: WorkspaceInstructionChange, b: WorkspaceInstru
   return a.action === b.action
     && a.scope === b.scope
     && a.path === b.path
-    && a.previousPath === b.previousPath
     && a.digest === b.digest
 }
 
@@ -169,13 +174,18 @@ export function baselineInstructionState(files: LoadedInstructionFile[]): {
     const digest = instructionContentSha1(file.content)
     const change: WorkspaceInstructionChange = {
       action: 'set',
-      scope: scopeForDisplayPath(file.displayPath),
+      scope: instructionScopeKey(file.displayPath),
       path: file.displayPath,
       digest,
     }
     changes.set(change.scope, change)
     if (file.version !== undefined) {
-      versions.set(change.scope, { path: file.displayPath, version: file.version, digest })
+      versions.set(change.scope, {
+        path: file.displayPath,
+        version: file.version,
+        digest,
+        trimmedDigest: trimmedInstructionDigest(file.content),
+      })
     }
   }
   return { changes, versions }
@@ -391,34 +401,67 @@ export async function reconcileInstructionContext(
   // recomputing it after marker edits reinterprets the existing relative scope keys.
   const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, options.signal)
   const scopes = new Set<string>()
-  if (options.includeBaselineScopes) {
-    scopes.add('user-global')
-    for (const dir of ancestorChain(projectRoot, cwd)) scopes.add(relativeScope(projectRoot, dir))
+  const addDirScopes = (directory: string): void => {
+    for (const candidate of resolved.instructionFileCandidates) scopes.add(candidateScopeKey(directory, candidate))
+    for (const candidate of resolved.localInstructionFileCandidates) scopes.add(candidateScopeKey(directory, candidate))
   }
-  for (const scope of effective.keys()) scopes.add(scope)
+  const addProjectScopes = (dir: string): void => {
+    addDirScopes(relativeScope(projectRoot, dir))
+  }
+  if (options.includeBaselineScopes) {
+    scopes.add(candidateScopeKey(USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE))
+    for (const dir of ancestorChain(projectRoot, cwd)) addProjectScopes(dir)
+  }
+  for (const scope of effective.keys()) {
+    const { directory } = decodeScopeKey(scope)
+    if (directory === USER_GLOBAL_DIRECTORY) scopes.add(candidateScopeKey(USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE))
+    else addDirScopes(directory)
+  }
   if (options.touchedPath !== undefined) {
-    for (const dir of descendantDirsBetween(cwd, options.touchedPath)) scopes.add(relativeScope(projectRoot, dir))
+    for (const dir of descendantDirsBetween(cwd, options.touchedPath)) addProjectScopes(dir)
   }
 
   const versions = versionStatesFor(session, versionCache)
   const seenAbsolutePaths = new Set<string>()
+  // Per-directory trimmed-content identities kept so far this pass, iterated in
+  // candidate order (base before local); a later sibling matching an earlier one
+  // is a duplicate and is dropped or removed rather than rendered twice.
+  const keptTrimmedByDir = new Map<string, Set<string>>()
+  const registerKeptTrimmed = (directory: string, digest: string): boolean => {
+    let digests = keptTrimmedByDir.get(directory)
+    if (digests === undefined) {
+      digests = new Set()
+      keptTrimmedByDir.set(directory, digests)
+    }
+    if (digests.has(digest)) return true
+    digests.add(digest)
+    return false
+  }
   const items: ChangeRenderItem[] = []
   const versionUpdates: InstructionVersionUpdate[] = []
+  const pushRemoval = (scope: string, path: string): void => {
+    const change: WorkspaceInstructionChange = { action: 'remove', scope, path }
+    items.push({ change, file: { absolutePath: `removed:${scope}`, displayPath: path, content: '' } })
+    versionUpdates.push({ change })
+  }
   for (const scope of scopes) {
+    const { directory } = decodeScopeKey(scope)
     const previous = effective.get(scope)
     const probe = await probeScopeInstruction(scope, projectRoot, resolved, fileSystem, options.signal)
-    if (probe.kind === 'unavailable') continue
-    if (probe.kind === 'absent') {
-      if (previous === undefined || previous.action === 'remove') {
-        versions.delete(scope)
-        continue
+    if (probe.kind === 'unavailable') {
+      // Last-good-state: the candidate stays effective, so its cached trimmed
+      // digest must keep occupying the directory's dedup slot — otherwise an
+      // identical later sibling would be emitted as a duplicate `set` until the
+      // next successful reconciliation removed it again.
+      const cached = versions.get(scope)
+      if (cached !== undefined && previous !== undefined && previous.action !== 'remove') {
+        registerKeptTrimmed(directory, cached.trimmedDigest)
       }
-      const change: WorkspaceInstructionChange = { action: 'remove', scope, path: previous.path }
-      items.push({
-        change,
-        file: { absolutePath: `removed:${scope}`, displayPath: previous.path, content: '' },
-      })
-      versionUpdates.push({ change })
+      continue
+    }
+    if (probe.kind === 'absent') {
+      if (previous === undefined || previous.action === 'remove') versions.delete(scope)
+      else pushRemoval(scope, previous.path)
       continue
     }
     const { file: probedFile } = probe
@@ -433,29 +476,39 @@ export async function reconcileInstructionContext(
       && previous.action !== 'remove'
       && previous.path === cached.path
       && previous.digest === cached.digest
-    ) continue
+    ) {
+      // Unchanged and previously rendered: keep it, but an earlier sibling that
+      // now matches its trimmed content makes this the duplicate to remove.
+      if (registerKeptTrimmed(directory, cached.trimmedDigest)) pushRemoval(scope, previous.path)
+      continue
+    }
 
     const file = await readScopeInstruction(probedFile, resolved.maxSourceBytes, fileSystem, options.signal)
     if (file === undefined) continue
     const currentDigest = instructionContentSha1(file.content)
+    const trimmedDigest = trimmedInstructionDigest(file.content)
+    if (registerKeptTrimmed(directory, trimmedDigest)) {
+      // A distinct file whose trimmed content already appeared earlier in this
+      // directory: drop it, removing any copy that was previously rendered.
+      if (previous !== undefined && previous.action !== 'remove') pushRemoval(scope, previous.path)
+      else versions.delete(scope)
+      continue
+    }
     const nextVersion: InstructionVersionState = {
       path: file.displayPath,
       version: probedFile.version,
       digest: currentDigest,
+      trimmedDigest,
     }
     if (previous !== undefined && previous.action !== 'remove' && previous.path === file.displayPath && previous.digest === currentDigest) {
       versions.set(scope, nextVersion)
       continue
     }
     const action = previous === undefined || previous.action === 'remove' ? 'set' : 'replace'
-    const previousPath = action === 'replace' && previous !== undefined && previous.path !== file.displayPath
-      ? previous.path
-      : undefined
     const change: WorkspaceInstructionChange = {
       action,
       scope,
       path: file.displayPath,
-      ...previousPath === undefined ? {} : { previousPath },
       digest: currentDigest,
     }
     items.push({ change, file })
