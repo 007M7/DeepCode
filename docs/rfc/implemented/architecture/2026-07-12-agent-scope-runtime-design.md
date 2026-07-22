@@ -1,5 +1,7 @@
 # RFC: Agent-scope runtime design and correctness
 
+English | [中文](2026-07-12-agent-scope-runtime-design.zh.md)
+
 Status: implemented
 
 ## Problem
