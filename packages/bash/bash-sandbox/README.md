@@ -16,7 +16,7 @@ Semantics:
 
 - **Denials are result facts.** A failed run whose stderr carries the selected backend's own denial dialect — the signatures the provider stamps on every wrap (EROFS text under bwrap, EACCES under Landlock, EPERM under Seatbelt) — is reported as `BashRunResult.sandbox.denied: true` (conservative classification, read from the collected stderr tail); every CONFINED run also carries the mode it executed under (`result.sandbox.mode`) and the provider's enforcement completeness (`result.sandbox.enforcement`: `full`, or `partial` on an older Landlock ABI).
 - **Runner failures are sandbox failures, never command failures.** Foreground execution throws `SANDBOX_UNAVAILABLE`; a settled background process stamps `process.sandbox.runnerFailed`, which the bash producer renders through generic `task_output`. Spawn failures also pass through settlement, so confined background handles retain their mode/enforcement facts and release per-process accounting.
-- **Deployment default, per-call policy.** The DEFAULT mode + workspace root are owned by [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/) (one home both enforcing families read), not this executor's config; `resolve()` stamps the default onto every spec, and an explicit request-level `sandboxMode` override — set by the tool layer only for a call whose wider mode a human granted through `ctx.approval` ([the sandbox Agent Note § Escalation](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)) — makes THAT call run, classify, and report under its own mode while every neighbor keeps the default (background facts are stamped per task at settle). The capability fact `ctx.bash.sandboxMode` reports the configured default so the tool layer advertises escalation only when this executor is mounted. The model learns of the sandbox only through result facts — the static bash tool description explains the denial marker; there is no current-mode statement in the system prompt.
+- **Deployment fallback, per-call policy.** [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/) resolves a complete `SandboxExecutionPolicy` for every tool call: the calling session supplies its mode override and immutable cwd root, while deployment config supplies the fallbacks for agentless calls. An approved escalation changes only that policy's mode; its session root stays attached. `resolve()` carries the policy onto the spec, so overlapping commands from different projects run, classify, and report under their own roots and modes. The capability fact `ctx.bash.sandboxMode` reports the configured default so the tool layer advertises escalation only when this executor is mounted. The model learns of the sandbox only through result facts — the static bash tool description explains the denial marker; there is no current-mode statement in the system prompt.
 - **File effects only.** Network and process visibility are deliberately not restricted — the mode vocabulary does not pretend to cover what the backend does not enforce.
 - Process mechanics (spawn, process-group kills, output collection/spill, background handles, credential scrub) are inherited from [`dsh-bash-local`](../bash-local/); runner selection lives in [`dsh-sandbox-local`](../../sandbox/sandbox-local/).
 
@@ -29,12 +29,12 @@ Deny-only at the seam: a denial is a reported fact, and this executor never nego
   name: '@deepseek-ai/dsh-sandbox-policy'
   config:
     mode: read-only
-    workspaceRoot: !!js process.cwd()
+    workspaceRoot: !!js process.cwd() # fallback for calls without a session cwd
 - id: bash
   name: '@deepseek-ai/dsh-bash-sandbox'
 ```
 
-The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landlock.e2e.ts`, and `tests/seatbelt.e2e.ts` (the real provider + real runner driven through `ctx.bash`, world-verified, each self-skipping where its runner is absent); see [the acp-agent example's default composition](../../../examples/acp-agent/) for the runnable demo.
+The keyless consumer-integration proofs are `tests/bwrap.e2e.ts`, `tests/landlock.e2e.ts`, and `tests/seatbelt.e2e.ts` (the real provider + real runner driven through `ctx.bash`, world-verified, each self-skipping where its runner is absent). The agent-spine e2e additionally drives two concurrent sessions in one Cordis context and proves each real bash tool call can write only its own project. See [the acp-agent example's default composition](../../../examples/acp-agent/) for the runnable demo.
 
 ## Model Experience
 

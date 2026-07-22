@@ -8,6 +8,15 @@ import { fileURLToPath } from 'node:url'
 import { zstdDecompress } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
 
+/**
+ * Published-entry smoke: run `lib/bin.js` under plain Node in a symlinked external consumer.
+ * The consumer's mock model is an example-local TypeScript plugin (Node 22.19+ — the engines
+ * floor — strips types natively, so plain `node` loads it), its config carries a `disabled:
+ * true` unresolvable entry (the fail-loud entry-load guard must not mistake an intentionally
+ * fiber-less entry for a failed import), and the optional spill pair loads from the consumer
+ * install — so every passing boot proves all three alongside the CLI's own output contract.
+ */
+
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 const cliBin = join(repoRoot, 'packages/examples/cli-demo/lib/bin.js')
 const decompress = promisify(zstdDecompress)
@@ -17,6 +26,7 @@ const dshPackages = [
   'bash/bash-local', 'bash/tool-bash', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence', 'session-persistence/session-persistence-jsonl',
   'context/workspace-context',
+  'spill/spill', 'spill/spill-local', 'spill/spill-policy', 'util/retention',
 ]
 const vendorPackages = ['cordis', 'loader', 'include', 'timer', 'schemastery', 'cosmokit']
 
@@ -35,15 +45,18 @@ async function makeConsumer(): Promise<string> {
   const nodeModules = join(dir, 'node_modules')
   for (const rel of dshPackages) await linkPackage(join(repoRoot, 'packages', rel), nodeModules)
   for (const rel of vendorPackages) await linkPackage(join(repoRoot, 'vendor', rel), nodeModules)
-  await writeFile(join(dir, 'mock-llm.mjs'), [
-    "import { LlmAdapter } from '@deepseek-ai/dsh-llm'",
+  await writeFile(join(dir, 'mock-llm.ts'), [
+    // Real type annotations: this file exists to prove plain Node's type
+    // stripping loads an example-local TS plugin from a built consumer.
+    "import { LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'",
+    "import type { Context } from 'cordis'",
     'class Mock extends LlmAdapter {',
-    '  async * stream(options) {',
-    "    const text = options.messages.flatMap(message => message.content).filter(block => block.type === 'text').at(-1)?.text ?? ''",
+    '  async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {',
+    "    const text: string = options.messages.flatMap(message => message.content).filter(block => block.type === 'text').at(-1)?.text ?? ''",
     "    yield { type: 'block-start', index: 0, blockType: 'text' }",
     "    if (text === 'hang') {",
     "      yield { type: 'text-delta', index: 0, text: 'partial' }",
-    '      await new Promise((resolve, reject) => {',
+    '      await new Promise<never>((resolve, reject) => {',
     "        const timer = setTimeout(() => reject(new Error('hang timeout')), 30000)",
     "        const onAbort = () => { clearTimeout(timer); reject(new Error('aborted')) }",
     '        if (options.signal.aborted) onAbort()',
@@ -60,12 +73,12 @@ async function makeConsumer(): Promise<string> {
     '}',
     "export const name = 'built-cli-mock'",
     "export const inject = ['llm']",
-    "export function apply(ctx) { ctx.llm.registerAdapter(['built-cli-mock'], new Mock()) }",
+    "export function apply(ctx: Context) { ctx.llm.registerAdapter(['built-cli-mock'], new Mock()) }",
     '',
   ].join('\n'))
   await writeFile(join(dir, 'cordis.yml'), [
     '- id: mock-llm',
-    "  name: './mock-llm.mjs'",
+    "  name: './mock-llm.ts'",
     '- id: bash',
     "  name: '@deepseek-ai/dsh-bash-local'",
     '- id: cli-agent',
@@ -76,6 +89,18 @@ async function makeConsumer(): Promise<string> {
     "    persona: 'built CLI test'",
     "    persistenceRoot: './.sessions'",
     '    workspaceContext: false',
+    '- id: spill-local',
+    "  name: '@deepseek-ai/dsh-spill-local'",
+    '- id: spill-policy',
+    "  name: '@deepseek-ai/dsh-spill-policy'",
+    '  config:',
+    '    maxInlineBytes: 50000',
+    // A `disabled: true` entry settles without a fiber by design; the fail-loud
+    // entry-load guard must not mistake it for a failed import. The nonexistent
+    // path makes that distinction observable while a clean run proves boot continued.
+    '- id: off',
+    "  name: './does-not-exist.ts'",
+    '  disabled: true',
     '',
   ].join('\n'))
   return dir

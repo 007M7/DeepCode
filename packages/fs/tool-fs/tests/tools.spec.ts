@@ -5,6 +5,9 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, sep } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -24,8 +27,10 @@ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import { STREAM_MIN_SIZE } from '../src/read.ts'
 import { formatReadOutput } from '../src/read-render.ts'
 import type { FileReadOutcome } from '../src/read-render.ts'
+import { sessionCwd } from '../src/session-cwd.ts'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
-import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 
 const testToolSignal = new AbortController().signal
 
@@ -106,6 +111,32 @@ function call(ctx: Context, name: string, args: unknown, agent?: object) {
 function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(b => b.type === 'text').map(b => b.text).join('')
 }
+
+describe('session cwd resolution', () => {
+  const execution = (cwd?: string) => cwd === undefined
+    ? {}
+    : { agent: { session: { header: { cwd } } } }
+
+  it('retains ordinary spelling but resolves the cwd before parent traversal', () => {
+    const cwd = process.cwd()
+    const throughParent = `${cwd}${sep}..`
+    expect(sessionCwd(execution() as never, 'file.txt')).toBeUndefined()
+    expect(sessionCwd(execution(cwd) as never, 'file.txt')).toBe(cwd)
+    expect(sessionCwd(execution(throughParent) as never, 'file.txt')).toBe(realpathSync.native(throughParent))
+
+    const root = mkdtempSync(join(tmpdir(), 'dsh-tool-fs-session-cwd-'))
+    const physical = join(root, 'physical')
+    const link = join(root, 'link')
+    try {
+      mkdirSync(physical)
+      symlinkSync(physical, link, process.platform === 'win32' ? 'junction' : 'dir')
+      expect(sessionCwd(execution(link) as never, 'child.txt')).toBe(link)
+      expect(sessionCwd(execution(link) as never, `..${sep}parent.txt`)).toBe(realpathSync.native(link))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('registration', () => {
   it('registers read, write, and edit', async () => {
@@ -587,9 +618,9 @@ describe('read caps are plugin config', () => {
 })
 
 describe('sandbox escalation surface (write/edit)', () => {
-  /** A confining fake `ctx.fs`: reports a default mode, records the per-call mode stamped, and can arm a sandbox denial. */
+  /** A confining fake `ctx.fs`: reports a default mode, records each per-call policy, and can arm a sandbox denial. */
   class SandboxingFakeFs extends FakeFs {
-    stamped: (SandboxMode | undefined)[] = []
+    stamped: (SandboxExecutionPolicy | undefined)[] = []
     override get sandboxMode(): SandboxMode {
       return 'workspace-write'
     }
@@ -598,9 +629,9 @@ describe('sandbox escalation surface (write/edit)', () => {
       content: string,
       expected?: FsWriteIntent,
       _signal?: AbortSignal,
-      sandboxMode?: SandboxMode,
+      sandboxPolicy?: SandboxExecutionPolicy,
     ): Promise<FsWriteOutcome> {
-      this.stamped.push(sandboxMode)
+      this.stamped.push(sandboxPolicy)
       return super.writeText(target, content, expected)
     }
     override async editText(
@@ -608,9 +639,9 @@ describe('sandbox escalation surface (write/edit)', () => {
       edit: FsEditRequest,
       expected?: { version: FsVersion },
       _signal?: AbortSignal,
-      sandboxMode?: SandboxMode,
+      sandboxPolicy?: SandboxExecutionPolicy,
     ): Promise<FsEditOutcome> {
-      this.stamped.push(sandboxMode)
+      this.stamped.push(sandboxPolicy)
       return super.editText(target, edit, expected)
     }
   }
@@ -619,6 +650,7 @@ describe('sandbox escalation surface (write/edit)', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write' })
     await ctx.plugin(SandboxingFakeFs)
     await ctx.plugin(FsPolicy)
     if (opts.approval === true) await ctx.plugin(ApprovalService)
@@ -631,7 +663,7 @@ describe('sandbox escalation surface (write/edit)', () => {
     return {
       id: 'agent-fs-esc',
       session: {
-        header: { version: 0, id: 'sess-fs-esc', createdAt: 0 },
+        header: { version: 0, id: 'sess-fs-esc', createdAt: 0, cwd: '/session-project' },
         events: [{ type: 'turn/start' }, ...events],
         append: (type: string, data: Record<string, unknown>) => { events.push({ type, data }) },
       },
@@ -643,6 +675,14 @@ describe('sandbox escalation surface (write/edit)', () => {
     if (!schema) throw new Error(`${name} tool not registered`)
     return schema as unknown as { parameters: { properties: Record<string, { enum?: string[] }> } }
   }
+
+  it('fails load when a confining filesystem has no shared sandbox-policy resolver', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SandboxingFakeFs)
+    await expect(ctx.plugin(ToolFs)).rejects.toThrow('tool-fs: the mounted filesystem confines but ctx.sandboxPolicy is missing')
+  })
 
   it('advertises no escalation fields under a non-confining backend', async () => {
     const { ctx } = await setup()
@@ -663,16 +703,16 @@ describe('sandbox escalation surface (write/edit)', () => {
     }
   })
 
-  it('a plain write stamps nothing (backend default) and no session override folds without one', async () => {
+  it('a plain write stamps the default mode with the calling session root', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
-    expect(fs.stamped).toEqual([undefined])
+    expect(fs.stamped).toEqual([{ mode: 'workspace-write', workspaceRoot: '/session-project' }])
   })
 
   it('a standing session override folds onto the stamp', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'read-only' } }]))
-    expect(fs.stamped).toEqual(['read-only'])
+    expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: '/session-project' }])
   })
 
   it('a denied write maps to the shared marker plus the escalation hint (isError)', async () => {
@@ -705,7 +745,7 @@ describe('sandbox escalation surface (write/edit)', () => {
       agent: escalationAgent() as never,
       signal: new AbortController().signal,
     })
-    expect(fs.stamped).toEqual(['danger-full-access'])
+    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: '/session-project' }])
   })
 
   it('a rejected escalation fails closed with its own text and never mutates', async () => {

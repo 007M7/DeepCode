@@ -1,48 +1,38 @@
 terminal 96x36 buffer=normal length=36 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=15 bufferRow=15
+cursor hidden column=1 viewportRow=13 bufferRow=13
 buffer
-0| "╭──────────────────────────────────────────────────────────────────────────────────────────────╮"
-  style 0-95 fg=bright-blue
-1| "│ DEEPSEEK HARNESS                                                                             │"
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Snapshot agent ready."
+  style 1-21 fg=bright-black
+2| " deepseek-v4-flash  •  main-session"
+  style 1-34 dim
+3| <blank>
+4| "▌ "
   style 0-0 fg=bright-blue
-  style 2-9 fg=bright-blue bold
-  style 11-17 bold
-  style 95-95 fg=bright-blue
-2| "│ Snapshot agent ready.                                                                        │"
-  style 0-0 fg=bright-blue
-  style 2-22 fg=bright-black
-  style 95-95 fg=bright-blue
-3| "│ deepseek-v4-flash  •  main-session                                                           │"
-  style 0-0 fg=bright-blue
-  style 2-35 dim
-  style 95-95 fg=bright-blue
-4| "╰──────────────────────────────────────────────────────────────────────────────────────────────╯"
-  style 0-95 fg=bright-blue
-5| <blank>
-6| "▌ "
-  style 0-0 fg=bright-blue
-7| "▌ You                                                                                           "
+5| "▌ You                                                                                           "
   style 0-0 fg=bright-blue
   style 2-4 fg=bright-blue bold
-8| "▌ Start then cancel.                                                                            "
+6| "▌ Start then cancel.                                                                            "
   style 0-0 fg=bright-blue
-9| "▌ "
+7| "▌ "
   style 0-0 fg=bright-blue
-10| <blank>
-11| " Retrying model request (1/2) in 1000ms: temporary transport failure                            "
+8| <blank>
+9| " Retrying model request (1/2) in 1000ms: temporary transport failure                            "
   style 1-67 fg=yellow
-12| <blank>
-13| " Turn cancelled.                                                                                "
+10| <blank>
+11| " Turn cancelled.                                                                                "
   style 1-15 fg=yellow
+12| "────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-95 dim
+13| "                                                                                                "
+  style 1-1 inverse
 14| "────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-95 dim
-15| "                                                                                                "
-  style 1-1 inverse
-16| "────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-95 dim
-17| "/workspace/project  ↑0 ↓0             0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
-  style 0-24 dim
-  style 38-95 dim
-18-35| <blank>
+15| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                         0% context  tools:collapsed"
+  style 0-43 dim
+  style 69-95 dim
+16-35| <blank>

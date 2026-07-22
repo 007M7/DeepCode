@@ -263,12 +263,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * List direct children of a directory in stable name order. Returns resolved\n * child targets plus cheap metadata only; never reads file contents.\n * @param target - the resolved directory target.\n * @param signal - aborts the listing.\n * @returns one entry per direct child, in stable name order.\n */',
       },
       {
-        signature: 'abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsWriteOutcome>',
-        jsDoc: '/**\n * Atomically create or replace UTF-8 text. `expected` guards intent and\n * staleness; omission allows unconditional overwrite.\n * @param target - the resolved target to write.\n * @param content - the full new file content.\n * @param expected - the write intent guarding the write; omit for unconditional.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxMode - the per-call sandbox mode this write runs under; a\n *   sandboxing backend fences the write by it, the bare backend ignores it.\n *   Omit to leave the backend its own default.\n * @returns the outcome, including the version the write produced.\n */',
+        signature: 'abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsWriteOutcome>',
+        jsDoc: '/**\n * Atomically create or replace UTF-8 text. `expected` guards intent and\n * staleness; omission allows unconditional overwrite.\n * @param target - the resolved target to write.\n * @param content - the full new file content.\n * @param expected - the write intent guarding the write; omit for unconditional.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxPolicy - the per-call mode and workspace root this write\n *   runs under; a sandboxing backend fences the write by it, the bare backend\n *   ignores it. Omit to leave the backend its own default.\n * @returns the outcome, including the version the write produced.\n */',
       },
       {
-        signature: 'abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsEditOutcome>',
-        jsDoc: '/**\n * Atomically edit literal text. When supplied, the version guard is checked\n * before matching so stale content reports `FS_STALE_VERSION`; omission edits\n * the current content without a freshness precondition.\n * @param target - the resolved target to edit.\n * @param edit - the literal search/replace request.\n * @param expected - the version guard; omit for an unconditional edit.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxMode - the per-call sandbox mode this edit runs under; a\n *   sandboxing backend fences the edit by it, the bare backend ignores it.\n *   Omit to leave the backend its own default.\n * @returns the outcome, including the version the edit produced.\n */',
+        signature: 'abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsEditOutcome>',
+        jsDoc: '/**\n * Atomically edit literal text. When supplied, the version guard is checked\n * before matching so stale content reports `FS_STALE_VERSION`; omission edits\n * the current content without a freshness precondition.\n * @param target - the resolved target to edit.\n * @param edit - the literal search/replace request.\n * @param expected - the version guard; omit for an unconditional edit.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxPolicy - the per-call mode and workspace root this edit runs\n *   under; a sandboxing backend fences the edit by it, the bare backend\n *   ignores it. Omit to leave the backend its own default.\n * @returns the outcome, including the version the edit produced.\n */',
       },
     ],
   },
@@ -399,7 +399,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'sandboxPolicy',
     summary: 'The sandbox-policy service (`ctx.sandboxPolicy`).',
-    methods: [],
+    methods: [
+      {
+        signature: 'resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy',
+        jsDoc: '/**\n * Resolve the complete policy for one capability call. An approved explicit\n * mode outranks the session\'s last `sandbox/mode` event, which outranks the\n * deployment default. A session cwd is its workspace-write boundary; the\n * configured root is the fallback for agentless calls and sessions without a\n * cwd.\n * @param request - optional session and approved mode override.\n * @returns the fully resolved per-call mode and absolute workspace root.\n */',
+      },
+    ],
   },
   {
     key: 'sessionPersistence',
@@ -1148,11 +1153,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BashExecRequest',
-    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy?: SandboxExecutionPolicy | undefined;\n}',
   },
   {
     name: 'BashExecSpec',
-    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    stdoutMaxBytes: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    stdoutMaxBytes: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy: SandboxExecutionPolicy | undefined;\n}',
   },
   {
     name: 'BashProcess',
@@ -1487,12 +1492,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SandboxEnforcement = \'full\' | \'partial\';',
   },
   {
+    name: 'SandboxExecutionPolicy',
+    declaration: 'export interface SandboxExecutionPolicy {\n    mode: SandboxMode;\n    workspaceRoot: string;\n}',
+  },
+  {
     name: 'SandboxMode',
     declaration: 'export type SandboxMode = \'read-only\' | \'workspace-write\' | \'danger-full-access\';',
   },
   {
     name: 'SandboxPolicy',
-    declaration: 'export interface SandboxPolicy {\n    mode: ConfinedSandboxMode;\n    workspaceRoot: string;\n}',
+    declaration: 'export interface SandboxPolicy extends SandboxExecutionPolicy {\n    mode: ConfinedSandboxMode;\n}',
+  },
+  {
+    name: 'SandboxPolicyRequest',
+    declaration: 'export interface SandboxPolicyRequest {\n    session?: Session;\n    mode?: SandboxMode;\n}',
   },
   {
     name: 'SaveTextSpill',

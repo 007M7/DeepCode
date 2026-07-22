@@ -17,6 +17,7 @@ import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { processOutcome } from '../src/background.ts'
 import { renderProcessRead, renderResult } from '../src/render.ts'
@@ -107,12 +108,12 @@ class RecordingSandboxExecutor extends BashExecutor {
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       timeoutMs: request.timeoutMs ?? 1000,
       ...request.signal ? { signal: request.signal } : {},
-      sandboxMode: request.sandboxMode ?? 'read-only',
+      sandboxPolicy: request.sandboxPolicy ?? { mode: 'read-only', workspaceRoot: process.cwd() },
     }
   }
 
   run(spec: BashExecSpec): Promise<BashRunResult> {
-    this.modes.push(spec.sandboxMode)
+    this.modes.push(spec.sandboxPolicy?.mode)
     return Promise.resolve({
       exitCode: 0,
       signal: null,
@@ -121,18 +122,18 @@ class RecordingSandboxExecutor extends BashExecutor {
       timeoutMs: spec.timeoutMs,
       stdout: { text: 'ok', truncated: false },
       stderr: { text: '', truncated: false },
-      sandbox: { mode: spec.sandboxMode ?? 'read-only', denied: false },
+      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
     })
   }
 
   start(spec: BashExecSpec): BashProcess {
-    this.modes.push(spec.sandboxMode)
+    this.modes.push(spec.sandboxPolicy?.mode)
     return {
       status: 'completed',
       exitCode: 0,
       signal: null,
       done: Promise.resolve(),
-      sandbox: { mode: spec.sandboxMode ?? 'read-only', denied: false },
+      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
       readOutput: () => ({ delta: '', lossy: false }),
       kill: () => false,
     }
@@ -149,7 +150,7 @@ class CountingStartExecutor extends BashExecutor {
       workdir: request.workdir ?? '/x',
       timeoutMs: request.timeoutMs ?? 0,
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
-      sandboxMode: request.sandboxMode,
+      sandboxPolicy: request.sandboxPolicy,
     }
   }
 
@@ -175,6 +176,7 @@ async function setupSandboxed(withApproval = false) {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(TaskService)
   await ctx.plugin(ToolTasks)
+  await ctx.plugin(SandboxPolicyService, {})
   await ctx.plugin(RecordingSandboxExecutor)
   if (withApproval) await ctx.plugin(ApprovalService)
   await ctx.plugin(ToolBash)
@@ -531,6 +533,14 @@ describe('sandbox escalation through the generic task producer', () => {
     sandbox_permissions: 'workspace-write',
     justification: 'the command needs workspace writes',
   }
+
+  it('fails load when a confining executor has no shared sandbox-policy resolver', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(RecordingSandboxExecutor)
+    await expect(ctx.plugin(ToolBash)).rejects.toThrow('tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing')
+  })
 
   it('advertises the sandbox fields and validates their pairing', async () => {
     const { ctx } = await setupSandboxed()
@@ -993,7 +1003,7 @@ describe('the model-facing bash tool builds its request from named args only (no
         ...request.stdin !== undefined ? { stdin: request.stdin } : {},
         ...request.env !== undefined ? { env: request.env } : {},
         ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
-        sandboxMode: request.sandboxMode,
+        sandboxPolicy: request.sandboxPolicy,
       }
     }
     run(): Promise<BashRunResult> {

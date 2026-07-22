@@ -81,7 +81,7 @@ export async function runHeadless(argv: string[]): Promise<void> {
   const host = await startHost({ boot: { persistenceRoot: './.sessions' } })
   const api = new InProcessApiClient(host.handler)
 
-  const created = await unwrap(await api.sessions.create({}), host.dispose)
+  const created = await unwrap(await api.sessions.create({}), () => host.dispose())
 
   // Open the stream before prompting so no frame is lost — kept in this order
   // even though in-process delivery has no race, so the code survives a move
@@ -94,7 +94,7 @@ export async function runHeadless(argv: string[]): Promise<void> {
     sessionId: created.sessionId,
     mode: 'queue',
     content: [{ type: 'text', text: task }],
-  }), host.dispose)
+  }), () => host.dispose())
 
   const outcome = await done
   process.stdout.write(outcome.text + '\n')

@@ -26,9 +26,24 @@
     provider: tui-scripted
     model: tui-scripted-model
     persistenceRoot: './.sessions'
+    # The smoke's log inspection reads plain `.jsonl`; keep the scripted
+    # fixture uncompressed like the other snapshot-facing configs.
+    persistenceCompression: none
     workspaceContext:
       maxBytes: 65536
     welcome: 'scripted TUI ready.'
     persona: 'Scripted model {{model}}.'
     ui:
       showReasoning: true
+
+# Model-made session titles, as in the shipped cordis.yml: the scripted adapter
+# answers the tool-less title request with a fixed string so the PTY test can
+# assert the logged title reaches the terminal window title.
+- id: session-title-llm
+  name: '@deepseek-ai/dsh-session-title-first-message-llm'
+  config:
+    targetWords: 5
+    targetCjkCharacters: 10
+    maxInputBytes: 4096
+    maxOutputTokens: 64
+    timeoutMs: 10000
