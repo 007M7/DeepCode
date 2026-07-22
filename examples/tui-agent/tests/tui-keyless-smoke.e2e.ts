@@ -9,7 +9,7 @@ const scriptedConfigPath = fileURLToPath(new URL('./fixtures/tui-scripted.cordis
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
 describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
-  it('boots pi-tui, renders the configured banner, accepts /exit, and restores the terminal', async () => {
+  it('boots pi-tui, enters plan mode through /plan, accepts /exit, and restores the terminal', async () => {
     const output = await runTuiPtySmoke({
       label: 'tui-agent boot',
       tempDirPrefix: 'tui-agent-smoke-',
@@ -17,10 +17,14 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
       configPath,
       tsconfigPath,
       env: { DEEPSEEK_API_KEY: 'keyless-tui-no-call' },
-      actions: [{ waitFor: 'TUI agent ready.', send: '/exit\r' }],
+      actions: [
+        { waitFor: 'TUI agent ready.', send: '/plan\r' },
+        { waitFor: 'Entering plan mode (applies from the next turn).', send: '/exit\r' },
+      ],
     })
     expect(output).toContain('DEEPSEEK')
     expect(output).toContain('TUI agent ready.')
+    expect(output).toContain('Entering plan mode (applies from the next turn).')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 

@@ -762,8 +762,8 @@ Requires: `tools` · `systemPrompt`
 /**
  * Plugin config: mode definitions by name. The deployment must define
  * {@link PLAN_MODE}, including its complete model instructions;
- * {@link DEFAULT_MODE} is rejected as a key ({@link resolveConfig} throws at
- * load).
+ * {@link DEFAULT_MODE} is rejected as a key and definition names must be valid
+ * slash-command names ({@link resolveConfig} throws at load).
  */
 export interface ModeConfig {
   /** Mode definitions by name; `plan` is required and owns its full prompt text. */
@@ -782,7 +782,7 @@ export interface ModeDefinition {
 }
 ```
 
-Source: [`packages/mode/mode/src/index.ts:95`](../packages/mode/mode/src/index.ts)
+Source: [`packages/mode/mode/src/index.ts:99`](../packages/mode/mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 

@@ -20,9 +20,11 @@ A mode does not gate execution, filter tools, or change sandbox or approval sett
 
 There is no creation-time mode option: a UI (or a plugin) selects through `set()` before the first turn, and a fork child needs no mechanism at all — the parent's `mode/set` is inside the seeded prefix.
 
-## The `/mode` command
+## Per-mode slash commands
 
-When a command registry (`@deepseek-ai/dsh-commands`) is composed, the plugin registers `/mode` for interactive front doors: bare `/mode` prints the current mode (plus any pending switch) and the available vocabulary; `/mode <name>` records the switch through `set()` and echoes that it applies from the next turn. Without a commands service the child never mounts and nothing else changes.
+When a command registry (`@deepseek-ai/dsh-commands`) is composed, each configured definition contributes its own entry command to interactive front doors. The required definition supplies `/plan`; a further `review` definition supplies `/review`. These commands accept no arguments, record the switch through `set()`, and report that it applies from the next turn. `default` is the absence of a definition and contributes no command. Without a commands service the child never mounts and nothing else changes.
+
+Definition names must match `/^[a-z][a-z0-9_-]*$/u`, the shared mode/command subset; config fails at load before a definition can become selectable but undispatchable.
 
 ## `exit_plan_mode`
 
@@ -44,7 +46,7 @@ The deployment must provide the complete plan-mode instructions in Cordis config
           You are in plan mode. Explore first, make no changes, and present a decision-complete plan through exit_plan_mode.
 ```
 
-`resolveConfig` requires `modes.plan.section`, rejects `default` as a definition key, rejects blank sections and unknown definition keys, and preserves any further named modes. `set()` rejects an unknown mode name.
+`resolveConfig` requires `modes.plan.section`, rejects `default` as a definition key, rejects invalid command-shaped names, blank sections, and unknown definition keys, and preserves any further named modes. `set()` rejects an unknown mode name.
 
 ## Model Experience
 

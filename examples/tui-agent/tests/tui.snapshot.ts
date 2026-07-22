@@ -15,6 +15,7 @@ import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
+import ModesService, { DEFAULT_MODE, PLAN_MODE } from '@deepseek-ai/dsh-mode'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -45,6 +46,7 @@ interface Scenario {
   expectedTools: string[]
   expectedEventCounts?: Record<string, number>
   childSessions?: number
+  enterPlanMode?: boolean
   recorded: boolean
   seedWorkspace?: boolean
 }
@@ -54,6 +56,8 @@ const SCENARIOS: Scenario[] = [
     name: 'multi-turn-conversation',
     composition: 'native',
     expectedTools: [],
+    expectedEventCounts: { 'mode/set': 1 },
+    enterPlanMode: true,
     recorded: true,
   },
   {
@@ -204,6 +208,9 @@ async function mountScenarioContext(
   await ctx.plugin(ToolWorkflow)
   await ctx.plugin(ToolRalph)
   await ctx.plugin(CommandService)
+  if (scenario.enterPlanMode === true) {
+    await ctx.plugin(ModesService, { modes: { plan: { section: 'Snapshot plan mode instructions.' } } })
+  }
   if (scenario.composition === 'code' || scenario.composition === 'advanced') {
     await ctx.plugin(WorkerCodeRuntime, {})
   }
@@ -268,6 +275,13 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     })
     await settleTerminal(terminal)
 
+    if (scenario.enterPlanMode === true) {
+      terminal.send('/plan')
+      terminal.send('\r')
+      await settleTerminal(terminal)
+      expect(ctx.modes.get(agent)).toEqual({ current: DEFAULT_MODE, pending: PLAN_MODE })
+    }
+
     for (const prompt of prompts) {
       terminal.send(prompt)
       terminal.send('\r')
@@ -279,6 +293,16 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     expect(events.filter(event => event.type === 'tool/call').map(event => event.data.name)).toEqual(scenario.expectedTools)
     for (const [type, count] of Object.entries(scenario.expectedEventCounts ?? {})) {
       expect(events.filter(event => event.type === type), `${scenario.name} must emit ${type}`).toHaveLength(count)
+    }
+    if (scenario.enterPlanMode === true) {
+      expect(ctx.modes.get(agent)).toEqual({ current: PLAN_MODE })
+      const modeSet = events.find(event => event.type === 'mode/set')
+      const firstHeader = events.find(event => event.type === 'request/header')
+      if (modeSet === undefined || firstHeader === undefined) {
+        throw new Error('plan-mode command snapshot needs a mode/set before its first request/header')
+      }
+      expect(modeSet.seq).toBeLessThan(firstHeader.seq)
+      expect(firstHeader.data.header.system).toContain('Snapshot plan mode instructions.')
     }
     expect(events.filter(event => event.type === 'tool/result').every(event => !event.data.isError)).toBe(true)
     expect(events.filter(event => event.type === 'turn/end').every(event => event.data.reason.kind !== 'error')).toBe(true)

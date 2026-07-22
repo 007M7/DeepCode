@@ -150,6 +150,13 @@ describe('resolveConfig', () => {
       .toThrow('mode name " review " must be non-empty and trimmed')
   })
 
+  it('rejects mode names that cannot also name their slash commands', () => {
+    for (const name of ['Review', 'review mode', '1-review', 'review!']) {
+      expect(() => resolveConfig({ modes: { ...PLAN_CONFIG.modes, [name]: { section: 'x' } } }))
+        .toThrow(`mode name ${JSON.stringify(name)} must match /^[a-z][a-z0-9_-]*$/u for its slash command`)
+    }
+  })
+
   it('rejects a malformed definition loudly', () => {
     expect(() => resolveConfig({ modes: { ...PLAN_CONFIG.modes, bad: { section: 5 } as unknown as { section: string } } }))
       .toThrow('needs a string `section`')
@@ -590,30 +597,52 @@ describe('no execution gating beyond the exit tool', () => {
 
 })
 
-describe('the /mode command', () => {
-  it('registers only when a commands service is composed, and shows or switches the mode', async () => {
+describe('per-mode slash commands', () => {
+  it('registers one entry command per configured mode only when a commands service is composed', async () => {
     const bare = await setup()
     expect(bare.get('commands')).toBeUndefined()
 
-    const ctx = await setup()
+    const ctx = await setup({ modes: {
+      plan: { section: TEST_PLAN_SECTION },
+      review: { section: 'Review mode instructions.' },
+    } })
     await ctx.plugin(CommandService)
     // The `ctx.inject` child mounts asynchronously once `commands` resolves.
     await new Promise(resolve => setImmediate(resolve))
     const agent = await agentWithSession(ctx)
-    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['mode'])
+    expect(ctx.commands.list(agent)).toEqual([
+      { name: 'plan', description: 'Enter plan mode' },
+      { name: 'review', description: 'Enter review mode' },
+    ])
 
     const signal = new AbortController().signal
-    const show = await ctx.commands.execute(agent, '/mode', signal)
-    expect(show).toEqual({ kind: 'success', text: 'mode: default — available: default, plan' })
-
-    const flip = await ctx.commands.execute(agent, '/mode plan', signal)
-    expect(flip).toEqual({ kind: 'success', text: 'mode → plan (applies from the next turn)' })
+    expect(await ctx.commands.execute(agent, '/mode', signal)).toBeUndefined()
+    expect(await ctx.commands.execute(agent, '/plan later', signal))
+      .toEqual({ kind: 'error', text: 'Usage: /plan' })
+    const plan = await ctx.commands.execute(agent, '/plan', signal)
+    expect(plan).toEqual({ kind: 'success', text: 'Entering plan mode (applies from the next turn).' })
     expect(ctx.modes.get(agent)).toEqual({ current: DEFAULT_MODE, pending: PLAN_MODE })
-    const pendingShow = await ctx.commands.execute(agent, '/mode', signal)
-    expect(pendingShow).toEqual({ kind: 'success', text: 'mode: default (pending: plan) — available: default, plan' })
+    const review = await ctx.commands.execute(agent, '/review', signal)
+    expect(review).toEqual({ kind: 'success', text: 'Entering review mode (applies from the next turn).' })
+    expect(ctx.modes.get(agent)).toEqual({ current: DEFAULT_MODE, pending: 'review' })
+  })
 
-    const unknown = await ctx.commands.execute(agent, '/mode nope', signal)
-    expect(unknown).toEqual({ kind: 'error', text: 'unknown mode "nope" — available modes: default, plan' })
+  it('removes every contributed command when the mode plugin is disposed', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(CommandService)
+    const fiber = await ctx.plugin(ModesService, { modes: {
+      plan: { section: TEST_PLAN_SECTION },
+      review: { section: 'Review mode instructions.' },
+    } })
+    await new Promise(resolve => setImmediate(resolve))
+    const agent = await agentWithSession(ctx)
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['plan', 'review'])
+
+    await fiber.dispose()
+
+    expect(ctx.commands.list(agent)).toEqual([])
   })
 })
 

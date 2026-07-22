@@ -38,8 +38,8 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-user-interaction'
-// Type-only edge: resolves `ctx.commands` for the `/mode` command child below;
-// the child mounts only when a commands service is composed.
+// Type-only edge: resolves `ctx.commands` for the per-mode command child
+// below; the child mounts only when a commands service is composed.
 import type {} from '@deepseek-ai/dsh-commands'
 
 declare module '@deepseek-ai/dsh-session' {
@@ -69,6 +69,10 @@ export const DEFAULT_MODE = 'default'
 /** The required plan definition's name. */
 export const PLAN_MODE = 'plan'
 
+// Every definition contributes a same-named slash command when the optional
+// command registry is composed, so mode names use that stable common subset.
+const MODE_NAME = /^[a-z][a-z0-9_-]*$/u
+
 /**
  * The model-facing exit tool's name. It stays registered in every mode so the
  * request tool catalog is stable; execution outside {@link PLAN_MODE} rejects.
@@ -89,8 +93,8 @@ export interface ModeDefinition {
 /**
  * Plugin config: mode definitions by name. The deployment must define
  * {@link PLAN_MODE}, including its complete model instructions;
- * {@link DEFAULT_MODE} is rejected as a key ({@link resolveConfig} throws at
- * load).
+ * {@link DEFAULT_MODE} is rejected as a key and definition names must be valid
+ * slash-command names ({@link resolveConfig} throws at load).
  */
 export interface ModeConfig {
   /** Mode definitions by name; `plan` is required and owns its full prompt text. */
@@ -147,6 +151,9 @@ export function resolveConfig(config: ModeConfig): ResolvedModes {
     // the invariant then rejects, desynchronizing the picker forever.
     if (name.trim() === '' || name.trim() !== name) {
       throw new Error(`ModeConfig: mode name ${JSON.stringify(name)} must be non-empty and trimmed`)
+    }
+    if (!MODE_NAME.test(name)) {
+      throw new Error(`ModeConfig: mode name ${JSON.stringify(name)} must match ${String(MODE_NAME)} for its slash command`)
     }
     if (typeof definition.section !== 'string') {
       throw new Error(`ModeConfig: mode "${name}" needs a string \`section\``)
@@ -286,31 +293,23 @@ export class ModesService extends Service {
       text: context => (context.agent === undefined ? '' : this.activeDefinition(context.agent.session)?.definition.section ?? ''),
     })
 
-    // The `/mode` command (show or switch the session mode) for interactive
-    // front doors, mounted only when a commands service is composed — the
-    // child plugin below activates on `ctx.commands` availability, so a
-    // commands-less deployment composes dsh-mode unchanged.
+    // Each configured definition contributes its own entry command to
+    // interactive front doors. The child activates only when `ctx.commands`
+    // is available, so a commands-less deployment composes dsh-mode unchanged.
     ctx.inject(['commands'], (commandCtx) => {
-      commandCtx.commands.register({
-        name: 'mode',
-        description: 'Show or switch the session mode',
-        input: { hint: '[name]' },
-        handler: ({ agent, rawInput }) => {
-          const target = rawInput.trim()
-          if (target === '') {
-            const { current, pending } = this.get(agent)
-            const pendingNote = pending === undefined ? '' : ` (pending: ${pending})`
-            return { kind: 'success', text: `mode: ${current}${pendingNote} — available: ${this.list().join(', ')}` }
-          }
-          try {
-            this.set(agent, target)
-            return { kind: 'success', text: `mode → ${target} (applies from the next turn)` }
-          } catch (error) {
-            // ModesService.set throws only Error (its unknown-name validation).
-            return { kind: 'error', text: (error as Error).message }
-          }
-        },
-      })
+      for (const mode of this.resolved.definitions.keys()) {
+        commandCtx.commands.register({
+          name: mode,
+          description: `Enter ${mode} mode`,
+          handler: ({ agent, rawInput }) => {
+            if (rawInput.trim() !== '') {
+              return { kind: 'error', text: `Usage: /${mode}` }
+            }
+            this.set(agent, mode)
+            return { kind: 'success', text: `Entering ${mode} mode (applies from the next turn).` }
+          },
+        })
+      }
     })
 
     ctx.tools.register(defineTool({
