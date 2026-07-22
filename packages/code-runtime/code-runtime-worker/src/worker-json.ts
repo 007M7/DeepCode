@@ -14,28 +14,42 @@ const intrinsicReflectApply = Reflect.get(Reflect, 'apply') as (
 const IntrinsicError = Error
 const IntrinsicSet = Set
 const intrinsicArrayIsArray = Array.isArray
+const intrinsicArrayPrototype = Array.prototype
 const intrinsicNumberIsFinite = Number.isFinite
 const intrinsicNumberIsSafeInteger = Number.isSafeInteger
+const intrinsicObjectCreate = Object.create
 const intrinsicObjectDefineProperty = Object.defineProperty
 const intrinsicObjectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor
 const intrinsicObjectGetPrototypeOf = Object.getPrototypeOf
 const intrinsicObjectHasOwn = Object.hasOwn
 const intrinsicObjectIs = Object.is
 const intrinsicObjectKeys = Object.keys
-const intrinsicObjectPropertyIsEnumerable = Reflect.get(Object.prototype, 'propertyIsEnumerable') as IntrinsicCallable
+const intrinsicObjectPrototype = Object.prototype
+const intrinsicObjectPropertyIsEnumerable = Reflect.get(intrinsicObjectPrototype, 'propertyIsEnumerable') as IntrinsicCallable
 const intrinsicReflectOwnKeys = Reflect.ownKeys
 const intrinsicSetAdd = Reflect.get(Set.prototype, 'add') as IntrinsicCallable
 const intrinsicSetDelete = Reflect.get(Set.prototype, 'delete') as IntrinsicCallable
 const intrinsicSetHas = Reflect.get(Set.prototype, 'has') as IntrinsicCallable
 
+/** Build a data descriptor that cannot inherit model-defined accessor fields. */
+function dataDescriptor(value: unknown): PropertyDescriptor {
+  const descriptor = intrinsicObjectCreate(null) as PropertyDescriptor
+  descriptor.value = value
+  return descriptor
+}
+
+/** Define an ordinary enumerable data slot without a prototype-bearing descriptor. */
+function defineEnumerableDataProperty(target: object, key: PropertyKey, value: unknown): void {
+  const descriptor = dataDescriptor(value)
+  descriptor.enumerable = true
+  descriptor.configurable = true
+  descriptor.writable = true
+  intrinsicObjectDefineProperty(target, key, descriptor)
+}
+
 /** Append without consulting a model-mutated `Array.prototype`. */
 function append<T>(target: T[], value: T): void {
-  intrinsicObjectDefineProperty(target, target.length, {
-    value,
-    enumerable: true,
-    configurable: true,
-    writable: true,
-  })
+  defineEnumerableDataProperty(target, target.length, value)
 }
 
 /** Pop without consulting a model-mutated `Array.prototype`. */
@@ -43,7 +57,7 @@ function takeLast<T>(target: T[]): T | undefined {
   if (target.length === 0) return undefined
   const index = target.length - 1
   const value = target[index]
-  intrinsicObjectDefineProperty(target, 'length', { value: index })
+  intrinsicObjectDefineProperty(target, 'length', dataDescriptor(index))
   return value
 }
 
@@ -76,26 +90,28 @@ function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): b
   }
 }
 
-/** Whether a candidate is one realm's intrinsic `Object.prototype`. */
-function isIntrinsicObjectPrototype(value: object): boolean {
+/** Whether a candidate is a foreign realm's intrinsic `Object.prototype`. */
+function isForeignIntrinsicObjectPrototype(value: object): boolean {
   return intrinsicObjectGetPrototypeOf(value) === null && hasIntrinsicConstructor(value, 'Object')
 }
 
 /** Whether an array uses one realm's intrinsic `Array.prototype`, not a subclass or forged prototype. */
 function hasPlainArrayPrototype(value: unknown[]): boolean {
   const prototype: unknown = intrinsicObjectGetPrototypeOf(value)
+  if (prototype === intrinsicArrayPrototype) return true
   if (!intrinsicArrayIsArray(prototype) || !hasIntrinsicConstructor(prototype, 'Array')) return false
   const objectPrototype: unknown = intrinsicObjectGetPrototypeOf(prototype)
   return typeof objectPrototype === 'object'
     && objectPrototype !== null
-    && isIntrinsicObjectPrototype(objectPrototype)
+    && isForeignIntrinsicObjectPrototype(objectPrototype)
 }
 
 /** Whether an object is a plain or null-prototype record from any JavaScript realm. */
 function hasPlainObjectPrototype(value: object): boolean {
   const prototype: unknown = intrinsicObjectGetPrototypeOf(value)
   return prototype === null
-    || typeof prototype === 'object' && isIntrinsicObjectPrototype(prototype)
+    || prototype === intrinsicObjectPrototype
+    || typeof prototype === 'object' && isForeignIntrinsicObjectPrototype(prototype)
 }
 
 /** Return every JSON-visible object key, or reject own data JSON would discard. */
@@ -135,19 +151,9 @@ export function snapshotCodeJsonValue(value: unknown): CodeJsonValue | undefined
     if (destination.kind === 'root') {
       root = item
     } else if (destination.kind === 'array') {
-      intrinsicObjectDefineProperty(destination.target, destination.index, {
-        value: item,
-        enumerable: true,
-        configurable: true,
-        writable: true,
-      })
+      defineEnumerableDataProperty(destination.target, destination.index, item)
     } else {
-      intrinsicObjectDefineProperty(destination.target, destination.key, {
-        value: item,
-        enumerable: true,
-        configurable: true,
-        writable: true,
-      })
+      defineEnumerableDataProperty(destination.target, destination.key, item)
     }
   }
 
@@ -361,12 +367,7 @@ export function decodeWorkerJson(input: unknown): CodeJsonValue | undefined {
         const key = parent.keys[parent.index]
         /* v8 ignore next -- object frames are built from validated keys and their exact length. */
         if (key === undefined) return false
-        intrinsicObjectDefineProperty(parent.target, key, {
-          value,
-          enumerable: true,
-          configurable: true,
-          writable: true,
-        })
+        defineEnumerableDataProperty(parent.target, key, value)
       }
       parent.index += 1
       return true

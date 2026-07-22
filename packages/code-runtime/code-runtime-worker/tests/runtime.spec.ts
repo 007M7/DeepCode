@@ -677,6 +677,8 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
         stringPrototype.charCodeAt = stringPrototype.codePointAt = stringPrototype.slice = () => { throw new Error('mutated string method') };
         Buffer.byteLength = () => 0;
         Function.prototype.toString = () => 'mutated';
+        objectPrototype.get = () => undefined;
+        objectPrototype.constructor = arrayPrototype.constructor = null;
         globalThis.Array = globalThis.Buffer = globalThis.Function = globalThis.Number = globalThis.Object = globalThis.Reflect = globalThis.Set = globalThis.String = undefined;
         const echoed = await tools.echo({ request: ['€', 1] });
         return { echoed, completion: { ok: true, amount: 42 } };
