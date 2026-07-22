@@ -17,7 +17,7 @@ import type {
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import { abortable, abortError } from './abort.ts'
 import { LspConnection } from './connection.ts'
-import type { ConnectionSpec } from './connection.ts'
+import type { ConnectionSpec, ConnectionWriter } from './connection.ts'
 import type { HostSource } from './host.ts'
 import type { WireInitializeResult, WireServerCapabilities } from './protocol.ts'
 import {
@@ -58,9 +58,10 @@ export class LspInstance {
 
   /**
    * @param spec - the launch, initialize, and teardown parameters.
+   * @param writer - optional connection writer used by transport conformance tests.
    */
-  constructor(private readonly spec: InstanceSpec) {
-    this.connection = new LspConnection(spec, (method, params) => this.answerServerRequest(method, params))
+  constructor(private readonly spec: InstanceSpec, writer?: ConnectionWriter) {
+    this.connection = new LspConnection(spec, (method, params) => this.answerServerRequest(method, params), writer)
     this.ready = this.initialize()
     // A handshake rejection must not surface as an unhandled rejection before the first query awaits
     // it; queries attach the real handler.
@@ -70,7 +71,7 @@ export class LspInstance {
 
   /** Synchronous liveness check: true once the process has closed or the instance was disposed. */
   get dead(): boolean {
-    return this.processClosed || this.disposed
+    return this.processClosed || this.disposed || this.connection.failed
   }
 
   /**
@@ -272,7 +273,7 @@ export class LspInstance {
     try {
       await this.gracefulShutdown(shutdownDeadline.signal)
     } catch {
-      // Graceful shutdown failed or timed out; process-group cleanup below remains authoritative.
+      // Graceful shutdown failed or timed out; process-tree cleanup below remains authoritative.
     } finally {
       shutdownDeadline[Symbol.dispose]()
     }
@@ -286,20 +287,20 @@ export class LspInstance {
     await abortable(this.connection.closed, signal)
   }
 
-  /** SIGTERM the group, escalate after `killGraceMs`, then await leader and helper exit. */
+  /** Terminate the tree, escalate after `killGraceMs`, then await leader and helper exit. */
   private async forceTerminate(): Promise<void> {
     this.connection.terminate()
     const graceDeadline = deadline(undefined, this.spec.killGraceMs, 'LSP_KILL_GRACE')
-    let groupExited: boolean
+    let treeExited: boolean
     try {
-      groupExited = await this.connection.waitForProcessGroupExit(graceDeadline.signal)
+      treeExited = await this.connection.waitForProcessTreeExit(graceDeadline.signal)
     } finally {
       graceDeadline[Symbol.dispose]()
     }
-    if (!groupExited) this.connection.kill()
+    if (!treeExited) this.connection.kill()
     await Promise.all([
       this.connection.closed,
-      this.connection.waitForProcessGroupExit(),
+      this.connection.waitForProcessTreeExit(),
     ])
   }
 }

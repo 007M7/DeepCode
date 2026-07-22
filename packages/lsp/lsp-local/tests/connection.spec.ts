@@ -1,6 +1,17 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { LspConnection } from '@deepseek-ai/dsh-lsp-local'
+import {
+  signalProcessGroup,
+  signalProcessTree,
+  taskkillProcessTree,
+} from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
+import type {
+  ConnectionWriter,
+  ProcessSignalRunner,
+  ProcessTreeOperations,
+  TaskkillRunner,
+} from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
 
 const fixtureServer = fileURLToPath(new URL('./fixture-server.ts', import.meta.url))
 
@@ -125,7 +136,7 @@ describe('LspConnection', () => {
 })
 
 /** Spawn a raw connection running an inline node script as the "server". */
-function connectScript(script: string, maxStderrBytes = 100_000): LspConnection {
+function connectScript(script: string, maxStderrBytes = 100_000, writer?: ConnectionWriter): LspConnection {
   const conn = new LspConnection({
     command: process.execPath,
     args: ['-e', script],
@@ -134,7 +145,7 @@ function connectScript(script: string, maxStderrBytes = 100_000): LspConnection 
     maxMessageBytes: 16_000_000,
     maxStderrBytes,
     configuration: null,
-  }, () => Promise.resolve(null))
+  }, () => Promise.resolve(null), writer)
   open.push(conn)
   return conn
 }
@@ -209,13 +220,13 @@ describe('LspConnection edge behavior', () => {
     await expect(conn.request('initialize', {})).rejects.toThrow(/exited|closed/)
   })
 
-  it.skipIf(process.platform === 'win32')('rejects a pending request when child stdin closes but the process stays alive', async () => {
-    const conn = connectScript('const stdin=process.stdin; require("node:fs").closeSync(0); stdin._handle?.close(); setInterval(()=>{}, 1000)')
-    await new Promise<void>(resolve => setTimeout(resolve, 100))
-    const timeout = new Promise<never>((_resolve, reject) => {
-      setTimeout(() => { reject(new Error('request timed out')) }, 1000)
-    })
-    await expect(Promise.race([conn.request('initialize', {}), timeout])).rejects.not.toThrow(/timed out/)
+  it('rejects a pending request when child stdin fails but the process stays alive', async () => {
+    const failure = new Error('fixture stdin failure')
+    const writer: ConnectionWriter = (_stdin, _message, done) => {
+      queueMicrotask(() => { done(failure) })
+    }
+    const conn = connectScript('setInterval(()=>{}, 1000)', 100_000, writer)
+    await expect(conn.request('initialize', {})).rejects.toThrow(/fixture stdin failure/)
   })
 
   it('ignores a frame that is neither a valid request nor a numeric-id response', async () => {
@@ -229,6 +240,55 @@ describe('LspConnection edge behavior', () => {
     await expect(conn.request('initialize', {})).resolves.toEqual({ ok: true })
   })
 })
+
+describe('process-tree signaling', () => {
+  it('forwards POSIX process-group signals through the host runner', () => {
+    const run: ProcessSignalRunner = vi.fn(() => true)
+    signalProcessGroup(-42, 'SIGKILL', run)
+    expect(run).toHaveBeenCalledWith(-42, 'SIGKILL')
+  })
+
+  it('uses taskkill for a Windows tree and a negative pid for a POSIX group', () => {
+    const operations = fakeProcessTreeOperations()
+    signalProcessTree('win32', 42, 'SIGTERM', operations)
+    expect(operations.taskkill).toHaveBeenCalledWith(42)
+    expect(operations.signal).not.toHaveBeenCalled()
+
+    signalProcessTree('linux', 42, 'SIGKILL', operations)
+    expect(operations.signal).toHaveBeenCalledWith(-42, 'SIGKILL')
+  })
+
+  it('falls back to the direct child and tolerates an already-dead child', () => {
+    const fallback = fakeProcessTreeOperations()
+    vi.mocked(fallback.taskkill).mockImplementation(() => { throw new Error('taskkill unavailable') })
+    signalProcessTree('win32', 42, 'SIGTERM', fallback)
+    expect(fallback.killChild).toHaveBeenCalledWith('SIGTERM')
+
+    const gone = fakeProcessTreeOperations()
+    vi.mocked(gone.signal).mockImplementation(() => { throw new Error('group gone') })
+    vi.mocked(gone.killChild).mockImplementation(() => { throw new Error('child gone') })
+    expect(() => { signalProcessTree('linux', 42, 'SIGKILL', gone) }).not.toThrow()
+  })
+
+  it('runs taskkill for the full tree and rejects command failures', () => {
+    const success: TaskkillRunner = vi.fn(() => ({ status: 0 }))
+    taskkillProcessTree(42, success)
+    expect(success).toHaveBeenCalledWith('taskkill', ['/PID', '42', '/T', '/F'], { stdio: 'ignore' })
+
+    const spawnFailure = new Error('cannot spawn taskkill')
+    expect(() => { taskkillProcessTree(42, () => ({ status: null, error: spawnFailure })) }).toThrow(spawnFailure)
+    expect(() => { taskkillProcessTree(42, () => ({ status: 1 })) }).toThrow(/status 1/)
+  })
+})
+
+/** Create observable process-tree operations without touching host processes. */
+function fakeProcessTreeOperations(): ProcessTreeOperations {
+  return {
+    signal: vi.fn(),
+    killChild: vi.fn(),
+    taskkill: vi.fn(),
+  }
+}
 
 /** Poll a predicate until it holds or a deadline elapses. */
 async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
