@@ -59,6 +59,8 @@ export interface Config {
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
+  packChunks?: boolean
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
   /** Cross-session reference discovery and snapshot byte budgets. */
@@ -93,6 +95,7 @@ export const Config: z<Config> = z.object({
   dshHome: z.string(),
   sessionTitle: agentCore.SessionTitleConfigSchema,
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
+  packChunks: z.boolean().default(false),
   persistenceCompression: JsonlCompressionSchema,
   sessionReferences: SessionReferenceService.Config,
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
@@ -120,10 +123,15 @@ export function apply(ctx: Context, config: Config): void {
     if (goals !== false) yield ctx.plugin(commandGoal).dispose
     yield ctx.plugin(agentCore, { ...agentCore.pickSpineConfig(config), goals }).dispose
     yield ctx.plugin(UserInteractionService).dispose
+    // Same rationale as the Config schema above: each front door forwards its own
+    // persistence passthroughs rather than sharing a facade with stdio-demo.
+    /* jscpd:ignore-start */
     yield ctx.plugin(SessionPersistenceJsonl, {
       root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
+      ...config.packChunks !== undefined ? { packChunks: config.packChunks } : {},
       ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
     }).dispose
+    /* jscpd:ignore-end */
     yield ctx.plugin(sessionCheckpointPolicy).dispose
     yield ctx.plugin(SessionQueryService).dispose
     yield ctx.plugin(SessionReferenceService, config.sessionReferences ?? {}).dispose

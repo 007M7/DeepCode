@@ -44,6 +44,7 @@ The app owns this cluster through one ordered Cordis effect. Teardown drains the
 | `goals` | owner defaults | persisted goal-domain and model-tool config; `false` removes the goal stack and `/goal` producer |
 | `llmRetry` | owner defaults | bounded transient model-request retry policy routed through `dsh-agent-spine-demo` |
 | `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
+| `packChunks` | `false` | write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`) |
 | `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
 | `sessionReferences` | service defaults | cross-session candidate and snapshot limits routed to `dsh-session-reference` |
 

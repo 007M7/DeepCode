@@ -17,7 +17,7 @@ import {
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  encodeSegment, eventLine, logPath, logSuffix, parseHeaderMeta, scanLog, sessionDir, toHeaderLine,
+  encodeSegment, eventLines, logPath, logSuffix, parseHeaderMeta, scanLog, sessionDir, toHeaderLine,
   type JsonlCompression,
 } from './format.ts'
 import { compressZstdFrame, decompressZstdFrame, scanZstdFrames } from './zstd.ts'
@@ -33,7 +33,7 @@ export const JsonlCompressionSchema: z<JsonlCompression> = z.union([
   z.const('none'),
 ]).default(DEFAULT_COMPRESSION)
 
-/** Plugin config: where the JSONL backend keeps its session logs (`root` is required — no default). */
+/** Plugin config: where the JSONL backend keeps its session logs, and the packed-row write switch. */
 export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
@@ -41,6 +41,15 @@ export interface Config {
    * (bash calls, subprocesses). Sessions group under per-cwd subdirectories.
    */
   root: string
+  /**
+   * Write runs of consecutive `assistant/chunk` delta events as packed
+   * `text-chunks`/`reasoning-chunks`/`tool-call-chunks` rows (lossless,
+   * ~60% smaller logs measured on a real session). Off by default while
+   * snapshot fixtures stay in the one-event-per-line layout: recording with
+   * packing on rewrites every golden `session.jsonl`. READING packed rows is
+   * unconditional — a log's layout never depends on this switch.
+   */
+  packChunks?: boolean
   /** Physical encoding; defaults to checksummed Zstandard frames. */
   compression?: JsonlCompression
 }
@@ -67,6 +76,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   static Config: z<Config> = z.object({
     root: z.string().required(),
+    packChunks: z.boolean().default(false),
     compression: JsonlCompressionSchema,
   })
 
@@ -78,6 +88,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   override readonly name = 'session-persistence-jsonl'
 
   private root: string
+  private packChunks: boolean
   private compression: JsonlCompression
   private coordinator: PersistenceCoordinator<JsonlTornMarker>
   private rootEncodingCheck: Promise<void> | undefined
@@ -86,6 +97,9 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     super(ctx)
     // Resolve once so later process.cwd() changes cannot split one backend across roots.
     this.root = resolve(config.root)
+    // schemastery (static Config) applied the default before construction;
+    // the cast records that runtime fact for exactOptionalPropertyTypes.
+    this.packChunks = (config as Required<Config>).packChunks
     this.compression = config.compression ?? DEFAULT_COMPRESSION
     this.coordinator = new PersistenceCoordinator<JsonlTornMarker>(this.ctx, this)
   }
@@ -354,7 +368,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   /** Encode the header and first batch without combining their frame boundaries. */
   private async encodeMaterialization(meta: SessionHeader, events: readonly SessionEvent[]): Promise<Buffer | string> {
     const header = JSON.stringify(toHeaderLine(meta)) + '\n'
-    const body = events.map(eventLine).join('\n') + '\n'
+    const body = eventLines(events, this.packChunks) + '\n'
     if (this.compression === 'none') return header + body
     const headerFrame = await compressZstdFrame(header)
     const eventFrame = await compressZstdFrame(body)
@@ -363,7 +377,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   /** Encode one durable append batch in the configured physical representation. */
   private async encodeEventBatch(events: readonly SessionEvent[]): Promise<Buffer | string> {
-    const body = events.map(eventLine).join('\n') + '\n'
+    const body = eventLines(events, this.packChunks) + '\n'
     return this.compression === 'zstd' ? compressZstdFrame(body) : body
   }
 

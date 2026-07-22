@@ -48,6 +48,10 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
 Durable values need one accepted representation, not a check followed by a second read. `isJsonValue(value)` is the boolean predicate; `snapshotJsonValue(value)` recursively validates and copies a plain value in one pass, returning `undefined` for invalid input and propagating a throwing getter. The snapshot helper accepts finite JSON numbers except `-0` (JSON rewrites it to `0`), dense ordinary arrays, and plain or null-prototype objects; it rejects cycles, unsupported scalars, and exotic prototypes before normalization.
 
+### Chunk-row storage codec (`chunk-rows.ts`)
+
+Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/chunk` lines whose JSON envelopes dwarf their payloads. `packChunkRuns(events)` packs each run of ≥3 consecutive same-block delta chunks into one storage row — `text-chunks`, `reasoning-chunks`, or `tool-call-chunks` (bare slash-less tags: storage vocabulary, not `SessionEventMap` members) — and `decodeStorageRecord(value)` expands a parsed line back into its exact events (`seq0`/`time0` + per-member `dt` gaps reconstruct every `seq`/`time`). The encoder whitelists exact shapes and stores anything unrecognized verbatim; the decoder validates row-tagged values and throws on malformation. Owned here so the JSONL backend and the fixture readers (`dsh-llm-replay`, `dsh-acp-snapshot`) share one codec; the write-side switch is the backend's `packChunks` config.
+
 ### Surface types
 
 - `SurfaceOp` — how an event entered the ordered surface: `'append'` (normal tail append) or `{ op: 'replace', start, end }` (replace entries from `start` through `end` inclusive — both must be valid surface seqs; `start === end` replaces one entry). Used by compaction to shadow old events without deleting them.
