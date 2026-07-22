@@ -657,6 +657,41 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     })
   })
 
+  it('preserves binding and completion JSON after model code mutates boundary globals', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: `
+        const arrayPrototype = Array.prototype;
+        const objectPrototype = Object.prototype;
+        const setPrototype = Set.prototype;
+        const stringPrototype = String.prototype;
+        Array.isArray = () => false;
+        arrayPrototype.at = arrayPrototype.includes = arrayPrototype.pop = arrayPrototype.push = () => { throw new Error('mutated array method') };
+        Object.defineProperty = Object.getOwnPropertyDescriptor = Object.getPrototypeOf = Object.keys = () => { throw new Error('mutated object method') };
+        Object.hasOwn = () => false;
+        Object.is = () => true;
+        objectPrototype.propertyIsEnumerable = () => false;
+        Number.isFinite = Number.isSafeInteger = () => false;
+        Reflect.apply = Reflect.ownKeys = () => { throw new Error('mutated reflect method') };
+        setPrototype.add = setPrototype.delete = setPrototype.has = () => { throw new Error('mutated set method') };
+        stringPrototype.charCodeAt = stringPrototype.codePointAt = stringPrototype.slice = () => { throw new Error('mutated string method') };
+        Buffer.byteLength = () => 0;
+        Function.prototype.toString = () => 'mutated';
+        globalThis.Array = globalThis.Buffer = globalThis.Function = globalThis.Number = globalThis.Object = globalThis.Reflect = globalThis.Set = globalThis.String = undefined;
+        const echoed = await tools.echo({ request: ['€', 1] });
+        return { echoed, completion: { ok: true, amount: 42 } };
+      `,
+      bindings: tools({ echo: async args => args }),
+    })
+    expect(result).toEqual({
+      logs: [],
+      value: {
+        echoed: { request: ['€', 1] },
+        completion: { ok: true, amount: 42 },
+      },
+    })
+  })
+
   it('rejects forged lossy binding arguments again at the host boundary', async () => {
     const { runtime } = await setup()
     let calls = 0

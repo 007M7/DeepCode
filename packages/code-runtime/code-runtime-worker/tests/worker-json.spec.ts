@@ -230,6 +230,7 @@ describe('flat worker JSON wire', () => {
       [foreignMarker],
       [hiddenMarker],
       [{ kind: 'unknown' }],
+      [{ kind: 'array', bogus: 0 }],
       [{ kind: 'array' }],
       [{ kind: 'array', length: '1' }],
       [{ kind: 'array', length: -1 }],

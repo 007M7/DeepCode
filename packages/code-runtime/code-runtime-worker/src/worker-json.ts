@@ -11,10 +11,60 @@ const intrinsicReflectApply = Reflect.get(Reflect, 'apply') as (
   thisArgument: unknown,
   argumentsList: readonly unknown[],
 ) => unknown
+const IntrinsicError = Error
+const IntrinsicSet = Set
+const intrinsicArrayIsArray = Array.isArray
+const intrinsicNumberIsFinite = Number.isFinite
+const intrinsicNumberIsSafeInteger = Number.isSafeInteger
+const intrinsicObjectDefineProperty = Object.defineProperty
+const intrinsicObjectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor
+const intrinsicObjectGetPrototypeOf = Object.getPrototypeOf
+const intrinsicObjectHasOwn = Object.hasOwn
+const intrinsicObjectIs = Object.is
+const intrinsicObjectKeys = Object.keys
+const intrinsicObjectPropertyIsEnumerable = Reflect.get(Object.prototype, 'propertyIsEnumerable') as IntrinsicCallable
+const intrinsicReflectOwnKeys = Reflect.ownKeys
+const intrinsicSetAdd = Reflect.get(Set.prototype, 'add') as IntrinsicCallable
+const intrinsicSetDelete = Reflect.get(Set.prototype, 'delete') as IntrinsicCallable
+const intrinsicSetHas = Reflect.get(Set.prototype, 'has') as IntrinsicCallable
+
+/** Append without consulting a model-mutated `Array.prototype`. */
+function append<T>(target: T[], value: T): void {
+  intrinsicObjectDefineProperty(target, target.length, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  })
+}
+
+/** Pop without consulting a model-mutated `Array.prototype`. */
+function takeLast<T>(target: T[]): T | undefined {
+  if (target.length === 0) return undefined
+  const index = target.length - 1
+  const value = target[index]
+  intrinsicObjectDefineProperty(target, 'length', { value: index })
+  return value
+}
+
+/** Whether one captured-intrinsic Set contains a value. */
+function setHas<T>(target: Set<T>, value: T): boolean {
+  return intrinsicReflectApply(intrinsicSetHas, target, [value]) as boolean
+}
+
+/** Add to one captured-intrinsic Set. */
+function setAdd<T>(target: Set<T>, value: T): void {
+  intrinsicReflectApply(intrinsicSetAdd, target, [value])
+}
+
+/** Delete from one captured-intrinsic Set. */
+function setDelete<T>(target: Set<T>, value: T): void {
+  intrinsicReflectApply(intrinsicSetDelete, target, [value])
+}
 
 /** Whether a realm-owned intrinsic prototype is backed by its native constructor. */
 function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): boolean {
-  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'constructor')
+  const descriptor = intrinsicObjectGetOwnPropertyDescriptor(prototype, 'constructor')
   const constructor: unknown = descriptor?.value
   if (typeof constructor !== 'function') return false
   try {
@@ -28,14 +78,14 @@ function hasIntrinsicConstructor(prototype: object, name: 'Array' | 'Object'): b
 
 /** Whether a candidate is one realm's intrinsic `Object.prototype`. */
 function isIntrinsicObjectPrototype(value: object): boolean {
-  return Object.getPrototypeOf(value) === null && hasIntrinsicConstructor(value, 'Object')
+  return intrinsicObjectGetPrototypeOf(value) === null && hasIntrinsicConstructor(value, 'Object')
 }
 
 /** Whether an array uses one realm's intrinsic `Array.prototype`, not a subclass or forged prototype. */
 function hasPlainArrayPrototype(value: unknown[]): boolean {
-  const prototype: unknown = Object.getPrototypeOf(value)
-  if (!Array.isArray(prototype) || !hasIntrinsicConstructor(prototype, 'Array')) return false
-  const objectPrototype: unknown = Object.getPrototypeOf(prototype)
+  const prototype: unknown = intrinsicObjectGetPrototypeOf(value)
+  if (!intrinsicArrayIsArray(prototype) || !hasIntrinsicConstructor(prototype, 'Array')) return false
+  const objectPrototype: unknown = intrinsicObjectGetPrototypeOf(prototype)
   return typeof objectPrototype === 'object'
     && objectPrototype !== null
     && isIntrinsicObjectPrototype(objectPrototype)
@@ -43,15 +93,18 @@ function hasPlainArrayPrototype(value: unknown[]): boolean {
 
 /** Whether an object is a plain or null-prototype record from any JavaScript realm. */
 function hasPlainObjectPrototype(value: object): boolean {
-  const prototype: unknown = Object.getPrototypeOf(value)
+  const prototype: unknown = intrinsicObjectGetPrototypeOf(value)
   return prototype === null
     || typeof prototype === 'object' && isIntrinsicObjectPrototype(prototype)
 }
 
 /** Return every JSON-visible object key, or reject own data JSON would discard. */
 function enumerableStringKeys(value: object): string[] | undefined {
-  const keys = Reflect.ownKeys(value)
-  if (keys.some(key => typeof key !== 'string' || !Object.prototype.propertyIsEnumerable.call(value, key))) return undefined
+  const keys = intrinsicReflectOwnKeys(value)
+  for (let index = 0; index < keys.length; index++) {
+    const key = keys[index]
+    if (typeof key !== 'string' || !intrinsicReflectApply(intrinsicObjectPropertyIsEnumerable, value, [key])) return undefined
+  }
   return keys as string[]
 }
 
@@ -76,15 +129,20 @@ type SnapshotTask =
  * @returns a detached lossless-JSON snapshot, or `undefined` when invalid.
  */
 export function snapshotCodeJsonValue(value: unknown): CodeJsonValue | undefined {
-  const active = new Set<object>()
+  const active = new IntrinsicSet<object>()
   let root: CodeJsonValue | undefined
   const assign = (destination: SnapshotDestination, item: CodeJsonValue): void => {
     if (destination.kind === 'root') {
       root = item
     } else if (destination.kind === 'array') {
-      destination.target[destination.index] = item
+      intrinsicObjectDefineProperty(destination.target, destination.index, {
+        value: item,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      })
     } else {
-      Object.defineProperty(destination.target, destination.key, {
+      intrinsicObjectDefineProperty(destination.target, destination.key, {
         value: item,
         enumerable: true,
         configurable: true,
@@ -94,14 +152,14 @@ export function snapshotCodeJsonValue(value: unknown): CodeJsonValue | undefined
   }
 
   const tasks: SnapshotTask[] = [{ kind: 'visit', value, destination: { kind: 'root' } }]
-  for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
+  for (let task = takeLast(tasks); task !== undefined; task = takeLast(tasks)) {
     if (task.kind === 'leave') {
-      active.delete(task.source)
+      setDelete(active, task.source)
       continue
     }
     if (task.kind === 'array-item') {
-      if (!Object.hasOwn(task.source, task.index)) return undefined
-      tasks.push({
+      if (!intrinsicObjectHasOwn(task.source, task.index)) return undefined
+      append(tasks, {
         kind: 'visit',
         value: task.source[task.index],
         destination: { kind: 'array', target: task.target, index: task.index },
@@ -109,7 +167,7 @@ export function snapshotCodeJsonValue(value: unknown): CodeJsonValue | undefined
       continue
     }
     if (task.kind === 'object-property') {
-      tasks.push({
+      append(tasks, {
         kind: 'visit',
         value: task.source[task.key],
         destination: { kind: 'object', target: task.target, key: task.key },
@@ -127,23 +185,23 @@ export function snapshotCodeJsonValue(value: unknown): CodeJsonValue | undefined
       continue
     }
     if (typeof candidate === 'number') {
-      if (!Number.isFinite(candidate) || Object.is(candidate, -0)) return undefined
+      if (!intrinsicNumberIsFinite(candidate) || intrinsicObjectIs(candidate, -0)) return undefined
       assign(task.destination, candidate)
       continue
     }
     if (typeof candidate !== 'object') return undefined
-    if (active.has(candidate)) return undefined
+    if (setHas(active, candidate)) return undefined
 
-    if (Array.isArray(candidate)) {
+    if (intrinsicArrayIsArray(candidate)) {
       if (!hasPlainArrayPrototype(candidate)) return undefined
       const length = candidate.length
-      if (Reflect.ownKeys(candidate).length !== length + 1) return undefined
+      if (intrinsicReflectOwnKeys(candidate).length !== length + 1) return undefined
       const target: CodeJsonValue[] = []
       assign(task.destination, target)
-      active.add(candidate)
-      tasks.push({ kind: 'leave', source: candidate })
+      setAdd(active, candidate)
+      append(tasks, { kind: 'leave', source: candidate })
       for (let index = length - 1; index >= 0; index--) {
-        tasks.push({ kind: 'array-item', source: candidate, index, target })
+        append(tasks, { kind: 'array-item', source: candidate, index, target })
       }
       continue
     }
@@ -153,13 +211,13 @@ export function snapshotCodeJsonValue(value: unknown): CodeJsonValue | undefined
     if (keys === undefined) return undefined
     const target: Record<string, CodeJsonValue> = {}
     assign(task.destination, target)
-    active.add(candidate)
-    tasks.push({ kind: 'leave', source: candidate })
+    setAdd(active, candidate)
+    append(tasks, { kind: 'leave', source: candidate })
     for (let index = keys.length - 1; index >= 0; index--) {
       const key = keys[index]
       /* v8 ignore next -- the loop is bounded by the captured key count. */
       if (key === undefined) return undefined
-      tasks.push({ kind: 'object-property', source: candidate as Record<string, unknown>, key, target })
+      append(tasks, { kind: 'object-property', source: candidate as Record<string, unknown>, key, target })
     }
   }
   return root
@@ -192,29 +250,29 @@ export type WorkerJsonWire = WorkerJsonToken[]
 export function encodeWorkerJson(value: CodeJsonValue): WorkerJsonWire {
   const wire: WorkerJsonWire = []
   const pending: CodeJsonValue[] = [value]
-  for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
+  for (let current = takeLast(pending); current !== undefined; current = takeLast(pending)) {
     if (current === null || typeof current === 'boolean' || typeof current === 'number' || typeof current === 'string') {
-      wire.push(current)
+      append(wire, current)
       continue
     }
-    if (Array.isArray(current)) {
-      wire.push({ kind: 'array', length: current.length })
+    if (intrinsicArrayIsArray(current)) {
+      append(wire, { kind: 'array', length: current.length })
       for (let index = current.length - 1; index >= 0; index--) {
         const item = current[index]
-        if (item === undefined) throw new Error('cannot encode a sparse JSON array')
-        pending.push(item)
+        if (item === undefined) throw new IntrinsicError('cannot encode a sparse JSON array')
+        append(pending, item)
       }
       continue
     }
-    const keys = Object.keys(current)
-    wire.push({ kind: 'object', keys })
+    const keys = intrinsicObjectKeys(current)
+    append(wire, { kind: 'object', keys })
     for (let index = keys.length - 1; index >= 0; index--) {
       const key = keys[index]
       /* v8 ignore next -- the loop is bounded by the captured key count. */
-      if (key === undefined) throw new Error('cannot encode a missing JSON object key')
+      if (key === undefined) throw new IntrinsicError('cannot encode a missing JSON object key')
       const item = current[key]
-      if (item === undefined) throw new Error('cannot encode an undefined JSON object property')
-      pending.push(item)
+      if (item === undefined) throw new IntrinsicError('cannot encode an undefined JSON object property')
+      append(pending, item)
     }
   }
   return wire
@@ -226,36 +284,46 @@ type DecodeFrame =
 
 /** Whether an array contains exactly its dense indexed slots and `length`. */
 function isDenseArray(value: unknown[]): boolean {
-  if (!hasPlainArrayPrototype(value) || Reflect.ownKeys(value).length !== value.length + 1) return false
+  if (!hasPlainArrayPrototype(value) || intrinsicReflectOwnKeys(value).length !== value.length + 1) return false
   for (let index = 0; index < value.length; index++) {
-    if (!Object.hasOwn(value, index)) return false
+    if (!intrinsicObjectHasOwn(value, index)) return false
   }
   return true
 }
 
+/** Whether one exact string-key list contains a key, without consulting its prototype. */
+function keysContain(keys: string[], expected: string): boolean {
+  for (let index = 0; index < keys.length; index++) {
+    if (keys[index] === expected) return true
+  }
+  return false
+}
+
 /** Return one exact container marker, or reject any extra/missing fields. */
 function containerToken(value: object): ArrayWireToken | ObjectWireToken | undefined {
-  if (Array.isArray(value) || !hasPlainObjectPrototype(value)) return undefined
+  if (intrinsicArrayIsArray(value) || !hasPlainObjectPrototype(value)) return undefined
   const keys = enumerableStringKeys(value)
   if (keys === undefined) return undefined
   const token = value as Record<string, unknown>
   if (token.kind === 'array') {
-    if (keys.length !== 2 || !keys.includes('kind') || !keys.includes('length')) return undefined
+    if (keys.length !== 2 || !keysContain(keys, 'kind') || !keysContain(keys, 'length')) return undefined
     const length = token.length
-    return typeof length === 'number' && Number.isSafeInteger(length) && length >= 0
+    return typeof length === 'number' && intrinsicNumberIsSafeInteger(length) && length >= 0
       ? { kind: 'array', length }
       : undefined
   }
   if (token.kind === 'object') {
-    if (keys.length !== 2 || !keys.includes('kind') || !keys.includes('keys')) return undefined
+    if (keys.length !== 2 || !keysContain(keys, 'kind') || !keysContain(keys, 'keys')) return undefined
     const objectKeys = token.keys
-    if (!Array.isArray(objectKeys) || !isDenseArray(objectKeys)) return undefined
-    const unique = new Set<string>()
+    if (!intrinsicArrayIsArray(objectKeys) || !isDenseArray(objectKeys)) return undefined
+    const unique = new IntrinsicSet<string>()
     const normalizedKeys: string[] = []
-    for (const key of objectKeys as unknown[]) {
-      if (typeof key !== 'string' || unique.has(key)) return undefined
-      unique.add(key)
-      normalizedKeys.push(key)
+    const objectKeyValues = objectKeys as unknown[]
+    for (let index = 0; index < objectKeyValues.length; index++) {
+      const key = objectKeyValues[index]
+      if (typeof key !== 'string' || setHas(unique, key)) return undefined
+      setAdd(unique, key)
+      append(normalizedKeys, key)
     }
     return { kind: 'object', keys: normalizedKeys }
   }
@@ -271,14 +339,14 @@ function containerToken(value: object): ArrayWireToken | ObjectWireToken | undef
  */
 export function decodeWorkerJson(input: unknown): CodeJsonValue | undefined {
   try {
-    if (!Array.isArray(input) || !isDenseArray(input) || input.length === 0) return undefined
+    if (!intrinsicArrayIsArray(input) || !isDenseArray(input) || input.length === 0) return undefined
     const wire = input as unknown[]
     const frames: DecodeFrame[] = []
     let root: CodeJsonValue | undefined
     let rootAssigned = false
 
     const attach = (value: CodeJsonValue): boolean => {
-      const parent = frames.at(-1)
+      const parent = frames[frames.length - 1]
       if (!parent) {
         if (rootAssigned) return false
         root = value
@@ -288,12 +356,12 @@ export function decodeWorkerJson(input: unknown): CodeJsonValue | undefined {
       /* v8 ignore next -- completed frames are popped before another token can attach. */
       if (parent.index >= (parent.kind === 'array' ? parent.length : parent.keys.length)) return false
       if (parent.kind === 'array') {
-        parent.target.push(value)
+        append(parent.target, value)
       } else {
         const key = parent.keys[parent.index]
         /* v8 ignore next -- object frames are built from validated keys and their exact length. */
         if (key === undefined) return false
-        Object.defineProperty(parent.target, key, {
+        intrinsicObjectDefineProperty(parent.target, key, {
           value,
           enumerable: true,
           configurable: true,
@@ -311,7 +379,7 @@ export function decodeWorkerJson(input: unknown): CodeJsonValue | undefined {
       if (token === null || typeof token === 'boolean' || typeof token === 'string') {
         value = token
       } else if (typeof token === 'number') {
-        if (!Number.isFinite(token) || Object.is(token, -0)) return undefined
+        if (!intrinsicNumberIsFinite(token) || intrinsicObjectIs(token, -0)) return undefined
         value = token
       } else {
         if (typeof token !== 'object') return undefined
@@ -331,13 +399,13 @@ export function decodeWorkerJson(input: unknown): CodeJsonValue | undefined {
         }
       }
       if (!attach(value)) return undefined
-      if (frame) frames.push(frame)
+      if (frame) append(frames, frame)
       while (frames.length > 0) {
-        const current = frames.at(-1)
+        const current = frames[frames.length - 1]
         /* v8 ignore next -- the loop condition guarantees a final frame. */
         if (current === undefined) break
         if (current.index < (current.kind === 'array' ? current.length : current.keys.length)) break
-        frames.pop()
+        takeLast(frames)
       }
     }
     return frames.length === 0 ? root : undefined
