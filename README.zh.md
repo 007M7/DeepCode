@@ -55,7 +55,7 @@ dsh -p "summarize this workspace"
 
 ## 社区
 
-扫描二维码加入 DeepSeek Harness 微信社区。
+扫描二维码，或打开 <a href="https://wj.qq.com/s2/27234598/03eb/">DeepSeek Harness 微信社区申请页面</a> 申请加入。
 
 <p>
   <img src="assets/community-wecom-survey.png" alt="DeepSeek Harness 微信社区二维码" width="240">
