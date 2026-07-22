@@ -84,6 +84,15 @@ const SESSION_SNAPSHOT_SCHEMA = {
   properties: SESSION_SNAPSHOT_PROPERTIES,
 } as const
 
+const BACKGROUND_TASK_OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    kind: { type: 'string', required: true, const: 'background' },
+    taskId: { type: 'string', required: true },
+  },
+} as const
+
 function requireAgent(agent: Agent | undefined): Agent {
   if (agent === undefined) throw new Error('terminal tools require an initiating agent')
   return agent
@@ -162,14 +171,7 @@ export function apply(ctx: Context): void {
     output: {
       schema: {
         oneOf: [
-          {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              kind: { type: 'string', required: true, const: 'background' },
-              taskId: { type: 'string', required: true },
-            },
-          },
+          BACKGROUND_TASK_OUTPUT_SCHEMA,
           {
             type: 'object',
             additionalProperties: false,
