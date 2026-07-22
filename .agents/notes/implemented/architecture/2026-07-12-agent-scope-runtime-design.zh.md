@@ -34,7 +34,7 @@ Status: implemented
 
 ## Cordis 模型：上下文、fiber、effect、receiver 与 waterfall
 
-理解实现需要五个 Cordis 概念。上下文选择服务和注册所有权；fiber 是一个活跃的插件或子生命周期；effect 将清理逻辑附加到 fiber；事件接收器选择监听器；waterfall（瀑布式事件）让监听器按顺序变换或否决一个操作。
+理解实现需要五个 Cordis 概念。上下文选择服务和注册所有权；fiber 是一个活跃的插件或子生命周期；effect 将清理逻辑附加到 fiber；事件接收器选择监听器；waterfall（瀑布式事件）让监听器按顺序变换或短路一个操作。
 
 ### 上下文是贯穿单个服务图的所有权路径
 
@@ -56,7 +56,7 @@ Cordis 使用 dispatch receiver（`this`）过滤监听器，而 harness 的监�
 
 因此，产品辅助函数构造载体并单独传递领域主体。这防止监听器路由变成另一套对象模型，并使事件签名在不了解载体内部的情况下也可理解。
 
-Cordis waterfall 是中间件风格的 dispatch。每个监听器接收 `next()`：调用它则委托给剩余监听器和基础操作，不调用则否决或替换下游结果。Waterfall 驱动提示词组装和工具策略；普通 emit 事件同步通知，parallel 事件等待所有监听器但没有否决结果。
+Cordis waterfall 是中间件风格的 dispatch。每个监听器接收 `next()`：调用它则委托给剩余监听器和基础操作，不调用则短路或替换下游结果。Waterfall 驱动提示词组装和工具策略；普通 emit 事件同步通知，parallel 事件等待所有监听器但没有否决结果。
 
 ## 作用域路由：一个不透明键选择一层
 
