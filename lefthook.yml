@@ -1,25 +1,23 @@
-# Git hooks (lefthook). Hooks call the same package.json scripts CI runs —
-# one source of truth; the hook is just an earlier, faster checkpoint.
+# Git hooks (lefthook). Keep these local checkpoints fast; CI owns the full
+# repository-wide gate matrix.
 # Install: `pnpm exec lefthook install` (runs automatically via postinstall).
 
 pre-commit:
-  parallel: true
   jobs:
     - name: lint (staged)
       glob: '*.{ts,mts,cts,mjs}'
       exclude:
         - 'vendor/*/src/**'
-      run: node_modules/.bin/eslint --fix {staged_files} && git add {staged_files}
+      run: node_modules/.bin/eslint --fix {staged_files}
       stage_fixed: true
 
-    - name: typecheck
-      glob: '*.ts'
-      run: pnpm run typecheck
+    - name: whitespace (staged)
+      run: git diff --cached --check
 
     - name: vendor manifest guard
       run: scripts/check-vendor-manifest.sh
 
 pre-push:
   jobs:
-    - name: full check
-      run: pnpm run check:pre-push
+    - name: typecheck
+      run: node_modules/.bin/tsc -b tsconfig.json --pretty false

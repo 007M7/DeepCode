@@ -32,7 +32,6 @@
     "check:ci:snapshot": "tsx scripts/run-gates.ts ci-snapshot",
     "check:ci:artifacts": "tsx scripts/run-gates.ts ci-artifacts",
     "check:node-compat": "tsx scripts/run-gates.ts node-compat",
-    "check:pre-push": "tsx scripts/run-gates.ts pre-push",
     "knip": "knip --treat-config-hints-as-errors",
     "publint": "tsx scripts/publint-all.ts",
     "doc-typecheck": "tsx scripts/doc-typecheck.ts",
