@@ -7,9 +7,10 @@ Namespace plugin (`name` / `inject` / `Config` / `apply`, no default export).
 ## What it does
 
 - Resolves every server-local setting before registration; an invalid mapping or registration conflict rolls back earlier entries, so a failed load leaves no provider routes.
-- Lazily single-flights one server process per `(server id, canonical workspace realpath)`. A crash fails the active query without replay; a later query may replace the process.
+- Lazily single-flights one server process per `(server id, canonical workspace realpath)`. A live server error is not replayed; if the selected pooled transport fails before or during a read-only query, the provider awaits its disposal and retries that query once on a fresh process.
 - Uses a compatibility-first **transient-open** sequence per query: canonicalize and read the source with Node APIs, `textDocument/didOpen` (version 1, full text), the requested request, then `textDocument/didClose` in `finally`. A failed or canceled `didOpen` write terminates the instance before the pool can reuse it. Documents close after each call, so the first version needs no `didChange`, content cache, or document LRU.
 - Serializes each source-read/open/query/close lifecycle through one abortable per-workspace queue so queued calls read current source only when their turn starts; distinct workspaces run in parallel.
+- After protocol shutdown fails, terminates the server's descendant tree through POSIX process-group signaling or synchronous Windows `taskkill /T /F`. Windows suppresses only taskkill's already-absent-tree result; command, permission, and other tree-kill failures remain visible.
 - Reads sources through Node filesystem APIs in the subprocess's host namespace — NOT `ctx.fs`, and emits no `fs/observed`: only the LSP result is model-visible, so a query does not satisfy read-before-write policy.
 
 ## Configuration
