@@ -1,9 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, readFile, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { LspInstance, readHostSource } from '@deepseek-ai/dsh-lsp-local'
+import { encodeMessage } from '@deepseek-ai/dsh-lsp-local'
+import type { ConnectionWriter } from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
+import { escalateProcessTree } from '@deepseek-ai/dsh-lsp-local/src/instance.ts'
 import type { InstanceSpec } from '@deepseek-ai/dsh-lsp-local/src/instance.ts'
 import type { LspProviderQuery, LspQueryResult } from '@deepseek-ai/dsh-lsp'
 
@@ -26,7 +29,11 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-function makeInstance(env: Record<string, string> = {}, overrides: Partial<InstanceSpec> = {}): LspInstance {
+function makeInstance(
+  env: Record<string, string> = {},
+  overrides: Partial<InstanceSpec> = {},
+  writer?: ConnectionWriter,
+): LspInstance {
   const instance = new LspInstance({
     command: process.execPath,
     args: [fixtureServer],
@@ -39,7 +46,7 @@ function makeInstance(env: Record<string, string> = {}, overrides: Partial<Insta
     shutdownTimeoutMs: 200,
     killGraceMs: 200,
     ...overrides,
-  })
+  }, writer)
   live.push(instance)
   return instance
 }
@@ -200,16 +207,24 @@ describe('LspInstance query and abort', () => {
     expect(instance.dead).toBe(true)
   })
 
-  it.skipIf(process.platform === 'win32')('terminates when stdin fails during the didOpen write', async () => {
-    // Closing stdin after initialized makes a large didOpen fail before `opened` can arm didClose;
-    // the instance must still become dead so its provider can replace it.
-    await writeFile(join(ws, 'a.ts'), 'x'.repeat(2_000_000))
-    const instance = makeInstance({ LSP_FAKE_CLOSE_STDIN_AFTER_INITIALIZED: '1' }, {
+  it('terminates when stdin fails during the didOpen write', async () => {
+    const instance = makeInstance({}, {
       shutdownTimeoutMs: 100,
       killGraceMs: 100,
-    })
+    }, failingWriter('textDocument/didOpen'))
     await expect(run(instance, 'goToDefinition')).rejects.toThrow()
     expect(instance.dead).toBe(true)
+  })
+
+  it('awaits process exit before rejecting a request write failure', async () => {
+    const instance = makeInstance({}, {
+      shutdownTimeoutMs: 100,
+      killGraceMs: 100,
+    }, failingWriter('textDocument/definition'))
+    // The pid is observed only to prove the owned subprocess reached quiescence before rejection.
+    const pid = (instance as unknown as { connection: { pid: number } }).connection.pid
+    await expect(run(instance, 'goToDefinition')).rejects.toThrow(/fixture textDocument\/definition failure/)
+    expect(processAlive(pid)).toBe(false)
   })
 
   it('rejects when the server lacks the operation capability', async () => {
@@ -225,11 +240,10 @@ describe('LspInstance query and abort', () => {
     await expect(run(instance, 'goToDefinition', controller.signal)).rejects.toThrow(/server refused/)
   })
 
-  it.skipIf(process.platform === 'win32')('keeps a settled result but awaits teardown when didClose cannot be written', async () => {
+  it('keeps a settled result but awaits teardown when didClose cannot be written', async () => {
     const instance = makeInstance({
       LSP_FAKE_DEF: 'null',
-      LSP_FAKE_CLOSE_STDIN_AFTER_REPLY: '1',
-    }, { shutdownTimeoutMs: 100, killGraceMs: 100 })
+    }, { shutdownTimeoutMs: 100, killGraceMs: 100 }, failingWriter('textDocument/didClose'))
     await expect(run(instance, 'goToDefinition')).resolves.toEqual({
       kind: 'locations',
       locations: [],
@@ -240,6 +254,14 @@ describe('LspInstance query and abort', () => {
 })
 
 describe('LspInstance disposal', () => {
+  it('escalates only when the process tree survives its grace period', () => {
+    const forceKill = vi.fn()
+    escalateProcessTree(false, forceKill)
+    expect(forceKill).toHaveBeenCalledOnce()
+    escalateProcessTree(true, forceKill)
+    expect(forceKill).toHaveBeenCalledOnce()
+  })
+
   it('lets a server finish protocol exit before signal escalation', async () => {
     const marker = join(root, 'graceful-exit.log')
     const instance = makeInstance({
@@ -281,7 +303,7 @@ describe('LspInstance disposal', () => {
     await expect(instance.dispose()).resolves.toBeUndefined()
   })
 
-  it.skipIf(process.platform === 'win32')('awaits a surviving process-group helper on every concurrent dispose', async () => {
+  it('awaits a surviving process-tree helper on every concurrent dispose', async () => {
     const marker = join(root, 'helper.pid')
     const helper = 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000);'
     const script = 'const{spawn}=require("node:child_process");const{writeFileSync}=require("node:fs");'
@@ -298,6 +320,7 @@ describe('LspInstance disposal', () => {
       await first
     } finally {
       if (processAlive(helperPid)) process.kill(helperPid, 'SIGKILL')
+      await waitForProcessExit(helperPid)
     }
   })
 
@@ -319,6 +342,26 @@ function processAlive(pid: number): boolean {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
     throw error
+  }
+}
+
+/** Wait until a process id disappears so temporary-workspace cleanup cannot race handle release. */
+async function waitForProcessExit(pid: number, timeoutMs = 3_000): Promise<void> {
+  const started = Date.now()
+  while (processAlive(pid)) {
+    if (Date.now() - started > timeoutMs) throw new Error(`process ${pid} did not exit`)
+    await new Promise<void>(resolve => setTimeout(resolve, 10))
+  }
+}
+
+/** Write normally except for one method whose callback receives a deterministic transport error. */
+function failingWriter(method: string): ConnectionWriter {
+  return (stdin, message, done) => {
+    if ((message as { method?: unknown }).method === method) {
+      queueMicrotask(() => { done(new Error(`fixture ${method} failure`)) })
+      return
+    }
+    stdin.write(encodeMessage(message), done)
   }
 }
 

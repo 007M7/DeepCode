@@ -321,7 +321,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
-  it.skipIf(process.platform === 'win32')('renders its header, footer, replay, streaming answer, todos, and status', async () => {
+  it('renders its header, footer, replay, streaming answer, todos, and status', async () => {
     let now = 0
     const result = await setup({
       contextWindow: 100,
@@ -447,14 +447,15 @@ describe('pi-tui chat lifecycle and transcript', () => {
       { inputTokens: 500, outputTokens: 8 },
       { turn: 3, step: 1 },
     )
-    await tick()
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('final live answer')
+    })
 
     expect(result.terminal.output).toContain('Enter sends steering, Esc cancels')
     expect(result.terminal.output).toContain('Steering')
     expect(result.terminal.output).toContain('user context')
     expect(result.terminal.output).toContain('Prompt blocked')
     expect(result.terminal.output).toContain('Turn cancelled')
-    expect(result.terminal.output).toContain('final live answer')
     expect(result.terminal.progress).toContain(true)
 
     result.session.append('assistant/chunk', {

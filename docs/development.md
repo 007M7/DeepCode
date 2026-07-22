@@ -35,13 +35,13 @@ pnpm run typecheck
 
 That first typecheck runs the package/vendor build graph and the root no-emit `tsconfig.json` graph for examples, tests, and scripts. The root graph uses the same source `paths` map but relies on project references so vendored code is checked under its own tsconfig settings.
 
-If you are preparing to push from a fresh clone or worktree, also build once:
+If a relevant local check consumes built package output, build once first:
 
 ```sh
 pnpm run build
 ```
 
-`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs.
+`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs; ordinary commits and pushes do not require that build unless their selected checks consume it.
 
 ## Environment variables
 
@@ -56,14 +56,14 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 ## Git hooks
 
-lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
+lefthook is configured in `lefthook.yml` as a fast local checkpoint:
 
-- `pre-commit` runs staged-file ESLint fixes, `pnpm run typecheck`, and the vendor manifest guard.
-- `pre-push` runs `pnpm run check:pre-push`, whose scheduler runs runtime-closure verification, unit tests, duplication detection, snapshot tests, build, module-graph freshness, and the member gates of `pnpm run hygiene` and `pnpm run doc-sync` concurrently.
+- `pre-commit` runs staged-file ESLint fixes, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
+- `pre-push` runs only the incremental repository typecheck.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
-These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs built-bin smoke tests and exercises the compatibility matrix on Node 22.19, 24, and 26.
+The hooks intentionally do not run tests, snapshots, documentation checks, builds, or hygiene. Contributors run the [checks relevant to the changed behavior](../AGENTS.md#run-relevant-checks-locally) once; CI owns exhaustive coverage, built-artifact smokes, and the Node 22.19, 24, and 26 compatibility matrix.
 
 ## CI gates
 
