@@ -24,6 +24,8 @@ interface FakeAgent extends Agent {
 export interface TuiHarnessOptions {
   status?: AgentStatus
   config?: Config
+  /** Leave the session event log empty instead of seeding one turn and step. */
+  omitInitialLifecycle?: boolean
   /** Omit the harness's default `welcome`, exercising the banner sweep-reveal path. */
   omitWelcome?: boolean
   tools?: Record<string, ToolDefinition>
@@ -120,11 +122,13 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     sessionId,
     options.cwd === null ? undefined : { meta: { cwd: options.cwd ?? '/workspace' } },
   )
-  session.append('turn/start', {
-    turn: 1,
-    trigger: { kind: 'message', source: { kind: 'user' } },
-  })
-  session.append('step/start', { turn: 1, step: 1 })
+  if (options.omitInitialLifecycle !== true) {
+    session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    session.append('step/start', { turn: 1, step: 1 })
+  }
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
   const steered: ContentBlock[][] = []
