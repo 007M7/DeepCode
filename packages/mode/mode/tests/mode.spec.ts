@@ -258,6 +258,29 @@ describe('the boundary flush', () => {
     expect(ctx.modes.get(agent)).toEqual({ current: PLAN_MODE })
   })
 
+  it('skips the flush after the plugin fiber is disposed (a captured wrapper must not write into a dead service)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const fiber = await ctx.plugin(ModesService, PLAN_CONFIG)
+    const agent = await agentWithSession(ctx)
+    ctx.modes.set(agent, PLAN_MODE)
+    // A downstream listener captured before disposal keeps the waterfall
+    // continuation alive across the unload; the resumed wrapper must not
+    // append through the disposed service.
+    ctx.on('agent/turn-continuation', async (_agent, _turn, decision, _signal, next) => {
+      await fiber.dispose()
+      await next()
+      return decision
+    })
+    agent.session.append('step/end', { turn: 1, step: 1 })
+    await agentEvents(ctx, agent).waterfall(
+      'agent/turn-continuation', 1, { action: 'stop' }, new AbortController().signal,
+      () => Promise.resolve({ action: 'stop' }),
+    )
+    expect(agent.session.events.some(event => event.type === 'mode/set')).toBe(false)
+  })
+
   it('flushes at step/end too (a mid-turn flip lands on the following step)', async () => {
     const ctx = await setup()
     const agent = await agentWithSession(ctx)

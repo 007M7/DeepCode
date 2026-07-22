@@ -241,7 +241,7 @@ export class ModesService extends Service {
     // the same): downstream listeners may await, and a `session/set_mode`
     // arriving during that window must still shape the request this boundary
     // precedes — a pre-next() flush would apply it one request late.
-    ctx.on('agent/prompt-submit', async (agent, _content, _source, _signal, next) => {
+    const flushAfter = async <T>(agent: Agent, next: () => Promise<T>): Promise<T> => {
       const decision = await next()
       if (!disposed) {
         try {
@@ -251,18 +251,11 @@ export class ModesService extends Service {
         }
       }
       return decision
-    }, { prepend: true })
-    ctx.on('agent/turn-continuation', async (agent, _turn, _decision, _signal, next) => {
-      const decision = await next()
-      if (!disposed) {
-        try {
-          this.onBoundary(agent)
-        } catch (error) {
-          ctx.logger.warn('dsh-mode: boundary flush failed: %o', error)
-        }
-      }
-      return decision
-    }, { prepend: true })
+    }
+    ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next) =>
+      flushAfter(agent, next), { prepend: true })
+    ctx.on('agent/turn-continuation', (agent, _turn, _decision, _signal, next) =>
+      flushAfter(agent, next), { prepend: true })
     ctx.on('agent/request-error', async (
       agent,
       _turn,
