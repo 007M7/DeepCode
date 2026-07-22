@@ -8,7 +8,7 @@ import AgentRegistry, {
 } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, LlmModelContext, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId, type Session } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type Session, type SessionHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -31,6 +31,7 @@ export interface TuiHarnessOptions {
   beforeMount?: (session: Session) => void
   cwd?: string | null
   formatCwd?: TuiRuntime['formatCwd']
+  /** Fake-agent creation options; auto-title resolves its target from `provider`/`model`. */
   agentOptions?: AgentOptions
   contextWindow?: number
   contextTokens?: number
@@ -41,6 +42,8 @@ export interface TuiHarnessOptions {
     listModels?: (provider: string) => Promise<LlmModelInfo[]>
     resolveModelContext?: (provider: string, model: string) => Promise<LlmModelContext | undefined>
   }
+  /** Provide a fake `sessionPersistence` service so resume surfaces can list sessions. */
+  sessionPersistence?: { list(): Promise<SessionHeader[]> }
 }
 
 export interface TuiHarness<TerminalType extends Terminal, Exit extends (code: number) => void> {
@@ -105,6 +108,9 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     await options.configureContext(ctx)
   }
   if (ctx.get('systemPrompt') === undefined) await ctx.plugin(SystemPrompt)
+  if (options.sessionPersistence !== undefined) {
+    ctx.provide('sessionPersistence', options.sessionPersistence as never)
+  }
   const sessionId = SessionId('main-session')
   const session = ctx.sessions.create(
     sessionId,
@@ -176,7 +182,7 @@ export function appendUser(session: Session, text: string): void {
 export function appendAssistant(
   session: Session,
   content: ContentBlock[],
-  usage?: { inputTokens: number; outputTokens: number },
+  usage?: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number },
   position: { turn: number; step: number } = { turn: 1, step: 1 },
 ): void {
   session.append('assistant/message', {

@@ -1728,12 +1728,10 @@ export interface Config {
   maxSourceBytes?: number
   /** Ordered same-directory project candidates; the first existing regular file wins in each scope. */
   instructionFileCandidates?: string[]
-  /** Ordered same-directory local-overlay candidates loaded in addition to the base file per scope; empty disables the overlay. */
-  localInstructionFileCandidates?: string[]
 }
 ```
 
-Source: [`packages/context/workspace-context/src/config.ts:17`](../packages/context/workspace-context/src/config.ts)
+Source: [`packages/context/workspace-context/src/config.ts:16`](../packages/context/workspace-context/src/config.ts)
 
 ## Loadable plugins with no config
 
