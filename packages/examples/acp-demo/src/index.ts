@@ -1,7 +1,9 @@
 /**
  * The ACP server app: the default agent spine ({@link @deepseek-ai/dsh-agent-spine-demo}),
  * human-command registry, JSONL session persistence, and the
- * {@link @deepseek-ai/dsh-acp} bridge. It writes nothing to stdout.
+ * {@link @deepseek-ai/dsh-acp} bridge. The app owns those plugins through one
+ * ordered lifecycle so ACP sessions quiesce before persistence detaches. It
+ * writes nothing to stdout.
  * It pre-creates no agents and leaves adapters, executors, and optional tools to
  * the leaf, which must likewise avoid stdout loggers. Named exports are
  * required so Loader retains this plugin's `Config` schema (see
@@ -21,6 +23,7 @@ import SessionPersistenceJsonl, {
   JsonlCompressionSchema,
   type JsonlCompression,
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as sessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'acp-demo'
@@ -54,6 +57,8 @@ export interface Config {
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
+  packChunks?: boolean
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
@@ -86,6 +91,7 @@ export const Config: z<Config> = z.object({
   dshHome: z.string(),
   sessionTitle: agentCore.SessionTitleConfigSchema,
   persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
+  packChunks: z.boolean().default(false),
   persistenceCompression: JsonlCompressionSchema,
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
   skills: agentCore.SkillConfigSchema,
@@ -101,17 +107,27 @@ export const Config: z<Config> = z.object({
  * NO agents (its `agents` list defaults to `[]`) and carries the deployment
  * `persona`; the JSONL backend persists under `persistenceRoot`; the ACP
  * bridge owns stdout for JSON-RPC and creates one agent per `session/new`
- * from the provider/model pair. No logger, no `hmr` — stdout stays pure.
+ * from the provider/model pair. The composite effect unloads in reverse order,
+ * keeping checkpoint and persistence listeners attached until ACP agents have
+ * flushed their closing events. No logger, no `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
   const goals = config.goals ?? {}
-  ctx.plugin(CommandService)
-  if (goals !== false) ctx.plugin(commandGoal)
-  ctx.plugin(agentCore, { ...agentCore.pickSpineConfig(config), goals })
-  ctx.plugin(UserInteractionService)
-  ctx.plugin(SessionPersistenceJsonl, {
-    root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
-    ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
-  })
-  ctx.plugin(acp, { provider: config.provider, model: config.model })
+  ctx.effect(function* () {
+    yield ctx.plugin(CommandService).dispose
+    if (goals !== false) yield ctx.plugin(commandGoal).dispose
+    yield ctx.plugin(agentCore, { ...agentCore.pickSpineConfig(config), goals }).dispose
+    yield ctx.plugin(UserInteractionService).dispose
+    // Same rationale as the Config schema above: each front door forwards its own
+    // persistence passthroughs rather than sharing a facade with stdio-demo.
+    /* jscpd:ignore-start */
+    yield ctx.plugin(SessionPersistenceJsonl, {
+      root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
+      ...config.packChunks !== undefined ? { packChunks: config.packChunks } : {},
+      ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
+    }).dispose
+    /* jscpd:ignore-end */
+    yield ctx.plugin(sessionCheckpointPolicy).dispose
+    yield ctx.plugin(acp, { provider: config.provider, model: config.model }).dispose
+  }, 'acp-demo.composition')
 }
