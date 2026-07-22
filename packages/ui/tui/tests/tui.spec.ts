@@ -1120,12 +1120,13 @@ describe('TUI user-interaction dialogs', () => {
 
     const single = result.ctx.userInteraction.ask({
       questions: [{
-        id: 'mode', header: 'Mode', question: 'Choose a mode',
+        id: 'mode', header: 'Mode', question: 'Choose a mode', detail: 'This choice controls the next turn.',
         options: [{ label: 'Safe', description: 'Use checks' }, { label: 'Fast' }],
       }],
     })
     await tick()
     expect(result.terminal.output).toContain('Choose a mode')
+    expect(result.terminal.output).toContain('This choice controls the next turn.')
     expect(result.terminal.output).toContain('Question 1/1 (1 unanswered) · Mode')
     expect(result.terminal.output).toContain('1/2')
     result.terminal.send('\x1b[B')
