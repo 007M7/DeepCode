@@ -1,0 +1,101 @@
+/* Chat flow: block gap 16 between narration/bubbles/tool groups (figma);
+   tool rows inside a group gap 10. Input padding cap rides the skeleton. */
+
+.root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 24px;
+}
+
+/* Message column: 736px fixed width, centered on the same axis as the
+   input box; the scroller itself stays full-bleed. */
+.column {
+  max-width: 736px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.toolGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.callRow {
+  border-radius: 6px;
+}
+
+/* Selection linkage: the selected call row wears the blue outline.
+   button-info-fill flips 500→400 with the theme, hitting the darker-blue
+   dark-mode spec exactly (business-primary stays 500 on both). */
+.callRow[data-selected] {
+  outline: 1.5px solid var(--dsw-alias-button-info-fill);
+  outline-offset: 1px;
+}
+
+.hint {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.openError {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.older {
+  display: flex;
+  justify-content: center;
+}
+
+.older button {
+  border: none;
+  border-radius: 14px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+  cursor: pointer;
+}
+
+.older button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* Back-to-bottom: 34px circular icon button at the column's right edge. */
+.toBottom {
+  position: absolute;
+  right: max(24px, calc((100% - 736px) / 2));
+  bottom: 16px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 100px;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-button-floating-fill);
+  box-shadow: var(--dsw-shadow-lv2);
+  cursor: pointer;
+}
+
+.toBottom:hover {
+  background: var(--dsw-alias-button-floating-hover);
+}

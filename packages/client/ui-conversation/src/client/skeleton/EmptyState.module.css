@@ -1,0 +1,68 @@
+/* NEW SESSION hero: headline over the shared InputBar card, centered in the
+   conversation column. The card is the same component as the composer —
+   only positioning lives here. */
+
+.root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-width: 0;
+  padding: 24px;
+}
+
+/* figma hero group 34:10409: headline block sits 36px above the input card. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  width: 100%;
+  max-width: 776px;
+}
+
+/* figma 34:10411: fish + title row, gap 10, centered; title 26/32 wt600 (34:10414). */
+.headline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 26px;
+  line-height: 32px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* figma 34:10412/10413: brand-blue vector. */
+.fish {
+  flex: none;
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.picker {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.select,
+.customInput {
+  max-width: 320px;
+  padding: 4px 10px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-base);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.customInput {
+  width: 320px;
+  outline: none;
+}
+
+.customInput:focus {
+  /* Business blue, not brand-primary: that token resolves to ink in this sheet. */
+  border-color: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-primary);
+}
