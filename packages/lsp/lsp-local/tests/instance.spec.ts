@@ -216,6 +216,17 @@ describe('LspInstance query and abort', () => {
     expect(instance.dead).toBe(true)
   })
 
+  it('awaits process exit before rejecting a request write failure', async () => {
+    const instance = makeInstance({}, {
+      shutdownTimeoutMs: 100,
+      killGraceMs: 100,
+    }, failingWriter('textDocument/definition'))
+    // The pid is observed only to prove the owned subprocess reached quiescence before rejection.
+    const pid = (instance as unknown as { connection: { pid: number } }).connection.pid
+    await expect(run(instance, 'goToDefinition')).rejects.toThrow(/fixture textDocument\/definition failure/)
+    expect(processAlive(pid)).toBe(false)
+  })
+
   it('rejects when the server lacks the operation capability', async () => {
     const instance = makeInstance({ LSP_FAKE_CAPS: JSON.stringify({ definitionProvider: false }), LSP_FAKE_DEF: 'null' })
     await expect(run(instance, 'goToDefinition')).rejects.toThrow(/does not support goToDefinition/)

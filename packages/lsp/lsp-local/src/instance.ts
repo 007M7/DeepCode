@@ -84,6 +84,15 @@ export class LspInstance {
   }
 
   /**
+   * Test whether a caught query error came from this instance's transport.
+   * @param error - error caught by the provider.
+   * @returns `true` only for the connection's retained fatal transport cause.
+   */
+  isTransportFailure(error: unknown): boolean {
+    return this.connection.failedWith(error)
+  }
+
+  /**
    * Run one query through the serialized queue.
    * @param request - the resolved provider query.
    * @param source - the pre-validated, already-read host source (the provider reads before spawning).
@@ -94,7 +103,12 @@ export class LspInstance {
     // Serialize behind prior work, but observe abort DURING the queue wait too: if an earlier query
     // hangs (e.g. a signal-less seam caller), a later tool's timeout must still be able to give up
     // rather than block on the shared tail forever.
-    const run = abortable(this.queue, signal).then(() => this.runQuery(request, source, signal))
+    const run = abortable(this.queue, signal)
+      .then(() => this.runQuery(request, source, signal))
+      .catch(async (error: unknown) => {
+        if (this.isTransportFailure(error)) await this.startTeardown()
+        throw error
+      })
     // Keep the tail alive regardless of this query's outcome so the next caller still serializes. The
     // tail follows the ACTUAL prior work (this.queue), not the abortable view, so a caller giving up
     // on the wait does not deserialize the queue.

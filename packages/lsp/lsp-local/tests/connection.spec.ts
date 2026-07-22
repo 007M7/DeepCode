@@ -65,6 +65,12 @@ describe('LspConnection', () => {
     await expect(conn.request('textDocument/hover', {})).rejects.toThrow(/server refused the request/)
   })
 
+  it('treats signaling an already-closed child as a teardown race', async () => {
+    const conn = connectScript('')
+    await conn.closed
+    expect(() => { conn.kill() }).not.toThrow()
+  })
+
   it('answers a server workspace/configuration request from static config', async () => {
     const seen: SeenRequest[] = []
     const conn = connect(
@@ -272,22 +278,26 @@ describe('process-tree signaling', () => {
     expect(operations.signal).toHaveBeenCalledWith(-42, 'SIGKILL')
   })
 
-  it('falls back to the direct child and tolerates an already-dead child', () => {
+  it('surfaces a Windows taskkill failure without downgrading to the direct child', () => {
     const fallback = fakeProcessTreeOperations()
     vi.mocked(fallback.taskkill).mockImplementation(() => { throw new Error('taskkill unavailable') })
-    signalProcessTree('win32', 42, 'SIGTERM', fallback)
-    expect(fallback.killChild).toHaveBeenCalledWith('SIGTERM')
-
-    const gone = fakeProcessTreeOperations()
-    vi.mocked(gone.signal).mockImplementation(() => { throw new Error('group gone') })
-    vi.mocked(gone.killChild).mockImplementation(() => { throw new Error('child gone') })
-    expect(() => { signalProcessTree('linux', 42, 'SIGKILL', gone) }).not.toThrow()
+    expect(() => { signalProcessTree('win32', 42, 'SIGTERM', fallback) }).toThrow(/taskkill unavailable/)
+    expect(fallback.killChild).not.toHaveBeenCalled()
   })
 
-  it('runs taskkill for the full tree and rejects command failures', () => {
+  it('tolerates a POSIX tree-signaling race after the direct child is already gone', () => {
+    const posixGone = fakeProcessTreeOperations()
+    vi.mocked(posixGone.signal).mockImplementation(() => { throw new Error('group gone') })
+    vi.mocked(posixGone.killChild).mockImplementation(() => { throw new Error('child gone') })
+    expect(() => { signalProcessTree('linux', 42, 'SIGKILL', posixGone) }).not.toThrow()
+  })
+
+  it('runs taskkill for the full tree, accepts an absent tree, and rejects command failures', () => {
     const success: TaskkillRunner = vi.fn(() => ({ status: 0 }))
     taskkillProcessTree(42, success)
     expect(success).toHaveBeenCalledWith('taskkill', ['/PID', '42', '/T', '/F'], { stdio: 'ignore' })
+
+    expect(() => { taskkillProcessTree(42, () => ({ status: 128 })) }).not.toThrow()
 
     const spawnFailure = new Error('cannot spawn taskkill')
     expect(() => { taskkillProcessTree(42, () => ({ status: null, error: spawnFailure })) }).toThrow(spawnFailure)

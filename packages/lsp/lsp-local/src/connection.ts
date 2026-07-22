@@ -52,7 +52,7 @@ export type ConnectionWriter = (
 export interface ProcessTreeOperations {
   /** Signal a POSIX process group. */
   readonly signal: (target: number, signal: NodeJS.Signals) => void
-  /** Signal the direct child when group/tree signalling is unavailable. */
+  /** Signal the direct child when POSIX group signaling is unavailable. */
   readonly killChild: (signal: NodeJS.Signals) => void
   /** Terminate a Windows process tree by root pid. */
   readonly taskkill: (pid: number) => void
@@ -78,6 +78,9 @@ export type ProcessSignalRunner = (target: number, signal: NodeJS.Signals) => bo
 
 const processSignalRunner: ProcessSignalRunner = process.kill.bind(process)
 
+/** taskkill status for "process not found": the requested process tree is already absent. */
+const TASKKILL_TREE_NOT_FOUND_STATUS = 128
+
 const writeConnectionMessage: ConnectionWriter = (stdin, message, done) => {
   stdin.write(encodeMessage(message), done)
 }
@@ -93,6 +96,7 @@ export function taskkillProcessTree(
 ): void {
   const result = run('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
   if (result.error !== undefined) throw result.error
+  if (result.status === TASKKILL_TREE_NOT_FOUND_STATUS) return
   if (result.status !== 0) throw new Error(`taskkill exited with status ${String(result.status)}`)
 }
 
@@ -130,7 +134,8 @@ export async function waitForTreeExit(
 }
 
 /**
- * Signal a detached process tree with platform-correct semantics and a direct-child fallback.
+ * Signal a detached process tree with platform-correct semantics. POSIX falls back to the direct
+ * child; Windows requires taskkill to reach the full tree.
  * @param platform - host platform.
  * @param pid - detached root process id.
  * @param signal - requested termination signal.
@@ -142,9 +147,12 @@ export function signalProcessTree(
   signal: NodeJS.Signals,
   operations: ProcessTreeOperations,
 ): void {
+  if (platform === 'win32') {
+    operations.taskkill(pid)
+    return
+  }
   try {
-    if (platform === 'win32') operations.taskkill(pid)
-    else operations.signal(-pid, signal)
+    operations.signal(-pid, signal)
   } catch {
     try {
       operations.killChild(signal)
@@ -220,6 +228,15 @@ export class LspConnection {
   }
 
   /**
+   * Test whether a caught error is this connection's retained fatal transport cause.
+   * @param error - error caught by the instance or provider.
+   * @returns `true` only when this connection produced that exact failure.
+   */
+  failedWith(error: unknown): boolean {
+    return this.closeReason === error
+  }
+
+  /**
    * Send a request and await its result.
    * @param method - the JSON-RPC method.
    * @param params - the request params.
@@ -291,10 +308,7 @@ export class LspConnection {
     return await waitForTreeExit(this.processTreeAlive.bind(this), signal)
   }
 
-  /**
-   * Signal the whole process tree so helper processes are reached; fall back to the direct child if
-   * tree signaling fails. Never throws because teardown races process exit.
-   */
+  /** Signal the whole process tree. */
   private signalTree(sig: NodeJS.Signals): void {
     const pid = this.child.pid
     if (pid === undefined) return
