@@ -27,6 +27,11 @@
   config:
     root: !!js process.env.DSH_SESSION_ROOT ?? './.sessions'
 
+# Persistence owns durable storage; this separate policy explicitly selects
+# the request, tool-dispatch, and completed-step durability checkpoints.
+- id: session-checkpoints
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
+
 # Local bash executor; $DSH_CWD wins over the process cwd.
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'

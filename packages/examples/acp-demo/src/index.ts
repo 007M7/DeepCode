@@ -1,7 +1,9 @@
 /**
  * The ACP server app: the default agent spine ({@link @deepseek-ai/dsh-agent-spine-demo}),
  * human-command registry, JSONL session persistence, and the
- * {@link @deepseek-ai/dsh-acp} bridge. It writes nothing to stdout.
+ * {@link @deepseek-ai/dsh-acp} bridge. The app owns those plugins through one
+ * ordered lifecycle so ACP sessions quiesce before persistence detaches. It
+ * writes nothing to stdout.
  * It pre-creates no agents and leaves adapters, executors, and optional tools to
  * the leaf, which must likewise avoid stdout loggers. Named exports are
  * required so Loader retains this plugin's `Config` schema (see
@@ -21,6 +23,7 @@ import SessionPersistenceJsonl, {
   JsonlCompressionSchema,
   type JsonlCompression,
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as sessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import SessionQueryService from '@deepseek-ai/dsh-session-query'
 import SessionReferenceService, { type Config as SessionReferenceConfig } from '@deepseek-ai/dsh-session-reference'
@@ -106,23 +109,24 @@ export const Config: z<Config> = z.object({
  * NO agents (its `agents` list defaults to `[]`) and carries the deployment
  * `persona`; the JSONL backend persists under `persistenceRoot`; the ACP
  * bridge owns stdout for JSON-RPC and creates one agent per `session/new`
- * from the provider/model pair. No logger, no `hmr` — stdout stays pure.
+ * from the provider/model pair. The composite effect unloads in reverse order,
+ * keeping checkpoint and persistence listeners attached until ACP agents have
+ * flushed their closing events. No logger, no `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
   const goals = config.goals ?? {}
-  ctx.plugin(CommandService)
-  if (goals !== false) ctx.plugin(commandGoal)
-  ctx.plugin(agentCore, { ...agentCore.pickSpineConfig(config), goals })
-  // This front door owns the same persistence/reference cluster as the TUI;
-  // extracting these few calls would introduce a shared app-composition facade.
-  /* jscpd:ignore-start */
-  ctx.plugin(UserInteractionService)
-  ctx.plugin(SessionPersistenceJsonl, {
-    root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
-    ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
-  })
-  ctx.plugin(SessionQueryService)
-  ctx.plugin(SessionReferenceService, config.sessionReferences ?? {})
-  /* jscpd:ignore-end */
-  ctx.plugin(acp, { provider: config.provider, model: config.model })
+  ctx.effect(function* () {
+    yield ctx.plugin(CommandService).dispose
+    if (goals !== false) yield ctx.plugin(commandGoal).dispose
+    yield ctx.plugin(agentCore, { ...agentCore.pickSpineConfig(config), goals }).dispose
+    yield ctx.plugin(UserInteractionService).dispose
+    yield ctx.plugin(SessionPersistenceJsonl, {
+      root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
+      ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
+    }).dispose
+    yield ctx.plugin(sessionCheckpointPolicy).dispose
+    yield ctx.plugin(SessionQueryService).dispose
+    yield ctx.plugin(SessionReferenceService, config.sessionReferences ?? {}).dispose
+    yield ctx.plugin(acp, { provider: config.provider, model: config.model }).dispose
+  }, 'acp-demo.composition')
 }

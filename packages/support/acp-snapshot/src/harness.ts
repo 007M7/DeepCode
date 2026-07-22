@@ -21,6 +21,7 @@ import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, delimiter } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
@@ -34,6 +35,9 @@ import { launchAcpTestAgent, type AgentUnderTest, type LaunchedAcpTestAgent } fr
 
 export type { AgentUnderTest } from './launcher.ts'
 
+const DEFAULT_WAIT_TIMEOUT_MS = 10_000
+const WAIT_POLL_INTERVAL_MS = 10
+
 /**
  * One step of a scenario's deterministic input script (`input.json`). The
  * harness interprets these in order. `newSession` captures the server-issued
@@ -42,10 +46,13 @@ export type { AgentUnderTest } from './launcher.ts'
  *
  * `promptAndCancel` starts a prompt without awaiting completion, waits until
  * the client observes the selected update (`agent_message_chunk` by default),
- * then cancels and awaits completion. A named `waitForToolCallUpdate` keeps the
- * step open for a terminal tool update that may follow the prompt response.
+ * then cancels and awaits completion. An optional `waitForFile` first observes
+ * a cwd-relative readiness marker, and a named `waitForToolCallUpdate` keeps
+ * the step open for a terminal tool update that may follow the prompt response.
  * `promptAndWaitForAgentMessage` arms an exact text-chunk waiter before sending
  * the prompt, then keeps the application live until that later update arrives.
+ * `waitForTurnEnd` holds the subprocess open until the selected session's latest
+ * complete raw-JSONL turn boundary is `turn/end`; its timeout defaults to 10s.
  */
 export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
@@ -58,8 +65,10 @@ export type InputStep =
     op: 'promptAndCancel'
     text: string
     afterUpdate?: 'agent_message_chunk' | 'tool_call'
+    waitForFile?: { path: string; timeoutMs?: number }
     waitForToolCallUpdate?: string
   }
+  | { op: 'waitForTurnEnd'; timeoutMs?: number }
   | { op: 'cancel' }
   | { op: 'setMode'; modeId: string }
   | { op: 'setModeExpectError'; modeId: string }
@@ -295,7 +304,15 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     const { client } = active
 
     for (const step of input.steps) {
-      await runStep(client, step, cwd, match => active.waitForUpdate(match), () => sessionId, (id) => { sessionId = id })
+      await runStep(
+        client,
+        step,
+        cwd,
+        match => active.waitForUpdate(match),
+        () => sessionId,
+        (id) => { sessionId = id },
+        (id, timeoutMs) => waitForPersistedTurnEnd(sessionsRoot, id, timeoutMs),
+      )
       // A permission exchange happens while a step's request is in flight, so
       // by the time the step settles any script bug it exposed is captured —
       // fail the run HERE, as a harness error, rather than hoping the agent's
@@ -365,6 +382,7 @@ async function runStep(
   waitForUpdate: (match: (u: SessionNotification['update']) => boolean) => Promise<SessionNotification['update']>,
   getSessionId: () => string | undefined,
   setSessionId: (id: string) => void,
+  waitForTurnEnd: (sessionId: string, timeoutMs?: number) => Promise<void>,
 ): Promise<void> {
   switch (step.op) {
     case 'initialize':
@@ -429,6 +447,9 @@ async function runStep(
       const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
       const afterUpdate = step.afterUpdate ?? 'agent_message_chunk'
       await waitForUpdate(u => u.sessionUpdate === afterUpdate)
+      if (step.waitForFile !== undefined) {
+        await waitForWorkspaceFile(cwd, step.waitForFile.path, step.waitForFile.timeoutMs)
+      }
       // Arm this before cancellation so a fast tool drain cannot outrun the waiter.
       const toolCallUpdateDone = step.waitForToolCallUpdate === undefined
         ? undefined
@@ -436,6 +457,12 @@ async function runStep(
       await client.cancel({ sessionId })
       await promptDone
       if (toolCallUpdateDone !== undefined) await toolCallUpdateDone
+      return
+    }
+    case 'waitForTurnEnd': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: waitForTurnEnd before newSession')
+      await waitForTurnEnd(sessionId, step.timeoutMs)
       return
     }
     case 'cancel': {
@@ -483,6 +510,51 @@ async function runStep(
     default:
       throw new Error(`snapshot-harness: unknown input op ${JSON.stringify(step)}`)
   }
+}
+
+/**
+ * Wait until the raw JSONL backend exposes one complete closing turn boundary.
+ * The ACP cancel notification settles its prompt before the agent necessarily
+ * reaches quiescence, so cancellation snapshots use this external boundary to
+ * keep subprocess disposal from changing an `aborted` turn into `disposed`.
+ */
+async function waitForPersistedTurnEnd(
+  root: string,
+  sessionId: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (true) {
+    const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
+    if (log !== undefined && latestTurnIsClosed(log.content)) return
+    if (Date.now() >= deadline) {
+      throw new Error(`snapshot-harness: session "${sessionId}" did not persist turn/end within ${timeoutMs}ms`)
+    }
+    await delay(WAIT_POLL_INTERVAL_MS)
+  }
+}
+
+/** Wait for a cwd-relative marker proving an external action reached readiness. */
+async function waitForWorkspaceFile(
+  cwd: string,
+  path: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  const target = join(cwd, path)
+  const deadline = Date.now() + timeoutMs
+  while (!existsSync(target)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`snapshot-harness: workspace file "${path}" did not appear within ${timeoutMs}ms`)
+    }
+    await delay(WAIT_POLL_INTERVAL_MS)
+  }
+}
+
+/** Return whether the last complete raw-JSONL turn boundary closes its turn. */
+function latestTurnIsClosed(content: string): boolean {
+  const complete = content.slice(0, content.lastIndexOf('\n') + 1)
+  return complete.lastIndexOf('\n{"type":"turn/end",')
+    > complete.lastIndexOf('\n{"type":"turn/start",')
 }
 
 /**
