@@ -9,8 +9,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { Context } from 'cordis'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
 import type { SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-import { LayoutService } from '@deepseek-ai/dsh-client-ui-layout/client'
-import { DETAILS_DEFAULT, SIDEBAR_DEFAULT } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
+import { LayoutService, DETAILS_DEFAULT, SIDEBAR_DEFAULT } from '@deepseek-ai/dsh-client-ui-layout/client'
 
 function makeCtx() {
   const list = createSnapshotStore<SessionListState>({ ids: [], byId: {} })

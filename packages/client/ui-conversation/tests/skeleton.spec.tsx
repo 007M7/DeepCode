@@ -12,11 +12,10 @@ import type { FC } from 'react'
 import { bindSnapshotSelector, createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import type { SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  ConversationRoot, DetailsPanel, EmptyState,
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SelectionTarget, ViewEntry, ViewId } from '@deepseek-ai/dsh-client-ui-conversation/client'
-// Internal skeleton components: src-subpath imports (not part of the /client contract).
-import { ConversationRoot } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationRoot.tsx'
-import { DetailsPanel } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/DetailsPanel.tsx'
-import { EmptyState } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/EmptyState.tsx'
 
 const sid = (s: string): SessionId => s as SessionId
 
