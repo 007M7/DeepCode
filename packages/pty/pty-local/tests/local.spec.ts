@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -101,7 +101,7 @@ describe('pty-local real shell', () => {
     const created = await ctx.pty.spawn(agent, { type: 'shell' })
     expect(sandbox.calls).toEqual([{
       argv: ['/bin/bash', '--noprofile', '--norc', '-i'],
-      policy: { mode: 'workspace-write', workspaceRoot: root },
+      policy: { mode: 'workspace-write', workspaceRoot: realpathSync.native(root) },
     }])
     await fiber.dispose()
     expect(ctx.pty.listBackends()).toEqual([])

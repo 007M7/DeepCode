@@ -99,7 +99,10 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
       actions: [
         ...SELECT_PRO_MODEL,
         { waitFor: 'Model selected: tui-scripted/tui-scripted-model-pro.', send: '/plan exercise the TUI\r' },
-        { waitFor: 'How should the scripted run proceed?', send: '\r' },
+        // The question text first appears in the streamed tool-call card. Wait
+        // for the dialog's input legend so Enter cannot arrive before it owns
+        // terminal input when pre-dispatch policy yields.
+        { waitFor: 'Tab custom answer • ↑/↓ navigate • Enter submit • Esc interrupt', send: '\r' },
         { waitFor: 'Decision received. Scripted TUI run complete.', send: '' },
         // Session title: the first user message drives the first-message-llm
         // provider's tool-less title call; the scripted adapter answers it, the

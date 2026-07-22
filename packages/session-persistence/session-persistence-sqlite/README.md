@@ -39,7 +39,7 @@ Like the JSONL backend, the plugin also installs the `session/event` → buffer 
 
 #### What the model sees
 
-SQLite storage contributes no live prompt or schema. Loading restores the same surface history as JSONL and preserves prior headers for reconstruction; the new loop composes its current envelope. Each unanswered call in interrupted rows is balanced with the exact error text `Tool call interrupted by a crash; no result was recorded.` Row metadata and raw chunks are not messages.
+SQLite storage contributes no live prompt or schema. Loading restores the same surface history as JSONL and preserves prior headers for reconstruction; the new loop composes its current envelope. Recovery balances an assistant request without a durable call with `TOOL_NOT_STARTED`; a durable call without a result becomes `TOOL_OUTCOME_UNKNOWN`, which tells the model to retry only read-only or idempotent work and to verify possible side effects or ask the user. Row metadata and raw chunks are not messages.
 
 #### Token effect
 

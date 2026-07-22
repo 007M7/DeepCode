@@ -38,7 +38,35 @@ type SandboxEnforcement = 'full' | 'partial'
 
 ## Per-call policy
 
-The policy is fully resolved and carried per call. This permits concurrent consumers and one-shot escalated retries to ask the same provider for different boundaries without mutating provider state.
+The complete execution policy is resolved and carried per capability call. It includes `danger-full-access` so a consumer can resolve policy once before deciding whether to bypass confinement. Normal tool calls derive `workspaceRoot` from the calling session's immutable cwd; deployment configuration is the agentless fallback. The root is canonicalized with filesystem semantics before lexical normalization, so a cwd containing `symlink/..` identifies the directory where a spawned process actually runs.
+
+```ts type-equiv
+/**
+ * The complete file-effect policy resolved for one capability call. The root
+ * is carried even under modes that do not consume it so callers can resolve
+ * policy once before choosing the enforcement path.
+ */
+interface SandboxExecutionPolicy {
+  /** The file-effect mode this execution runs under. */
+  mode: SandboxMode
+  /** Absolute root directory `workspace-write` may write under. */
+  workspaceRoot: string
+}
+```
+
+`ctx.sandboxPolicy.resolve()` accepts the active session and, for an approved retry, an explicit mode. The service owns precedence and root fallback so bash and fs do not repeat it.
+
+```ts type-equiv
+/** Inputs that select the sandbox policy for one capability call. */
+interface SandboxPolicyRequest {
+  /** Calling session; its immutable cwd becomes the workspace boundary. */
+  session?: Session
+  /** Explicit approved mode override, which outranks session policy. */
+  mode?: SandboxMode
+}
+```
+
+Only a confined execution reaches `ctx.sandbox`; its provider policy narrows the mode while retaining the same root. This permits concurrent sessions, consumers, and one-shot escalated retries to ask the same provider for different boundaries without mutating provider state.
 
 ```ts type-equiv
 /**
@@ -46,15 +74,12 @@ The policy is fully resolved and carried per call. This permits concurrent consu
  * fixed on the provider: two consumers may confine under different policies
  * at the same instant (bash under `read-only` while a confined child agent
  * needs its state directory writable), and an approved escalated retry is a
- * new call with a wider policy. Defaulting/resolution is the consumer's
- * explicit step (its config owns the fallback chain); the provider treats
- * the policy as fully specified.
+ * new call with a wider policy. Defaulting/resolution is an explicit step at
+ * the consumer boundary; the provider treats the policy as fully specified.
  */
-interface SandboxPolicy {
+interface SandboxPolicy extends SandboxExecutionPolicy {
   /** The file-effect mode this execution runs under. */
   mode: ConfinedSandboxMode
-  /** Absolute root directory `workspace-write` may write under. */
-  workspaceRoot: string
 }
 ```
 

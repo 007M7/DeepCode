@@ -105,6 +105,12 @@ export interface Scenario {
    */
   configPath?: string
   /**
+   * Parent directory for the generated session cwd. Defaults to the platform
+   * temp directory; set this when temp is itself part of the behavior under
+   * test and the scenario needs an independent project location.
+   */
+  workspaceParent?: string
+  /**
    * Whether Windows additionally compares stdout with native separators against
    * `stdout.expected.windows.jsonl`. The shared canonical stdout expected output is still
    * compared on every platform, and the fixture guard requires this sidecar
@@ -237,7 +243,7 @@ export function fixtureContext(fixture: string): NormalizeContext {
  * The `data.header` payload of every `request/header` event in a session
  * JSONL, in log order, with the log's volatile values scrubbed first
  * ({@link normalizeSessionLog}) so headers harvested from different runs —
- * each embedding its own temp cwd in the composed prompt — compare on equal
+ * each embedding its own generated cwd in the composed prompt — compare on equal
  * footing.
  *
  * @param rawLog The session `.jsonl` content to extract headers from.
@@ -561,6 +567,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           // replays from its own script. In RECORD they are harvested, not read.
           ...!RECORDING && childFixtureFiles.length > 0 ? { childFiles: childFixtureFiles.map(file => join(dir, file)) } : {},
           ...existsSync(workspaceDir) ? { workspaceDir } : {},
+          ...scenario.workspaceParent !== undefined ? { workspaceParent: scenario.workspaceParent } : {},
           // A scenario booting an overlay tree passes its own live config; the
           // bin's replay swap derives the sibling `*cordis.snapshot.yml` from it.
           ...scenario.configPath !== undefined ? { configPath: scenario.configPath } : {},
