@@ -24,9 +24,15 @@ export type {
   ConversationInjected, ConversationSlotProps, DetailsInjected, DetailsSlotProps,
   EmptyStateInjected, EmptyStateSlotProps,
 } from './contract/slots.ts'
-// Skeleton components are implementation detail, not contract: they reach the
-// page exclusively through apply's slot registrations. Tests take them via the
-// "./src/*" subpath (repo convention for internal symbols).
+
+export { ConversationRoot } from './skeleton/ConversationRoot.tsx'
+export type { ConversationRootProps } from './skeleton/ConversationRoot.tsx'
+export { InputBar } from './skeleton/InputBar.tsx'
+export type { InputBarError, InputBarProps } from './skeleton/InputBar.tsx'
+export { EmptyState } from './skeleton/EmptyState.tsx'
+export type { EmptyStateProps } from './skeleton/EmptyState.tsx'
+export { DetailsPanel } from './skeleton/DetailsPanel.tsx'
+export type { DetailsPanelProps } from './skeleton/DetailsPanel.tsx'
 
 declare module 'cordis' {
   interface Context {

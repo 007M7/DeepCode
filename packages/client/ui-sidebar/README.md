@@ -4,8 +4,6 @@ Sidebar plugin: session multi-level tree (cwd grouping + parentId nesting), sear
 
 `src/client/contract/slots.ts` is the single-domain contract file: `SidebarRootInjected` (the registrant's own injected share — tree hook, current-session hook, actions) and `SidebarRootComponentProps = OwnerOf<'sidebar'> & SidebarRootInjected` (the owner share referenced from ui-layout's slot declaration, never re-stated). `apply` registers SidebarRoot cast-free against that composition; the inject factory binds layout/sessions off `RootBinding<ClientContext>`.
 
-The `/client` export surface is the plugin body (`apply`/`inject`) plus the contract types only — SidebarRoot, the row components, and the tree/store implementation are internal (the slot registration closes over them; tests import src paths directly).
-
 ## Model Experience
 
 None, as the sidebar renders the browser session list; nothing here reaches a model request.
