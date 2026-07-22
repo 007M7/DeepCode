@@ -236,7 +236,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     }
   })
 
-  it('loads and configures bounded request recovery for every bundled front door', async () => {
+  it('loads and configures bounded request recovery for every bundled entry point', async () => {
     const adapter = new TransientOnceAdapter()
     const ctx = await mount({ workspaceContext: false })
     ctx.llm.registerAdapter(['mock'], adapter)
@@ -704,9 +704,9 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('picks shared spine config without leaking front-door fields', () => {
+  it('picks shared spine config without leaking entry-point fields', () => {
     const appConfig = {
-      model: 'front-door-only',
+      model: 'entrypoint-only',
       includeHarnessIdentity: false,
       persona: 'You are merged.',
       toolOrder: ['zulu'],
