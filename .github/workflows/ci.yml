@@ -5,6 +5,15 @@ on:
     branches: [main, master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Manual CI suite to run
+        required: true
+        default: serial-reference
+        type: choice
+        options:
+          - serial-reference
+          - larger-runner-benchmark
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -510,7 +519,7 @@ jobs:
   # gate worker, giving reviewers a simple cross-platform oracle for completeness
   # and timing.
   serial-linux:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'serial-reference'
     name: serial / linux
     runs-on: ubuntu-latest
     steps:
@@ -543,7 +552,7 @@ jobs:
         run: pnpm run check:ci
 
   serial-macos:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'serial-reference'
     name: serial / macos
     runs-on: macos-latest
     steps:
@@ -569,7 +578,7 @@ jobs:
         run: pnpm run check:ci
 
   serial-windows:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'serial-reference'
     name: serial / windows
     runs-on: windows-2025
     steps:
@@ -602,6 +611,106 @@ jobs:
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
         run: pnpm run check:ci
+
+  # Manual, bounded comparison of the actual critical Linux and Windows lanes.
+  # The named pools are restricted at the organization level to this repository.
+  larger-runner-benchmark:
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'larger-runner-benchmark'
+    name: larger runner / ${{ matrix.platform }} / ${{ matrix.cores }} cores / ${{ matrix.workload }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        include:
+          - platform: linux
+            cores: '4'
+            runner: dsh-ubuntu-24-04-4core
+            workload: typecheck
+          - platform: linux
+            cores: '8'
+            runner: dsh-ubuntu-24-04-8core
+            workload: typecheck
+          - platform: linux
+            cores: '16'
+            runner: dsh-ubuntu-24-04-16core
+            workload: typecheck
+          - platform: linux
+            cores: '32'
+            runner: dsh-ubuntu-24-04-32core
+            workload: typecheck
+          - platform: linux
+            cores: '64'
+            runner: dsh-ubuntu-24-04-64core
+            workload: typecheck
+          - platform: linux
+            cores: '96'
+            runner: dsh-ubuntu-24-04-96core
+            workload: typecheck
+          - platform: windows
+            cores: '4'
+            runner: dsh-windows-2025-4core
+            workload: production-site
+          - platform: windows
+            cores: '8'
+            runner: dsh-windows-2025-8core
+            workload: production-site
+          - platform: windows
+            cores: '16'
+            runner: dsh-windows-2025-16core
+            workload: production-site
+          - platform: windows
+            cores: '32'
+            runner: dsh-windows-2025-32core
+            workload: production-site
+          - platform: windows
+            cores: '64'
+            runner: dsh-windows-2025-64core
+            workload: production-site
+          - platform: windows
+            cores: '96'
+            runner: dsh-windows-2025-96core
+            workload: production-site
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Report runner capacity
+        run: >-
+          node -e "const os = require('node:os');
+          console.log(JSON.stringify({ arch: process.arch, cpus: os.cpus().length,
+          memoryGiB: Math.round(os.totalmem() / 2 ** 30) }))"
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Resolve pnpm store path
+        if: matrix.platform == 'linux'
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        if: matrix.platform == 'linux'
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Run critical Linux typecheck lane
+        if: matrix.platform == 'linux'
+        run: pnpm run typecheck
+
+      - name: Run critical Windows production-site lane
+        if: matrix.platform == 'windows'
+        run: pnpm run docs:build
 
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and
