@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import { createSidebarTreeStore } from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import { createSidebarTreeStore } from '../src/client/store.ts'
 
 const sid = (s: string) => s as SessionId
 
