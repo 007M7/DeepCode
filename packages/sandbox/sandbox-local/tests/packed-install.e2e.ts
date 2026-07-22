@@ -26,6 +26,7 @@ const WORKSPACE_CLOSURE = [
   'packages/sandbox/sandbox',
   'packages/llm/llm',
   'packages/util/brand',
+  'packages/support/invariants',
 ]
 
 /** ELF `e_machine` (offset 18, LE) for this host: x86-64 = 62, AArch64 = 183. */

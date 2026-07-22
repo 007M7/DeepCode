@@ -7,11 +7,12 @@
 
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { chmod, mkdir, open, readFile, realpath, readdir, rename, rm, stat } from 'node:fs/promises'
-import type { Dirent, Stats } from 'node:fs'
+import { chmod, lstat, mkdir, open, readFile, realpath, readdir, rename, rm, stat } from 'node:fs/promises'
+import type { BigIntStats, Dirent, Stats } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { TextDecoder } from 'node:util'
 import { FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
+import { copyFileDaclWin32, replaceFileWin32 } from './win32.ts'
 
 const BINARY_SAMPLE_BYTES = 8192
 
@@ -63,9 +64,9 @@ async function readFileAbortable(absolutePath: string, verb: 'read' | 'edit', si
   }
 }
 
-/** Opaque version token from a stat: mtime (ns precision) + size. */
-function versionOf(info: Stats): FsVersion {
-  return FsVersion(`${info.mtimeMs}:${info.size}`)
+/** Opaque version token from high-resolution identity and freshness metadata. */
+function versionOf(info: BigIntStats): FsVersion {
+  return FsVersion(`${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`)
 }
 
 /**
@@ -74,10 +75,16 @@ function versionOf(info: Stats): FsVersion {
  * file before it is renamed over the target.
  */
 export interface FsIoInternals {
+  /** Override the host platform for native-publication unit coverage. */
+  platform?: NodeJS.Platform
   /** Override the generated private staging-dir name (relative to the target dir). */
   tempDirName?: (writePath: string) => string
   /** Override the generated temp-file name (relative to the private staging dir). */
   tempName?: (writePath: string) => string
+  /** Override the Win32 DACL copy boundary. */
+  copyFileDacl?: (source: string, destination: string) => Promise<void>
+  /** Override the Win32 security-preserving replacement boundary. */
+  replaceFile?: (replaced: string, replacement: string) => Promise<void>
   /** Test hook after the temp file is written/synced but before final chmod+rename. */
   inspectTemp?: (paths: { stagingDir: string; tempPath: string }) => void | Promise<void>
 }
@@ -95,6 +102,14 @@ export interface PathInfo {
   version: FsVersion
   mode: number
   type: 'file' | 'directory' | 'other'
+  size: number
+}
+
+/** Result of probing a path without following the final symlink component. */
+export interface PathLinkInfo {
+  version: FsVersion
+  mode: number
+  type: 'file' | 'directory' | 'symlink' | 'other'
   size: number
 }
 
@@ -125,6 +140,7 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
     // A path component is a file, not a directory (e.g. "afile/child.txt" where
     // "afile" is a regular file): the target can neither exist nor be created,
     // so surface the structured taxonomy instead of a raw Node ENOTDIR.
+    /* v8 ignore next -- Windows reports this case as ENOENT and repairs it in the ancestor walk below. */
     if (isENOTDIR(error)) throw new FsError(`cannot resolve "${displayPath}": a parent path segment is not a directory`, 'FS_NOT_FOUND')
     /* v8 ignore next -- non-ENOENT realpath failure needs a permission/IO fault; ENOENT falls through to ancestor resolution. */
     if (!isENOENT(error)) throw error
@@ -137,8 +153,22 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
   while (true) {
     try {
       const realAncestor = await realpath(ancestor)
+      // On Windows, realpath of a regular file succeeds where POSIX returns
+      // ENOTDIR (the OS reports ENOENT for `regular-file/child`, not ENOTDIR).
+      // Stat the ancestor to restore the semantic distinction: a non-directory
+      // ancestor means the target passes through a file and can never be created.
+      /* v8 ignore start -- native Windows coverage exercises this repair; POSIX reports ENOTDIR before this point. */
+      if (process.platform === 'win32') {
+        const parentInfo = await stat(realAncestor)
+        if (!parentInfo.isDirectory()) {
+          throw new FsError(`cannot resolve "${displayPath}": a parent path segment is not a directory`, 'FS_NOT_FOUND')
+        }
+      }
+      /* v8 ignore stop */
       return { displayPath, targetKey: FsTargetKey(join(realAncestor, ...missing)) }
     } catch (error: unknown) {
+      /* v8 ignore next -- native Windows coverage exercises the FsError raised by the repair above. */
+      if (error instanceof FsError) throw error
       /* v8 ignore next -- a non-ENOENT realpath failure needs a permission/IO fault. */
       if (!isENOENT(error)) throw error
       const parent = dirname(ancestor)
@@ -150,22 +180,64 @@ export async function resolveLocalTarget(cwd: string, path: string): Promise<Loc
   }
 }
 
+function pathType(info: Stats | BigIntStats): PathInfo['type'] {
+  if (info.isFile()) return 'file'
+  /* v8 ignore else -- Windows has no special-entry fixture for the non-directory branch. */
+  if (info.isDirectory()) return 'directory'
+  /* v8 ignore next -- the corresponding special-entry return is covered on POSIX. */
+  return 'other'
+}
+
+function pathLinkType(info: Stats | BigIntStats): PathLinkInfo['type'] {
+  if (info.isSymbolicLink()) return 'symlink'
+  return pathType(info)
+}
+
+async function probeStats<T extends Stats | BigIntStats>(
+  absolutePath: string,
+  readStats: (path: string) => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await readStats(absolutePath)
+  } catch (error: unknown) {
+    // ENOENT (no such file) and ENOTDIR (a parent segment is a file) both mean
+    // the target is absent; any other metadata failure is a real permission/IO
+    // fault.
+    /* v8 ignore next -- a non-ENOENT/ENOTDIR metadata failure needs a permission/IO fault; surface it. */
+    if (!isENOENT(error) && !isENOTDIR(error)) throw error
+    return null
+  }
+}
+
 /**
  * Probe a path for its version, mode, type, and size. Null if absent.
  * @param absolutePath - the path to stat (typically a target key; symlinks are followed).
  * @returns the metadata, or null when the path — or a parent segment — does not exist.
  */
 export async function probe(absolutePath: string): Promise<PathInfo | null> {
-  try {
-    const info = await stat(absolutePath)
-    const type = info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'other'
-    return { version: versionOf(info), mode: info.mode & 0o777, type, size: info.size }
-  } catch (error: unknown) {
-    // ENOENT (no such file) and ENOTDIR (a parent segment is a file) both mean
-    // the target is absent; any other stat failure is a real permission/IO fault.
-    /* v8 ignore next -- a non-ENOENT/ENOTDIR stat failure needs a permission/IO fault; surface it. */
-    if (!isENOENT(error) && !isENOTDIR(error)) throw error
-    return null
+  const info = await probeStats(absolutePath, path => stat(path, { bigint: true }))
+  if (!info) return null
+  return {
+    version: versionOf(info),
+    mode: Number(info.mode & 0o777n),
+    type: pathType(info),
+    size: Number(info.size),
+  }
+}
+
+/**
+ * Probe a path without following the final symlink component.
+ * @param absolutePath - the path entry to inspect with `lstat` semantics.
+ * @returns path-entry metadata, or null when the entry is absent.
+ */
+export async function probeNoFollow(absolutePath: string): Promise<PathLinkInfo | null> {
+  const info = await probeStats(absolutePath, path => lstat(path, { bigint: true }))
+  if (!info) return null
+  return {
+    version: versionOf(info),
+    mode: Number(info.mode & 0o777n),
+    type: pathLinkType(info),
+    size: Number(info.size),
   }
 }
 
@@ -176,6 +248,7 @@ function listingIoError(displayPath: string, error: unknown): FsError {
   if (error instanceof FsError) return error
   /* v8 ignore next -- requires the listed target/parent to disappear between successful preflight and listing/child resolution. */
   if (isENOENT(error) || isENOTDIR(error)) return new FsError(`cannot list "${displayPath}": not found`, 'FS_NOT_FOUND', { cause: error })
+  /* v8 ignore next -- Windows chmod does not deny directory listing; POSIX covers permission translation. */
   if (isPermissionError(error)) return new FsError(`cannot list "${displayPath}": permission denied`, 'FS_PERMISSION_DENIED', { cause: error })
   return new FsError(`cannot list "${displayPath}": ${errorMessage(error)}`, 'FS_IO_ERROR', { cause: error })
 }
@@ -346,9 +419,13 @@ async function removeStagingDirOrThrow(stagingDir: string, originalError: unknow
 
 /**
  * Atomically replace a file through a private, synced staging file in the same directory.
+ * POSIX protects the staging directory and file with `0o700` and `0o600`. A new Windows file
+ * inherits the destination directory's DACL; a replacement copies the existing target's DACL
+ * onto the empty temp before writing and preserves the target descriptor at publication.
  * @param absolutePath - destination; missing parent directories are created.
  * @param content - the full UTF-8 text to write.
- * @param mode - final mode, or `0o600` when omitted.
+ * @param mode - existing destination's POSIX mode to preserve, or `undefined` for a new file;
+ * inert as a mode on Windows but identifies replacement security semantics.
  * @param signal - cancellation checked before the final rename.
  * @param internals - test seam for pinning temp names and observing the staged file.
  */
@@ -368,6 +445,9 @@ export async function writeFileAtomic(
   const stagingDir = join(directory, stagingDirName)
   const tempName = internals.tempName?.(absolutePath) ?? `${basename(absolutePath)}.tmp`
   const tempPath = join(stagingDir, tempName)
+  const platform = internals.platform ?? process.platform
+  const copyFileDacl = internals.copyFileDacl ?? copyFileDaclWin32
+  const replaceFile = internals.replaceFile ?? replaceFileWin32
   let handle: Awaited<ReturnType<typeof open>> | undefined
   let stagingCreated = false
   try {
@@ -377,6 +457,9 @@ export async function writeFileAtomic(
 
     handle = await open(tempPath, 'wx', 0o600)
     await handle.chmod(0o600)
+    if (platform === 'win32' && mode !== undefined) {
+      await copyFileDacl(absolutePath, tempPath)
+    }
     await handle.writeFile(content, { encoding: 'utf8', ...signal ? { signal } : {} })
     await handle.sync()
     await internals.inspectTemp?.({ stagingDir, tempPath })
@@ -385,7 +468,18 @@ export async function writeFileAtomic(
     handle = undefined
 
     throwIfAborted(signal, 'write')
-    await rename(tempPath, absolutePath)
+    if (platform === 'win32' && mode !== undefined) {
+      try {
+        await replaceFile(absolutePath, tempPath)
+      } catch (error: unknown) {
+        // Preserve the old behavior when an external actor removes the observed target during
+        // staging: the temp already carries that target's protected DACL, so rename recreates it.
+        if (!isENOENT(error)) throw error
+        await rename(tempPath, absolutePath)
+      }
+    } else {
+      await rename(tempPath, absolutePath)
+    }
     await rm(stagingDir, { recursive: true, force: true })
   } catch (error: unknown) {
     /* v8 ignore next -- abort-mid-write needs a writeFile/signal race; the non-abort (rename/open) side is tested. */

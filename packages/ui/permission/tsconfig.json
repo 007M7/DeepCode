@@ -24,10 +24,16 @@
       "path": "../../sandbox/sandbox"
     },
     {
+      "path": "../../sandbox/sandbox-policy"
+    },
+    {
       "path": "../../bash/bash"
     },
     {
       "path": "../user-approval"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

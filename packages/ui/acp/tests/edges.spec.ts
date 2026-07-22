@@ -1,9 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { makeBridgeHarness, textResponse, type BridgeHarness } from './harness.ts'
 
@@ -25,9 +24,12 @@ describe('acp bridge — demux & config edges', () => {
     harness = await makeBridgeHarness({ storageDir, script: [textResponse('foreign')] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await vi.waitFor(() => {
+      expect(harness!.updates.some(update => update.sessionUpdate === 'available_commands_update')).toBe(true)
+    })
     const before = harness.updates.length
 
-    const { agent: foreign } = await harness.ctx.agents.create({ agentId: AgentId('foreign'), sessionId: SessionId('foreign-session'), agentOptions: { model: 'mock' } })
+    const { agent: foreign } = await harness.ctx.agents.create({ sessionId: SessionId('foreign-session'), agentOptions: { provider: 'mock', model: 'mock' } })
     foreign.send([{ type: 'text', text: 'hi' }])
     await foreign.whenIdle()
     await new Promise(r => setTimeout(r, 10))

@@ -7,17 +7,22 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashProcessRead, BashRunResult } from '@deepseek-ai/dsh-bash'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { processOutcome } from '../src/background.ts'
 import { renderProcessRead, renderResult } from '../src/render.ts'
+
+const testToolSignal = new AbortController().signal
 
 const spillDir = mkdtempSync(join(tmpdir(), 'dsh-tool-bash-spec-'))
 
@@ -48,25 +53,24 @@ async function setupWithTasks() {
 }
 
 /**
- * Build a fake {@link Agent} whose session token is `sessionId`, give it a
+ * Build a fake {@link Agent} with the shared agent/session identity, give it a
  * dedicated lifecycle fiber for `Agent.ctx`, and register it in `ctx.agents`.
- * The agent id is deliberately different from the session token so a
- * wrong-field ownership match fails the test.
  */
 function registerFakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void = () => {}): Agent {
   const scopeFiber = ctx.plugin(() => {})
+  const id = SessionId(sessionId)
   const agent = {
-    id: `agent-${sessionId}`,
+    id,
     ctx: scopeFiber.ctx,
     inject,
-    session: { header: { version: 0, id: sessionId, createdAt: 0 } },
+    session: { id, header: { version: 0, id, createdAt: 0 } },
   } as unknown as Agent
   ctx.agents.register(agent)
   return agent
 }
 let callCounter = 0
 function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
-  return ctx.tools.execute({ callId: CallId(`call-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
+  return ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
 }
 
 function text(result: { content: { type: string; text?: string }[] }): string {
@@ -101,14 +105,15 @@ class RecordingSandboxExecutor extends BashExecutor {
     return {
       command: request.command,
       workdir: request.workdir ?? process.cwd(),
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       timeoutMs: request.timeoutMs ?? 1000,
       ...request.signal ? { signal: request.signal } : {},
-      sandboxMode: request.sandboxMode ?? 'read-only',
+      sandboxPolicy: request.sandboxPolicy ?? { mode: 'read-only', workspaceRoot: process.cwd() },
     }
   }
 
   run(spec: BashExecSpec): Promise<BashRunResult> {
-    this.modes.push(spec.sandboxMode)
+    this.modes.push(spec.sandboxPolicy?.mode)
     return Promise.resolve({
       exitCode: 0,
       signal: null,
@@ -117,18 +122,18 @@ class RecordingSandboxExecutor extends BashExecutor {
       timeoutMs: spec.timeoutMs,
       stdout: { text: 'ok', truncated: false },
       stderr: { text: '', truncated: false },
-      sandbox: { mode: spec.sandboxMode ?? 'read-only', denied: false },
+      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
     })
   }
 
   start(spec: BashExecSpec): BashProcess {
-    this.modes.push(spec.sandboxMode)
+    this.modes.push(spec.sandboxPolicy?.mode)
     return {
       status: 'completed',
       exitCode: 0,
       signal: null,
       done: Promise.resolve(),
-      sandbox: { mode: spec.sandboxMode ?? 'read-only', denied: false },
+      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
       readOutput: () => ({ delta: '', lossy: false }),
       kill: () => false,
     }
@@ -140,7 +145,13 @@ class CountingStartExecutor extends BashExecutor {
   starts = 0
 
   resolve(request: BashExecRequest): BashExecSpec {
-    return { command: request.command, workdir: request.workdir ?? '/x', timeoutMs: request.timeoutMs ?? 0, sandboxMode: request.sandboxMode }
+    return {
+      command: request.command,
+      workdir: request.workdir ?? '/x',
+      timeoutMs: request.timeoutMs ?? 0,
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
+      sandboxPolicy: request.sandboxPolicy,
+    }
   }
 
   run(): Promise<BashRunResult> { return Promise.reject(new Error('unused')) }
@@ -165,24 +176,32 @@ async function setupSandboxed(withApproval = false) {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(TaskService)
   await ctx.plugin(ToolTasks)
+  await ctx.plugin(SandboxPolicyService, {})
   await ctx.plugin(RecordingSandboxExecutor)
   if (withApproval) await ctx.plugin(ApprovalService)
   await ctx.plugin(ToolBash)
   return { ctx, bash: ctx.bash as RecordingSandboxExecutor }
 }
 
-function sandboxAgent(mode?: 'read-only' | 'workspace-write' | 'danger-full-access', ctx?: Context): Agent {
+function sandboxAgent(
+  mode?: 'read-only' | 'workspace-write' | 'danger-full-access',
+  ctx?: Context,
+  onAppend?: (type: string) => void,
+): Agent {
   const events: Array<{ type: string; data?: Record<string, unknown> }> = [{ type: 'turn/start' }]
-  if (mode !== undefined) events.push({ type: 'bash/sandbox-mode', data: { mode } })
+  if (mode !== undefined) events.push({ type: 'sandbox/mode', data: { mode } })
+  const id = SessionId('sandbox-session')
   return {
-    id: 'sandbox-agent',
+    id,
     ...ctx === undefined ? {} : { ctx: ctx.plugin(() => {}).ctx },
     session: {
-      header: { version: 0, id: 'sandbox-session', createdAt: 0 },
+      id,
+      header: { version: 0, id, createdAt: 0 },
       events,
       append: (type: string, data: Record<string, unknown>) => {
         const event = { type, data }
         events.push(event)
+        onAppend?.(type)
         return event
       },
     },
@@ -277,7 +296,7 @@ describe('bash tool', () => {
   })
 
   // Type and required-key violations are rejected by the harness
-  // (defineTool validates against the SchemaSpec — the arg-validation RFC) before execute.
+  // (defineTool validates against the SchemaSpec — the arg-validation Agent Note) before execute.
   it.each([
     [{}, /missing required property "command"/],
     [{ command: 42, description: 'd' }, /"command" must be a string/],
@@ -441,7 +460,7 @@ describe('background execution through the task runtime', () => {
     expect(text(result)).toContain('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
   })
 
-  it('a pre-aborted call refuses to start: isError, no process spawned', async () => {
+  it('a pre-aborted call is skipped before the process starts', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -460,7 +479,8 @@ describe('background execution through the task runtime', () => {
       signal: controller.signal,
     })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('command aborted')
+    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(text(result)).toBe('Error: tool call aborted before dispatch')
     expect((ctx.bash as CountingStartExecutor).starts).toBe(0)
   })
 
@@ -514,6 +534,14 @@ describe('sandbox escalation through the generic task producer', () => {
     justification: 'the command needs workspace writes',
   }
 
+  it('fails load when a confining executor has no shared sandbox-policy resolver', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(RecordingSandboxExecutor)
+    await expect(ctx.plugin(ToolBash)).rejects.toThrow('tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing')
+  })
+
   it('advertises the sandbox fields and validates their pairing', async () => {
     const { ctx } = await setupSandboxed()
     const schema = ctx.tools.schemas().find(item => item.name === 'bash')!
@@ -543,7 +571,7 @@ describe('sandbox escalation through the generic task producer', () => {
 
     const malformed = sandboxAgent()
     ;(malformed.session.events as unknown as Array<{ type: string; data: { mode: string } }>).push({
-      type: 'bash/sandbox-mode',
+      type: 'sandbox/mode',
       data: { mode: 'unknown-mode' },
     })
     expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('not strictly wider')
@@ -587,6 +615,29 @@ describe('sandbox escalation through the generic task producer', () => {
     expect(bash.modes).toEqual(['workspace-write', 'workspace-write'])
   })
 
+  it('does not publish detached work when cancellation follows the escalation grant', async () => {
+    const { ctx, bash } = await setupSandboxed(true)
+    const controller = new AbortController()
+    const agent = sandboxAgent(undefined, ctx, (type) => {
+      if (type === 'approval/decided') controller.abort()
+    })
+    ctx.agents.register(agent)
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    const start = vi.spyOn(bash, 'start')
+
+    const result = await ctx.tools.execute({
+      callId: CallId('cancelled-escalation-background'),
+      name: 'bash',
+      arguments: { ...escalate, run_in_background: true },
+      agent,
+      signal: controller.signal,
+    })
+
+    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED })
+    expect(text(result)).toBe('Error: tool call aborted')
+    expect(start).not.toHaveBeenCalled()
+  })
+
   it('uses the session override for ordinary calls and evaluates widening against it', async () => {
     const { ctx, bash } = await setupSandboxed(true)
     const agent = sandboxAgent('workspace-write')
@@ -600,7 +651,7 @@ describe('sandbox escalation through the generic task producer', () => {
     const { ctx } = await setupSandboxed(true)
     ctx.approval.request = () => Promise.resolve('rogue' as ApprovalOutcome)
     const result = await call(ctx, 'bash', escalate, sandboxAgent())
-    expect(text(result)).toContain('unreachable variant in ApprovalOutcome')
+    expect(text(result)).toContain('unreachable variant in EscalationOutcome')
   })
 })
 
@@ -720,7 +771,7 @@ describe('session-cwd routing (per-session workdir)', () => {
   it('falls back to the executor default when the agent has no session cwd', async () => {
     const ctx = await setup()
     // No exec.agent at all → executor uses its config/process.cwd() default.
-    const result = await ctx.tools.execute({ callId: CallId('cwd-noagent'), name: 'bash', arguments: { command: 'pwd', description: 'pwd' } })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('cwd-noagent'), name: 'bash', arguments: { command: 'pwd', description: 'pwd' } })
     expect(result.isError).toBe(false)
     expect(text(result).trim().length).toBeGreaterThan(0)
   })
@@ -924,16 +975,19 @@ describe('tool-owned UI presentation (presentCall / presentResult)', () => {
 })
 
 describe('the model-facing bash tool builds its request from named args only (no {...args} forward)', () => {
+  const recordingDshHome = join(spillDir, 'dsh-home')
+
   /**
    * Records every {@link BashExecRequest} the consumer hands to `resolve()`, so a
    * test can assert what the model-facing tool DID and DID NOT forward. The `bash`
-   * tool does not expose `stdin`/`env` as parameters (bash syntax already gives a
-   * model that power), so it must build its request from named args only and
+   * tool does not expose trusted-plugin fields (`stdoutMaxBytes`, `stdin`, or
+   * `env`) as parameters, so it must build its request from named args only and
    * never spread unknown tool-call keys into it. This guard's job is to catch a
    * future refactor that blindly forwards `...args` — which would silently thread
-   * model input into the post-scrub `env` merge — NOT to defend a trust boundary
+   * model input into the post-scrub `env` merge or per-run capture budget — NOT
+   * to defend a trust boundary
    * (the credential scrub in dsh-bash-local is the security control; see the
-   * bash-stdin-env RFC). Foreground `run()` returns a canned result; `start()`
+   * bash-stdin-env Agent Note). Foreground `run()` returns a canned result; `start()`
    * hands back an already-settled fake handle so the task registration completes.
    */
   class RecordingBashExecutor extends BashExecutor {
@@ -944,10 +998,12 @@ describe('the model-facing bash tool builds its request from named args only (no
         command: request.command,
         workdir: request.workdir ?? process.cwd(),
         timeoutMs: request.timeoutMs ?? 0,
+        stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
         ...request.signal ? { signal: request.signal } : {},
         ...request.stdin !== undefined ? { stdin: request.stdin } : {},
         ...request.env !== undefined ? { env: request.env } : {},
-        sandboxMode: request.sandboxMode,
+        ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
+        sandboxPolicy: request.sandboxPolicy,
       }
     }
     run(): Promise<BashRunResult> {
@@ -968,24 +1024,137 @@ describe('the model-facing bash tool builds its request from named args only (no
     }
   }
 
-  async function setupRecording() {
+  async function setupRecording(withJsonl = false) {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
+    if (withJsonl) {
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionPersistenceJsonl, { root: join(spillDir, 'jsonl') })
+    }
     await ctx.plugin(TaskService)
     await ctx.plugin(ToolTasks)
     await ctx.plugin(RecordingBashExecutor)
-    await ctx.plugin(ToolBash)
+    await ctx.plugin(ToolBash, { dshHome: recordingDshHome })
     return { ctx, bash: ctx.bash as RecordingBashExecutor }
   }
 
-  it('does not forward env/stdin even when the model includes them as extra arguments', async () => {
+  it('describes the managed harness environment namespace to the model', async () => {
+    const { ctx } = await setupRecording()
+    const description = ctx.tools.get('bash')?.description ?? ''
+    expect(description).toContain('$DSH_*')
+    expect(description).not.toContain('DSH_SESSION_JSONL')
+  })
+
+  it('injects the session id and JSONL target path into a foreground request', async () => {
+    const { ctx, bash } = await setupRecording(true)
+    const agent = registerFakeAgent(ctx, 'request-fg', () => undefined)
+    const path = ctx.sessionPersistence.locate(agent.session.header)?.path
+
+    await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('session-env-fg'),
+      name: 'bash',
+      arguments: { command: 'true', description: 'run command' },
+      agent,
+    })
+
+    expect(bash.requests[0]?.dshEnv).toEqual({
+      DSH_HOME: recordingDshHome,
+      DSH_SESSION_ID: 'request-fg',
+      DSH_SESSION_JSONL: path,
+      DSH_SHELL: '1',
+    })
+  })
+
+  it('injects the same trusted variables into a background request without forwarding model env', async () => {
+    const { ctx, bash } = await setupRecording(true)
+    const agent = registerFakeAgent(ctx, 'request-bg', () => undefined)
+    const path = ctx.sessionPersistence.locate(agent.session.header)?.path
+
+    await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('session-env-bg'),
+      name: 'bash',
+      arguments: {
+        command: 'sleep 1',
+        description: 'run command',
+        run_in_background: true,
+        env: { DSH_SESSION_ID: 'spoofed', DSH_SESSION_JSONL: '/tmp/spoofed' },
+      },
+      agent,
+    })
+
+    expect(bash.requests[0]?.env).toBeUndefined()
+    expect(bash.requests[0]?.dshEnv).toEqual({
+      DSH_HOME: recordingDshHome,
+      DSH_SESSION_ID: 'request-bg',
+      DSH_SESSION_JSONL: path,
+      DSH_SHELL: '1',
+    })
+  })
+
+  it('injects built-ins and the stable session id when no JSONL locator is available', async () => {
+    const { ctx, bash } = await setupRecording()
+    const agent = registerFakeAgent(ctx, 'request-id-only', () => undefined)
+    const ambient = process.env.DSH_SESSION_ID
+
+    await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('session-env-id-only'),
+      name: 'bash',
+      arguments: { command: 'true', description: 'run command' },
+      agent,
+    })
+
+    expect(bash.requests[0]?.dshEnv).toEqual({
+      DSH_HOME: recordingDshHome,
+      DSH_SESSION_ID: 'request-id-only',
+      DSH_SHELL: '1',
+    })
+    expect(process.env.DSH_SESSION_ID).toBe(ambient)
+  })
+
+  it('keeps parent and child agent session environments isolated', async () => {
+    const { ctx, bash } = await setupRecording(true)
+    const parent = registerFakeAgent(ctx, 'request-parent', () => undefined)
+    const child = registerFakeAgent(ctx, 'request-child', () => undefined)
+
+    for (const [callId, agent] of [['parent', parent], ['child', child]] as const) {
+      await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId(`session-env-${callId}`),
+        name: 'bash',
+        arguments: { command: 'true', description: 'run command' },
+        agent,
+      })
+    }
+
+    expect(bash.requests.map(request => request.dshEnv)).toEqual([
+      {
+        DSH_HOME: recordingDshHome,
+        DSH_SESSION_ID: 'request-parent',
+        DSH_SESSION_JSONL: ctx.sessionPersistence.locate(parent.session.header)?.path,
+        DSH_SHELL: '1',
+      },
+      {
+        DSH_HOME: recordingDshHome,
+        DSH_SESSION_ID: 'request-child',
+        DSH_SESSION_JSONL: ctx.sessionPersistence.locate(child.session.header)?.path,
+        DSH_SHELL: '1',
+      },
+    ])
+    expect(bash.requests[0]?.dshEnv?.DSH_SESSION_JSONL).not.toBe(bash.requests[1]?.dshEnv?.DSH_SESSION_JSONL)
+  })
+
+  it('does not forward trusted-only fields even when the model includes them as extra arguments', async () => {
     const { ctx, bash } = await setupRecording()
     // Unknown `env` and `stdin` keys are ignored by the schema and named request construction.
     // This preserves the request shape; it is not a security boundary because shell syntax can
     // already set environment variables or feed stdin.
     await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('no-forward-1'),
       name: 'bash',
       arguments: {
@@ -993,6 +1162,7 @@ describe('the model-facing bash tool builds its request from named args only (no
         description: 'echo',
         env: { SNEAKY_API_KEY: 'leak' },
         stdin: 'malicious payload',
+        stdoutMaxBytes: 999_999,
       },
     })
     expect(bash.requests).toHaveLength(1)
@@ -1000,11 +1170,13 @@ describe('the model-facing bash tool builds its request from named args only (no
     expect(request.command).toBe('echo hi')
     expect('env' in request).toBe(false)
     expect('stdin' in request).toBe(false)
+    expect('stdoutMaxBytes' in request).toBe(false)
   })
 
-  it('a background bash call likewise carries no env/stdin', async () => {
+  it('a background bash call likewise carries no trusted-only fields', async () => {
     const { ctx, bash } = await setupRecording()
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('no-forward-2'),
       name: 'bash',
       arguments: {
@@ -1013,6 +1185,7 @@ describe('the model-facing bash tool builds its request from named args only (no
         run_in_background: true,
         env: { TOKEN: 'leak' },
         stdin: 'x',
+        stdoutMaxBytes: 999_999,
       },
     })
     // The call really went down the background path (the recorder sees the real
@@ -1024,5 +1197,6 @@ describe('the model-facing bash tool builds its request from named args only (no
     expect(request.command).toBe('sleep 1')
     expect('env' in request).toBe(false)
     expect('stdin' in request).toBe(false)
+    expect('stdoutMaxBytes' in request).toBe(false)
   })
 })

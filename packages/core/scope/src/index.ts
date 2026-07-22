@@ -8,6 +8,9 @@
 import type { Context, Fiber } from 'cordis'
 import { Context as CordisContext } from 'cordis'
 
+export { AnonymousEntries, NamedEntries, ScopedLayers } from './store.ts'
+export type { ScopeLayer } from './store.ts'
+
 /** An opaque, identity-compared scope key. */
 export type ScopeKey = object
 

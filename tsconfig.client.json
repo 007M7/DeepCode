@@ -1,0 +1,42 @@
+{
+  // Client-side typecheck aggregate: packages/client tests (.ts and .tsx).
+  // Split from the host aggregate because both sides merge cordis Context
+  // under the same keys (sessions, loader) with different services; shared
+  // leaves (session/llm/tools/apiproxy/...) build once and are referenced by
+  // both programs through each client package's own references.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rewriteRelativeImportExtensions": false,
+    "jsx": "react-jsx",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    // Tests execute under vitest on node (e2e files spawn processes); browser
+    // purity of package src is each package's own tsconfig + verify-client-closure.
+    "types": ["node"]
+  },
+  "include": [
+    "packages/client/*/tests/**/*.ts",
+    "packages/client/*/tests/**/*.tsx",
+    "packages/client/tsdown.client.ts",
+    "scripts/client-bundle-purity.spec.ts"
+  ],
+  "references": [
+    // Shared leaf: web e2e boots the real host webserver (fixture + real-host
+    // smoke policy). webserver has zero workspace deps and no cordis merge,
+    // so it cannot drag host-side Context augmentation into this program.
+    { "path": "./packages/host/webserver" },
+    { "path": "./packages/client/ui-slots" },
+    { "path": "./packages/client/ui-primitives" },
+    { "path": "./packages/client/web-react" },
+    { "path": "./packages/client/connection" },
+    { "path": "./packages/client/runtime" },
+    { "path": "./packages/client/ui-layout" },
+    { "path": "./packages/client/ui-sidebar" },
+    { "path": "./packages/client/ui-conversation" },
+    { "path": "./packages/client/ui-trajectory" },
+    { "path": "./packages/client/ui-theme" },
+    { "path": "./packages/client/i18n" },
+    { "path": "./packages/client/web" },
+    { "path": "./apps/web" }
+  ]
+}

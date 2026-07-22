@@ -50,13 +50,13 @@ describe('date-based pairing frontier', () => {
   const cutoff = '2026-07-14'
 
   it('enforces the cutoff day and every later day, but not the preceding day', () => {
-    expect(requiresPairByDate('docs/rfc/2026-07-13-before.md', cutoff)).toBe(false)
-    expect(requiresPairByDate('docs/rfc/2026-07-14-at-cutoff.md', cutoff)).toBe(true)
-    expect(requiresPairByDate('docs/rfc/2026-07-15-after.md', cutoff)).toBe(true)
+    expect(requiresPairByDate('.agents/notes/2026-07-13-before.md', cutoff)).toBe(false)
+    expect(requiresPairByDate('.agents/notes/2026-07-14-at-cutoff.md', cutoff)).toBe(true)
+    expect(requiresPairByDate('.agents/notes/2026-07-15-after.md', cutoff)).toBe(true)
   })
 
   it('matches only a date at the start of the basename', () => {
-    expect(datedDocumentDate('docs/rfc/2026-07-14-proposal.md')).toBe('2026-07-14')
+    expect(datedDocumentDate('.agents/notes/2026-07-14-proposal.md')).toBe('2026-07-14')
     expect(datedDocumentDate('docs/release-notes-2026-07-14-alpha.md')).toBeUndefined()
     expect(requiresPairByDate('docs/release-notes-2026-07-14-alpha.md', cutoff)).toBe(false)
   })

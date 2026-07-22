@@ -5,7 +5,6 @@
  * @module @deepseek-ai/dsh-helper/features/builtin
  */
 
-import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 import type { Config as ClaudeHooksConfig } from '@deepseek-ai/dsh-hooks-claude'
 import type { Config as CodexHooksConfig } from '@deepseek-ai/dsh-hooks-codex'
 import type { Config as JsonlConfig } from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -18,15 +17,6 @@ import { FeatureRegistry } from '../registry.ts'
 import { AppFeature } from './app.ts'
 import { ProviderFeature } from './provider.ts'
 import { SpineFeature } from './spine.ts'
-
-const compactPreset = {
-  contextWindow: 128_000,
-  thresholdRatio: 0.8,
-  retainTokens: 20_480,
-  summarizationModel: '',
-  maxTokens: 8_192,
-  compactionRetries: 1,
-} satisfies BasicCompactConfig
 
 /**
  * Build and definition-check the complete builtin set for one project profile.
@@ -274,12 +264,18 @@ config:
         id: 'basic',
         label: 'Basic compaction',
         default: true,
-        resources: [{
-          kind: 'npm-cordis-config-entry',
-          id: 'compact-basic',
-          package: '@deepseek-ai/dsh-compact-basic',
-          config: compactPreset,
-        }],
+        resources: [
+          {
+            kind: 'npm-cordis-config-entry',
+            id: 'token-meter',
+            package: '@deepseek-ai/dsh-token-meter',
+          },
+          {
+            kind: 'npm-cordis-config-entry',
+            id: 'compact-basic',
+            package: '@deepseek-ai/dsh-compact-basic',
+          },
+        ],
       }],
     },
     {
@@ -351,7 +347,7 @@ config:
       id: 'ask-user',
       summary: 'Ask the user from the model loop',
       mode: 'single',
-      supportedInterfaces: ['acp', 'stdio'],
+      supportedInterfaces: ['acp', 'tui'],
       options: [{
         id: 'default',
         label: 'ask_user_question tool',

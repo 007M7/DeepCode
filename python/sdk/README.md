@@ -19,17 +19,20 @@ with DeepSeekHarness() as harness:
 
 `DeepSeekHarness` keeps its lazily started runtime subprocess for reuse across calls. Use it as a context manager, as above, or call `close()` explicitly when finished.
 
-By default, the SDK launches the bundled single-file `dsh-jsonrpc-agent` executable from the `deepseek-harness-runtime-bin` package and injects that package's default configuration (the stdio JSON-RPC server, agent core, preloaded DeepSeek adapter, JSONL session persistence, local bash) via `DSH_CORDIS_CONFIG`. To run a plugin composition of your own, keep the `@deepseek-ai/dsh-jsonrpc` entry in the config and pass the Cordis config path.
+By default, the SDK launches the bundled single-file `dsh-jsonrpc-agent` executable from the `deepseek-harness-runtime-bin` package and injects that package's default configuration (the stdio JSON-RPC server, agent core, preloaded DeepSeek adapter, JSONL session persistence with an explicitly composed semantic checkpoint policy, local bash) via `DSH_CORDIS_CONFIG`. To run a plugin composition of your own, keep the `@deepseek-ai/dsh-jsonrpc` entry in the config and pass the Cordis config path.
 
 ```py
 from deepseek_harness import DeepSeekHarness
 
 with DeepSeekHarness(
+    provider="deepseek",
     model="deepseek-v4-flash",
-    cordis="examples/dsbench-coding-agent/cordis.yml",
+    cordis="examples/jsonrpc-agent/cordis.yml",
 ) as harness:
     result = harness.run("Make the requested code change.")
 ```
+
+`provider` selects a provider route registered by the chosen Cordis composition; `model` is the model id resolved by that adapter. The bundled default composition registers `deepseek`. A custom composition can mount `llm-pi-ai`, configure provider-specific credentials/endpoints there, and select any provider/model present in pi-ai's installed catalog.
 
 `TurnResult.final_response` is the text content from the last
 `assistant/message` event in the turn. Use `TurnResult.events` for the complete

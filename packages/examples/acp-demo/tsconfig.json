@@ -24,10 +24,25 @@
       "path": "../../ui/acp"
     },
     {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../context/session-reference"
+    },
+    {
+      "path": "../../ui/commands"
+    },
+    {
+      "path": "../../goal/command-goal"
+    },
+    {
       "path": "../../core/agent"
     },
     {
       "path": "../agent-spine-demo"
+    },
+    {
+      "path": "../../context/workspace-context"
     },
     {
       "path": "../../ui/user-interaction"
@@ -36,7 +51,13 @@
       "path": "../../ui/tool-ask-user"
     },
     {
+      "path": "../../session-persistence/session-checkpoint-policy"
+    },
+    {
       "path": "../../session-persistence/session-persistence-jsonl"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

@@ -9,9 +9,10 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from 'cordis'
+import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { LlmError, assertNever } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelContext, LlmModelInfo, LlmProviderInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, LlmError, assertNever } from '@deepseek-ai/dsh-llm'
 
 /**
  * One recorded model call. `throw` may replay prefix chunks before failing;
@@ -20,8 +21,30 @@ import { LlmError, assertNever } from '@deepseek-ai/dsh-llm'
  */
 export type ReplayEntry =
   | { kind: 'chunks'; chunks: StreamChunk[] }
-  | { kind: 'throw'; chunks: StreamChunk[]; message: string; code: string; status?: number }
+  | { kind: 'throw'; chunks: StreamChunk[]; message: string; code: string }
   | { kind: 'hang' }
+
+/** One model exposed by a replay-only provider catalog. */
+export interface ReplayModelConfig {
+  /** Model id used for replay requests. */
+  id: string
+  /** Selector label; defaults to {@link id}. */
+  name?: string
+  /** Optional selector description. */
+  description?: string
+  /** Optional positive integer context capacity published by the replay adapter. */
+  contextWindow?: number
+}
+
+/** One provider route exposed by the replay adapter. */
+export interface ReplayProviderConfig {
+  /** Provider route used for replay requests. */
+  id: string
+  /** Selector label; defaults to {@link id}. */
+  name?: string
+  /** Advisory models exposed to clients such as ACP editors. */
+  models?: ReplayModelConfig[]
+}
 
 /** Resolved plugin configuration. */
 export interface ReplayConfig {
@@ -45,6 +68,12 @@ export interface ReplayConfig {
    * for a single-session scenario.
    */
   childFiles?: string[]
+  /**
+   * Optional provider catalog. When non-empty, replay registers an adapter for
+   * these routes; when absent or empty, it retains the catch-all waterfall used
+   * by tests that do not need discovery.
+   */
+  providers?: ReplayProviderConfig[]
 }
 
 /**
@@ -68,7 +97,9 @@ export interface SessionScript {
 /**
  * Parse a session `.jsonl` buffer into its event list. Line 0 is the session
  * header (a `{type:'session',…}` record), every subsequent non-empty line is a
- * {@link SessionEvent}. The header is skipped; malformed lines fail loud.
+ * {@link SessionEvent} or a packed chunk row (expanded back into its events, so
+ * a fixture recorded with `packChunks` on derives the same script). The header
+ * is skipped; malformed lines fail loud.
  * @param text - the raw `.jsonl` file contents.
  * @returns every event after the header, in log order.
  */
@@ -77,8 +108,7 @@ export function parseSessionLog(text: string): SessionEvent[] {
   const events: SessionEvent[] = []
   // The JSONL backend guarantees line 0 is the session header.
   for (let i = 1; i < lines.length; i++) {
-    const parsed: unknown = JSON.parse(lines[i] as string)
-    events.push(parsed as SessionEvent)
+    events.push(...decodeStorageRecord(JSON.parse(lines[i] as string)))
   }
   return events
 }
@@ -203,6 +233,50 @@ export function loadSessionScripts(config: ReplayConfig): SessionScript[] {
   return [primary, ...children]
 }
 
+/** Replay adapter that makes a configured provider catalog discoverable without provider I/O. */
+class ReplayAdapter extends LlmAdapter {
+  private readonly providers: ReadonlyMap<string, ReplayProviderConfig>
+
+  constructor(
+    providers: readonly ReplayProviderConfig[],
+    private readonly replay: (options: GenerateOptions) => AsyncIterable<StreamChunk>,
+  ) {
+    super()
+    this.providers = new Map(providers.map(provider => [provider.id, provider]))
+  }
+
+  override providerInfo(provider: string): LlmProviderInfo {
+    const configured = this.providers.get(provider)
+    /* v8 ignore next -- LlmService only asks about routes registered from this same map. */
+    if (configured === undefined) return super.providerInfo(provider)
+    return { id: provider, name: configured.name ?? provider }
+  }
+
+  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    const configured = this.providers.get(provider)
+    /* v8 ignore next -- LlmService only asks about routes registered from this same map. */
+    if (configured === undefined) return Promise.resolve([])
+    return Promise.resolve((configured.models ?? []).map(model => ({
+      provider,
+      id: model.id,
+      name: model.name ?? model.id,
+      ...model.description === undefined ? {} : { description: model.description },
+    })))
+  }
+
+  override resolveModelContext(provider: string, model: string): Promise<LlmModelContext | undefined> {
+    const configured = this.providers.get(provider)
+    /* v8 ignore next -- LlmService only asks about routes registered from this same map. */
+    if (configured === undefined) return Promise.resolve(undefined)
+    const contextWindow = configured.models?.find(candidate => candidate.id === model)?.contextWindow
+    return Promise.resolve(contextWindow === undefined ? undefined : { contextWindow })
+  }
+
+  override stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    return this.replay(options)
+  }
+}
+
 /** Yield a recorded stream back, honoring abort like a real adapter. */
 async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined): AsyncIterable<StreamChunk> {
   switch (entry.kind) {
@@ -221,7 +295,7 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
         if (signal?.aborted) throw new Error('aborted')
         yield chunk
       }
-      throw new LlmError(entry.message, entry.code, entry.status)
+      throw new LlmError(entry.message, entry.code)
     case 'hang':
       // Replay a stream that stalls until cancelled (mirrors MockAdapter): one
       // chunk, then wait for abort and surface it as the consumer expects.
@@ -243,12 +317,14 @@ async function* replayEntry(entry: ReplayEntry, signal: AbortSignal | undefined)
 /**
  * Install per-session positional replay. A newly seen live session takes the
  * next ordered recorded script, then advances its own cursor synchronously at
- * invocation time; calls without `sessionId` share one anonymous session.
- * Returns the effect disposer for HMR-safe removal.
+ * invocation time; calls without `sessionId` share one anonymous session. A
+ * non-empty provider catalog registers a routed replay adapter; otherwise a
+ * catch-all waterfall intercepts requests. Returns the effect disposer for
+ * HMR-safe removal.
  *
- * @param ctx - the context whose `llm/stream` waterfall the listener short-circuits.
+ * @param ctx - the context whose LLM service receives the replay route or waterfall.
  * @param config - the resolved fixture paths (env-var defaulting is `apply`'s job).
- * @returns the `ctx.on` disposer that removes the listener.
+ * @returns the disposer that removes the registered adapter or listener.
  */
 export function installLlmReplay(ctx: Context, config: ReplayConfig): () => void {
   const scripts = loadSessionScripts(config)
@@ -258,7 +334,7 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): () => void
   const bound = new Map<string, { entries: ReplayEntry[]; cursor: number }>()
   let nextScript = 0
   const ANON = '\0anon\0' // the key for a call that carries no sessionId
-  return ctx.on('llm/stream', (options: GenerateOptions, _next) => {
+  const replay = (options: GenerateOptions): AsyncIterable<StreamChunk> => {
     const key = options.sessionId ?? ANON
     let state = bound.get(key)
     let unrecorded = false
@@ -296,7 +372,12 @@ export function installLlmReplay(ctx: Context, config: ReplayConfig): () => void
       }
       yield* replayEntry(entry, options.signal)
     })()
-  })
+  }
+  const providers = config.providers ?? []
+  if (providers.length > 0) {
+    return ctx.llm.registerAdapter(providers.map(provider => provider.id), new ReplayAdapter(providers, replay))
+  }
+  return ctx.on('llm/stream', (options: GenerateOptions, _next) => replay(options))
 }
 
 export const name = 'llm-replay'
@@ -314,6 +395,8 @@ export interface Config {
    * a nested-agent scenario; absent/empty for a single-session scenario.
    */
   childFiles?: string[]
+  /** Optional replay-only provider catalog; absent or empty selects catch-all waterfall replay. */
+  providers?: ReplayProviderConfig[]
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
@@ -329,5 +412,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     file,
     ...overrideFile !== undefined && overrideFile.length > 0 ? { overrideFile } : {},
     ...childFiles.length > 0 ? { childFiles } : {},
+    ...config.providers !== undefined ? { providers: config.providers } : {},
   })
 }

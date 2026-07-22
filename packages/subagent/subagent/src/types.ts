@@ -6,9 +6,23 @@
  * @module @deepseek-ai/dsh-subagent/types
  */
 
-import type { Agent, AgentId, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { StructuredOutputSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
+
+/** Identifies one accepted subagent run across its lifecycle event pair. */
+export type SubagentRunId = Branded<'SubagentRunId'>
+
+/**
+ * Brand a string as a {@link SubagentRunId}.
+ * @param id - the raw id string (the service mints UUIDs; tests may pass fixtures).
+ * @returns the same string, branded.
+ */
+export function SubagentRunId(id: string): SubagentRunId {
+  return id as SubagentRunId
+}
 
 /**
  * Which START-TIME features a provider supports. Checked by the service before delegating to
@@ -42,7 +56,10 @@ export interface SubagentStartRequest {
    * The spawning ("parent") agent — the one whose tool call started this
    * subagent. REQUIRED: in-process backends read `parent.session.header` for
    * the working directory, the `parentSession` lineage to stamp on the child,
-   * and the parent's delegation depth. Out-of-process backends (ACP) ignore it.
+   * and the parent's delegation depth. The out-of-process backend (ACP) reads
+   * exactly one field — the session header's cwd, the child's workspace when
+   * no deployment `cwd` override is configured; nothing else crosses the
+   * process boundary.
    */
   readonly parent: Agent
   /**
@@ -132,8 +149,18 @@ export interface SubagentResult {
  * capability discovery; narrow their presence before calling.
  */
 export interface SubagentRun {
-  /** The child agent's id (local in-process runs are already published in `ctx.agents`; remote transports need not publish locally). */
-  readonly id: AgentId
+  /**
+   * Parent-scoped run id. For a local run, this MUST equal the published child
+   * session id, whose `parentSession` records `request.parent.session.id`; a
+   * remote provider mints an id unique in the parent namespace.
+   */
+  readonly id: SessionId
+  /**
+   * The exact published in-process child, or `undefined` for a remote run.
+   * When present, its id is {@link id}; the provider retains no ownership
+   * implication beyond the run's ordinary {@link dispose} contract.
+   */
+  readonly localAgent: Agent | undefined
   /**
    * Resolves with the child's terminal {@link SubagentResult} when the run
    * settles. Does NOT reject on a child-level failure — a model/transport

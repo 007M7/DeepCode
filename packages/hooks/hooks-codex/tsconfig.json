@@ -30,10 +30,16 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session-persistence/session-persistence"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
       "path": "../../bash/bash"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

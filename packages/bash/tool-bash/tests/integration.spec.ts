@@ -1,12 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
@@ -19,23 +20,28 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent
  * (tool/call + tool/result session events, the generic `ctx.tasks` runtime,
  * agent.inject completion notices).
  */
-async function harness(adapter: MockAdapter) {
+async function harness(adapter: MockAdapter, sessionRoot?: string, dshHome?: string) {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
+  if (sessionRoot !== undefined) {
+    await ctx.plugin(SessionPersistenceJsonl, { root: sessionRoot, compression: 'none' })
+  }
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(TaskService)
   await ctx.plugin(ToolTasks)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  await ctx.plugin(ToolBash)
+  await ctx.plugin(ToolBash, dshHome === undefined ? {} : { dshHome })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+const dirs: string[] = []
+afterEach(() => {
+  vi.unstubAllEnvs()
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -46,7 +52,7 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function events(agent: ReactLoopAgent): SessionEvent[] {
+function events(agent: Agent): SessionEvent[] {
   return [...agent.session.events]
 }
 
@@ -82,13 +88,45 @@ async function pollUntil(predicate: () => boolean, timeoutMs = 5_000): Promise<v
 }
 
 describe('bash tool through the agent loop', () => {
+  it('first-turn bash receives session identity before the lazy JSONL file materializes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-bash-session-env-'))
+    dirs.push(root)
+    const dshHome = join(root, 'dsh-home')
+    vi.stubEnv('DSH_STALE_PARENT', 'stale')
+    const adapter = new MockAdapter([
+      toolCallResponse('call-1', 'bash', {
+        command: 'printf \'%s\\n%s\\n%s\\n%s\\n%s\\n\' "$DSH_HOME" "$DSH_SHELL" "$DSH_SESSION_ID" "$DSH_SESSION_JSONL" "${DSH_STALE_PARENT-unset}"; if [ -e "$DSH_SESSION_JSONL" ]; then printf \'present\\n\'; else printf \'absent\\n\'; fi',
+        description: 'inspect session environment',
+      }),
+      textResponse('Session environment inspected.'),
+    ])
+    const ctx = await harness(adapter, root, dshHome)
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('session-env-id'),
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const agent = handle.agent
+    const location = ctx.sessionPersistence.locate(agent.session.header)
+    expect(location?.kind).toBe('jsonl')
+
+    agent.send([{ type: 'text', text: 'inspect the current session' }])
+    await waitForIdle(ctx, agent)
+
+    const result = findEvent(events(agent), 'tool/result')
+    expect(resultText(result)).toBe(`${dshHome}\n1\nsession-env-id\n${location?.path}\nunset\nabsent\n`)
+    expect(existsSync(location!.path)).toBe(true)
+    const header = JSON.parse(readFileSync(location!.path, 'utf8').split('\n')[0]!) as { type: string; id: string }
+    expect(header).toMatchObject({ type: 'session', id: 'session-env-id' })
+    await handle.dispose()
+  })
+
   it('foreground: model calls bash, sees the result, replies', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('call-1', 'bash', { command: 'echo integration-ok', description: 'test command' }, 'Running it.'),
       textResponse('The command printed integration-ok.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-fg'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-fg'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'run echo integration-ok' }])
     await waitForIdle(ctx, agent)
@@ -120,7 +158,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('It failed with code 9.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-exit'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-exit'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'run exit 9' }])
     await waitForIdle(ctx, agent)
@@ -140,7 +178,7 @@ describe('bash tool through the agent loop', () => {
       textResponse('Background task finished.'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('it-bg'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('it-bg'), { provider: 'mock', model: 'mock' })
 
     agent.send([{ type: 'text', text: 'run echo bg-ok in the background' }])
     await waitForIdle(ctx, agent)

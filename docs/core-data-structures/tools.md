@@ -6,11 +6,21 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 ## `ToolDefinition` — a registered tool
 
-A `ToolSchema` (the model-facing fields) plus the `execute` function and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `execute`/`presentCall`/`presentResult` must never leak into a model request.
+A `ToolSchema` (the model-facing fields) plus the `execute` function, host-only scheduler metadata, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `execute`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` must never leak into a model request.
 
 ```ts type-equiv
+/** A registered tool: its schema plus the execution function. */
 interface ToolDefinition extends ToolSchema {
-  execute(args: unknown, exec: ToolExecution): Promise<ToolExecuteReturn>
+  /**
+   * Run one accepted call. Async work must observe or forward `exec.signal` and
+   * settle only after its owned work reaches quiescence. The registry preserves
+   * caller cancellation through around-dispatch signal replacement and does
+   * not abandon this promise, but it cannot hard-kill same-process code.
+   * @param args - losslessly snapshotted, frozen model arguments.
+   * @param exec - execution identity, cancellation signal, and context deferral.
+   * @returns model-facing content plus optional private presentation metadata.
+   */
+  execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
@@ -19,6 +29,20 @@ interface ToolDefinition extends ToolSchema {
    * cooperative implementation that can reach quiescence when the signal aborts.
    */
   timeoutMs?: number
+  /**
+   * Pure synchronous classifier for overlap with sibling tool calls. Only
+   * `true` opts in; omission, exceptions, non-`true` returns, and invalid
+   * `defineTool` arguments are exclusive. This metadata is never model-visible.
+   *
+   * Opted-in executions must not mutate parent-owned state. Shared state must
+   * tolerate concurrent dispatch; recorder races are permitted only when they
+   * commute or fail closed. See the
+   * [parallel-tool-call Agent Note](../../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)
+   * for the full contract.
+   * @param args - parsed arguments; `defineTool` validates before calling.
+   * @returns Whether this call may join a parallel group.
+   */
+  isConcurrencySafe?(args: unknown): boolean
   /**
    * Optional: how to present the PENDING state of one call in a UI, derived from
    * the call's `args` (parsed arguments, `unknown` — the tool validates/narrows
@@ -49,6 +73,7 @@ Plugin authors write per-property specs with a boolean `required: true`, and a t
 Source: [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts)
 
 ```ts type-equiv
+/** One schema-spec property entry. */
 interface SchemaProp {
   type: SchemaType
   /** Per-property required flag (NOT the JSON Schema top-level required array). */
@@ -57,7 +82,10 @@ interface SchemaProp {
   description?: string
   /** Enum of allowed values (strings only). */
   enum?: string[]
-  /** Default value. */
+  /**
+   * Model-visible JSON Schema default annotation. Validation does not apply it;
+   * dynamic tool mounts may supply it even though first-party definitions do not.
+   */
   default?: unknown
   /** Nested properties for type: 'object'. */
   properties?: SchemaSpec
@@ -67,12 +95,29 @@ interface SchemaProp {
 ```
 
 ```ts type-equiv
+/**
+ * The author-facing parameter schema: a shallow map of property name to
+ * {@link SchemaProp}. Required-ness is a per-property boolean (`required:
+ * true`), not a separate array.
+ */
 type SchemaSpec = Record<string, SchemaProp>
 ```
 
 `SchemaType` is the primitive union `'string' | 'number' | 'boolean' | 'object' | 'array'`. `InferArgs<S>` maps a `SchemaSpec` to the TS argument type — `required: true` props become required keys, everything else genuinely optional:
 
 ```ts type-equiv
+/**
+ * Infer the TS argument type for a complete {@link SchemaSpec}.
+ *
+ * Properties marked `required: true` are required keys; all others are
+ * genuinely optional keys (`?`), so callers may omit them entirely.
+ *
+ * Example:
+ * ```ts
+ * type Args = InferArgs<{ path: { type: 'string'; required: true }; limit: { type: 'number' } }>
+ * // → { path: string; limit?: number }
+ * ```
+ */
 type InferArgs<S extends SchemaSpec> = Simplify<
   & { [K in RequiredKeys<S>]: InferPropValue<S[K]> }
   & { [K in Exclude<keyof S, RequiredKeys<S>>]?: InferPropValue<S[K]> }
@@ -88,54 +133,126 @@ Registration is a trusted same-process contract. The registry borrows the typed 
 `ToolRestriction` applies only to the live deployment-global tool layer. The registry compiles readonly names into private sets, intersects multiple restrictions, then overlays scope-local tools. A deny-only filter admits later unlisted globals, while an allow-list excludes them.
 
 ```ts type-equiv
+/**
+ * Per-scope filter over global tools. Restrictions intersect and do not affect
+ * scoped registrations or the reserved Code Mode transport.
+ */
 interface ToolRestriction {
+  /** Global tool names that stay visible; everything else is removed. */
   readonly allow?: readonly string[]
+  /** Global tool names removed from visibility. */
   readonly deny?: readonly string[]
 }
 ```
 
 ## Execution: extensible waterfalls plus monotonic policy
 
-`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → `tools/result` (the immutable authoritative outcome). The outcome is a `ToolExecutionResult`.
+`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → `tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
 
 ```ts type-equiv
+/** Opaque call identity that permits correlation without exposing mutable execution state. */
 type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: true }
 ```
 
 ```ts type-equiv
+/**
+ * Caller-supplied description of one tool call. {@link ToolRegistry.execute}
+ * adds the registry-owned token to form a pipeline {@link ToolExecution};
+ * callers do not choose that token.
+ */
 interface ToolExecutionInput {
   readonly callId: CallId
   readonly name: string
-  /** Parsed JSON arguments (unknown — tools validate their own input). */
+  /** Losslessly JSON-serializable parsed arguments (tools validate their own schema). */
   readonly arguments: unknown
   /** The agent on whose behalf the call runs (set by the agent loop). */
   readonly agent?: Agent
   /**
    * Opaque token of the enclosing transport execution, when one exists. Code
    * Mode sets this on SDK sub-dispatches so commit-style observers can wait for
-   * the outer `run_code` outcome without receiving its live mutable execution.
-   */
+  * the outer `run_code` outcome without receiving its live mutable execution.
+  */
   readonly parent?: ToolExecutionToken
-  signal?: AbortSignal
+  /** Required caller-owned cancellation for this invocation. */
+  readonly signal: AbortSignal
 }
 ```
 
+A tool body receives the runtime extension. `deferContext()` is the composite-tool channel: it records nested-dispatch context without injecting inside the still-open outer call.
+
 ```ts type-equiv
+/**
+ * Runtime context handed to a tool implementation after the registry has
+ * accepted a {@link ToolExecution}. A composite tool uses
+ * {@link deferContext} to ferry context produced by nested dispatches back to
+ * the outer result; the loop appends it only after the outer `tool/result`.
+ */
+interface ToolRunContext extends ToolExecution {
+  /**
+   * Defer one nested-dispatch context until this tool's final result reaches
+   * the agent loop. Contexts retain their individual source and metadata and
+   * are emitted in call order.
+   */
+  deferContext(context: HookContext): void
+}
+```
+
+The agent loop asks the registry for each pending call's execution mode and uses it to form exclusive barriers and rolling-pool parallel runs:
+
+```ts type-equiv
+/**
+ * Scheduling mode for one pending call. `parallel` may overlap with siblings;
+ * `exclusive` runs alone and forms an ordering barrier.
+ */
+type ToolExecutionMode =
+  | { kind: 'parallel' }
+  | { kind: 'exclusive' }
+```
+
+```ts type-equiv
+/**
+ * One pending tool call inside the registry pipeline. Parsed arguments cross
+ * one lossless-JSON materialization boundary before policy and are deep-frozen;
+ * call identity, the caller signal, and the registry-assigned {@link token} are
+ * readonly. The registry freezes the complete object before `tools/result`
+ * observers run.
+ */
 interface ToolExecution extends ToolExecutionInput {
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
   readonly token: ToolExecutionToken
 }
 ```
 
-`ToolExecutionToken` is an opaque runtime `Symbol` used only for identity comparison. Before policy, `execute()` materializes and freezes arguments, rejects non-JSON input, and assigns the token. Identity fields and the optional parent token remain readonly; only `signal` may change around dispatch. Final observers receive the frozen execution identity.
+```ts type-equiv
+/**
+ * Around-dispatch view of a {@link ToolExecution}. A `tools/execute` wrapper
+ * may replace the signal for its delegated lifetime, but it cannot remove it.
+ * The registry fuses every replacement with the captured caller signal.
+ */
+interface ToolDispatchExecution extends Omit<ToolExecution, 'signal'> {
+  /** Cancellation signal visible to the next wrapper or tool body. */
+  signal: AbortSignal
+}
+```
+
+`ToolExecutionToken` is an opaque runtime `Symbol` used only for identity comparison. Before policy, `execute()` materializes and freezes arguments, rejects non-JSON input, and assigns the token. Identity fields, the required caller signal, and the optional parent token remain readonly. A `ToolDispatchExecution` wrapper may replace but not remove the signal; the registry re-fuses the caller signal before invoking the body. Final observers receive the frozen execution identity.
 
 A `ToolGuard` is scope-aware final pre-dispatch policy. Its shape deliberately has no allow result: `undefined` preserves the waterfall decision, while a returned reason can only reduce permission, so a later listener cannot undo it.
 
 ```ts type-equiv
+/**
+ * A monotonic execution guard evaluated after every `tools/pre-execute`
+ * listener and before the tool body. Returning a reason denies the call;
+ * returning `undefined` leaves it unchanged. Because guards have no allow
+ * result, listener ordering cannot turn a denial back into permission.
+ * @param execution - the identity-protected call after extensible pre-execute policy completed.
+ * @returns a final denial reason, or `undefined` to leave the call allowed.
+ */
 type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
 ```
 
 ```ts type-equiv
+/** The outcome of one tool call. */
 interface ToolExecutionResult {
   content: ContentBlock[]
   isError: boolean
@@ -146,16 +263,10 @@ interface ToolExecutionResult {
    */
   error?: ToolErrorInfo
   /**
-   * Extra model-facing context a `tools/post-execute` listener attached for the
-   * NEXT request (Claude Code's PostToolUse `additionalContext`). It is NOT part
-   * of this call's `content` — `content`/`feedback` shape the tool RESULT, but
-   * `additionalContext` is a SEPARATE `context/message`. A step can carry
-   * multiple tool calls, so the loop BUFFERS every call's `additionalContext`
-   * and appends them only AFTER all `tool/result`s for the step, keeping
-   * tool-call/result adjacency intact. Carried on the result purely to ferry it
-   * from `execute()` up to the loop's per-step buffer.
+   * Model-facing context for the next request, separate from this tool result. The loop
+   * accepts it into the active-batch FIFO, then appends after recorded results even if interrupted.
    */
-  additionalContext?: HookContext
+  additionalContexts?: HookContext[]
   /**
    * The tool-private presentation payload from a successful `execute` (the object
    * return form). Threaded onto the `tool/result` session event and back into
@@ -173,6 +284,12 @@ The registry materializes and freezes the final accepted result immediately befo
 Each interception waterfall returns a typed **Decision** (the idiom shared with the `agent/*` seams). `tools/pre-execute` listeners receive `(exec, next)` and return a `PreToolDecision`; `tools/execute` wrappers return a `ToolExecutionResult`; `tools/post-execute` listeners receive `(exec, result, next)` and return a `PostToolDecision`:
 
 ```ts type-equiv
+/**
+ * Pre-dispatch decision. `allow` runs the call; `deny` materializes an error;
+ * `ask` runs only after an approval service returns `allowed-once` and otherwise
+ * denies. Input rewriting is excluded because arguments are already logged and
+ * presented.
+ */
 type PreToolDecision =
   | { kind: 'allow' }
   | { kind: 'deny'; reason: string }
@@ -180,9 +297,13 @@ type PreToolDecision =
 ```
 
 ```ts type-equiv
+/**
+ * Post-dispatch decision: accept or replace content, attach context for the next
+ * request, or block by turning corrective feedback into an error result.
+ */
 type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; additionalContext?: HookContext }
-  | { kind: 'block'; feedback: ContentBlock[]; additionalContext?: HookContext }
+  | { kind: 'accept'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
 ```
 
 Call `next()` for the default or return a decision to short-circuit. Pre-policy may deny or ask; only `allowed-once` proceeds, while a non-grant, missing approval channel or service, or agent-less request becomes a denial. Guards may still impose a final denial. Arguments cannot be rewritten because history, audit, UI, and execution must agree.
@@ -194,25 +315,41 @@ Post-policy may replace content; a block becomes an `isError` result containing 
 The vocabulary a caller uses to demand a machine-readable result from a subagent (`SubagentStartRequest.outputSchema`, [subagent.md](subagent.md#the-start-request)) or a workflow `agent()` call. It is deliberately NOT full JSON Schema: the schema travels verbatim to the model as a forced tool's `parameters`, and the produced value is validated client-side by `validateStructuredValue` — so every accepted keyword must be one the validator actually enforces, and `assertSupportedOutputSchema` rejects anything else loud (`OutputSchemaError`, listing every violation). Both walkers reason over own enumerable properties only (JSON carries nothing else) and reject non-plain objects (`Date`, `Map`) that would serialize lossily.
 
 ```ts type-equiv
+/** The scalar values `enum`/`const` may carry (finite numbers only). */
 type StructuredScalar = string | number | boolean | null
 ```
 
 ```ts type-equiv
+/** The `type` keywords the subset accepts. */
 type StructuredSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null'
 ```
 
 ```ts type-equiv
+/**
+ * One node of the structured-output schema subset. Recursive via `properties`
+ * and `items`; see the module doc for the exact keyword semantics.
+ */
 interface StructuredSchemaNode {
   type: StructuredSchemaType
+  /** Nested property schemas (`type: 'object'` only). */
   properties?: Record<string, StructuredSchemaNode>
+  /** Required property names; each must appear in `properties`. */
   required?: string[]
+  /** `false` rejects undeclared keys; absent/`true` allows them (JSON Schema default). */
   additionalProperties?: boolean
+  /** Item schema (`type: 'array'` only); absent ⇒ any JSON items. */
   items?: StructuredSchemaNode
+  /** Allowed values (scalar types only). */
   enum?: StructuredScalar[]
+  /** The single allowed value (scalar types only). */
   const?: StructuredScalar
+  /** Annotation, ignored for validation. */
   description?: string
+  /** Annotation, ignored for validation. */
   title?: string
+  /** Annotation, ignored for validation (must still be JSON data). */
   default?: unknown
+  /** Annotation, ignored for validation (must still be JSON data). */
   examples?: unknown
 }
 ```
@@ -220,6 +357,7 @@ interface StructuredSchemaNode {
 A schema is an object-rooted node (`enum`/`const` are scalar-only; `description`/`title`/`default`/`examples` are annotations, allowed and ignored but still required to be JSON data — they ride the wire):
 
 ```ts type-equiv
+/** A structured-output schema: an OBJECT-rooted {@link StructuredSchemaNode}. */
 type StructuredOutputSchema = StructuredSchemaNode & { type: 'object' }
 ```
 
@@ -230,6 +368,6 @@ How a tool wants its call shown in a UI (an editor tool-call card, a CLI log lin
 - `ToolCallView` (pending): `{ card: 'generic', title, kind?, rawInput?, content?, locations? }` (the default card; `locations` is `{ path, line? }[]` files the call reads/modifies, for editor follow-along), `{ card: 'terminal', title, description?, cwd? }` (a shell command → a terminal card), or `{ card: 'diff', title, diffs, locations? }` (a file create/modify → an inline diff card; `diffs` is `{ path, oldText, newText }[]`, `oldText: null` for a new file).
 - `ToolResultView` (completed): `{ card: 'generic', title?, content? }`, `{ card: 'terminal', title?, output?, exitCode?, signal? }` (the captured run output + exit; a capable UI shows an exit-status pill, an incapable one gets a fenced ` ```console ` fallback the bridge derives from `output`), or `{ card: 'diff', title?, diffs }` (a completed file mutation → the change to show, typically the applied hunks with context lines computed from the before/after content, or a whole-file diff when there is no before-image — e.g. a file create. A `tool_call_update`'s content REPLACES the call's content, so a mutation tool returns this even when it duplicates the call-time snippet, to keep the result from clobbering the diff with result text).
 
-`ToolCallKind` (`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`) picks an icon on a generic card. `FileLocation` (`{ path, line? }`) and `FileDiff` (`{ path, oldText, newText }`) are the shared file-card vocabulary. The design is pinned in [the render-intent-union RFC](../rfc/implemented/architecture/2026-07-02-tool-render-intent-union.md); the ACP bridge maps a `diff` card to a `{ type: 'diff' }` content block, a `terminal` card to the `_meta` terminal convention, and relativizes a file card's title against the session cwd.
+`ToolCallKind` (`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`) picks an icon on a generic card. `FileLocation` (`{ path, line? }`) and `FileDiff` (`{ path, oldText, newText }`) are the shared file-card vocabulary. The design is pinned in [the render-intent-union Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md); the ACP bridge maps a `diff` card to a `{ type: 'diff' }` content block, a `terminal` card to the `_meta` terminal convention, and relativizes a file card's title against the session cwd.
 
 The full presentation field docs live in [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts). The `bash` schema and executor are on [bash.md](bash.md); generic background controls are on [tasks.md](tasks.md).

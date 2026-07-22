@@ -1,22 +1,25 @@
 /**
  * call-config unit tests: field-wise LlmCallConfig equality (the real-change
- * detector behind logged header deltas) and the deepFreeze ownership helper
+ * detector behind logged changed headers) and the deepFreeze ownership helper
  * the loop applies to every built request.
  */
 
 import { describe, expect, it } from 'vitest'
-import { callConfigEquals, deepFreeze } from '../src/call-config.ts'
+import { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from '../src/call-config.ts'
+import type { GenerateOptions } from '../src/types.ts'
 
 describe('callConfigEquals', () => {
   it('compares every field, including the stop list element-wise', () => {
-    expect(callConfigEquals({ model: 'm' }, { model: 'm' })).toBe(true)
-    expect(callConfigEquals({ model: 'm' }, { model: 'x' })).toBe(false)
-    expect(callConfigEquals({ model: 'm', temperature: 0.5 }, { model: 'm' })).toBe(false)
-    expect(callConfigEquals({ model: 'm', maxTokens: 1 }, { model: 'm', maxTokens: 2 })).toBe(false)
-    expect(callConfigEquals({ model: 'm', stop: ['a'] }, { model: 'm' })).toBe(false)
-    expect(callConfigEquals({ model: 'm', stop: ['a'] }, { model: 'm', stop: ['a', 'b'] })).toBe(false)
-    expect(callConfigEquals({ model: 'm', stop: ['a'] }, { model: 'm', stop: ['b'] })).toBe(false)
-    expect(callConfigEquals({ model: 'm', stop: ['a', 'b'] }, { model: 'm', stop: ['a', 'b'] })).toBe(true)
+    const base = { provider: 'p', model: 'm' }
+    expect(callConfigEquals(base, base)).toBe(true)
+    expect(callConfigEquals(base, { provider: 'x', model: 'm' })).toBe(false)
+    expect(callConfigEquals(base, { provider: 'p', model: 'x' })).toBe(false)
+    expect(callConfigEquals({ ...base, temperature: 0.5 }, base)).toBe(false)
+    expect(callConfigEquals({ ...base, maxTokens: 1 }, { ...base, maxTokens: 2 })).toBe(false)
+    expect(callConfigEquals({ ...base, stop: ['a'] }, base)).toBe(false)
+    expect(callConfigEquals({ ...base, stop: ['a'] }, { ...base, stop: ['a', 'b'] })).toBe(false)
+    expect(callConfigEquals({ ...base, stop: ['a'] }, { ...base, stop: ['b'] })).toBe(false)
+    expect(callConfigEquals({ ...base, stop: ['a', 'b'] }, { ...base, stop: ['a', 'b'] })).toBe(true)
   })
 })
 
@@ -52,5 +55,21 @@ describe('deepFreeze', () => {
     cyclic.self = cyclic
     deepFreeze(cyclic)
     expect(Object.isFrozen(cyclic)).toBe(true)
+  })
+})
+
+describe('agent-loop request identity', () => {
+  it('marks only the exact request object and preserves its identity', () => {
+    const request: GenerateOptions = {
+      provider: 'mock',
+      model: 'model',
+      messages: [],
+    }
+    const copy = { ...request }
+
+    expect(isAgentLoopRequest(request)).toBe(false)
+    expect(markAgentLoopRequest(request)).toBe(request)
+    expect(isAgentLoopRequest(request)).toBe(true)
+    expect(isAgentLoopRequest(copy)).toBe(false)
   })
 })

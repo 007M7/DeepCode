@@ -376,7 +376,7 @@ describe('feature configurator', () => {
     name: 'demo',
     description: 'demo',
     runtime: { model: 'deepseek-v4-flash' },
-    runInterface: 'stdio',
+    runInterface: 'tui',
     packageManager: new NpmPackageManager('10.0.0'),
     releaseVersion: '0.0.1',
   }
@@ -449,5 +449,36 @@ describe('feature configurator', () => {
     }
     await expect(new FeatureConfigurator(new QueuePromptPort([])).configure(new EmptyExclusive(), profile))
       .rejects.toThrow('has no default option')
+  })
+
+  it('configures fully from prefilled options, values, and secrets without prompting', async () => {
+    const registry = createBuiltinRegistry(profile)
+    const port = new QueuePromptPort([])
+    const result = await new FeatureConfigurator(port).configure(
+      registry.get(featureId('provider')),
+      profile,
+      undefined,
+      ['custom'],
+      { apiKey: 'prefilled-key' },
+      { baseURL: 'https://prefilled' },
+    )
+    expect(result).toMatchObject({
+      options: ['custom'],
+      values: { baseURL: 'https://prefilled' },
+      secrets: { apiKey: 'prefilled-key' },
+    })
+    expect(port.requests).toEqual([])
+  })
+
+  it('rejects a non-string prefilled feature value', async () => {
+    const registry = createBuiltinRegistry(profile)
+    await expect(new FeatureConfigurator(new QueuePromptPort([])).configure(
+      registry.get(featureId('provider')),
+      profile,
+      undefined,
+      ['custom'],
+      { apiKey: 'k' },
+      { baseURL: 123 },
+    )).rejects.toThrow('must be a string')
   })
 })

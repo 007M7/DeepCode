@@ -2,8 +2,9 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
 // Real-API suite, separate because it spends tokens. Each test self-skips without
-// DEEPSEEK_API_KEY for keyless CI; the credentialed workflow preflights the secret. Values may come
-// from the environment or gitignored root `.env`, with optional DEEPSEEK_BASE_URL.
+// its provider credential for keyless CI; credentialed workflows preflight the
+// secrets they require. Values may come from the environment or gitignored root
+// `.env`, with provider-specific endpoint overrides where supported.
 try {
   // Node >= 21.7 native; throws when the file does not exist.
   process.loadEnvFile(new URL('.env', import.meta.url).pathname)
@@ -28,9 +29,15 @@ const e2eMaxWorkers = positiveIntFromEnv('DSH_E2E_MAX_WORKERS', DEFAULT_E2E_MAX_
 
 export default defineConfig({
   // Same resolution note as vitest.config.ts: bare workspace names resolve
-  // through the root tsconfig paths map; the native option cannot do this.
-  plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
+  // through the vitest-scoped tsconfig paths map (its include spans package
+  // src, so client-package sources get mapping too — the root tsconfig
+  // excludes packages/client, which would drop /client subpath imports onto
+  // package exports and load browser dist bundles into node). Built-artifact
+  // e2e suites are unaffected: their built-ness lives in subprocesses and
+  // createRequire lookups, which bypass vite resolution entirely.
+  plugins: [tsconfigPaths({ projects: ['./tsconfig.vitest.json'] })],
   test: {
+    setupFiles: ['./scripts/test-invariants.ts'],
     include: ['packages/*/*/tests/**/*.e2e.ts', 'examples/*/tests/**/*.e2e.ts'],
     // Real model calls: generous timeouts, and retries for transient flakes
     // (the shared internal key hits concurrency quotas). No coverage — the

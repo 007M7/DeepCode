@@ -58,8 +58,11 @@ describe('dsh-workflow (interface)', () => {
     ctx.on('workflow/log', (info, message) => { seen.push([info, message]) })
     ctx.on('workflow/agent-start', (info, agent) => { seen.push([info, agent]) })
     const engine = ctx.workflows as StubEngine
+    engine.emit('workflow/start', INFO)
     engine.emit('workflow/log', INFO, 'hello')
     engine.emit('workflow/agent-start', INFO, { seq: 1, label: 'l', childId: 'c' })
+    engine.emit('workflow/agent-end', INFO, { seq: 1, label: 'l', childId: 'c', outcome: 'completed' })
+    engine.emit('workflow/end', INFO, { stopReason: 'completed', agentsStarted: 1 })
     expect(seen).toEqual([
       [INFO, 'hello'],
       [INFO, { seq: 1, label: 'l', childId: 'c' }],
@@ -77,8 +80,11 @@ describe('dsh-workflow (interface)', () => {
     ctx.on('workflow/agent-start', (_info, agent) => { seen.push(agent.label) })
     const engine = ctx.workflows as StubEngine
     const payload = { seq: 1, label: 'original', childId: 'c' }
+    engine.emit('workflow/start', INFO)
     engine.emit('workflow/agent-start', INFO, payload)
     await Promise.resolve()
+    engine.emit('workflow/agent-end', INFO, { ...payload, outcome: 'completed' })
+    engine.emit('workflow/end', INFO, { stopReason: 'completed', agentsStarted: 1 })
     expect(seen).toEqual(['original'])
     expect(String(warn.mock.calls[0]![0])).toContain('listener rejected')
   })
@@ -91,7 +97,9 @@ describe('dsh-workflow (interface)', () => {
     ctx.on('workflow/phase', () => { throw new Error('bad listener') })
     ctx.on('workflow/phase', (_info, title) => { reached.push(title) })
     const engine = ctx.workflows as StubEngine
+    engine.emit('workflow/start', INFO)
     expect(() => { engine.emit('workflow/phase', INFO, 'Scan') }).not.toThrow()
+    engine.emit('workflow/end', INFO, { stopReason: 'completed', agentsStarted: 0 })
     expect(reached).toEqual(['Scan'])
     expect(warn).toHaveBeenCalledOnce()
     expect(String(warn.mock.calls[0]![0])).toContain('workflow/phase listener threw')
@@ -107,7 +115,9 @@ describe('dsh-workflow (interface)', () => {
     })
     ctx.on('workflow/phase', (_info, title) => { reached.push(title) })
     const engine = ctx.workflows as StubEngine
+    engine.emit('workflow/start', INFO)
     expect(() => { engine.emit('workflow/phase', INFO, 'Scan') }).not.toThrow()
+    engine.emit('workflow/end', INFO, { stopReason: 'completed', agentsStarted: 0 })
     expect(reached).toEqual(['Scan'])
     expect(warn).toHaveBeenCalledOnce()
     expect(String(warn.mock.calls[0]![0])).toContain('[unrenderable thrown value]')
