@@ -1,8 +1,8 @@
-# RFC：移除未使用的会话血缘元数据
+# RFC: 移除未使用的会话血缘元数据
+
+Status: rejected — `parentSession` is part of the documented fork/sub-agent seam and is already preserved by the agent/session resume path. The field is future-facing, but it is not accidental dead state.
 
 [English](2026-06-20-drop-unused-session-lineage.md) | 中文
-
-Status: rejected — `parentSession` 是已文档化的 fork/subagent seam 的一部分，且已被 agent（智能体）/session 恢复路径保留。该字段面向未来，但并非意外的死状态。
 
 ## 问题
 

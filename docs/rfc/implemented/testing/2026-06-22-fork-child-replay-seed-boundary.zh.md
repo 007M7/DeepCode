@@ -1,8 +1,8 @@
-# RFC：持久化 seed 边界以确保 fork 子会话回放正确路由
-
-[English](2026-06-22-fork-child-replay-seed-boundary.md) | 中文
+# RFC: 持久化 seed 边界以确保 fork 子会话回放正确路由
 
 Status: implemented
+
+[English](2026-06-22-fork-child-replay-seed-boundary.md) | 中文
 
 ## 问题
 

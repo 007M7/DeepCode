@@ -1,8 +1,8 @@
-# RFC：相对文件系统路径按调用方的会话 cwd 解析
-
-[English](2026-07-02-fs-per-session-cwd.md) | 中文
+# RFC: 相对文件系统路径按调用方的会话 cwd 解析
 
 Status: implemented
+
+[English](2026-07-02-fs-per-session-cwd.md) | 中文
 
 ## 问题
 
@@ -24,7 +24,7 @@ ACP（Agent Client Protocol）桥接层为每个会话提供独立的工作区�
 
 提供方 seam 不得依赖 `dsh-agent`／`dsh-session`——它是一个文本存储后端，沙箱或远程实现同样满足该接口，而这些实现没有「agent 会话」的概念。工具已经接收了 `ToolExecution`（`exec`），其中携带 agent，因此工具是将 `exec → cwd` 投影并向提供方传递一个纯字符串的正确位置。这遵循「包（package）边界处显式优于隐式」的约定：基准目录作为显式参数传入，提供方据此行动，而非让提供方越界去读取它不应知晓的会话。这也与 `dsh-tool-bash` 一一对应，使两个面向模型的文件操作接口以相同方式解析路径。
 
-默认值只存在于**一个**地方——提供方的 `config.cwd`。`sessionCwd` 在没有会话时返回 `undefined` 而非 `process.cwd()`，因此工具永远不会自行制造一个提供方本应自行选择的基准目录。
+默认值只存在于一个地方——提供方的 `config.cwd`。`sessionCwd` 在没有会话时返回 `undefined` 而非 `process.cwd()`，因此工具永远不会自行制造一个提供方本应自行选择的基准目录。
 
 ## 后果
 

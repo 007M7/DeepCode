@@ -1,8 +1,8 @@
-# RFC：在单个连接上多路复用并发 ACP 会话
-
-[English](2026-06-14-acp-multi-session.md) | 中文
+# RFC: 在单个连接上多路复用并发 ACP 会话
 
 Status: implemented
+
+[English](2026-06-14-acp-multi-session.md) | 中文
 
 ## 问题
 

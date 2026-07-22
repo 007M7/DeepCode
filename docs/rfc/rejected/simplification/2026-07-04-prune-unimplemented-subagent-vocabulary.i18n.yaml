@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-04-prune-unimplemented-subagent-vocabulary.md: 3c86f11564d85b423fe59d784c6bf69959fb3907
-2026-07-04-prune-unimplemented-subagent-vocabulary.zh.md: 84ff6f15ff2c9b3a13240997ab3c7b5cf2ab7263
+2026-07-04-prune-unimplemented-subagent-vocabulary.md: 1621bc1feee8bf98478242f002d9d1dca16878f5
+2026-07-04-prune-unimplemented-subagent-vocabulary.zh.md: b26ffee4764cd5a5937ef0436fa30c7c0eeba87a

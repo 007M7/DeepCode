@@ -1,8 +1,8 @@
 # RFC: Dynamic workflows — a script-driven multi-agent orchestration seam
 
-English | [中文](2026-07-05-dynamic-workflows.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-05-dynamic-workflows.zh.md)
 
 ## Problem
 

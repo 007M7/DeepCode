@@ -1,8 +1,8 @@
 # RFC: Split the filesystem seam — provider text mutations plus the `dsh-fs-policy` plugin
 
-English | [中文](2026-06-26-fsspec-style-fs-seam.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-26-fsspec-style-fs-seam.zh.md)
 
 ## Problem
 

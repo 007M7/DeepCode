@@ -1,8 +1,8 @@
 # RFC: Persist the seed boundary so fork-child replay routes correctly
 
-English | [中文](2026-06-22-fork-child-replay-seed-boundary.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-22-fork-child-replay-seed-boundary.zh.md)
 
 ## Problem
 

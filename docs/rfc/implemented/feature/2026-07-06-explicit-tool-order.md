@@ -1,8 +1,8 @@
 # RFC: Explicit model-facing tool order
 
-English | [中文](2026-07-06-explicit-tool-order.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-06-explicit-tool-order.zh.md)
 
 ## Problem
 

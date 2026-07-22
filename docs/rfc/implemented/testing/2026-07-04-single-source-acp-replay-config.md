@@ -1,8 +1,8 @@
 # RFC: Single-source the acp-agent replay config
 
-English | [中文](2026-07-04-single-source-acp-replay-config.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-04-single-source-acp-replay-config.zh.md)
 
 ## Problem
 

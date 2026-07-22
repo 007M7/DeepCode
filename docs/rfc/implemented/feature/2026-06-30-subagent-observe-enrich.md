@@ -1,8 +1,8 @@
 # RFC: Subagent lifecycle enrichment — lastAssistantMessage (observe-only)
 
-English | [中文](2026-06-30-subagent-observe-enrich.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-30-subagent-observe-enrich.zh.md)
 
 ## Problem
 

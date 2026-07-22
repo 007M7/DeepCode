@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-06-21-mandatory-app-attribution-headers.md: 4fa773e089b3a4b682e42269a66d85aeaf5c18f6
-2026-06-21-mandatory-app-attribution-headers.zh.md: 42cc396b5719adb2a2d71e0e9cf0d3554c5533a5
+2026-06-21-mandatory-app-attribution-headers.md: 132c827b48693af85fde67cf9d2d71cc84e853c6
+2026-06-21-mandatory-app-attribution-headers.zh.md: 9bba6d912b0b9bb33174c1ebb51a84dfdb47af0f

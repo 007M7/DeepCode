@@ -1,8 +1,8 @@
 # RFC: Hook snapshot matrix — end-to-end goldens for both bridges
 
-English | [中文](2026-07-04-hook-snapshot-matrix.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-04-hook-snapshot-matrix.zh.md)
 
 ## Problem
 

@@ -1,8 +1,8 @@
 # RFC: Drop ACP terminal `_meta` rendering
 
-English | [中文](2026-06-20-drop-acp-terminal-meta.zh.md)
-
 Status: rejected — Zed is the current target client, and the terminal `_meta` convention is intentional Zed UX with a plain ACP fallback for other clients.
+
+English | [中文](2026-06-20-drop-acp-terminal-meta.zh.md)
 
 ## Problem
 

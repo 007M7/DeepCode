@@ -1,8 +1,8 @@
 # RFC: Pin request-header content in one snapshot scenario
 
-English | [中文](2026-07-06-pin-request-header-content-in-one-scenario.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-06-pin-request-header-content-in-one-scenario.zh.md)
 
 ## Problem
 

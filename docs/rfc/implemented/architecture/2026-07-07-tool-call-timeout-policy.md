@@ -1,8 +1,8 @@
 # RFC: Tool-call timeout policy as a plugin
 
-English | [中文](2026-07-07-tool-call-timeout-policy.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-07-tool-call-timeout-policy.zh.md)
 
 ## Problem
 

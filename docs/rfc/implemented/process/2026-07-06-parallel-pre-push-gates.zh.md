@@ -1,8 +1,8 @@
-# RFC：并行 pre-push 门禁
-
-[English](2026-07-06-parallel-pre-push-gates.md) | 中文
+# RFC: 并行 pre-push 门禁
 
 Status: implemented
+
+[English](2026-07-06-parallel-pre-push-gates.md) | 中文
 
 ## 问题
 

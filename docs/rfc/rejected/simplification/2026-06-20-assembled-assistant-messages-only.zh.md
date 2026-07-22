@@ -1,8 +1,8 @@
-# RFC：仅持久化组装后的 assistant 消息，不存储流式分片
-
-[English](2026-06-20-assembled-assistant-messages-only.md) | 中文
+# RFC: 仅持久化组装后的 assistant 消息，不存储流式分片
 
 Status: rejected — high-fidelity chunk replay, partial failed streams, and snapshot replay currently depend on persisted `assistant/chunk` events. Dropping chunks is only viable with a no-information-loss replay/artifact replacement.
+
+[English](2026-06-20-assembled-assistant-messages-only.md) | 中文
 
 ## 问题
 

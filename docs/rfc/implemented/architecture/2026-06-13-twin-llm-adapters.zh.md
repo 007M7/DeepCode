@@ -1,4 +1,4 @@
-# RFC：以两个 LLM 适配器作为设计验证孪生体
+# RFC: 以两个 LLM 适配器作为设计验证孪生体
 
 Status: implemented
 

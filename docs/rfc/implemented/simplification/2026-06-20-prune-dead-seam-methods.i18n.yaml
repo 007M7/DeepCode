@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-06-20-prune-dead-seam-methods.md: cb3eb576dbae209ddccbea7f42a80ef09f842887
-2026-06-20-prune-dead-seam-methods.zh.md: 988da3c44d8860d89f090f0ea9e2af49ae9007dd
+2026-06-20-prune-dead-seam-methods.md: fc656f4fc46837a75fa6c34c2de18cffde954ef3
+2026-06-20-prune-dead-seam-methods.zh.md: 2b8b2afea97aa28d32d55a9def217a593e9dbc7d

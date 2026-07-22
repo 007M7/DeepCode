@@ -1,8 +1,8 @@
-# RFC：停止将 token 流镜像为 agent 事件
-
-[English](2026-07-02-remove-stream-chunk-mirror.md) | 中文
+# RFC: 停止将 token 流镜像为 agent 事件
 
 Status: implemented
+
+[English](2026-07-02-remove-stream-chunk-mirror.md) | 中文
 
 ## 问题
 

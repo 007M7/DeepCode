@@ -1,8 +1,8 @@
-# RFC：在每个 package README 中设置受门禁保护的 Known Limitations 章节
-
-[English](2026-07-10-readme-known-limitations-gate.md) | 中文
+# RFC: 在每个 package README 中设置受门禁保护的 Known Limitations 章节
 
 Status: implemented
+
+[English](2026-07-10-readme-known-limitations-gate.md) | 中文
 
 ## 问题
 

@@ -1,12 +1,12 @@
-# RFC：供应链检查与 vendor 漂移验证
-
-[English](2026-06-11-supply-chain-and-vendor-drift.md) | 中文
+# RFC: 供应链检查与 vendor 漂移验证
 
 Status: proposed
 
+[English](2026-06-11-supply-chain-and-vendor-drift.md) | 中文
+
 ## 问题
 
-vendor manifest（元数据清单）（见[引入 vendor 的决策](../../implemented/process/2026-06-11-vendor-cordis-as-source.md)）在提交时仅在**正向**强制执行（vendor 变更 ⇒ manifest 更新），但没有任何机制验证 manifest 的**声明**：即 vendor/ 确实等于上游指定 SHA 的内容加上所记录的修改。此外，少量真正的 npm 依赖也没有安全公告监控或更新节奏。
+vendor manifest（元数据清单）（见[引入 vendor 的决策](../../implemented/process/2026-06-11-vendor-cordis-as-source.md)）在提交时仅在*正向*强制执行（vendor 变更 ⇒ manifest 更新），但没有任何机制验证 manifest 的*声明*：即 vendor/ 确实等于上游指定 SHA 的内容加上所记录的修改。此外，少量真正的 npm 依赖也没有安全公告监控或更新节奏。
 
 ## 提案
 

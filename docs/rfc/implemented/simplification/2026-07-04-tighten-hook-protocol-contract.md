@@ -1,8 +1,8 @@
 # RFC: Tighten the hook-protocol contract — dialect, discarded fields, double defaults, and lib-owned `hook/result` semantics
 
-English | [中文](2026-07-04-tighten-hook-protocol-contract.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-04-tighten-hook-protocol-contract.zh.md)
 
 ## Problem
 

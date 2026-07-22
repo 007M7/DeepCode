@@ -1,8 +1,8 @@
-# RFC：通过工具调用流式传输工作流进度
-
-[English](2026-07-13-stream-workflow-progress-through-tool-calls.md) | 中文
+# RFC: 通过工具调用流式传输工作流进度
 
 Status: proposed
+
+[English](2026-07-13-stream-workflow-progress-through-tool-calls.md) | 中文
 
 ## 问题
 

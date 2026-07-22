@@ -1,4 +1,4 @@
-# RFC：每个会话事件都封闭在一个轮次内
+# RFC: 每个会话事件都封闭在一个轮次内
 
 Status: implemented
 
@@ -10,7 +10,7 @@ Status: implemented
 
 这一假设并不成立。有两条路径在任何轮次之外记录了事件：
 
-1. **排队的用户消息。** agent loop（智能体循环）排空排队消息并在 `turn/start` **之前**追加 `user/message`——于是一个轮次自身的提示词落在了前一个 `turn/end` 与下一个 `turn/start` 之间的间隙中。
+1. **排队的用户消息。** agent loop（智能体循环）排空排队消息并在 `turn/start` *之前*追加 `user/message`——于是一个轮次自身的提示词落在了前一个 `turn/end` 与下一个 `turn/start` 之间的间隙中。
 2. **空闲时的上下文注入。** `agent.inject()` 直接追加一条 `context/message`。它在生产环境中的真实调用方是 `dsh-tool-bash`，后者从 `ctx.bash.onTaskDone` 注入后台任务完成通知——该回调在后台 bash 任务完成时触发，而这经常发生在 agent **空闲**（轮次之间）时。
 
 在情况 2 中，如果注入的 `context/message` 是 flush/dispose 之前的最后一个事件（之后没有轮次追加 `turn/end`），`scanLog` 会将其视为崩溃残留并在**恢复时丢弃**——注入的上下文已持久写入磁盘，但重新加载后被静默丢失。情况 1 本身无害（`user/message` 之后总会跟着它触发的轮次），但使「什么可以出现在轮次之外」这条规则变得模糊。

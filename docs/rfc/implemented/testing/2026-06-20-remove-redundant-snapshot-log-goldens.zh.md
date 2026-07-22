@@ -1,4 +1,4 @@
-# RFC：使用 `session.jsonl` 作为唯一的快照会话日志产物
+# RFC: 使用 `session.jsonl` 作为唯一的快照会话日志产物
 
 Status: implemented
 

@@ -1,8 +1,8 @@
-# RFC：移除轮次中途引导
-
-[English](2026-06-20-retire-mid-turn-steering.md) | 中文
+# RFC: 移除轮次中途引导
 
 Status: rejected — mid-turn steering is an intentional agent capability for between-step user/plugin input and future goal/loop workflows. It is complexity with a product direction, not an accidental duplicate of `send()`.
+
+[English](2026-06-20-retire-mid-turn-steering.md) | 中文
 
 ## 问题
 

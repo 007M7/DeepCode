@@ -1,8 +1,8 @@
-# RFC：为文件系统 seam 添加直接目录列举能力
-
-[English](2026-07-03-filesystem-directory-listing-seam.md) | 中文
+# RFC: 为文件系统 seam 添加直接目录列举能力
 
 Status: implemented
+
+[English](2026-07-03-filesystem-directory-listing-seam.md) | 中文
 
 ## 问题
 

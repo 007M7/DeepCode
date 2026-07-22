@@ -1,4 +1,4 @@
-# RFC：会话持久化作为基于现有 `SessionEvent` 的抽象服务
+# RFC: 会话持久化作为基于现有 `SessionEvent` 的抽象服务
 
 Status: implemented
 
@@ -23,7 +23,7 @@ Status: implemented
 - **仅追加；崩溃的轮次被关闭，而非截断。** 已刷写到 `turn/end` 的事件永不被重写，且循环仅在轮次结束时刷写。由于一个被中断的轮次可能包含大量有效工作，`load` 保留其连续、可解析的事件，并为未应答的工具调用追加错误结果、补一个缺失的 `step/end`，以及带 `{ kind: 'interrupted' }` 的 `turn/end`。合成的结果保证恢复后的 provider transcript（文本记录）仍然有效。只有不完整的最后一条记录会被丢弃；在最后一个真实 `turn/end` 处或之前出现解析错误或序号间隙，属于数据损坏，会使该会话不可加载。
 - **文件后端为规范实现，数据库后端为经过验证的直接替换。** `SessionEvent` 1:1 映射到一行 `(session_id, seq, type, time, data)`：`append` 是 INSERT（在一个断言连续 seq 契约的事务中），`load` 是 SELECT … ORDER BY seq。`dsh-session-persistence-sqlite` 正是如此：一个 `SessionPersistence` 子类，接口无变化（opencode 在 SQLite/WAL 上运行的正是这个形状），且通过与 JSONL 后端相同的 `runPersistenceContract` 测试套件。该契约以相同的语义约束两个后端（惰性物化、加载时关闭中断轮次、连续 seq），一次表达在文件字节上，一次表达在数据库行上。
 - **元数据在日志之外。** 格式版本、cwd 和谱系是存储关注点，不是可回放的对话状态，因此它们存放在 `dsh-session` 拥有的 `SessionHeader` 中，并通过新的只读属性 `session.header` 附加到 `Session` 上——永远不进入 `SessionEventMap`，永远不到达 `deriveMessages()`。替代方案（一个可合并扩展的 `session/meta` 事件作为日志第 0 行）被否决：日志内事件会随 seed/fork 的会话免费携带，但元数据不是可回放状态，因此显式的日志外 header seam 是更干净的代价。（header 最初被拆分为不可变的 `SessionHeader` 加可变的 `SessionSummary`，二者的联合类型为 `SessionMeta`；可变 summary 后来因属于死状态而被移除——见 [移除可变会话摘要](../simplification/2026-06-19-drop-mutable-session-summary.md)。）
-- **`ctx.agents.create()` 和 `ctx.agents.resume()` 是异步工厂；resume 还跨越持久化边界。** `ctx.agents.resume({ resumeSessionId })` 等待 `ctx.sessionPersistence.load`，用加载的事件重建活跃会话（使 `lastTurnNumber`/`deriveMessages` 得以延续），并在恢复的 id 上启动一个新 agent（不是 `${agentId}-session`）。agent loop（智能体循环）不会硬注入 `sessionPersistence`（那样会让非持久化的演示永远挂起）；当 `sessionPersistence` 不存在时，`resume` 以明确的错误拒绝。
+- **`ctx.agents.create()` 和 `ctx.agents.resume()` 是异步工厂；resume 还跨越持久化边界。** `ctx.agents.resume({ resumeSessionId })` 等待 `ctx.sessionPersistence.load`，用加载的事件重建活跃会话（使 `lastTurnNumber`/`deriveMessages` 得以延续），并在恢复的 id 上启动一个新 agent（不是 `${agentId}-session`）。agent loop（智能体循环）不会硬注入 `sessionPersistence`（那样会让非持久化的演示永远挂起）；当它不存在时，`resume` 以明确的错误拒绝。
 
 ## 曾考虑的替代方案
 

@@ -1,4 +1,4 @@
-# RFC：拦截 seam——钩子编程所面对的类型化 Decision 表面
+# RFC: 拦截 seam——钩子编程所面对的类型化 Decision 表面
 
 Status: implemented
 
@@ -15,7 +15,7 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 规范表面将可变换策略、环绕调度控制与仅观测通知分离。策略 waterfall（瀑布式事件）返回小型的、seam 专属的**类型化 Decision 联合类型**；包装层返回规范化结果；通知接收不可变快照，无法影响结果。覆盖的钩子点包括 `session-start`、`prompt-submit`、`pre-tool`、`post-tool`、通过 continuation 实现的 `stop`，同时将非钩子的执行策略留作独立可组合。
 
 **Agent 事件**（`dsh-agent`）：
-- `agent/session-start(agent, source)` ——emit，在第 1 轮次之前触发一次，携带 `SessionStartSource`（`startup` 表示全新/fork 创建，`resume` 表示重新加载的持久化会话；`clear`/`compact` 保留）。纯通知，**不能**阻塞启动（这是有意的空白：桥接可以记录/注入，但不管控启动）。监听器通过 `agent.inject()` 注入上下文。
+- `agent/session-start(agent, source)` ——emit，在第 1 轮次之前触发一次，携带 `SessionStartSource`（`startup` 表示全新/fork 创建，`resume` 表示重新加载的持久化会话；`clear`/`compact` 保留）。纯通知，不能阻塞启动（这是有意的空白：桥接可以记录/注入，但不管控启动）。监听器通过 `agent.inject()` 注入上下文。
 - `agent/prompt-submit(agent, content, source, next) → PromptDecision` ——waterfall，在已开启的轮次内、`user/message` 追加之前，对每条出队的排队消息触发。`allow`（可选地重写 prompt `content` 或附加 `additionalContext`）或 `block`（丢弃该 prompt；循环在其位置追加一条持久的 `prompt/blocked`——见下方调度说明）。
 
 **`agent/turn-continuation`** 接收并返回一个 `ContinuationDecision`。`{action:'continue', reason?}` 可携带面向模型的上下文，记录为同一轮次内的下一步 steering（中途引导）——与 `/goal` step-end-steer 模式互为类型化孪生。
@@ -38,7 +38,7 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 
 1. **在 prompt 策略之前开启轮次。** 全部被阻止的批次成为零步骤的 `rejected` 轮次，保持封闭性并为 ACP（Agent Client Protocol）提供持久的终结事件。每次否决还记录 `prompt/blocked`（含原始 prompt 和原因），因此混合批次保留被阻止的输入。允许的 `additionalContext` 注入到已开启的轮次中。
 
-2. **Post-tool `additionalContext` 被缓冲，在所有 `tool/result` 之后追加。** `content`/`feedback` 塑造 `execute()` 返回的结果，但 `additionalContext` 是一条**独立的** `context/message`，而单个步骤可以携带多个工具调用。如果在每个结果之后立即追加上下文，会产生 `result(c1) → context → result(c2)` 的交错，破坏工具调用/结果的邻接性。因此 `execute()` 将 `additionalContext` 暴露在其 `ToolExecutionResult` 上，循环为该步骤的每次调用缓冲上下文，仅在所有 `tool/result` 追加完毕后才以 `context/message` 形式追加。
+2. **Post-tool `additionalContext` 被缓冲，在所有 `tool/result` 之后追加。** `content`/`feedback` 塑造 `execute()` 返回的结果，但 `additionalContext` 是一条独立的 `context/message`，而单个步骤可以携带多个工具调用。如果在每个结果之后立即追加上下文，会产生 `result(c1) → context → result(c2)` 的交错，破坏工具调用/结果的邻接性。因此 `execute()` 将 `additionalContext` 暴露在其 `ToolExecutionResult` 上，循环为该步骤的每次调用缓冲上下文，仅在所有 `tool/result` 追加完毕后才以 `context/message` 形式追加。
 
 3. **强制 `continue` 的 `reason` 通过 steering 通道入队**，使得下一步骤在循环顶部排空时将其记录为当前轮次的 steering——同一轮次内的下一*步骤* steering，而非下一*轮次*的 prompt（与现有的 `hasSteering` 强制继续覆盖一致）。
 

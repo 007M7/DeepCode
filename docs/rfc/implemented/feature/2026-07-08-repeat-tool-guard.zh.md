@@ -1,4 +1,4 @@
-# RFC：重复工具调用守卫插件
+# RFC: 重复工具调用守卫插件
 
 Status: implemented
 

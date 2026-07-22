@@ -1,8 +1,8 @@
-# RFC：裁剪不可达的 ACP 桥接层表面——品牌配置项与 kind 嗅探回退
-
-[English](2026-07-04-trim-acp-bridge-unreachable-surface.md) | 中文
+# RFC: 裁剪不可达的 ACP 桥接层表面——品牌配置项与 kind 嗅探回退
 
 Status: implemented
+
+[English](2026-07-04-trim-acp-bridge-unreachable-surface.md) | 中文
 
 ## 问题
 

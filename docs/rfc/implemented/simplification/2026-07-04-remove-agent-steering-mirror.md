@@ -1,8 +1,8 @@
 # RFC: Remove the `agent/steering` mirror emit
 
-English | [中文](2026-07-04-remove-agent-steering-mirror.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-04-remove-agent-steering-mirror.zh.md)
 
 ## Problem
 

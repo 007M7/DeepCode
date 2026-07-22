@@ -1,8 +1,8 @@
 # RFC: Collapse tool-owned UI presentation
 
-English | [中文](2026-06-20-generic-tool-rendering.zh.md)
-
 Status: rejected — tool-owned presentation should wait for more real tools before being generalized or deleted. Bash and ACP currently need the existing richer presentation path.
+
+English | [中文](2026-06-20-generic-tool-rendering.zh.md)
 
 ## Problem
 

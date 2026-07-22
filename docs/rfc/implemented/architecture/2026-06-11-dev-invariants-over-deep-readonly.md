@@ -1,8 +1,8 @@
 # RFC: Source-owned session immutability and dev-mode invariants
 
-English | [中文](2026-06-11-dev-invariants-over-deep-readonly.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-11-dev-invariants-over-deep-readonly.zh.md)
 
 ## Problem
 

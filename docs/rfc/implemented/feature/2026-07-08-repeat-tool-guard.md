@@ -1,8 +1,8 @@
 # RFC: Repeat-tool-call guard plugin
 
-English | [中文](2026-07-08-repeat-tool-guard.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-08-repeat-tool-guard.zh.md)
 
 ## Problem
 

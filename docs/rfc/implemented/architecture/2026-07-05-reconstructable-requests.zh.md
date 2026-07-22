@@ -1,4 +1,4 @@
-# RFC：每个 LLM（大语言模型）请求都可从会话日志重建
+# RFC: 每个 LLM（大语言模型）请求都可从会话日志重建
 
 Status: implemented
 
@@ -46,7 +46,7 @@ Status: implemented
 ## 后果
 
 - 一个日志无法解释的请求不可能被意外构造——无论是循环还是监听器；变异已构建的请求会抛异常；每个 header 变更都是持久的、可 diff 的日志事件。
-- 在建议性通道之间做选择是变更频率的决策，而本设计使稳定的那个在结构上成为默认：`agent/session-prefix` 的贡献在每个循环实例中只组合一次并逐字复用，因此以零边际成本扩展可缓存前缀，且**不可能**在会话中途击穿提供方缓存；会话中途变化的内容通过仅追加的历史通道流入——`agent.inject()`、`tools/post-execute` 决策的 `additionalContext`、prompt-submit 的 `additionalContext`——每条都是持久的 `context/message`，付出一次代价后即被前缀缓存，代价是在历史和日志中累积。将会话冻结的开场内容路由到前缀，将变更通知路由到历史通道；逐步骤的仅限请求尾部槽位被有意放弃（无消费方，且持久追加覆盖了当前所有更新模式）。
+- 在建议性通道之间做选择是变更频率的决策，而本设计使稳定的那个在结构上成为默认：`agent/session-prefix` 的贡献在每个循环实例中只组合一次并逐字复用，因此以零边际成本扩展可缓存前缀，且不可能在会话中途击穿提供方缓存；会话中途变化的内容通过仅追加的历史通道流入——`agent.inject()`、`tools/post-execute` 决策的 `additionalContext`、prompt-submit 的 `additionalContext`——每条都是持久的 `context/message`，付出一次代价后即被前缀缓存，代价是在历史和日志中累积。将会话冻结的开场内容路由到前缀，将变更通知路由到历史通道；逐步骤的仅限请求尾部槽位被有意放弃（无消费方，且持久追加覆盖了当前所有更新模式）。
 - 在提供方处仍需全价计算的内容是固有的且已记录的：压缩（其 `compact/*` 事件和 replace 节点）、真正的 prompt/工具变更（`request/header-delta`）、配置切换（同上）、带漂移的进程边界（`'resume'` 快照与前一快照不同）。提供方自身的 reasoning-content 排除由服务端管理。
 - `step/start` 监听器行为变更（见上文）是对插件唯一可观察的语义变更；`agent/pre-step` 是当前请求的 seam。
 - 工具结果裁剪（计划中）无需新机制：一个已记录的单节点 surface replace（`start === end`），携带同一 `callId` 下裁剪后的 `tool/result`——属压缩家族，回放正确，缓存击穿由相同的压力逻辑批量处理。

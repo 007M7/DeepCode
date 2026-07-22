@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-12-collapse-workflow-to-foreground-core.md: 78b67c10ac39fddaf4ea76ca90d5cbf760fe5866
-2026-07-12-collapse-workflow-to-foreground-core.zh.md: 28b0af0a70110d39572fafac521a555c62ebb3f5
+2026-07-12-collapse-workflow-to-foreground-core.md: eaf8a4a22766e06b743a7b91d2a607eb6c8e67d9
+2026-07-12-collapse-workflow-to-foreground-core.zh.md: 4b1f4ebbec852386ca4577a38a9bd41b7529e500

@@ -1,8 +1,8 @@
-# RFC：将 stdio UI 辅助模块折入 stdio 应用
-
-[English](2026-07-04-fold-stdio-ui-helper.md) | 中文
+# RFC: 将 stdio UI 辅助模块折入 stdio 应用
 
 Status: implemented
+
+[English](2026-07-04-fold-stdio-ui-helper.md) | 中文
 
 ## 问题
 

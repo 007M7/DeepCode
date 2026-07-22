@@ -1,8 +1,8 @@
-# RFC：收拢工具自有的 UI 展示逻辑
-
-[English](2026-06-20-generic-tool-rendering.md) | 中文
+# RFC: 收拢工具自有的 UI 展示逻辑
 
 Status: rejected — tool-owned presentation should wait for more real tools before being generalized or deleted. Bash and ACP currently need the existing richer presentation path.
+
+[English](2026-06-20-generic-tool-rendering.md) | 中文
 
 ## 问题
 

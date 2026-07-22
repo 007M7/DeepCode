@@ -1,8 +1,8 @@
 # RFC: Fold the stdio UI helper into the stdio app
 
-English | [中文](2026-07-04-fold-stdio-ui-helper.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-04-fold-stdio-ui-helper.zh.md)
 
 ## Problem
 

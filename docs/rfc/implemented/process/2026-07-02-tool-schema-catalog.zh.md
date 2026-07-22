@@ -1,8 +1,8 @@
-# RFC：生成式工具 schema 目录（启动并采集）
-
-[English](2026-07-02-tool-schema-catalog.md) | 中文
+# RFC: 生成式工具 schema 目录（启动并采集）
 
 Status: implemented
+
+[English](2026-07-02-tool-schema-catalog.md) | 中文
 
 ## 问题
 
@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-通过**启动每个工具插件并读取其注册的 schema** 来生成目录，而非解析源码。`scripts/gen-tool-catalog.ts` 将每个已发布的工具包（package）挂载到一个新的 Cordis `Context`（带 `SystemPrompt` + `ToolRegistry` 以及插件 `apply` 所读取的注入 seam），调用 `ctx.tools.schemas()`（即发送给模型的 `ToolSchema[]`），dispose（资源释放）该 context，然后为每个包渲染一个 `## <package>` 小节，每个工具一个 ` ```json ` 的 `parameters` 块。它与 `gen-cordis-catalog` / `gen-module-graph` 的 CLI（命令行界面）形态一致：默认 `--write` 重新生成，`--check` 在已提交副本陈旧时失败，输出是确定性的（按 manifest（元数据清单）排序，工具按名称排序）。`verify-tool-catalog`（即 `--check`）在 doc-sync（文档同步门禁）内运行，因此新鲜度门禁在 lefthook pre-push 和 CI 路径中与其他文档门禁一同触发。
+通过**启动每个工具插件并读取其注册的 schema** 来生成目录，而非解析源码。`scripts/gen-tool-catalog.ts` 将每个已发布的工具包（package）挂载到一个新的 Cordis `Context`（带 `SystemPrompt` + `ToolRegistry` 以及插件 `apply` 所读取的注入 seam），调用 `ctx.tools.schemas()`（即发送给模型的 `ToolSchema[]`），dispose（资源释放）该 context，然后为每个包渲染一个 `## <package>` 小节，每个工具一个 ` ```json ` 的 `parameters` 块。它与 `gen-cordis-catalog` / `gen-module-graph` 的 CLI（命令行界面）形态一致：默认 `--write` 重新生成，`--check` 在已提交副本陈旧时失败，输出是确定性的（按 manifest（元数据清单）排序，工具按名称排序）。`verify-tool-catalog`（即 `--check`）在 `doc-sync`（文档同步门禁）内运行，因此新鲜度门禁在 lefthook pre-push 和 CI 路径中与其他文档门禁一同触发。
 
 ### 为何启动而非解析（核心要点）
 
@@ -25,7 +25,7 @@ Cordis 目录是纯 TypeScript AST 遍历，因为每个事件/服务名都是�
 
 ### 恢复「不会静默遗漏」的保证
 
-启动有一项 AST 遍历不存在的代价：没有源码声明集合可供枚举，新工具包可能被遗忘。一个**完整性守卫**恢复了这项保证——`assertManifestComplete` 对 `packages/` 下所有 `tool-*` 包进行 glob，若有任何一个不在生成器的启动 manifest 中则直接报错。新工具包在注册之前会导致生成器失败，进而导致 doc-sync 失败。这与 Cordis 生成器通过枚举源码免费获得的结构性属性相同，只是为基于启动的生成器重新实现了一遍。
+启动有一项 AST 遍历不存在的代价：没有源码声明集合可供枚举，新工具包可能被遗忘。一个**完整性守卫**恢复了这项保证——`assertManifestComplete` 对 `packages/` 下所有 `tool-*` 包进行 glob，若有任何一个不在生成器的启动 manifest 中则直接报错。新工具包在注册之前会导致生成器失败，进而导致 `doc-sync` 失败。这与 Cordis 生成器通过枚举源码免费获得的结构性属性相同，只是为基于启动的生成器重新实现了一遍。
 
 ### 手动维护的启动 manifest 是不可化约的策略
 

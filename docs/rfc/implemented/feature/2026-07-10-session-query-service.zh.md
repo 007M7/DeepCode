@@ -1,8 +1,8 @@
-# RFC：精确会话查询服务
-
-[English](2026-07-10-session-query-service.md) | 中文
+# RFC: 精确会话查询服务
 
 Status: implemented
+
+[English](2026-07-10-session-query-service.md) | 中文
 
 ## 问题
 

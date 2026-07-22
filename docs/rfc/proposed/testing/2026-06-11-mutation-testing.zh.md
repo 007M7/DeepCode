@@ -1,8 +1,8 @@
-# RFC：变异测试作为覆盖率的制衡手段
-
-[English](2026-06-11-mutation-testing.md) | 中文
+# RFC: 变异测试作为覆盖率的制衡手段
 
 Status: proposed
+
+[English](2026-06-11-mutation-testing.md) | 中文
 
 ## 问题
 

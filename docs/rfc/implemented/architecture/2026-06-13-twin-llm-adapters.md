@@ -1,8 +1,8 @@
 # RFC: Two LLM adapters as a design-verification twin
 
-English | [中文](2026-06-13-twin-llm-adapters.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-13-twin-llm-adapters.zh.md)
 
 ## Problem
 

@@ -1,4 +1,4 @@
-# RFC：核心数据结构目录与 `ts type-equiv` 漂移门禁
+# RFC: 核心数据结构目录与 `ts type-equiv` 漂移门禁
 
 Status: implemented
 
@@ -22,7 +22,7 @@ Status: implemented
 
 - 一个数据结构是**核心**的，如果它流经 agent loop 主干——无论加载了哪些插件，循环在每个轮次都会持有、派生、流式输出或记录它（`Message`、`StreamChunk`、`SessionEvent`、`Agent` 句柄）——**或者**它是插件作者面对某条流水线时编写的唯一标志性类型（`ToolDefinition`）。
 - `ToolDefinition` 是核心（它是每个工具作者编写的东西），**即使循环从不持有它**——对于这一个标志性类型，撰写重要性压过了严格的"流经主干"规则。但它的类型推导机制——`SchemaSpec`/`InferArgs` DSL——是子页面细节（你编写的是 `ToolDefinition`；为其提供类型推导的机制你并不直接接触）。这就是主干与 seam 分界线的精确表述。
-- `ToolSchema` 是核心（它是 `GenerateOptions` 的一个字段，而 `GenerateOptions` 是流经每个步骤的模型请求），即使它在概念上属于工具流水线——当*流经主干*与*概念归属*冲突时，前者胜出。
+- `ToolSchema` 是核心（它是流经每个步骤的模型请求 `GenerateOptions` 的一个字段），即使它在概念上属于工具流水线——当*流经主干*与*概念归属*冲突时，前者胜出。
 - 工具展示词汇（`ToolCallView`/`ToolResultView` 等）、`SessionPersistence` 持久性 seam 以及 bash 词汇是子页面。
 
 `core.md` 是一份**自包含的主干文档**：它给出每个主干结构的确切类型定义，辅以最少的行文，并链接到子页面获取各 seam 的细节。子页面包括 `llm-streaming.md`、`session.md`、`persistence.md`（沿内存模型与持久性 seam 的分界线从 session 拆出）、`tools.md` 和 `bash.md`。
@@ -56,5 +56,5 @@ Status: implemented
 
 - 词汇现在有了一个**不会静默漂移**的唯一归属：源码中的字段重命名会在 pre-push 钩子和 CI 中导致 `verify-type-equiv` 失败，直到粘贴内容被刷新。
 - 主干与 seam 分界线是一个可复用的范围界定工具，而非一次性的：同一条「你编写/持有/接收的东西是核心；为其提供类型推导/渲染/持久化的机制是细节」规则，后来也被用于界定事件/服务目录的 harness 层与继承层分层。
-- ` ```ts type-equiv ` 围栏是继 ` ```ts `（编译）和 ` ```ts ignore-check `（草稿）之后的第三种文档块类别。后续的姊妹门禁又增加了第四种 ` ```ts cordis-catalog `（生成签名），复用了相同的跳过并排除处理。
+- `ts type-equiv` 围栏是继 ` ```ts `（编译）和 ` ```ts ignore-check `（草稿）之后的第三种文档块类别。后续的姊妹门禁又增加了第四种 ` ```ts cordis-catalog `（生成签名），复用了相同的跳过并排除处理。
 - 添加或重塑核心类型现在附带一项文档义务，作者必须履行（门禁无法检测缺失的*新*类型），由 `dsh-code-review` 检查清单兜底。

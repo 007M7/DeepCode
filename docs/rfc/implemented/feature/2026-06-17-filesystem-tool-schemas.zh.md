@@ -1,8 +1,8 @@
-# RFC：文件系统工具 schema——面向模型的读/写/编辑接口形状
-
-[English](2026-06-17-filesystem-tool-schemas.md) | 中文
+# RFC: 文件系统工具 schema——面向模型的读/写/编辑接口形状
 
 Status: implemented
+
+[English](2026-06-17-filesystem-tool-schemas.md) | 中文
 
 ## 问题
 
@@ -51,7 +51,7 @@ schema 使用 snake_case 字段名（`file_path`、`old_string`、`new_string`�
 
 在默认 fs-policy 下，使用 `write` 更新已有文件需要同一执行上下文先前对该文件有过一次观测（read/write/edit）；`dsh-fs-policy` 插件将观测到的版本作为 `fs/write-intent` 上的 stale guard 提供。创建新文件不需要先前观测。如果策略插件不存在，`write` 是无条件的裸提供方 create-or-overwrite。
 
-schema 不将 `expected_hash`、`expected_version` 或 `create_only` 作为面向模型的参数暴露。过期版本检查由后端产生的版本和策略插件的观测状态驱动，而非要求模型通过 schema 复制版本令牌。
+schema 不将 `expected_hash`、`expected_version` 或 `create_only` 作为面向模型的参数暴露。陈旧版本检查由后端产生的版本和策略插件的观测状态驱动，而非要求模型通过 schema 复制版本令牌。
 
 ### `edit`
 
@@ -66,7 +66,7 @@ schema 不将 `expected_hash`、`expected_version` 或 `create_only` 作为面�
 
 `edit` 要求同一执行上下文先前对该文件有过一次观测（任何窗口化的 read 都算——授权基于版本新鲜度，而非全文查看要求），或该上下文先前对该文件做过 write/edit。`dsh-fs-policy` 策略插件推导所有者并将记录的版本作为 stale guard 提供；提供方的 mutation lock 负责执行。
 
-首次实现拒绝 Codex 风格的 patch 语法和多模式 edit API。它使用一种严格的字面替换模式，使面向模型的契约保持简单，并让后端掌控精确匹配、重复匹配、行尾和过期版本的语义。
+首次实现拒绝 Codex 风格的 patch 语法和多模式 edit API。它使用一种严格的字面替换模式，使面向模型的契约保持简单，并让后端掌控精确匹配、重复匹配、行尾和陈旧版本的语义。
 
 ## 结果形状
 
@@ -99,14 +99,14 @@ schema 测试固定每个工具的必填/可选参数集、空 `old_string` 拒�
 
 ## 曾考虑的替代方案
 
-- **Codex 风格的 patch 语法或多模式 edit API**：否决。一种严格的字面替换模式使面向模型的契约保持简单，并让后端掌控精确匹配、重复匹配、行尾和过期版本的语义。
+- **Codex 风格的 patch 语法或多模式 edit API**：否决。一种严格的字面替换模式使面向模型的契约保持简单，并让后端掌控精确匹配、重复匹配、行尾和陈旧版本的语义。
 - **camelCase 参数名（OpenCode 风格）**：snake_case 与 Claude Code 及现有 harness 工具 schema 示例一致，且命名一旦发布即成为公开接口。
-- **面向模型的 `expected_hash` / `expected_version` / `create_only` 参数**：否决。过期检查由后端产生的版本和策略插件的观测状态驱动，从不依赖模型复制的脆弱令牌。
+- **面向模型的 `expected_hash` / `expected_version` / `create_only` 参数**：否决。陈旧检查由后端产生的版本和策略插件的观测状态驱动，从不依赖模型复制的脆弱令牌。
 
 ## 后果
 
 **首版 schema 有意小于 Claude Code 的。** 去掉 PDF pages、多模态 read、丰富的 grep/list flag 和 expected hash 字段使实现保持聚焦，但用户可能很快就会提出这些需求。它们将以独立 RFC 或聚焦的后续工作形式到来，而非对初始 schema 的重载。
 
-**v1 中没有显式的面向模型的 stale guard。** schema 不要求模型提供 expected hash/version。这是有意为之：过期检查来自后端产生的版本和 `dsh-fs-policy` 插件的观测状态，而非模型复制的脆弱令牌。文件系统安全失败通过 `dsh-fs` 拥有的结构化 `FsError` 代码浮现，而非模型提供的版本字段。
+**v1 中没有显式的面向模型的 stale guard。** schema 不要求模型提供 expected hash/version。这是有意为之：陈旧检查来自后端产生的版本和 `dsh-fs-policy` 插件的观测状态，而非模型复制的脆弱令牌。文件系统安全失败通过 `dsh-fs` 拥有的结构化 `FsError` 代码浮现，而非模型提供的版本字段。
 
 **命名成为公开接口。** 一旦发布，将 `file_path` 改为 `filePath` 或 `old_string` 改为 `oldString` 会搅动提示词、示例和下游客户端。本 RFC 预先选择 snake_case，并将其视为稳定的面向模型的契约。

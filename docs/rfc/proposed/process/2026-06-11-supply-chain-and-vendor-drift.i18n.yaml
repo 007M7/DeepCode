@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-06-11-supply-chain-and-vendor-drift.md: 306e185e9175e3e7af24455cf95167f54b3d1c17
-2026-06-11-supply-chain-and-vendor-drift.zh.md: a840e766c49182d7a9ca648acbbab1a2762688f5
+2026-06-11-supply-chain-and-vendor-drift.md: 97f5a3f999936faf81a67fe69c91f773400cb447
+2026-06-11-supply-chain-and-vendor-drift.zh.md: 0a8441c104ca4779a79b36361ea5d84f5cd09aca

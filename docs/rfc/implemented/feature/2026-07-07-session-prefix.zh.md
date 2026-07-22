@@ -1,4 +1,4 @@
-# RFC：会话前缀——派生历史之前的仅请求消息
+# RFC: 会话前缀——派生历史之前的仅请求消息
 
 Status: implemented
 
@@ -12,15 +12,15 @@ Status: implemented
 
 ## 决策
 
-`agent/session-prefix` 是 agent 事件映射上的一个 waterfall（瀑布式事件）（[`packages/core/agent/src/types.ts`](../../../../packages/core/agent/src/types.ts)）：监听器接收一个冻结的空种子并返回扩展（规范的贡献方式是前置插入 `[mine, ...await next()]`，在协议格式上产生注册顺序）。agent loop（智能体循环）（[`packages/core/agent-loop/src/loop.ts`](../../../../packages/core/agent-loop/src/loop.ts)）在每个循环实例中触发一次，惰性地在实例首次 `agent/pre-step` 之前执行；组合后的列表被深拷贝、深冻结、缓存在实例上，并在该实例发出的每个请求中置于**整个**派生历史之前——紧接在提供方的 system 槽位之后（[协议格式顺序](../../../core-data-structures/core.md#the-request-envelope-llmcallconfig-and-the-logged-header)）。
+`agent/session-prefix` 是 agent 事件映射上的一个 waterfall（瀑布式事件）（[`packages/core/agent/src/types.ts`](../../../../packages/core/agent/src/types.ts)）：监听器接收一个冻结的空种子并返回扩展（规范的贡献方式是前置插入 `[mine, ...await next()]`，在协议格式上产生注册顺序）。agent loop（智能体循环）（[`packages/core/agent-loop/src/loop.ts`](../../../../packages/core/agent-loop/src/loop.ts)）在每个循环实例中触发一次，惰性地在实例首次 `agent/pre-step` 之前执行；组合后的列表被深拷贝、深冻结、缓存在实例上，并在该实例发出的每个请求中置于整个派生历史之前——紧接在提供方的 system 槽位之后（[协议格式顺序](../../../core-data-structures/core.md#the-request-envelope-llmcallconfig-and-the-logged-header)）。
 
 三个属性承载了这一设计：
 
-- **仅请求，记录在 header 中。** `deriveMessages()` 从不返回前缀；它唯一的持久记录是实例锚定的 `request/header` 快照上的 `EpochHeader.messagePrefix`——可重建请求 RFC 已为请求的非历史部分拥有的通道，因此不引入新的会话事件。开发不变式（[dsh-invariants](../../../../packages/support/invariants/src/index.ts)）对每个循环构建的请求重新计算 `messagePrefix + 边界派生`；未记录的前缀无法到达协议格式。
+- **仅请求，记录在 header 中。** `deriveMessages()` 从不返回前缀；它唯一的持久记录是实例锚定的 `request/header` 快照上的 `EpochHeader.messagePrefix`——可重建请求 RFC 已为请求的非历史部分拥有的通道，因此不引入新的会话事件。开发不变式（[dsh-invariants](../../../../packages/support/invariants/src/index.ts)）对每个循环构建的请求重新计算 `messagePrefix + boundary derivation`；未记录的前缀无法到达协议格式。
 - **按实例冻结。** 复用是结构性的，而非靠纪律保证：缓存的产物在会话中途不可变，因此提供方的 prompt 缓存从构造上成立，前缀以每步零边际成本扩展了可缓存区域。进程重启或 `ctx.agents.resume()` 产生新实例：它重新组合，任何漂移都可追溯地落在 `'resume'` header 快照上。这就是本 seam 创建的路由规则：会话冻结的开场内容走前缀；会话中途变化的内容走仅追加历史通道（`agent.inject()`、`tools/post-execute` 决策的 `additionalContext`、prompt-submit 的 `additionalContext`——[拦截 seam RFC](2026-06-30-interception-seams.md)），每条都是一次性支付的持久 `context/message`，之后被前缀缓存覆盖。
 - **在压力门禁之前组合。** 组合先于实例的首次 `agent/pre-step`，且 seam 将组合值透传：`agent/pre-step` 携带 `sessionPrefix` 参数，`CompactService.compactIfNeeded(agent, fullSystemPrompt, sessionPrefix, signal)` 将其计入 token 压力估算。如果改为让门禁读取上一个实例折叠后的前缀，则在 resume 或 fork 后的实例中（贡献者可能已增长），门禁会低估压力、跳过压缩，发出超窗口的首个请求。在首次 pre-step 之前组合并将活值透传给 seam，使估算在每一步都精确。被 cancel/dispose 中断的组合（中断落在 waterfall 内部）会被丢弃，永不缓存：感知中止的监听器的降级回退不会泄漏到后续请求中，下一轮次在活信号下重新组合。
 
-由于组合在边界快照之前运行，组合监听器的会话追加会加入**当前**请求的派生历史。压缩在结构上不可能触及前缀（或系统提示词）：它重写的是表面节点，而 header 状态从不进入表面。
+由于组合在边界快照之前运行，组合监听器的会话追加会加入当前请求的派生历史。压缩在结构上不可能触及前缀（或系统提示词）：它重写的是表面节点，而 header 状态从不进入表面。
 
 ## 测试
 
@@ -32,7 +32,7 @@ Status: implemented
 - **系统提示词分段**（`system-prompt/assemble`）：对此类内容否决。assembly 渲染为单一 `system` 字符串，消息形态的开场放不进去；且系统提示词被设计为每步重新组装（变化时带 header delta），而开场内容需要按实例冻结的语义。
 - **持久化历史开场**（会话启动时 `inject()`）：否决。永久历史正是问题陈述中的失败模式——到处被回放、可被压缩、跨 resume 陈旧。
 - **按轮次组合而非按实例组合**：否决。轮次边界的重新组合要么与日志静默失同步，要么强制每次变化都产生 header delta；且它每次触发都会破坏提供方缓存。合理的刷新点是实例边界，`'resume'` 快照已在那里可追溯地记录漂移。
-- **在首次请求时惰性组合，让压缩读取折叠后的 header**（最初合并时的形态）：评审中被取代。折叠值仅从实例的第二个请求起才与活前缀匹配，因此在 resume/fork 后的实例首步，压力门禁读取的是**上一个**实例的前缀，可能低估压力。在首次 pre-step 之前组合并将活值透传给 seam，使估算在每一步都精确。
+- **在首次请求时惰性组合，让压缩读取折叠后的 header**（最初合并时的形态）：评审中被取代。折叠值仅从实例的第二个请求起才与活前缀匹配，因此在 resume/fork 后的实例首步，压力门禁读取的是上一个实例的前缀，可能低估压力。在首次 pre-step 之前组合并将活值透传给 seam，使估算在每一步都精确。
 - **专用会话事件承载前缀**：否决。header 事件按设计就是请求的非历史记录；第二个事件会为同一事实提供第二个归属，并多出一个需要保持完整的编解码器。
 
 ## 后果

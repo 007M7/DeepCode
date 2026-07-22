@@ -1,8 +1,8 @@
-# RFC：将 Node LTS 引擎下限提升至 22.19
-
-[English](2026-07-06-node-engine-floor.md) | 中文
+# RFC: 将 Node LTS 引擎下限提升至 22.19
 
 Status: implemented
+
+[English](2026-07-06-node-engine-floor.md) | 中文
 
 ## 问题
 

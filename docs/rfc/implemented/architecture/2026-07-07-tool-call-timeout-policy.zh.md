@@ -1,8 +1,8 @@
-# RFC：工具调用超时策略作为插件
-
-[English](2026-07-07-tool-call-timeout-policy.md) | 中文
+# RFC: 工具调用超时策略作为插件
 
 Status: implemented
+
+[English](2026-07-07-tool-call-timeout-policy.md) | 中文
 
 ## 问题
 
@@ -36,7 +36,7 @@ ctx.tools.execute(exec)
 
 `@deepseek-ai/dsh-tools` 声明了一个 `tools/execute` waterfall，其基础 `next()` 是带规范化的分发 thunk——即同一个内部 `try`/`catch`，将抛出的工具错误（或未知工具错误）转换为 `isError` 的 `ToolExecutionResult`。监听器接收 `(exec, next)`：调用 `next()` 委托给分发（返回其结果，可选地包装），或返回替代结果以短路分发。整个流水线仍位于 `execute` 的外层 try/catch 内，因此抛出异常的监听器会变成 `isError` 结果，而非轮次失败。
 
-catch 是基础 `next()`（而非 waterfall 之外的东西）这一点至关重要：当提供方看到超时信号并抛出自己的上游中止错误时，注册表分发首先将其转换为普通错误结果，然后 `timeout-policy` 才能将最终结果替换为 `TOOL_TIMEOUT`。
+catch 是基础 `next`（而非 waterfall 之外的东西）这一点至关重要：当提供方看到超时信号并抛出自己的上游中止错误时，注册表分发首先将其转换为普通错误结果，然后 `timeout-policy` 才能将最终结果替换为 `TOOL_TIMEOUT`。
 
 ### `timeout-policy` 插件
 
@@ -108,4 +108,4 @@ function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
 - 多个 `tools/execute` 监听器按普通 Cordis waterfall 顺序组合：调用 `next()` 的监听器包装下游监听器加分发；不调用 `next()` 直接返回的监听器短路它们。一个同时组合超时与未来重试/沙箱/指标包装器的部署通过注册顺序选择语义（「超时覆盖整个重试」vs「超时覆盖每次尝试」）。
 - 按声明加入是一个有意的误配置风险：工具可以声明 `timeoutMs` 但不遵循 `exec.signal`，这样的工具在超时时不会停止。插件契约声明：声明预算意味着协作；web 工具在已转发信号的工具上验证了这一模式。
 - 过渡期间 `bash` 和已迁移的 web 工具有意使用不同的超时路径：`TOOL_TIMEOUT` 是面向模型的工具调用预算，而 `BASH_TIMEOUT` 仍是 bash 和钩子使用的 bash 后端超时。
-- 与字面提案的偏差，按 implemented-RFC 规则记录：插件包为 `@deepseek-ai/dsh-timeout-policy`（而非 `tool-timeout`）；信号替换是在 `next()` 之前就地修改 `exec.signal`（而非 `next({ ...exec, signal })`，Cordis 会忽略后者）；逐工具预算声明在 `ToolDefinition` 上（`timeoutMs`，由拥有该工具的插件从其配置中设置），而非在本插件配置中按工具名映射——因此执行器是零配置的，拼错工具名不可能发生。以上三点均在上文「决策」一节中描述。
+- 与字面提案的偏差，按 implemented-RFC 规则记录：插件包为 `@deepseek-ai/dsh-timeout-policy`（而非 `tool-timeout`）；信号替换是在 `next()` 之前就地修改 `exec.signal`（而非 `next({ ...exec, signal })`，Cordis 会忽略后者）；逐工具预算声明在 `ToolDefinition` 上（`timeoutMs`，由拥有该工具的插件从其配置中设置），而非在本插件配置中按工具名映射——因此执行器是零配置的，拼错工具名不可能发生。以上三点均在上文 `## Decision` 中描述。

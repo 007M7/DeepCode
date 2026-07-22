@@ -1,8 +1,8 @@
-# RFC：ask-user 提问能力
-
-[English](2026-06-25-ask-user-question.md) | 中文
+# RFC: ask-user 提问能力
 
 Status: implemented
+
+[English](2026-06-25-ask-user-question.md) | 中文
 
 ## 问题
 

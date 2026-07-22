@@ -1,8 +1,8 @@
-# RFC：使用 tsdown 替代 dumble 进行 JS 打包
-
-[English](2026-06-11-tsdown-over-dumble.md) | 中文
+# RFC: 使用 tsdown 替代 dumble 进行 JS 打包
 
 Status: implemented
+
+[English](2026-06-11-tsdown-over-dumble.md) | 中文
 
 ## 问题
 

@@ -1,8 +1,8 @@
 # RFC: Tool schemas are part of the system-prompt assembly
 
-English | [中文](2026-06-11-tool-schemas-in-prompt-assembly.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-11-tool-schemas-in-prompt-assembly.zh.md)
 
 ## Problem
 

@@ -1,4 +1,4 @@
-# RFC：在 bash seam 上支持 stdin 与额外 env
+# RFC: 在 bash seam 上支持 stdin 与额外 env
 
 Status: implemented
 

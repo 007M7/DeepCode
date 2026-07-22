@@ -1,4 +1,4 @@
-# RFC：agent 即注册作用域
+# RFC: agent 即注册作用域
 
 Status: implemented
 

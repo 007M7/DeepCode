@@ -1,8 +1,8 @@
-# RFC：裁剪 skill 注册表中未使用的接口
-
-[English](2026-07-12-prune-unused-skill-registry-surface.md) | 中文
+# RFC: 裁剪 skill 注册表中未使用的接口
 
 Status: rejected — Direct runtime skill registration is an intentional extension path for third-party plugins.
+
+[English](2026-07-12-prune-unused-skill-registry-surface.md) | 中文
 
 ## 问题
 

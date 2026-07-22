@@ -1,4 +1,4 @@
-# RFC：结构化错误分类体系
+# RFC: 结构化错误分类体系
 
 Status: implemented
 

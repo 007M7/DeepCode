@@ -1,8 +1,8 @@
 # RFC: Mechanical quality gates over prose guidelines
 
-English | [中文](2026-06-11-quality-gates.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-11-quality-gates.zh.md)
 
 ## Problem
 

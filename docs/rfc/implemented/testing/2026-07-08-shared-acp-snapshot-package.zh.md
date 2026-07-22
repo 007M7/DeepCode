@@ -1,8 +1,8 @@
-# RFC：将 ACP 快照套件提取为支持包
-
-[English](2026-07-08-shared-acp-snapshot-package.md) | 中文
+# RFC: 将 ACP 快照套件提取为支持包
 
 Status: implemented
+
+[English](2026-07-08-shared-acp-snapshot-package.md) | 中文
 
 ## 问题
 

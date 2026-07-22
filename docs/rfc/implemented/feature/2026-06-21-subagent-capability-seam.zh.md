@@ -1,8 +1,8 @@
-# RFC：Subagent 能力 seam
-
-[English](2026-06-21-subagent-capability-seam.md) | 中文
+# RFC: Subagent 能力 seam
 
 Status: implemented
+
+[English](2026-06-21-subagent-capability-seam.md) | 中文
 
 > 完整 seam 已交付：`dsh-subagent` 接口、`dsh-subagent-mock` 测试后端与 `dsh-tool-subagent` 消费方；两个进程内后端（`dsh-subagent-spawn`、`dsh-subagent-fork`）；嵌套 agent 快照基础设施（[逐会话快照回放](../testing/2026-06-22-subagent-snapshot-replay.md)）；以及进程外后端 `dsh-subagent-acp`（[其 RFC](2026-06-22-acp-subagent-backend.md)）。
 
@@ -43,7 +43,7 @@ bash seam（[能力 seam](../../implemented/architecture/2026-06-13-capability-s
 
 ### 两类可选能力，两种发现方式
 
-- **启动时特性**（`outputSchema`、`depthLimit`、`toolFilter`、`persona`）挂在静态的 `provider.capabilities` 描述符上。服务在委派**之前**检查每个被请求的特性，如果提供方不支持则**大声拒绝**（`SubagentError('UNSUPPORTED_CAPABILITY')`），绝不接受后静默忽略。这些特性必须在 run 存在之前检查，因此不能是运行时方法。
+- **启动时特性**（`outputSchema`、`depthLimit`、`toolFilter`、`persona`）挂在静态的 `provider.capabilities` 描述符上。服务在委派之前检查每个被请求的特性，如果提供方不支持则**大声拒绝**（`SubagentError('UNSUPPORTED_CAPABILITY')`），绝不接受后静默忽略。这些特性必须在 run 存在之前检查，因此不能是运行时方法。
 - **运行时特性**（通过 `sendMessage` 进行 steering、通过 `resume` 进行后续对话）是 `SubagentRun` 上的**可选方法**。方法的存在本身即为能力，TypeScript 类型收窄即为发现机制：消费方不经收窄就无法调用不存在的方法，因此不存在静默降级路径，也不需要额外的 flags 对象来保持同步。
 
 ### Fork 与 fresh 是独立后端，而非一个 flag

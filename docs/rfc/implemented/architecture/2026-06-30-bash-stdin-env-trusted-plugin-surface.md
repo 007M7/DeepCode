@@ -1,8 +1,8 @@
 # RFC: stdin + extra env on the bash seam
 
-English | [中文](2026-06-30-bash-stdin-env-trusted-plugin-surface.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-30-bash-stdin-env-trusted-plugin-surface.zh.md)
 
 ## Problem
 

@@ -1,8 +1,8 @@
-# RFC：将示例应用提取为独立包
-
-[English](2026-06-20-extract-example-app-packages.md) | 中文
+# RFC: 将示例应用提取为独立包
 
 Status: implemented
+
+[English](2026-06-20-extract-example-app-packages.md) | 中文
 
 ## 问题
 

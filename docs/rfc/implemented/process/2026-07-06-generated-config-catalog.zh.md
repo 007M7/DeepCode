@@ -1,4 +1,4 @@
-# RFC：生成式插件配置目录
+# RFC: 生成式插件配置目录
 
 Status: implemented
 

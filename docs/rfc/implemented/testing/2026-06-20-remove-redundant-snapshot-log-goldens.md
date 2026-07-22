@@ -1,8 +1,8 @@
 # RFC: Use `session.jsonl` as the only snapshot session-log artifact
 
-English | [中文](2026-06-20-remove-redundant-snapshot-log-goldens.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-20-remove-redundant-snapshot-log-goldens.zh.md)
 
 ## Problem
 

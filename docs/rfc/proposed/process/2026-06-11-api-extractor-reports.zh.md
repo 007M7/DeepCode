@@ -1,8 +1,8 @@
-# RFC：API extractor 报告
-
-[English](2026-06-11-api-extractor-reports.md) | 中文
+# RFC: API extractor 报告
 
 Status: proposed
+
+[English](2026-06-11-api-extractor-reports.md) | 中文
 
 > 从最初的「Doc-sync 与 API 报告」RFC（2026-06-11）中拆出。第 1–2 部分（文档块类型检查、事件分类体系校验）已交付，见 [doc-sync 强制](../../implemented/process/2026-06-11-doc-sync-enforcement.md)。本文是被推迟的第 3 部分，作为独立提案保留。
 

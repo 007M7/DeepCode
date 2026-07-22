@@ -1,4 +1,4 @@
-# RFC：微内核——通过 Cordis 事件分类体系实现扩展，唯一具体循环
+# RFC: 微内核——通过 Cordis 事件分类体系实现扩展，唯一具体循环
 
 Status: implemented
 

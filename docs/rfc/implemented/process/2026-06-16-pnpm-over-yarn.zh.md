@@ -1,8 +1,8 @@
-# RFC：使用 pnpm 替代 Yarn 4 作为包管理器
-
-[English](2026-06-16-pnpm-over-yarn.md) | 中文
+# RFC: 使用 pnpm 替代 Yarn 4 作为包管理器
 
 Status: implemented
+
+[English](2026-06-16-pnpm-over-yarn.md) | 中文
 
 ## 问题
 

@@ -1,8 +1,8 @@
-# RFC：显式的模型侧工具顺序
-
-[English](2026-07-06-explicit-tool-order.md) | 中文
+# RFC: 显式的模型侧工具顺序
 
 Status: implemented
+
+[English](2026-07-06-explicit-tool-order.md) | 中文
 
 ## 问题
 

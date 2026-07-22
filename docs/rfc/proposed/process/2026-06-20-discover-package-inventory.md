@@ -1,8 +1,8 @@
 # RFC: Discover package inventories instead of maintaining static lists
 
-English | [中文](2026-06-20-discover-package-inventory.zh.md)
-
 Status: proposed
+
+English | [中文](2026-06-20-discover-package-inventory.zh.md)
 
 ## Problem
 

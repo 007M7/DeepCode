@@ -1,8 +1,8 @@
-# RFC：面向维护者与 SDK 用户的文档关系图索引
-
-[English](2026-07-03-documentation-graph-atlas.md) | 中文
+# RFC: 面向维护者与 SDK 用户的文档关系图索引
 
 Status: implemented
+
+[English](2026-07-03-documentation-graph-atlas.md) | 中文
 
 ## 问题
 

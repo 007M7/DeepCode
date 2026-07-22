@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-06-20-drop-unconsumed-llm-assembled-surfaces.md: c8999dd0e19b2c8eaff854c8ff544bae2fc068b6
-2026-06-20-drop-unconsumed-llm-assembled-surfaces.zh.md: de297a8cb64d9002fce2c857fd3caa5f2b25f43a
+2026-06-20-drop-unconsumed-llm-assembled-surfaces.md: ead3a8c094b0fc0b4bd01671bd4a1165dd555ea2
+2026-06-20-drop-unconsumed-llm-assembled-surfaces.zh.md: 16704b511151c329622e58c3b5f6b2cff330f366

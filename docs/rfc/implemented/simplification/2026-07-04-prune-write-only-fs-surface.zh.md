@@ -1,8 +1,8 @@
-# RFC：从 fs seam 中移除只写字段与一个无效的路由旋钮
-
-[English](2026-07-04-prune-write-only-fs-surface.md) | 中文
+# RFC: 从 fs seam 中移除只写字段与一个无效的路由旋钮
 
 Status: implemented
+
+[English](2026-07-04-prune-write-only-fs-surface.md) | 中文
 
 ## 问题
 

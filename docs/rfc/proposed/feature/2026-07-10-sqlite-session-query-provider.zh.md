@@ -1,8 +1,8 @@
-# RFC：SQLite FTS5 会话搜索
-
-[English](2026-07-10-sqlite-session-query-provider.md) | 中文
+# RFC: SQLite FTS5 会话搜索
 
 Status: proposed
+
+[English](2026-07-10-sqlite-session-query-provider.md) | 中文
 
 ## 问题
 

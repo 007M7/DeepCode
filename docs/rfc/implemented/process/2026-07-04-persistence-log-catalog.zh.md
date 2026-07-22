@@ -1,4 +1,4 @@
-# RFC：生成式持久化日志事件目录
+# RFC: 生成式持久化日志事件目录
 
 Status: implemented
 

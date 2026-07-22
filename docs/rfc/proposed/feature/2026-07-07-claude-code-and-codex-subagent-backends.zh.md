@@ -1,8 +1,8 @@
-# RFC：Claude Code 与 Codex subagent 后端（向外部编码 agent 的进程外委派）
-
-[English](2026-07-07-claude-code-and-codex-subagent-backends.md) | 中文
+# RFC: Claude Code 与 Codex subagent 后端（向外部编码 agent 的进程外委派）
 
 Status: proposed
+
+[English](2026-07-07-claude-code-and-codex-subagent-backends.md) | 中文
 
 ## 问题
 
@@ -12,7 +12,7 @@ Status: proposed
 
 两个兄弟提供方包（ACP 后端的结构变体），加一次提取：
 
-- `@deepseek-ai/dsh-subagent-claude-code`：通过 `@anthropic-ai/claude-agent-sdk` 的 `query()` 驱动一个 Claude Code 子进程（SDK 在父进程中运行，并将其内置的 `claude` CLI 作为子进程 spawn）。提供方名称为 `claude-code`：子进程是 Claude Code 这个**产品**，而非 Anthropic 模型适配器——"claude" 保留给未来的 `dsh-llm` 适配器。
+- `@deepseek-ai/dsh-subagent-claude-code`：通过 `@anthropic-ai/claude-agent-sdk` 的 `query()` 驱动一个 Claude Code 子进程（SDK 在父进程中运行，并将其内置的 `claude` CLI 作为子进程 spawn）。提供方名称为 `claude-code`：子进程是 Claude Code 这个*产品*，而非 Anthropic 模型适配器——"claude" 保留给未来的 `dsh-llm` 适配器。
 - `@deepseek-ai/dsh-subagent-codex`：spawn `codex app-server`，通过其 JSON-RPC-over-stdio 协议驱动一个 thread/turn，使用包内一个手写的换行 JSON 客户端（约 200–300 行）。
 - `@deepseek-ai/dsh-subagent-process`：纯库（沿用 `subagent-inprocess` 的先例），提取 `dsh-subagent-acp` 已有且两个新后端都需要的内容：凭证环境清洗（`SENSITIVE_ENV_PATTERN`/`buildChildEnv`）、EOF → SIGTERM → SIGKILL 的 dispose 阶梯，以及新的隔离配置目录辅助函数（`mkdtemp` 创建、尽力删除）。ACP 后端迁移到该库上；`bash-local` 的兄弟副本保持不动以限制变更范围。
 
@@ -22,13 +22,13 @@ Status: proposed
 
 两个集成面在本提案之前均已针对固定版本进行了验证——阅读类型与打包源码、运行无需密钥的 spike——而非仅依赖厂商文档。固定版本是验证基线，不是运行时契约：后端不执行运行时版本探测（无 `codex --version` 门禁、无 SDK 版本嗅探）。兼容性在开发时强制执行——每次依赖升级都会针对真实加载路径重跑无密钥套件——在运行时则通过大声失败来保障：协议层面的意外通过 `onError` 结算为 `error`，绝不静默异常。
 
-**`@anthropic-ai/claude-agent-sdk` 0.3.202。** `options.env` 会**替换**子进程环境（不与 `process.env` 合并），恰好满足清洗需求。`settingSources` 默认加载所有文件系统设置——隔离要求显式传入 `[]`。结果子类型为 `success` | `error_during_execution` | `error_max_turns` | `error_max_budget_usd` | `error_max_structured_output_retries`。中止时 SDK 自行升级 CLI 子进程：立即关闭 stdin，约 2 秒后若子进程未退出则发送 SIGTERM（已观察到；无残留进程）——无需自定义 kill 回退。`outputFormat: {type: 'json_schema'}` 和 `agents` 选项已存在，为 seam 的 `outputSchema` 能力和命名 subagent 类型提供了未来着陆点；两者均不在本 RFC 范围内。
+**`@anthropic-ai/claude-agent-sdk` 0.3.202。** `options.env` 会替换子进程环境（不与 `process.env` 合并），恰好满足清洗需求。`settingSources` 默认加载所有文件系统设置——隔离要求显式传入 `[]`。结果子类型为 `success` | `error_during_execution` | `error_max_turns` | `error_max_budget_usd` | `error_max_structured_output_retries`。中止时 SDK 自行升级 CLI 子进程：立即关闭 stdin，约 2 秒后若子进程未退出则发送 SIGTERM（已观察到；无残留进程）——无需自定义 kill 回退。`outputFormat: {type: 'json_schema'}` 和 `agents` 选项已存在，为 seam 的 `outputSchema` 能力和命名 subagent 类型提供了未来着陆点；两者均不在本 RFC 范围内。
 
 **codex CLI 0.142.5，`codex app-server`（v2 词汇）。** LF 分隔的 JSON，JSON-RPC 2.0 形状但省略 `"jsonrpc"` 头。
 
 - 生命周期：`initialize{clientInfo}` + `initialized` → `thread/start`（接受 `cwd`、`model`、`sandbox`、`approvalPolicy`、`ephemeral`；未认证即可成功）→ `turn/start{threadId, input:[{type:'text',text}]}` 立即返回一个 `inProgress` 的 turn；终止信号是携带 `Turn{status: completed|interrupted|failed|inProgress, error}` 的 `turn/completed` 通知。
 - 审批是服务端发起的请求——`item/commandExecution/requestApproval`、`item/fileChange/requestApproval`、`item/permissions/requestApproval`、`item/tool/requestUserInput`、`mcpServer/elicitation/request`——以 `accept`/`decline` 系列决策应答。
-- 认证：`account/login/start{type:'apiKey', apiKey}` 是一等 RPC，`account/read` 报告 `requiresOpenaiAuth`——且未认证的 `turn/start` 不会快速失败（它会挂在重试中），因此后端**必须**预检认证状态，并在失败时大声结算为 `error`，而非等待 turn。
+- 认证：`account/login/start{type:'apiKey', apiKey}` 是一等 RPC，`account/read` 报告 `requiresOpenaiAuth`——且未认证的 `turn/start` 不会快速失败（它会挂在重试中），因此后端必须预检认证状态，并在失败时大声结算为 `error`，而非等待 turn。
 - 隔离：`CODEX_HOME` 重定向被尊重（`initialize` 响应会回显它，测试可据此断言隔离），`ephemeral: true` 的 thread 不留任何会话文件。
 
 ## 隔离与凭证
@@ -43,7 +43,7 @@ Status: proposed
 
 Claude Code：`success` → `completed`；`error_max_turns`、`error_during_execution`、`error_max_budget_usd`、`error_max_structured_output_retries` → `error`（与 ACP 对 `max_turn_requests` 的处理对齐：未完成的任务不是成功）；生成器中止 → `aborted`；未知值 → `error`。Codex：`Turn.status` 为 `completed` → `completed`；`interrupted` → `aborted`；`failed` 且 `codexErrorInfo: 'contextWindowExceeded'` → `max-tokens`，其他 `failed` → `error`；传输/spawn/认证预检失败 → `error`（若已请求取消则为 `aborted`）。两者中，`cancel()` 采用 ACP 形状：标志位 + abort/interrupt + 一个 cancel-settled 竞争分支，使不合作的子进程无法阻塞结果。
 
-活性姿态，明确声明：teardown 时序是配置项，turn 时长不是。两个后端将 dispose 阶梯的宽限期作为带默认值的已验证配置字段（ACP 后端的 `disposeEofGraceMs`/`disposeGraceMs` 形状，由提取库承载），但**刻意不设** turn 时长或启动超时——与 ACP 一致：turn 期间的活性由调用方通过 `cancel()`/abort signal 掌控，subagent turn 合理地可达数分钟，而 Codex 认证预检消除了唯一已验证的必然挂起场景；需要墙钟上限的部署从父侧取消即可。
+活性姿态，明确声明：teardown 时序是配置项，turn 时长不是。两个后端将 dispose 阶梯的宽限期作为带默认值的已验证配置字段（ACP 后端的 `disposeEofGraceMs`/`disposeGraceMs` 形状，由提取库承载），但刻意不设 turn 时长或启动超时——与 ACP 一致：turn 期间的活性由调用方通过 `cancel()`/abort signal 掌控，subagent turn 合理地可达数分钟，而 Codex 认证预检消除了唯一已验证的必然挂起场景；需要墙钟上限的部署从父侧取消即可。
 
 ## 测试
 
@@ -61,7 +61,7 @@ dispose 阶梯和环境清洗要求拥有子进程（spawn 参数、env、信号
 
 ### 为什么不用模型可见的 `subagent_type` 参数（单一 Task 风格工具）？
 
-Claude Code 自身的 Task 工具将 subagent 类型放在模型可见的 schema 中，选择一个 prompt + 工具集人格。这里的选择是在**执行引擎**之间做出的，而只有部署者知道哪些引擎配置了凭证——因此选择留在部署配置层，保持 `dsh-tool-subagent` 文档中的「一个提供方对应一个工具」契约。人格风格的类型选择器应是针对工具的另一个 RFC，而非针对后端。
+Claude Code 自身的 Task 工具将 subagent 类型放在模型可见的 schema 中，选择一个 prompt + 工具集人格。这里的选择是在执行引擎之间做出的，而只有部署者知道哪些引擎配置了凭证——因此选择留在部署配置层，保持 `dsh-tool-subagent` 文档中的「一个提供方对应一个工具」契约。人格风格的类型选择器应是针对工具的另一个 RFC，而非针对后端。
 
 ### 为什么不用登录态凭证和用户自身的配置？
 

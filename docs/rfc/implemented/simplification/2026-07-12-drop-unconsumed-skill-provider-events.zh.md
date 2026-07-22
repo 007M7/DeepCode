@@ -1,8 +1,8 @@
-# RFC：移除无消费方的 skill 提供方事件
-
-[English](2026-07-12-drop-unconsumed-skill-provider-events.md) | 中文
+# RFC: 移除无消费方的 skill 提供方事件
 
 Status: implemented
+
+[English](2026-07-12-drop-unconsumed-skill-provider-events.md) | 中文
 
 ## 问题
 

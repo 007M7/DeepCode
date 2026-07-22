@@ -1,8 +1,8 @@
-# RFC：动态工作流——脚本驱动的多 agent 编排 seam
-
-[English](2026-07-05-dynamic-workflows.md) | 中文
+# RFC: 动态工作流——脚本驱动的多 agent 编排 seam
 
 Status: implemented
+
+[English](2026-07-05-dynamic-workflows.md) | 中文
 
 ## 问题
 
@@ -16,11 +16,11 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 一次工作流调用包含 JSON `meta`（`name`、`description`，以及可选的 `whenToUse`/`phases`）和一段支持顶层 `await` 并返回 JSON 值的 JavaScript `script` 正文。元数据作为数据校验，从不被执行。正文接收 `agent(prompt, options)`、`parallel(thunks)`、`pipeline(items, ...stages)`、`phase(title)`、`log(message)` 和 `args`。pipeline 各阶段接收 `(prev, item, index)`，阶段之间无屏障；失败的子 agent 和普通阶段错误将受影响的 item 解析为 `null` 并跳过其剩余阶段。Claude Code 的确定性限制通过日志化延迟处理，因此兼容的脚本正文在将 meta 头移入参数后可以使用时钟和随机数。
 
-与 CC 有一处刻意的严格性**差异**：钩子误用——未知或延迟的选项（`effort`/`isolation`/`agentType`）、格式错误的参数、超出支持子集的 schema、触发上限、seam 启动失败——会抛出带 `fatal: true` 的 `WorkflowError`，组合器会**重新抛出** fatal 错误而非将 item 置为 null。如果不这样做，一个拼错的选项会悄然变成一个与子 agent 失败无法区分的 `null`——这正是本仓库禁止的「被接受后被忽略」的失败模式。另有一处新增：工具的 `args` 参数是一个 JSON **对象**（裸列表被包装为一个字段），使协议格式（wire format）保持诚实。
+与 CC 有一处刻意的严格性差异：钩子误用——未知或延迟的选项（`effort`/`isolation`/`agentType`）、格式错误的参数、超出支持子集的 schema、触发上限、seam 启动失败——会抛出带 `fatal: true` 的 `WorkflowError`，组合器会重新抛出 fatal 错误而非将 item 置为 null。如果不这样做，一个拼错的选项会悄然变成一个与子 agent 失败无法区分的 `null`——这正是本仓库禁止的「被接受后被忽略」的失败模式。另有一处新增：工具的 `args` 参数是一个 JSON 对象（裸列表被包装为一个字段），使协议格式（wire format）保持诚实。
 
 ### seam（dsh-workflow）
 
-`ctx.workflows` 是 bash 形态的抽象 `WorkflowService`——每个上下文一个引擎，无命名提供方注册表（引擎是部署级替换，不是共存者）。`start(request)` 对无法启动的脚本同步抛出；返回的 `WorkflowRun` 的 `result` **永不** reject（失败解析为 `stopReason: 'error' | 'cancelled'`）。`workflow/*` 事件是仅观察的 emit，携带**数据快照**（id + meta；`workflow/end` 省略 result 值），按监听器隔离，与 `subagent/start`/`subagent/end` 对称——控制权留在 run 的持有者手中。词汇详情见 [core-data-structures/workflow.md](../../../core-data-structures/workflow.md)。
+`ctx.workflows` 是 bash 形态的抽象 `WorkflowService`——每个上下文一个引擎，无命名提供方注册表（引擎是部署级替换，不是共存者）。`start(request)` 对无法启动的脚本同步抛出；返回的 `WorkflowRun` 的 `result` 永不 reject（失败解析为 `stopReason: 'error' | 'cancelled'`）。`workflow/*` 事件是仅观察的 emit，携带数据快照（id + meta；`workflow/end` 省略 result 值），按监听器隔离，与 `subagent/start`/`subagent/end` 对称——控制权留在 run 的持有者手中。词汇详情见 [core-data-structures/workflow.md](../../../core-data-structures/workflow.md)。
 
 ### 引擎（dsh-workflow-workerthread）：每次运行一个 worker 线程
 
@@ -38,7 +38,7 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 ### 消费方（dsh-tool-workflow）
 
-一个 `workflow` 工具，镜像 `dsh-tool-subagent` 的同步形态：启动、await、`try/finally` dispose、abort 桥接 `exec.signal`、非 `completed` → `isError`。渲染意图：一张以调用的 `meta.name` 参数为标题的 `generic` 卡片（展示是参数的纯函数）。工具描述**即**面向模型的编写规范。使用策略以工具自身的 `tool:<toolName>` prompt 段落随工具发布（显式请求才使用的引导——工具引导存在于工具插件中，从不在部署 persona 中）；harness 没有 ultracode 风格的 effort 门控。
+一个 `workflow` 工具，镜像 `dsh-tool-subagent` 的同步形态：启动、await、`try/finally` dispose、abort 桥接 `exec.signal`、非 `completed` → `isError`。渲染意图：一张以调用的 `meta.name` 参数为标题的 `generic` 卡片（展示是参数的纯函数）。工具描述即面向模型的编写规范。使用策略以工具自身的 `tool:<toolName>` prompt 段落随工具发布（显式请求才使用的引导——工具引导存在于工具插件中，从不在部署 persona 中）；harness 没有 ultracode 风格的 effort 门控。
 
 ### 基础：subagent seam 上的结构化输出
 

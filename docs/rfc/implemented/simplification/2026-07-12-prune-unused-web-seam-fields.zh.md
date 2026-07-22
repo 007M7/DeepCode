@@ -1,8 +1,8 @@
-# RFC：裁剪 web seam 中未使用的字段
-
-[English](2026-07-12-prune-unused-web-seam-fields.md) | 中文
+# RFC: 裁剪 web seam 中未使用的字段
 
 Status: implemented
+
+[English](2026-07-12-prune-unused-web-seam-fields.md) | 中文
 
 ## 问题
 

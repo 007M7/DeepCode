@@ -1,8 +1,8 @@
 # RFC: Deterministic tests, the replay invariant fixture, and race stress
 
-English | [中文](2026-06-11-deterministic-and-stress-testing.zh.md)
-
 Status: proposed
+
+English | [中文](2026-06-11-deterministic-and-stress-testing.zh.md)
 
 ## Problem
 

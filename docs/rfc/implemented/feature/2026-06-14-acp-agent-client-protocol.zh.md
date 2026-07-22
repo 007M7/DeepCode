@@ -1,8 +1,8 @@
-# RFC：Agent Client Protocol（ACP）支持——从外部编辑器驱动编码 agent
-
-[English](2026-06-14-acp-agent-client-protocol.md) | 中文
+# RFC: Agent Client Protocol（ACP）支持——从外部编辑器驱动编码 agent
 
 Status: implemented
+
+[English](2026-06-14-acp-agent-client-protocol.md) | 中文
 
 ## 问题
 

@@ -1,8 +1,8 @@
 # RFC: The `todo_write` tool — model task list as event-sourced session state
 
-English | [中文](2026-06-29-todo-write-tool.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-29-todo-write-tool.zh.md)
 
 ## Problem
 

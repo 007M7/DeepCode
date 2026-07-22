@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-06-22-fork-child-replay-seed-boundary.md: a0bf064508107a23147df1a6c824c53a3906c43e
-2026-06-22-fork-child-replay-seed-boundary.zh.md: 3825cce806c036c7fa21641a2f0b7cc0533d84bf
+2026-06-22-fork-child-replay-seed-boundary.md: 28ce76309da2dca7076dd11211229a0631d11db3
+2026-06-22-fork-child-replay-seed-boundary.zh.md: 92b60589b4cfe9668a1542405693cec8d29eceaf

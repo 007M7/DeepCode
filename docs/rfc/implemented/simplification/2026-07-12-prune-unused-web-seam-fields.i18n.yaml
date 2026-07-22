@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-12-prune-unused-web-seam-fields.md: b4773c2706cf6d18ea4bb96720cd6c932cdf8942
-2026-07-12-prune-unused-web-seam-fields.zh.md: 2c18fbcb440ce85798c8f36cdc5dc649149d8ba9
+2026-07-12-prune-unused-web-seam-fields.md: 9fd05da282c22d78dc98e232ef2c23cd6e9c4ea3
+2026-07-12-prune-unused-web-seam-fields.zh.md: 650b6b74c808c719bcea9783c60064936427ffee

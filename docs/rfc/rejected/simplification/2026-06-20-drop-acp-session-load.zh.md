@@ -1,8 +1,8 @@
-# RFC：移除 ACP session/load，直到 resume 具备产品形态
+# RFC: 移除 ACP session/load，直到 resume 具备产品形态
+
+Status: rejected — Zed is the current target ACP client, advertises and exercises load-capable sessions, and keeps pending-load state for concurrent `session/load`. The bridge should keep `session/load` and make the resume contract solid.
 
 [English](2026-06-20-drop-acp-session-load.md) | 中文
-
-Status: rejected — Zed 是当前目标 ACP 客户端，它声明并使用支持 load 的会话，且为并发 `session/load` 维护 pending-load 状态。bridge 应保留 `session/load` 并使 resume 契约更加稳固。
 
 ## 问题
 

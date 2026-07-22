@@ -1,8 +1,8 @@
-# RFC：Agent 作用域运行时设计与正确性
-
-[English](2026-07-12-agent-scope-runtime-design.md) | 中文
+# RFC: Agent 作用域运行时设计与正确性
 
 Status: implemented
+
+[English](2026-07-12-agent-scope-runtime-design.md) | 中文
 
 ## 问题
 

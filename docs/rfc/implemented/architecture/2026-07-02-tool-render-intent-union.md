@@ -1,8 +1,8 @@
 # RFC: Tagged render-intent union for tool-call presentation
 
-English | [中文](2026-07-02-tool-render-intent-union.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-02-tool-render-intent-union.zh.md)
 
 ## Problem
 

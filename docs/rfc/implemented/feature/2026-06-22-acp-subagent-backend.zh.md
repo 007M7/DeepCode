@@ -1,16 +1,16 @@
-# RFC：ACP subagent 后端（进程外委派）
-
-[English](2026-06-22-acp-subagent-backend.md) | 中文
+# RFC: ACP subagent 后端（进程外委派）
 
 Status: implemented
 
+[English](2026-06-22-acp-subagent-backend.md) | 中文
+
 ## 问题
 
-subagent seam（[seam RFC](2026-06-21-subagent-capability-seam.md)）的设计使多个后端可以按名称共存于 `ctx.subagents`。进程内后端（`-spawn`/`-fork`）将子 agent（智能体）作为第二个 `Agent` 运行在**同一个** Cordis 上下文上：开销低，但子 agent 与父 agent 共享进程、模型客户端和工具。seam 的核心意义在于同时支持通过协议到达的**进程外**子 agent，以证明该抽象能跨越进程边界泛化。本 RFC 添加第一个此类后端：一个 ACP（Agent Client Protocol）客户端。
+subagent seam（[seam RFC](2026-06-21-subagent-capability-seam.md)）的设计使多个后端可以按名称共存于 `ctx.subagents`。进程内后端（`-spawn`/`-fork`）将子 agent（智能体）作为第二个 `Agent` 运行在同一个 Cordis 上下文上：开销低，但子 agent 与父 agent 共享进程、模型客户端和工具。seam 的核心意义在于同时支持通过协议到达的进程外子 agent，以证明该抽象能跨越进程边界泛化。本 RFC 添加第一个此类后端：一个 ACP（Agent Client Protocol）客户端。
 
 ## 决策
 
-`@deepseek-ai/dsh-subagent-acp` 注册一个 `SubagentProvider`，将每个子 agent 运行在一个**派生的子进程**中，并以 ACP *客户端*身份驱动它。它是现有服务端桥接 `@deepseek-ai/dsh-acp`（ACP *agent*）的方向反转孪生体：桥接**应答** `initialize`/`newSession`/`prompt`；本后端**调用**它们并**实现** `Client` 回调（`sessionUpdate`、`requestPermission`）。将配置的 spawn 命令指向 `acp-agent` 示例，即可让 harness 与自身进程通信。
+`@deepseek-ai/dsh-subagent-acp` 注册一个 `SubagentProvider`，将每个子 agent 运行在一个派生的子进程中，并以 ACP *客户端*身份驱动它。它是现有服务端桥接 `@deepseek-ai/dsh-acp`（ACP *agent*）的方向反转孪生体：桥接应答 `initialize`/`newSession`/`prompt`；本后端调用它们并实现 `Client` 回调（`sessionUpdate`、`requestPermission`）。将配置的 spawn 命令指向 `acp-agent` 示例，即可让 harness 与自身进程通信。
 
 ### 每次运行启动全新进程
 
@@ -30,7 +30,7 @@ ACP `StopReason` → harness `SubagentStopReason`：`end_turn`→`completed`、`
 
 ### 安全：清洗子进程环境
 
-子 agent 是独立进程，因此会继承环境变量。形如凭证的环境变量（`/KEY|SECRET|TOKEN/i`）默认**不**转发——父 harness 自身的密钥不得隐式泄露到派生进程中（与 bash 执行器采用的策略相同）。子 agent **自己**的凭证（它需要模型密钥）通过 `config.env` **显式**提供，在清洗之后叠加，因此有意传入的 `DEEPSEEK_API_KEY` 得以保留，而偶然存在的 `AWS_SECRET_ACCESS_KEY` 则不会。子进程的 stderr 继承到父进程的 stderr（诊断信息自然浮现）；spawn 级别的 `error` 事件（如命令不存在时的 ENOENT）被捕获并与 ACP 驱动竞速，因此错误命令解析为 `error` 而非以未处理错误崩溃父进程。
+子 agent 是独立进程，因此会继承环境变量。形如凭证的环境变量（`/KEY|SECRET|TOKEN/i`）默认不转发——父 harness 自身的密钥不得隐式泄露到派生进程中（与 bash 执行器采用的策略相同）。子 agent 自己的凭证（它需要模型密钥）通过 `config.env` 显式提供，在清洗之后叠加，因此有意传入的 `DEEPSEEK_API_KEY` 得以保留，而偶然存在的 `AWS_SECRET_ACCESS_KEY` 则不会。子进程的 stderr 继承到父进程的 stderr（诊断信息自然浮现）；spawn 级别的 `error` 事件（如命令不存在时的 ENOENT）被捕获并与 ACP 驱动竞速，因此错误命令解析为 `error` 而非以未处理错误崩溃父进程。
 
 ## 测试
 

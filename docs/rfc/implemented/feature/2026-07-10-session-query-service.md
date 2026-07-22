@@ -1,8 +1,8 @@
 # RFC: Exact session query service
 
-English | [中文](2026-07-10-session-query-service.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-10-session-query-service.zh.md)
 
 ## Problem
 

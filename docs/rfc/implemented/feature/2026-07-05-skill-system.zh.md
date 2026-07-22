@@ -1,8 +1,8 @@
-# RFC：Skill 系统——面向 agent 的渐进式指令披露
-
-[English](2026-07-05-skill-system.md) | 中文
+# RFC: Skill 系统——面向 agent 的渐进式指令披露
 
 Status: implemented
+
+[English](2026-07-05-skill-system.md) | 中文
 
 ## 问题
 

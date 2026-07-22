@@ -1,8 +1,8 @@
 # RFC: Session persistence as an abstract service over the existing `SessionEvent`
 
-English | [中文](2026-06-14-session-persistence.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-14-session-persistence.zh.md)
 
 ## Problem
 

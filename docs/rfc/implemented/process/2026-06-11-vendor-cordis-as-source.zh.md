@@ -1,8 +1,8 @@
-# RFC：将 Cordis 以源码形式收录，而非作为 npm 依赖
-
-[English](2026-06-11-vendor-cordis-as-source.md) | 中文
+# RFC: 将 Cordis 以源码形式收录，而非作为 npm 依赖
 
 Status: implemented
+
+[English](2026-06-11-vendor-cordis-as-source.md) | 中文
 
 ## 问题
 

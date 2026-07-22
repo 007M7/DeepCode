@@ -1,8 +1,8 @@
 # RFC: Configure subagent persona, tool visibility, and depth
 
-English | [中文](2026-07-12-subagent-persona-tool-filter-and-depth.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-12-subagent-persona-tool-filter-and-depth.zh.md)
 
 ## Problem
 

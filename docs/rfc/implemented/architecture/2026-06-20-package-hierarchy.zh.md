@@ -1,8 +1,8 @@
-# RFC：将包重组为模块化层级结构
-
-[English](2026-06-20-package-hierarchy.md) | 中文
+# RFC: 将包重组为模块化层级结构
 
 Status: implemented
+
+[English](2026-06-20-package-hierarchy.md) | 中文
 
 ## 问题
 

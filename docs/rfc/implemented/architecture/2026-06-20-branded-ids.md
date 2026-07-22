@@ -1,8 +1,8 @@
 # RFC: Branded IDs everywhere they belong
 
-English | [中文](2026-06-20-branded-ids.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-20-branded-ids.zh.md)
 
 ## Problem
 

@@ -1,8 +1,8 @@
-# RFC：共享应用 bin 的启动胶水代码，而非维护两份副本
-
-[English](2026-07-04-share-app-bin-boot-glue.md) | 中文
+# RFC: 共享应用 bin 的启动胶水代码，而非维护两份副本
 
 Status: implemented
+
+[English](2026-07-04-share-app-bin-boot-glue.md) | 中文
 
 ## 问题
 

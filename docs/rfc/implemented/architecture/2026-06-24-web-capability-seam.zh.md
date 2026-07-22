@@ -1,4 +1,4 @@
-# RFC：Web 能力 seam——稳定的工具覆盖多个提供方
+# RFC: Web 能力 seam——稳定的工具覆盖多个提供方
 
 Status: implemented
 

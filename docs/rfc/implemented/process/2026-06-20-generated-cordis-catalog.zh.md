@@ -1,4 +1,4 @@
-# RFC：生成式 Cordis 事件与服务目录
+# RFC: 生成式 Cordis 事件与服务目录
 
 Status: implemented
 
@@ -21,8 +21,8 @@ Status: implemented
 具体选择：
 
 - **`@mode` 标签，交叉校验。** 每个 harness 事件的 JSDoc 携带一个显式的 `@mode emit|waterfall|parallel|serial` 标签；缺少标签时生成器直接报错。当签名形状具有决定性时——尾部参数为 `next: () => …` 在结构上即为 waterfall（瀑布式事件）——生成器断言标签与之一致，矛盾时直接报错。emit/parallel/serial 的区别在结构上不可见（`session/flush` 返回 `Promise<void> | void` 且无 `next`，有序的 `agent/pre-step` 检查点亦然），因此信任标签。编写规则见 [AGENTS.md](../../../../AGENTS.md)。
-- **分层范围。** harness 层（8 个 `@deepseek-ai/dsh-*` 服务及其事件）从源码完整渲染。继承层（cordis-core 的 `ctx.on/emit/effect/provide/…` + `internal/*` 事件 + loader/hmr/timer）是插件同样可见的固定 vendor 源码；它从生成器中一张人工维护的表格简洁渲染（名称 + 一行描述 + 源码指针），而**非**遍历 vendor AST。原因是 cordis-core 的 `Context` 混合了真正的 ctx 成员与非服务字段（`root`、`baseUrl`、`logger`），且 vendor 接口面仅在有意的 vendor 同步时才变化。
-- **交叉链接到数据结构目录。** 签名中的类型名（`GenerateOptions`、`StreamChunk`、`ToolDefinition` 等）链接到记录该类型的 core-data-structures 页面。映射是生成器中一个小型的人工维护常量，而**非** `type-equiv.manifest.json`——后者记录的是 `…Map` 符号，而签名引用的是派生联合类型名，且有少数符号出现在两个页面上。
+- **分层范围。** harness 层（8 个 `@deepseek-ai/dsh-*` 服务及其事件）从源码完整渲染。继承层（cordis-core 的 `ctx.on/emit/effect/provide/…` + `internal/*` 事件 + loader/hmr/timer）是插件同样可见的固定 vendor 源码；它从生成器中一张人工维护的表格简洁渲染（名称 + 一行描述 + 源码指针），而非遍历 vendor AST。原因是 cordis-core 的 `Context` 混合了真正的 ctx 成员与非服务字段（`root`、`baseUrl`、`logger`），且 vendor 接口面仅在有意的 vendor 同步时才变化。
+- **交叉链接到数据结构目录。** 签名中的类型名（`GenerateOptions`、`StreamChunk`、`ToolDefinition` 等）链接到记录该类型的 core-data-structures 页面。映射是生成器中一个小型的人工维护常量，而非 `type-equiv.manifest.json`——后者记录的是 `…Map` 符号，而签名引用的是派生联合类型名，且有少数符号出现在两个页面上。
 - **专用围栏。** 签名块使用 ` ```ts cordis-catalog ` 信息字符串，`doc-typecheck` 识别后跳过（裸签名片段不能独立编译），并排除在 opt-out 比例之外——与 `type-equiv` 块获得相同待遇。
 
 本决策**取代** [doc-sync 强制](2026-06-11-doc-sync-enforcement.md)中事件分类的那一半：`verify-event-taxonomy` 及其 `docs/architecture.md` 表格退役（architecture.md 的标题保留，正文改为指向目录；服务映射的角色表格作为人工行文保留）。doc-typecheck、verify-md-wrap、verify-md-links 和 verify-type-equiv 不受影响。

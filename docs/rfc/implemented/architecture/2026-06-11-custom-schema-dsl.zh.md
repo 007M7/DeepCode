@@ -1,4 +1,4 @@
-# RFC：使用自定义类型化 tool-schema DSL 替代 schemastery
+# RFC: 使用自定义类型化 tool-schema DSL 替代 schemastery
 
 Status: implemented
 
@@ -14,7 +14,7 @@ Status: implemented
 
 ## 曾考虑的替代方案
 
-**Schemastery**（已作为 vendor 引入，用于插件 Config）经评估后被否决：它面向的是基于 StandardSchema 的校验／转换，而非 JSON Schema **生成**，因此会增加间接层却无法干净地产出协议格式（wire format）。
+**Schemastery**（已作为 vendor 引入，用于插件 Config）经评估后被否决：它面向的是基于 StandardSchema 的校验／转换，而非 JSON Schema *生成*，因此会增加间接层却无法干净地产出协议格式（wire format）。
 
 ## 后果
 

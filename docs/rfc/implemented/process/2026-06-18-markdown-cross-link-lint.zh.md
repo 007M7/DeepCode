@@ -1,8 +1,8 @@
-# RFC：Markdown 交叉链接有效性检查
-
-[English](2026-06-18-markdown-cross-link-lint.md) | 中文
+# RFC: Markdown 交叉链接有效性检查
 
 Status: implemented
+
+[English](2026-06-18-markdown-cross-link-lint.md) | 中文
 
 ## 问题
 
@@ -20,7 +20,7 @@ Status: implemented
 
 范围与其他门禁一致，另外加上 AGENTS.md 对和 `.agents/skills/` 下仓库自有的 agent skill Markdown（这些 skill 文件交叉链接到 docs 目录，因此本次重组也改写了其中的链接）：`README.md`、`docs/**/*.md`、`packages/*/README.md`、`AGENTS.md`、`packages/AGENTS.md`、`.agents/skills/**/*.md`，按真实路径去重（`CLAUDE.md` 符号链接解析到 AGENTS.md 文件）。它接入 lefthook pre-push 钩子和 CI 都会运行的 `doc-sync` 脚本，因此死链在推送前就会在本地失败——与[机械化质量门禁](2026-06-11-quality-gates.md)一致。
 
-本门禁检查的是**文件存在性**，而非锚点有效性：指向一个真实文件但带有 `#wrong-heading` 片段的链接仍会通过（文件可解析；片段被剥除）。
+本门禁检查的是*文件存在性*，而非锚点有效性：指向一个真实文件但带有 `#wrong-heading` 片段的链接仍会通过（文件可解析；片段被剥除）。
 
 ## 曾考虑的替代方案
 

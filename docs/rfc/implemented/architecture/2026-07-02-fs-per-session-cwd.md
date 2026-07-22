@@ -1,8 +1,8 @@
 # RFC: Resolve filesystem paths against the caller's session cwd
 
-English | [中文](2026-07-02-fs-per-session-cwd.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-02-fs-per-session-cwd.zh.md)
 
 ## Problem
 

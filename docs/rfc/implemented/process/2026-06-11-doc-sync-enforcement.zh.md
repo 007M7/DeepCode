@@ -1,8 +1,8 @@
-# RFC：Doc-sync 强制
-
-[English](2026-06-11-doc-sync-enforcement.md) | 中文
+# RFC: Doc-sync 强制
 
 Status: implemented
+
+[English](2026-06-11-doc-sync-enforcement.md) | 中文
 
 ## 问题
 
@@ -15,7 +15,7 @@ AGENTS.md 承诺文档与代码严格同步，但这一承诺此前仅靠人眼�
 1. **`doc-typecheck`** 从 `README.md`、`docs/**` 和 `packages/*/README.md` 中提取所有 ` ```ts ` 围栏代码块，写入一个继承根 `tsconfig.json` 的临时项目，然后用 `tsc -b` 编译。临时项目复用源码的 `paths` 映射和根 project references，因此文档示例能看到源码，而 vendor 代码仍在其自身的 tsconfig 设置下被检查。刻意作为草图的代码块可通过显式的 ` ```ts ignore-check ` 信息字符串来 opt-out；脚本会报告 opt-out 比例，超过一半即失败，防止该豁免机制悄然成为常态。
 2. **`verify-event-taxonomy`** 从 `packages/*/src` 中的 `interface Events` 块和 `docs/architecture.md` 中的分类体系表分别提取事件名称，断言两个集合完全一致。只校验，不生成：表格保留手写的 Mode/Purpose 列，仅检查名称集合。（落地此门禁时发现了表格遗漏的三个事件：`tools/change`、`llm/adapter-change`、`system-prompt/change`。）**已被取代**：由[生成式 Cordis 目录](2026-06-20-generated-cordis-catalog.md)取代。此门禁及其 `architecture.md` 表格已退役，取而代之的是完全生成的 `docs/cordis-catalog/events.md` + `docs/cordis-catalog/services.md` 及其 `verify-cordis-catalog` 新鲜度门禁。本 RFC 中的其他门禁（`doc-typecheck` 以及下文修订中的 `verify-md-wrap`）不受影响。
 
-两者通过一个共享的 doc-sync（文档同步门禁）`package.json` 脚本运行，lefthook pre-push 钩子和 CI 都调用它（[机械质量门禁](2026-06-11-quality-gates.md)：钩子与 CI 调用相同脚本，因此门禁在推送前就在本地触发，而非仅在推送后）。它们在 `pnpm run typecheck` 之后运行，后者校验 doc-typecheck 所引用的 package/vendor 构建图。
+两者通过一个共享的 `doc-sync`（文档同步门禁）package.json 脚本运行，lefthook pre-push 钩子和 CI 都调用它（[机械质量门禁](2026-06-11-quality-gates.md)：钩子与 CI 调用相同脚本，因此门禁在推送前就在本地触发，而非仅在推送后）。它们在 `pnpm run typecheck` 之后运行，后者校验 doc-typecheck 所引用的 package/vendor 构建图。
 
 **修订（2026-06-17）：** 第三道门禁 **`verify-md-wrap`** 随后被纳入 `doc-sync`。它使用 `mdast-util-from-markdown` + GFM 解析范围内的每个 Markdown 文件（`README.md`、`docs/**`、`packages/*/README.md`，加上 `AGENTS.md` / `packages/AGENTS.md`），如果任何 `paragraph` 节点跨越多个源码行则失败，从而强制执行 docs/AGENTS.md 中「一个段落一个物理行」的写作规则。同样遵循只校验不生成的原则：它报告硬换行但从不重写，因此不会引入格式化噪音。`doc-sync` 现在包含三道门禁。
 

@@ -1,4 +1,4 @@
-# RFC：由 dsh-llm 拥有的提供方无关内容块词汇
+# RFC: 由 dsh-llm 拥有的提供方无关内容块词汇
 
 Status: implemented
 

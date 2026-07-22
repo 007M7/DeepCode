@@ -1,8 +1,8 @@
 # RFC: The approval seam — one-shot permission decisions over a waterfall of answerers
 
-English | [中文](2026-07-06-approval-seam.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-06-approval-seam.zh.md)
 
 ## Problem
 

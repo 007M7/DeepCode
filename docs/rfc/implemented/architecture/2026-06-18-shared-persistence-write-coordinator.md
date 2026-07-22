@@ -1,8 +1,8 @@
 # RFC: Shared persistence write coordinator
 
-English | [中文](2026-06-18-shared-persistence-write-coordinator.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-18-shared-persistence-write-coordinator.zh.md)
 
 ## Problem
 

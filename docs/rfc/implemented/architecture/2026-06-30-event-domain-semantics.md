@@ -1,8 +1,8 @@
 # RFC: Event-domain semantics — session is the fact log, agent is the live surface
 
-English | [中文](2026-06-30-event-domain-semantics.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-30-event-domain-semantics.zh.md)
 
 ## Problem
 

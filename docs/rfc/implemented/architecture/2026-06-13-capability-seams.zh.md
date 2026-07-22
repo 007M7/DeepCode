@@ -1,8 +1,8 @@
-# RFC：能力 seam——接口／实现／消费方三分
-
-[English](2026-06-13-capability-seams.md) | 中文
+# RFC: 能力 seam——接口／实现／消费方三分
 
 Status: implemented
+
+[English](2026-06-13-capability-seams.md) | 中文
 
 ## 问题
 
@@ -25,7 +25,7 @@ harness 具有可替换的能力：当前是 bash 执行，未来会有沙箱化
 ## 曾考虑的替代方案
 
 - **单一合并包**：否决。因为它重新耦合了三分设计本要分离的三种变化速率（这正是拆分的意义所在）。
-- **`@cordisjs/plugin-capability`**：这是完全不同的维度。它是一个权限／能力*安全*服务（具名权限加继承，通过 `ctx.capability.test` 对会话进行检测），是延后的权限/沙箱工作（`tools/pre-execute` deny/ask seam）的候选方案，**不是**替换实现的机制。混淆这两个「能力」概念正是本 RFC 所指出的陷阱。
+- **`@cordisjs/plugin-capability`**：这是完全不同的维度。它是一个权限／能力*安全*服务（具名权限加继承，通过 `ctx.capability.test` 对会话进行检测），是延后的权限/沙箱工作（`tools/pre-execute` deny/ask seam）的候选方案，不是替换实现的机制。混淆这两个「能力」概念正是本 RFC 所指出的陷阱。
 
 ## 后果
 

@@ -1,4 +1,4 @@
-# RFC：移除未被消费的 LLM 组装便捷接口
+# RFC: 移除未被消费的 LLM 组装便捷接口
 
 Status: implemented
 

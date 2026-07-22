@@ -1,8 +1,8 @@
 # RFC: Share the app bins' boot glue instead of maintaining twin copies
 
-English | [中文](2026-07-04-share-app-bin-boot-glue.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-04-share-app-bin-boot-glue.zh.md)
 
 ## Problem
 

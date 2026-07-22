@@ -1,8 +1,8 @@
-# RFC：从 persistence seam 中移除无用方法
-
-[English](2026-06-20-prune-dead-seam-methods.md) | 中文
+# RFC: 从 persistence seam 中移除无用方法
 
 Status: implemented
+
+[English](2026-06-20-prune-dead-seam-methods.md) | 中文
 
 > **实现说明：** 最终只移除了 `SessionPersistence.has()` 和 `.delete()`。`BashExecutor.get()` 和 `.list()` 保留，因为移除它们的单行查询接口需要在消费方引入大量额外的完成状态追踪机制。它们的 id 品牌化由 [branded-ids RFC](../architecture/2026-06-20-branded-ids.md) 覆盖。
 

@@ -1,8 +1,8 @@
 # RFC: Structured error taxonomy
 
-English | [中文](2026-06-11-structured-error-taxonomy.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-11-structured-error-taxonomy.zh.md)
 
 ## Problem
 

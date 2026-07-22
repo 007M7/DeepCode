@@ -1,8 +1,8 @@
 # RFC: Event-sourced sessions with derived message history
 
-English | [中文](2026-06-11-event-sourced-sessions.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-11-event-sourced-sessions.zh.md)
 
 ## Problem
 

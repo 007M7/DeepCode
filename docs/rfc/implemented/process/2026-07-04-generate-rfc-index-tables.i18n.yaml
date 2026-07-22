@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-04-generate-rfc-index-tables.md: 6a8888eda8b7cf7105a44802774bf49d6463952d
-2026-07-04-generate-rfc-index-tables.zh.md: aad1652edc9de81a70a7a391700f63be9499035c
+2026-07-04-generate-rfc-index-tables.md: 5d5ae258583e0fae7dcb44a23c4b41446bd233d2
+2026-07-04-generate-rfc-index-tables.zh.md: fa611e4337075501fe097fe8fc68a878a855a7c0

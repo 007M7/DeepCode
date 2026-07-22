@@ -1,8 +1,8 @@
 # RFC: Keep one public stop primitive
 
-English | [中文](2026-06-20-public-agent-stop-surface.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-20-public-agent-stop-surface.zh.md)
 
 > **Implementation note:** Only `abort()` was removed. `whenIdle()` remains because it is the public quiescence signal and safely handles waiter settlement and replacement-turn races; consumers should not reconstruct that behavior from status transitions.
 

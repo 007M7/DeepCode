@@ -1,8 +1,8 @@
 # RFC: Skill system — progressive disclosure instructions for agents
 
-English | [中文](2026-07-05-skill-system.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-05-skill-system.zh.md)
 
 ## Problem
 

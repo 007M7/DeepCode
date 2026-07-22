@@ -1,8 +1,8 @@
-# RFC：事件溯源的会话与派生消息历史
-
-[English](2026-06-11-event-sourced-sessions.md) | 中文
+# RFC: 事件溯源的会话与派生消息历史
 
 Status: implemented
+
+[English](2026-06-11-event-sourced-sessions.md) | 中文
 
 ## 问题
 
@@ -14,7 +14,7 @@ MVP 要求严格的基于事件的追踪，以及完全可回放的会话（严�
 
 追加操作是同步的（热路径从不阻塞于 I/O）；`session/event` 是同步通知；持久化插件在后台缓冲写入，并在每个轮次结束时触发的 `session/flush` 检查点处等待排空。
 
-顺序契约：agent loop（智能体循环）先追加到会话，再发出对应的 Cordis 事件；`agent/step-result` waterfall（瀑布式事件）在 `assistant/message` 追加之前运行，因此日志记录的是工具调度实际使用的消息。回归测试固定了这一顺序。
+顺序契约：agent loop（智能体循环）*先*追加到会话，再发出对应的 Cordis 事件；`agent/step-result` waterfall（瀑布式事件）在 `assistant/message` 追加之前运行，因此日志记录的是工具调度实际使用的消息。回归测试固定了这一顺序。
 
 ## 曾考虑的替代方案
 

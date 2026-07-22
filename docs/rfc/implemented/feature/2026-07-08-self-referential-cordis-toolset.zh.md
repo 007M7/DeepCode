@@ -1,8 +1,8 @@
-# RFC：自引用 cordis 工具集
-
-[English](2026-07-08-self-referential-cordis-toolset.md) | 中文
+# RFC: 自引用 cordis 工具集
 
 Status: implemented
+
+[English](2026-07-08-self-referential-cordis-toolset.md) | 中文
 
 ## 问题
 

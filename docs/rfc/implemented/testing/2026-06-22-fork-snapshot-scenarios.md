@@ -1,8 +1,8 @@
 # RFC: Record fork and mixed spawn+fork snapshot scenarios
 
-English | [中文](2026-06-22-fork-snapshot-scenarios.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-22-fork-snapshot-scenarios.zh.md)
 
 ## Problem
 

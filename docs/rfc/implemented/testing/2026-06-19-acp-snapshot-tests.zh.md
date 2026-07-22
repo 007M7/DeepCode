@@ -1,4 +1,4 @@
-# RFC：ACP 快照测试——一次录制 / 确定性回放
+# RFC: ACP 快照测试——一次录制 / 确定性回放
 
 Status: implemented
 

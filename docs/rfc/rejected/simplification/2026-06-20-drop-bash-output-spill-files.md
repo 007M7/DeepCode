@@ -1,8 +1,8 @@
 # RFC: Drop bash full-output spill files
 
-English | [中文](2026-06-20-drop-bash-output-spill-files.zh.md)
-
 Status: rejected — full-output recovery is a real bash behavior. A future artifact/blob service may generalize it, but dropping spill files before that replacement would lose useful command output.
+
+English | [中文](2026-06-20-drop-bash-output-spill-files.zh.md)
 
 ## Problem
 

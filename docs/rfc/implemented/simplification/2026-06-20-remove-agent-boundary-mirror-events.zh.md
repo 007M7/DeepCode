@@ -1,8 +1,8 @@
-# RFC：停止将持久化边界镜像为 agent 事件
-
-[English](2026-06-20-remove-agent-boundary-mirror-events.md) | 中文
+# RFC: 停止将持久化边界镜像为 agent 事件
 
 Status: implemented
+
+[English](2026-06-20-remove-agent-boundary-mirror-events.md) | 中文
 
 ## 问题
 

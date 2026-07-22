@@ -1,8 +1,8 @@
-# RFC：富 ACP bash 渲染——通过 `_meta` 约定实现终端卡片
-
-[English](2026-06-18-acp-terminal-and-tool-rendering.md) | 中文
+# RFC: 富 ACP bash 渲染——通过 `_meta` 约定实现终端卡片
 
 Status: implemented
+
+[English](2026-06-18-acp-terminal-and-tool-rendering.md) | 中文
 
 ## 问题
 
@@ -27,7 +27,7 @@ Zed 侧（`crates/agent_servers/src/acp.rs`，已验证）：收到 `ToolCall` �
 
 1. **能力声明。** `initialize` 读取 `clientCapabilities._meta.terminal_output`，桥接层按连接记住它。
 2. **提供方无关的展示词汇。** `dsh-tools` 新增一种终端形态的展示结构，工具可返回它——提供方无关（`cwd`、输出 `data`、`exitCode`/`signal`），不含 ACP 类型。`dsh-tool-bash` 为 `bash` 返回该结构（cwd 来自解析后的工作目录；输出与退出从运行结果解析）。
-3. **桥接映射。** 当客户端声明了该能力时，桥接层将展示结构映射为：在 `tool_call` 上，`content:[…, {type:'terminal', terminalId}]`（工具的任何 `content`，如描述，渲染在终端块之前）+ `_meta.terminal_info.{terminal_id,cwd}`；在 `tool_call_update` 上，`_meta.terminal_output.{terminal_id,data}`（捕获的输出）+ `_meta.terminal_exit.{terminal_id, exit_code|signal}`（解析后的退出），且 update 的文本 `content` 被省略（ACP 的 `tool_call_update.content` 会**替换**调用的 content 集合，因此重新发送围栏块会覆盖终端内容块）。`terminalId` 由 harness 的 `callId` 派生（稳定、每次调用唯一）。当能力未声明时，桥接层在调用上发送描述内容块，在 update 上发送既有的 ` ```console ` 文本内容——行为不变。
+3. **桥接映射。** 当客户端声明了该能力时，桥接层将展示结构映射为：在 `tool_call` 上，`content:[…, {type:'terminal', terminalId}]`（工具的任何 `content`，如描述，渲染在终端块之前）+ `_meta.terminal_info.{terminal_id,cwd}`；在 `tool_call_update` 上，`_meta.terminal_output.{terminal_id,data}`（捕获的输出）+ `_meta.terminal_exit.{terminal_id, exit_code|signal}`（解析后的退出），且 update 的文本 `content` 被省略（ACP 的 `tool_call_update.content` 会替换调用的 content 集合，因此重新发送围栏块会覆盖终端内容块）。`terminalId` 由 harness 的 `callId` 派生（稳定、每次调用唯一）。当能力未声明时，桥接层在调用上发送描述内容块，在 update 上发送既有的 ` ```console ` 文本内容——行为不变。
 4. **退出信息从渲染输出中解析；无新执行路径，无实时流式传输。** 输出在完成时附加（来自 agent 自身的 `tool/result`），不逐 token 流式传输。退出状态（`_meta.terminal_exit.{exit_code,signal}`）确实会发出：纯 `presentResult(args, result)` seam 只能看到内容块，因此 `dsh-tool-bash` 通过解析 `renderResult` 追加的状态标记（`[exit code: N]` / `[killed by signal: …]`）来恢复结构化退出信息——解析是标记发出的精确逆操作，二者在同一文件中共同演进，一个往返测试守护这对关系。资源释放不受影响：无需新增拆除逻辑，因为桥接层从未创建客户端侧终端。
 
 ## 曾考虑的替代方案

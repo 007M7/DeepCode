@@ -1,8 +1,8 @@
-# RFC：对提供方请求强制携带 `User-Agent` 归属标识
-
-[English](2026-06-21-mandatory-app-attribution-headers.md) | 中文
+# RFC: 对提供方请求强制携带 `User-Agent` 归属标识
 
 Status: implemented
+
+[English](2026-06-21-mandatory-app-attribution-headers.md) | 中文
 
 ## 问题
 
@@ -15,9 +15,9 @@ LLM（大语言模型）提供方请求应当标识发出请求的产品。这�
 - **OpenRouter 的机制是提供方特有的。** 其当前文档说明应用归属通过 `HTTP-Referer`（必需）、`X-OpenRouter-Title` 和 `X-OpenRouter-Categories` 来追踪；`X-Title` 仅为向后兼容而接受。其 API 参考称这些头部为可选，并说它们使应用在 OpenRouter 上可被发现。这是一份具体的 OpenRouter 契约，而非 IETF 或 OpenAI 兼容 API 标准。
 - **在 agent 工具生态中，`HTTP-Referer` 是一种 OpenRouter 感知的约定，而非通用 agent 约定。** 它足够常见，以至于 OpenRouter SDK 和示例直接暴露它，面向 OpenRouter 的框架通常需要一种方式来透传它。但 ACP（Agent Client Protocol）等 agent 协议在自己的 initialize 消息中协商名称、版本和能力，而模型提供方请求仍需 HTTP 层面的身份标识。因此「在 agent 世界中被接受」意味着「被 OpenRouter 集成所识别」，而非「可跨 agent 运行时或提供方移植」。
 - **编程 agent 在 `User-Agent` 中标识产品和版本。** 公开实现在环境细节和提供方特有的附加头部上各有不同，但产品身份是共同契约；不存在通用的精确格式。
-- **标准化的通用客户端身份头部是 `User-Agent`。** RFC 9110 第 10.1.5 节将 `User-Agent` 定义为用户代理软件身份，说明它用于互操作性报告和分析，并说用户代理*应当*在每个请求中发送它（除非被配置为不发送）。这是唯一直接对应「哪个产品在发出此 HTTP 请求」的标准头部。
+- **标准化的通用客户端身份头部是 `User-Agent`。** RFC 9110 第 10.1.5 节将 `User-Agent` 定义为用户代理软件身份，说明它用于互操作性报告和分析，并说用户代理应当在每个请求中发送它（除非被配置为不发送）。这是唯一直接对应「哪个产品在发出此 HTTP 请求」的标准头部。
 - **`Referer` 是标准的，但 OpenRouter 的 `HTTP-Referer` 不是标准字段。** RFC 9110 第 10.1.3 节将 `Referer` 定义为获取目标 URI 的来源 URI，并用大量篇幅讨论隐私限制。OpenRouter 则要求 `HTTP-Referer`，将其用作应用 URL 标识符。该名称和含义是 OpenRouter 特有的，尽管它形似标准 `Referer` 头部的 CGI 环境变量形式。
-- **`From` 是标准的，但不适合作为强制默认值。** RFC 9110 第 10.1.2 节将 `From` 定义为负责用户代理的人的电子邮件地址。机器人代理*应当*发送它以便服务器联系运营者，但非机器人代理出于隐私和安全策略考虑不应在未经用户显式配置的情况下发送。harness 可以后续支持运营者联系方式，但不得凭空捏造或全局强制要求。
+- **`From` 是标准的，但不适合作为强制默认值。** RFC 9110 第 10.1.2 节将 `From` 定义为负责用户代理的人的电子邮件地址。机器人代理应当发送它以便服务器联系运营者，但非机器人代理出于隐私和安全策略考虑不应在未经用户显式配置的情况下发送。harness 可以后续支持运营者联系方式，但不得凭空捏造或全局强制要求。
 - **请求体中的 `user` 或 `metadata` 字段不是应用归属。** 部分模型 API 暴露稳定的终端用户标识符、请求元数据、标签或项目/账户头部。这些对滥用监控、内部计费、仪表盘或链路追踪有用，但它们要么标识的是终端用户而非产品，要么是提供方特有的 body schema，要么不保证能通过 OpenAI 兼容网关透传。它们不能替代静态的应用身份头部。
 - **SDK 遥测头部标识的是 SDK，而非应用。** 官方和第三方 SDK 常发送库/版本头部。这些帮助 SDK 维护者调试其客户端，但除非应用显式提供产品归属层，否则它们不能标识 harness 作为应用。
 - **pi-ai 有一流的头部钩子。** `@earendil-works/pi-ai` 的 `StreamOptions.headers` 将调用方头部最后合并（覆盖提供方默认值），因此基于库的适配器无需包装或上游改动即可满足与手写适配器相同的协议格式契约。mock 服务器测试套件对两个适配器都断言头部到达了线路。

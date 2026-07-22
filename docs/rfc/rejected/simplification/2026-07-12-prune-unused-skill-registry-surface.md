@@ -1,8 +1,8 @@
 # RFC: Prune unused skill registry surface
 
-English | [中文](2026-07-12-prune-unused-skill-registry-surface.zh.md)
-
 Status: rejected — Direct runtime skill registration is an intentional extension path for third-party plugins.
+
+English | [中文](2026-07-12-prune-unused-skill-registry-surface.zh.md)
 
 ## Problem
 

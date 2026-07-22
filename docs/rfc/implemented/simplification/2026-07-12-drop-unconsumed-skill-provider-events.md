@@ -1,8 +1,8 @@
 # RFC: Drop unconsumed skill provider events
 
-English | [中文](2026-07-12-drop-unconsumed-skill-provider-events.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-12-drop-unconsumed-skill-provider-events.zh.md)
 
 ## Problem
 

@@ -1,8 +1,8 @@
-# RFC：会话 surface——基于事件日志的链表，用于 LLM 消息派生
-
-[English](2026-06-18-session-surface.md) | 中文
+# RFC: 会话 surface——基于事件日志的链表，用于 LLM 消息派生
 
 Status: implemented
+
+[English](2026-06-18-session-surface.md) | 中文
 
 ## 问题
 

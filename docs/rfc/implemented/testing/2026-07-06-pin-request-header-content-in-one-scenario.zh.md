@@ -1,4 +1,4 @@
-# RFC：在单个快照场景中固定请求头内容
+# RFC: 在单个快照场景中固定请求头内容
 
 Status: implemented
 

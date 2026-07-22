@@ -1,8 +1,8 @@
-# RFC：裁剪无生产者的词汇变体（块缓存提示、`agent` 消息来源、`continuation` 轮次触发器）
-
-[English](2026-07-04-prune-producerless-vocabulary-variants.md) | 中文
+# RFC: 裁剪无生产者的词汇变体（块缓存提示、`agent` 消息来源、`continuation` 轮次触发器）
 
 Status: implemented
+
+[English](2026-07-04-prune-producerless-vocabulary-variants.md) | 中文
 
 ## 问题
 

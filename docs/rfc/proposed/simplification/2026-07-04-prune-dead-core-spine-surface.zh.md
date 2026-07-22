@@ -1,4 +1,4 @@
-# RFC：裁剪无用的公开与结果接口
+# RFC: 裁剪无用的公开与结果接口
 
 Status: proposed
 

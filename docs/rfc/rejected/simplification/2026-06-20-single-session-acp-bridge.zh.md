@@ -1,8 +1,8 @@
-# RFC：将 ACP 桥接恢复为每连接一个活跃会话
+# RFC: 将 ACP 桥接恢复为每连接一个活跃会话
+
+Status: rejected — Zed is the current target ACP client and its ACP implementation is explicitly multi-session: it stores live sessions in a `HashMap<SessionId, AcpSession>`, tracks `pending_sessions`, joins concurrent loads for the same id, and tests close-during-load behavior.
 
 [English](2026-06-20-single-session-acp-bridge.md) | 中文
-
-Status: rejected — Zed 是当前目标 ACP 客户端，其 ACP 实现明确支持多会话：它将活跃会话存储在 `HashMap<SessionId, AcpSession>` 中，跟踪 `pending_sessions`，对同一 id 的并发加载进行合并，并测试加载期间关闭的行为。
 
 ## 问题
 

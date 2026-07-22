@@ -1,8 +1,8 @@
-# RFC：深度只读的公开接口
+# RFC: 深度只读的公开接口
+
+Status: rejected — the pervasive `DeepReadonly<T>` type flip is replaced by source-owned runtime immutability in `Session` plus relational development assertions. See [source-owned session immutability and dev-mode invariants](../../implemented/architecture/2026-06-11-dev-invariants-over-deep-readonly.md).
 
 [English](2026-06-11-immutable-public-surfaces.md) | 中文
-
-Status: rejected — 全面使用 `DeepReadonly<T>` 类型翻转的方案已被替换为 `Session` 中由源拥有的运行时不可变性加关系型开发断言。见[源拥有的会话不可变性与开发模式不变式](../../implemented/architecture/2026-06-11-dev-invariants-over-deep-readonly.md)。
 
 ## 问题
 
@@ -14,7 +14,7 @@ Status: rejected — 全面使用 `DeepReadonly<T>` 类型翻转的方案已被�
 
 在类型层面为「突变即损坏」的场景引入不可变性：
 
-- `SessionEvent` 数据在从会话**输出**时（`events`、`session/event` 监听器）变为 `DeepReadonly`；`append()` 仍接受普通可变输入。一个 `DeepReadonly<T>` 工具类型放在 dsh-llm 中，与 brand/never 辅助类型相邻。
+- `SessionEvent` 数据在从会话输出时（`events`、`session/event` 监听器）变为 `DeepReadonly`；`append()` 仍接受普通可变输入。一个 `DeepReadonly<T>` 工具类型放在 dsh-llm 中，与 brand/never 辅助类型相邻。
 - `deriveMessages()` 返回深度只读的消息；agent loop（智能体循环）在将可变请求交给 `agent/request` waterfall 之前先克隆（该处的突变是被允许的——克隆使边界显式且代价低廉，每个步骤仅一次）。
 - `PromptAssembly` 在其 waterfall 流经期间保持可变（被允许），但注册表内部的 section 列表在每次组装时被克隆（已有此行为）。
 

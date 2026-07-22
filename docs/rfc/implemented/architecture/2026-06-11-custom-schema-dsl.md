@@ -1,8 +1,8 @@
 # RFC: Custom typed tool-schema DSL instead of schemastery
 
-English | [中文](2026-06-11-custom-schema-dsl.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-11-custom-schema-dsl.zh.md)
 
 ## Problem
 

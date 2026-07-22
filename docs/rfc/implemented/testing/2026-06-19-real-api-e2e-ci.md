@@ -1,8 +1,8 @@
 # RFC: Real-API e2e in CI against the external DeepSeek API
 
-English | [中文](2026-06-19-real-api-e2e-ci.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-19-real-api-e2e-ci.zh.md)
 
 ## Problem
 

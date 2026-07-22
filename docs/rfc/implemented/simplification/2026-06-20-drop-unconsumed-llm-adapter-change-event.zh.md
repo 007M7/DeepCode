@@ -1,4 +1,4 @@
-# RFC：移除未被消费的 `llm/adapter-change` 事件
+# RFC: 移除未被消费的 `llm/adapter-change` 事件
 
 Status: implemented
 

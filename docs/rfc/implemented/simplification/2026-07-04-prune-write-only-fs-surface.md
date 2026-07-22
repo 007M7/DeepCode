@@ -1,8 +1,8 @@
 # RFC: Prune write-only fields and a dead routing knob from the fs seam
 
-English | [中文](2026-07-04-prune-write-only-fs-surface.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-04-prune-write-only-fs-surface.zh.md)
 
 ## Problem
 

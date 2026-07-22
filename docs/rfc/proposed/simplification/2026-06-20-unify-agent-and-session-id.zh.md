@@ -1,8 +1,8 @@
-# RFC：统一 agent id 与 session id
-
-[English](2026-06-20-unify-agent-and-session-id.md) | 中文
+# RFC: 统一 agent id 与 session id
 
 Status: proposed
+
+[English](2026-06-20-unify-agent-and-session-id.md) | 中文
 
 ## 问题
 

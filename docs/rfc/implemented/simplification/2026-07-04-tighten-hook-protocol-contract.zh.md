@@ -1,8 +1,8 @@
-# RFC：收紧 hook-protocol 契约——dialect、废弃字段、双重默认值与 lib 拥有的 `hook/result` 语义
-
-[English](2026-07-04-tighten-hook-protocol-contract.md) | 中文
+# RFC: 收紧 hook-protocol 契约——dialect、废弃字段、双重默认值与 lib 拥有的 `hook/result` 语义
 
 Status: implemented
+
+[English](2026-07-04-tighten-hook-protocol-contract.md) | 中文
 
 ## 问题
 

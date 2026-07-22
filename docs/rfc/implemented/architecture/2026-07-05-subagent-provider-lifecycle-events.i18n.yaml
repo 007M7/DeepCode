@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-05-subagent-provider-lifecycle-events.md: 6d711f2a6d8496a8a229ec63d86dd89816efb6f8
-2026-07-05-subagent-provider-lifecycle-events.zh.md: f412b031644c14ca70caae3efc72eefa9ce2c2ac
+2026-07-05-subagent-provider-lifecycle-events.md: b5300706ce4c53a6d348a86803d221a4dcca9632
+2026-07-05-subagent-provider-lifecycle-events.zh.md: 8694612e5e3d4d65117896e337c170f47b31abb0

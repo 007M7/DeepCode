@@ -1,8 +1,8 @@
-# RFC：简化会话日志表示
-
-[English](2026-07-12-simplify-session-log-representation.md) | 中文
+# RFC: 简化会话日志表示
 
 Status: proposed
+
+[English](2026-07-12-simplify-session-log-representation.md) | 中文
 
 ## 问题
 

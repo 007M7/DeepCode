@@ -1,8 +1,8 @@
-# RFC：针对 Cordis 对外服务接口的 JSDoc 完整性门禁
-
-[English](2026-07-04-cordis-jsdoc-completeness-gate.md) | 中文
+# RFC: 针对 Cordis 对外服务接口的 JSDoc 完整性门禁
 
 Status: implemented
+
+[English](2026-07-04-cordis-jsdoc-completeness-gate.md) | 中文
 
 ## 问题
 
@@ -12,7 +12,7 @@ AGENTS.md 中的规则（「每个导出都有解释语义的 JSDoc」）只能�
 
 ## 决策
 
-扩展 `scripts/gen-cordis-catalog.ts`（同一次遍历、同一个 `@mode` 先例），对其编目的所有内容强制 JSDoc 完整性。`verify-cordis-catalog` 在 `doc-sync`（文档同步门禁）内运行，CI 和 lefthook pre-push 钩子都已执行 `doc-sync`，因此门禁无需新增任何接线（质量门禁原则：单一真源）。
+扩展 `scripts/gen-cordis-catalog.ts`（同一次遍历、同一个 `@mode` 先例），对其编目的所有内容强制 JSDoc 完整性。`verify-cordis-catalog` 在 `doc-sync`（文档同步门禁）内运行，CI 和 lefthook pre-push 钩子都已执行该命令，因此门禁无需新增任何接线（质量门禁原则：单一真源）。
 
 契约如下：
 

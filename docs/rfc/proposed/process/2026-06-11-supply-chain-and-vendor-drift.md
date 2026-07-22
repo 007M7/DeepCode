@@ -1,8 +1,8 @@
 # RFC: Supply chain checks and vendor drift verification
 
-English | [中文](2026-06-11-supply-chain-and-vendor-drift.zh.md)
-
 Status: proposed
+
+English | [中文](2026-06-11-supply-chain-and-vendor-drift.zh.md)
 
 ## Problem
 

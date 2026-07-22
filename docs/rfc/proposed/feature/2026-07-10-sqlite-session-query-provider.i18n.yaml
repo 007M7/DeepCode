@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-10-sqlite-session-query-provider.md: 8b67baf420433feca9d5cd09d58852bb9b1545a9
-2026-07-10-sqlite-session-query-provider.zh.md: ad6b44363ab54b66b597941adb13938f27971bd5
+2026-07-10-sqlite-session-query-provider.md: d1901ab0e37e8f92af322facac0cb48988d1ffe7
+2026-07-10-sqlite-session-query-provider.zh.md: 7a86d7294183eec57c3495a182f1403f84c27363

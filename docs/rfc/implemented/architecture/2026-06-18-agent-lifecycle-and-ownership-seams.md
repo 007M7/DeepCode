@@ -1,8 +1,8 @@
 # RFC: Agent lifecycle and ownership seams
 
-English | [中文](2026-06-18-agent-lifecycle-and-ownership-seams.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-18-agent-lifecycle-and-ownership-seams.zh.md)
 
 ## Problem
 

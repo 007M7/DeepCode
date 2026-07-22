@@ -1,4 +1,4 @@
-# RFC：模型边界处的运行时参数校验
+# RFC: 模型边界处的运行时参数校验
 
 Status: implemented
 

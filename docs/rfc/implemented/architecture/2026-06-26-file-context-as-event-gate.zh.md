@@ -1,4 +1,4 @@
-# RFC：将 `dsh-fs-policy` 改为事件门控插件，而非方法接口
+# RFC: 将 `dsh-fs-policy` 改为事件门控插件，而非方法接口
 
 Status: implemented
 
@@ -72,7 +72,7 @@ editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion 
 
 **两个 `fs/*` 决策事件是单槽、先到先得的 waterfall。** `dsh-fs-policy` 不调用 `next()` 直接返回，因此在默认部署中它占据该槽位；更早注册或使用 `prepend` 的监听器会替代该策略。权限、审计和沙箱关注点仍留在可组合的 `tools/execute` waterfall 上。
 
-actor 在 `dsh-fs` 中类型为 `object`——一个纯粹的不透明载体，提供方 seam 从不读取或收窄它。owner 的推导（`actor.agent?.session`）和 `{ agent?: { session? } }` 结构形状完全留在 `dsh-fs-policy` 内部，由其在监听器中将 `object` actor 收窄为该形状。`dsh-fs` 拥有事件名和 fs 词汇；它**不**拥有策略层的运行时 owner 结构。
+actor 在 `dsh-fs` 中类型为 `object`——一个纯粹的不透明载体，提供方 seam 从不读取或收窄它。owner 的推导（`actor.agent?.session`）和 `{ agent?: { session? } }` 结构形状完全留在 `dsh-fs-policy` 内部，由其在监听器中将 `object` actor 收窄为该形状。`dsh-fs` 拥有事件名和 fs 词汇；它不拥有策略层的运行时 owner 结构。
 
 ```ts
 import type { FsTarget, FsVersion, FsWriteIntent } from '@deepseek-ai/dsh-fs'
@@ -154,7 +154,7 @@ interface Events {
 
 ## 验证
 
-测试固定了两条路径：无 `dsh-fs-policy` 时，根工具插件对 `dsh-fs-local` 启动，read、create、overwrite 和未读 edit 均成功；有策略时，未读 edit 返回 `FS_NOT_OBSERVED`，未读 overwrite 被 `createIfAbsent` 门控。策略决定后，后注册的 intent 监听器不会被触达。陈旧编辑通过提供方 CAS 失败，而策略不执行 `stat`；工具预算在两条路径上保持 read 一次 `stat`、write 或 edit 零次 `stat`。面向模型的 schema 逐字节不变，因此快照不变。
+测试固定了两条路径：无 `dsh-fs-policy` 时，根工具插件对 `dsh-fs-local` 启动，read、create、overwrite 和未读 edit 均成功；有策略时，未读 edit 返回 `FS_NOT_OBSERVED`，未读 overwrite 被 `createIfAbsent` 门控。策略决定后，后注册的 intent 监听器不会被触达。陈旧编辑通过提供方 CAS 失败，而策略不执行 `stat`；工具预算在两条路径上保持 read 一次 `stat`，write 或 edit 均为零次。面向模型的 schema 逐字节不变，因此快照不变。
 
 ## 曾考虑的替代方案
 

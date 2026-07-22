@@ -1,8 +1,8 @@
-# RFC：架构一致性——依赖规则与适配器套件
-
-[English](2026-06-11-architectural-conformance.md) | 中文
+# RFC: 架构一致性——依赖规则与适配器套件
 
 Status: proposed
+
+[English](2026-06-11-architectural-conformance.md) | 中文
 
 ## 问题
 

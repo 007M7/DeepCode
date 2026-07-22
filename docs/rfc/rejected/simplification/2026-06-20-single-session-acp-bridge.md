@@ -1,8 +1,8 @@
 # RFC: Return the ACP bridge to one live session per connection
 
-English | [中文](2026-06-20-single-session-acp-bridge.zh.md)
-
 Status: rejected — Zed is the current target ACP client and its ACP implementation is explicitly multi-session: it stores live sessions in a `HashMap<SessionId, AcpSession>`, tracks `pending_sessions`, joins concurrent loads for the same id, and tests close-during-load behavior.
+
+English | [中文](2026-06-20-single-session-acp-bridge.zh.md)
 
 ## Problem
 

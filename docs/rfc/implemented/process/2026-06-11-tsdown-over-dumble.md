@@ -1,8 +1,8 @@
 # RFC: tsdown for JS bundling instead of dumble
 
-English | [中文](2026-06-11-tsdown-over-dumble.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-11-tsdown-over-dumble.zh.md)
 
 ## Problem
 

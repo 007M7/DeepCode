@@ -1,8 +1,8 @@
 # RFC: Rich ACP bash rendering — the terminal card via the `_meta` convention
 
-English | [中文](2026-06-18-acp-terminal-and-tool-rendering.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-18-acp-terminal-and-tool-rendering.zh.md)
 
 ## Problem
 

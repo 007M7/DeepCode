@@ -1,8 +1,8 @@
-# RFC：移除 `agent/steering` 镜像 emit
-
-[English](2026-07-04-remove-agent-steering-mirror.md) | 中文
+# RFC: 移除 `agent/steering` 镜像 emit
 
 Status: implemented
+
+[English](2026-07-04-remove-agent-steering-mirror.md) | 中文
 
 ## 问题
 
@@ -22,7 +22,7 @@ steering 承载着真实的生产流量：hook bridge 的轮次续行决策通�
 
 ### 为什么不保留？
 
-"它是控制信号，不是边界事件"——但分类体系的操作性区分是「镜像 vs. 纯瞬态」，而非「控制 vs. 边界」，而这个事件属于镜像。需要入队时通知的消费方有 `agent/queued`（带 steering flag）；需要 drain 时通知的消费方，本质上是在请求 `steering/message` 被追加的那一刻，而 `session/event` 以相同 payload 加上持久性提供了这一通知。被否决的 [retire-mid-turn-steering RFC](../../rejected/simplification/2026-06-20-retire-mid-turn-steering.md) 捍卫的是 steering **能力**——`steer()`、持久事件、续行强制——本次移除对这些全部保持不变。
+"它是控制信号，不是边界事件"——但分类体系的操作性区分是「镜像 vs. 纯瞬态」，而非「控制 vs. 边界」，而这个事件属于镜像。需要入队时通知的消费方有 `agent/queued`（带 steering flag）；需要 drain 时通知的消费方，本质上是在请求 `steering/message` 被追加的那一刻，而 `session/event` 以相同 payload 加上持久性提供了这一通知。被否决的 [retire-mid-turn-steering RFC](../../rejected/simplification/2026-06-20-retire-mid-turn-steering.md) 捍卫的是 steering *能力*——`steer()`、持久事件、续行强制——本次移除对这些全部保持不变。
 
 ## 验证
 

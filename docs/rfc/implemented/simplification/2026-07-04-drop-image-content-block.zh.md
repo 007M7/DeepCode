@@ -1,12 +1,12 @@
-# RFC：移除 `image` 内容块，直到有路径能真正处理它
-
-[English](2026-07-04-drop-image-content-block.md) | 中文
+# RFC: 移除 `image` 内容块，直到有路径能真正处理它
 
 Status: implemented
 
+[English](2026-07-04-drop-image-content-block.md) | 中文
+
 ## 问题
 
-`ImageBlock`（`packages/llm/llm/src/types.ts`）没有任何生产环境的生产者，而每条路径上的每个消费方都将其**丢弃**：deepseek 适配器的序列化器跳过 image 块（这是文档中注明的 MVP 限制）；pi-ai 转换器因无法表示而跳过；ACP 编解码器既不宣告 image prompt 能力、也不向外转发 image 块，并且会拒绝入站的 image prompt 内容；压缩（compaction）估算器对其收取一个固定 token 常量并渲染为 `[image]`。此时构造的 `ImageBlock` 会在协议格式（wire format）上静默消失——词汇宣告了一种没有任何路径兑现的能力，这正是 AGENTS.md 防御性模式所警告的静默数据丢失形态。唯一的构造调用出现在测试中，用于覆盖 skip/drop/estimate 分支。
+`ImageBlock`（`packages/llm/llm/src/types.ts`）没有任何生产环境的生产者，而每条路径上的每个消费方都将其丢弃：deepseek 适配器的序列化器跳过 image 块（这是文档中注明的 MVP 限制）；pi-ai 转换器因无法表示而跳过；ACP 编解码器既不宣告 image prompt 能力、也不向外转发 image 块，并且会拒绝入站的 image prompt 内容；压缩（compaction）估算器对其收取一个固定 token 常量并渲染为 `[image]`。此时构造的 `ImageBlock` 会在协议格式（wire format）上静默消失——词汇宣告了一种没有任何路径兑现的能力，这正是 AGENTS.md 防御性模式所警告的静默数据丢失形态。唯一的构造调用出现在测试中，用于覆盖 skip/drop/estimate 分支。
 
 ## 决策
 

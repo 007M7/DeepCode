@@ -1,4 +1,4 @@
-# RFC：通过发现机制获取包清单，而非维护静态列表
+# RFC: 通过发现机制获取包清单，而非维护静态列表
 
 Status: proposed
 
@@ -14,7 +14,7 @@ Status: proposed
 
 ## 提案
 
-让剩余的包/门禁清单可被发现。一个唯一的权威来源——`packages/<group>/<pkg>` 层级结构加上包 manifest（元数据清单）——应当驱动 `tsconfig.build.json` 的 `references`、模块图以及任何全量包列表，并配合一个生成加校验步骤（沿用现有的 `gen-module-graph` / `gen-cordis-catalog` 模式：生成器写出产物，`hygiene`/doc-sync（文档同步门禁）中的 `--check` 模式在提交副本陈旧时报错）。模块图生成已经在读取包 manifest。`doc-sync` 应当成为定义并打印其子门禁的唯一命令，文档链接到该命令而非重述第二份列表。
+让剩余的包/门禁清单可被发现。一个唯一的权威来源——`packages/<group>/<pkg>` 层级结构加上包 manifest（元数据清单）——应当驱动 `tsconfig.build.json` 的 `references`、模块图以及任何全量包列表，并配合一个生成加校验步骤（沿用现有的 `gen-module-graph` / `gen-cordis-catalog` 模式：生成器写出产物，`hygiene`/`doc-sync`（文档同步门禁）中的 `--check` 模式在提交副本陈旧时报错）。模块图生成已经在读取包 manifest。`doc-sync` 应当成为定义并打印其子门禁的唯一命令，文档链接到该命令而非重述第二份列表。
 
 层级结构不需要编码关于包的所有事实，但应当编码宽泛的维护策略：core/product 包、集成包、能力 seam 包与 support/test/example 包不应在脚本能区分它们之前先要求一份手工维护的例外列表。
 

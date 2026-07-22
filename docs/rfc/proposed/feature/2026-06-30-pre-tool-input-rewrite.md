@@ -1,8 +1,8 @@
 # RFC: Pre-tool input rewrite — a consistent design
 
-English | [中文](2026-06-30-pre-tool-input-rewrite.zh.md)
-
 Status: proposed
+
+English | [中文](2026-06-30-pre-tool-input-rewrite.zh.md)
 
 ## Problem
 

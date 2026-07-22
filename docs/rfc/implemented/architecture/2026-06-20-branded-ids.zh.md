@@ -1,8 +1,8 @@
-# RFC：在所有应有之处使用 branded ID
-
-[English](2026-06-20-branded-ids.md) | 中文
+# RFC: 在所有应有之处使用 branded ID
 
 Status: implemented
+
+[English](2026-06-20-branded-ids.md) | 中文
 
 ## 问题
 
@@ -10,7 +10,7 @@ harness 已经为三个标识符做了 brand 处理：`CallId`（`packages/llm/l
 
 **缺口 1：bash seam 中未 brand 的 ID。** `BashTask.id` 以及所有执行器/工具边界使用裸 `string`，尽管生成的值与默认 session id 具有相同的 `name-N` 形状。模型还通过 `task_id` 返回该值，因此混淆 task id 和 session id 既类型正确又可达。
 
-bash **owner token** 是相关的子情形：`BashExecRequest.owner?: string` 和 `BashExecSpec.owner: string | undefined`（`packages/bash/bash/src/types.ts`）被文档描述为刻意*不透明*的隔离键，但在所有实际调用方中，该值就是所属 agent（智能体）的 `session.header.id`（`callerToken = (exec) => exec.agent?.session.header.id`，位于 `packages/bash/tool-bash/src/index.ts`），即一个穿着 `string` 外衣的 `SessionId`。它被用于访问控制比较（`owner !== callerToken(exec)`），因此一个不匹配但类型正确的 string 在此处就是一个跨会话隔离 bug，而当前类型系统无法捕获。这正是 [unify-the-agent-id-and-the-session-id](../../proposed/simplification/2026-06-20-unify-agent-and-session-id.md) 提案所称的"bash owner-token alias hole"。
+bash **owner token** 是相关的子情形：`BashExecRequest.owner?: string` 和 `BashExecSpec.owner: string | undefined`（`packages/bash/bash/src/types.ts`）被文档描述为刻意*不透明*的隔离键，但在所有实际调用方中，该值就是所属 agent（智能体）的 `session.header.id`（`callerToken = (exec) => exec.agent?.session.header.id`，位于 `packages/bash/tool-bash/src/index.ts`），即一个穿着 `string` 外衣的 `SessionId`。它被用于访问控制比较（`owner !== callerToken(exec)`），因此一个不匹配但类型正确的 string 在此处就是一个跨会话隔离 bug，而当前类型系统无法捕获。这正是 [unify-the-agent-id-and-the-session-id](../../proposed/simplification/2026-06-20-unify-agent-and-session-id.md) 提案所称的以 `session.header.id` 作为 owner 的别名缺口（"bash owner-token alias hole"）。
 
 **缺口 2：既有 brand 的侵蚀。** `CallId`、`SessionId` 和 `AgentId` 在注册表 map、公开查找参数、ACP 会话跟踪和持久化协调器中退化为裸 string。在查找边界丢弃 brand 会使其主要保护失效。
 
@@ -18,7 +18,7 @@ bash **owner token** 是相关的子情形：`BashExecRequest.owner?: string` �
 
 纯类型变更。Brand 是零开销 cast；运行时行为、序列化、比较和协议格式（wire format）均不变。工作分三部分，全部遵循既有的"不是每个 string 都需要"策略。
 
-- **为 bash task id 加 brand。** 在 `packages/bash/bash/src/types.ts`（拥有该 id 的包）中添加 `BashTaskId = Branded<'BashTaskId'>` 及其同名工厂，从 `@deepseek-ai/dsh-brand` 导入 `Branded`，方式与 `SessionId`/`AgentId` 完全一致。brand 原语位于无依赖的 `dsh-brand` 工具包中，正是为了让 `dsh-bash` 仅依赖它就能为自己的 id 加 brand，而无需引入 `dsh-llm`（或 `dsh-session`）来获取 `Branded`。将其贯穿 `BashTask.id`、`BashExecutor` seam 方法（`get`/`ownerOf`/`readOutput`/`kill`）、`dsh-bash-local` 中的生成点（在创建时对计数器输出做一次 brand），以及 `dsh-tool-bash` 的校验/访问面（`validateTaskId` 返回 `BashTaskId`；`task_id` 在模型 string 到达的工具边界处被 brand）。
+- **为 bash task id 加 brand。** 在 `packages/bash/bash/src/types.ts`（*拥有*该 id 的包）中添加 `BashTaskId = Branded<'BashTaskId'>` 及其同名工厂，从 `@deepseek-ai/dsh-brand` 导入 `Branded`，方式与 `SessionId`/`AgentId` 完全一致。brand 原语位于无依赖的 `dsh-brand` 工具包中，正是为了让 `dsh-bash` 仅依赖它就能为自己的 id 加 brand，而无需引入 `dsh-llm`（或 `dsh-session`）来获取 `Branded`。将其贯穿 `BashTask.id`、`BashExecutor` seam 方法（`get`/`ownerOf`/`readOutput`/`kill`）、`dsh-bash-local` 中的生成点（在创建时对计数器输出做一次 brand），以及 `dsh-tool-bash` 的校验/访问面（`validateTaskId` 返回 `BashTaskId`；`task_id` 在模型 string 到达的工具边界处被 brand）。
 
 - **铸造独立的 `OwnerToken` brand。** 在 `packages/bash/bash/src/types.ts` 中添加 `OwnerToken = Branded<'OwnerToken'>`；将 `BashExecRequest.owner` / `BashExecSpec.owner` / `BashExecutor.ownerOf` 的类型标注为 `OwnerToken | undefined`。`dsh-tool-bash` 消费方在边界处将 agent 的 `session.header.id`（一个 `SessionId`）cast 为 `OwnerToken`——这是两套词汇唯一交汇的地方。bash seam 从不导入 `dsh-session`。（理由见下一节。）
 
@@ -46,7 +46,7 @@ export function OwnerToken(id: string): OwnerToken {
 
 ### 为什么不把 `owner` 类型标注为 `SessionId`？
 
-执行器将 ownership 视为不透明的，不应依赖 session 模型。独立的 `OwnerToken` 保留了这一边界，同时防止裸 string 或 task id 被当作 owner 传入。`dsh-tool-bash` 拥有访问策略，由它执行从 `SessionId` 到 `OwnerToken` 的唯一转换。
+执行器将 ownership 视为不透明的，不应依赖 session 模型。独立的 `OwnerToken` 保留了这一边界，同时防止裸 string 或 task id 被当作 owner 传入。`dsh-tool-bash` 拥有访问策略，由它执行来自 `SessionId` 的唯一转换。
 
 ## 不在范围内 / 可能的扩展
 
@@ -65,5 +65,5 @@ export function OwnerToken(id: string): OwnerToken {
 ## 后果
 
 - **两个接口面的机械性改动。** 传播 brand 涉及 bash seam（接口 + 实现 + 消费方）以及 ACP session-id 接口和持久化协调器。改动面广但严重度低：遗漏的位置是编译错误而非静默 bug。变更可观察地为纯类型变更——无快照或 e2e 行为差异。它与 [unify-the-agent-id-and-the-session-id](../../proposed/simplification/2026-06-20-unify-agent-and-session-id.md) 提案相邻（两者都触及 session-id / owner-token 边界）；如果该提案落地，`OwnerToken` 出于上述解耦理由仍与统一后的 id 保持独立。
-- **Brand 不做校验。** Brand 是混淆防护，不是正确性证明：一个*错误的* session id 只要仍是合法的 string，就和以前一样能通过类型检查器。本 RFC 不关闭这个缺口（见"不在范围内"）——它只阻止传入错误*类别*的 id 这种错误。
+- **Brand 不做校验。** Brand 是混淆防护，不是正确性证明：一个*错误的* session id 只要仍是合法的 string，就和以前一样能通过类型检查器。本 RFC 不关闭这个缺口（见"不在范围内"）——它只阻止这类*类别*错误：传入错误*种类*的 id。
 - **"在哪里停下"仍是判断题。** 为 `BashTaskId` 加 brand 但不为 `ToolName` 加，为 `OwnerToken` 加但不为 `ModelId` 加，是对哪些 string"可能被混淆"的品味判断。合理的评审者可能想要更多或更少；`brand.ts` 中的策略是裁决依据，本 RFC 倾向于面向模型或用于访问控制的 id。

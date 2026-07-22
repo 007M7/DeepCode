@@ -1,8 +1,8 @@
-# RFC：移除 ACP 终端 `_meta` 渲染
+# RFC: 移除 ACP 终端 `_meta` 渲染
+
+Status: rejected — Zed is the current target client, and the terminal `_meta` convention is intentional Zed UX with a plain ACP fallback for other clients.
 
 [English](2026-06-20-drop-acp-terminal-meta.md) | 中文
-
-Status: rejected — Zed 是当前目标客户端，终端 `_meta` 约定是有意为之的 Zed UX 设计，同时为其他客户端提供纯 ACP（Agent Client Protocol）回退路径。
 
 ## 问题
 

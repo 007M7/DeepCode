@@ -1,8 +1,8 @@
 # RFC: Documentation graph index for maintainers and SDK users
 
-English | [中文](2026-07-03-documentation-graph-atlas.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-03-documentation-graph-atlas.zh.md)
 
 ## Problem
 

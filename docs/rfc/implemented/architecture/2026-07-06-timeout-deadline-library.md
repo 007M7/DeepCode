@@ -1,8 +1,8 @@
 # RFC: A shared timeout/deadline primitive, with hard-kill left to each capability
 
-English | [中文](2026-07-06-timeout-deadline-library.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-06-timeout-deadline-library.zh.md)
 
 ## Problem
 

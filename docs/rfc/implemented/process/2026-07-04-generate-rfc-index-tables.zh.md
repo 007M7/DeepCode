@@ -1,8 +1,8 @@
-# RFC：生成 RFC 索引表
-
-[English](2026-07-04-generate-rfc-index-tables.md) | 中文
+# RFC: 生成 RFC 索引表
 
 Status: implemented
+
+[English](2026-07-04-generate-rfc-index-tables.md) | 中文
 
 ## 问题
 
@@ -13,7 +13,7 @@ RFC 索引中按生命周期/按分类的表格所列信息完全可以推导：
 保留策展行文；生成列表。表格位于 [`docs/rfc/INDEX.md`](../../INDEX.md)，是一个**完全生成的文件**——策展行文留在 README.md 中，README.md 不包含任何索引行。[`scripts/rfc-index.ts`](../../../../scripts/rfc-index.ts) 是共享的真源：树遍历器（拥有封闭的生命周期/分类集合与结构规则，包括对可解析 H1 的要求）和渲染器（行来自 H1 标题并去掉 `RFC: ` 前缀，加上文件名日期，按日期再按文件名排序，以 `### {Class}` 分节、按规范分类顺序分组）。两个轻量消费方共享它：
 
 - [`scripts/gen-rfc-index.ts`](../../../../scripts/gen-rfc-index.ts)（`pnpm run gen-rfc-index`）从目录树完整重写 INDEX.md。
-- [`scripts/verify-rfc-classification.ts`](../../../../scripts/verify-rfc-classification.ts)（doc-sync（文档同步门禁）的一个成员）检查结构，断言已提交的 INDEX.md 与新鲜渲染结果逐字节一致（`gen-cordis-catalog`/`verify-cordis-catalog` 模式），并拒绝在策展 README 中出现索引格式的行。新鲜度检查涵盖了索引完整性检查：从磁盘生成的表格在定义上就是完整的、标题正确的。
+- [`scripts/verify-rfc-classification.ts`](../../../../scripts/verify-rfc-classification.ts)（`doc-sync`（文档同步门禁）的一个成员）检查结构，断言已提交的 INDEX.md 与新鲜渲染结果逐字节一致（`gen-cordis-catalog`/`verify-cordis-catalog` 模式），并拒绝在策展 README 中出现索引格式的行。新鲜度检查涵盖了索引完整性检查：从磁盘生成的表格在定义上就是完整的、标题正确的。
 
 添加、移动或删除一个 RFC 只需编辑 RFC 文件本身并运行生成器；分类 RFC 的「已否决替代方案」记录中带有替代关系的交叉链接。
 

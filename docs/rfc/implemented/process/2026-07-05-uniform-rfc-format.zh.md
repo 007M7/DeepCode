@@ -1,8 +1,8 @@
-# RFC：RFC 的统一受门禁约束的文件内格式
-
-[English](2026-07-05-uniform-rfc-format.md) | 中文
+# RFC: RFC 的统一受门禁约束的文件内格式
 
 Status: implemented
+
+[English](2026-07-05-uniform-rfc-format.md) | 中文
 
 ## 问题
 
@@ -10,7 +10,7 @@ RFC 的路径已经编码了生命周期和分类，但文件内容仍然混杂�
 
 ## 决策
 
-[README.md § The file format](../../README.md#the-file-format) 即文件内契约：头部块（`# RFC: <title>` 加上无日期、与所在文件夹一致的 `Status:` 枚举，唯一的正文内容是 rejection reason）；按生命周期区分的正文骨架（所有阶段都以 `Problem` 开头；`proposed/` 中为 `Proposal`/`Acceptance criteria`/`Risks`；`implemented/` 中为现在时态的 `Decision`/`Consequences` 且禁止 proposal 时期的标题；`rejected/` 中冻结 proposal 形态）；必须包含 `Alternatives considered` 章节；以及规范的章节词汇表，其间的自定义技术章节保持自由形式。`pnpm run verify-rfc-format`（[scripts/verify-rfc-format.ts](../../../../scripts/verify-rfc-format.ts)）作为 doc-sync（文档同步门禁）的一环强制执行每条机械化条款，因此生命周期迁移时跳过改写现在会让 CI 失败，而不是依赖评审者的记忆。
+[README.md § The file format](../../README.md#the-file-format) 即文件内契约：头部块（`# RFC: <title>` 加上无日期、与所在文件夹一致的 `Status:` 枚举，唯一的正文内容是 rejection reason）；按生命周期区分的正文骨架（所有阶段都以 `Problem` 开头；`proposed/` 中为 `Proposal`/`Acceptance criteria`/`Risks`；`implemented/` 中为现在时态的 `Decision`/`Consequences` 且禁止 proposal 时期的标题；`rejected/` 中冻结 proposal 形态）；必须包含 `Alternatives considered` 章节；以及规范的章节词汇表，其间的自定义技术章节保持自由形式。`pnpm run verify-rfc-format`（[scripts/verify-rfc-format.ts](../../../../scripts/verify-rfc-format.ts)）作为 `doc-sync`（文档同步门禁）的一环强制执行每条机械化条款，因此生命周期迁移时跳过改写现在会让 CI 失败，而不是依赖评审者的记忆。
 
 整个语料库在定义格式的同一个变更中完成了规范化，这是预发布阶段的立场：没有过渡期，不容忍双格式并存。唯一的祖父条款针对内容而非格式：替代方案是记录下来的，不是凭空编造的；因此如果一篇格式定义前的 RFC 的替代方案无法从记录中重建，它会携带 `rfc-format: alternatives-not-recorded` 这条精确注释，门禁仅对日期早于本 RFC 的文件接受该注释。
 

@@ -1,4 +1,4 @@
-# RFC：Subagent 生命周期丰富化——lastAssistantMessage（仅观察）
+# RFC: Subagent 生命周期丰富化——lastAssistantMessage（仅观察）
 
 Status: implemented
 

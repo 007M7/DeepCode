@@ -1,4 +1,4 @@
-# RFC：用于工具调用展示的带标签 render-intent 联合类型
+# RFC: 用于工具调用展示的带标签 render-intent 联合类型
 
 Status: implemented
 

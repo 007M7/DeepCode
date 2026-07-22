@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-05-prompt-variables-and-tool-guidance-ownership.md: fce9d555c8843b99fdbfa7b652b46d0b88053935
-2026-07-05-prompt-variables-and-tool-guidance-ownership.zh.md: 93a639a2ddac33cb1ceac57101cb6185fe6034ad
+2026-07-05-prompt-variables-and-tool-guidance-ownership.md: 1819a730b214270304a8feb103a7f26e9c8d6e6e
+2026-07-05-prompt-variables-and-tool-guidance-ownership.zh.md: 4211241b1b24fd461f5341bf8d777007a7a36482

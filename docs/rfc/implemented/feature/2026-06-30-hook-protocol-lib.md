@@ -1,8 +1,8 @@
 # RFC: dsh-hook-protocol — the shared Claude Code / Codex hook wire-protocol core
 
-English | [中文](2026-06-30-hook-protocol-lib.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-30-hook-protocol-lib.zh.md)
 
 ## Problem
 

@@ -1,8 +1,8 @@
-# RFC：通过路径编码的子目录对 RFC 进行分类
-
-[English](2026-06-20-rfc-classification.md) | 中文
+# RFC: 通过路径编码的子目录对 RFC 进行分类
 
 Status: implemented
+
+[English](2026-06-20-rfc-classification.md) | 中文
 
 ## 问题
 
@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-增加第二个维度——RFC 的**类别**——并将其编码在路径中：`{lifecycle}/{class}/yyyy-mm-dd-topic.md`。文件夹本身就是标签。文件的位置声明其类别，封闭集合是「这些文件夹且仅限这些」，而既有的 [verify-md-links](2026-06-18-markdown-cross-link-lint.md) 门禁已经保护了移动文件所需的路径重写。
+增加第二个维度——RFC 的**类别**——并将其编码在路径中：`{lifecycle}/{class}/yyyy-mm-dd-topic.md`。文件夹本身*就是*标签。文件的位置声明其类别，封闭集合是「这些文件夹且仅限这些」，而既有的 [verify-md-links](2026-06-18-markdown-cross-link-lint.md) 门禁已经保护了移动文件所需的路径重写。
 
 ### 六个类别的封闭集合
 
@@ -22,7 +22,7 @@ Status: implemented
 | `bug-fix` | 修正缺陷或填补事后复盘暴露的空白。 |
 | `simplification` | 移除代码、行为或对外表面积，不引入新能力。 |
 | `architecture` | 关于**交付源码**的结构性决策——包（package）之间的关系、运行时词汇。 |
-| `process` | 围绕代码的工具、策略或工作流，而非运行时行为。 |
+| `process` | **围绕**代码的工具、策略或工作流，而非运行时行为。 |
 | `testing` | 测试基础设施与策略。 |
 
 `architecture` 与 `process` 的分界线：**architecture** 关乎我们交付的源码；**process** 关乎围绕源码的工具与工作流。本 RFC 本身是一个 `process` 决策——它改变的是仓库的组织方式和门禁，而非 harness 的运行时行为——因此它位于 `implemented/process/` 下。

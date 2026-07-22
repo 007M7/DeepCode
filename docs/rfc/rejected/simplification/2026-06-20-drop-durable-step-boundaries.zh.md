@@ -1,4 +1,4 @@
-# RFC：移除持久化的步骤边界事件
+# RFC: 移除持久化的步骤边界事件
 
 Status: rejected — `step/end` is the durable indication that a model step finished, and keeping the symmetric `step/start` / `step/end` pair makes crash repair, invariants, and transcript inspection clearer than inferring completion from adjacent step-scoped events.
 

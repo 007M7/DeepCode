@@ -1,8 +1,8 @@
 # RFC: Stop mirroring the token stream as an agent event
 
-English | [中文](2026-07-02-remove-stream-chunk-mirror.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-02-remove-stream-chunk-mirror.zh.md)
 
 ## Problem
 

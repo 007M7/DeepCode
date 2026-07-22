@@ -1,8 +1,8 @@
 # RFC: Prune unused web seam fields
 
-English | [中文](2026-07-12-prune-unused-web-seam-fields.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-12-prune-unused-web-seam-fields.zh.md)
 
 ## Problem
 

@@ -1,8 +1,8 @@
 # RFC: Drop the unconsumed `llm/adapter-change` event
 
-English | [中文](2026-06-20-drop-unconsumed-llm-adapter-change-event.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-20-drop-unconsumed-llm-adapter-change-event.zh.md)
 
 ## Problem
 

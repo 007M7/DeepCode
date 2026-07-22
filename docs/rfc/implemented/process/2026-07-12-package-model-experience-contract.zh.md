@@ -1,8 +1,8 @@
-# RFC：Package Model Experience 契约
-
-[English](2026-07-12-package-model-experience-contract.md) | 中文
+# RFC: Package Model Experience 契约
 
 Status: implemented
+
+[English](2026-07-12-package-model-experience-contract.md) | 中文
 
 ## 问题
 
@@ -16,7 +16,7 @@ Status: implemented
 
 没有模型上下文效应的 package，或其路径完全由另一个 package 渲染的 package，使用验证器审计过的单句形式：`None, as ` 或 `Indirectly, through `。纯传输和无密钥的测试支持 package 在不创建模型绑定内容时使用 none 形式。提供方后端即使对数据进行上限或过滤，也使用 indirect 形式；组装 bundle 在命名子 package 拥有全部效应时同样使用 indirect 形式。这些句子定位贡献所在，而不重述消费方的内容。结构化章节同样只记录 package 自身拥有的输入、变换和差异。
 
-`verify-package-readme-model-experience` 发现 package manifest（元数据清单）并验证三种分类、规范的末尾章节顺序、必填字段、具体字面量证据、嵌套逐字块和锚定的工具目录链接。它在 doc-sync（文档同步门禁）和并行门禁运行器中执行。覆盖面、链接相关性和事实准确性仍由评审把关。
+`verify-package-readme-model-experience` 发现 package manifest（元数据清单）并验证三种分类、规范的末尾章节顺序、必填字段、具体字面量证据、嵌套逐字块和锚定的工具目录链接。它在 `doc-sync`（文档同步门禁）和并行门禁运行器中执行。覆盖面、链接相关性和事实准确性仍由评审把关。
 
 ## 曾考虑的替代方案
 

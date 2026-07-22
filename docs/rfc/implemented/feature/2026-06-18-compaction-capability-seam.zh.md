@@ -1,4 +1,4 @@
-# RFC：压缩作为能力 seam（抽象契约 + 基础后端）
+# RFC: 压缩作为能力 seam（抽象契约 + 基础后端）
 
 Status: implemented
 
@@ -66,7 +66,7 @@ request  = waterfall agent/request    ⟵ pure request transform (hooks, model s
 
 ### 近似收敛不变式
 
-`resolveConfig` 校验数值参数，但**不**基于虚构的摘要长度不变式来拒绝。收敛是动态的：提供方的输出上限可能被隐藏或显式的推理 token 消耗，模型可能生成不可预测大小的摘要。`maxTokens` 仅是摘要调用的提供方侧生成上限；推理块在检查点存储前被剥离。如果压缩后的 surface 仍超阈值，`compactIfNeeded()` 最多额外重压缩头部检查点 `compactionRetries` 次，但每次提交的摘要必须小于其遮蔽的内容。唯一的残余情况是上述单单元溢出（一个向后取整的超大步骤可能将保留尾部推过预算），这恰好是上述范围外的关注点，而非抖动 bug。
+`resolveConfig` 校验数值参数，但不基于虚构的摘要长度不变式来拒绝。收敛是动态的：提供方的输出上限可能被隐藏或显式的推理 token 消耗，模型可能生成不可预测大小的摘要。`maxTokens` 仅是摘要调用的提供方侧生成上限；推理块在检查点存储前被剥离。如果压缩后的 surface 仍超阈值，`compactIfNeeded()` 最多额外重压缩头部检查点 `compactionRetries` 次，但每次提交的摘要必须小于其遮蔽的内容。唯一的残余情况是上述单单元溢出（一个向后取整的超大步骤可能将保留尾部推过预算），这恰好是上述范围外的关注点，而非抖动 bug。
 
 ### Surface 替换：`compact/*` 事件仅存在于日志；一条 `user/message` 承载摘要
 

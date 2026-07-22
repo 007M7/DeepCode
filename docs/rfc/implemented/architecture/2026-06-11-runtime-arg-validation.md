@@ -1,8 +1,8 @@
 # RFC: Runtime arg validation at the model boundary
 
-English | [中文](2026-06-11-runtime-arg-validation.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-11-runtime-arg-validation.zh.md)
 
 ## Problem
 

@@ -1,8 +1,8 @@
 # RFC: Filesystem tool schemas — model-facing read/write/edit shapes
 
-English | [中文](2026-06-17-filesystem-tool-schemas.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-17-filesystem-tool-schemas.zh.md)
 
 ## Problem
 

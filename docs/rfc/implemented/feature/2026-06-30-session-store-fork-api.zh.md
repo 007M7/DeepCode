@@ -1,8 +1,8 @@
-# RFC：SessionStore fork API
-
-[English](2026-06-30-session-store-fork-api.md) | 中文
+# RFC: SessionStore fork API
 
 Status: implemented
+
+[English](2026-06-30-session-store-fork-api.md) | 中文
 
 ## 问题
 

@@ -1,8 +1,8 @@
 # RFC: Generated cordis events + services catalog
 
-English | [中文](2026-06-20-generated-cordis-catalog.zh.md)
-
 Status: implemented
+
+English | [中文](2026-06-20-generated-cordis-catalog.zh.md)
 
 ## Problem
 

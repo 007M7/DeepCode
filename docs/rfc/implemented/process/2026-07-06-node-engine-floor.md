@@ -1,8 +1,8 @@
 # RFC: Raise the Node LTS engine floor to 22.19
 
-English | [中文](2026-07-06-node-engine-floor.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-06-node-engine-floor.zh.md)
 
 ## Problem
 

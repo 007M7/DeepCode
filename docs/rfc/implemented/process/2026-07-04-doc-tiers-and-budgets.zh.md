@@ -1,8 +1,8 @@
-# RFC：文档分层、预算与上限门禁
-
-[English](2026-07-04-doc-tiers-and-budgets.md) | 中文
+# RFC: 文档分层、预算与上限门禁
 
 Status: implemented
+
+[English](2026-07-04-doc-tiers-and-budgets.md) | 中文
 
 ## 问题
 

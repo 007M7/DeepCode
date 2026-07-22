@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-06-14-acp-agent-client-protocol.md: 0bb2a2f2e307b8f23a3a9ca98edb2a2d3b5df0a8
-2026-06-14-acp-agent-client-protocol.zh.md: 7bb0e066572150c9c8fc0b94de1d5bf2d69527ee
+2026-06-14-acp-agent-client-protocol.md: 50ad2620de1dada78c4a20101b631cc5b0e9f3d1
+2026-06-14-acp-agent-client-protocol.zh.md: c4b73c00083d63e5c024953cd8c9d8dbd94d6b0a

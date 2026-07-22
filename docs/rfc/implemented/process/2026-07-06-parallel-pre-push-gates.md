@@ -1,8 +1,8 @@
 # RFC: Parallel pre-push gates
 
-English | [中文](2026-07-06-parallel-pre-push-gates.zh.md)
-
 Status: implemented
+
+English | [中文](2026-07-06-parallel-pre-push-gates.zh.md)
 
 ## Problem
 

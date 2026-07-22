@@ -1,8 +1,8 @@
 # RFC: Truncate interrupted final turns on load
 
-English | [中文](2026-06-20-truncate-interrupted-turns.zh.md)
-
 Status: rejected — a single turn can contain substantial real work, including many steps and large tool output. Preserving interrupted turns is preferable to silently dropping that tail on load.
+
+English | [中文](2026-06-20-truncate-interrupted-turns.zh.md)
 
 ## Problem
 

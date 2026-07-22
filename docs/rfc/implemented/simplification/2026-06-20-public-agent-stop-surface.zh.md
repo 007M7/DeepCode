@@ -1,4 +1,4 @@
-# RFC：保留单一公开停止原语
+# RFC: 保留单一公开停止原语
 
 Status: implemented
 

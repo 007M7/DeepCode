@@ -1,8 +1,8 @@
-# RFC：TSC 优先的构建与单一 tsconfig
-
-[English](2026-06-17-ts-build-config.md) | 中文
+# RFC: TSC 优先的构建与单一 tsconfig
 
 Status: implemented
+
+[English](2026-06-17-ts-build-config.md) | 中文
 
 ## 问题
 
@@ -17,7 +17,7 @@ Status: implemented
 
 - `tsdown` 使用 `oxc` 进行 TypeScript 转换，其行为与 `tsc` 不同。
     - `tsdown` 输出的打包 `.d.ts` 与 Cordis 内部的相对模块增强（module augmentation）结构冲突。
-    - `tsc` 的输出受 `allowImportingTsExtensions` 影响，因此需要确保生成的 `.js` 文件不会导入 `.ts` 文件，且生成的 `.d.ts` 文件保留 NodeNext/Node16 接受的显式相对说明符。为此，包内相对导入在 TypeScript 源码中使用显式 `.ts` 说明符，由 `rewriteRelativeImportExtensions` 在输出的 JS 中将其重写为 `.js`。
+    - tsc 的输出受 `allowImportingTsExtensions` 影响，因此需要确保生成的 `.js` 文件不会导入 `.ts` 文件，且生成的 `.d.ts` 文件保留 NodeNext/Node16 接受的显式相对说明符。为此，包内相对导入在 TypeScript 源码中使用显式 `.ts` 说明符，由 `rewriteRelativeImportExtensions` 在输出的 JS 中将其重写为 `.js`。
     - `tsdown` 输出的打包 `.js` 与 `tsc -b` 逐文件输出的 `.js` 行为不同，例如装饰器转换行为。
 - `vendor/*/src`、示例、测试和脚本无法全部以 plain-include 方式纳入一个根目录的严格程序。
     - 在根目录严格配置下直接对 `vendor/*/src` 做类型检查，会触发大量不属于本项目所有权范围的类型错误。

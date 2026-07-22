@@ -1,4 +1,4 @@
-# RFC：加载时截断被中断的最终轮次
+# RFC: 加载时截断被中断的最终轮次
 
 Status: rejected — a single turn can contain substantial real work, including many steps and large tool output. Preserving interrupted turns is preferable to silently dropping that tail on load.
 
