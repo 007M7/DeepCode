@@ -31,7 +31,7 @@ export interface TuiHarnessOptions {
   beforeMount?: (session: Session) => void
   cwd?: string | null
   formatCwd?: TuiRuntime['formatCwd']
-  /** Fake-agent creation options; auto-title resolves its target from `provider`/`model`. */
+  /** Fake-agent creation options (`provider`/`model` seed the model selector's initial target). */
   agentOptions?: AgentOptions
   contextWindow?: number
   contextTokens?: number
@@ -94,8 +94,8 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   } else {
     await options.configureContext(ctx)
   }
-  // A configureContext may mount the real LlmService (e.g. the auto-title
-  // suites); only fill the advisory-catalog stub when none was provided.
+  // A configureContext may mount the real LlmService; only fill the
+  // advisory-catalog stub when none was provided.
   if (ctx.get('llm') === undefined) {
     ctx.provide('llm', {
       listProviders() {
