@@ -681,14 +681,19 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
         objectPrototype.constructor = arrayPrototype.constructor = null;
         globalThis.Array = globalThis.Buffer = globalThis.Function = globalThis.Number = globalThis.Object = globalThis.Reflect = globalThis.Set = globalThis.String = undefined;
         const echoed = await tools.echo({ request: ['€', 1] });
-        return { echoed, completion: { ok: true, amount: 42 } };
+        let failure;
+        try { await tools.fail({}) } catch (error) {
+          failure = { typed: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message };
+        }
+        return { echoed, failure, completion: { ok: true, amount: 42 } };
       `,
-      bindings: tools({ echo: async args => args }),
+      bindings: tools({ echo: async args => args, fail: async () => { throw new Error('nope') } }),
     })
     expect(result).toEqual({
       logs: [],
       value: {
         echoed: { request: ['€', 1] },
+        failure: { typed: true, name: 'ToolCallError', toolName: 'fail', message: 'nope' },
         completion: { ok: true, amount: 42 },
       },
     })

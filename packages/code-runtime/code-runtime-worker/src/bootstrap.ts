@@ -10,6 +10,17 @@ import type { DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './
 import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
 import { decodeWorkerJson, encodeWorkerJson, snapshotCodeJsonValue } from './worker-json.ts'
 
+const capturedObjectCreate = Object.create
+const capturedObjectDefineProperty = Object.defineProperty
+
+/** Define one public binding-error field without consulting mutable globals or descriptor prototypes. */
+function defineBindingErrorField(error: Error, key: string, value: string): void {
+  const attributes = capturedObjectCreate(null) as PropertyDescriptor
+  attributes.enumerable = true
+  attributes.value = value
+  capturedObjectDefineProperty(error, key, attributes)
+}
+
 /** The port surface the bootstrap needs — satisfied by `parentPort` and by the tests' fake. */
 export interface BootstrapPort {
   postMessage(message: WorkerToHost): void
@@ -236,8 +247,8 @@ function makeBindingErrorClass(
   return class BindingCallError extends Error {
     constructor(memberName: string, message: string) {
       super(message)
-      Object.defineProperty(this, 'name', { enumerable: true, value: descriptor.name })
-      Object.defineProperty(this, descriptor.memberNameProperty, { enumerable: true, value: memberName })
+      defineBindingErrorField(this, 'name', descriptor.name)
+      defineBindingErrorField(this, descriptor.memberNameProperty, memberName)
     }
   }
 }
