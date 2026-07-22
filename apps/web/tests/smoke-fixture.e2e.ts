@@ -44,6 +44,7 @@ describe('web boot chain (keyless, real carrier)', () => {
     const port = await probeFreePort()
     const apiHandler = { fetch: () => Promise.resolve(new Response('boot smoke must not call /api', { status: 500 })) }
     server = await startWebServer({
+      host: '127.0.0.1',
       port,
       distIndex: DIST_INDEX,
       apiHandler,
@@ -110,6 +111,7 @@ describe('web boot chain success pass (keyless, five real bundles, ?fixture)', (
     // ?fixture never opens HTTP streams; /api is a tripwire like the first describe.
     const apiHandler = { fetch: () => Promise.resolve(new Response('fixture mode must not call /api', { status: 500 })) }
     server = await startWebServer({
+      host: '127.0.0.1',
       port,
       distIndex: DIST_INDEX,
       apiHandler,

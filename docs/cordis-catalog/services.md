@@ -499,12 +499,12 @@ abstract listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]>
  * @param content - the full new file content.
  * @param expected - the write intent guarding the write; omit for unconditional.
  * @param signal - aborts before the atomic rename takes effect.
- * @param sandboxMode - the per-call sandbox mode this write runs under; a
- *   sandboxing backend fences the write by it, the bare backend ignores it.
- *   Omit to leave the backend its own default.
+ * @param sandboxPolicy - the per-call mode and workspace root this write
+ *   runs under; a sandboxing backend fences the write by it, the bare backend
+ *   ignores it. Omit to leave the backend its own default.
  * @returns the outcome, including the version the write produced.
  */
-abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsWriteOutcome>
+abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsWriteOutcome>
 
 /**
  * Atomically edit literal text. When supplied, the version guard is checked
@@ -514,15 +514,15 @@ abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent,
  * @param edit - the literal search/replace request.
  * @param expected - the version guard; omit for an unconditional edit.
  * @param signal - aborts before the atomic rename takes effect.
- * @param sandboxMode - the per-call sandbox mode this edit runs under; a
- *   sandboxing backend fences the edit by it, the bare backend ignores it.
- *   Omit to leave the backend its own default.
+ * @param sandboxPolicy - the per-call mode and workspace root this edit runs
+ *   under; a sandboxing backend fences the edit by it, the bare backend
+ *   ignores it. Omit to leave the backend its own default.
  * @returns the outcome, including the version the edit produced.
  */
-abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsEditOutcome>
+abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsEditOutcome>
 ```
 
-Types: [FsDirEntry](../core-data-structures/filesystem.md) · [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsPathInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md) · [SandboxMode](../core-data-structures/sandbox.md)
+Types: [FsDirEntry](../core-data-structures/filesystem.md) · [FsEditOutcome](../core-data-structures/filesystem.md) · [FsEditRequest](../core-data-structures/filesystem.md) · [FsInfo](../core-data-structures/filesystem.md) · [FsPathInfo](../core-data-structures/filesystem.md) · [FsTarget](../core-data-structures/filesystem.md) · [FsVersion](../core-data-structures/filesystem.md) · [FsWriteIntent](../core-data-structures/filesystem.md) · [FsWriteOutcome](../core-data-structures/filesystem.md) · [SandboxExecutionPolicy](../core-data-structures/sandbox.md)
 
 Source: [`packages/fs/fs/src/index.ts:81`](../../packages/fs/fs/src/index.ts)
 
@@ -781,13 +781,28 @@ abstract confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv
 
 Types: [ConfinedArgv](../core-data-structures/sandbox.md) · [SandboxPolicy](../core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox/src/index.ts:122`](../../packages/sandbox/sandbox/src/index.ts)
+Source: [`packages/sandbox/sandbox/src/index.ts:131`](../../packages/sandbox/sandbox/src/index.ts)
 
 ## `ctx.sandboxPolicy` — `SandboxPolicyService`
 
-The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mode and workspace root; enforcing implementations read defaultMode and workspaceRoot, and the tool layers fold each session's `sandbox/mode` override with effectiveSandboxMode on top.
+The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mode and fallback workspace root. Tool layers call resolve for each execution so a session's mode log and immutable cwd travel together to every enforcing capability.
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:60`](../../packages/sandbox/sandbox-policy/src/index.ts)
+```ts cordis-catalog
+/**
+ * Resolve the complete policy for one capability call. An approved explicit
+ * mode outranks the session's last `sandbox/mode` event, which outranks the
+ * deployment default. A session cwd is its workspace-write boundary; the
+ * configured root is the fallback for agentless calls and sessions without a
+ * cwd.
+ * @param request - optional session and approved mode override.
+ * @returns the fully resolved per-call mode and absolute workspace root.
+ */
+resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy
+```
+
+Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md)
+
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:68`](../../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 

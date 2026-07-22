@@ -109,10 +109,10 @@ export class LocalBashExecutor extends BashExecutor {
       ...request.stdin !== undefined ? { stdin: request.stdin } : {},
       ...request.env !== undefined ? { env: request.env } : {},
       ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
-      // Carry a sandbox-mode override through verbatim: this executor never
+      // Carry a sandbox policy through verbatim: this executor never
       // confines, so the field is inert here (the seam contract) — a
       // sandboxing subclass overrides resolve() to stamp its default instead.
-      sandboxMode: request.sandboxMode,
+      sandboxPolicy: request.sandboxPolicy,
     }
   }
 
