@@ -10,6 +10,7 @@ import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
 type Mode =
+  | 'all'
   | 'ci-primary'
   | 'ci-static'
   | 'ci-lint'
@@ -79,6 +80,7 @@ if (results.some(result => result.status === 'failed' || result.status === 'skip
 
 function parseMode(raw: string | undefined): Mode {
   switch (raw) {
+    case 'all':
     case 'ci-primary':
     case 'ci-static':
     case 'ci-lint':
@@ -90,16 +92,16 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode all | ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
 
 function defaultConcurrency(selectedMode: Mode, total: number): ConcurrencyDefault {
   const available = availableParallelism()
-  // The local doc mode caps workers: several gates each build a full ts.Program,
+  // Local modes cap workers: several gates each build a full ts.Program,
   // so an uncapped default on a large host trades wall clock for memory blowups.
-  const localCap = selectedMode === 'doc-sync'
+  const localCap = selectedMode === 'all' || selectedMode === 'doc-sync'
   const modeLimit = localCap ? Math.min(4, available) : available
   return {
     workers: Math.min(total, modeLimit),
@@ -154,6 +156,7 @@ function nodeOptions(...options: string[]): string {
 
 function gatesForMode(selected: Mode): Gate[] {
   switch (selected) {
+    case 'all':
     case 'ci-primary':
       return ciPrimaryGates()
     case 'ci-static':
