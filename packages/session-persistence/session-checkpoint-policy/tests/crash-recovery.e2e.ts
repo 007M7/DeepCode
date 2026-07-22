@@ -16,18 +16,20 @@ const childScript = fileURLToPath(new URL('./fixtures/crash-child.ts', import.me
 const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 const sessionId = SessionId('semantic-checkpoint-crash')
 const roots: string[] = []
+const CHILD_FAILPOINT_TIMEOUT_MS = 30_000
 
 async function waitForFile(path: string): Promise<void> {
-  for (let attempt = 0; attempt < 500; attempt += 1) {
+  const deadline = Date.now() + CHILD_FAILPOINT_TIMEOUT_MS
+  for (;;) {
     try {
       await access(path)
       return
     } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
+    if (Date.now() >= deadline) throw new Error(`crash child did not reach failpoint ${path}`)
     await new Promise(resolve => setTimeout(resolve, 10))
   }
-  throw new Error(`crash child did not reach failpoint ${path}`)
 }
 
 async function crashAt(mode: 'request' | 'tool'): Promise<{ root: string; markerText: string }> {

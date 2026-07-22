@@ -35,8 +35,8 @@ import { launchAcpTestAgent, type AgentUnderTest, type LaunchedAcpTestAgent } fr
 
 export type { AgentUnderTest } from './launcher.ts'
 
-const DEFAULT_TURN_END_TIMEOUT_MS = 10_000
-const TURN_END_POLL_INTERVAL_MS = 10
+const DEFAULT_WAIT_TIMEOUT_MS = 10_000
+const WAIT_POLL_INTERVAL_MS = 10
 
 /**
  * One step of a scenario's deterministic input script (`input.json`). The
@@ -46,8 +46,9 @@ const TURN_END_POLL_INTERVAL_MS = 10
  *
  * `promptAndCancel` starts a prompt without awaiting completion, waits until
  * the client observes the selected update (`agent_message_chunk` by default),
- * then cancels and awaits completion. A named `waitForToolCallUpdate` keeps the
- * step open for a terminal tool update that may follow the prompt response.
+ * then cancels and awaits completion. An optional `waitForFile` first observes
+ * a cwd-relative readiness marker, and a named `waitForToolCallUpdate` keeps
+ * the step open for a terminal tool update that may follow the prompt response.
  * `promptAndWaitForAgentMessage` arms an exact text-chunk waiter before sending
  * the prompt, then keeps the application live until that later update arrives.
  * `waitForTurnEnd` holds the subprocess open until the selected session's latest
@@ -64,6 +65,7 @@ export type InputStep =
     op: 'promptAndCancel'
     text: string
     afterUpdate?: 'agent_message_chunk' | 'tool_call'
+    waitForFile?: { path: string; timeoutMs?: number }
     waitForToolCallUpdate?: string
   }
   | { op: 'waitForTurnEnd'; timeoutMs?: number }
@@ -445,6 +447,9 @@ async function runStep(
       const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
       const afterUpdate = step.afterUpdate ?? 'agent_message_chunk'
       await waitForUpdate(u => u.sessionUpdate === afterUpdate)
+      if (step.waitForFile !== undefined) {
+        await waitForWorkspaceFile(cwd, step.waitForFile.path, step.waitForFile.timeoutMs)
+      }
       // Arm this before cancellation so a fast tool drain cannot outrun the waiter.
       const toolCallUpdateDone = step.waitForToolCallUpdate === undefined
         ? undefined
@@ -516,7 +521,7 @@ async function runStep(
 async function waitForPersistedTurnEnd(
   root: string,
   sessionId: string,
-  timeoutMs = DEFAULT_TURN_END_TIMEOUT_MS,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (true) {
@@ -525,7 +530,23 @@ async function waitForPersistedTurnEnd(
     if (Date.now() >= deadline) {
       throw new Error(`snapshot-harness: session "${sessionId}" did not persist turn/end within ${timeoutMs}ms`)
     }
-    await delay(TURN_END_POLL_INTERVAL_MS)
+    await delay(WAIT_POLL_INTERVAL_MS)
+  }
+}
+
+/** Wait for a cwd-relative marker proving an external action reached readiness. */
+async function waitForWorkspaceFile(
+  cwd: string,
+  path: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  const target = join(cwd, path)
+  const deadline = Date.now() + timeoutMs
+  while (!existsSync(target)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`snapshot-harness: workspace file "${path}" did not appear within ${timeoutMs}ms`)
+    }
+    await delay(WAIT_POLL_INTERVAL_MS)
   }
 }
 

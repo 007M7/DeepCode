@@ -493,6 +493,37 @@ describe('runScenario', () => {
     expect(result.rawStdout.indexOf('thinking about it')).toBeLessThan(result.rawStdout.indexOf('cancelled'))
   })
 
+  it('promptAndCancel can wait for cwd-relative readiness before cancelling', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ prompt: 'hang-until-cancel' })
+    const workspaceDir = join(dir, 'workspace')
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(workspaceDir, { recursive: true })
+    await writeFile(join(workspaceDir, 'started.txt'), 'started')
+    const result = await runScenario(
+      {
+        steps: [...boot, {
+          op: 'promptAndCancel',
+          text: 'hang',
+          waitForFile: { path: 'started.txt' },
+        }],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile, workspaceDir },
+    )
+    expect(result.rawStdout).toContain('"stopReason":"cancelled"')
+
+    const missing = await scenario({ prompt: 'hang-until-cancel' })
+    await expect(runScenario(
+      {
+        steps: [...boot, {
+          op: 'promptAndCancel',
+          text: 'hang',
+          waitForFile: { path: 'never.txt', timeoutMs: 20 },
+        }],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile: missing.fixtureFile },
+    )).rejects.toThrow(/workspace file "never\.txt" did not appear within 20ms/)
+  })
+
   it('promptAndWaitForAgentMessage keeps the app live through a matching later update', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ prompt: 'respond' })
     const result = await runScenario(
