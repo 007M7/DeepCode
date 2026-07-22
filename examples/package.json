@@ -38,6 +38,7 @@
     "@deepseek-ai/dsh-spill-local": "workspace:*",
     "@deepseek-ai/dsh-spill-policy": "workspace:*",
     "@deepseek-ai/dsh-tui-demo": "workspace:*",
+    "@deepseek-ai/dsh-session-title-first-message-llm": "workspace:*",
     "@deepseek-ai/dsh-subagent": "workspace:*",
     "@deepseek-ai/dsh-subagent-acp": "workspace:*",
     "@deepseek-ai/dsh-subagent-fork": "workspace:*",

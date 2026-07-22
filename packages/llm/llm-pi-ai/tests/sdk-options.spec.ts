@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const streamSimple = vi.hoisted(() => vi.fn())
 
-vi.mock('@earendil-works/pi-ai', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@earendil-works/pi-ai')>()
+// The 0.81 SDK moved `streamSimple` to the compat entry; the adapter imports it
+// from there, so the mock must target the same specifier.
+vi.mock('@earendil-works/pi-ai/compat', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@earendil-works/pi-ai/compat')>()
   return { ...actual, streamSimple }
 })
 
