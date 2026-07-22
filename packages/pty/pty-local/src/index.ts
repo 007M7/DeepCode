@@ -7,6 +7,7 @@
 import { Context } from 'cordis'
 import * as nodePty from 'node-pty'
 import type { IPtyForkOptions } from 'node-pty'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { PtyBackend, PtyBackendSpawnSpec } from '@deepseek-ai/dsh-pty'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
@@ -21,10 +22,37 @@ export type { Config as PtyLocalConfig } from './config.ts'
 
 /** Cordis plugin name. */
 export const name = 'pty-local'
-/** Required services: owner/PTY registries plus the one shared confinement policy. */
-export const inject = ['agents', 'pty', 'sandbox', 'sandboxPolicy']
+/** Required services: PTY registry plus the one shared confinement policy. */
+export const inject = ['pty', 'sandbox', 'sandboxPolicy']
 
 const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
+interface SandboxModeFenceState {
+  pty: Context['pty']
+  sandboxPolicy: Context['sandboxPolicy']
+}
+
+const sandboxModeFences = new WeakMap<Agent, SandboxModeFenceState>()
+
+function ensureSandboxModeFence(ctx: Context, owner: Agent): void {
+  const existing = sandboxModeFences.get(owner)
+  if (existing !== undefined) {
+    existing.pty = ctx.pty
+    existing.sandboxPolicy = ctx.sandboxPolicy
+    return
+  }
+  const state: SandboxModeFenceState = { pty: ctx.pty, sandboxPolicy: ctx.sandboxPolicy }
+  sandboxModeFences.set(owner, state)
+  owner.ctx.on('internal/dispatch', (_mode, eventName, args) => {
+    if (eventName !== 'session/event') return
+    const [session, event] = args as [Session, SessionEvent]
+    if (session !== owner.session || event.type !== 'sandbox/mode') return
+    const currentMode = effectiveSandboxMode(session.events) ?? state.sandboxPolicy.defaultMode
+    if (event.data.mode === currentMode || !state.pty.hasOwnerActivity(owner)) return
+    throw new Error(
+      `cannot change sandbox mode from "${currentMode}" to "${event.data.mode}" while persistent terminal sessions are open or being created; wait for creation to settle and close them first`,
+    )
+  }, { global: true })
+}
 
 function childEnvironment(spec: PtyBackendSpawnSpec): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
@@ -75,6 +103,7 @@ export class LocalPtyBackend implements PtyBackend {
 
   async spawn(spec: PtyBackendSpawnSpec): Promise<LocalPtySession> {
     spec.signal?.throwIfAborted()
+    ensureSandboxModeFence(this.ctx, spec.owner)
     const argv = spawnArgv(this.ctx, this.config, spec)
     const file = argv[0]
     if (file === undefined) throw new Error('pty-local: sandbox returned empty argv')
@@ -106,17 +135,4 @@ export function apply(ctx: Context, config: Config): void {
   validateConfig(config)
   const inspector = createProcessInspector()
   ctx.pty.registerBackend(new LocalPtyBackend(ctx, config, inspector))
-  ctx.on('internal/dispatch', (_mode, eventName, args) => {
-    if (eventName !== 'session/event') return
-    const [session, event] = args as [Session, SessionEvent]
-    if (event.type !== 'sandbox/mode') return
-    const currentMode = effectiveSandboxMode(session.events) ?? ctx.sandboxPolicy.defaultMode
-    if (event.data.mode === currentMode) return
-    const owner = ctx.agents.get(session.id)
-    if (owner === undefined) return
-    if (!ctx.pty.hasOwnerActivity(owner)) return
-    throw new Error(
-      `cannot change sandbox mode from "${currentMode}" to "${event.data.mode}" while persistent terminal sessions are open or being created; wait for creation to settle and close them first`,
-    )
-  }, { global: true })
 }

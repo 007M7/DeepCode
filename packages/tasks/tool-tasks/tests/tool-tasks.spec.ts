@@ -213,6 +213,16 @@ describe('task_kill', () => {
     expect(p.cancels).toEqual(['superseded'])
   })
 
+  it('applies the producer output limit to a cancellation acknowledgement', async () => {
+    const { ctx } = await setup()
+    const p = producer({ outputLimitBytes: 8 })
+    ctx.tasks.start(p.spec)
+
+    const result = await call(ctx, 'task_kill', { task_id: 'bash-1' })
+    expect(Buffer.byteLength(text(result))).toBeLessThanOrEqual(8)
+    expect(p.cancels).toEqual([undefined])
+  })
+
   it('reports an already-finished task without consuming its pending delta', async () => {
     const { ctx } = await setup()
     let delta = 'unread tail'

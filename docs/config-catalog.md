@@ -803,7 +803,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:57`](../packages/plan/plan-mode/s
 
 ## `@deepseek-ai/dsh-pty-local`
 
-Requires: `agents` · `pty` · `sandbox` · `sandboxPolicy`
+Requires: `pty` · `sandbox` · `sandboxPolicy`
 
 ```ts config-catalog
 /** Public plugin configuration. */

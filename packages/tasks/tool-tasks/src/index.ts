@@ -171,10 +171,10 @@ export function apply(ctx: Context, config: Config): void {
     },
     execute(args, exec) {
       const id = validateTaskId(args.task_id)
+      const snapshot = ctx.tasks.get(id, exec.agent)
       const result = ctx.tasks.kill(id, exec.agent, args.reason)
       if (result === 'already-finished') {
         // A snapshot describes terminal state without consuming pending output.
-        const snapshot = ctx.tasks.get(id, exec.agent)
         return Promise.resolve([{
           type: 'text',
           text: fitWithSuffix(
@@ -185,7 +185,15 @@ export function apply(ctx: Context, config: Config): void {
           ),
         }])
       }
-      return Promise.resolve([{ type: 'text', text: `requested cancellation of task ${id}` }])
+      return Promise.resolve([{
+        type: 'text',
+        text: fitWithSuffix(
+          `requested cancellation of task ${id}`,
+          '',
+          snapshot.outputLimitBytes,
+          '\n[notice truncated]',
+        ),
+      }])
     },
     presentCall: args => presentTaskCall(`Kill background task ${args.task_id}`, 'execute', args.task_id),
   }))

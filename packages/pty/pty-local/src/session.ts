@@ -394,16 +394,31 @@ export class LocalPtySession implements PtyBackendSession {
     }
   }
 
+  private unionMembers(...groups: ProcessIdentity[][]): ProcessIdentity[] {
+    const members: ProcessIdentity[] = []
+    const seen = new Set<string>()
+    for (const group of groups) {
+      for (const member of group) {
+        const key = JSON.stringify([member.pid, member.started])
+        if (seen.has(key)) continue
+        seen.add(key)
+        members.push(member)
+      }
+    }
+    return members
+  }
+
   private async stopDescendants(): Promise<ProcessIdentity[]> {
-    let members = this.descendants()
-    this.signalMembers(members, 'SIGTERM')
-    await this.waitForExit(members)
+    const captured = this.descendants()
+    this.signalMembers(captured, 'SIGTERM')
+    const capturedSurvivors = await this.waitForExit(captured)
     // A TERM-handling descendant may have forked while winding down. Rescan
-    // while the shell can still reap every member, then kill the fresh tree.
-    members = this.descendants()
+    // while the shell can still reap every member, then kill both the fresh
+    // tree and captured survivors that were reparented out of that tree.
+    const members = this.unionMembers(capturedSurvivors, this.descendants())
     this.signalMembers(members, 'SIGKILL')
-    await this.waitForExit(members)
-    return this.descendants().filter(member => this.inspector.isAlive(member))
+    const survivors = await this.waitForExit(members)
+    return this.survivors(this.unionMembers(survivors, this.descendants()))
   }
 
   private async stopShell(): Promise<void> {

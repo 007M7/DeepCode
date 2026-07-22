@@ -415,6 +415,28 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     expect(terminal.kills).toEqual(['SIGTERM'])
   })
 
+  it('retains captured survivors that are reparented out of the teardown rescan', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const captured = { pid: 124, started: 'captured' }
+    let reads = 0
+    inspector.alive.add(captured.pid)
+    inspector.processTree = () => reads++ === 0 ? [captured] : []
+    inspector.signalProcess = (identity, signal) => {
+      inspector.processes.push([identity.pid, signal])
+      if (signal === 'SIGKILL') inspector.alive.delete(identity.pid)
+    }
+    const session = new LocalPtySession(terminal.asPty(), inspector, config({ disposeGraceMs: 20 }))
+
+    const closing = session.close('test')
+    await vi.advanceTimersByTimeAsync(25)
+    await closing
+
+    expect(inspector.processes).toEqual([[124, 'SIGTERM'], [124, 'SIGKILL']])
+    expect(terminal.kills).toEqual(['SIGTERM'])
+  })
+
   it('allows teardown to retry after a descendant-survivor failure', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
