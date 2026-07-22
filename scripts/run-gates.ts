@@ -15,7 +15,7 @@ import { selectStaticGates } from './static-shards.ts'
 
 type Mode =
   | 'ci-primary'
-  | 'ci-primary-prebuilt'
+  | 'ci-primary-large-runner'
   | 'ci-static'
   | 'ci-lint'
   | 'ci-coverage'
@@ -88,7 +88,7 @@ if (results.some(result => result.status === 'failed' || result.status === 'skip
 function parseMode(raw: string | undefined): Mode {
   switch (raw) {
     case 'ci-primary':
-    case 'ci-primary-prebuilt':
+    case 'ci-primary-large-runner':
     case 'ci-static':
     case 'ci-lint':
     case 'ci-coverage':
@@ -102,7 +102,7 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-primary-prebuilt | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-observational | node-compat | pre-push | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-primary-large-runner | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-windows-blocking | ci-windows-observational | node-compat | pre-push | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -168,8 +168,8 @@ function gatesForMode(selected: Mode): Gate[] {
   switch (selected) {
     case 'ci-primary':
       return ciPrimaryGates()
-    case 'ci-primary-prebuilt':
-      return ciPrimaryPrebuiltGates()
+    case 'ci-primary-large-runner':
+      return ciPrimaryLargeRunnerGates()
     case 'ci-static':
       return ciStaticGates()
     case 'ci-lint': {
@@ -250,12 +250,16 @@ function ciPrimaryGates(): Gate[] {
   ]
 }
 
-function ciPrimaryPrebuiltGates(): Gate[] {
+function ciPrimaryLargeRunnerGates(): Gate[] {
+  // Typecheck does not consume build output, so a large runner can start both
+  // together while snapshot and artifact consumers still wait for the build.
   return ciPrimaryGates()
-    .filter(gate => gate.id !== 'build')
-    .map(gate => gate.needs?.includes('build') === true
-      ? { ...gate, needs: gate.needs.filter(id => id !== 'build') }
-      : gate)
+    .map((gate) => {
+      if (gate.id !== 'build') return gate
+      const eagerBuild = { ...gate }
+      delete eagerBuild.needs
+      return eagerBuild
+    })
 }
 
 function ciStaticGates(): Gate[] {

@@ -325,7 +325,8 @@ jobs:
     runs-on: dsh-ubuntu-24-04-96core
     name: node 24 / complete
     env:
-      DSH_COVERAGE_MAX_WORKERS: '32'
+      # Thirty-two Vitest forks intermittently crash Node's CJS lexer on this image.
+      DSH_COVERAGE_MAX_WORKERS: '16'
       DSH_ESLINT_CACHE: '1'
       DSH_ESLINT_CONCURRENCY: '32'
       DSH_GATE_CONCURRENCY: '32'
@@ -358,7 +359,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
-      - name: Install, build, and prepare bubblewrap
+      - name: Install and prepare bubblewrap
         run: |
           pnpm install --frozen-lockfile &
           install_pid=$!
@@ -374,18 +375,13 @@ jobs:
           sandbox_pid=$!
           install_status=0
           wait "$install_pid" || install_status=$?
-          build_status=0
-          if (( install_status == 0 )); then
-            pnpm run build || build_status=$?
-          fi
           sandbox_status=0
           wait "$sandbox_pid" || sandbox_status=$?
           if (( install_status != 0 )); then exit "$install_status"; fi
-          if (( build_status != 0 )); then exit "$build_status"; fi
           exit "$sandbox_status"
 
       - name: Run complete unsharded primary Node CI concurrently
-        run: pnpm run check:ci:prebuilt
+        run: pnpm run check:ci:large-runner
 
   node-compat:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
@@ -628,13 +624,14 @@ jobs:
   windows-gates:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
     continue-on-error: true
-    runs-on: dsh-windows-2025-16core
+    runs-on: dsh-windows-2025-32core
     name: windows node 24 / observational
     env:
+      # Keep ESLint itself single-threaded: 16 ESLint workers took 174 seconds on
+      # this image. The outer scheduler still overlaps lint with the other gates.
       DSH_ESLINT_CACHE: '1'
-      DSH_ESLINT_CONCURRENCY: '16'
-      DSH_GATE_CONCURRENCY: '16'
-      DSH_PUBLINT_CONCURRENCY: '16'
+      DSH_GATE_CONCURRENCY: '32'
+      DSH_PUBLINT_CONCURRENCY: '32'
     steps:
       - uses: actions/checkout@v6
 
@@ -995,14 +992,9 @@ jobs:
           sandbox_pid=$!
           install_status=0
           wait "$install_pid" || install_status=$?
-          build_status=0
-          if (( install_status == 0 )); then
-            pnpm run build || build_status=$?
-          fi
           sandbox_status=0
           wait "$sandbox_pid" || sandbox_status=$?
           if (( install_status != 0 )); then exit "$install_status"; fi
-          if (( build_status != 0 )); then exit "$build_status"; fi
           exit "$sandbox_status"
 
       - name: Install (immutable)
@@ -1019,7 +1011,7 @@ jobs:
           DSH_GATE_CONCURRENCY: ${{ matrix.workers }}
           DSH_PUBLINT_CONCURRENCY: ${{ matrix.workers }}
           DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ matrix.workers }}
-        run: pnpm run check:ci:prebuilt
+        run: pnpm run check:ci:large-runner
 
       - name: Run blocking Windows builds concurrently
         if: matrix.platform == 'windows'
