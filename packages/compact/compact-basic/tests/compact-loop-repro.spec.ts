@@ -1,17 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
+import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
-import SessionStore from '@deepseek-ai/dsh-session'
-import { isToolPairingBalanced } from '@deepseek-ai/dsh-session'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
-import * as Invariants from '@deepseek-ai/dsh-invariants'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import InvariantService from '@deepseek-ai/dsh-invariants'
+import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
-import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
+import TokenMeterService from '@deepseek-ai/dsh-token-meter'
+import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
+import { SessionId, type SurfaceEvent } from '@deepseek-ai/dsh-session'
 
 /**
  * CBR-001 regression through the real loop. A replacement checkpoint has a high
@@ -20,15 +24,13 @@ import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
  * surface-position semantics rather than raw-log scanning.
  */
 
-const TOKENS_PER_BLOCK = 10
-
 class ReproCompactService extends BasicCompactService {
-  override estimateContentTokens(blocks: readonly ContentBlock[]): number {
-    return blocks.length * TOKENS_PER_BLOCK
-  }
-
-  override async summarize(): Promise<{ summary: ContentBlock[]; model: string }> {
-    return { summary: [{ type: 'text', text: 'CHECKPOINT SUMMARY' }], model: 'stub' }
+  override async summarize(): Promise<{ summary: ContentBlock[]; provider: string; model: string }> {
+    return {
+      summary: [{ type: 'text', text: 'CHECKPOINT SUMMARY' }],
+      provider: 'mock',
+      model: 'stub',
+    }
   }
 }
 
@@ -37,6 +39,10 @@ class StepwiseToolAdapter extends LlmAdapter {
   calls = 0
   constructor(private toolSteps: number) {
     super()
+  }
+
+  override resolveModelContext(): Promise<{ contextWindow: number }> {
+    return Promise.resolve({ contextWindow: 400 })
   }
 
   async * stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -58,15 +64,75 @@ class StepwiseToolAdapter extends LlmAdapter {
   }
 }
 
+/** First conversation request overflows, then the rebuilt retry succeeds. */
+class OverflowRecoveryAdapter extends LlmAdapter {
+  readonly conversationRequests: GenerateOptions[] = []
+  readonly summaryRequests: GenerateOptions[] = []
+
+  constructor(
+    private readonly delivery: 'thrown' | 'in-band',
+    private readonly transientAfterOverflow = false,
+  ) {
+    super()
+  }
+
+  override resolveModelContext(): Promise<{ contextWindow: number }> {
+    return Promise.resolve({ contextWindow: 128 })
+  }
+
+  override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    // The cache-reusing summarizer replays the conversation prefix and marks
+    // its call only by the compaction instruction in the trailing user message.
+    const trailing = options.messages.at(-1)?.content
+      .map(block => (block.type === 'text' ? block.text : ''))
+      .join('') ?? ''
+    if (trailing.includes('acting as a compaction engine')) {
+      this.summaryRequests.push(options)
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: 'RECOVERY CHECKPOINT' } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
+
+    this.conversationRequests.push(options)
+    if (this.conversationRequests.length === 1) {
+      if (this.delivery === 'thrown') {
+        throw new LlmError('request too large for model context', CONTEXT_WINDOW_EXCEEDED_CODE)
+      }
+      yield {
+        type: 'finish',
+        reason: {
+          kind: 'error',
+          failure: {
+            message: 'request too large for model context',
+            code: CONTEXT_WINDOW_EXCEEDED_CODE,
+          },
+        },
+      }
+      return
+    }
+    if (this.transientAfterOverflow && this.conversationRequests.length === 2) {
+      throw new LlmError('temporary provider outage', 'SERVER')
+    }
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'recovered' } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
+
+async function mountInvariants(ctx: Context): Promise<void> {
+  await ctx.plugin(InvariantService)
+  await ctx.plugin(SessionInvariant)
+  await ctx.plugin(AgentInvariant)
+  await ctx.plugin(AgentLoopInvariant)
+}
+
 async function harness(toolSteps: number): Promise<{ ctx: Context; compact: ReproCompactService }> {
   const ctx = new Context()
-  await ctx.plugin(LlmService)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(Invariants)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRegistry)
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
+  await mountInvariants(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(TokenMeterService)
   ctx.llm.registerAdapter(['mock'], new StepwiseToolAdapter(toolSteps))
   ctx.tools.register(defineTool({
     name: 'work',
@@ -76,21 +142,19 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
       return [{ type: 'text', text: 'work result' }]
     },
   }))
-  // Tiny window so a couple of tool steps cross the threshold and compaction
-  // fires within the runaway turn.
+  // Small window so several tool steps cross the threshold and compaction
+  // fires within the runaway turn after enough history can shrink.
   const compact = new ReproCompactService(ctx, {
     auto: true,
-    contextWindow: 64,
     thresholdRatio: 0.5,
-    retainTokens: 20,
-    summarizationModel: '',
+    retainTokens: 50,
     maxTokens: 8192,
     compactionRetries: 1,
   })
   return { ctx, compact }
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -101,11 +165,82 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
+function seedOverflowHistory(agent: Agent): void {
+  for (let turn = 1; turn <= 2; turn += 1) {
+    const sentinel = turn === 1 ? 'OLD HISTORY SENTINEL' : 'RECENT HISTORY'
+    agent.session.append('turn/start', {
+      turn,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    agent.session.append('user/message', {
+      content: [{ type: 'text', text: `${sentinel} ${'old context '.repeat(200)}` }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    agent.session.append('step/start', { turn, step: 1 })
+    agent.session.append('assistant/message', {
+      provenance: { provider: 'mock', model: 'mock' },
+      turn,
+      step: 1,
+      content: [{ type: 'text', text: `historical response ${turn} ${'detail '.repeat(200)}` }],
+    }, { surfaceOp: 'append' })
+    agent.session.append('step/end', { turn, step: 1 })
+    agent.session.append('turn/end', { turn, reason: { kind: 'completed' } })
+  }
+}
+
 describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', () => {
+  it('uses the model actually routed by agent/request for post-step pressure', async () => {
+    const { ctx } = await harness(8)
+    ctx.on('agent/request', async (_agent, _turn, _step, config) => ({ ...config, provider: 'mock', model: 'mock' }))
+    try {
+      const agent = ctx.agentLoop.create(SessionId('routed-pressure'), {
+        provider: 'unconfigured-agent-fallback',
+        model: 'unconfigured-agent-fallback',
+      })
+      agent.send([{ type: 'text', text: 'do a routed multi-step task' }])
+      await waitForIdle(ctx, agent)
+
+      expect(agent.session.requestHeader()?.config.model).toBe('mock')
+      expect(agent.session.events.some(event => event.type === 'compact/summary')).toBe(true)
+      expect(agent.session.events.at(-1)).toMatchObject({
+        type: 'turn/end',
+        data: { reason: { kind: 'completed' } },
+      })
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('runs automatic pressure after the current tool result and before step/end', async () => {
+    const { ctx } = await harness(8)
+    try {
+      const agent = ctx.agentLoop.create(SessionId('post-step-order'), { provider: 'mock', model: 'mock' })
+      agent.send([{ type: 'text', text: 'do tool work' }])
+      await waitForIdle(ctx, agent)
+
+      const events = [...agent.session.events]
+      const compactStart = events.find(event => event.type === 'compact/start')
+      expect(compactStart).toBeDefined()
+      const precedingResult = events.findLast(event =>
+        event.type === 'tool/result' && event.seq < compactStart!.seq,
+      )
+      if (precedingResult?.type !== 'tool/result') throw new Error('expected a durable tool result before compaction')
+      const stepEnd = events.find(event =>
+        event.type === 'step/end'
+        && event.data.step === precedingResult.data.step
+        && event.seq > compactStart!.seq,
+      )
+      expect(precedingResult.seq).toBeLessThan(compactStart!.seq)
+      expect(compactStart!.seq).toBeLessThan(stepEnd!.seq)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('the head checkpoint the loop lands is a balanced cut on both sides', async () => {
     const { ctx } = await harness(8)
     try {
-      const agent = ctx.agentLoop.create(AgentId('repro'), { model: 'mock' })
+      const agent = ctx.agentLoop.create(SessionId('repro'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'do a long multi-step task' }])
       await waitForIdle(ctx, agent)
 
@@ -122,13 +257,122 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
       // its start and end cuts are balanced in surface order.
       const nodes = agent.session.surface.nodes
       for (const cp of checkpoints) {
-        const node = nodes.find(n => n.seq === cp.seq)
-        if (!node) continue // shadowed by a later checkpoint — no longer an edge.
-        expect(isToolPairingBalanced(nodes, events, node.seq),
-          `checkpoint seq ${node.seq} must be a balanced region START`).toBe(true)
-        expect(isToolPairingBalanced(nodes, events, node.next),
-          `checkpoint seq ${node.seq} must be a balanced region END`).toBe(true)
+        const index = nodes.indexOf(cp.seq)
+        if (index === -1) continue // shadowed by a later checkpoint — no longer an edge.
+        expect(toolPairingBalancedBefore(agent.session, cp.seq),
+          `checkpoint seq ${cp.seq} must be a balanced region START`).toBe(true)
+        expect(toolPairingBalancedAfter(agent.session, cp.seq),
+          `checkpoint seq ${cp.seq} must be a balanced region END`).toBe(true)
       }
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+})
+
+describe('context-overflow recovery across the real loop and compact-basic', () => {
+  it.each(['thrown', 'in-band'] as const)(
+    'force-compacts a %s overflow between failed and retry steps',
+    async (delivery) => {
+      const ctx = new Context()
+      const adapter = new OverflowRecoveryAdapter(delivery)
+      await mountAgentLoopTestDependencies(ctx)
+      await mountInvariants(ctx)
+      await ctx.plugin(AgentLoop, { agents: [] })
+      await ctx.plugin(TokenMeterService)
+      ctx.llm.registerAdapter(['mock'], adapter)
+      ctx.on('agent/request', async (_agent, _turn, _step, config) => ({ ...config, provider: 'mock', model: 'mock' }))
+      await ctx.plugin(BasicCompactService, {
+        thresholdRatio: 1,
+        retainTokens: 100,
+        maxTokens: 64,
+        compactionRetries: 0,
+        maxOverflowRetries: 1,
+      })
+
+      try {
+        const agent = ctx.agentLoop.create(SessionId(`overflow-${delivery}`), {
+          provider: 'unconfigured-agent-fallback',
+          model: 'unconfigured-agent-fallback',
+        })
+        seedOverflowHistory(agent)
+
+        agent.send([{ type: 'text', text: 'continue from history' }])
+        await agent.whenIdle()
+
+        expect(adapter.conversationRequests).toHaveLength(2)
+        expect(adapter.summaryRequests).toHaveLength(1)
+        expect(JSON.stringify(adapter.conversationRequests[0]!.messages)).toContain('OLD HISTORY SENTINEL')
+        const retry = JSON.stringify(adapter.conversationRequests[1]!.messages)
+        expect(retry).toContain('RECOVERY CHECKPOINT')
+        expect(retry).not.toContain('OLD HISTORY SENTINEL')
+
+        const events = [...agent.session.events]
+        const failedEnd = events.find(event =>
+          event.type === 'step/end' && event.data.turn === 3 && event.data.step === 1,
+        )!
+        const retryStart = events.find(event =>
+          event.type === 'step/start' && event.data.turn === 3 && event.data.step === 2,
+        )!
+        const compaction = events.filter(event =>
+          event.type === 'compact/start'
+          || event.type === 'compact/summary'
+          || event.type === 'compact/end',
+        )
+        expect(compaction.map(event => event.type)).toEqual([
+          'compact/start',
+          'compact/summary',
+          'compact/end',
+        ])
+        expect(compaction.every(event => event.seq > failedEnd.seq && event.seq < retryStart.seq)).toBe(true)
+        expect(events.at(-1)).toMatchObject({
+          type: 'turn/end',
+          data: { reason: { kind: 'completed' } },
+        })
+      } finally {
+        await ctx.fiber.dispose()
+      }
+    },
+  )
+
+  it('keeps context-overflow and transient retry budgets independent in one sequence', async () => {
+    const ctx = new Context()
+    const adapter = new OverflowRecoveryAdapter('thrown', true)
+    await mountAgentLoopTestDependencies(ctx)
+    await mountInvariants(ctx)
+    await ctx.plugin(LlmRetry, {
+      maxTransientRetries: 1,
+      initialDelayMs: 1,
+      maxDelayMs: 1,
+      jitterRatio: 0,
+    })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(TokenMeterService)
+    ctx.llm.registerAdapter(['mock'], adapter)
+    await ctx.plugin(BasicCompactService, {
+      thresholdRatio: 1,
+      retainTokens: 100,
+      maxTokens: 64,
+      compactionRetries: 0,
+      maxOverflowRetries: 1,
+    })
+
+    try {
+      const agent = ctx.agentLoop.create(SessionId('alternating-recovery'), { provider: 'mock', model: 'mock' })
+      seedOverflowHistory(agent)
+      agent.send([{ type: 'text', text: 'continue from history' }])
+      await agent.whenIdle()
+
+      expect(adapter.conversationRequests).toHaveLength(3)
+      expect(adapter.summaryRequests).toHaveLength(1)
+      expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => event.data))
+        .toEqual([expect.objectContaining({ step: 2, retry: 1, failure: { message: 'temporary provider outage', code: 'SERVER' } })])
+      expect(agent.session.events.filter(event => event.type === 'step/start').slice(-3).map(event => event.data.step))
+        .toEqual([1, 2, 3])
+      expect(agent.session.events.at(-1)).toMatchObject({
+        type: 'turn/end',
+        data: { reason: { kind: 'completed' } },
+      })
     } finally {
       await ctx.fiber.dispose()
     }

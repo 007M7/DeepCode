@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-bash
 
-The **bash executor seam**: an abstract `BashExecutor` service (`ctx.bash`) defining WHAT a bash backend does — run commands, manage background tasks — without saying HOW.
+The **bash executor seam**: an abstract `BashExecutor` service (`ctx.bash`) defining WHAT a bash backend does — run foreground commands and start background processes — without saying HOW. Task ids, ownership, collection, cancellation, and notices belong to the generic `ctx.tasks` runtime.
 
 This package is the interface quarter of the bash capability, split so each concern can evolve (and be swapped) independently:
 
@@ -18,29 +18,30 @@ The split mirrors the LLM seam (`LlmService`/`LlmAdapter`) and the agent-tool su
 | Member | Semantics |
 |---|---|
 | `run(spec)` | Foreground execution. Resolves when the command finishes. **Rejects only for infrastructure failures** (unusable workdir, missing shell, pre-aborted signal); nonzero exits, timeout kills, and abort kills resolve with a descriptive `BashRunResult`. |
-| `start(spec)` | Background execution. Returns a `BashTask` handle immediately; **no timeout applies** (stop tasks via `kill`). |
-| `get(id)` / `list()` | Task lookup. |
+| `start(spec)` | Background execution. Returns a task-free `BashProcess` handle immediately; **no timeout applies**. The caller may adapt it into `ctx.tasks`. |
 | `sandboxMode` | The capability fact for the tool layer: the default mode a SANDBOXING executor confines under (`undefined` in the base class — "this executor does not sandbox"). `dsh-tool-bash` reads it at registration to advertise the escalation fields only when the composition honors them. |
-| `ownerOf(id)` | The opaque OWNER token recorded for a background task at `start` (from the spec's `owner`), or `undefined` for an unknown id OR a known-but-ownerless task. The executor stores/returns it verbatim and NEVER interprets it — the access POLICY lives in the consumer (`dsh-tool-bash`), which compares `ownerOf(id)` to the caller's token. Storing ownership here (disposed with the executor's fiber) is what makes it survive a consumer HMR reload. |
-| `readOutput(id)` | **Incremental** output read — consecutive reads never re-deliver. Reads that lost data to buffer bounds flag `lossy` and point at full-stream spill files. Throws for unknown ids. |
-| `kill(id)` | Kill a running task. Returns `false` when it already finished; throws for unknown ids. |
-| `onTaskDone(listener)` | Completion listener (effect-based, disposer returned). Fires exactly once per task; never after the service is disposed. |
+| `BashProcess.readOutput()` | **Incremental** output read — consecutive reads never re-deliver. Reads that lost data to buffer bounds flag `lossy` and point at full-stream spill files. |
+| `BashProcess.kill()` | Kill the process group. Returns `false` when it already finished. |
 
-Implementations subclass `BashExecutor`, implement the abstract methods, and call `notifyTaskDone(task)` on background completion. Disposal must kill every running task (no orphan processes) — see the HMR-safety tests.
+Implementations subclass `BashExecutor` and implement the abstract methods. Disposal must kill every running process and await its exit — see the HMR-safety tests.
 
 ## Vocabulary
 
-`BashExecRequest` (command, workdir?, timeoutMs?, signal?, stdin?, env?, owner?, sandboxMode?) resolves to `BashExecSpec` (command, workdir, timeoutMs, signal?, stdin?, env?, owner, sandboxMode) before execution; `owner` and `sandboxMode` are optional on the request and **required-but-nullable** on the resolved spec, so a forgotten one is a visible `undefined` rather than a silently-absent property. `sandboxMode` is the explicit per-call sandbox-policy input: an escalation grant a human just issued ([the sandbox RFC § Escalation](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md), which outranks) or the session's standing override ([the sandbox RFC § Per-session mode switching](../../../docs/rfc/implemented/feature/2026-07-06-sandbox.md)); a sandboxing executor's `resolve()` stamps its configured default when the request carries none, and a non-sandboxing executor carries the field verbatim and confines nothing.
+`BashExecRequest` (command, workdir?, timeoutMs?, stdoutMaxBytes?, signal?, stdin?, env?, dshEnv?, sandboxPolicy?) resolves to `BashExecSpec` (command, workdir, timeoutMs, stdoutMaxBytes, signal?, stdin?, env?, dshEnv?, sandboxPolicy) before execution. `stdoutMaxBytes` is a trusted foreground-run capture budget for consumers that must parse complete bounded stdout; the model-facing bash tool does not expose it. `sandboxPolicy` is optional on the request and required-but-nullable on the resolved spec: it carries the complete per-call mode and workspace root. The sandbox tool path resolves it from the calling session through `ctx.sandboxPolicy`; a direct sandbox-executor caller falls back to deployment policy, while a non-sandboxing executor carries the field and confines nothing.
 
-The seam owns per-session sandbox overrides through the log-only `bash/sandbox-mode` event, `effectiveSandboxMode`, and `setSandboxMode`; writers preserve turn enclosure, and replay restores the last override. `BashTaskId` and `OwnerToken` are distinct brands. Foreground `run` returns exit, timeout, cancellation, output, and optional sandbox facts; background `start` and `readOutput` use task records. A sandboxing executor reports the executed mode, conservative denial classification, and enforcement completeness. See [core-data-structures/bash.md](../../../docs/core-data-structures/bash.md) for full shapes.
+The per-session sandbox-mode override vocabulary (the `'sandbox/mode'` event, the `effectiveSandboxMode(events)` fold, and the `setSandboxMode(session, mode)` write path) is NOT here — it is policy state shared by every enforcing family, owned by [`@deepseek-ai/dsh-sandbox-policy`](../../sandbox/sandbox-policy/). `run()` returns `BashRunResult`; `start()` returns `BashProcess`, whose incremental read and kill methods are adapted by `dsh-tool-bash` into a generic task registration. A sandboxing executor stamps `BashSandboxInfo` on foreground results and settled process handles. See `src/types.ts` and [core-data-structures/bash.md](../../../docs/core-data-structures/bash.md).
 
-`stdin` and `env` are set by in-process plugins (the hooks bridges, native plugins) to feed a hook command its JSON payload on stdin and its `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` env. The model-facing `dsh-tool-bash` tool does not expose them as parameters — a model already has equivalent power through shell syntax (`FOO=bar cmd`, a heredoc), so they would be redundant tool params. This is not a security boundary: the implementation's credential scrub (not these fields) is what keeps the harness's ambient secrets out of a spawned command. They are plain optionals on the resolved spec (unlike `owner`'s required-but-nullable): a missing one means "none", the safe default. See [the bash-stdin-env RFC](../../../docs/rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md).
+`stdin` and ordinary `env` are set by in-process plugins (the hooks bridges, native plugins) to feed a hook command its JSON payload and `CLAUDE_PROJECT_DIR`/`CLAUDE_PLUGIN_ROOT` values. `dshEnv` is a separate trusted overlay restricted by type to managed keys; the exported `DSH_ENV_PREFIX` is the single source for that namespace, its `DshEnvironmentKey` template type, executor scrubbing, registry validation, derived built-in names, and model guidance. Model bash uses the current snapshot collected by `ctx.bashEnv`. Implementations remove inherited managed keys, reject those names in ordinary `env`, then merge `dshEnv`, so an omitted current fact cannot fall back to stale ambient state. The model-facing tool exposes none of these as parameters. All three remain optional on the resolved spec; absent means no input/overlay. See [the bash-stdin-env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) and [the session environment Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.md).
 
 ## Model Experience
 
 Indirectly, through `dsh-tool-bash`, which turns executor output and sandbox facts into guidance and retained tool-result tokens.
 
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
+
 ## Known Limitations and Deferred Work
 
 - **No interactive-input vocabulary** — `stdin` is written once at spawn and closed; the seam has no channel to feed a running task and no PTY session concept.
-- **Foreground timeouts are always executor-owned** — a caller-owned-deadline mode on the seam is explicitly deferred by [the tool-call timeout-policy RFC](../../../docs/rfc/implemented/architecture/2026-07-07-tool-call-timeout-policy.md).
+- **Foreground timeouts are always executor-owned** — a caller-owned-deadline mode on the seam is explicitly deferred by [the tool-call timeout-policy Agent Note](../../../.agents/notes/implemented/architecture/2026-07-07-tool-call-timeout-policy.md).

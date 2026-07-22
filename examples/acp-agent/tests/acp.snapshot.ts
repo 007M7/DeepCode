@@ -1,16 +1,20 @@
 import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
+import { expect, it } from 'vitest'
 import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
+import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 
 /**
  * The acp-agent example's snapshot suite: the scenario table for
  * `dsh-acp-snapshot`'s suite factory, which owns every compare/guard mechanic
- * (golden + re-persisted-log diffs, record/refresh write-back, the pinned-header
+ * (expected-output + re-persisted-log diffs, record/refresh write-back, the pinned-header
  * uniformity guard, the fixture guards). Fixtures live under `snapshots/<name>/`;
  * `pnpm run test:snapshot:record` re-records model transcripts against the real
- * API; `pnpm run test:snapshot:refresh` rewrites current replay goldens keyless.
- * See the package README (packages/support/acp-snapshot) and the snapshot RFC,
- * docs/rfc/implemented/testing/2026-06-19-acp-snapshot-tests.md.
+ * API; `pnpm run test:snapshot:refresh` rewrites current replay expected outputs keyless.
+ * See the package README (packages/support/acp-snapshot) and the snapshot Agent Note,
+ * .agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md.
  */
 
 // The dsh-acp-demo bin (the demo:acp entry), this example's cordis.yml, and
@@ -25,9 +29,24 @@ const AGENT = {
 // The Code Mode overlay configs (include-patched variants of cordis.yml; the
 // replay swap resolves each one's sibling `*cordis.snapshot.yml`).
 const CODE_MODE_CONFIG = fileURLToPath(new URL('../code-mode.cordis.yml', import.meta.url))
+const CODE_MODE_WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../code-mode-workspace-context.cordis.yml', import.meta.url))
 const BOTH_MODE_CONFIG = fileURLToPath(new URL('../both-mode.cordis.yml', import.meta.url))
+const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../workspace-context.cordis.yml', import.meta.url))
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
+const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
+const PACKED_CHUNKS_CONFIG = fileURLToPath(new URL('../packed-chunks.cordis.yml', import.meta.url))
+const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
+const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
+const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
+const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
+
+function fixtureRecords(name: string): unknown[] {
+  return readFileSync(join(SNAPSHOTS_DIR, name, 'session.jsonl'), 'utf8')
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line) as unknown)
+}
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
   switch (value) {
@@ -47,36 +66,108 @@ function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['m
 const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
+  // Direct command dispatch reports goal state without spending a model turn.
+  { name: 'goal-command-status', hasModelTurn: false, recorded: false },
+  // Protocol-only (keyless, authored): session/new advertises the mode picker,
+  // session/set_mode acknowledges a valid selection, and an unknown mode id
+  // fails loudly. With no model turn, its membership in the plan header class
+  // is vacuous; the class still needs one explicit pin below.
+  { name: 'modes-advertise', hasModelTurn: false, recorded: false, headerClass: 'plan' },
+  // The plan header pin covers the full arc: setMode(plan), a real read under
+  // the independently configured sandbox, plan review through exit_plan_mode,
+  // an approved boundary flip back to default, and a real edit in the next
+  // step. Leaving plan removes the policy section and exit tool, producing one
+  // changed request header.
+  { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderChanges: 1 },
+  // Free-text review feedback returns as a corrective error and leaves the
+  // session in plan mode, so this scenario shares the pinned plan header.
+  { name: 'plan-mode-reject', hasModelTurn: true, recorded: true, headerClass: 'plan' },
   // text-turn is the pinned-header scenario: the minimal single text turn.
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
   { name: 'tool-call-turn', hasModelTurn: true, recorded: true },
+  // Authored from the real PACKED_CHUNKS_SOURCE recording under the same app
+  // composition. The contract below pins decoded equality and all three row
+  // kinds; replay additionally proves the assembled app re-packs identically.
+  { name: 'packed-chunks', hasModelTurn: true, recorded: false, configPath: PACKED_CHUNKS_CONFIG },
+  // The fs overlay only adds the spill stack (the sandboxed filesystem tools
+  // live in the base tree), so these scenarios share the default header class.
+  {
+    name: 'parallel-tool-calls',
+    hasModelTurn: true,
+    recorded: false,
+    configPath: FS_CONFIG,
+  },
+  { name: 'bash-spill', hasModelTurn: true, recorded: false, configPath: FS_CONFIG },
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
-  { name: 'workspace-edit', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-read', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-write', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-edit', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-read-window', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
-  { name: 'fs-policy-reject', hasModelTurn: true, recorded: true, headerClass: 'fs', configPath: FS_CONFIG },
+  { name: 'lsp-definition', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'lsp', configPath: LSP_CONFIG },
+  {
+    name: 'workspace-edit',
+    hasModelTurn: true,
+    recorded: true,
+    pinsNativeWindowsStdout: true,
+  },
+  { name: 'fs-read', hasModelTurn: true, recorded: true },
+  { name: 'fs-write', hasModelTurn: true, recorded: true },
+  { name: 'fs-edit', hasModelTurn: true, recorded: true },
+  { name: 'fs-write-overwrite', hasModelTurn: true, recorded: true },
+  { name: 'fs-read-window', hasModelTurn: true, recorded: true },
+  { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
+  // ACP exposes the adapter catalog as a session-scoped model select. This
+  // scenario pins the default flash request, the switch response, and the
+  // resulting changed request-header snapshot for pro.
+  {
+    name: 'model-switching',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    expectedHeaderChanges: 1,
+    headerClass: 'model-switching',
+  },
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
   // Keyless, authored (like error-finish/cancel): deterministically forcing a
   // LIVE model to repeat one call three times is not a stable recording, so
   // the fixture scripts five identical todo_write calls and pins BOTH reminder
   // tiers (gentle at 3, detailed at 5) as context/message in transcript and log.
   { name: 'repeat-tool-guard', hasModelTurn: true, recorded: false },
+  // Authored replay: a root AGENTS.md pins the session prefix, then a read in
+  // nested/ discovers its narrower AGENTS.md as a raw, metadata-bearing
+  // context/message. Both AGENTS.md fixtures are symlinks to a sibling
+  // AGENTS.canonical.md, so this scenario also guards that discovery follows a
+  // symlinked instruction file to its target's content. The scenario-specific
+  // config keeps home/root discovery hermetic, and the resulting prefix needs
+  // its own pinned header class.
+  {
+    name: 'workspace-context',
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    pinsHeader: true,
+    headerClass: 'workspace-context',
+    configPath: WORKSPACE_CONTEXT_CONFIG,
+  },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
-  { name: 'subagent-spawn', hasModelTurn: true, recorded: true, childSessions: 1 },
-  { name: 'subagent-multi', hasModelTurn: true, recorded: true, childSessions: 2 },
-  { name: 'subagent-fork', hasModelTurn: true, recorded: true, childSessions: 1 },
-  { name: 'subagent-mixed', hasModelTurn: true, recorded: true, childSessions: 2 },
+  // Cancelling a live bash call relies on POSIX process-group termination;
+  // Windows bash process-tree kill is deferred with the Bash execution domain.
+  { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true, posixOnly: true },
+  { name: 'subagent-spawn', hasModelTurn: true, recorded: true },
+  { name: 'subagent-multi', hasModelTurn: true, recorded: true },
+  { name: 'subagent-fork', hasModelTurn: true, recorded: true },
+  { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
+  {
+    name: 'subagent-depth-two-rejection',
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    configPath: DEPTH_TWO_CONFIG,
+  },
   // The workflow tool: the model writes a one-child orchestration script; the
   // child runs as a spawn subagent under the worker-thread engine (its session is the
   // child fixture), and the tool result carries the script's return value.
-  { name: 'workflow-run', hasModelTurn: true, recorded: true, childSessions: 1 },
+  { name: 'workflow-run', hasModelTurn: true, recorded: true },
   // Authored counterpart to the packaged Python SDK snapshot: mount a live marker, inspect it
   // through Code Mode, run direct and workflow children, then unmount it. The extra Code Mode and
   // Cordis plugins require their own request-header pin; the fixture tests deterministic composition.
@@ -84,8 +175,14 @@ const SCENARIOS: Scenario[] = [
     name: 'advanced-toolchain',
     hasModelTurn: true,
     recorded: false,
-    childSessions: 2,
     pinsHeader: true,
+    headerClass: 'advanced',
+    configPath: ADVANCED_CONFIG,
+  },
+  {
+    name: 'cordis-inspect-jsdoc',
+    hasModelTurn: true,
+    recorded: false,
     headerClass: 'advanced',
     configPath: ADVANCED_CONFIG,
   },
@@ -96,14 +193,11 @@ const SCENARIOS: Scenario[] = [
   // The mid-turn seams fire during a real model turn, so each is recorded with its hook active
   // (the model's reaction to a deny/block/force-continue is part of the captured transcript).
   // SessionStart/SubagentStart are excluded because detached injection races log
-  // order; SubagentStop writes no transcript, so a golden could not prove it ran.
-  // Unit tests cover those points; the hook-snapshot-matrix RFC owns the rationale.
+  // order; SubagentStop writes no transcript, so an expected output could not prove it ran.
+  // Unit tests cover those points; the hook-snapshot-matrix Agent Note owns the rationale.
   { name: 'hook-cc-promptsubmit-context', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-deny', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-pretool-ask', hasModelTurn: true, recorded: true },
-  // TODO(hook-snapshot-noise): re-record the PostToolUse block fixtures with a
-  // self-limiting prompt or hook so one rejected result proves the seam without
-  // repeated block/retry cycles in the committed JSONL.
   { name: 'hook-cc-posttool-block', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-posttool-context', hasModelTurn: true, recorded: true },
   { name: 'hook-cc-stop-continue', hasModelTurn: true, recorded: true },
@@ -116,21 +210,59 @@ const SCENARIOS: Scenario[] = [
   // tools:sdk section rides in the prompt, and the program's tool calls land as
   // tool/code-dispatch events. Each overlay composes and pins its own header class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
+  // A nested fs dispatch inside run_code discovers workspace instructions. The
+  // context/message must follow the outer result while retaining workspace
+  // provenance, which proves Code Mode carries deferred tool context end to end.
+  {
+    name: 'code-mode-workspace-context',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    headerClass: 'code-workspace-context',
+    configPath: CODE_MODE_WORKSPACE_CONTEXT_CONFIG,
+  },
   { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
-  // The default tree owns the single Permissions select. Snapshot mode starts
-  // in danger-full-access so established fixtures stay runner-independent;
-  // these policy scenarios switch to workspace-write in their input scripts.
+  // The default tree also owns the Permissions select. Snapshot mode starts in
+  // danger-full-access so established fixtures stay runner-independent; these
+  // policy scenarios switch to workspace-write in their input scripts.
   // Real-kernel confinement remains in escalation.e2e.ts and the sandbox
   // packages' e2e suites.
   { name: 'config-options', hasModelTurn: false, recorded: false, headerClass: 'sandbox' },
-  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderDeltas: 1, headerClass: 'sandbox' },
+  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'sandbox' },
   { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
+  { name: 'fs-escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
+  // Unlike ordinary snapshots, this session cwd is outside the platform temp
+  // roots that workspace-write always grants. The overlay points the
+  // deployment fallback at /tmp, so a successful relative write proves the
+  // assembled app replaced that process-level fallback with SessionHeader.cwd.
+  {
+    name: 'session-sandbox-root',
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    headerClass: 'sandbox',
+    configPath: SESSION_SANDBOX_ROOT_CONFIG,
+    workspaceParent: homedir(),
+  },
 ]
 
 defineAcpSnapshotSuite({
   agent: AGENT,
-  snapshotsDir: join(dirname(fileURLToPath(import.meta.url)), 'snapshots'),
+  snapshotsDir: SNAPSHOTS_DIR,
   scenarios: SCENARIOS,
   mode: snapshotModeFromEnv(process.env.DSH_SNAPSHOT),
+})
+
+it('packed ACP fixture retains every chunk row kind without changing the logical session', () => {
+  const source = fixtureRecords(PACKED_CHUNKS_SOURCE)
+  const packed = fixtureRecords('packed-chunks')
+  const rowTypes = packed.flatMap((record) => {
+    if (record === null || typeof record !== 'object') return []
+    const type = (record as { type?: unknown }).type
+    return type === 'text-chunks' || type === 'reasoning-chunks' || type === 'tool-call-chunks' ? [type] : []
+  })
+
+  expect([...new Set(rowTypes)].sort()).toStrictEqual(['reasoning-chunks', 'text-chunks', 'tool-call-chunks'])
+  expect([packed[0], ...packed.slice(1).flatMap(record => decodeStorageRecord(record))]).toStrictEqual(source)
 })

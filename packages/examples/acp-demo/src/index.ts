@@ -1,6 +1,8 @@
 /**
  * The ACP server app: the default agent spine ({@link @deepseek-ai/dsh-agent-spine-demo}),
- * JSONL session persistence, and the {@link @deepseek-ai/dsh-acp} bridge. It
+ * human-command registry, JSONL session persistence, and the
+ * {@link @deepseek-ai/dsh-acp} bridge. The app owns those plugins through one
+ * ordered lifecycle so ACP sessions quiesce before persistence detaches. It
  * writes nothing to stdout.
  * It pre-creates no agents and leaves adapters, executors, and optional tools to
  * the leaf, which must likewise avoid stdout loggers. Named exports are
@@ -12,15 +14,23 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
+import CommandService from '@deepseek-ai/dsh-commands'
+import * as commandGoal from '@deepseek-ai/dsh-command-goal'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
+import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
-import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import SessionPersistenceJsonl, {
+  JsonlCompressionSchema,
+  type JsonlCompression,
+} from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as sessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
 export const name = 'acp-demo'
+const DEFAULT_PERSISTENCE_ROOT = './.sessions'
 
 /**
- * App config: the swappable per-deployment values. `model` configures the
+ * App config: the swappable per-deployment values. `provider` and `model` configure the
  * agent template the ACP bridge creates each session's agent from (NOT a
  * pre-created agent — ACP creates agents at `session/new`); `persona` is the
  * deployment persona (forwarded to the system-prompt plugin); `toolOrder` is
@@ -29,35 +39,66 @@ export const name = 'acp-demo'
  * through agent-spine-demo); `persistenceRoot` is the JSONL backend's directory.
  */
 export interface Config {
+  /** Provider route for ACP-created agents. */
+  provider: string
   /** Model name for ACP-created agents (must have a registered adapter). */
   model: string
+  /** Bundled agent-loop concurrency cap; `1` is serial and omission uses its default. */
+  maxParallelToolCalls?: number
   /** Deployment persona (the system-prompt plugin's `persona` config). */
   persona?: string
   /** Explicit model-facing tool order (the system-prompt plugin's `toolOrder` config; see dsh-system-prompt). */
   toolOrder?: string[]
   /** Tool-registry config — its presentation `mode` (forwarded through agent-spine-demo; see dsh-tools). */
   tools?: ToolsConfig
+  /** DeepSeek Harness home directory exposed to bash and used for local skill discovery. */
+  dshHome?: string
+  /** Fallback session-title limits forwarded through agent-spine-demo. */
+  sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
   /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
   persistenceRoot?: string
+  /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
+  packChunks?: boolean
+  /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
+  persistenceCompression?: JsonlCompression
+  /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
+  workspaceContext: agentCore.Config['workspaceContext']
   /** Skill registry, local-provider, and model-facing consumer config forwarded to agent-spine-demo. */
   skills?: agentCore.SkillConfig
+  /** Model-facing bash tool config forwarded through agent-core. */
+  toolBash?: NonNullable<agentCore.Config['toolBash']>
+  /** Generic background-task controls forwarded through agent-core; set false to omit their tool surface. */
+  toolTasks?: NonNullable<agentCore.Config['toolTasks']>
+  /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
+  goals?: agentCore.GoalConfig | false
+  /** Bounded transient model-request retry policy forwarded through agent-core. */
+  llmRetry?: NonNullable<agentCore.Config['llmRetry']>
 }
 
 // Each front door owns a complete, directly readable config schema; extracting
 // the common fields would make two small app contracts depend on a new facade.
 /* jscpd:ignore-start */
 export const Config: z<Config> = z.object({
+  provider: z.string().required(),
   model: z.string().required(),
+  maxParallelToolCalls: z.number().step(1).min(1),
   persona: z.string(),
   // The array default is forced to undefined: ABSENT means "lexicographic
   // order" (the owning dsh-system-prompt schema does the same), while
   // schemastery's native [] default would read as an invalid configured list.
   toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   tools: ToolRegistry.Config,
-  // TODO(single-default-literal): share this schema default and the defensive
-  // apply() fallback through one named constant while retaining both boundaries.
-  persistenceRoot: z.string().default('./.sessions'),
+  dshHome: z.string(),
+  sessionTitle: agentCore.SessionTitleConfigSchema,
+  persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
+  packChunks: z.boolean().default(false),
+  persistenceCompression: JsonlCompressionSchema,
+  workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
   skills: agentCore.SkillConfigSchema,
+  toolBash: agentCore.ToolBashConfigSchema,
+  toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
+  goals: z.union([z.const(false), agentCore.GoalConfigSchema]),
+  llmRetry: agentCore.LlmRetryConfigSchema,
 })
 /* jscpd:ignore-end */
 
@@ -66,16 +107,27 @@ export const Config: z<Config> = z.object({
  * NO agents (its `agents` list defaults to `[]`) and carries the deployment
  * `persona`; the JSONL backend persists under `persistenceRoot`; the ACP
  * bridge owns stdout for JSON-RPC and creates one agent per `session/new`
- * from `model`. No logger, no `hmr` — stdout stays pure.
+ * from the provider/model pair. The composite effect unloads in reverse order,
+ * keeping checkpoint and persistence listeners attached until ACP agents have
+ * flushed their closing events. No logger, no `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
-  ctx.plugin(agentCore, {
-    ...config.persona !== undefined ? { persona: config.persona } : {},
-    ...config.toolOrder !== undefined ? { toolOrder: config.toolOrder } : {},
-    ...config.tools !== undefined ? { tools: config.tools } : {},
-    ...config.skills !== undefined ? { skills: config.skills } : {},
-  })
-  ctx.plugin(UserInteractionService)
-  ctx.plugin(SessionPersistenceJsonl, { root: config.persistenceRoot ?? './.sessions' })
-  ctx.plugin(acp, { model: config.model })
+  const goals = config.goals ?? {}
+  ctx.effect(function* () {
+    yield ctx.plugin(CommandService).dispose
+    if (goals !== false) yield ctx.plugin(commandGoal).dispose
+    yield ctx.plugin(agentCore, { ...agentCore.pickSpineConfig(config), goals }).dispose
+    yield ctx.plugin(UserInteractionService).dispose
+    // Same rationale as the Config schema above: each front door forwards its own
+    // persistence passthroughs rather than sharing a facade with stdio-demo.
+    /* jscpd:ignore-start */
+    yield ctx.plugin(SessionPersistenceJsonl, {
+      root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
+      ...config.packChunks !== undefined ? { packChunks: config.packChunks } : {},
+      ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
+    }).dispose
+    /* jscpd:ignore-end */
+    yield ctx.plugin(sessionCheckpointPolicy).dispose
+    yield ctx.plugin(acp, { provider: config.provider, model: config.model }).dispose
+  }, 'acp-demo.composition')
 }

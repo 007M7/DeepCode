@@ -28,6 +28,12 @@
     },
     {
       "path": "../subagent"
+    },
+    {
+      "path": "../../tasks/tasks"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

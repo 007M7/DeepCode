@@ -2,21 +2,48 @@
 
 [English](bash.md) | 中文
 
-Bash 执行 seam：典型的[能力 seam](../rfc/implemented/architecture/2026-06-13-capability-seams.md) 示例，拆分为三个包（package）：接口（[dsh-bash](../../packages/bash/bash)，`ctx.bash`）、实现（[dsh-bash-local](../../packages/bash/bash-local)，本地子进程）和消费方（[dsh-tool-bash](../../packages/bash/tool-bash)，`bash`/`bash_output`/`bash_kill` 工具 schema）。Bash 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此处而非 [core.md](core.md)。沙箱化、容器化或远程后端是实现同一接口的兄弟包。
+bash 执行 seam 分为接口（[dsh-bash](../../packages/bash/bash)，`ctx.bash`）、实现（[dsh-bash-local](../../packages/bash/bash-local) 与 [dsh-bash-sandbox](../../packages/bash/bash-sandbox)）和消费方（[dsh-tool-bash](../../packages/bash/tool-bash)，即 `bash` schema）。通用后台任务的 id、所有权与控制位于 [tasks.md](tasks.md)；本 seam 返回一个不含任务概念的进程句柄。
 
 源码：[`packages/bash/bash/src/types.ts`](../../packages/bash/bash/src/types.ts)
 
-## 请求与规格：`resolve()` 拆分
+## 受管 shell 环境命名空间
 
-该 seam 将**面向模型/插件的请求**（`workdir`/`timeoutMs` 可选，由配置填充）与**执行器实际执行的完全解析规格**（这些字段为必填）分离。工具层在二者之间调用 `ctx.bash.resolve(request)`。这是本仓库「在包边界处显式优于隐式」规则的具体体现：阅读 `BashExecSpec` 的人永远不会疑惑工作目录从何而来。
+`DSH_*` 变量是归 Harness 所有的子进程事实。面向模型的 bash 工具通过 `ctx.bashEnv` 收集它们，再经由 `BashExecRequest.dshEnv` 传递；执行器在合并当前快照之前会移除继承而来的 `DSH_*` 名称。
 
 ```ts type-equiv
+/** One environment key inside the managed {@link DSH_ENV_PREFIX} namespace. */
+type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`
+```
+
+```ts type-equiv
+/** Trusted DeepSeek Harness variables for one bash execution. */
+type DshEnvironment = Readonly<Record<DshEnvironmentKey, string>>
+```
+
+## 请求与规格：`resolve()` 拆分
+
+该 seam 将**面向模型/插件的请求**（`workdir`/`timeoutMs`/`stdoutMaxBytes` 可选，由配置或请求策略补全）与执行器实际使用的**完全解析后的 spec**（这些字段均为必填）分开。工具层在二者之间调用 `ctx.bash.resolve(request)`——这具体落实了仓库的「包 seam 上显式优于隐式」规则：`BashExecSpec` 的读者不必猜测工作目录或输出预算来自何处。
+
+```ts type-equiv
+/**
+ * A caller's execution REQUEST: `workdir` and `timeoutMs` are optional and
+ * filled by {@link BashExecutor.resolve} from the implementation's config.
+ * This is the model-/plugin-facing shape; pass it to `resolve()` to obtain a
+ * fully-resolved {@link BashExecSpec}.
+ */
 interface BashExecRequest {
   command: string
   /** Working directory override (default: implementation-configured). */
   workdir?: string | undefined
   /** Timeout override in milliseconds (implementations cap it). */
   timeoutMs?: number | undefined
+  /**
+   * Foreground stdout capture budget in bytes. Absent uses the executor's
+   * default output cap. Trusted in-process consumers use this when they must
+   * parse complete stdout up to their own bounded limit; the model-facing bash
+   * tool does not expose it as a parameter.
+   */
+  stdoutMaxBytes?: number | undefined
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
   /**
@@ -28,115 +55,92 @@ interface BashExecRequest {
    */
   stdin?: string | undefined
   /**
-   * Extra environment entries for the command, merged AFTER the
-   * implementation's credential scrub (so an explicit entry here is honored even
-   * when its name matches the scrub pattern — the caller named a value it holds,
-   * not the harness's ambient secret). Set by in-process plugins (the hooks
-   * bridges set `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing
-   * bash tool does not expose it as a parameter (a model that needs an env var
-   * uses shell syntax like `FOO=bar cmd`).
+   * Ordinary environment entries for the command, merged after the credential
+   * scrub. `DSH_*` is reserved for {@link dshEnv} and implementations reject it
+   * here. Set by in-process plugins (the hooks bridges set
+   * `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, …); the model-facing bash tool
+   * does not expose it as a parameter.
    */
   env?: Record<string, string> | undefined
   /**
-   * Opaque OWNER token for a background task — the consumer's isolation key
-   * (the tool layer passes the owning agent's `session.header.id`). The
-   * executor stores it on the task and exposes it via {@link BashExecutor.ownerOf};
-   * the executor itself NEVER interprets it (no access policy lives in the
-   * seam — that is the consumer's job). Absent for foreground runs and for an
-   * ownerless background start (a non-agent caller).
+   * Harness-owned `DSH_*` variables for this execution. Executors discard
+   * ambient `DSH_*` entries before merging this snapshot, so an unavailable
+   * current fact cannot inherit a stale value from the harness process, and
+   * reject non-`DSH_*` names supplied through this managed channel.
    */
-  owner?: OwnerToken | undefined
-  /**
-   * Explicit per-call sandbox-policy input, overriding the executor's
-   * configured default mode for THIS call. Never a silent default: a
-   * consumer sets it only from an explicit policy source — an
-   * `'allowed-once'` grant a human just issued through `ctx.approval` (the
-   * escalation flow in the sandbox RFC § Escalation, which outranks), or the
-   * session's standing override folded from its own `bash/sandbox-mode`
-   * events (the sandbox RFC § Per-session mode switching — the user's recorded per-session
-   * choice). A sandboxing executor confines THIS call under the given mode;
-   * a non-sandboxing executor carries the field and confines nothing (the
-   * tool layer stamps neither escalation nor overrides without a sandboxing
-   * executor — see {@link BashExecutor.sandboxMode}).
-   */
-  sandboxMode?: SandboxMode | undefined
+  dshEnv?: DshEnvironment | undefined
+  /** Fully resolved per-call sandbox policy; sandboxing executors default it. */
+  sandboxPolicy?: SandboxExecutionPolicy | undefined
 }
 ```
 
 ```ts type-equiv
+/**
+ * A resolved execution spec. {@link BashExecutor.resolve} fills and caps the
+ * required fields; {@link BashExecutor.start} ignores `timeoutMs` because
+ * background processes have no executor timeout.
+ */
 interface BashExecSpec {
   command: string
   workdir: string
   timeoutMs: number
+  /**
+   * Resolved foreground stdout capture budget in bytes. `run()` uses it for
+   * stdout; background tasks and stderr keep the executor's own output cap.
+   */
+  stdoutMaxBytes: number
   /** Abort signal — implementations kill the command when it fires. */
   signal?: AbortSignal | undefined
-  /**
-   * Bytes to write to the command's stdin (then close it), carried through
-   * verbatim from {@link BashExecRequest.stdin}. OPTIONAL on the resolved spec
-   * (unlike `owner`): it has no config default, so a missing one means "no
-   * stdin" — the safe, ordinary case — not a silent footgun, so it stays a
-   * plain optional rather than required-but-nullable (see the request field).
-   */
+  /** Bytes to write to stdin before closing it; absent means no stdin. */
   stdin?: string | undefined
   /**
-   * Extra environment entries, carried through verbatim from
-   * {@link BashExecRequest.env} and merged by the implementation AFTER its
-   * credential scrub (an explicit entry wins even when its name matches the
-   * scrub pattern). OPTIONAL on the spec for the same reason as `stdin` — no
-   * config default, absent means "no extra env".
+   * Ordinary environment entries carried through from
+   * {@link BashExecRequest.env}. `DSH_*` remains reserved for {@link dshEnv}.
+   * OPTIONAL on the spec for the same reason as `stdin`: absent means no
+   * ordinary extra environment.
    */
   env?: Record<string, string> | undefined
-  /**
-   * Opaque owner token, REQUIRED-but-nullable (mirrors `workdir`/`timeoutMs`
-   * being required on the resolved spec): {@link BashExecutor.resolve} carries
-   * the request's `owner` through, defaulting a missing one to `undefined`. A
-   * required field makes a forgotten owner a VISIBLE `undefined` rather than a
-   * silently-absent property that yields an unowned (cross-session-readable)
-   * task. `start()` stores it; `run()` (foreground) ignores it.
-   */
-  owner: OwnerToken | undefined
-  /**
-   * The sandbox mode this call executes under, REQUIRED-but-nullable for the
-   * same visibility reason as `owner`. A sandboxing executor's `resolve()`
-   * stamps the effective mode (the request's explicit override, else its
-   * configured default) so `run()`/`start()` read the spec, never the config;
-   * a non-sandboxing executor carries the request value through verbatim and
-   * ignores it (`undefined` under such an executor means what its README says:
-   * unconfined execution).
-   */
-  sandboxMode: SandboxMode | undefined
+  /** Managed `DSH_*` snapshot; implementations reject ordinary names. */
+  dshEnv?: DshEnvironment | undefined
+  /** Resolved sandbox policy; ignored by executors that do not confine. */
+  sandboxPolicy: SandboxExecutionPolicy | undefined
 }
 ```
 
-`owner` token 是隔离键：执行器存储它但从不解释它（访问策略是消费方的职责），因此一个 agent 启动的后台任务不会被跨会话读取。必填但可空的字段使遗忘的 owner 成为一个可见的 `undefined`，而非一个静默无主的任务。
+`stdin` 和 `env` 是受信任的进程内插件输入，不由 `dsh-tool-bash` 暴露。本地执行器会先清除环境中的凭据，再合并调用方显式提供的 env。见 [bash-stdin-env Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md)。
 
-受信的进程内插件使用 `stdin` 和 `env` 传递钩子载荷与钩子专用变量。面向模型的 bash 工具从其命名的 schema 字段构造请求，不暴露这两个输入，因为 shell 语法本身已提供等价能力；测试防止未来出现 `...args` 展开。这是请求形状的纪律约束，而非安全边界：`dsh-bash-local` 无论这些字段如何都会清洗环境凭证，然后叠加调用方已持有的显式值。见 [bash stdin/env RFC](../rfc/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md)。
-
-该 seam 处理的两个 id 都是[品牌化的](core.md)（零成本 `string` 品牌，与 `SessionId`/`AgentId` 相同的机制）：`BashTaskId`（被跟踪的后台任务，由本地执行器生成 `bash-N`）和 `OwnerToken`（不透明的隔离键）。`OwnerToken` 刻意是一个与 `SessionId` **不同**的品牌，而非别名：bash seam 是一个能力 seam，不得知道 owner token *意味着*什么，因此它从不导入 `dsh-session` 的词汇。`dsh-tool-bash` 消费方是唯一将拥有者 agent 的 `SessionId` 转换为 `OwnerToken` 的边界。对两者施加品牌化，可以防止裸 `string`（或在需要 `OwnerToken` 的地方传入 `BashTaskId`，反之亦然）在面向模型的 `task_id` 路径上通过类型检查。
+`stdoutMaxBytes` 同样仅供受信任插件使用。它让前台消费方能在有界解析预算内请求完整 stdout，而不会改变 stderr、后台任务或面向模型的 bash 工具的常规输出上限。
 
 ## 前台运行：`BashRunResult`
 
 一次已完成（或被终止）的前台运行的结果。正交的结果**独立报告**：一个进程可以同时超时并以退出码 0 退出（因为它捕获了信号），因此 `timedOut`、`aborted`、`signal` 和 `exitCode` 各自独立为一个字段；调用方永远不会把一次被截断的运行误读为干净的成功。
 
 ```ts type-equiv
+/** The outcome of one completed (or killed) foreground run. */
 interface BashRunResult {
   /** Exit code; null when the process died from a signal. */
   exitCode: number | null
   /** Terminating signal (e.g. 'SIGTERM'); null on normal exit. */
   signal: NodeJS.Signals | null
-  /** True when the executor's own timeout killed the command. */
+  /**
+   * True when the executor's own timeout was the FIRST cause to cut the command
+   * short. Mutually exclusive with {@link aborted}: one fused deadline drives
+   * both the timeout and the caller's cancellation, so a timeout and an abort
+   * racing before process close report the single first-abort cause, not both
+   * (see the [timeout-library Agent Note](../../../../.agents/notes/implemented/architecture/2026-07-06-timeout-deadline-library.md)).
+   */
   timedOut: boolean
-  /** True when the caller's AbortSignal killed the command. */
+  /**
+   * True when the caller's `AbortSignal` was the FIRST cause to kill the command
+   * (and it was not the executor's own timeout). Mutually exclusive with
+   * {@link timedOut} — see there for the first-cause classification.
+   */
   aborted: boolean
   /** The effective timeout applied to this run (after defaulting/capping). */
   timeoutMs: number
   stdout: CollectedOutput
   stderr: CollectedOutput
-  /**
-   * Sandbox facts, present iff a sandboxing executor ran the command — an
-   * unsandboxed executor (e.g. `dsh-bash-local`) never sets it. See
-   * {@link BashSandboxInfo} for the `denied` classification semantics.
-   */
+  /** Sandbox execution facts, absent for an unsandboxed executor. */
   sandbox?: BashSandboxInfo
 }
 ```
@@ -144,6 +148,7 @@ interface BashRunResult {
 每个流是一个 `CollectedOutput`：（可能被截断的）文本加恢复信息。截断时，`text` 是**尾部**，完整流溢出到一个私有文件：
 
 ```ts type-equiv
+/** One captured stream: the (possibly truncated) text plus recovery info. */
 interface CollectedOutput {
   /** Collected text — the TAIL of the stream when truncated. */
   text: string
@@ -156,79 +161,70 @@ interface CollectedOutput {
 
 ## 文件沙箱：`BashSandboxInfo`
 
-消费沙箱的执行器（`dsh-bash-sandbox`）通过 `BashExecutor.sandboxMode` 暴露其配置的回退模式。工具层折叠每个 agent 会话的持久 `bash/sandbox-mode` 覆盖，将生效模式印到请求上，并可为一次用户批准的严格更宽调用替换它。它刻意既不声明当前模式也不叙述切换过程；拒绝结果会指明该命令实际运行时所处的模式。模式/执行词汇由 [`@deepseek-ai/dsh-sandbox` seam](sandbox.md) 拥有并编目，其提供方包装执行器的 argv；模式仅管控文件效果，不涉及网络或进程可见性。
+消费 sandbox 的执行器通过 `BashExecutor.sandboxMode` 暴露其已配置的模式回退值。工具层请求 [`@deepseek-ai/dsh-sandbox-policy`](../../packages/sandbox/sandbox-policy/README.md)，把每个调用会话的持久 `sandbox/mode` 覆盖值与不可变 cwd 解析为 `BashExecRequest.sandboxPolicy`；经用户批准、严格更宽松的调用只替换模式。模式/root/enforcement 词汇归 [`@deepseek-ai/dsh-sandbox` seam](sandbox.md) 所有；模式仅管辖文件效果。
 
-沙箱化运行始终在 `BashRunResult.sandbox` 上报告其执行时的事实：`denied` 是执行器对失败的保守分类——判定为沙箱导致（退出失败且 stderr 携带文件系统权限特征——从不是干净退出或信号终止），从收集到的 stderr 尾部读取；`enforcement` 报告所选后端对该模式文件效果的管控完整程度（`SandboxEnforcement = 'full' | 'partial'`：`partial` 表示较旧的 Landlock ABI 仅管控所请求访问的子集；`danger-full-access` 下不存在此字段，因为没有任何限制）；`runnerFailed` 标记与拒绝相反的情况——沙箱运行器本身失败、命令从未执行（仅在已结算的后台任务上标记；前台运行通过抛出 `SANDBOX_UNAVAILABLE` 错误暴露同一状况）：
+sandbox 化运行会报告其模式、保守的拒绝分类与强制执行完整度。`runnerFailed` 标记命令运行前 sandbox runner 已失败；前台执行会抛出 `SANDBOX_UNAVAILABLE`，而已结束的后台进程只能通过其事实通道报告。
 
 ```ts type-equiv
+/**
+ * Sandbox facts for one run, present iff a sandboxing executor handled it.
+ * Facts are reported independently of process exit status so callers can
+ * distinguish command failures from policy denials and runner failures.
+ */
 interface BashSandboxInfo {
   /** The mode the command actually ran under. */
   mode: SandboxMode
-  /**
-   * True when the executor classifies this run's failure as the sandbox
-   * denying a file operation. The classification is CONSERVATIVE (a failed
-   * exit whose stderr carries a filesystem-permission signature) and reads
-   * the COLLECTED stderr — the bounded in-memory tail per
-   * {@link CollectedOutput} semantics, so a signature that survives only in a
-   * spill file is missed toward `denied: false`. A plain command failure
-   * keeps `denied: false` even under a sandboxed mode.
-   */
+  /** Whether the sandbox denied a file operation. */
   denied: boolean
-  /**
-   * How completely the runner enforced `mode`'s file effects — see
-   * {@link SandboxEnforcement}. Absent exactly when `mode` is
-   * `danger-full-access`: nothing is confined, so there is no enforcement to
-   * report.
-   */
+  /** How completely the selected runner enforced the requested mode. */
   enforcement?: SandboxEnforcement
-  /**
-   * True when the executor classifies this failure as the SANDBOX RUNNER
-   * itself failing (missing binary, refused profile, fail-closed refusal
-   * before exec) — the command NEVER RAN; this is a sandbox failure, not a
-   * task failure, and it outranks `denied` (a runner's own error text can
-   * contain denial words). Only ever stamped on settled BACKGROUND tasks: a
-   * foreground run surfaces the same condition as the thrown
-   * `SANDBOX_UNAVAILABLE` error instead (the foreground path has an error
-   * channel; a settled task's facts are its only channel).
-   */
+  /** Whether the sandbox runner failed before the command could run. */
   runnerFailed?: boolean
 }
 ```
 
-还有一个词汇完成整幅图景：`SANDBOX_UNAVAILABLE` 错误码（由 [sandbox seam](sandbox.md) 拥有）是 `ctx.sandbox` 提供方在受限模式没有可用后端时抛出的错误，执行器将其传播。所选运行器拒绝其 profile 时也触发同一快速失败的前台错误；已结算的后台任务则记录 `runnerFailed`。模型在结果中接收拒绝/运行器事实，仅在拒绝标记指明模式时才获知生效模式，并可通过 `sandbox_permissions` 加 `justification` 请求一次严格更宽的重试；`ctx.approval` 必须在任何执行之前批准该确切调用。完整的策略与切换设计见 [sandbox RFC](../rfc/implemented/feature/2026-07-06-sandbox.md)。
+最后一项补全了这套词汇：当受限模式没有可用后端时，`ctx.sandbox` 提供方会抛出、执行器会传播由 [sandbox seam](sandbox.md) 所有的 `SANDBOX_UNAVAILABLE` 错误码。选定的 runner 拒绝其 profile 时会触达同一个故障关闭的前台错误；已结束的后台任务则记录 `runnerFailed`。模型会在结果中收到拒绝/runner 事实，仅当拒绝标记指出生效模式时才得知该模式，并可通过 `sandbox_permissions` 加 `justification` 请求一次性、严格更宽松的重试；执行任何操作前，`ctx.approval` 必须批准该次确切调用。完整的策略与切换设计见 [sandbox Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)。
 
-## 后台任务：`BashTask`
+## 后台进程：`BashProcess`
 
-通过 `start()` 启动的长时间运行命令被跟踪为 `BashTask`。`BashTaskStatus` 为 `'running' | 'completed' | 'killed'`；`done` 在底层进程关闭时 resolve，从不 reject。沙箱化执行器在任务结算后标记 `sandbox`（分类针对已结算任务收集到的 stderr 运行），因此该字段在运行中以及非沙箱化执行器下不存在。
+`start()` 返回不含 id 或所有者的句柄。`dsh-tool-bash` 将它适配为 `ctx.tasks.start()` hooks；随后由通用运行时拥有任务标识与生命周期。`done` 在进程关闭时 resolve 且绝不 reject；进程结束后仍可读取，并且 sandbox 事实会在 `done` resolve 前写入。
 
 ```ts type-equiv
-interface BashTask {
-  readonly id: BashTaskId
-  status: BashTaskStatus
+/**
+ * A background process handle returned by {@link BashExecutor.start}. It is the
+ * only access path; buffered output remains readable after exit. Executor
+ * disposal kills running processes and awaits {@link done}.
+ */
+interface BashProcess {
+  /** Process lifecycle state (settled exactly once). */
+  status: BashProcessStatus
   /** Exit code once finished (null = killed by signal / still running). */
   exitCode: number | null
   /** Terminating signal name, when signal-killed. */
   signal: NodeJS.Signals | null
-  /** Resolves when the underlying process closes (never rejects). */
+  /** Resolves when the underlying process closes (never rejects — a spawn failure settles as `killed` with the error on stderr). */
   readonly done: Promise<void>
-  /**
-   * Sandbox facts for this task's execution, stamped by a sandboxing executor
-   * once the task settles and BEFORE completion listeners are notified — an
-   * `onTaskDone` consumer and a `done` awaiter both see it. Denial
-   * classification runs against the settled task's collected stderr, so the
-   * field cannot exist earlier: absent while the task is running and under an
-   * executor that does not sandbox. See {@link BashSandboxInfo} for the
-   * `denied` semantics.
-   */
+  /** Sandbox facts, stamped once a confined process settles. */
   sandbox?: BashSandboxInfo
+  /**
+   * Read output produced since the previous read (consuming — consecutive
+   * reads never re-deliver). Reads that lost data flag `lossy` and point at
+   * full-stream spill files when available.
+   */
+  readOutput(): BashProcessRead
+  /**
+   * Kill the process group. Returns false when it had already finished
+   * (no-op); idempotent.
+   */
+  kill(): boolean
 }
 ```
 
-`readOutput()` 返回增量的 `BashTaskRead`：自上次读取以来产生的输出，附带一个 `lossy` 标志指示截断是否丢弃了未读字节：
+`readOutput()` 返回增量 delta 与 spill 恢复事实：
 
 ```ts type-equiv
-interface BashTaskRead {
-  task: BashTask
+/** One incremental {@link BashProcess.readOutput} read. */
+interface BashProcessRead {
   /** Output produced since the previous read (stderr in a marked section). */
   delta: string
   /** True when truncation dropped unread bytes the delta cannot include. */
@@ -242,4 +238,4 @@ interface BashTaskRead {
 
 ## 服务
 
-`BashExecutor`（`ctx.bash`，抽象——定义于 [`packages/bash/bash/src/index.ts`](../../packages/bash/bash/src/index.ts)）遵循 `LlmService`/`LlmAdapter` 的拆分模式：`resolve`（请求→规格）、`run`（前台）、`start`（后台）、`get`/`ownerOf`/`list`/`readOutput`/`kill`，以及 `onTaskDone`（`BashTaskListener` 完成回调）。spawn 的命令获得一个**清洗后的 env**（丢弃 `*KEY*`/`*SECRET*`/`*TOKEN*`），溢出文件使用一个权限为 0700 的私有目录（随机文件名、仅所有者可打开）。模型输出永远不会获得环境变量或可预测路径。提供这一切的实现是 `dsh-bash-local`；调用它的面向模型的 `bash`/`bash_output`/`bash_kill` schema 位于 `dsh-tool-bash`（并通过[工具展示词汇](tools.md#tool-presentation-ui-vocabulary)作为终端呈现）。
+`BashExecutor` 拥有 `resolve`、前台 `run`、后台进程 `start` 以及 `sandboxMode` 能力事实。`dsh-bash-local` 拥有进程组、超时/中止处理、有界收集器、spill 文件、凭据清除以及 dispose 后完全停稳。`dsh-tool-bash` 拥有面向模型的渲染，并将后台句柄适配到[通用任务运行时](tasks.md)。

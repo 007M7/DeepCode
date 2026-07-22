@@ -5,7 +5,8 @@ The durable session-persistence seam and its storage backends. The interface pac
 | Package | Role | ctx key |
 |---|---|---|
 | `session-persistence/` | Persistence seam + shared write coordinator | `ctx.sessionPersistence` |
+| `session-checkpoint-policy/` | Semantic durability barriers for agent requests and tool execution | (wraps `ctx.llm` / `ctx.tools`, listens on agent events) |
 | `session-persistence-jsonl/` | JSONL-sidecar persistence backend | (registers `ctx.sessionPersistence`) |
 | `session-persistence-sqlite/` | SQLite persistence backend | (registers `ctx.sessionPersistence`) |
 
-The interface lives at `session-persistence/session-persistence/`; backends are flat siblings. A new storage backend joins here and registers on `ctx.sessionPersistence`. See [session persistence](../../docs/rfc/implemented/architecture/2026-06-14-session-persistence.md).
+The interface lives at `session-persistence/session-persistence/`; backends are flat siblings. A new storage backend joins here and registers on `ctx.sessionPersistence`. See [session persistence](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md).

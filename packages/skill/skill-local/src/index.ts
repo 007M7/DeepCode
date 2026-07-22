@@ -17,6 +17,7 @@ import z from 'schemastery'
 import type Schema from 'schemastery'
 import { parse as parseYaml } from 'yaml'
 import type { FileSystem, FsDirEntry, FsTarget } from '@deepseek-ai/dsh-fs'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import {
   isSkillName,
   type SkillCandidate,
@@ -92,7 +93,7 @@ export class LocalSkillProvider implements SkillProvider {
   private readonly customSkillDirs: string[]
 
   constructor(private readonly ctx: Context, config: Config = {}) {
-    this.dshHome = resolve(config.dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'))
+    this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
   }
@@ -315,7 +316,9 @@ async function nodeEntryKind(fullPath: string, entry: { isDirectory(): boolean; 
   try {
     const info = await stat(fullPath)
     if (info.isDirectory()) return 'directory'
+    /* v8 ignore else -- the special-file symlink branch relies on POSIX /dev/null. */
     if (info.isFile()) return 'file'
+    /* v8 ignore next -- The special-file symlink fixture relies on POSIX /dev/null. */
     return undefined
   } catch (error) {
     ctx.logger.warn(`skill entry ${fullPath} ignored: failed to follow symbolic link: ${errorMessage(error)}`)

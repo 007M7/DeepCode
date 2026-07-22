@@ -1,74 +1,77 @@
 /**
- * Shared ACP snapshot subprocess harness. It boots the real agent bin through the Cordis
- * loader, drives deterministic ACP JSON-RPC over stdio, captures protocol-pure stdout, and
- * harvests persisted session logs after graceful shutdown. Normalization stays in
- * `normalize.ts`; suite registration stays in `suite.ts`.
+ * Shared subprocess harness for ACP snapshot suites. A library module driven by
+ * the suite factory in ./suite.ts (and directly by harness-level specs); each
+ * example's `*.snapshot.ts` names its own agent-under-test paths.
+ *
+ * It boots the REAL agent bin subprocess via the cordis Loader (so the
+ * export-shape bug class stays guarded — see docs/postmortem/0001), drives it
+ * over real ACP JSON-RPC stdio with a deterministic input script, tees raw
+ * stdout (for the expected-output and purity checks) into an SDK `ClientSideConnection`,
+ * and — in record mode — harvests the persisted session JSONL after a graceful
+ * shutdown flush. The pure normalizers in ./normalize.ts turn the captured
+ * stdout frames and the session-log events into stable, snapshot-able text.
+ *
+ * See .agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md.
+ *
  * @module @deepseek-ai/dsh-acp-snapshot/harness
  */
 
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { cp, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
-import { join, delimiter } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { Readable, Writable } from 'node:stream'
+import { basename, dirname, join, delimiter } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import {
   ClientSideConnection,
-  ndJsonStream,
   PROTOCOL_VERSION,
-  type Agent as AcpAgent,
-  type Client,
+  type CreateElicitationRequest,
+  type CreateElicitationResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
 } from '@agentclientprotocol/sdk'
+import { launchAcpTestAgent, type AgentUnderTest, type LaunchedAcpTestAgent } from './launcher.ts'
 
-// Resolve tsx's ESM loader to an ABSOLUTE path once: the child runs with its
-// cwd in a temp dir OUTSIDE the repo, where a bare `--import tsx` would not
-// resolve from node_modules. import.meta.resolve gives this package's tsx
-// regardless of the child cwd.
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
+export type { AgentUnderTest } from './launcher.ts'
 
-/**
- * The agent composition a scenario runs against: which bin to boot and which
- * leaf config it loads. All paths are ABSOLUTE — the subprocess cwd is a temp
- * dir outside the repo, so relative resolution would miss; a suite resolves
- * them from its own `import.meta.url`.
- */
-export interface AgentUnderTest {
-  /** The agent bin entry (e.g. `packages/examples/acp-demo/src/bin.ts`), run unbuilt via tsx. */
-  binScript: string
-  /**
-   * The example's live `cordis.yml`. Under `DSH_SNAPSHOT=replay` the bin swaps
-   * it for the sibling `cordis.snapshot.yml` (the keyless replay overlay), so
-   * one path serves both modes.
-   */
-  configPath: string
-  /**
-   * The repo-root tsconfig whose `paths` map resolves the unbuilt workspace
-   * imports. Passed to the child as `TSX_TSCONFIG_PATH`: tsx finds a tsconfig
-   * by searching UP from the child's cwd — a temp dir outside the repo — so
-   * without the explicit pin the dsh-* imports fail before the bin writes a
-   * byte.
-   */
-  tsconfigPath: string
-}
+const DEFAULT_WAIT_TIMEOUT_MS = 10_000
+const WAIT_POLL_INTERVAL_MS = 10
 
 /**
- * One step of a scenario's deterministic input script (`input.json`). The harness interprets
- * these in order. `newSession` captures the server-issued (random) session id into a
- * `{{sessionId}}` variable that later steps reference. `promptAndCancel` sends without awaiting,
- * waits for the first streamed message, then cancels, making transcript order deterministic.
+ * One step of a scenario's deterministic input script (`input.json`). The
+ * harness interprets these in order. `newSession` captures the server-issued
+ * (random) session id into a `{{sessionId}}` variable that later steps
+ * reference, since a committed file cannot know the id in advance.
+ *
+ * `promptAndCancel` starts a prompt without awaiting completion, waits until
+ * the client observes the selected update (`agent_message_chunk` by default),
+ * then cancels and awaits completion. An optional `waitForFile` first observes
+ * a cwd-relative readiness marker, and a named `waitForToolCallUpdate` keeps
+ * the step open for a terminal tool update that may follow the prompt response.
+ * `promptAndWaitForAgentMessage` arms an exact text-chunk waiter before sending
+ * the prompt, then keeps the application live until that later update arrives.
+ * `waitForTurnEnd` holds the subprocess open until the selected session's latest
+ * complete raw-JSONL turn boundary is `turn/end`; its timeout defaults to 10s.
  */
 export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
   | { op: 'newSession' }
   | { op: 'newSessionExpectError'; additionalDirectories?: string[] }
   | { op: 'prompt'; text: string }
+  | { op: 'promptAndWaitForAgentMessage'; text: string; waitForText: string }
   | { op: 'promptExpectError'; text: string }
-  | { op: 'promptAndCancel'; text: string }
+  | {
+    op: 'promptAndCancel'
+    text: string
+    afterUpdate?: 'agent_message_chunk' | 'tool_call'
+    waitForFile?: { path: string; timeoutMs?: number }
+    waitForToolCallUpdate?: string
+  }
+  | { op: 'waitForTurnEnd'; timeoutMs?: number }
   | { op: 'cancel' }
+  | { op: 'setMode'; modeId: string }
+  | { op: 'setModeExpectError'; modeId: string }
   | { op: 'setConfigOption'; configId: string; value: string }
   | { op: 'setConfigOptionExpectError'; configId: string; value: string }
 
@@ -76,17 +79,44 @@ export type InputStep =
 export interface InputScript {
   steps: InputStep[]
   /**
-   * FIFO permission answers selected by stable option kind; the harness maps each kind to the
-   * agent-issued option id. Exhaustion cancels, while a kind the agent did not offer fails the
-   * scenario.
+   * Ordered answers for the agent's `session/request_permission` round-trips,
+   * consumed FIFO — the Nth request gets the Nth answer. Each answer selects
+   * by option KIND: option ids are agent-issued randoms a committed script
+   * cannot know, while kinds are the ACP-stable vocabulary, so the client maps
+   * kind → the offered `optionId` at answer time. A request beyond the queue
+   * (or with no queue at all) is answered `cancelled` — the stub behavior a
+   * scenario without approvals relies on. A scripted kind the request does
+   * not offer REJECTS the run: the scenario scripted an impossible click,
+   * and {@link runScenario} throws once the in-flight step settles (the
+   * agent itself just sees `cancelled`, so it cannot absorb the bug).
    */
   permissionAnswers?: PermissionAnswer[]
+  /**
+   * Ordered answers for the agent's `elicitation/create` round-trips (the
+   * ask_user_question / plan-review forms), consumed FIFO — the Nth request
+   * gets the Nth answer. Exhaustion (or no queue) answers `cancel`, the same
+   * fail-closed stub an elicitation-free scenario relies on. Unlike permission
+   * kinds, the scripted strings are not validated against the offered form —
+   * a stray `choice` reaches the agent verbatim, which reads it as a custom
+   * (non-consenting) answer, so a scenario bug fails safe in the transcript.
+   */
+  elicitationAnswers?: ElicitationAnswer[]
 }
 
 /** One scripted answer to a permission request: which offered option kind to select. */
 export interface PermissionAnswer {
   /** The `PermissionOption.kind` to select (`allow_once`, `reject_always`, …). */
   kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always'
+}
+
+/** One scripted answer to an elicitation form (accept with choice/custom content, or cancel). */
+export interface ElicitationAnswer {
+  /** Accept the form with the content below, or cancel it. */
+  action: 'accept' | 'cancel'
+  /** The selected option label (the form's `choice` field). */
+  choice?: string
+  /** Free-form text (the form's `custom` field). */
+  custom?: string
 }
 
 /** One harvested session log plus the identifying facts off its header line. */
@@ -109,7 +139,7 @@ export interface RunResult {
   stderr: string
   /** The session id the server issued (undefined if no session was created). */
   sessionId?: string
-  /** The temp cwd the session ran in (the bash workspace). */
+  /** The generated cwd the session ran in (the bash workspace). */
   cwd: string
   /**
    * Every persisted session log harvested after the run, ordered primary-first:
@@ -140,11 +170,19 @@ export interface RunOptions {
   childFiles?: string[]
   /**
    * Optional `<scenario>/workspace/` directory whose contents are copied into
-   * the temp cwd BEFORE the run — the standard way to seed files the agent
+   * the generated cwd BEFORE the run — the standard way to seed files the agent
    * operates on (a file to read, edit, or grep). Absent for scenarios that
    * start from an empty workspace.
    */
   workspaceDir?: string
+  /**
+   * Parent directory for the generated session cwd. Defaults to
+   * `os.tmpdir()`. A scenario that must distinguish its workspace from the
+   * sandbox's always-writable temporary roots can place the generated child
+   * under `os.homedir()` instead. The harness removes only that generated
+   * child, never the supplied parent.
+   */
+  workspaceParent?: string
   /**
    * Alternate LIVE config path for the boot (absolute), overriding
    * {@link AgentUnderTest.configPath} for this run. A scenario needing a
@@ -157,36 +195,56 @@ export interface RunOptions {
 }
 
 /**
+ * Derive one stable, fixed-length spill root owned by this scenario.
+ * Windows uses a two-character-shorter root because drive resolution adds its drive prefix.
+ * @param fixtureFile - The scenario fixture whose parent directory provides the stable identity.
+ * @param platform - the host platform, injectable for unit coverage.
+ * @returns the root-relative snapshot spill directory.
+ */
+export function snapshotSpillRoot(
+  fixtureFile: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const scenario = basename(dirname(fixtureFile))
+  const key = createHash('sha256').update(scenario).digest('hex').slice(0, 9)
+  const root = platform === 'win32' ? '/t' : '/tmp'
+  return `${root}/dsh-acp-snap-${key}`
+}
+
+/**
  * Run a scenario end-to-end against a freshly-spawned subprocess. Owns the
- * child and its temp dirs; always tears them down. Returns the captured stdout
+ * child and its generated dirs; always tears them down. Returns the captured stdout
  * and (record mode) the harvested session-log path.
  *
  * @param input The scenario's input script (steps + optional permission answers).
  * @param opts The agent to boot, the mode, and the fixture wiring.
- * @returns The captured stdout/stderr, session id, temp cwd, and harvested logs.
+ * @returns The captured stdout/stderr, session id, generated cwd, and harvested logs.
  */
 export async function runScenario(input: InputScript, opts: RunOptions): Promise<RunResult> {
-  const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
+  const cwd = await mkdtemp(join(opts.workspaceParent ?? tmpdir(), 'acp-snap-cwd-'))
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
-  // Everything past the temp-dir creation runs under a try/finally that always
-  // removes both dirs — so a failure in workspace seeding, spawn, or any step
-  // never leaks them (the "e2e tests own their resources" rule).
-  let child: ChildProcessWithoutNullStreams | undefined
+  // Fixed path length: spill-policy budgets the preview against the REAL path
+  // before stdout normalization, so tmpdir() length differences churn expected outputs.
+  // Scenario ownership also matters: replay runs concurrently, and one teardown
+  // must never delete another scenario's in-flight full-output recovery file.
+  const spillRoot = snapshotSpillRoot(opts.fixtureFile)
+  // Everything past the temp-dir creation is followed by failure-safe cleanup,
+  // so a failure in workspace seeding, spawn, or any step never leaks resources.
+  let launched: LaunchedAcpTestAgent | undefined
   let sessionId: string | undefined
   let sessionLogs: HarvestedLog[] = []
-  const rawBuffers: Buffer[] = []
-  const stderrChunks: string[] = []
-  try {
+  const outcome = await (async (): Promise<RunResult> => {
     // Seed the workspace if the scenario ships one (a file the agent reads/edits).
+    // Copied into the generated cwd so the agent's bash tools see it; the expected outputs
+    // normalize the cwd, so the seeded paths stay stable across runs.
     if (opts.workspaceDir !== undefined && existsSync(opts.workspaceDir)) {
       await cp(opts.workspaceDir, cwd, { recursive: true })
     }
     const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      TSX_TSCONFIG_PATH: opts.agent.tsconfigPath,
       DSH_SNAPSHOT: opts.mode,
       DSH_SNAPSHOT_FILE: opts.fixtureFile,
       DSH_SNAPSHOT_SESSIONS_ROOT: sessionsRoot,
+      DSH_SNAPSHOT_SPILL_ROOT: spillRoot,
       DSH_HOME: join(cwd, '.dsh'),
       DSH_AGENTS_HOME: join(cwd, '.agents'),
       ...opts.overrideFile !== undefined ? { DSH_SNAPSHOT_OVERRIDE: opts.overrideFile } : {},
@@ -195,58 +253,24 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
         : {},
     }
 
-    child = spawn(
-      process.execPath,
-      ['--import', tsxLoader, opts.agent.binScript, '--config', opts.configPath ?? opts.agent.configPath],
-      { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] },
-    )
-
-    child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (c: string) => stderrChunks.push(c))
-
-    // Tee the same raw bytes to the golden and SDK client. Decode once at the end so a UTF-8
-    // sequence split across stream chunks cannot corrupt the transcript.
-    const passthrough = new Readable({ read() {} })
-    child.stdout.on('data', (buf: Buffer) => {
-      rawBuffers.push(buf)
-      passthrough.push(buf)
-    })
-    child.stdout.on('end', () => passthrough.push(null))
-
-    const stream = ndJsonStream(
-      Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-      Readable.toWeb(passthrough) as ReadableStream<Uint8Array>,
-    )
-    // Watcher so a step can block until the client OBSERVES a particular
-    // session/update — used by promptAndCancel to pin frame order (send cancel
-    // only after the streamed agent_message_chunk has arrived, so those frames
-    // deterministically precede the cancelled prompt response).
-    const updateWaiters: { match: (u: SessionNotification['update']) => boolean; resolve: () => void }[] = []
-    const waitForUpdate = (match: (u: SessionNotification['update']) => boolean): Promise<void> =>
-      new Promise<void>(resolve => updateWaiters.push({ match, resolve }))
-
     // Permission answers are consumed FIFO across the whole run; exhaustion
     // falls back to `cancelled` so approval-free scenarios keep the plain stub.
     const permissionQueue = [...input.permissionAnswers ?? []]
-    // A callback throw would become only an RPC error the agent could absorb. Record an
-    // impossible permission choice here, answer cancelled, and fail the outer scenario.
+    // Elicitation answers mirror the permission queue: FIFO, cancel on exhaustion.
+    const elicitationQueue = [...input.elicitationAnswers ?? []]
+    // A scenario bug detected inside a client callback (a scripted permission
+    // kind the agent never offered). It cannot fail the run from in there: a
+    // callback throw only becomes a JSON-RPC error RESPONSE to the agent, and
+    // a tolerant agent treats that as a denial and carries on — the run (or
+    // worse, a record) would absorb the impossible click silently. So the
+    // callback answers `cancelled` (a well-defined path for the agent),
+    // captures the error here, and the step loop fails the run on it.
     let scriptError: Error | undefined
-    const makeClient = (_agent: AcpAgent): Client => ({
-      sessionUpdate(params: SessionNotification): Promise<void> {
-        for (let i = updateWaiters.length - 1; i >= 0; i--) {
-          const waiter = updateWaiters[i]
-          // The index is always in-bounds (i only decreases; splice removes at
-          // i, so lower entries stay valid); the guard satisfies
-          // noUncheckedIndexedAccess.
-          /* v8 ignore next 1 -- unreachable in-bounds guard, see above */
-          if (waiter === undefined) continue
-          if (waiter.match(params.update)) {
-            updateWaiters.splice(i, 1)
-            waiter.resolve()
-          }
-        }
-        return Promise.resolve()
-      },
+    launched = launchAcpTestAgent({
+      agent: opts.agent,
+      cwd,
+      ...opts.configPath !== undefined ? { configPath: opts.configPath } : {},
+      env,
       requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
         const answer = permissionQueue.shift()
         if (answer === undefined) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
@@ -263,11 +287,32 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
         }
         return Promise.resolve({ outcome: { outcome: 'selected', optionId: option.optionId } })
       },
+      createElicitation(_params: CreateElicitationRequest): Promise<CreateElicitationResponse> {
+        const answer = elicitationQueue.shift()
+        if (answer === undefined || answer.action !== 'accept') return Promise.resolve({ action: 'cancel' })
+        return Promise.resolve({
+          action: 'accept',
+          content: {
+            ...answer.choice !== undefined ? { choice: answer.choice } : {},
+            ...answer.custom !== undefined ? { custom: answer.custom } : {},
+          },
+        })
+      },
     })
-    const client = new ClientSideConnection(makeClient, stream)
+    const active = launched
+    await active.spawned
+    const { client } = active
 
     for (const step of input.steps) {
-      await runStep(client, step, cwd, waitForUpdate, () => sessionId, (id) => { sessionId = id })
+      await runStep(
+        client,
+        step,
+        cwd,
+        match => active.waitForUpdate(match),
+        () => sessionId,
+        (id) => { sessionId = id },
+        (id, timeoutMs) => waitForPersistedTurnEnd(sessionsRoot, id, timeoutMs),
+      )
       // A permission exchange happens while a step's request is in flight, so
       // by the time the step settles any script bug it exposed is captured —
       // fail the run HERE, as a harness error, rather than hoping the agent's
@@ -276,30 +321,57 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     }
     // Done driving: close stdin so the server disposes gracefully (flushing
     // persistence) and exits. Then await exit so the harvested log is complete.
-    child.stdin.end()
-    await waitForExit(child)
+    await active.close()
     // Harvest EVERY persisted log (parent + any subagent children) while the
-    // temp dirs still exist, ordered primary-first.
+    // generated dirs still exist, ordered primary-first.
     sessionLogs = await harvestSessionLogs(sessionsRoot)
-  } finally {
-    // Failure-safe teardown: kill a still-running child and drop the temp dirs
-    // even if seeding/spawn/a step/harvest threw, so a flaky run never leaks a
-    // process or dir. `child` is undefined only if spawn itself threw.
-    if (child !== undefined && child.exitCode === null && child.signalCode === null) {
-      child.kill('SIGKILL')
-      await waitForExit(child)
+    return {
+      rawStdout: launched.rawStdout(),
+      stderr: launched.stderr(),
+      cwd,
+      ...sessionId !== undefined ? { sessionId } : {},
+      sessionLogs,
     }
-    await rm(cwd, { recursive: true, force: true })
-    await rm(sessionsRoot, { recursive: true, force: true })
-  }
+  })().then(
+    value => ({ status: 'fulfilled', value } as const),
+    (error: unknown) => {
+      const stderr = launched?.stderr() ?? ''
+      return {
+        status: 'rejected',
+        error: stderr === ''
+          ? error
+          : new Error(`snapshot-harness: scenario failed: ${String(error)}\nagent stderr:\n${stderr}`, { cause: error }),
+      } as const
+    },
+  )
 
-  return {
-    rawStdout: Buffer.concat(rawBuffers).toString('utf8'),
-    stderr: stderrChunks.join(''),
-    cwd,
-    ...sessionId !== undefined ? { sessionId } : {},
-    sessionLogs,
+  // Failure-safe teardown: wait for a still-running child, then attempt every
+  // owned-path removal even when an earlier cleanup rejects. Report every
+  // teardown failure alongside a scenario failure so neither orthogonal
+  // outcome hides the other.
+  const cleanupResults: PromiseSettledResult<unknown>[] = []
+  const cleanup = async (action: () => Promise<unknown>): Promise<void> => {
+    cleanupResults.push(...await Promise.allSettled([action()]))
   }
+  /* v8 ignore next 1 -- launch itself can only throw on a defensive synchronous spawn API failure */
+  await cleanup(() => launched?.close('SIGKILL') ?? Promise.resolve())
+  await cleanup(() => rm(cwd, { recursive: true, force: true }))
+  await cleanup(() => rm(sessionsRoot, { recursive: true, force: true }))
+  await cleanup(() => rm(spillRoot, { recursive: true, force: true }))
+
+  const cleanupFailures = cleanupResults
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map(result => result.reason as unknown)
+  if (cleanupFailures.length > 0) {
+    throw new AggregateError(
+      outcome.status === 'rejected' ? [outcome.error, ...cleanupFailures] : cleanupFailures,
+      outcome.status === 'rejected'
+        ? 'snapshot scenario and cleanup failed'
+        : 'snapshot cleanup failed',
+    )
+  }
+  if (outcome.status === 'rejected') throw outcome.error
+  return outcome.value
 }
 
 /** Drive one input step over the client connection. */
@@ -307,9 +379,10 @@ async function runStep(
   client: ClientSideConnection,
   step: InputStep,
   cwd: string,
-  waitForUpdate: (match: (u: SessionNotification['update']) => boolean) => Promise<void>,
+  waitForUpdate: (match: (u: SessionNotification['update']) => boolean) => Promise<SessionNotification['update']>,
   getSessionId: () => string | undefined,
   setSessionId: (id: string) => void,
+  waitForTurnEnd: (sessionId: string, timeoutMs?: number) => Promise<void>,
 ): Promise<void> {
   switch (step.op) {
     case 'initialize':
@@ -324,8 +397,10 @@ async function runStep(
       return
     }
     case 'newSessionExpectError': {
-      // The bridge rejects a session/new that widens the workspace scope (non-empty
-      // additionalDirectories / mcpServers — unimplemented).
+      // The bridge rejects a session/new that widens the workspace scope
+      // (non-empty additionalDirectories / mcpServers — unimplemented). The SDK
+      // surfaces that as a rejected RPC; swallow it so the run completes and the
+      // error frame is captured in the transcript.
       await client.newSession({
         cwd,
         mcpServers: [],
@@ -342,11 +417,22 @@ async function runStep(
       await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
       return
     }
+    case 'promptAndWaitForAgentMessage': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: promptAndWaitForAgentMessage before newSession')
+      const updateDone = waitForUpdate(update => update.sessionUpdate === 'agent_message_chunk'
+        && update.content.type === 'text' && update.content.text === step.waitForText)
+      await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
+      await updateDone
+      return
+    }
     case 'promptExpectError': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: promptExpectError before newSession')
-      // The model fails this turn (a recorded provider error), so the bridge answers the prompt
-      // with a JSON-RPC error and the SDK rejects.
+      // The model fails this turn (a recorded provider error), so the bridge
+      // answers the prompt with a JSON-RPC error and the SDK rejects. That
+      // rejection IS the expected editor experience — swallow it so the run
+      // completes and the stdout transcript (the error frame) is captured.
       await client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
         .then(() => { throw new Error('snapshot-harness: expected the prompt to fail but it succeeded') },
           () => { /* expected: the turn failed and the bridge returned an error */ })
@@ -355,18 +441,52 @@ async function runStep(
     case 'promptAndCancel': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: promptAndCancel before newSession')
-      // A hang fixture never resolves alone. Wait for its streamed chunk before cancellation
-      // so updates deterministically precede the cancelled prompt response.
+      // Dispatch without awaiting because the fixture does not settle on its
+      // own. Waiting for the selected update pins it before cancellation and
+      // the cancelled prompt response in the transcript.
       const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
-      await waitForUpdate(u => u.sessionUpdate === 'agent_message_chunk')
+      const afterUpdate = step.afterUpdate ?? 'agent_message_chunk'
+      await waitForUpdate(u => u.sessionUpdate === afterUpdate)
+      if (step.waitForFile !== undefined) {
+        await waitForWorkspaceFile(cwd, step.waitForFile.path, step.waitForFile.timeoutMs)
+      }
+      // Arm this before cancellation so a fast tool drain cannot outrun the waiter.
+      const toolCallUpdateDone = step.waitForToolCallUpdate === undefined
+        ? undefined
+        : waitForUpdate(u => u.sessionUpdate === 'tool_call_update' && u.toolCallId === step.waitForToolCallUpdate)
       await client.cancel({ sessionId })
       await promptDone
+      if (toolCallUpdateDone !== undefined) await toolCallUpdateDone
+      return
+    }
+    case 'waitForTurnEnd': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: waitForTurnEnd before newSession')
+      await waitForTurnEnd(sessionId, step.timeoutMs)
       return
     }
     case 'cancel': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: cancel before newSession')
       await client.cancel({ sessionId })
+      return
+    }
+    case 'setMode': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: setMode before newSession')
+      await client.setSessionMode({ sessionId, modeId: step.modeId })
+      return
+    }
+    case 'setModeExpectError': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: setModeExpectError before newSession')
+      // The bridge rejects an unknown/uncomposed mode id with invalidParams;
+      // that rejection IS the expected wire behavior — swallow it so the run
+      // completes and the error frame is captured in the transcript.
+      await client.setSessionMode({ sessionId, modeId: step.modeId }).then(
+        () => { throw new Error('snapshot-harness: expected session/set_mode to be rejected but it succeeded') },
+        () => { /* expected: the bridge rejected the mode id */ },
+      )
       return
     }
     case 'setConfigOption': {
@@ -392,14 +512,49 @@ async function runStep(
   }
 }
 
-/** Resolve once the child process exits (any code/signal). */
-function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
-  // Race guard: both call sites run within one synchronous frame of
-  // stdin.end()/kill(), so the exit event cannot have been delivered yet;
-  // kept for any future caller that awaits in between.
-  /* v8 ignore next 1 -- unreachable race guard, see above */
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
-  return new Promise<void>(resolve => child.once('exit', () => { resolve() }))
+/**
+ * Wait until the raw JSONL backend exposes one complete closing turn boundary.
+ * The ACP cancel notification settles its prompt before the agent necessarily
+ * reaches quiescence, so cancellation snapshots use this external boundary to
+ * keep subprocess disposal from changing an `aborted` turn into `disposed`.
+ */
+async function waitForPersistedTurnEnd(
+  root: string,
+  sessionId: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (true) {
+    const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
+    if (log !== undefined && latestTurnIsClosed(log.content)) return
+    if (Date.now() >= deadline) {
+      throw new Error(`snapshot-harness: session "${sessionId}" did not persist turn/end within ${timeoutMs}ms`)
+    }
+    await delay(WAIT_POLL_INTERVAL_MS)
+  }
+}
+
+/** Wait for a cwd-relative marker proving an external action reached readiness. */
+async function waitForWorkspaceFile(
+  cwd: string,
+  path: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  const target = join(cwd, path)
+  const deadline = Date.now() + timeoutMs
+  while (!existsSync(target)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`snapshot-harness: workspace file "${path}" did not appear within ${timeoutMs}ms`)
+    }
+    await delay(WAIT_POLL_INTERVAL_MS)
+  }
+}
+
+/** Return whether the last complete raw-JSONL turn boundary closes its turn. */
+function latestTurnIsClosed(content: string): boolean {
+  const complete = content.slice(0, content.lastIndexOf('\n') + 1)
+  return complete.lastIndexOf('\n{"type":"turn/end",')
+    > complete.lastIndexOf('\n{"type":"turn/start",')
 }
 
 /**
@@ -407,11 +562,11 @@ function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
  * header line, and return them ordered primary-first: the top-level session (no
  * `parentSession`) leads, then each subagent child by ascending `createdAt`.
  *
- * The JSONL backend lays sessions out as `<root>/<cwd-bucket>/<encoded-id>.jsonl`
- * (one bucket per cwd), so a parent and its same-cwd in-process child land in
- * the SAME bucket — collecting all files across all buckets catches both (a
- * first-match short-circuit would silently drop the child). Returns `[]` if no
- * log was produced (a no-session scenario).
+ * Snapshot configs select the JSONL backend's raw mode, which lays sessions
+ * out as `<root>/<cwd-bucket>/<encoded-id>.jsonl` (one bucket per cwd). A
+ * parent and its same-cwd in-process child land in the SAME bucket, so
+ * collecting all files across all buckets catches both. Returns `[]` if no log
+ * was produced (a no-session scenario).
  */
 async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {
   let cwdDirs: string[]
@@ -442,8 +597,14 @@ async function harvestSessionLogs(root: string): Promise<HarvestedLog[]> {
       })
     }
   }
-  // Match replay fixture assignment: primary first, then children by creation time, with id as
-  // a deterministic collision tiebreaker.
+  // Primary (no parentSession) first, then children by ascending createdAt. A
+  // scenario has exactly one top-level session. In the synchronous cut sibling
+  // children are created strictly sequentially, so their createdAt values are
+  // strictly ordered; the recordedId tiebreak only keeps a degenerate
+  // same-millisecond collision (unreachable here) deterministic. This harvest
+  // order must match the replay load order in dsh-llm-replay's loadSessionScripts
+  // so session.<n>.jsonl maps to the same child on record and replay — replay
+  // re-sorts childFiles by the same key, so the two stay consistent.
   logs.sort((a, b) => {
     const ap = a.parentSession === undefined ? 0 : 1
     const bp = b.parentSession === undefined ? 0 : 1

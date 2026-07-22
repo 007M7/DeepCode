@@ -1,14 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, ContentBlock, MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, ContentBlock, MessageSource, ProviderRequestId, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { AgentId, type ContinuationDecision } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { ReactLoopAgent } from '@deepseek-ai/dsh-agent-loop'
+import ToolRegistry, { defineTool, TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, type PostToolDecision } from '@deepseek-ai/dsh-tools'
+import AgentRegistry, { type Agent, type ContinuationDecision } from '@deepseek-ai/dsh-agent'
+import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { prepareReactLoopAgent } from '../src/agent.ts'
-import * as Invariants from '@deepseek-ai/dsh-invariants'
-import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+import InvariantService from '@deepseek-ai/dsh-invariants'
+import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
+import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
+import { maxTokensResponse, MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
+
+async function mountInvariants(ctx: Context): Promise<void> {
+  await ctx.plugin(InvariantService)
+  await ctx.plugin(SessionInvariant)
+  await ctx.plugin(AgentInvariant)
+  await ctx.plugin(AgentLoopInvariant)
+}
+
+function driverDone(agent: Agent): Promise<void> {
+  return (agent as Agent & { done: Promise<void> }).done
+}
 
 /** Regression tests for agent-loop boundary, identity, and lifecycle contracts. */
 
@@ -24,7 +38,7 @@ async function harness(adapter: MockAdapter) {
   return ctx
 }
 
-function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
     const dispose = ctx.on('agent/status', (subject, status) => {
       if (subject === agent && status === 'idle') {
@@ -35,13 +49,15 @@ function waitForIdle(ctx: Context, agent: ReactLoopAgent): Promise<void> {
   })
 }
 
-function send(agent: ReactLoopAgent, text: string) {
+function send(agent: Agent, text: string) {
   agent.send([{ type: 'text', text }])
 }
 
 describe('session log records what agent/step-result actually produced', () => {
   it('a step-result rewrite is what the log, derived history, and tool dispatch all see', async () => {
-    const adapter = new MockAdapter([textResponse('original'), textResponse('done')])
+    const original = textResponse('original')
+    original[original.length - 1] = { type: 'finish', reason: { kind: 'stop' }, replayState: { private: 'original-state' } }
+    const adapter = new MockAdapter([original, textResponse('done')])
     const ctx = await harness(adapter)
     const executed: string[] = []
     ctx.tools.register(defineTool({
@@ -53,11 +69,11 @@ describe('session log records what agent/step-result actually produced', () => {
         return [{ type: 'text', text: 'ran' }]
       },
     }))
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     // Plugin rewrites the message: replaces the text AND adds a tool call.
     let rewritten = false
-    ctx.on('agent/step-result', async (_agent, _turn, _step, _message, next) => {
+    ctx.on('agent/step-result', async (_agent, _turn, _step, _message, _signal, next) => {
       if (rewritten) return next()
       rewritten = true
       return {
@@ -78,6 +94,7 @@ describe('session log records what agent/step-result actually produced', () => {
     const recorded = agent.session.events.find(e => e.type === 'assistant/message')!
     expect(JSON.stringify(recorded.data)).toContain('rewritten')
     expect(JSON.stringify(recorded.data)).not.toContain('original')
+    expect(recorded.type === 'assistant/message' && recorded.data.provenance.replayState).toBeUndefined()
     // tool/call + tool/result correlate with the injected call id
     const callEvent = agent.session.events.find(e => e.type === 'tool/call')!
     if (callEvent.type !== 'tool/call') throw new Error('wrong event type')
@@ -87,10 +104,117 @@ describe('session log records what agent/step-result actually produced', () => {
     expect(JSON.stringify(derived)).toContain('rewritten')
     expect(JSON.stringify(derived)).not.toContain('original')
   })
+
+  it('records adapter replay state when step-result preserves the assembled content', async () => {
+    const response = textResponse('unchanged')
+    const replayState = { private: 'state' }
+    response[response.length - 1] = { type: 'finish', reason: { kind: 'stop' }, replayState }
+    const adapter = new MockAdapter([response])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('replay-state'), { provider: 'mock', model: 'next-model' })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const recorded = agent.session.events.find(e => e.type === 'assistant/message')
+    expect(recorded?.type === 'assistant/message' && recorded.data.provenance).toEqual({
+      provider: 'mock', model: 'next-model', replayState,
+    })
+    expect(agent.session.deriveMessages().at(-1)?.provenance).toEqual({
+      provider: 'mock', model: 'next-model', replayState,
+    })
+  })
+
+  it('drops adapter replay state when step-result mutates assembled content in place', async () => {
+    const response = textResponse('original')
+    response[response.length - 1] = { type: 'finish', reason: { kind: 'stop' }, replayState: { private: 'state' } }
+    const adapter = new MockAdapter([response])
+    const ctx = await harness(adapter)
+    ctx.on('agent/step-result', async (_agent, _turn, _step, message) => {
+      const block = message.content[0]
+      if (block?.type === 'text') block.text = 'mutated'
+      return message
+    })
+    const agent = ctx.agentLoop.create(SessionId('mutated-replay-state'), { provider: 'mock', model: 'next-model' })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const recorded = agent.session.events.find(event => event.type === 'assistant/message')
+    expect(recorded?.type === 'assistant/message' && recorded.data.content).toEqual([{ type: 'text', text: 'mutated' }])
+    expect(recorded?.type === 'assistant/message' && recorded.data.provenance.replayState).toBeUndefined()
+  })
+})
+
+describe('successful provider completion survives agent/step-result failure', () => {
+  async function expectContentlessCompletionAnchor(
+    response: StreamChunk[],
+    id: string,
+    providerText: string,
+  ): Promise<void> {
+    const adapter = new MockAdapter([response])
+    const ctx = await harness(adapter)
+    await mountInvariants(ctx)
+    const agent = ctx.agentLoop.create(SessionId(id), { provider: 'mock', model: 'mock' })
+    const failure = new Error(`${id} result processing failed`)
+    const reported: Error[] = []
+
+    ctx.on('agent/step-result', async () => {
+      throw failure
+    })
+    ctx.on('agent/error', (subject, _turn, _step, error) => {
+      if (subject === agent) reported.push(error)
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const events = [...agent.session.events]
+    const chunks = events.filter(event => event.type === 'assistant/chunk')
+    const completions = events.filter(event => event.type === 'assistant/message')
+    expect(completions).toHaveLength(1)
+    expect(completions[0]?.type === 'assistant/message' && completions[0].data).toEqual({
+      turn: 1,
+      step: 1,
+      content: [],
+      provenance: { provider: 'mock', model: 'mock' },
+      usage: { inputTokens: 10, outputTokens: providerText.length },
+    })
+    expect(completions[0]?.sourceEventSeqs).toEqual(chunks.map(event => event.seq))
+    expect(agent.session.deriveMessages()).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'go' }] },
+    ])
+    expect(reported).toHaveLength(1)
+    expect(reported[0]).toBe(failure)
+    const turnEnd = events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({
+      kind: 'error',
+      step: 1,
+      message: failure.message,
+    })
+  }
+
+  it('records one content-less anchor when ordinary stop result processing rejects', async () => {
+    const providerText = 'ordinary provider output'
+    await expectContentlessCompletionAnchor(
+      textResponse(providerText),
+      'a-step-result-stop-failure',
+      providerText,
+    )
+  })
+
+  it('records one content-less anchor when max-token result processing rejects', async () => {
+    const providerText = 'truncated provider output'
+    await expectContentlessCompletionAnchor(
+      maxTokensResponse(providerText),
+      'a-step-result-max-token-failure',
+      providerText,
+    )
+  })
 })
 
 describe('abort during tool execution ends the turn', () => {
-  it('aborting the in-flight step inside a tool prevents both remaining tools and the next model step', async () => {
+  it('balances a cancelled tool batch through context and post-step before closing', async () => {
     const adapter = new MockAdapter([
       // model asks for two tool calls in one step
       [
@@ -104,20 +228,27 @@ describe('abort during tool execution ends the turn', () => {
     ])
     const ctx = await harness(adapter)
     const executed: string[] = []
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     ctx.tools.register(defineTool({
       name: 'aborter',
       description: '',
       parameters: {},
-      async execute() {
+      async execute(_args, exec) {
         executed.push('aborter')
-        // Fire the in-flight step's AbortController directly (the loop registers
-        // it on the agent). This is the bare step-abort path — distinct from
-        // cancel(), which would also clear the inbox; here the subject is the
-        // loop's response to its running step being aborted mid-tool.
-        ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
+        exec.agent?.steer(
+          [{ type: 'text', text: 'steering before abort' }],
+          { source: { kind: 'plugin', plugin: 'abort-test' } },
+        )
+        agent.cancel({ kind: 'user' })
         return [{ type: 'text', text: 'done' }]
       },
+    }))
+    ctx.on('tools/post-execute', async exec => ({
+      kind: 'accept',
+      additionalContexts: [{
+        content: [{ type: 'text', text: `context for ${exec.callId}` }],
+        source: { kind: 'plugin', plugin: 'abort-test' },
+      }],
     }))
     ctx.tools.register(defineTool({
       name: 'second',
@@ -130,14 +261,255 @@ describe('abort during tool execution ends the turn', () => {
     }))
 
     const reasons: TurnEndReason[] = []
-    ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
+    const order: string[] = []
+    ctx.on('session/event', (session, event) => {
+      if (session !== agent.session) return
+      switch (event.type) {
+        case 'assistant/message': order.push('assistant/message'); break
+        case 'tool/call': order.push(`tool/call:${event.data.callId}`); break
+        case 'tool/result': {
+          const outcome = event.data.error?.code === TOOL_ABORTED
+            || event.data.error?.code === TOOL_ABORTED_BEFORE_DISPATCH
+            ? 'aborted'
+            : 'completed'
+          order.push(`tool/result:${event.data.callId}:${outcome}`)
+          break
+        }
+        case 'context/message': order.push('context/message'); break
+        case 'steering/message': order.push('steering/message'); break
+        case 'step/end': order.push('step/end'); break
+        case 'turn/end': {
+          reasons.push(event.data.reason)
+          order.push(`turn/end:${event.data.reason.kind}`)
+          break
+        }
+      }
+    })
+    let postSteps = 0
+    ctx.on('agent/post-step', (subject, turn, step, signal) => {
+      if (subject !== agent) return
+      postSteps += 1
+      expect({ turn, step, aborted: signal.aborted }).toEqual({ turn: 1, step: 1, aborted: true })
+      order.push('agent/post-step')
+    })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(executed).toEqual(['aborter'])           // second tool never ran
-    expect(adapter.requests).toHaveLength(1)        // no follow-up model call
-    expect(reasons).toEqual([{ kind: 'aborted', reason: 'user interrupt' }])
+    expect(executed).toEqual(['aborter'])
+    expect(adapter.requests).toHaveLength(1)
+    expect(postSteps).toBe(1)
+    expect(order).toEqual([
+      'assistant/message',
+      'tool/call:c1',
+      'tool/result:c1:aborted',
+      'tool/call:c2',
+      'tool/result:c2:aborted',
+      'context/message',
+      'agent/post-step',
+      'step/end',
+      'turn/end:aborted',
+    ])
+    expect(reasons).toEqual([{ kind: 'aborted' }])
+    const calls = agent.session.events.filter(event => event.type === 'tool/call')
+    const results = agent.session.events.filter(event => event.type === 'tool/result')
+    expect(calls.map(event => event.data.callId)).toEqual([CallId('c1'), CallId('c2')])
+    expect(results).toHaveLength(2)
+    expect(results[0]!.data).toMatchObject({
+      callId: CallId('c1'),
+      content: [{ type: 'text', text: 'Error: tool call aborted' }],
+      isError: true,
+      error: { name: 'AbortError', code: TOOL_ABORTED },
+    })
+    expect(results[1]!.data).toMatchObject({
+      callId: CallId('c2'),
+      isError: true,
+      error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    })
+  })
+
+  it('records context accepted before a tool-step abort in the same turn', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'aborter', {})])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a-abort-injection'), { provider: 'mock', model: 'mock' })
+    ctx.tools.register(defineTool({
+      name: 'aborter',
+      description: '',
+      parameters: {},
+      async execute() {
+        agent.inject([{ type: 'text', text: 'accepted before abort' }], { source: { kind: 'plugin', plugin: 'test' } })
+        agent.cancel({ kind: 'user' })
+        return [{ type: 'text', text: 'done' }]
+      },
+    }))
+    ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
+      kind: 'accept',
+      additionalContexts: [{
+        content: [{ type: 'text', text: 'accepted result context after abort' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }],
+    }))
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const events = [...agent.session.events]
+    expect(events
+      .filter(event => event.type === 'tool/result' || event.type === 'context/message'
+        || event.type === 'step/end' || event.type === 'turn/end')
+      .map(event => event.type))
+      .toEqual(['tool/result', 'context/message', 'context/message', 'step/end', 'turn/end'])
+    expect(events
+      .filter(event => event.type === 'context/message')
+      .map(event => event.data.content))
+      .toEqual([
+        [{ type: 'text', text: 'accepted before abort' }],
+        [{ type: 'text', text: 'accepted result context after abort' }],
+      ])
+  })
+
+  it('records post-tool context when a later call aborts the batch', async () => {
+    const adapter = new MockAdapter([[
+      { type: 'block-start', index: 0, blockType: 'tool-call' },
+      { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('c1'), name: 'first', arguments: '{}' } },
+      { type: 'block-start', index: 1, blockType: 'tool-call' },
+      { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('c2'), name: 'aborter', arguments: '{}' } },
+      { type: 'finish', reason: { kind: 'tool-calls' } },
+    ] satisfies StreamChunk[]])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a-later-abort-context'), { provider: 'mock', model: 'mock' })
+    ctx.tools.register(defineTool({
+      name: 'first',
+      description: '',
+      parameters: {},
+      async execute() {
+        return [{ type: 'text', text: 'first done' }]
+      },
+    }))
+    ctx.tools.register(defineTool({
+      name: 'aborter',
+      description: '',
+      parameters: {},
+      async execute() {
+        agent.cancel({ kind: 'user' })
+        return [{ type: 'text', text: 'aborted' }]
+      },
+    }))
+    ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
+      if (exec.callId !== CallId('c1')) return next()
+      return {
+        kind: 'accept',
+        additionalContexts: [{
+          content: [{ type: 'text', text: 'accepted after first result' }],
+          source: { kind: 'plugin', plugin: 'test' },
+        }],
+      }
+    })
+
+    send(agent, 'go')
+    await waitForIdle(ctx, agent)
+
+    const events = [...agent.session.events]
+    expect(events
+      .filter(event => event.type === 'tool/result' || event.type === 'context/message'
+        || event.type === 'step/end' || event.type === 'turn/end')
+      .map(event => event.type))
+      .toEqual(['tool/result', 'tool/result', 'context/message', 'step/end', 'turn/end'])
+    expect(events.find(event => event.type === 'context/message')?.data.content)
+      .toEqual([{ type: 'text', text: 'accepted after first result' }])
+  })
+
+  it('drains deferred context before disposal reaches quiescence', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'waiter', {})])
+    const ctx = await harness(adapter)
+    const started = Promise.withResolvers<undefined>()
+    let agent!: Agent
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      agent = inner.agentLoop.create(SessionId('a-dispose-injection'), { provider: 'mock', model: 'mock' })
+    }, { inject: ['agentLoop'] }))
+    ctx.tools.register(defineTool({
+      name: 'waiter',
+      description: '',
+      parameters: {},
+      async execute(_args, exec) {
+        agent.inject([{ type: 'text', text: 'accepted before disposal' }], { source: { kind: 'plugin', plugin: 'test' } })
+        started.resolve(undefined)
+        const signal = exec.signal
+        if (!signal) throw new Error('tool execution signal is missing')
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) resolve()
+          else signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+        return [{ type: 'text', text: 'done' }]
+      },
+    }))
+    ctx.on('tools/post-execute', async (): Promise<PostToolDecision> => ({
+      kind: 'accept',
+      additionalContexts: [{
+        content: [{ type: 'text', text: 'accepted result context during disposal' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }],
+    }))
+
+    send(agent, 'go')
+    await started.promise
+    await fiber.dispose()
+
+    expect(agent.session.events
+      .filter(event => event.type === 'context/message')
+      .map(event => event.data.content))
+      .toEqual([
+        [{ type: 'text', text: 'accepted before disposal' }],
+        [{ type: 'text', text: 'accepted result context during disposal' }],
+      ])
+    expect(agent.session.events.find(event => event.type === 'turn/end')?.data.reason)
+      .toEqual({ kind: 'disposed' })
+  })
+
+  it('limits injection deferral to the current tool batch', async () => {
+    const adapter = new MockAdapter([
+      [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('c1'), name: 'aborter', arguments: '{}' } },
+        { type: 'block-start', index: 1, blockType: 'tool-call' },
+        { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('c2'), name: 'second', arguments: '{}' } },
+        { type: 'finish', reason: { kind: 'tool-calls' } },
+      ] satisfies StreamChunk[],
+      textResponse('later turn'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a-historical-tool-pair'), { provider: 'mock', model: 'mock' })
+    ctx.tools.register(defineTool({
+      name: 'aborter',
+      description: '',
+      parameters: {},
+      async execute() {
+        agent.cancel({ kind: 'user' })
+        return [{ type: 'text', text: 'done' }]
+      },
+    }))
+    ctx.tools.register(defineTool({
+      name: 'second',
+      description: '',
+      parameters: {},
+      async execute() {
+        return [{ type: 'text', text: 'must not run' }]
+      },
+    }))
+
+    send(agent, 'leave an unmatched historical call')
+    await waitForIdle(ctx, agent)
+    ctx.on('agent/pre-step', (subject, turn) => {
+      if (subject === agent && turn === 2) {
+        agent.inject([{ type: 'text', text: 'new turn context' }], { source: { kind: 'plugin', plugin: 'test' } })
+      }
+    })
+    send(agent, 'start a text-only turn')
+    await waitForIdle(ctx, agent)
+
+    expect(agent.session.events.find(event => event.type === 'context/message')?.data.content)
+      .toEqual([{ type: 'text', text: 'new turn context' }])
+    expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('new turn context')
   })
 })
 
@@ -148,10 +520,10 @@ describe('steering from late extension points is never stranded', () => {
       textResponse('continued because of steering'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let steeredOnce = false
-    ctx.on('agent/turn-continuation', async (_agent, _turn, _decision, next) => {
+    ctx.on('agent/turn-continuation', async (_agent, _turn, _decision, _signal, next) => {
       if (!steeredOnce) {
         steeredOnce = true
         agent.steer([{ type: 'text', text: 'one more thing' }])
@@ -167,14 +539,14 @@ describe('steering from late extension points is never stranded', () => {
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('one more thing')
   })
 
-  it('steer() from a step/end session-event listener forces a SAME-TURN next step (/goal pattern)', async () => {
+  it('steer() from a step/end session-event listener forces a SAME-TURN next step', async () => {
     // Assert the same-turn shape; content alone cannot distinguish re-enqueue.
     const adapter = new MockAdapter([
       textResponse('no tools, would stop'),
       textResponse('after goal reminder'),
     ])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let steeredOnce = false
     ctx.on('session/event', (subject, event) => {
@@ -202,7 +574,7 @@ describe('steering from late extension points is never stranded', () => {
   it('steer() from a turn/end session-event listener becomes a queued message for the next turn', async () => {
     const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const turns: number[] = []
     let steeredOnce = false
@@ -225,33 +597,13 @@ describe('steering from late extension points is never stranded', () => {
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('too late for this turn')
   })
 
-  it('steering queued during an aborted step is re-delivered, not silently consumed', async () => {
-    const adapter = new MockAdapter(['hang', textResponse('recovered')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
-
-    send(agent, 'go')
-    await new Promise(r => setTimeout(r, 30))
-    agent.steer([{ type: 'text', text: 'redirect' }])
-    // Abort ONLY the in-flight step, via its AbortController directly — NOT
-    // cancel(), which clears the inbox and would drop the queued steering this
-    // test proves survives a step abort. There is no public step-only abort
-    // verb (cancel() is the only public stop primitive), so reach the private
-    // controller the loop registered.
-    ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('user interrupt')
-    await waitForIdle(ctx, agent)
-
-    // a new turn ran with the steering content delivered as a message
-    expect(adapter.requests).toHaveLength(2)
-    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('redirect')
-  })
 })
 
 describe('plugin exceptions are contained', () => {
   it('a throwing agent/turn-continuation listener ends the turn with an error, loop survives', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threwOnce = false
     ctx.on('agent/turn-continuation', async (): Promise<ContinuationDecision> => {
@@ -276,15 +628,20 @@ describe('plugin exceptions are contained', () => {
     expect(agent.status).toBe('idle')
   })
 
-  it('a rejecting session/flush listener is reported but does not kill the agent', async () => {
+  it('a rejecting first-turn flush settles before the queued tail starts', async () => {
     const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    let rejectedOnce = false
-    ctx.on('session/flush', async () => {
-      if (!rejectedOnce) {
-        rejectedOnce = true
+    const firstFlush = Promise.withResolvers<undefined>()
+    const releaseFirstFlush = Promise.withResolvers<undefined>()
+    let flushes = 0
+    ctx.on('session/flush', async (session) => {
+      if (session !== agent.session) return
+      flushes += 1
+      if (flushes === 1) {
+        firstFlush.resolve(undefined)
+        await releaseFirstFlush.promise
         throw new Error('disk full')
       }
     })
@@ -292,24 +649,31 @@ describe('plugin exceptions are contained', () => {
     const errors: Error[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
 
+    const idle = waitForIdle(ctx, agent)
     send(agent, 'first')
-    await waitForIdle(ctx, agent)
-    expect(errors.map(e => e.message)).toEqual(['disk full'])
-
     send(agent, 'second')
-    await waitForIdle(ctx, agent)
+
+    await firstFlush.promise
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+
+    releaseFirstFlush.resolve(undefined)
+    await idle
+
+    expect(errors.map(e => e.message)).toEqual(['disk full'])
     expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
   })
 })
 
 describe('disposed status is part of the agent/status contract', () => {
-  it('disposing the fiber emits agent/status(disposed) and ends the turn with reason disposed', async () => {
+  it('disposing the fiber ends the active turn and never starts its queued tail', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('scoped'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
     const statuses: string[] = []
@@ -319,20 +683,28 @@ describe('disposed status is part of the agent/status contract', () => {
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
+    send(agent, 'queued tail')
     await fiber.dispose()
-    await agent.done
+    await driverDone(agent)
 
     expect(statuses).toEqual(['running', 'disposed'])
     expect(reasons).toEqual([{ kind: 'disposed' }])
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    const messages = agent.session.events
+      .filter(event => event.type === 'user/message')
+      .flatMap(event => event.data.content)
+      .flatMap(block => block.type === 'text' ? [block.text] : [])
+    expect(messages).toEqual(['go'])
+    expect(adapter.requests).toHaveLength(1)
   })
 
   it('a throwing agent/status listener cannot break disposal or leak the registry entry', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('scoped'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('scoped'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
     ctx.on('agent/status', (_agent, status) => {
@@ -342,10 +714,10 @@ describe('disposed status is part of the agent/status contract', () => {
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     await fiber.dispose()
-    await agent.done // must not hang
+    await driverDone(agent) // must not hang
 
     expect(agent.status).toBe('disposed')
-    expect(ctx.agents.get(AgentId('scoped'))).toBeUndefined() // unregistered despite the throw
+    expect(ctx.agents.get(SessionId('scoped'))).toBeUndefined() // unregistered despite the throw
   })
 })
 
@@ -358,13 +730,13 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     expect(() => ctx.llm.registerAdapter(['m1'], new MockAdapter([])))
       .toThrow('already registered')
     // the original registration survives the failed attempt
-    expect(ctx.llm.models()).toEqual(['m1'])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'm1', name: 'm1' }])
   })
 
   it('an agent without a model fails the step with a clear error (not NO_ADAPTER for "default")', async () => {
     const adapter = new MockAdapter([textResponse('never')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), {}) // no model
+    const agent = ctx.agentLoop.create(SessionId('a1'), {}) // no model
 
     const errors: Error[] = []
     ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
@@ -372,17 +744,17 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     expect(errors).toHaveLength(1)
-    expect(errors[0]!.message).toContain('has no model')
+    expect(errors[0]!.message).toContain('has no provider/model')
     expect(errors[0]!.message).toContain('agent/request')
   })
 
   it('the agent/request waterfall can supply the model for a model-less agent', async () => {
     const adapter = new MockAdapter([textResponse('routed')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), {}) // no model — router plugin decides
+    const agent = ctx.agentLoop.create(SessionId('a1'), {}) // no model — router plugin decides
 
-    ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => {
-      return { ...config, model: 'mock' }
+    ctx.on('agent/request', async (_agent, _turn, _step, config, _signal) => {
+      return { ...config, provider: 'mock', model: 'mock' }
     })
 
     send(agent, 'go')
@@ -394,7 +766,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
   it('agent/queued carries the resolved source; steering/message records its source', async () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'noop', {}), textResponse('done')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     ctx.tools.register(defineTool({
       name: 'noop',
       description: '',
@@ -422,7 +794,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
   it('send() owns content and source before notification and delivery', async () => {
     const adapter = new MockAdapter([textResponse('done')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('owned-send'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('owned-send'), { provider: 'mock', model: 'mock' })
     const content = [{ type: 'text' as const, text: 'accepted-send' }]
     const source = { kind: 'plugin' as const, plugin: 'accepted-source' }
     let notifiedContent: ContentBlock[] | undefined
@@ -458,7 +830,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
   it('running steer() owns content and source before notification and delivery', async () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'gate', {}), textResponse('done')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('owned-steer'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('owned-steer'), { provider: 'mock', model: 'mock' })
     const entered = Promise.withResolvers<undefined>()
     const release = Promise.withResolvers<undefined>()
     ctx.tools.register(defineTool({
@@ -512,7 +884,7 @@ describe('turn numbering continues across seeded sessions', () => {
   it('a forked agent continues turn numbers after the seed log', async () => {
     const first = new MockAdapter([textResponse('turn one')])
     const ctx = await harness(first)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     send(agent, 'first')
     await waitForIdle(ctx, agent)
 
@@ -528,7 +900,9 @@ describe('turn numbering continues across seeded sessions', () => {
     ctx2.llm.registerAdapter(['mock'], second)
 
     const seeded = ctx2.sessions.create(SessionId('forked'), { seed: [...agent.session.events] })
-    const prepared = prepareReactLoopAgent(ctx2, AgentId('forked-agent'), { model: 'mock' }, seeded)
+    const prepared = prepareReactLoopAgent(
+      ctx2, SessionId('forked-agent'), { provider: 'mock', model: 'mock' }, seeded, DEFAULT_MAX_PARALLEL_TOOL_CALLS,
+    )
     const forked = prepared.agent
     prepared.markPublished()
     ctx2.effect(() => prepared.startDriver())
@@ -567,12 +941,19 @@ describe('discriminated SessionEvent narrows without casts', () => {
 describe('a finish-error stream chunk ends the turn as error, not completed', () => {
   it('translates finish {kind:error} into a turn error with a logged error event', async () => {
     // A finish-error chunk must not produce a completed assistant turn.
+    const failure = {
+      message: 'provider 401',
+      code: 'AUTH',
+      status: 401,
+      providerRetryAfterMs: 2_000,
+      requestId: ProviderRequestId('finish-request-1'),
+    }
     const errorStream: StreamChunk[] = [
-      { type: 'finish', reason: { kind: 'error', message: 'provider 401', code: 'AUTH' } },
+      { type: 'finish', reason: { kind: 'error', failure } },
     ]
     const adapter = new MockAdapter([errorStream])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-finish-error'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-finish-error'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -580,24 +961,24 @@ describe('a finish-error stream chunk ends the turn as error, not completed', ()
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(reasons).toEqual([{ kind: 'error', step: 1, message: 'provider 401', code: 'AUTH' }])
+    expect(reasons).toEqual([{ kind: 'error', step: 1, failure }])
 
     const events = [...agent.session.events]
     // The durable failure lives on turn/end.reason (with the failing step), not
     // a standalone error event.
     const turnEnd = events.find(event => event.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'error', step: 1, message: 'provider 401', code: 'AUTH' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'error', step: 1, failure })
     // A failed step must not synthesize an assistant message.
     expect(events.some(event => event.type === 'assistant/message')).toBe(false)
   })
 
   it('translates finish {kind:aborted} into a turn error coded ABORTED', async () => {
     const abortedStream: StreamChunk[] = [
-      { type: 'finish', reason: { kind: 'aborted' } },
+      { type: 'finish', reason: { kind: 'aborted', failure: { message: 'model stream aborted', code: 'ABORTED' } } },
     ]
     const adapter = new MockAdapter([abortedStream])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-finish-aborted'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-finish-aborted'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -605,17 +986,17 @@ describe('a finish-error stream chunk ends the turn as error, not completed', ()
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(reasons).toEqual([{ kind: 'error', step: 1, message: 'model stream aborted', code: 'ABORTED' }])
+    expect(reasons).toEqual([{ kind: 'error', step: 1, failure: { message: 'model stream aborted', code: 'ABORTED' } }])
     expect([...agent.session.events].some(event => event.type === 'assistant/message')).toBe(false)
   })
 
   it('handles a finish error without a code (code key omitted)', async () => {
     const errorStream: StreamChunk[] = [
-      { type: 'finish', reason: { kind: 'error', message: 'codeless failure' } },
+      { type: 'finish', reason: { kind: 'error', failure: { message: 'codeless failure', code: 'UNKNOWN' } } },
     ]
     const adapter = new MockAdapter([errorStream])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-finish-error-nocode'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-finish-error-nocode'), { provider: 'mock', model: 'mock' })
 
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -623,7 +1004,7 @@ describe('a finish-error stream chunk ends the turn as error, not completed', ()
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(reasons).toEqual([{ kind: 'error', step: 1, message: 'codeless failure' }])
+    expect(reasons).toEqual([{ kind: 'error', step: 1, failure: { message: 'codeless failure', code: 'UNKNOWN' } }])
   })
 })
 
@@ -631,7 +1012,7 @@ describe('step boundary publication order', () => {
   it('the step/start event is in session.events when its session/event listener fires', async () => {
     const adapter = new MockAdapter([textResponse('done')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-step-order'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-step-order'), { provider: 'mock', model: 'mock' })
 
     // Append commits before observers run.
     const observed: { turn: number; step: number; lastEventType: string | undefined; sawStepStart: boolean }[] = []
@@ -656,7 +1037,7 @@ describe('step boundary publication order', () => {
 })
 
 describe('turn and step boundary recovery', () => {
-  // The invariants plugin makes an unbalanced log fail the test.
+  // The session invariant companion makes an unbalanced log fail the test.
   async function balancedHarness(adapter: MockAdapter) {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -665,13 +1046,13 @@ describe('turn and step boundary recovery', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
     return ctx
   }
 
   /** Count turn/step boundary events for balance assertions. */
-  function boundaryCounts(agent: ReactLoopAgent) {
+  function boundaryCounts(agent: Agent) {
     const e = [...agent.session.events]
     return {
       turnStart: e.filter(x => x.type === 'turn/start').length,
@@ -686,7 +1067,7 @@ describe('turn and step boundary recovery', () => {
   it('a throwing step/start observer cannot change a successful turn', async () => {
     const adapter = new MockAdapter([textResponse('request completed')])
     const ctx = await balancedHarness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-stepstart'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-stepstart'), { provider: 'mock', model: 'mock' })
 
     // Session owns post-commit containment. The loop sees a successful append,
     // runs the request, and balances the ordinary step and turn boundaries.
@@ -715,7 +1096,7 @@ describe('turn and step boundary recovery', () => {
   it('a pre-commit step/start validation failure does not invent a step boundary', async () => {
     const adapter = new MockAdapter([textResponse('never reached')])
     const ctx = await balancedHarness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-stepstart-veto'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-stepstart-veto'), { provider: 'mock', model: 'mock' })
     let rejected = false
     ctx.on('internal/dispatch', (_mode, name, args) => {
       if (name !== 'session/event') return
@@ -743,10 +1124,10 @@ describe('turn and step boundary recovery', () => {
   })
 
   it('a one-shot turn/end validation failure preserves the earlier turn error on retry', async () => {
-    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider failed' } }]
+    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider failed', code: 'UNKNOWN' } } }]
     const adapter = new MockAdapter([errorStream])
     const ctx = await balancedHarness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-turnend-veto'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-turnend-veto'), { provider: 'mock', model: 'mock' })
     let rejected = false
     ctx.on('internal/dispatch', (_mode, name, args) => {
       if (name !== 'session/event') return
@@ -773,14 +1154,14 @@ describe('turn and step boundary recovery', () => {
     const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toMatchObject({
       kind: 'error',
-      message: 'provider failed',
+      failure: { message: 'provider failed', code: 'UNKNOWN' },
     })
   })
 
   it('a one-shot step/end validation failure keeps the step open until retry succeeds', async () => {
     const adapter = new MockAdapter([textResponse('completed before close validation')])
     const ctx = await balancedHarness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-stepend-veto'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-stepend-veto'), { provider: 'mock', model: 'mock' })
     let rejected = false
     ctx.on('internal/dispatch', (_mode, name, args) => {
       if (name !== 'session/event') return
@@ -809,10 +1190,10 @@ describe('turn and step boundary recovery', () => {
 
   it('a throwing agent/error listener during a step-error path still balances the turn, loop survives', async () => {
     // Listener failure cannot interrupt error finalization or the next turn.
-    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider 500' } }]
+    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider 500', code: 'SERVER' } } }]
     const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
     const ctx = await balancedHarness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-errorlistener'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-errorlistener'), { provider: 'mock', model: 'mock' })
 
     let threw = false
     ctx.on('agent/error', () => { if (!threw) { threw = true; throw new Error('boom error-listener') } })
@@ -825,7 +1206,11 @@ describe('turn and step boundary recovery', () => {
     expect(c.turnStart).toBe(1)
     expect(c.turnEnd).toBe(1)
     expect(c.stepStart).toBe(c.stepEnd)
-    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toMatchObject({ kind: 'error', step: 1, message: 'provider 500' })
+    expect(c.lastTurnEnd?.type === 'turn/end' && c.lastTurnEnd.data.reason).toMatchObject({
+      kind: 'error',
+      step: 1,
+      failure: { message: 'provider 500', code: 'SERVER' },
+    })
 
     // loop survives: a second turn runs to completion (invariants oracle would
     // throw on its turn/start if turn 1 had been left open).
@@ -843,9 +1228,9 @@ describe('turn and step boundary recovery', () => {
     // balanced with reason disposed (no error event for a disposal).
     const adapter = new MockAdapter(['hang'])
     const ctx = await balancedHarness(adapter)
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('a-dispose'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('a-dispose'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
@@ -854,7 +1239,7 @@ describe('turn and step boundary recovery', () => {
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
     await fiber.dispose() // dispose during the hanging step
-    await agent.done
+    await driverDone(agent)
 
     const e = [...agent.session.events]
     const turnStarts = e.filter(x => x.type === 'turn/start').length
@@ -870,9 +1255,9 @@ describe('turn and step boundary recovery', () => {
     // Disposal remains authoritative when the listener also throws.
     const adapter = new MockAdapter([textResponse('never reached')])
     const ctx = await balancedHarness(adapter)
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('a-prestep-dispose-throw'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('a-prestep-dispose-throw'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
     let threw = false
@@ -886,7 +1271,7 @@ describe('turn and step boundary recovery', () => {
     ctx.on('agent/error', (_a, _t, _s, error) => void errorEmits.push(error))
 
     send(agent, 'go')
-    await agent.done
+    await driverDone(agent)
 
     const e = [...agent.session.events]
     // Balanced: one turn/start, one turn/end carrying disposed (NOT error).
@@ -903,7 +1288,7 @@ describe('turn and step boundary recovery', () => {
   it('a throwing turn/start observer cannot starve the loop or later turns', async () => {
     const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-preturn'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-preturn'), { provider: 'mock', model: 'mock' })
 
     let threw = false
     ctx.on('session/event', (_session, event) => {
@@ -934,7 +1319,7 @@ describe('turn and step boundary recovery', () => {
   it('a throwing step/end observer cannot rewrite the turn outcome', async () => {
     const adapter = new MockAdapter([textResponse('all good'), textResponse('turn 2 ok')])
     const ctx = await balancedHarness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-stepend-throw'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-stepend-throw'), { provider: 'mock', model: 'mock' })
 
     let threw = false
     ctx.on('session/event', (_s, event) => {
@@ -970,10 +1355,10 @@ describe('turn and step boundary recovery', () => {
 
   it('a throwing step/end observer cannot interrupt error finalization', async () => {
     // Observer failure after step/end commit cannot interrupt turn finalization.
-    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', message: 'provider 500' } }]
+    const errorStream: StreamChunk[] = [{ type: 'finish', reason: { kind: 'error', failure: { message: 'provider 500', code: 'SERVER' } } }]
     const adapter = new MockAdapter([errorStream, textResponse('turn 2 ok')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-stependthrow'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-stependthrow'), { provider: 'mock', model: 'mock' })
 
     let threw = false
     ctx.on('session/event', (_s, event) => {
@@ -1003,7 +1388,7 @@ describe('turn and step boundary recovery', () => {
     // boundary stays authoritative and the loop continues normally.
     const adapter = new MockAdapter([textResponse('turn 1'), textResponse('turn 2')])
     const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(AgentId('a-turnendappend'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-turnendappend'), { provider: 'mock', model: 'mock' })
 
     let threw = false
     ctx.on('session/event', (_s, event) => {
@@ -1049,7 +1434,7 @@ describe('tool result call identity', () => {
       return Promise.resolve({ kind: 'accept', content: [{ type: 'text', text: 'ok' }] })
     }, { prepend: true })
 
-    const agent = ctx.agentLoop.create(AgentId('a-callid'), { model: 'mock' })
+    const agent = ctx.agentLoop.create(SessionId('a-callid'), { provider: 'mock', model: 'mock' })
     send(agent, 'use tool')
     await waitForIdle(ctx, agent)
 
@@ -1073,15 +1458,16 @@ describe('tool result call identity', () => {
   })
 })
 
-describe('surface: assistant/message omits sourceEventSeqs when no chunks streamed', () => {
-  it('a step-result listener injecting content over an empty stream appends with surfaceOp but no sourceEventSeqs', async () => {
-    // Injected result content with no chunks must omit empty sourceEventSeqs.
+describe('surface: assistant/message records exact empty provenance when no chunks streamed', () => {
+  it('a step-result listener injecting content over an empty stream records sourceEventSeqs []', async () => {
+    // The explicit empty source set distinguishes a known empty provider
+    // stream from legacy events whose provenance was not recorded.
     const adapter = new MockAdapter([[]])
     const ctx = await harness(adapter)
-    await ctx.plugin(Invariants)
-    const agent = ctx.agentLoop.create(AgentId('a1'), { model: 'mock' })
+    await mountInvariants(ctx)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/step-result', async (_agent, _turn, _step, _message, _next) => ({
+    ctx.on('agent/step-result', async (_agent, _turn, _step, _message, _signal) => ({
       role: 'assistant' as const,
       content: [{ type: 'text' as const, text: 'injected' }],
     }))
@@ -1092,7 +1478,7 @@ describe('surface: assistant/message omits sourceEventSeqs when no chunks stream
     const recorded = agent.session.events.find(e => e.type === 'assistant/message')!
     expect(recorded.type).toBe('assistant/message')
     expect(recorded.surfaceOp).toBe('append')
-    expect(recorded.sourceEventSeqs).toBeUndefined()
+    expect(recorded.sourceEventSeqs).toEqual([])
     // The injected content reaches derived history.
     expect(JSON.stringify(agent.session.deriveMessages())).toContain('injected')
   })
@@ -1115,7 +1501,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     // Parent-owned listener survives agent-fiber disposal.
@@ -1124,9 +1510,9 @@ describe('disposal and cancellation during pre-step assembly', () => {
       return next()
     })
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('a-dispose-assemble'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('a-dispose-assemble'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
@@ -1141,7 +1527,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
 
     releaseAssemble()
     await disposalDone
-    await agent.done
+    await driverDone(agent)
     unlisten()
 
     // Turn boundaries are durable rows; there is no `agent/*` mirror to assert.
@@ -1166,7 +1552,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     const unlisten = ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
@@ -1174,9 +1560,9 @@ describe('disposal and cancellation during pre-step assembly', () => {
       return next()
     })
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('a-cancel-assemble'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('a-cancel-assemble'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
@@ -1184,27 +1570,24 @@ describe('disposal and cancellation during pre-step assembly', () => {
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 50))
-    agent.cancel('user cancelled during assembly')
+    agent.cancel({ kind: 'user' })
 
     releaseAssemble()
     await waitForIdle(ctx, agent)
     await fiber.dispose()
-    await agent.done
+    await driverDone(agent)
     unlisten()
 
     const e = [...agent.session.events]
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
     expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({
-      kind: 'aborted',
-      reason: 'user cancelled during assembly',
-    })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
     expect(e.some(x => x.type === 'assistant/message')).toBe(false)
     expect(adapter.requests).toHaveLength(0)
-    expect(reasons).toEqual([{ kind: 'aborted', reason: 'user cancelled during assembly' }])
+    expect(reasons).toEqual([{ kind: 'aborted' }])
   })
 
   it('disposal during agent/pre-step seam ends the turn disposed', { timeout: 15000 }, async () => {
@@ -1221,16 +1604,16 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     ctx.on('agent/pre-step', async () => {
       await blocker
     })
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('a-dispose-prestep'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('a-dispose-prestep'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
@@ -1243,7 +1626,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     const disposalDone = fiber.dispose()
     releasePreStep()
     await disposalDone
-    await agent.done
+    await driverDone(agent)
 
     // After the pre-step seam finishes, the post-seam cancel/dispose check
     // catches disposal. The step was never opened, no LLM call was made.
@@ -1272,16 +1655,16 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     ctx.on('agent/pre-step', async () => {
       await blocker
     })
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('a-cancel-prestep'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('a-cancel-prestep'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
     const reasons: TurnEndReason[] = []
@@ -1289,21 +1672,21 @@ describe('disposal and cancellation during pre-step assembly', () => {
 
     send(agent, 'go')
     await new Promise(r => setTimeout(r, 30))
-    agent.cancel('user cancelled')
+    agent.cancel({ kind: 'user' })
 
     releasePreStep()
     await waitForIdle(ctx, agent)
     await fiber.dispose()
-    await agent.done
+    await driverDone(agent)
 
     const e = [...agent.session.events]
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
     expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: 'user cancelled' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
-    expect(reasons).toEqual([{ kind: 'aborted', reason: 'user cancelled' }])
+    expect(reasons).toEqual([{ kind: 'aborted' }])
   })
 
   it('disposal during assembly does not leak an LLM call or append assistant/chunk', { timeout: 15000 }, async () => {
@@ -1321,7 +1704,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(Invariants)
+    await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
     ctx.on('system-prompt/assemble', async function (_assembly, _context, next) {
@@ -1329,9 +1712,9 @@ describe('disposal and cancellation during pre-step assembly', () => {
       return next()
     })
 
-    let agent!: ReactLoopAgent
+    let agent!: Agent
     const fiber = await ctx.plugin(Object.assign((inner: Context) => {
-      agent = inner.agentLoop.create(AgentId('a-dispose-no-leak'), { model: 'mock' })
+      agent = inner.agentLoop.create(SessionId('a-dispose-no-leak'), { provider: 'mock', model: 'mock' })
     }, { inject: ['agentLoop'] }))
 
     send(agent, 'go')
@@ -1340,7 +1723,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     const disposalDone = fiber.dispose()
     releaseAssemble()
     await disposalDone
-    await agent.done
+    await driverDone(agent)
 
     const e = [...agent.session.events]
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)

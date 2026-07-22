@@ -6,15 +6,16 @@ import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
-import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineTool } from '@deepseek-ai/dsh-tools'
 import type { Config, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap } from '@deepseek-ai/dsh-session'
 
+const testToolSignal = new AbortController().signal
+
 /**
- * Code Mode unit tier (per the RFC's plan): provider contribution per mode,
+ * Code Mode unit tier (per the Agent Note's plan): provider contribution per mode,
  * misconfiguration rejections, the run_code dispatch bridge (serialization,
  * abort, JSON normalization, error mapping, events, quiescence), and HMR
  * safety — all against an in-repo fake runtime, exactly the
@@ -59,7 +60,7 @@ async function setup(options: SetupOptions = {}) {
 
 /** Mint one production-shaped agent scope that can register scoped tool policy. */
 async function mintAgentScope(ctx: Context, name = 'scoped'): Promise<{ scope: Scope; agent: Agent }> {
-  const agent = { id: AgentId(name) } as Agent
+  const agent = { id: SessionId(name) } as Agent
   let scope!: Scope
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
     { inject: ['tools', 'systemPrompt'] }))
@@ -82,10 +83,11 @@ function registerEcho(ctx: Context, name = 'echo'): unknown[] {
 }
 
 /** A structural fake of the owning agent: captures session appends. */
-function fakeAgent(): { agent: Agent; events: { type: string; data: unknown }[] } {
+function fakeAgent(options: { cwd?: string } = { cwd: '/workspace' }): { agent: Agent; events: { type: string; data: unknown }[] } {
   const events: { type: string; data: unknown }[] = []
   const agent = {
     session: {
+      header: options.cwd === undefined ? {} : { cwd: options.cwd },
       append: (type: string, data: unknown) => { events.push({ type, data }) },
     },
   } as unknown as Agent
@@ -95,6 +97,7 @@ function fakeAgent(): { agent: Agent; events: { type: string; data: unknown }[] 
 /** Dispatch run_code through the registry pipeline, as the loop would. */
 async function runCode(ctx: Context, code: string, extras: { agent?: Agent; signal?: AbortSignal } = {}): Promise<ToolExecutionResult> {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId('call-1'),
     name: RUN_CODE_NAME,
     arguments: { code },
@@ -357,8 +360,7 @@ describe('the run_code dispatch bridge', () => {
       const previous = exec.signal
       exec.signal = new AbortController().signal
       const result = await next()
-      if (previous === undefined) delete exec.signal
-      else exec.signal = previous
+      exec.signal = previous
       return result
     })
     ctx.on('tools/result', (exec) => {
@@ -477,27 +479,68 @@ describe('the run_code dispatch bridge', () => {
     expect(dispatch.arguments).toEqual({ value: 'x', when: '1970-01-01T00:00:00.000Z' })
   })
 
-  it('suppresses sub-call additionalContext (deliberately; pinned)', async () => {
+  it('defers sub-call additionalContexts onto the outer run_code result', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     registerEcho(ctx)
     ctx.on('tools/post-execute', (exec, _result, next): Promise<PostToolDecision> => {
       if (exec.name === 'echo') {
         return Promise.resolve({
           kind: 'accept' as const,
-          additionalContext: { content: [{ type: 'text' as const, text: 'context for the next request' }], source: { kind: 'plugin' as const, plugin: 'test' } },
+          additionalContexts: [{
+            content: [{ type: 'text' as const, text: `context for ${exec.callId}` }],
+            source: { kind: 'plugin' as const, plugin: 'test' },
+            meta: { callId: exec.callId },
+          }],
         })
       }
       return next()
     })
     runtime.behavior = async (request) => {
       await request.bindings[0]!.functions.echo!({ value: 'x' })
+      await request.bindings[0]!.functions.echo!({ value: 'y' })
       return { logs: [], value: 'done' }
     }
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(false)
-    // The sub-call's context has no safe outlet mid-run; the parent result
-    // must not carry it either.
-    expect(result.additionalContext).toBeUndefined()
+    expect(result.additionalContexts).toEqual([
+      {
+        content: [{ type: 'text', text: 'context for call-1:code:1' }],
+        source: { kind: 'plugin', plugin: 'test' },
+        meta: { callId: 'call-1:code:1' },
+      },
+      {
+        content: [{ type: 'text', text: 'context for call-1:code:2' }],
+        source: { kind: 'plugin', plugin: 'test' },
+        meta: { callId: 'call-1:code:2' },
+      },
+    ])
+  })
+
+  it('keeps sub-call contexts when run_code fails after the nested dispatch', async () => {
+    const { ctx, runtime } = await setup({ mode: 'both' })
+    registerEcho(ctx)
+    ctx.on('tools/post-execute', (exec, _result, next): Promise<PostToolDecision> => {
+      if (exec.name !== 'echo') return next()
+      return Promise.resolve({
+        kind: 'accept',
+        additionalContexts: [{
+          content: [{ type: 'text', text: 'nested context' }],
+          source: { kind: 'plugin', plugin: 'test' },
+        }],
+      })
+    })
+    runtime.behavior = async (request) => {
+      await request.bindings[0]!.functions.echo!({ value: 'x' })
+      return { logs: [], error: { kind: 'exception', message: 'program failed later' } }
+    }
+
+    const result = await runCode(ctx, 'program')
+
+    expect(result.isError).toBe(true)
+    expect(result.additionalContexts).toEqual([{
+      content: [{ type: 'text', text: 'nested context' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }])
   })
 
   it('converts a failed run into a structured isError result carrying kind, message, and captured logs', async () => {
@@ -533,7 +576,7 @@ describe('the run_code dispatch bridge', () => {
         seen.push(args.id)
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, 500)
-          exec.signal?.addEventListener('abort', () => { sawAbort = true; clearTimeout(timer); resolve() }, { once: true })
+          exec.signal.addEventListener('abort', () => { sawAbort = true; clearTimeout(timer); resolve() }, { once: true })
         })
         return [{ type: 'text' as const, text: args.id }]
       },
@@ -569,7 +612,7 @@ describe('the run_code dispatch bridge', () => {
         started()
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, 500)
-          exec.signal?.addEventListener('abort', () => { sawAbort = true; clearTimeout(timer); resolve() }, { once: true })
+          exec.signal.addEventListener('abort', () => { sawAbort = true; clearTimeout(timer); resolve() }, { once: true })
         })
         return [{ type: 'text' as const, text: args.id }]
       },
@@ -671,6 +714,52 @@ describe('the run_code dispatch bridge', () => {
     expect(dispatch.resultSummary.endsWith('…')).toBe(true)
   })
 
+  it('normalizes the session workspace root before bounding durable result summaries', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    ctx.tools.register(defineTool({
+      name: 'workspace_path',
+      description: 'Return a path beneath the session workspace.',
+      parameters: {},
+      execute(_args, exec) {
+        const cwd = exec.agent?.session.header.cwd ?? ''
+        return Promise.resolve([{ type: 'text' as const, text: `<path>${cwd}/nested/task.txt</path>\n${'x'.repeat(240)}` }])
+      },
+    }))
+    runtime.behavior = async request => ({
+      logs: [],
+      value: await request.bindings[0]!.functions.workspace_path!({}),
+    })
+
+    const short = fakeAgent({ cwd: '/tmp/workspace' })
+    const long = fakeAgent({ cwd: `/tmp/${'long-segment/'.repeat(30)}workspace` })
+    const shortResult = await runCode(ctx, 'program', { agent: short.agent })
+    const longResult = await runCode(ctx, 'program', { agent: long.agent })
+    const shortDispatch = short.events[0]!.data as SessionEventMap['tool/code-dispatch']
+    const longDispatch = long.events[0]!.data as SessionEventMap['tool/code-dispatch']
+
+    expect(shortResult.content).not.toEqual(longResult.content)
+    expect(shortDispatch.resultSummary).toBe(longDispatch.resultSummary)
+    expect(shortDispatch.resultSummary).toHaveLength(201)
+    expect(shortDispatch.resultSummary).toMatch(/^<path>\.\/nested\/task\.txt<\/path>\n.+…$/)
+  })
+
+  it('leaves result summaries unchanged when a session cwd is absent or is the filesystem root', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    registerEcho(ctx)
+    runtime.behavior = async request => ({
+      logs: [],
+      value: await request.bindings[0]!.functions.echo!({ value: '/workspace/value' }),
+    })
+
+    const absent = fakeAgent({})
+    const root = fakeAgent({ cwd: '/' })
+    await runCode(ctx, 'program', { agent: absent.agent })
+    await runCode(ctx, 'program', { agent: root.agent })
+
+    expect((absent.events[0]!.data as SessionEventMap['tool/code-dispatch']).resultSummary).toBe('echo:/workspace/value')
+    expect((root.events[0]!.data as SessionEventMap['tool/code-dispatch']).resultSummary).toBe('echo:/workspace/value')
+  })
+
   it('rejects undefined, JSON-throwing, and JSON-unrepresentable binding arguments BEFORE dispatch', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const calls = registerEcho(ctx)
@@ -751,7 +840,7 @@ describe('the run_code dispatch bridge', () => {
     expect((result.content[0] as { text: string }).text).toBe('{ n: 42 }')
   })
 
-  it('reports a pre-aborted outer signal as the run failure without dispatching anything', async () => {
+  it('short-circuits a pre-aborted outer signal before the code runtime', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const calls = registerEcho(ctx)
     runtime.behavior = (request) => {
@@ -763,11 +852,16 @@ describe('the run_code dispatch bridge', () => {
     controller.abort('too-late')
     const result = await runCode(ctx, 'program', { signal: controller.signal })
     expect(result.isError).toBe(true)
-    expect((result.content[0] as { text: string }).text).toContain('code run failed (abort)')
+    expect(result).toEqual({
+      content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
+      isError: true,
+      error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    })
+    expect(runtime.lastRequest).toBeUndefined()
     expect(calls).toEqual([])
   })
 
-  it('rejects a binding invoked after the run is over without dispatching it', async () => {
+  it('reports cancellation after rejecting a late binding without dispatching it', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const calls = registerEcho(ctx)
     const controller = new AbortController()
@@ -778,8 +872,9 @@ describe('the run_code dispatch bridge', () => {
       return { logs: [], value: message }
     }
     const result = await runCode(ctx, 'program', { signal: controller.signal })
-    expect(result.isError).toBe(false)
-    expect((result.content[0] as { text: string }).text).toContain('not dispatched')
+    expect(result.isError).toBe(true)
+    expect(result.error).toEqual({ name: 'AbortError', code: 'ABORTED' })
+    expect((result.content[0] as { text: string }).text).toBe('Error: tool call aborted')
     expect(calls).toEqual([])
   })
 

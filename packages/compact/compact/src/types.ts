@@ -3,7 +3,7 @@
  * Those declaration-merged events are log-only lock/provenance markers, not
  * surface events; a separate replacement `user/message` carries the summary.
  * Backend packages own configuration and retention policy; see
- * `docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md`.
+ * `.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md`.
  * @module @deepseek-ai/dsh-compact/types
  */
 
@@ -24,11 +24,13 @@ declare module '@deepseek-ai/dsh-session' {
       shadowedRange: { start: number; end: number }
       shadowedSeqs: number[]
       shadowedTokenCount: number
+      /** The provider route that wrote the summary. */
+      provider: string
       /**
        * The model that wrote the summary — the summarize call's envelope,
        * reported by the backend that made the call, logged so the one-shot
        * request is reconstructable from log + code and "which model wrote
-       * this summary" has a durable answer (the reconstructability RFC).
+       * this summary" has a durable answer (the reconstructability Agent Note).
        */
       model: string
       /** The generation cap the summarize call sent, when one applied. */

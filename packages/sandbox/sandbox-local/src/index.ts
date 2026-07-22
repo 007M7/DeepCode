@@ -7,14 +7,13 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { realpathSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { grantArgs as landlockGrantArgs, LAUNCHER_BIN, launcherPath as landlockLauncherPath, probe as defaultProbeLandlock } from 'node-addon-landlock-run'
+import { LAUNCHER_BIN, launcherPath as landlockLauncherPath, probe as defaultProbeLandlock } from 'node-addon-landlock-run'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, ConfinedSandboxMode, SandboxEnforcement, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from './profiles.ts'
 
 /** Plugin config. All optional — `static Config` supplies the defaults. */
 export interface Config {
@@ -36,77 +35,6 @@ export interface Config {
   runnerFailureSignatures?: string[]
   /** Positive timeout for each functional probe; zero would mean unbounded to Node. */
   probeTimeoutMs?: number
-}
-
-/**
- * Build a bwrap profile: the host is read-only with fresh `/dev` and `/proc`;
- * workspace-write overlays writable temp and workspace mounts. PID and network
- * isolation are intentionally outside the file-effect policy.
- *
- * @param policy - the file-effect policy to express as bwrap arguments.
- * @returns the bwrap profile arguments (before the trailing `--` + argv).
- */
-export function bwrapProfileArgs(policy: SandboxPolicy): string[] {
-  const args = ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent']
-  if (policy.mode === 'workspace-write') {
-    args.push('--tmpfs', '/tmp')
-    args.push('--bind', policy.workspaceRoot, policy.workspaceRoot)
-  }
-  return args
-}
-
-/**
- * Build Landlock grants for the same file policy without synthetic mounts.
- * Read-only grants only `/dev/null` for writes; workspace-write also grants the
- * host temp root and workspace.
- *
- * @param policy - the file-effect policy to express as launcher grants.
- * @returns the launcher grant arguments (before `--` + argv).
- */
-export function landlockProfileArgs(policy: SandboxPolicy): string[] {
-  const readWrite = ['/dev/null']
-  if (policy.mode === 'workspace-write') {
-    readWrite.push('/tmp', policy.workspaceRoot)
-  }
-  return landlockGrantArgs({ readOnly: ['/'], readWrite })
-}
-
-/**
- * Resolve a granted root to the path the kernel actually sees. Seatbelt path
- * filters match the CANONICAL path (symlinks resolved), and the roots this
- * profile grants are symlinked on every macOS: `/tmp` is `/private/tmp` and
- * the user temp dir lives under `/var` → `/private/var` — an as-spelled
- * grant would match nothing.
- */
-function canonicalPath(path: string): string {
-  try {
-    return realpathSync(path)
-  } catch {
-    // An unresolved grant matches nothing until the named path exists; keep its spelling.
-    return path
-  }
-}
-
-/** Quote one path as an SBPL string literal (backslashes and double quotes escaped). */
-function sbplString(path: string): string {
-  return `"${path.replaceAll('\\', String.raw`\\`).replaceAll('"', String.raw`\"`)}"`
-}
-
-/**
- * Build a Seatbelt profile that denies file writes then allows `/dev/null` and,
- * for workspace-write, the canonical workspace, host temp, and per-user macOS
- * temp roots. Network and process visibility remain unrestricted.
- *
- * @param policy - the file-effect policy to express as an SBPL profile.
- * @returns the `sandbox-exec` arguments (`-p` + profile, before `--` + argv).
- */
-export function seatbeltProfileArgs(policy: SandboxPolicy): string[] {
-  const forms = ['(version 1)', '(allow default)', '(deny file-write*)', `(allow file-write* (literal ${sbplString('/dev/null')}))`]
-  if (policy.mode === 'workspace-write') {
-    const roots = [...new Set([policy.workspaceRoot, '/tmp', tmpdir()].map(canonicalPath))]
-    forms.push(`(allow file-write* ${roots.map(root => `(subpath ${sbplString(root)})`).join(' ')})`)
-  }
-  return ['-p', forms.join(' ')]
 }
 
 /** Probe whether `bwrap` can create the profile; the provider caches the bounded result. */

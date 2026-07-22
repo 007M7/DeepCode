@@ -1,0 +1,57 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/agent-loop"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../session-persistence/session-persistence"
+    },
+    {
+      "path": "../../session-title/session-title"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../llm/token-meter"
+    },
+    {
+      "path": "../../llm/llm-retry"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../commands"
+    },
+    {
+      "path": "../../skill/skill"
+    },
+    {
+      "path": "../user-interaction"
+    },
+    {
+      "path": "../../support/invariants"
+    }
+  ]
+}

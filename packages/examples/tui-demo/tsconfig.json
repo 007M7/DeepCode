@@ -1,0 +1,60 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../../ui/app-boot"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../ui/commands"
+    },
+    {
+      "path": "../../goal/command-goal"
+    },
+    {
+      "path": "../agent-spine-demo"
+    },
+    {
+      "path": "../../context/workspace-context"
+    },
+    {
+      "path": "../../ui/user-interaction"
+    },
+    {
+      "path": "../../ui/tui"
+    },
+    {
+      "path": "../../ui/tool-ask-user"
+    },
+    {
+      "path": "../../session-persistence/session-checkpoint-policy"
+    },
+    {
+      "path": "../../session-persistence/session-persistence-jsonl"
+    },
+    {
+      "path": "../../support/invariants"
+    }
+  ]
+}

@@ -6,8 +6,11 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { TodoItem } from '@deepseek-ai/dsh-session'
-import { AgentId, type Agent } from '@deepseek-ai/dsh-agent'
+import { type Agent } from '@deepseek-ai/dsh-agent'
+
 import * as tool from '../src/index.ts'
+
+const testToolSignal = new AbortController().signal
 
 /**
  * Drives the REAL plugin body: mounts `dsh-tool-todo` on a real `ToolRegistry`
@@ -20,7 +23,7 @@ import * as tool from '../src/index.ts'
 /** A parent Agent backed by a real Session — the tool reads `agent.session`. */
 function agentWithSession(id = 'parent-1'): Agent & { session: Session } {
   const session = new Session(SessionId(id))
-  return { id: AgentId(id), session } as unknown as Agent & { session: Session }
+  return { id: SessionId(id), session } as unknown as Agent & { session: Session }
 }
 
 async function setup(): Promise<Context> {
@@ -35,6 +38,7 @@ let callCounter = 0
 function callTodo(ctx: Context, args: unknown, over: { agent?: Agent | undefined } = {}) {
   const agent = 'agent' in over ? over.agent : agentWithSession()
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId(`call-${++callCounter}`),
     name: 'todo_write',
     arguments: args,

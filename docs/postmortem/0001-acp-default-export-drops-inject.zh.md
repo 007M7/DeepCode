@@ -1,4 +1,4 @@
-# 事后分析 0001：ACP 服务器在连接时崩溃——`export default` 丢弃了插件的 `inject`
+# 事故复盘（postmortem） 0001：ACP 服务器在连接时崩溃——`export default` 丢弃了插件的 `inject`
 
 [English](0001-acp-default-export-drops-inject.md) | 中文
 
@@ -20,13 +20,13 @@ ACP 服务器无法创建或加载任何一个会话——而这正是编辑器�
 
 - bridge（RFC 010）落地时附带完整的单元测试套件（codec、内存传输、基于属性的协议形状测试、失败路径、HMR（热模块替换））、一个需要 key 的真实 API e2e 测试，以及一个无需 key 的 stdout 纯净性 e2e 测试。全部绿色，100% 覆盖率。
 - 真实 Zed 会话在 `session/new` 上立即失败，报错 `cannot get property "agents" without inject`。
-- 调查最初追踪了一个 Cordis「traceable/shadow」理论（看似合理，且该机制确实存在——见 Bug #2），随后在 vendor 的 `reflect.ts` 中对实际 fiber 遍历做了插桩，并运行了真实子进程。trace 显示 throw 发生在 `apply()` 第 179 行、**插件加载时**，位于 ROOT fiber 且没有 shadow——推翻了 shadow 理论对 `session/new` 的解释。
+- 调查最初追踪了一个 Cordis「traceable/shadow」理论（看似合理，且该机制确实存在——见 Bug #2），随后在 vendor 的 `reflect.ts` 中对实际 fiber 遍历做了插桩，并运行了真实子进程。trace 显示 throw 发生在 `apply()` 第 179 行、*插件加载时*，位于 ROOT fiber 且没有 shadow——推翻了 shadow 理论对 `session/new` 的解释。
 - 找到根因 #1：一行多余的 `export default apply`。删除后 `session/new` 修复。
 - 删除后暴露了 Bug #2：`session/load` 仍然在 `sessionPersistence` 上抛错——这是一个真正不同的机制（shadow 遍历），通过隔离修复并重新运行真实子进程得到确认。
 
 ## 根因 #1——`export default apply` 丢弃了插件的 `inject`（导致 `session/new` 崩溃）
 
-`packages/ui/acp/src/index.ts` 是一个*命名空间插件*：它将 `name`、`inject`、`Config` 和 `apply` 作为独立的命名导出——与仓库中其他所有插件（`invariants`、`llm-deepseek`、`tool-bash`、`stdio-chat` 等）形状相同。但它*还*多了一行其他插件都没有的代码：
+`packages/ui/acp/src/index.ts` 是一个*命名空间插件*：它将 `name`、`inject`、`Config` 和 `apply` 作为独立的命名导出——与仓库中其他所有插件（`invariants`、`llm-deepseek`、`tool-bash`、`tui` 等）形状相同。但它*还*多了一行其他插件都没有的代码：
 
 ```ts ignore-check
 export const name = 'acp'
@@ -57,7 +57,7 @@ unwrapExports(exports: any) {
 
 修复 #1 后，`session/new` 正常工作，但 `session/load` 仍然抛出 `cannot get property "sessionPersistence" without inject`。这个问题*确实*是 Cordis 的 traceable/shadow 机制，值得精确理解。
 
-`session/load` 调用 `agents.resume(...)`，后者委托给 `AgentLoop.resume()`，其中读取了 `this.ctx.sessionPersistence`。`AgentLoop` 的 `static inject` 故意**不**包含 `sessionPersistence`——注入它会导致非持久化的演示永远挂起，等待一个永远不会加载的后端。该服务由一个独立的兄弟插件/fiber 提供，以机会性方式读取。
+`session/load` 调用 `agents.resume(...)`，后者委托给 `AgentLoop.resume()`，其中读取了 `this.ctx.sessionPersistence`。`AgentLoop` 的 `static inject` 故意不包含 `sessionPersistence`——注入它会导致非持久化的演示永远挂起，等待一个永远不会加载的后端。该服务由一个独立的兄弟插件/fiber 提供，以机会性方式读取。
 
 Cordis 中的服务访问通过上下文代理（`vendor/cordis/src/reflect.ts`）进行。当通过从外部 fiber 获取的 *traceable 代理*调用服务方法时（此处：bridge fiber 调用 `ctx.agents.resume`，注册表返回 `this.factory`——即 `AgentLoop`——重新包装为绑定到调用方的新 traceable 代理），`createShadowMethod`（`vendor/cordis/src/utils.ts`）将 `this` 重新绑定到一个 *shadow* 对象，其 `ctx` 携带 `[symbols.shadow]` 指向 `AgentLoop` 自身的构造上下文。在 `resume` 内部，`this.ctx.sessionPersistence` 的解析从 shadow 的 fiber 开始遍历：
 
@@ -108,6 +108,6 @@ if (!ctx.fiber.runtime) return ctx.reflect.get(prop, false)   // ← direct glob
 ## 经验教训
 
 - 命名空间插件与 default export 在 Cordis Loader 下互斥。选择命名空间形式（`name`/`inject`/`Config`/`apply`），不要添加 `export default`——`unwrapExports` 会丢弃命名空间。
-- 对于插件机会性读取但**未**在 `static inject` 中声明的服务，使用 `ctx.get(name)`，绝不使用 `ctx.<name>`。属性代理通过仅向祖先方向的 fiber 遍历解析，经由外部 shadow 时会失败；`ctx.get(name)` 是拓扑无关的查找（且默认严格——非活跃后端读取为 `undefined`，而非在 teardown 过程中被交出）。
+- 对于插件机会性读取但未在 `static inject` 中声明的服务，使用 `ctx.get(name)`，绝不使用 `ctx.<name>`。属性代理通过仅向祖先方向的 fiber 遍历解析，经由外部 shadow 时会失败；`ctx.get(name)` 是拓扑无关的查找（且默认严格——非活跃后端读取为 `undefined`，而非在 teardown 过程中被交出）。
 - 手动构建插件的测试无法验证插件的加载方式。至少一个测试必须端到端地驱动真实的 Loader/export 路径。当核心操作不调用模型时，该测试无需 API key——因此它属于 CI，而非 key 门控之后。
 - 相信 trace，不要相信理论。优雅的 shadow 解释是真实的，但它是*第二个* bug；*第一个*是一行导出错误，在数小时看似合理但实际错误的推理之后，一个 fiber 遍历的 `console.error` 在几分钟内就找到了它。

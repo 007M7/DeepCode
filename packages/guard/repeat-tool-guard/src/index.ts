@@ -1,15 +1,14 @@
 /**
- * Advisory repeat-call loop breaker. It never registers, blocks, or rewrites a tool; configured
- * consecutive canonical calls add source-attributed context after downstream post-policy. The
- * loop logs that model-visible reminder as reconstructable context. Counters are per agent and
- * in-memory, so one agent cannot trip another and resumed sessions start fresh. Named exports
- * preserve loader metadata. See the package README for chain semantics and thresholds.
+ * Advisory per-agent repeat-call detector. It enriches post-execute decisions
+ * with logged model context without vetoing or rewriting calls. Configuration
+ * and chain semantics live in the package README; rationale lives in the
+ * repeat-tool-guard Agent Note.
  * @module @deepseek-ai/dsh-repeat-tool-guard
  */
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { AgentId, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, HookContext, PromptDecision } from '@deepseek-ai/dsh-agent'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 
@@ -140,16 +139,11 @@ function validateThresholds(values: number[]): number[] {
 }
 
 /**
- * Concatenate the guard's reminder context with a downstream listener's
- * optional one so folding drops neither. The merged block carries the guard's
- * `source` — a `HookContext` holds one `MessageSource` and the seam cannot
- * represent mixed provenance; the rendered `context/message` only
- * distinguishes by `source.kind`, so a downstream plugin's text is still
- * correctly framed as plugin context.
+ * Prepend the guard's reminder while preserving every downstream context's
+ * source and metadata.
  */
-function concatContext(ours: HookContext, theirs: HookContext | undefined): HookContext {
-  if (!theirs) return ours
-  return { content: [...ours.content, ...theirs.content], source: ours.source }
+function prependContext(ours: HookContext, theirs: HookContext[] | undefined): HookContext[] {
+  return [ours, ...theirs ?? []]
 }
 
 /** One agent's consecutive-repeat chain: the last tracked call's identity key and its run length. */
@@ -174,9 +168,7 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error(`repeat-tool-guard: invalid argumentsPreviewChars ${argumentsPreviewChars} — must be an integer >= 1`)
   }
 
-  // TODO(agent-keyed-repeat-chain): key a WeakMap by the Agent itself; that
-  // removes the disposal-only status listener and cannot collide on id reuse.
-  const chains = new Map<AgentId, Chain>()
+  const chains = new WeakMap<Agent, Chain>()
 
   /** Whether a tool participates in the chain (untracked calls are transparent: they neither count nor reset). */
   function tracked(toolName: string): boolean {
@@ -199,9 +191,9 @@ export function apply(ctx: Context, config: Config): void {
     if (!tracked(exec.name)) return undefined
     const canonical = canonicalize(exec.arguments)
     const key = JSON.stringify([exec.name, canonical])
-    const chain = chains.get(exec.agent.id)
+    const chain = chains.get(exec.agent)
     const count = chain !== undefined && chain.key === key ? chain.count + 1 : 1
-    chains.set(exec.agent.id, { key, count })
+    chains.set(exec.agent, { key, count })
     if (!thresholdSet.has(count)) return undefined
     const text = count === thresholds[0]
       ? GENTLE_REMINDER
@@ -211,32 +203,27 @@ export function apply(ctx: Context, config: Config): void {
 
   // Observe-and-enrich, never veto: count first (state advances regardless of
   // the downstream outcome), DELEGATE so a later listener can still block or
-  // replace, then fold the reminder onto whatever came back — additionalContext
+  // replace, then fold the reminder onto whatever came back — additionalContexts
   // rides both decision variants, so a blocked call still gets the nudge.
   ctx.on('tools/post-execute', async (exec, _result, next): Promise<PostToolDecision> => {
     const reminder = observe(exec)
     const downstream = await next()
     if (!reminder) return downstream
     if (downstream.kind === 'block') {
-      return { kind: 'block', feedback: downstream.feedback, additionalContext: concatContext(reminder, downstream.additionalContext) }
+      return { kind: 'block', feedback: downstream.feedback, additionalContexts: prependContext(reminder, downstream.additionalContexts) }
     }
     return {
       kind: 'accept',
       ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContext: concatContext(reminder, downstream.additionalContext),
+      additionalContexts: prependContext(reminder, downstream.additionalContexts),
     }
   })
 
   // A user interjection changes the context; repetition across it is not a
   // loop. Pure reset hook: always delegates (attaching nothing, vetoing
   // nothing).
-  ctx.on('agent/prompt-submit', (agent, _content, _source, next): Promise<PromptDecision> => {
-    chains.delete(agent.id)
+  ctx.on('agent/prompt-submit', (agent, _content, _source, _signal, next): Promise<PromptDecision> => {
+    chains.delete(agent)
     return next()
-  })
-
-  // Drop state when an agent goes away, bounding the map over harness lifetime.
-  ctx.on('agent/status', (agent, status) => {
-    if (status === 'disposed') chains.delete(agent.id)
   })
 }

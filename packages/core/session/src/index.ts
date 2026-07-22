@@ -11,21 +11,44 @@ import { isAbsolute } from 'node:path'
 import { deepFreeze } from '@deepseek-ai/dsh-llm'
 import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import type { ContentBlock, Message, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
-import type { CreateSessionOptions, EpochHeader, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, OutOfBandSessionEventType, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType, TurnTrigger } from './types.ts'
 import { snapshotJsonValue } from './json.ts'
-import { SurfaceManager, isSurfaceEligibleType } from './surface.ts'
+import { SurfaceManager } from './surface.ts'
+import type { SessionSurface } from './surface.ts'
 import { foldRequestHeader } from './request-header.ts'
 
 export * from './types.ts'
 export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
-export { interruptedTurnClosers } from './repair.ts'
-export type { SurfaceFoldReplacement, SurfaceFoldResult, SurfaceNode } from './surface.ts'
+export { interruptedTurnClosers, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'
+export { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
+export type { ChunkRow, StorageRecord } from './chunk-rows.ts'
+export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
 export { foldSurface, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
-export { isToolPairingBalanced } from './tool-pairing.ts'
-export { applyHeaderDelta, canonicalHeader, diffHeader, foldRequestHeader, headerEquals } from './request-header.ts'
+export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
+
+/**
+ * Find the latest closed message-triggered turn, excluding injection and
+ * plugin-owned zero-step turns.
+ * @param events - session events, or an owned suffix, to inspect.
+ * @returns the latest matching turn end, or `undefined`.
+ */
+export function findLastMessageTurnEnd(
+  events: readonly SessionEvent[],
+): SessionEvent<'turn/end'> | undefined {
+  const messageTurns = new Set<number>()
+  let latest: SessionEvent<'turn/end'> | undefined
+  for (const event of events) {
+    if (event.type === 'turn/start') {
+      if (event.data.trigger.kind === 'message') messageTurns.add(event.data.turn)
+      continue
+    }
+    if (event.type === 'turn/end' && messageTurns.delete(event.data.turn)) latest = event
+  }
+  return latest
+}
 
 declare module 'cordis' {
   interface Context {
@@ -80,21 +103,6 @@ declare module 'cordis' {
   }
 }
 
-/**
- * Render injected context as tagged synthetic user-role content, keeping the
- * canonical session vocabulary provider-neutral. Adapter-specific exceptions
- * belong in the adapter.
- */
-function renderTagged(tag: string, content: ContentBlock[], source: MessageSource): ContentBlock[] {
-  const open = `<${tag} source=${JSON.stringify(source.kind)}>`
-  const close = `</${tag}>`
-  return [
-    { type: 'text', text: open },
-    ...content,
-    { type: 'text', text: close },
-  ]
-}
-
 /** Detach, validate, and freeze the creation metadata published by a session. */
 function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHeader {
   const input: unknown = source === undefined
@@ -128,49 +136,19 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
     && (typeof record.seedLength !== 'number' || !Number.isSafeInteger(record.seedLength) || record.seedLength < 0)) {
     throw new Error('session header seedLength must be a non-negative safe integer')
   }
+  if (record.delegationDepth !== undefined
+    && (typeof record.delegationDepth !== 'number' || !Number.isSafeInteger(record.delegationDepth) || record.delegationDepth < 0)) {
+    throw new Error('session header delegationDepth must be a non-negative safe integer')
+  }
   return deepFreeze(record as unknown as SessionHeader)
-}
-
-/** Validate the runtime shape of surface metadata after its JSON snapshot. */
-function assertSurfaceMetadataShape(
-  type: string,
-  surfaceOp: unknown,
-  sourceEventSeqs: unknown,
-): void {
-  const eligible = isSurfaceEligibleType(type)
-  if (!eligible) {
-    if (surfaceOp !== undefined || sourceEventSeqs !== undefined) {
-      throw new Error(`session event "${type}" is not surface-eligible and cannot carry surface metadata`)
-    }
-    return
-  }
-  if (surfaceOp === undefined) {
-    throw new Error(`session event "${type}" is surface-eligible and requires a surfaceOp marker`)
-  }
-  if (surfaceOp !== 'append') {
-    if (surfaceOp === null || typeof surfaceOp !== 'object' || Array.isArray(surfaceOp)) {
-      throw new Error(`session event "${type}" carries an invalid surfaceOp`)
-    }
-    const op = surfaceOp as Record<string, unknown>
-    const keys = Object.keys(op)
-    if (keys.length !== 3 || !Object.hasOwn(op, 'op') || !Object.hasOwn(op, 'start') || !Object.hasOwn(op, 'end')
-      || op['op'] !== 'replace'
-      || typeof op['start'] !== 'number' || !Number.isSafeInteger(op['start']) || op['start'] < 0
-      || typeof op['end'] !== 'number' || !Number.isSafeInteger(op['end']) || op['end'] < 0) {
-      throw new Error(`session event "${type}" carries an invalid replace surfaceOp`)
-    }
-  }
-  if (sourceEventSeqs !== undefined) {
-    if (!Array.isArray(sourceEventSeqs)
-      || sourceEventSeqs.some(seq => typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0)) {
-      throw new Error(`session event "${type}" sourceEventSeqs must contain non-negative safe integers`)
-    }
-  }
 }
 
 /** Validate the fixed event envelope after one-pass JSON materialization. */
 function assertSessionEventEnvelope(value: Record<string, unknown>, index: number): asserts value is SessionEvent {
   const event = value
+  if (event['type'] === 'request/header-delta') {
+    throw new Error(`seed event at index ${index} uses unsupported legacy request/header-delta format`)
+  }
   const allowed = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
   if (Object.keys(event).some(key => !allowed.has(key))
     || !Object.hasOwn(event, 'type') || typeof event['type'] !== 'string'
@@ -180,6 +158,59 @@ function assertSessionEventEnvelope(value: Record<string, unknown>, index: numbe
     || !Number.isSafeInteger(event['time']) || event['time'] < 0
     || !Object.hasOwn(event, 'data')) {
     throw new Error(`seed event at index ${index} has an invalid event envelope`)
+  }
+  assertCurrentLlmShape(event, index)
+  assertCurrentTurnEndShape(event, index)
+}
+
+/** Reject pre-provider request headers and assistant messages at the seed/load boundary. */
+function assertCurrentLlmShape(event: Record<string, unknown>, index: number): void {
+  const data = event['data']
+  if (typeof data !== 'object' || data === null) return
+  const record = data as Record<string, unknown>
+  if (event['type'] === 'request/header') {
+    const header = record['header']
+    const config = typeof header === 'object' && header !== null ? (header as Record<string, unknown>)['config'] : undefined
+    if (!hasProviderModel(config)) throw new Error(`seed request/header at index ${index} lacks provider/model`)
+  }
+  if (event['type'] === 'assistant/message' && !hasProviderModel(record['provenance'])) {
+    throw new Error(`seed assistant/message at index ${index} lacks provider/model provenance`)
+  }
+}
+
+/** Reject legacy aborted outcomes that persisted caller-owned reason detail. */
+function assertCurrentTurnEndShape(event: Record<string, unknown>, index: number): void {
+  if (event['type'] !== 'turn/end') return
+  const data = event['data']
+  /* v8 ignore next -- this migration recognizes only the legacy object shape; format-wide payload validation is separate. */
+  if (typeof data !== 'object' || data === null) return
+  const reason = (data as Record<string, unknown>)['reason']
+  /* v8 ignore next -- non-object reasons cannot carry the legacy aborted detail this migration removes. */
+  if (typeof reason !== 'object' || reason === null || Array.isArray(reason)) return
+  const record = reason as Record<string, unknown>
+  if (record['kind'] === 'aborted'
+    && (Object.keys(record).length !== 1 || !Object.hasOwn(record, 'kind'))) {
+    throw new Error(`seed turn/end at index ${index} uses unsupported reason-bearing aborted format`)
+  }
+}
+
+/** Whether an unknown value carries the current provider/model pair. */
+function hasProviderModel(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const pair = value as Record<string, unknown>
+  return typeof pair['provider'] === 'string' && pair['provider'].length > 0
+    && typeof pair['model'] === 'string' && pair['model'].length > 0
+}
+
+/** Reject request-header vocabulary removed with the legacy delta codec. */
+function assertSupportedRequestHeader(type: string, data: unknown, location: string): void {
+  if (type === 'request/header-delta') {
+    throw new Error(`${location} uses unsupported legacy request/header-delta format`)
+  }
+  if (type === 'request/header'
+    && data !== null && typeof data === 'object' && !Array.isArray(data)
+    && (data as Record<string, unknown>)['reason'] === 'fallback') {
+    throw new Error(`${location} uses unsupported legacy request/header reason "fallback"`)
   }
 }
 
@@ -219,6 +250,7 @@ interface SessionEntry {
   announced: boolean
   announcing: boolean
   appending: boolean
+  outOfBand: boolean
   detachRequested: boolean
   detach(): void
 }
@@ -234,20 +266,12 @@ const attachments = new WeakMap<Session, SessionEntry>()
  */
 export class Session {
   private log: SessionEvent[] = []
+  /** Single incremental owner of surface acceptance and projection state. */
+  private readonly surfaceManager = new SurfaceManager(this.log)
 
-  /**
-   * Derived surface — a cached linked list of message-producing events.
-   * Lazily rebuilt from `surfaceOp` markers in the log; processes only new
-   * events (delta) on each access — the log is append-only, so prior events
-   * never change.
-   * `append`. Undefined until first accessed (including after fork/seed).
-   */
-  private _surface: SurfaceManager | undefined
-
-  /** The surface linked list over this session's event log. */
-  get surface(): SurfaceManager {
-    if (!this._surface) this._surface = new SurfaceManager(this.log)
-    return this._surface
+  /** The ordered surface over this session's event log. */
+  get surface(): SessionSurface {
+    return this.surfaceManager
   }
 
   /**
@@ -260,7 +284,12 @@ export class Session {
    */
   readonly header: SessionHeader
 
-  constructor(public readonly id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
+  /** The session identity, derived from its durable header's single copy. */
+  get id(): SessionId {
+    return this.header.id
+  }
+
+  constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader) {
     if (seed) {
       // Validate the seed to the SAME invariants `append` enforces, so a
       // replay/fork (`ctx.sessions.create(id, { seed })`) cannot construct a
@@ -269,7 +298,7 @@ export class Session {
       // `seq = log.length` contract the whole system relies on). Without this,
       // a bad seed would surface only later as a backend rejection or a silent
       // divergence between the live log and disk.
-      this.log = Array.from(seed, (source, index) => {
+      for (const [index, source] of seed.entries()) {
         // The seed is a persistence/replay boundary: validate and detach the
         // complete event in one lossless-JSON pass.
         const snapshot = snapshotJsonValue(source)
@@ -277,23 +306,20 @@ export class Session {
           throw new Error(`seed event at index ${index} is not losslessly JSON-serializable`)
         }
         assertSessionEventEnvelope(snapshot, index)
+        assertSupportedRequestHeader(snapshot.type, snapshot.data, `seed event at index ${index}`)
         if (snapshot.seq !== index) {
           throw new Error(`seed event at index ${index} has seq ${snapshot.seq} (expected ${index}); seed must be contiguous from 0`)
         }
-        // Surface-eligible events MUST carry a surfaceOp marker — the surface is
-        // the sole source of derived history, so a marker-less message event
-        // would load fine yet vanish from deriveMessages(). `append` enforces
-        // this at compile time via its typed overload; a seed arrives as raw
-        // SessionEvent[] (replay/fork/load), bypassing that, so re-check at
-        // runtime here rather than silently resuming with empty history.
-        const structural = snapshot as SessionEvent & { surfaceOp?: unknown; sourceEventSeqs?: unknown }
+        // A seed is accepted incrementally through the same transition as a
+        // live append and a full-log fold. The candidate is planned before it
+        // enters `log`, so a failure cannot partially mutate the surface.
         try {
-          assertSurfaceMetadataShape(snapshot.type, structural.surfaceOp, structural.sourceEventSeqs)
+          this.surfaceManager.validateNext(snapshot)
         } catch (error: unknown) {
           throw new Error(`invalid seed event at index ${index}: ${error instanceof Error ? error.message : 'invalid surface metadata'}`)
         }
-        return deepFreeze(snapshot)
-      })
+        this.log.push(deepFreeze(snapshot))
+      }
     }
     this.header = snapshotSessionHeader(id, header)
   }
@@ -328,7 +354,7 @@ export class Session {
    * @param type - The event type (key of {@link SessionEventMap}).
    * @param data - The event payload; must be JSON-serializable.
    * @param opts - Surface metadata: `surfaceOp` controls how the event enters
-   *   the surface linked list; `sourceEventSeqs` records provenance (the seq
+   *   the ordered surface; `sourceEventSeqs` records provenance (the seq
    *   numbers of events this one derives from). REQUIRED for
    *   {@link SurfaceEventType} events (every message-producing event must
    *   declare how it joins the surface, the sole source of derived history) and
@@ -340,7 +366,10 @@ export class Session {
    * @throws if `data` or surface metadata is not losslessly JSON-serializable
    *   (BigInt, function, symbol, undefined, negative zero, non-finite number,
    *   circular reference, sparse array, or an exotic object such as
-   *   Map/Set/Date/class instance). One recursive pass reads, validates, and
+   *   Map/Set/Date/class instance), or when the candidate violates the
+   *   canonical surface contract (marker shape and eligibility, unique
+   *   earlier provenance, positional replacement validity, and complete
+   *   shadowed-node coverage). One recursive pass reads, validates, and
    *   copies each nested value once, so a stateful getter cannot supply one value
    *   to validation and another to storage. The event log is the durable source
    *   of truth, so a bad event fails at the append site rather than later during
@@ -362,29 +391,26 @@ export class Session {
     if (dataSnapshot === undefined) {
       throw new Error(`session event "${type}" carries non-JSON-serializable data`)
     }
+    assertSupportedRequestHeader(type, dataSnapshot, `session event "${type}"`)
     const surfaceMetadataSnapshot = snapshotJsonValue(surfaceMetadata)
     if (surfaceMetadataSnapshot === undefined) {
       throw new Error(`session event "${type}" carries non-JSON-serializable surface metadata`)
     }
-    assertSurfaceMetadataShape(
-      type,
-      (surfaceMetadataSnapshot as { surfaceOp?: unknown }).surfaceOp,
-      (surfaceMetadataSnapshot as { sourceEventSeqs?: unknown }).sourceEventSeqs,
-    )
-
     const entry = attachments.get(this)
     if (entry?.appending) {
       throw new Error('session append cannot reenter while another append is being published')
     }
+    const event = deepFreeze({
+      type,
+      seq: this.log.length,
+      time: Date.now(),
+      data: dataSnapshot,
+      ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
+    } as unknown as SessionEvent<T>)
+    this.surfaceManager.validateNext(event as SessionEvent)
+
     if (entry !== undefined) entry.appending = true
     try {
-      const event = deepFreeze({
-        type,
-        seq: this.log.length,
-        time: Date.now(),
-        data: dataSnapshot,
-        ...surfaceMetadataSnapshot,
-      } as unknown as SessionEvent<T>)
       let callbacks: SessionCallback[] | undefined
       const callbackArgs: unknown[] = [this, event]
       if (entry !== undefined) {
@@ -399,7 +425,7 @@ export class Session {
     } finally {
       if (entry !== undefined) {
         entry.appending = false
-        if (entry.detachRequested && !entry.announcing) entry.detach()
+        if (entry.detachRequested && !entry.announcing && !entry.outOfBand) entry.detach()
       }
     }
   }
@@ -437,8 +463,8 @@ export class Session {
   private derivedGeneration = 0
 
   /**
-   * Derive the LLM message history by walking the session surface — the linked
-   * list of message-producing events maintained by `surfaceOp` markers. The
+   * Derive the LLM message history by walking the ordered sequences of
+   * message-producing events maintained by `surfaceOp` markers. The
    * surface is the single source of derived history: every message-producing
    * append records its `surfaceOp`, so a raw event with no marker (a chunk, a
    * turn boundary) is correctly absent, and a compaction `replace` deletes the
@@ -447,7 +473,7 @@ export class Session {
    *
    * CACHED: each surface node is projected exactly once, when first seen — a
    * call costs O(new nodes), and a surface rewrite (a `replace`;
-   * {@link SurfaceManager.replaceGeneration}) rebuilds. The returned array is
+   * {@link SessionSurface.replaceGeneration}) rebuilds. The returned array is
    * a fresh snapshot per call (later appends never grow an array a caller
    * already holds); the `Message` objects in it are SHARED and **deep-frozen**.
    * Their content reuses the already frozen durable event data, so the cache
@@ -455,18 +481,19 @@ export class Session {
    * @returns a fresh array of the shared, frozen derived history.
    */
   deriveMessages(): Message[] {
-    const nodes = this.surface.nodes
-    const generation = this.surface.replaceGeneration
+    const surface = this.surface
+    const nodes = surface.nodes
+    const generation = surface.replaceGeneration
     if (generation !== this.derivedGeneration) {
       this.derived = []
       this.derivedNodes = 0
       this.derivedGeneration = generation
     }
-    for (const node of nodes.slice(this.derivedNodes)) {
-      // Surface nodes are built from this.log — node.seq is always a valid
+    for (const seq of nodes.slice(this.derivedNodes)) {
+      // Surface sequences are built from this.log — seq is always a valid
       // index by construction. The non-null assertion expresses that invariant.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const msg = this.deriveEventMessage(this.log[node.seq]!)
+      const msg = this.deriveEventMessage(this.log[seq]!)
       // A surface node is one of the five message-producing types, but an
       // empty-content assistant/message (a max-tokens step that hosts only
       // usage) derives to null and must not enter the transcript.
@@ -483,7 +510,7 @@ export class Session {
    * The per-node pure function {@link deriveMessages} folds over the surface;
    * an external reconstructor (or the dev invariant) folds the same function
    * over a log prefix's surface to rebuild the exact messages any request was
-   * built from (the reconstructability RFC). The returned message wrapper is
+   * built from (the reconstructability Agent Note). The returned message wrapper is
    * fresh; its content reuses the logged event's already deep-frozen durable
    * data, so changing the wrapper cannot rewrite the log and changing content
    * throws.
@@ -496,7 +523,18 @@ export class Session {
     // trace/replay data.
 
     switch (event.type) {
-      case 'user/message': {
+      // Injected context and mid-turn steering project identically to a user
+      // prompt: content verbatim, in user role. context's `source`/`meta` and
+      // steering's `turn` are log-only and do not reach the model. Do NOT
+      // re-add per-type framing (e.g. `<context>`/`<steering>`) here: framing is
+      // caller-owned — a producer bakes it into `content`, as workspace-context
+      // does with `<system-reminder>` — or, if reintroduced, must be driven by
+      // the event `meta` map and a dedicated renderer, keeping this projection a
+      // verbatim pass-through. See the deferred design note in
+      // ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md
+      case 'user/message':
+      case 'context/message':
+      case 'steering/message': {
         return { role: 'user', content: event.data.content }
       }
       case 'assistant/message': {
@@ -504,7 +542,7 @@ export class Session {
         // max-tokens step's usage and must not inject a content-less assistant
         // turn into the provider transcript.
         if (event.data.content.length === 0) return null
-        return { role: 'assistant', content: event.data.content }
+        return { role: 'assistant', content: event.data.content, provenance: event.data.provenance }
       }
       case 'tool/result': {
         const { callId, content, isError } = event.data
@@ -512,14 +550,6 @@ export class Session {
           role: 'user',
           content: [{ type: 'tool-result', toolCallId: callId, content, isError }],
         }
-      }
-      case 'context/message': {
-        const { content, source } = event.data
-        return { role: 'user', content: renderTagged('context', content, source) }
-      }
-      case 'steering/message': {
-        const { content, source } = event.data
-        return { role: 'user', content: renderTagged('steering', content, source) }
       }
       default:
         // A non-surface event (boundary, chunk, log-only record) projects to
@@ -573,9 +603,9 @@ export class SessionStore extends Service {
    * Create a session owned by the calling fiber: disposing that fiber stops
    * event notification and removes the session from the store. `options.seed`
    * populates the session with a copy of those events (replay/fork);
-   * `options.meta` attaches creation metadata (validated absolute `cwd`,
-   * `parentSession` lineage) as the immutable {@link SessionHeader} (the store
-   * fills `version`/`id`/`createdAt`).
+   * `options.meta` attaches creation metadata (validated absolute `cwd`, seed
+   * and parent lineage, and delegation depth) as the immutable
+   * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).
    *
    * For an agent whose session must be torn down IN ORDER with its loop (so the
    * loop's final flush is captured before the store attachment ends), do NOT use this
@@ -637,6 +667,7 @@ export class SessionStore extends Service {
       ...meta?.cwd === undefined ? {} : { cwd: meta.cwd },
       ...meta?.parentSession === undefined ? {} : { parentSession: meta.parentSession },
       ...meta?.seedLength === undefined ? {} : { seedLength: meta.seedLength },
+      ...meta?.delegationDepth === undefined ? {} : { delegationDepth: meta.delegationDepth },
     }
     return new Session(sessionId, seed, header)
   }
@@ -678,6 +709,7 @@ export class SessionStore extends Service {
       announced: false,
       announcing: false,
       appending: false,
+      outOfBand: false,
       detachRequested: false,
       detach: () => { this.detachEntered(entry) },
     }
@@ -690,7 +722,7 @@ export class SessionStore extends Service {
       // A lifecycle listener may own the advanced detach capability. Keep the
       // entry and its publication hooks live until synchronous creation or append
       // publication unwinds, then publish the paired disposal edge.
-      if (entry.announcing || entry.appending) {
+      if (entry.announcing || entry.appending || entry.outOfBand) {
         entry.detachRequested = true
         return
       }
@@ -744,7 +776,7 @@ export class SessionStore extends Service {
       }
     } finally {
       entry.announcing = false
-      if (entry.detachRequested && !entry.appending) entry.detach()
+      if (entry.detachRequested && !entry.appending && !entry.outOfBand) entry.detach()
     }
   }
 
@@ -786,6 +818,87 @@ export class SessionStore extends Service {
     }))
     const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
     if (failure !== undefined) throw failure.reason
+  }
+
+  /**
+   * Append one plugin-declared log-only event without borrowing the agent
+   * loop's lifecycle. An open turn receives the event directly and remains
+   * responsible for its ordinary checkpoint. A closed log receives one
+   * zero-step turn around the event, followed by an awaited flush.
+   *
+   * Once the synthetic `turn/start` commits, this method always attempts its
+   * matching `turn/end` and flush, including when the target append fails.
+   * Detachment requested by an event or flush listener is deferred until that
+   * sequence settles, so publication cannot switch from a live scoped session
+   * to an unobserved bare `Session` halfway through the update.
+   *
+   * @param session - exact live session that owns the target log.
+   * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.
+   * @param data - typed JSON payload for the target event.
+   * @param trigger - plugin-owned turn trigger used only when the log is closed.
+   * @returns the accepted target event with its assigned sequence and timestamp.
+   * @throws when the session is detached, another out-of-band append is active,
+   *   event acceptance fails, the synthetic turn cannot close, or flushing fails.
+   */
+  async appendOutOfBand<T extends OutOfBandSessionEventType>(
+    session: Session,
+    type: T,
+    data: SessionEventMap[T],
+    trigger: TurnTrigger,
+  ): Promise<SessionEvent<T>> {
+    const entry = this.liveEntryFor(session)
+    if (entry.outOfBand) {
+      throw new Error(`session "${session.id}" already has an out-of-band append in progress`)
+    }
+    entry.outOfBand = true
+    // `T` is excluded from SurfaceEventType by OutOfBandSessionEventType, but
+    // TypeScript does not reduce Session.append's conditional rest parameter
+    // through a generic intersection. Preserve that proven two-argument call
+    // shape without widening the public Session.append overload.
+    const appendLogOnly = session.append.bind(session) as unknown as <K extends OutOfBandSessionEventType>(
+      eventType: K,
+      eventData: SessionEventMap[K],
+    ) => SessionEvent<K>
+    try {
+      const lastBoundary = session.events.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
+      if (lastBoundary?.type === 'turn/start') {
+        return appendLogOnly(type, data)
+      }
+
+      const lastStart = session.events.findLast(event => event.type === 'turn/start')
+      const turn = (lastStart?.data.turn ?? 0) + 1
+      let accepted: SessionEvent<T> | undefined
+      let failure: unknown
+      let opened = false
+      try {
+        session.append('turn/start', { turn, trigger })
+        opened = true
+        accepted = appendLogOnly(type, data)
+      } catch (error: unknown) {
+        failure = error
+      } finally {
+        if (opened) {
+          // The only target types admitted by OutOfBandSessionEventMap are
+          // log-only plugin events, so the synthetic turn remains open here.
+          session.append('turn/end', { turn, reason: { kind: 'completed' } })
+          try {
+            await this.flush(session)
+          } catch (error: unknown) {
+            if (failure === undefined) failure = error
+          }
+        }
+      }
+      if (failure !== undefined) {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error -- preserve an arbitrary flush-listener rejection exactly
+        throw failure
+      }
+      /* v8 ignore next -- accepted is assigned unless an append failure was captured above. */
+      if (accepted === undefined) throw new Error('out-of-band append completed without an accepted event')
+      return accepted
+    } finally {
+      entry.outOfBand = false
+      if (entry.detachRequested && !entry.announcing && !entry.appending) entry.detach()
+    }
   }
 
   /** Return the exact live entry; detached/prepared objects reject. */

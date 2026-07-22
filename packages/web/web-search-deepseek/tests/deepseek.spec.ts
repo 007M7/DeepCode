@@ -4,11 +4,10 @@ import Loader from '@cordisjs/plugin-loader'
 import WebService from '@deepseek-ai/dsh-web'
 import {
   DeepSeekSearchProvider,
-  citationSnippets,
-  mapAnthropicResponse,
   DEEPSEEK_PROVIDER_ID,
 } from '@deepseek-ai/dsh-web-search-deepseek'
 import * as deepseekPlugin from '@deepseek-ai/dsh-web-search-deepseek'
+import { citationSnippets, mapAnthropicResponse } from '../src/provider.ts'
 import type { AnthropicResponse } from '@deepseek-ai/dsh-web-search-deepseek/src/types.ts'
 
 const options = {
@@ -163,6 +162,7 @@ describe('DeepSeekSearchProvider request mapping', () => {
     await new DeepSeekSearchProvider(options).search({ query: 'hello' })
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://api.deepseek.test/anthropic/v1/messages')
+    expect(init).toMatchObject({ method: 'POST', redirect: 'error' })
     const headers = init.headers as Record<string, string>
     expect(headers['x-api-key']).toBe('ds-key')
     expect(headers['authorization']).toBe('Bearer ds-key')

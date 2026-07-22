@@ -1,17 +1,22 @@
 /**
- * Agent registry service. Tracks live agents so plugins can find them without
- * depending on the concrete loop package. Agent creation belongs to the loop.
+ * Agent service: live registry, factory delegation, and process-local
+ * initiator scope. Concrete creation and driving belong to the loop.
  *
  * @module @deepseek-ai/dsh-agent
  */
 
-import { Context, getTraceable, Service, symbols } from 'cordis'
+import { Context, FiberState, getTraceable, Service, symbols } from 'cordis'
+import type { Fiber } from 'cordis'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { isPromise } from 'node:util/types'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import type { Agent, AgentId, AgentOptions } from './types.ts'
+import type { Agent, AgentOptions } from './types.ts'
 
 export * from './types.ts'
+export { agentInterruptReasonOf } from './cancellation.ts'
+export * from './llm-target.ts'
 export { agentEvents, assembleContextFor } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
 
@@ -31,23 +36,63 @@ declare module 'cordis' {
   }
 }
 
-/** Options for creating an agent and its caller-named session. */
+/**
+ * Options for programmatically creating an agent through the registry factory
+ * ({@link AgentRegistry.create}). The caller supplies the single live
+ * `sessionId` shared by the agent registry and session log (e.g. an
+ * ACP-generated id), plus optional session metadata (the validated `cwd`, fork
+ * lineage); the factory creates the session and agent under that identity.
+ */
 export interface CreateAgentOptions {
-  /** The agent's id (the registry handle). */
-  readonly agentId: AgentId
-  /** The live session's id (NOT derived from agentId). */
+  /** The live agent/session identity. */
   readonly sessionId: SessionId
-  /** Durable session metadata, validated and detached before setup. */
-  readonly meta?: { readonly cwd?: string; readonly parentSession?: SessionId; readonly seedLength?: number }
-  /** Balanced contiguous event prefix for a forked session. */
+  /**
+   * Session creation metadata: validated absolute `cwd`, `parentSession`
+   * fork lineage, the `seedLength` seed boundary, and the `delegationDepth`
+   * recursion budget. Mirrors the
+   * `cwd`/`parentSession`/`seedLength`/`delegationDepth` fields of
+   * {@link CreateSessionOptions.meta} in dsh-session (the internal-only
+   * `createdAt`, used when reconstructing a persisted session, is deliberately
+   * excluded — a factory caller never sets it). This is durable session data,
+   * so the session boundary validates and snapshots it before asynchronous
+   * setup begins.
+   */
+  readonly meta?: {
+    readonly cwd?: string
+    readonly parentSession?: SessionId
+    readonly seedLength?: number
+    readonly delegationDepth?: number
+  }
+  /**
+   * Seed events to reconstruct the child session's log from (the fork lineage
+   * primitive). When present, the factory creates the session with this event
+   * prefix so `deriveMessages()`/`lastTurnNumber` continue from it — used by the
+   * in-process FORK subagent backend to seed a child with a balanced
+   * completed-turn prefix of the parent's log. The prefix MUST be contiguous
+   * from seq 0, carry only lossless-JSON data, and be balanced (no open
+   * turn/step, no dangling tool-call), or the session constructor (and the
+   * dev-mode invariants replay) reject it. The factory passes the raw seed to
+   * the session's durable validator/snapshot boundary. Absent for a fresh
+   * (spawn) child.
+   */
   readonly seed?: readonly SessionEvent[]
   /** Per-agent options (model, …). */
   readonly agentOptions?: AgentOptions
   /** Optional creation-only cancellation signal; detached before the returned handle becomes visible. */
   readonly signal?: AbortSignal
   /**
-   * Compose the unpublished scoped context before lifecycle announcements.
-   * Failure rolls back without publishing either id; setup must not drive the agent.
+   * Creation-time composition of the agent's scoped world. The factory awaits
+   * setup after minting `agentCtx` but BEFORE inserting or announcing either
+   * the session or agent, so observers can never see a partially configured
+   * world. Everything registered through `agentCtx` (scoped tools, prompt
+   * sections/variables, `restrict()`, listeners, awaited child plugins) exists
+   * before `session/created`, `agent/created`, `agent/session-start`, and the
+   * first prompt assembly. A throw/rejection or owner disposal rolls the scope
+   * back without publishing either id.
+   *
+   * **Setup composes, it never drives**: the callback is trusted same-process
+   * code and receives the full scoped context, so this is a contract rather
+   * than a runtime restriction. Drive the agent only after creation resolves.
    */
   readonly setup?: (agentCtx: Context) => Promise<void> | void
 }
@@ -57,23 +102,41 @@ export interface CreateAgentOptions {
  * ({@link AgentRegistry.resume}).
  */
 export interface ResumeAgentOptions {
-  /** The agent's id (the registry handle). */
-  readonly agentId: AgentId
-  /** The persisted session id to load and resume on. */
+  /** The persisted session id to load and use as the live agent/session identity. */
   readonly resumeSessionId: SessionId
   /** Per-agent options (model, …). */
   readonly agentOptions?: AgentOptions
   /** Optional creation-only cancellation signal for persistence load/setup; detached before return. */
   readonly signal?: AbortSignal
-  /** Compose after persistence load under the same unpublished rollback contract as create. */
+  /**
+   * Resume-time composition of the agent's fresh scoped world. Persistence is
+   * loaded first; the factory then mints `agentCtx` and awaits setup while the
+   * reconstructed session and agent remain unpublished. The callback has the
+   * same trusted composition-only contract as
+   * {@link CreateAgentOptions.setup}: all registrations exist before either
+   * creation announcement, and rejection or owner disposal rolls the
+   * transaction back without publishing either id.
+   */
   readonly setup?: (agentCtx: Context) => Promise<void> | void
 }
 
 /**
- * Holder-owned agent capability. Disposal stops and drains the loop and idle
- * flushes before unregistering the agent, detaching its session, and unwinding
- * its scoped context. Provider unload reaches the same quiescence boundary;
- * registry observers receive only the bare {@link Agent}.
+ * An owned agent plus its disposer, returned by {@link AgentRegistry.create} /
+ * {@link AgentRegistry.resume}. The disposer is a CAPABILITY: among consumers,
+ * only the holder can tear this agent down. The registered factory provider is
+ * also a structural owner because the scoped agent depends on that provider's
+ * service surface; provider unload stops and drains every live handle it made.
+ * `dispose()` stops the loop, awaits its exit and every outstanding
+ * idle-injection flush (quiescence — NOT just the `disposed`
+ * status flip), unregisters the agent, removes its session from the store, and
+ * finally unwinds its scoped world. This order captures every agent-started
+ * `session/flush` before the session is detached and keeps scoped listeners
+ * alive through those checkpoints.
+ *
+ * `ctx.agents.get(id)` still returns a bare {@link Agent} — the handle is
+ * exposed only to the consumer owner that created it; the structural provider
+ * reaches the same teardown internally. Config-created agents (the loop's own
+ * startup) are owned by the loop fiber and never need a handle.
  */
 export interface AgentHandle {
   agent: Agent
@@ -88,16 +151,30 @@ export interface AgentHandle {
  */
 export interface AgentFactory {
   /**
-   * Create and compose under caller ownership, publish and announce session then
-   * agent, emit session-start, and start the driver. Rollback pairs any creation
-   * announcement that began.
+   * Create a new agent on a caller-supplied session id. Async because creation
+   * awaits unpublished setup, inserts both session and agent, emits their
+   * creation notifications in order, emits `agent/session-start`, and only
+   * then starts the loop. The sequence is
+   * rollback-covered, but notifications delivered before a later listener
+   * failure remain observable; every agent or session creation announcement
+   * that began is paired by `agent/disposed` or `session/disposed` during
+   * rollback. The owner disposes the resolved handle to stop/drain,
+   * unregister, remove the session, and unwind the scope.
+   * The registry passes a context carrying the `create()` caller's fiber and
+   * scope as `ownerCtx`. The implementation attaches the unpublished
+   * transaction and resulting lifecycle to that owner; it must not infer
+   * ownership from the factory object's registration context.
    * @param ownerCtx - caller-bound context that owns the transaction and live handle.
    * @param options - agent/session identity, configuration, and optional setup.
    * @returns the owned handle after setup, both announcements, and loop start complete.
    */
   createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
   /**
-   * Load, compose, publish, announce, and resume an agent under caller ownership.
+   * Load a persisted session and resume an agent on it. Async because it awaits
+   * both `ctx.sessionPersistence.load` and the optional unpublished setup
+   * transaction; must be called after that service exists (consumers inject
+   * `sessionPersistence`). Publication follows the same ordered boundary as
+   * {@link createAgent}.
    * @param ownerCtx - caller-bound context that owns load, setup, and the live handle.
    * @param options - persisted identity, configuration, and optional setup.
    * @returns the owned handle after setup, both announcements, and loop start complete.
@@ -107,15 +184,25 @@ export interface AgentFactory {
 
 /** Thrown when create/resume is called before an agent factory is registered. */
 const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plugin)'
+const NO_INITIATOR_MESSAGE = 'no initiating agent is active'
+const DISPOSED_INITIATOR_MESSAGE = 'agent initiator scope is disposed'
 
 /** All mutable lifecycle state for one exact registry entry. */
 interface AgentEntry {
-  readonly id: AgentId
+  readonly id: SessionId
   readonly agent: Agent
+  /** Runtime creator-agent ownership; independent of durable session lineage. */
+  readonly owner: Agent | undefined
   readonly carrier: Scoped<Agent>
   announced: boolean
   announcing: boolean
   detachRequested: boolean
+}
+
+/** One tracked boundary plus its inherited nesting chain. */
+interface InitiatorRun {
+  active: boolean
+  readonly parent: InitiatorRun | undefined
 }
 
 /** Plain holder prevents Cordis from tracing the factory field before the caller context is known. */
@@ -124,40 +211,133 @@ interface FactorySlot {
 }
 
 /**
- * Agent registry (`ctx.agents`): tracks live agents so UI, hook, and
- * orchestrator plugins can find them without depending on the concrete loop
- * package. Agent *creation* is provided by whichever plugin implements the
- * {@link AgentFactory} (`@deepseek-ai/dsh-agent-loop`), registered via
- * {@link setFactory}.
+ * Agent service (`ctx.agents`): tracks live agents and carries the initiating
+ * Agent through one process-local asynchronous driver chain. Agent *creation*
+ * is provided by whichever plugin implements the {@link AgentFactory}
+ * (`@deepseek-ai/dsh-agent-loop`), registered via {@link setFactory}.
+ *
+ * Initiator methods provide same-process causal attribution only. Ambient
+ * presence is neither liveness proof nor authorization; subjects and owners
+ * remain explicit, as does identity at worker, process, persistence, and wire
+ * boundaries. Returned Promise boundaries drain during teardown, except a
+ * nested lineage that starts an owning-fiber unload is excluded from its own drain.
  */
 export class AgentRegistry extends Service {
-  private store = new Map<AgentId, AgentEntry>()
-  // TODO(agent-entry-mirror): derive exact-object checks from store.get(agent.id)
-  // plus entry.agent identity; this WeakMap mirrors the authoritative id map.
-  private entries = new WeakMap<Agent, AgentEntry>()
+  private store = new Map<SessionId, AgentEntry>()
   private factory: FactorySlot | undefined
+  private readonly initiators = new AsyncLocalStorage<Agent | undefined>()
+  private readonly initiatorRuns = new AsyncLocalStorage<InitiatorRun>()
+  private initiatorState: 'active' | 'closing' | 'disposed' = 'active'
+  private activeInitiatorRuns = 0
+  private initiatorDrain: PromiseWithResolvers<void> | undefined
+  private initiatorDisposal: Promise<void> | undefined
 
   constructor(ctx: Context) {
     super(ctx, 'agents')
-    // Agent contexts shadow this plain-context default with an own property.
+    // The `ctx.agent` DX accessor: default `undefined` on every context, so a
+    // plain plugin context reads cleanly instead of hitting the Cordis
+    // unknown-property throw. Each Agent.ctx shadows it with an own property
+    // (own properties resolve before the context proxy is consulted), so the
+    // accessor body never needs to resolve a scope itself. Effect-scoped:
+    // unwinds with this service's fiber.
     ctx.accessor('agent', { get: () => undefined })
+    ctx.on('internal/status', (fiber) => {
+      if (fiber.state === FiberState.UNLOADING && this.hasLifecycleAncestor(fiber)) {
+        this.closeInitiators()
+      }
+    })
+    ctx.effect(function* (this: AgentRegistry) {
+      yield () => this.disposeInitiators()
+      yield () => { this.closeInitiators() }
+    }.bind(this), 'agents.initiatorLifecycle()')
   }
 
   /**
-   * Register the effect-scoped creation factory, rejecting a duplicate. Service
-   * factories are retraced through each create/resume caller for ownership.
+   * Read the Agent that initiated the inherited asynchronous driver chain.
+   * Use this optional form for logging, tracing, metrics, or host attribution
+   * that also supports agentless calls. When a parent creates a child, setup
+   * reports the causal parent while `agentCtx.agent` identifies the child.
+   * @returns the inherited Agent, or `undefined` outside an initiator boundary
+   *   and inside an explicit clearing boundary.
+   * @throws when this service instance has been disposed.
+   */
+  currentInitiator(): Agent | undefined {
+    this.assertInitiatorsReadable()
+    return this.initiators.getStore()
+  }
+
+  /**
+   * Read the initiating Agent and fail when no initiator boundary is active.
+   * Use this for private helpers contractually below a driver, or for a
+   * deployment-owned outbound request whose contract forbids agentless calls.
+   * Generic or direct-call seams use optional lookup or explicit request fields.
+   * @returns the inherited Agent.
+   * @throws when no initiator is active or this service instance has been disposed.
+   */
+  requireInitiator(): Agent {
+    const agent = this.currentInitiator()
+    if (agent === undefined) throw new Error(NO_INITIATOR_MESSAGE)
+    return agent
+  }
+
+  /**
+   * Run an operation with one exact Agent as its process-local initiator. The
+   * exact synchronous value or Promise returned by the operation is preserved.
+   * Custom drivers and test harnesses wrap their complete returned foreground
+   * lifetime.
+   * A queue or wire receiver may establish this boundary only after validating
+   * explicit identity and resolving the exact live Agent; this method does neither.
+   * Detached work remains owned by the subsystem that starts it.
+   * @param agent - initiating Agent to inherit; presence is neither liveness proof nor authorization.
+   * @param operation - synchronous or asynchronous operation to invoke.
+   * @returns the exact value returned by `operation`.
+   * @throws when the initiator scope is closing/disposed, or when `operation` throws.
+   */
+  withInitiator<T>(agent: Agent, operation: () => T): T {
+    return this.runWithInitiator(agent, operation)
+  }
+
+  /**
+   * Run an operation inside a boundary that hides any inherited initiating
+   * Agent. The exact synchronous value or Promise is preserved.
+   * Use this while creating lazy shared timers, queue pumps, pool maintenance,
+   * watchers, or exporters so they do not inherit the first Agent that happens
+   * to initialize them. It clears only initiator attribution, not explicit
+   * fields, and does not own or drain detached resources.
+   * @param operation - synchronous or asynchronous operation to invoke without an initiator.
+   * @returns the exact value returned by `operation`.
+   * @throws when the initiator scope is closing/disposed, or when `operation` throws.
+   */
+  withoutInitiator<T>(operation: () => T): T {
+    return this.runWithInitiator(undefined, operation)
+  }
+
+  /**
+   * Register the agent-creation factory (the loop calls this on construction,
+   * effect-scoped). A traced Cordis service is canonicalized to its concrete
+   * target; each create/resume call is then traced through that caller's
+   * context so ownership follows the caller without stacking proxy layers.
+   * Throws if a factory is already registered. Returns the disposer; on
+   * dispose the factory slot is cleared.
    * @param factory - the loop-owned factory {@link create}/{@link resume} delegate to.
-   * @returns the exact Cordis effect disposer.
+   * @returns the disposer that clears the factory slot. The exact
+   *   Cordis effect disposer (single-shot): composite (generator) effects may
+   *   yield it directly — exact identity nests the teardown in order.
    */
   setFactory(factory: AgentFactory): () => void {
     const dispose = this.ctx.effect(() => {
       if (this.factory !== undefined) throw new Error('an agent factory is already registered')
-      // Store the concrete service; calls are retraced through their owner.
+      // Avoid stacking two Cordis shadow layers when a caller passes a Service
+      // already read through a context. Calls are re-traced through their
+      // actual owner context below.
       const target = (factory as AgentFactory & { [symbols.original]?: AgentFactory })[symbols.original] ?? factory
       this.factory = { target }
       return () => { this.factory = undefined }
     }, 'agents.setFactory()')
-    // Return the exact disposer so composite effects preserve teardown order.
+    // The exact cordis effect disposer (the agents.register() convention): a
+    // caller's composite effect can yield it for in-order teardown; the
+    // loop's constructor effect returns it directly, identity-nesting the
+    // registration under that effect.
     // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
@@ -169,14 +349,20 @@ export class AgentRegistry extends Service {
   }
 
   /**
-   * Create and publish an owned agent and session through the active factory.
-   * Rejects if no factory is registered or creation, setup, or publication fails.
-   * @param options - agent id, session id/seed/metadata, and agent options.
+   * Create and publish a new agent through the registered factory.
+   * Distinct from {@link register} (which records an already-constructed
+   * agent): this constructs the agent and its session. Rejects if no factory is
+   * registered or creation/setup fails. The resolved {@link AgentHandle} lets
+   * the owner tear down exactly this agent.
+   * @param options - shared identity, session seed/metadata, and agent options.
    * @returns the handle after setup, rollback-covered publication, and loop start complete.
    */
   async create(options: CreateAgentOptions): Promise<AgentHandle> {
     const ownerCtx = this.ctx
-    // Bind service effects to this caller while preserving factory dependencies.
+    // Re-trace a Service-backed factory through the accessing context
+    // explicitly. This preserves AgentLoop's dependency origin while binding
+    // its effects to ownerCtx; plain factories receive ownerCtx as an explicit
+    // capability and need no Cordis tracker magic.
     const { target } = this.requireFactory()
     const receiver = getTraceable(ownerCtx, target)
     // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflect.apply intentionally supplies the caller-traced receiver
@@ -199,14 +385,26 @@ export class AgentRegistry extends Service {
   }
 
   /**
-   * Register a live agent in the calling effect scope, with scope-filtered
-   * creation and disposal events. Duplicate ids throw.
+   * Register a live agent. Throws if an agent with the same id is already
+   * registered. Emits `agent/created` on registration and `agent/disposed`
+   * when the calling fiber is disposed — both with the agent's scope carrier
+   * (`scopeTarget(agent, agent)`): the subject is the agent in hand, so the
+   * emits are scope-filtered regardless of which context invoked `register`
+   * (calling through `agent.ctx` scopes EFFECTS; dispatch scoping always
+   * requires passing the carrier). Returns the disposer.
    * @param agent - the already-constructed agent to record in the store.
-   * @returns the exact Cordis effect disposer for nested teardown ordering.
+   * @returns the EXACT Cordis effect disposer (single-shot; a repeat call
+   *   returns undefined without awaiting an in-flight teardown). Exact
+   *   identity is load-bearing: a composite (generator) effect that owns a
+   *   teardown ORDER — the agent factory's lifecycle chain — must yield THIS
+   *   function so Cordis nests the unregistration at that yield position;
+   *   yielding a wrapper would leave it disposing as a concurrent sibling on
+   *   owner unload, unregistering the agent (and emitting `agent/disposed`)
+   *   while its final turn is still draining.
    */
   register(agent: Agent): () => void {
     const dispose = this.ctx.effect(function* (this: AgentRegistry) {
-      yield this.enter(agent)
+      yield this.enter(agent, this.ctx.agent)
       this.announce(agent)
     }.bind(this), 'agents.register()')
     // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
@@ -214,31 +412,48 @@ export class AgentRegistry extends Service {
   }
 
   /**
-   * Insert an unpublished agent for an ordered factory transaction.
+   * Insert an already-constructed agent without announcing it. This is the
+   * advanced ordered-lifecycle primitive used by the async agent factory: it
+   * first completes setup while the agent is unpublished, then assigns the
+   * returned detach closure into its pre-installed composite teardown before
+   * calling {@link announce}. Ordinary callers use {@link register}.
    * @param agent - the prepared, unpublished agent.
-   * @returns an idempotent closure that removes this exact entry and emits the
-   * paired disposal edge; detachment during creation dispatch is deferred.
+   * @param owner - live agent whose scoped context created this agent, or
+   *   undefined for a top-level runtime root. This is runtime ownership, not
+   *   the resumed session's durable parent lineage.
+   * @returns an idempotent closure that removes this exact entry and emits
+   *   `agent/disposed` with listener failures contained. When called from a
+   *   synchronous `agent/created` listener, removal and disposal wait until
+   *   that creation dispatch unwinds.
    */
-  enter(agent: Agent): () => void {
+  enter(agent: Agent, owner: Agent | undefined): () => void {
     const id = agent.id
+    if (id !== agent.session.id) {
+      throw new Error(`agent id "${id}" does not match session id "${agent.session.id}"`)
+    }
     const carrier = scopeTarget(agent, agent)
-    // Prepared transactions arbitrate identity at this publication boundary.
-    if (this.entries.has(agent) || this.store.has(id)) throw new Error(`agent "${id}" is already registered`)
+    // This is the authoritative collision boundary. Concurrent create/resume
+    // operations may both prepare, but only one exact entry can publish.
+    if (this.store.has(id)) throw new Error(`agent "${id}" is already registered`)
     const entry: AgentEntry = {
       id,
       agent,
+      owner,
       carrier,
       announced: false,
       announcing: false,
       detachRequested: false,
     }
     this.store.set(id, entry)
-    this.entries.set(agent, entry)
     let entered = true
     const detach = (): void => {
       if (!entered) return
       entered = false
-      // Creation listeners observe one stable entry before paired disposal.
+      // Every callback reached by this creation dispatch must observe the same
+      // live entry, and disposal must follow creation. A listener may own
+      // the advanced detach capability, so make that ordering structural:
+      // visibility and the paired disposal are deferred until announce()'s
+      // synchronous dispatch has unwound.
       if (entry.announcing) {
         entry.detachRequested = true
         return
@@ -256,7 +471,6 @@ export class AgentRegistry extends Service {
     /* v8 ignore next -- enter() rejects replacement while this single-shot detach capability is live. */
     if (this.store.get(entry.id) !== entry) return
     this.store.delete(entry.id)
-    this.entries.delete(entry.agent)
     // An insertion rolled back before announce was never externally created,
     // so emitting disposed would invent an impossible lifecycle edge. Marking
     // happens before the created emit: if a later created listener throws,
@@ -288,8 +502,8 @@ export class AgentRegistry extends Service {
    *   creation listener).
    */
   announce(agent: Agent): void {
-    const entry = this.entries.get(agent)
-    if (entry === undefined || this.store.get(entry.id) !== entry) {
+    const entry = this.store.get(agent.id)
+    if (entry === undefined || entry.agent !== agent) {
       throw new Error(`agent "${agent.id}" is not live in this registry`)
     }
     if (entry.announced || entry.announcing) {
@@ -318,11 +532,23 @@ export class AgentRegistry extends Service {
 
   /**
    * Look up a live agent.
-   * @param id - the agent id to look up.
+   * @param id - the shared agent/session id to look up.
    * @returns the agent, or undefined when no live agent has that id.
    */
-  get(id: AgentId): Agent | undefined {
+  get(id: SessionId): Agent | undefined {
     return this.store.get(id)?.agent
+  }
+
+  /**
+   * Test whether a live agent was created through one exact parent agent's
+   * scoped context. Runtime ownership is independent of durable session
+   * lineage and remains unambiguous when unrelated providers reuse an id.
+   * @param id - the candidate child agent's shared agent/session id.
+   * @param owner - the expected runtime creator agent.
+   * @returns true only while the exact child entry is live under that owner.
+   */
+  isOwnedBy(id: SessionId, owner: Agent): boolean {
+    return this.store.get(id)?.owner === owner
   }
 
   /**
@@ -331,6 +557,104 @@ export class AgentRegistry extends Service {
    */
   list(): Agent[] {
     return [...this.store.values()].map(entry => entry.agent)
+  }
+
+  /**
+   * All live top-level agents in registration order. A top-level agent was
+   * created without an owning agent context; durable session lineage does not
+   * affect this runtime relation, so a resumed fork may still be a root.
+   * @returns a fresh array; mutating it does not affect the registry.
+   */
+  roots(): Agent[] {
+    return [...this.store.values()]
+      .filter(entry => entry.owner === undefined)
+      .map(entry => entry.agent)
+  }
+
+  /** Reject new initiator boundaries while inherited continuations drain. */
+  private closeInitiators(): void {
+    if (this.initiatorState === 'active') this.initiatorState = 'closing'
+  }
+
+  /** Wait for returned-Promise boundaries, then invalidate retained references. */
+  private disposeInitiators(): Promise<void> {
+    return (this.initiatorDisposal ??= (async () => {
+      this.closeInitiators()
+      this.releaseReentrantInitiatorRuns()
+      if (this.activeInitiatorRuns !== 0) {
+        this.initiatorDrain ??= Promise.withResolvers<void>()
+        await this.initiatorDrain.promise
+      }
+      this.initiatorState = 'disposed'
+      this.initiators.disable()
+      this.initiatorRuns.disable()
+    })())
+  }
+
+  /** Establish one tracked initiator or clearing boundary. */
+  private runWithInitiator<T>(agent: Agent | undefined, operation: () => T): T {
+    if (this.initiatorState !== 'active') throw new Error(DISPOSED_INITIATOR_MESSAGE)
+    const run: InitiatorRun = {
+      active: true,
+      parent: this.initiatorRuns.getStore(),
+    }
+    this.activeInitiatorRuns += 1
+    let result: T
+    try {
+      result = this.initiatorRuns.run(run, () => this.initiators.run(agent, operation))
+    } catch (error: unknown) {
+      this.releaseInitiatorRun(run)
+      throw error
+    }
+    if (isPromise(result)) {
+      try {
+        void Promise.prototype.then.call(
+          result,
+          () => { this.releaseInitiatorRun(run) },
+          () => { this.releaseInitiatorRun(run) },
+        )
+      } catch {
+        // A branded Promise may expose a failing @@species. Observer setup did
+        // not attach, so preserve the exact return without leaking the run.
+        this.releaseInitiatorRun(run)
+      }
+    } else {
+      this.releaseInitiatorRun(run)
+    }
+    return result
+  }
+
+  /** Whether one unloading fiber owns this service's lifecycle. */
+  private hasLifecycleAncestor(candidate: Fiber): boolean {
+    let fiber = this.ctx.fiber
+    while (true) {
+      if (fiber === candidate) return true
+      const parent = fiber.parent.fiber
+      if (parent === fiber) return false
+      fiber = parent
+    }
+  }
+
+  private assertInitiatorsReadable(): void {
+    if (this.initiatorState === 'disposed') throw new Error(DISPOSED_INITIATOR_MESSAGE)
+  }
+
+  /** Exclude the boundary chain that initiated this teardown from its own drain. */
+  private releaseReentrantInitiatorRuns(): void {
+    let run = this.initiatorRuns.getStore()
+    while (run !== undefined) {
+      this.releaseInitiatorRun(run)
+      run = run.parent
+    }
+  }
+
+  private releaseInitiatorRun(run: InitiatorRun): void {
+    if (!run.active) return
+    run.active = false
+    this.activeInitiatorRuns -= 1
+    if (this.activeInitiatorRuns !== 0) return
+    this.initiatorDrain?.resolve()
+    this.initiatorDrain = undefined
   }
 }
 

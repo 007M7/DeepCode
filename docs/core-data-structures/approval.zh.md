@@ -8,15 +8,23 @@
 
 ## 标识与结果
 
-每个请求获得一个全新的 `ApprovalRequestId`。该品牌类型将 `approval/asked` 和 `approval/decided` 审计事件配对，同时确保审批 id 不会与 tool-call、session 或 agent id 混用。
+每个请求都会获得一个全新的 `ApprovalRequestId`。该品牌类型将 `approval/asked` 与 `approval/decided` 审计事件配对，同时不会让审批 id 与工具调用 id 或 agent/session id 互换。
 
 ```ts type-equiv
+/**
+ * Pairs one `approval/asked` audit event with its `approval/decided`.
+ * Service-issued (one fresh id per {@link ApprovalService.request} call).
+ */
 type ApprovalRequestId = Branded<'ApprovalRequestId'>
 ```
 
 `ApprovalOutcome` 是闭合的，且默认拒绝。`allowed-once` 仅授权所询问的那一个操作；调用方对 `rejected`、`cancelled` 和 `unavailable` 均执行拒绝。缺失、无所有权、抛异常或不合规的应答者会产生 `unavailable`，而非放行。
 
 ```ts type-equiv
+/**
+ * Closed approval outcomes: a one-shot grant, explicit rejection, withdrawn
+ * request, or unavailable answerer. Callers fail closed on `unavailable`.
+ */
 type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 ```
 
@@ -25,6 +33,18 @@ type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 `ApprovalPolicy` 决定在交互式应答者运行之前发生什么。`ask` 委托给组合的应答者链，链的无应答默认值为 `unavailable`；`never` 确定性地返回 `rejected`，不分发任何应答者。生效值为会话日志中最后一条 `approval/policy` 事件，回退到服务配置。`setApprovalPolicy(session, policy)` 是唯一的写入路径，因此回放能重建覆盖值。
 
 ```ts type-equiv
+/**
+ * A session's approval policy — what happens to an {@link ApprovalService}
+ * ask BEFORE any interactive answerer sees it:
+ *
+ * - `'ask'` (the default) — delegate to the composed answerers; with none
+ *   composed the chain falls through to the fail-closed `'unavailable'`
+ *   (exactly today's behavior).
+ * - `'never'` — never prompt anyone: every ask resolves `'rejected'`
+ *   deterministically. The strict headless stance (CI, unattended runs) and
+ *   the only policy value stated in the system prompt — unlike `'ask'`, its
+ *   outcome is knowable without asking, so stating it cannot overclaim.
+ */
 type ApprovalPolicy = 'ask' | 'never'
 ```
 
@@ -35,6 +55,10 @@ type ApprovalPolicy = 'ask' | 'never'
 `ApprovalRequest` 以足够精确的方式标识 agent 和工具操作，以便路由和审计该问题。它有意省略工具参数：应答者通过 `callId` 将提示附加到已流式输出的工具调用上，而非渲染一份可能漂移的副本。
 
 ```ts type-equiv
+/**
+ * Readonly same-process permission question. `callId` links to an already
+ * presented tool call, so arguments are not duplicated here.
+ */
 interface ApprovalRequest {
   /**
    * The agent on whose behalf the question is asked. Routes the question (a

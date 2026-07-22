@@ -12,10 +12,12 @@ import { join } from 'node:path'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+
+const testToolSignal = new AbortController().signal
 
 let dir: string
 let ctx: Context
@@ -26,6 +28,7 @@ const session = { header: {} }
 let callCounter = 0
 function call(name: string, args: unknown) {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId(`call-${++callCounter}`),
     name,
     arguments: args,
@@ -299,6 +302,7 @@ describe('per-session cwd', () => {
 
   const callIn = (sessionObj: object, name: string, args: unknown) =>
     ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId(`call-${++callCounter}`),
       name,
       arguments: args,
@@ -344,26 +348,25 @@ describe('signal, concurrency, and the fs/observed contract', () => {
   const callSig = (signal: AbortSignal, name: string, args: unknown) =>
     ctx.tools.execute({ callId: CallId(`c-${++callCounter}`), name, arguments: args, agent: { session } as never, signal })
   const callOwned = (name: string, args: unknown) =>
-    ctx.tools.execute({ callId: CallId(`c-${++callCounter}`), name, arguments: args, agent: { session } as never })
+    ctx.tools.execute({ signal: testToolSignal, callId: CallId(`c-${++callCounter}`), name, arguments: args, agent: { session } as never })
 
-  it('a pre-aborted signal makes read/write/edit return isError FS_ABORTED', async () => {
+  it('a pre-aborted registry call skips read/write/edit with ABORTED_BEFORE_DISPATCH', async () => {
     await writeFile(join(dir, 'a.txt'), 'hello')
     const read = await callSig(AbortSignal.abort(), 'read', { file_path: 'a.txt' })
     expect(read.isError).toBe(true)
-    expect(read.error).toMatchObject({ code: 'FS_ABORTED' })
+    expect(read.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
 
     const write = await callSig(AbortSignal.abort(), 'write', { file_path: 'new.txt', content: 'x' })
     expect(write.isError).toBe(true)
-    expect(write.error).toMatchObject({ code: 'FS_ABORTED' })
+    expect(write.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
     await expect(readFile(join(dir, 'new.txt'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
 
     // Read first (un-aborted, SAME session owner) so the edit clears the
-    // observation gate; then the aborted edit fails on the signal, not on
-    // FS_NOT_OBSERVED.
+    // observation gate; then the registry skips the aborted edit before its body.
     expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
     const edit = await callSig(AbortSignal.abort(), 'edit', { file_path: 'a.txt', old_string: 'hello', new_string: 'bye' })
     expect(edit.isError).toBe(true)
-    expect(edit.error).toMatchObject({ code: 'FS_ABORTED' })
+    expect(edit.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello') // unchanged
   })
 
@@ -382,6 +385,33 @@ describe('signal, concurrency, and the fs/observed contract', () => {
     // The world is consistent: exactly one edit landed.
     const onDisk = await readFile(join(dir, 'a.txt'), 'utf8')
     expect(onDisk === 'ONE value here' || onDisk === 'base TWO here').toBe(true)
+  })
+
+  it('a stale observed version from an older read fails closed at edit CAS', async () => {
+    await writeFile(join(dir, 'a.txt'), 'older content\n')
+    const target = await ctx.fs.resolve('a.txt')
+    const firstInfo = await ctx.fs.stat(target)
+    if (!firstInfo) throw new Error('expected first stat')
+
+    expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
+
+    await writeFile(join(dir, 'a.txt'), 'newer current content\n')
+    const secondInfo = await ctx.fs.stat(target)
+    if (!secondInfo) throw new Error('expected second stat')
+    expect(secondInfo.version).not.toBe(firstInfo.version)
+    expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
+
+    // Reproduce an older concurrent read winning the observation race.
+    ctx.emit('fs/observed', target, firstInfo.version, { agent: { session } })
+
+    const edit = await callOwned('edit', {
+      file_path: 'a.txt',
+      old_string: 'newer',
+      new_string: 'edited',
+    })
+    expect(edit.isError).toBe(true)
+    expect(edit.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('newer current content\n')
   })
 
   it('a throwing fs/observed listener surfaces as isError, but the mutation already hit disk', async () => {

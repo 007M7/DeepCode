@@ -16,6 +16,15 @@
     },
     {
       "path": "../../../vendor/include"
+    },
+    {
+      "path": "../../support/invariants"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../util/paths"
     }
   ]
 }

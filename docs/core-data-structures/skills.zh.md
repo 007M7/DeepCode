@@ -13,9 +13,25 @@
 重名按 rank、提供方顺序、本地顺序依次解决；摘要按名称排序。`list()` 拒绝时记录日志并跳过，不缓存降级后的目录；格式错误的候选项快速失败。
 
 ```ts type-equiv
+/** Provider interface for one source of skills, such as local directories or a remote registry. */
 interface SkillProvider {
+  /** Unique provider name in the `ctx.skills` registry. */
   readonly name: string
+  /**
+   * List available skill candidates for the current lookup context. Provider
+   * plugins register synchronously during `apply()`; remote initialization,
+   * authentication, and discovery are awaited inside this method. Implementations
+   * should settle promptly when `options.signal` aborts.
+   * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
+   * @returns provider candidates with precedence ranks and opaque locators.
+   */
   readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[]>
+  /**
+   * Load a complete skill body for a previously listed candidate.
+   * @param candidate - the winning candidate originally returned by this provider.
+   * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
+   * @returns the full skill body, or `undefined` if it is no longer loadable.
+   */
   readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>
 }
 ```
@@ -39,6 +55,7 @@ interface SkillProvider {
 skill 名称为 kebab-case（`^[a-z0-9]+(?:-[a-z0-9]+)*$`）。本地提供方接受目录包（`<name>/SKILL.md`）和扁平 Markdown 文件（`<name>.md`）。嵌套递归的 `**/SKILL.md` 发现有意不在 v1 范围内。
 
 ```ts type-equiv
+/** Origin bucket for a skill contribution. The value is prompt-visible metadata, not precedence by itself. */
 type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | (string & {})
 ```
 
@@ -47,13 +64,21 @@ type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | '
 `SkillSummary` 是注册表中可供模型调用的摘要形状。消费方自行选择渲染哪些字段；会话目录仅使用 `name` 和 `description`，从不使用 body 或绝对文件路径。`disableModelInvocation` 将 skill 从模型列表中隐藏，但允许受信代码按名称加载。
 
 ```ts type-equiv
+/** Model-visible skill metadata returned by `ctx.skills.list()` and rendered into request guidance. */
 interface SkillSummary {
+  /** Kebab-case identifier used with the `skill` tool. */
   readonly name: string
+  /** Short routing description shown to the model. */
   readonly description: string
+  /** Optional extra routing guidance shown to the model. */
   readonly whenToUse?: string
+  /** Whether the skill is hidden from model listings while remaining loadable by trusted callers. */
   readonly disableModelInvocation?: boolean
+  /** Discovery source that produced this winning skill. */
   readonly source: SkillSource
+  /** Provider that owns this skill body. */
   readonly provider: string
+  /** Provider-specific base for relative resources. */
   readonly resourceBase?: SkillResourceBase
 }
 ```
@@ -61,10 +86,15 @@ interface SkillSummary {
 `SkillCandidate` 是提供方到注册表的形状。`locator` 是提供方的不透明状态；注册表只存储它并在调用获胜提供方的 `get()` 时传回。
 
 ```ts type-equiv
+/** Provider catalog entry used by the registry to merge and later load skills. */
 interface SkillCandidate extends SkillSummary {
+  /** Lower ranks win duplicate skill names before provider registration order is considered. */
   readonly rank: number
+  /** Opaque provider-owned handle passed back to `provider.get()`. */
   readonly locator: unknown
+  /** Absolute file path when the provider has one. */
   readonly path?: string
+  /** Parsed optional metadata object from provider-specific skill frontmatter. */
   readonly metadata?: Readonly<Record<string, unknown>>
 }
 ```
@@ -72,6 +102,7 @@ interface SkillCandidate extends SkillSummary {
 `SkillDefinition` 是 `ctx.skills.get()` 返回的完整解析结果，供 `skill` 工具使用。`resourceBase` 告知工具如何为本地、URL 或提供方管理的 skill 渲染相对资源引导。
 
 ```ts type-equiv
+/** Optional provider-specific base used by loaded skill bodies to resolve relative resources. */
 type SkillResourceBase =
   | { readonly kind: 'directory'; readonly path: string }
   | { readonly kind: 'url'; readonly url: string }
@@ -79,9 +110,13 @@ type SkillResourceBase =
 ```
 
 ```ts type-equiv
+/** Complete parsed skill definition, including the body loaded by `ctx.skills.get()`. */
 interface SkillDefinition extends SkillSummary {
+  /** Markdown instruction body after any provider-specific metadata removal. */
   readonly content: string
+  /** Absolute file path when the skill came from disk. */
   readonly path?: string
+  /** Parsed optional metadata object from frontmatter. */
   readonly metadata?: Readonly<Record<string, unknown>>
 }
 ```
@@ -89,9 +124,8 @@ interface SkillDefinition extends SkillSummary {
 运行时 skill 使用相同的完整形状，参与相同的先到先得收集顺序。返回的 disposer 移除该贡献并使发现缓存失效。
 
 ```ts type-equiv
-type SkillRegistration = Omit<SkillDefinition, 'provider'> & {
-  readonly provider?: string
-}
+/** Runtime skill contribution accepted by `ctx.skills.register()`. */
+type SkillRegistration = Omit<SkillDefinition, 'provider'> & { readonly provider?: string }
 ```
 
 ## 查找与配置
@@ -99,8 +133,11 @@ type SkillRegistration = Omit<SkillDefinition, 'provider'> & {
 skill 查找对 cwd 敏感，因为提供方可能暴露工作区本地的 skill；可选的 signal 为调用方取消提供方的工作。提供方接收与缓存标识和加载相同的只读选项对象。取消在目录选择前后（包括缓存命中时）都会检查，并与发现和完整定义加载竞争。如果找不到 git root，本地提供方将所提供的 cwd 本身视为项目根目录。
 
 ```ts type-equiv
+/** Caller context used for cwd-sensitive and abortable provider work. */
 interface SkillLookupOptions {
+  /** Workspace selector for the current lookup. */
   readonly cwd?: string | undefined
+  /** Abort discovery or loading work for the current caller. */
   readonly signal?: AbortSignal | undefined
 }
 ```
@@ -108,13 +145,15 @@ interface SkillLookupOptions {
 注册表只拥有其发现缓存上限。本地提供方拥有文件系统根目录（`dshHome`、`agentsHome` 与 `customSkillDirs`）。消费方拥有其目录描述上限。
 
 ```ts type-equiv
+/** Skill registry configuration. */
 interface Config {
+  /** Maximum number of completed cwd/provider catalogs kept in memory. */
   readonly collectCacheMaxEntries?: number
 }
 ```
 
 ## 会话目录与工具契约
 
-`dsh-tool-skill` 通过 `agent/session-prefix` 贡献一条 user-role 的 `<system-reminder>`。目录包含排序后的 skill `name` 和经过规范化、XML 转义的 `description`；不包含 body、路径、来源、提供方和路由提示。前缀发现通过 `SkillLookupOptions` 转发调用方的 abort signal。`catalogDescriptionMaxLength` 是消费方配置的描述上限，默认值 `500`，整数最小值 `3`。其仅请求级别、记录于 header 的生命周期由 [session-prefix RFC](../rfc/implemented/feature/2026-07-07-session-prefix.md) 定义。
+`dsh-tool-skill` 通过 `agent/session-prefix` 贡献一条 user-role `<system-reminder>`。目录只包含已排序的 skill `name` 和规范化、经 XML 转义的 `description`；不包含正文、路径、来源、提供方或路由提示。Prefix 发现通过 `SkillLookupOptions` 转发调用方的 abort signal。`catalogDescriptionMaxLength` 是消费方用于 description 上限的配置，默认值为 `500`，整数最小值为 `3`。其仅用于请求、记录在 header 中的生命周期由 [session-prefix Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-07-session-prefix.md)定义。
 
 面向模型的 `skill({ name })` 工具校验 kebab-case 名称，为调用方 agent 的 cwd 加载完整定义，将未解析的 skill 报告为 unknown 或 no longer available，拒绝 `disableModelInvocation` 的 skill，并返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 仅按需解析显式引用的脚本、参考资料和资产；加载结果不枚举 skill 目录。工具结果是模型获取完整指令的可见路径。

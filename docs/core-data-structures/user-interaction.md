@@ -2,7 +2,7 @@
 
 English | [中文](user-interaction.zh.md)
 
-The user-interaction seam of [dsh-user-interaction](../../packages/ui/user-interaction). It is the provider-neutral vocabulary a tool or permission plugin uses when it needs the human to answer before the agent can continue. UI surfaces provide the active `UserInteractionProvider`: `dsh-stdio-demo` renders questions in readline, and `dsh-acp` maps them to ACP form elicitations.
+The user-interaction seam of [dsh-user-interaction](../../packages/ui/user-interaction). It is the provider-neutral vocabulary a tool or permission plugin uses when it needs the human to answer before the agent can continue. UI surfaces provide the active `UserInteractionProvider`: `dsh-tui` uses keyboard-driven overlays, and `dsh-acp` maps questions to ACP form elicitations.
 
 Source: [`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-interaction/src/index.ts)
 
@@ -11,6 +11,7 @@ Source: [`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-int
 `AskUserQuestionOption` is the selectable-choice shape. `label` is the user-facing option text and also the model-facing selected value; `description` is optional UI help text.
 
 ```ts type-equiv
+/** One selectable answer offered to the user. */
 interface AskUserQuestionOption {
   /** User-facing label. */
   label: string
@@ -21,14 +22,17 @@ interface AskUserQuestionOption {
 
 ## Question item
 
-`AskUserQuestionItem` is one question in a request. The model supplies a stable `id`, which is echoed back with the answer so batched questions remain routable.
+`AskUserQuestionItem` is one question in a request. The caller supplies a stable `id`, which is echoed back with the answer so batched questions remain routable. Optional `detail` carries supporting text that providers render with the question but keep out of selectable option labels.
 
 ```ts type-equiv
+/** One question in a user-interaction request. */
 interface AskUserQuestionItem {
-  /** Stable model-provided question id, echoed in the answer. */
+  /** Stable caller-provided question id, echoed in the answer. */
   id: string
   /** The question to display. */
   question: string
+  /** Optional supporting detail rendered with the question but kept out of option labels. */
+  detail?: string
   /** Optional short heading/group label. */
   header?: string
   /** Optional choices the UI can render as a menu. */
@@ -43,6 +47,7 @@ interface AskUserQuestionItem {
 `AskUserQuestionRequest` is the cross-package request. `questions` is an array so a UI can present related prompts in one flow while preserving a stable id per answer.
 
 ```ts type-equiv
+/** Request for a human answer. */
 interface AskUserQuestionRequest {
   /** Questions to display. */
   questions: AskUserQuestionItem[]
@@ -58,6 +63,7 @@ interface AskUserQuestionRequest {
 Providers return one answer per answered question id. `selected` contains selected option labels, and `custom` carries a free-form "Other" answer when the user typed one. When `custom` is present, `selected` is empty; custom text is an answer override, not a supplement to selected choices.
 
 ```ts type-equiv
+/** Answer to one question. */
 interface AskUserQuestionAnswerItem {
   /** The answered question id. */
   id: string
@@ -69,6 +75,7 @@ interface AskUserQuestionAnswerItem {
 ```
 
 ```ts type-equiv
+/** The human's answer. */
 interface AskUserQuestionAnswer {
   /** Structured answers keyed by question id. */
   answers: AskUserQuestionAnswerItem[]
@@ -80,6 +87,7 @@ interface AskUserQuestionAnswer {
 Only one provider may be active in a context. Provider registration is effect-bound so HMR/disposal removes the active UI.
 
 ```ts type-equiv
+/** UI-side provider for user questions. */
 interface UserInteractionProvider {
   ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 }
@@ -90,6 +98,7 @@ interface UserInteractionProvider {
 `UserInteractionError` extends `HarnessError`, so `ctx.tools.execute()` preserves `{ name, code }` for model-facing tool failures such as `EMPTY_QUESTIONS`, `NO_PROVIDER`, `ASK_ABORTED`, or ACP-side cancellation.
 
 ```ts type-equiv
+/** Stable error taxonomy for user-interaction failures. */
 class UserInteractionError extends HarnessError {
   constructor(message: string, code: string, options?: ErrorOptions) {
     super(message, code, options)

@@ -1,0 +1,31 @@
+/* Amber pending strip (approval waiting = warn semantic, figma state colors). */
+
+.card {
+  margin: 6px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-state-warn-secondary);
+  border-radius: 10px;
+  background: var(--dsw-alias-state-warn-tertiary);
+}
+
+.title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.mono {
+  font-family: var(--ds-font-family-code);
+}
+
+.reason {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
