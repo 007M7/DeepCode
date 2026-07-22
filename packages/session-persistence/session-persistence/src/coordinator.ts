@@ -125,6 +125,11 @@ function assertSupportedEvents(events: readonly SessionEvent[], id: SessionId): 
   if (legacy !== undefined) {
     throw new Error(`session "${id}" contains unsupported legacy request/header-delta event at seq ${legacy.seq}`)
   }
+  const legacyModeType: string = 'mode/set'
+  const legacyMode = events.find(event => event.type === legacyModeType)
+  if (legacyMode !== undefined) {
+    throw new Error(`session "${id}" contains unsupported legacy mode/set event at seq ${legacyMode.seq}`)
+  }
   const fallback = events.find(event => event.type === 'request/header'
     && (event.data as { reason?: string }).reason === 'fallback')
   if (fallback !== undefined) {
