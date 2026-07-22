@@ -165,6 +165,8 @@ Adapters emit a raw **chunk** protocol; the loop logs the chunks (replay fidelit
 
 The full union, the adapter contract (usage-before-finish, raw-JSON tool arguments, the two sanctioned error paths), and `BlockAssembler` live on **[llm-streaming.md](llm-streaming.md)**.
 
+<a id="the-model-request-and-result"></a>
+
 ## The model request
 
 One model call is a fully-assembled `GenerateOptions`. The adapter answers with a raw `StreamChunk` stream; the consumer assembles it with `BlockAssembler` (see [llm-streaming.md](llm-streaming.md)).

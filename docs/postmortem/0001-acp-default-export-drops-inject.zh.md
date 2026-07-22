@@ -76,7 +76,7 @@ while (true) {
 
 遍历**仅向祖先方向**进行。`sessionPersistence` 既不在 `AgentLoop` 的 fiber store 中（不在其 `static inject` 中），也不在通往 root 的任何祖先上（它位于一个*兄弟*分支），因此遍历到达根 fiber 后抛错。
 
-为什么内存中的 `AgentLoop` resume 测试没有捕获这个问题？因为它们从测试代码直接调用 `ctx.agents.resume(...)`——*在任何插件 fiber 之外*。此时 `ctx.fiber.runtime` 为 `null`，代理处理器走了一条提前绕过的路径：
+为什么内存中的 `AgentLoop` 恢复测试没有捕获这个问题？因为它们从测试代码直接调用 `ctx.agents.resume(...)`——*在任何插件 fiber 之外*。此时 `ctx.fiber.runtime` 为 `null`，代理处理器走了一条提前绕过的路径：
 
 ```ts ignore-check
 if (!ctx.fiber.runtime) return ctx.reflect.get(prop, false)   // ← direct global-store lookup, no fiber walk
@@ -91,7 +91,7 @@ if (!ctx.fiber.runtime) return ctx.reflect.get(prop, false)   // ← direct glob
 两个 bug 共享同一个流程缺口：**没有任何测试通过插件的真实加载路径或真实调用拓扑来驱动它。**
 
 - 内存 harness 通过手动构建插件对象来挂载 bridge：`ctx.plugin({ name, inject, apply })`。这手动提供了 `inject`，因此永远无法复现 Bug #1——`unwrapExports` 只被 *Loader* 调用，`ctx.plugin` 从不调用它。即使 `ctx.plugin(NamespaceImport)` 也无法捕获。
-- 同一个 harness 将所有内容平铺挂载在一个根上下文上，因此从中触达的 `AgentLoop` resume 要么运行在顶层（`!runtime` 绕过），要么通过一个 origin 仍然解析在 root 上的 shadow——掩盖了 Bug #2 的祖先遍历失败。
+- 同一个 harness 将所有内容平铺挂载在一个根上下文上，因此从中触达的 `AgentLoop` 恢复要么运行在顶层（`!runtime` 绕过），要么通过一个 origin 仍然解析在 root 上的 shadow——掩盖了 Bug #2 的祖先遍历失败。
 - 唯一的无 key e2e 发送 `initialize` 并检查 stdout 纯净性。`initialize` 从不触达 factory，因此两个 bug 都安然通过。
 - 唯一驱动 `session/new`/`session/load` 的测试需要 key 才能运行，因此 CI（无 key）跳过了它——而本地它之所以「通过」，只是因为一个陈旧的已构建 `lib/`（包含旧代码）恰好满足了模块解析。
 

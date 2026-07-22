@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 bash.md: 35cf2061588907dde41123efb01e453eb9cc929d
-bash.zh.md: 56e5ae7b6231575a6b591093724d5560ade27056
+bash.zh.md: 2b388bd51047219ed46faa07313bb84da1dbb080

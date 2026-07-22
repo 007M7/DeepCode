@@ -4,13 +4,13 @@
 
 工作流 seam：一个 agent（智能体）运行由模型编写的编排脚本（SCRIPT），扇出 subagent。与 [subagent](subagent.md) 一样，它是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此处而非 [core.md](core.md)。与 subagent 注册表不同，它采用 bash 形态：每个上下文只有一个引擎实现提供 `ctx.workflows`；没有命名提供方注册表（第二个引擎是插件替换，而非共存）。
 
-接口：[dsh-workflow](../../packages/workflow/workflow)（`ctx.workflows` + 下文词汇）。实现是 [dsh-workflow-workerthread](../../packages/workflow/workflow-workerthread)（一个 `node:worker_threads` 引擎——每个 run 一个 worker，脚本的 vm context 位于其中）；面向模型的消费方是 [dsh-tool-workflow](../../packages/workflow/tool-workflow)。提案与设计理由见 [dynamic-workflows Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md)。
+接口：[dsh-workflow](../../packages/workflow/workflow)（`ctx.workflows` + 下文词汇）。实现是 [dsh-workflow-workerthread](../../packages/workflow/workflow-workerthread)（一个 `node:worker_threads` 引擎——每个 run 一个 worker，脚本的 vm 上下文位于其中）；面向模型的消费方是 [dsh-tool-workflow](../../packages/workflow/tool-workflow)。提案与设计理由见 [dynamic-workflows Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-07-05-dynamic-workflows.md)。
 
 源码：[`packages/workflow/workflow/src/types.ts`](../../packages/workflow/workflow/src/types.ts)
 
 ## 启动请求
 
-调用方启动 run 时提出的请求。普通 workflow 工具根据模型的 `{ script, meta, args }` 调用与发起调用的 agent 构建它；专用消费方还可以为该 run 选择一个引擎级 `subagentProvider` 并调低 `maxTotalAgents`，但脚本无法观察或替换这两项策略。`meta` 与 `args` 是普通 JSON 数据（引擎会对 `meta` 做形状校验，并在任何内容运行前大声拒绝——绝不会通过求值脚本文本来获取它）。`parent` 是必填字段——脚本生成的每个子 agent 都归属于它（cwd、谱系与深度通过 [subagent seam](subagent.md) 流转）。
+调用方启动 run 时提出的请求。普通工作流工具根据模型的 `{ script, meta, args }` 调用与发起调用的 agent 构建它；专用消费方还可以为该 run 选择一个引擎级 `subagentProvider` 并调低 `maxTotalAgents`，但脚本无法观察或替换这两项策略。`meta` 与 `args` 是普通 JSON 数据（引擎会对 `meta` 做形状校验，并在任何内容运行前大声拒绝——绝不会通过求值脚本文本来获取它）。`parent` 是必填字段——脚本生成的每个子 agent 都归属于它（cwd、谱系与深度通过 [subagent seam](subagent.md) 流转）。
 
 ```ts type-equiv
 /**

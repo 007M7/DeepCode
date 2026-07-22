@@ -13,7 +13,7 @@
 | 事件 | 载荷 | 作用 |
 |---|---|---|
 | `compact/start` | `{ turn }` | 获取日志记录的锁 |
-| `compact/summary` | `{ summary, shadowedRange, shadowedSeqs, shadowedTokenCount, provider, model, maxTokens? }` | provenance：摘要 block、被遮蔽的 surface 边界对（`start`/`end` seq——位置跨度，而非数值区间）、按 surface 顺序排列的被遮蔽 seq、估算 token 数，以及摘要调用的 envelope（`provider`、`model`，若有生成上限则还包括该上限）——写入日志后，该一次性请求可由日志 + 代码重建（见可重建性 Agent Note） |
+| `compact/summary` | `{ summary, shadowedRange, shadowedSeqs, shadowedTokenCount, provider, model, maxTokens? }` | provenance：摘要块、被遮蔽的 surface 边界对（`start`/`end` seq——位置跨度，而非数值区间）、按 surface 顺序排列的被遮蔽 seq、估算 token 数，以及摘要调用的 envelope（`provider`、`model`，若有生成上限则还包括该上限）——写入日志后，该一次性请求可由日志 + 代码重建（见可重建性 Agent Note） |
 | `compact/end` | `{ turn, error? }` | 释放锁（摘要调用抛出异常时设置 `error`） |
 
 锁括住**整个**操作：先追加 `compact/start`，然后执行摘要生成、写入 `compact/summary` 来源记录与 `user/message` 替换，最后才追加 `compact/end`。最后释放锁意味着操作中途崩溃会表现为可检测的遗留锁（有 `compact/start` 而无匹配的 `compact/end`），而非一个虚假声称压缩已完成的 `compact/end`。
@@ -62,7 +62,7 @@ type CompactionTrigger = 'pressure' | 'context-overflow'
 
 `CompactService` 暴露 `compactIfNeeded(agent, trigger, signal)` 以执行自动 `pressure` 或 `context-overflow` 策略；没有可安全执行的工作时返回 `null`。它还针对显式、两端均包含的 surface 范围暴露 `compactRegion(...)`。每个后端都使用包导出的 `COMPACT_CHECKPOINT_SOURCE` 标记其替换用的 `user/message`；消费方调用 `isCompactCheckpointSource()`，而不是把检查点识别逻辑耦合到某一个后端。实现必须把传入的 signal 转发给摘要流程。该 seam 不拥有计价 API：单例 [`ctx.tokenMeter`](token-meter.md) 直接拥有估算与回放，而 `dsh-compact-basic` 拥有保留策略、事件排序、按路由执行的摘要调用及其配置。
 
-压力压缩在串行 `agent/post-step` 中运行：此时成功的 assistant 输出、工具结果、缓冲 context 和 steering 已持久化，但 `step/end` 尚未发生。一旦压力或规范化溢出满足条件，compact-basic 会在选择范围前调用可选的 [`ctx.toolResultPrune`](../../packages/compact/compact-tool-result-prune/README.md)，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败 step 关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才批准一个带新编号的 step 重试，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个 turn，因此一个过大 turn 中较早关闭的 step 可以被压缩。`dsh-compact-basic` 拥有阈值、保留尾部策略、溢出上限与失败处理。
+压力压缩在串行 `agent/post-step` 中运行：此时成功的 assistant 输出、工具结果、缓冲上下文和 steering 已持久化，但 `step/end` 尚未发生。一旦压力或规范化溢出满足条件，compact-basic 会在选择范围前调用可选的 [`ctx.toolResultPrune`](../../packages/compact/compact-tool-result-prune/README.md)，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败 step 关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才批准一个带新编号的 step 重试，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个 turn，因此一个过大 turn 中较早关闭的 step 可以被压缩。`dsh-compact-basic` 拥有阈值、保留尾部策略、溢出上限与失败处理。
 
 该 seam 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于这些边缘检查。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与孤立结果；其缓存语义由[包契约](../../packages/compact/compact/README.md#tool-pairing-boundaries)规定。
 

@@ -1,8 +1,8 @@
-# Session Query
+# 会话查询
 
 [English](session-query.md) | 中文
 
-对优先使用 live 数据的逻辑 session 集合执行精确读取与关系追踪。[包契约](../../packages/session-query/session-query)拥有来源优先级、动态可选持久化、克隆、surface 分类、有界窗口、追踪校验与类型化失败。全文搜索属于另一个拟议的 SQLite 包。
+对优先使用 live 数据的逻辑会话集合执行精确读取与关系追踪。[包契约](../../packages/session-query/session-query)拥有来源优先级、动态可选持久化、克隆、surface 分类、有界窗口、追踪校验与类型化失败。全文搜索属于另一个拟议的 SQLite 包。
 
 源码：[`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 
@@ -57,7 +57,7 @@ interface SessionEventRecord {
 }
 ```
 
-## Session 谱系
+## 会话谱系
 
 `SessionLineageTrace` 按由近及远的顺序携带已知 parent，并携带一片由直接 descendant 递归嵌套而成的森林。完整性判别字段使已知 root 与缺失 parent 互斥。
 
