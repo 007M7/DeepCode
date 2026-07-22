@@ -17,27 +17,28 @@ The append-only event types. Merge-extensible: a plugin declares extra event typ
  */
 interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started it — a drained message
-   * batch or an idle-time injection. The turn is the durability/replay
+   * Opens turn `turn`. `trigger` records what started it — one claimed queued
+   * message or an idle-time injection. The turn is the durability/replay
    * boundary: every event sits between a `turn/start` and its matching
    * `turn/end` (the turn-enclosure invariant).
    */
   'turn/start': { turn: number; trigger: TurnTrigger }
   /**
    * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
-   * fires the awaited `session/flush` checkpoint at every turn end, so the turn
-   * boundary is also the durable-commit boundary.
+   * awaits `session/flush` after an ordinary turn ends before claiming the next
+   * queued item. Success commits the turn; rejection is reported live and does
+   * not prevent later work.
    */
   'turn/end': { turn: number; reason: TurnEndReason }
   /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
   'step/start': { turn: number; step: number }
   /** Closes step `step` of turn `turn`. */
   'step/end': { turn: number; step: number }
-  /** A user-visible prompt (queued message drained at turn start). */
+  /** A user-visible prompt (the queued message claimed for this turn). */
   'user/message': { content: ContentBlock[]; source: MessageSource }
   /**
    * Durable record of a prompt veto and its reason. It is log-only: the blocked
-   * prompt never enters the model-visible surface, including in a mixed batch.
+   * prompt never enters the model-visible surface, and its turn runs zero steps.
    */
   'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
   /**
@@ -91,6 +92,20 @@ interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 }
+```
+
+### `OutOfBandSessionEventMap` — narrow late-append opt-in
+
+`SessionEventMap` membership alone does not authorize an event outside the agent loop's ordinary lifecycle. An event owner declaration-merges the same key into this empty marker map before `ctx.sessions.appendOutOfBand()` accepts it; the derived type additionally excludes every surface event. An accepted update joins an open turn or receives a balanced, flushed zero-step turn.
+
+```ts type-equiv
+/**
+ * Marker map for plugin-owned log-only events accepted by
+ * `SessionStore.appendOutOfBand()`. A plugin extends this map with the same key
+ * it adds to {@link SessionEventMap}; surface and lifecycle events stay
+ * ineligible unless their owner explicitly opts them into this narrow seam.
+ */
+interface OutOfBandSessionEventMap {}
 ```
 
 ### `TodoItem` — one todo-list entry
@@ -429,7 +444,7 @@ declare class Session {
 - `context/message` → a user-role message carrying its `content` verbatim at its chronological position. Optional JSON `meta` remains in the event log and is never rendered.
 - `steering/message` → a user-role message carrying its content verbatim at its chronological position.
 
-Everything else (`turn/*`, `step/*`) is structural and does not project into a message. Token usage is observed on `assistant/message.usage` (the step that produced it); an operational error's step number is on `turn/end.reason` for `kind: 'error'`. Because this unreleased format intentionally has no compatibility promise, seed/load validation rejects request headers without provider+model and assistant messages without provider/model provenance instead of guessing a route for historical data.
+Everything else (`turn/*`, `step/*`, plugin-owned `llm/retry`) is structural and does not project into a message. Token accounting reads per-step `assistant/chunk { type: 'usage' }` records and treats `assistant/message.usage` as the committed-step fallback when no usage chunk exists; failed model-request attempts have no assistant message, so their usage chunk is the durable accounting record. An operational error's step number is on `turn/end.reason` for `kind: 'error'`, with normalized `LlmFailure` facts for a final model-request failure and message/code for other live errors. Because this unreleased format intentionally has no compatibility promise, seed/load validation rejects request headers without provider+model and assistant messages without provider/model provenance instead of guessing a route for historical data.
 
 ## Live-session fork API
 
@@ -462,26 +477,33 @@ interface TurnTriggerMap {
 
 ## Why a turn ended: `TurnEndReasonMap`
 
+`aborted` is intentionally a coarse durable outcome: it records that cancellation interrupted the live turn, not which runtime caller requested it. The runtime-only caller vocabulary belongs to [`AgentCancelCause`](core.md#the-agent-handle); a future audit requirement would use a separate control-request event rather than overloading the terminal result.
+
 ```ts type-equiv
 /**
  * Why a turn ended. Merge-extensible sum type.
  */
 interface TurnEndReasonMap {
   completed: { kind: 'completed' }
-  aborted: { kind: 'aborted'; reason?: string }
+  /** A cancellation request interrupted the live turn. */
+  aborted: { kind: 'aborted' }
   /**
    * The turn failed: a step threw or the model reported a failure. `step` is the
    * step number the failure occurred on (the operational error's location — the
    * single durable record of an in-turn failure; live diagnostics also fire via
-   * `agent/error`). `code` is the error's code when one was attached.
+   * `agent/error`). Final model-request failures retain their normalized facts
+   * as one `failure`; other turn failures retain their live Error message/code.
    */
-  error: { kind: 'error'; step: number; message: string; code?: string }
+  error: { kind: 'error'; step: number } & (
+    | { failure: LlmFailure; message?: never; code?: never }
+    | { message: string; code?: string; failure?: never }
+  )
   disposed: { kind: 'disposed' }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
-   * Policy blocked every prompt before the first step. The zero-step turn still
-   * records a balanced durable boundary and the veto reason.
+   * Policy blocked the turn's claimed prompt before the first step. The
+   * zero-step turn still records a balanced durable boundary and veto reason.
    */
   rejected: { kind: 'rejected'; reason: string }
   /**
@@ -492,11 +514,11 @@ interface TurnEndReasonMap {
 }
 ```
 
-`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` rather than `completed` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one — but only over `completed`: the `disposed`/`aborted`/`error` outcomes take precedence. `rejected` is a zero-step turn whose whole prompt batch an `agent/prompt-submit` hook blocked (the ACP bridge maps it to `cancelled`). `interrupted` is the one reason no loop emits — it is synthesized by crash recovery (see [persistence.md](persistence.md)). Both maps are merge-extensible.
+`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` rather than `completed` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one — but only over `completed`: the `disposed`/`aborted`/`error` outcomes take precedence. `rejected` is a zero-step turn whose claimed prompt an `agent/prompt-submit` hook blocked (the ACP bridge maps it to `cancelled`). `interrupted` is the one reason no loop emits — it is synthesized by crash recovery (see [persistence.md](persistence.md)). Both maps are merge-extensible.
 
 ## The turn-enclosure invariant
 
-Every session event lives **inside** a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, and an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn. This makes the turn the single durability/replay boundary: a backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The `dsh-invariants` plugin enforces it in dev (a message event outside an open turn throws). See [the turn-enclosure invariant Agent Note](../../.agents/notes/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
+Every session event lives **inside** a turn (between a `turn/start` and its `turn/end`). The loop appends queued `user/message` events *after* `turn/start`, an idle `agent.inject()` wraps its `context/message` in a one-shot `injection` turn, and `appendOutOfBand()` similarly wraps an eligible log-only event when no turn is open. This makes the turn the single durability/replay boundary: a backend can treat anything after the last `turn/end` as an interrupted-crash tail without risking the loss of legitimately-recorded between-turn context. The optional `dsh-session/invariant` companion enforces it in dev through `ctx.invariants` (a message event outside an open turn throws). See [the turn-enclosure invariant Agent Note](../../.agents/notes/implemented/architecture/2026-06-15-turn-enclosure-invariant.md).
 
 ## Plugin-contributed log-only events
 
@@ -506,6 +528,6 @@ The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepse
 
 ## Durability contract
 
-What a persistence backend relies on: the durable log persists every event verbatim, **including** `assistant/chunk` — `seq` must stay contiguous, so chunks cannot be filtered out of the canonical log. All `event.data` must be JSON-serializable; `Session.append` enforces this at the source (throwing on non-serializable data), so a bad event never enters the log and `session.events` always equals what a backend can persist. Adding an event type that carries non-serializable data, or that breaks the turn/step nesting the invariants plugin checks, is a breaking change to the on-disk format.
+What a persistence backend relies on: the durable log persists every event verbatim, **including** `assistant/chunk` — `seq` must stay contiguous, so chunks cannot be filtered out of the canonical log. All `event.data` must be JSON-serializable; `Session.append` enforces this at the source (throwing on non-serializable data), so a bad event never enters the log and `session.events` always equals what a backend can persist. Adding an event type that carries non-serializable data, or that breaks the turn/step nesting checked by the session invariant companion, is a breaking change to the on-disk format.
 
 The backends that consume this contract are on [persistence.md](persistence.md).

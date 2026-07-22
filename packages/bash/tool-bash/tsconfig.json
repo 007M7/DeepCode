@@ -33,7 +33,7 @@
       "path": "../../bash/bash"
     },
     {
-      "path": "../../util/home"
+      "path": "../../util/paths"
     },
     {
       "path": "../../tasks/tasks"
@@ -46,6 +46,9 @@
     },
     {
       "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../support/invariants"
     },
     {
       "path": "../../sandbox/sandbox-policy"

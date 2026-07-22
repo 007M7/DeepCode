@@ -12,8 +12,16 @@
   config:
     cwd: !!js process.cwd()
 
-- id: stdio-agent
-  name: '@deepseek-ai/dsh-stdio-demo'
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: plan-mode
+  name: '@deepseek-ai/dsh-plan-mode'
+  config:
+    section: 'Stay in plan mode for this scripted TUI test.'
+
+- id: tui-agent
+  name: '@deepseek-ai/dsh-tui-demo'
   config:
     provider: tui-scripted
     model: tui-scripted-model
@@ -21,7 +29,6 @@
     workspaceContext:
       maxBytes: 65536
     welcome: 'scripted TUI ready.'
+    persona: 'Scripted model {{model}}.'
     ui:
-      mode: tui
-      tui:
-        showReasoning: true
+      showReasoning: true

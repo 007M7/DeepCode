@@ -10,6 +10,8 @@ import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as cliDemo from '../src/index.ts'
 
+const testToolSignal = new AbortController().signal
+
 const contexts: Context[] = []
 
 async function skillConfig(catalogDescriptionMaxLength?: number): Promise<NonNullable<cliDemo.Config['skills']>> {
@@ -22,7 +24,14 @@ async function skillConfig(catalogDescriptionMaxLength?: number): Promise<NonNul
 
 async function mount(config: cliDemo.Config, withBash = false): Promise<Context> {
   const ctx = new Context()
-  if (withBash) ctx.provide('bash', { sandboxMode: undefined })
+  if (withBash) {
+    ctx.provide('bash', {
+      sandboxMode: undefined,
+      resolve() { throw new Error('composition test does not execute bash') },
+      run() { throw new Error('composition test does not execute bash') },
+      start() { throw new Error('composition test does not execute bash') },
+    })
+  }
   contexts.push(ctx)
   await ctx.plugin(cliDemo, config)
   await new Promise(resolve => setTimeout(resolve, 80))
@@ -51,12 +60,14 @@ describe('dsh-cli-demo app composition', () => {
       persona: 'Headless.',
       tools: { mode: 'native' },
       persistenceRoot: root,
+      persistenceCompression: 'none',
       skills: await skillConfig(),
       workspaceContext: false,
     })
     const [agent] = ctx.get('agents')?.roots() ?? []
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('sessionPersistence')).toBeDefined()
+    expect((ctx.get('sessionPersistence') as unknown as { config: { compression?: string } }).config.compression).toBe('none')
     expect(agent?.session.header.cwd).toBe(process.cwd())
     expect(ctx.get('userInteraction')).toBeUndefined()
     expect(ctx.get('tools')?.get('ask_user_question')).toBeUndefined()
@@ -122,6 +133,7 @@ describe('dsh-cli-demo app composition', () => {
 
     expect(ctx.get('agentLoop')?.config.maxParallelToolCalls).toBe(3)
     const execution: ToolExecution = {
+      signal: testToolSignal,
       token: Symbol('cli-demo-dsh-home-test') as ToolExecution['token'],
       callId: CallId('cli-demo-dsh-home'),
       name: 'bash',
@@ -139,11 +151,12 @@ describe('dsh-cli-demo app composition', () => {
     })
     const wait = vi.spyOn(ctx.tasks, 'wait')
     await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('cli-demo-task-config'),
       name: 'task_output',
       arguments: { task_id: id, wait: true },
     })
-    expect(wait).toHaveBeenCalledWith(id, 7, undefined, undefined)
+    expect(wait).toHaveBeenCalledWith(id, 7, undefined, testToolSignal)
   })
 
   it('accepts false to keep task services without model-facing task controls', async () => {

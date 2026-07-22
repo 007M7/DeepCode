@@ -19,6 +19,9 @@
     },
     {
       "path": "../../util/brand"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

@@ -6,17 +6,28 @@
 
 import type { Context } from 'cordis'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, FinishReason, GenerateOptions } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FinishReason, GenerateOptions, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ResolvedConfig } from './types.ts'
+
+interface SummaryConfig {
+  readonly summarizationProvider: string
+  readonly summarizationModel: string
+  readonly maxTokens: number
+}
 
 /** Tags wrapping the structured summary inside the landed checkpoint node. */
 const SUMMARY_OPEN_TAG = '<compacted-summary>'
 const SUMMARY_CLOSE_TAG = '</compacted-summary>'
 
-/** Fixed structure required from the auxiliary summarization call. */
-const SUMMARIZE_SYSTEM_PROMPT = [
-  'You are a compaction engine for an AI coding assistant. Condense the conversation transcript into a structured checkpoint that lets another model resume the work with no loss of essential context.',
+/**
+ * The summarization directive, delivered as the FINAL user message after the
+ * replayed conversation rather than as a distinct summarizer system prompt.
+ * Keeping the conversation's own system prompt, tools, and message prefix in
+ * front of it makes the auxiliary call a genuine prefix of the last routed
+ * request, so the provider's KV cache is reused instead of invalidated.
+ */
+const COMPACTION_INSTRUCTION = [
+  'You are now acting as a compaction engine for this AI coding assistant. Condense the conversation ABOVE into a structured checkpoint that lets another model resume the work with no loss of essential context.',
   '',
   'Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.',
   '',
@@ -47,13 +58,29 @@ const SUMMARIZE_SYSTEM_PROMPT = [
   'Rules:',
   '- Preserve exact file paths, commands, error strings, identifiers, and function signatures.',
   '- Capture user feedback and explicit instructions faithfully, especially corrections.',
-  '- Do NOT mention this summarization process or that the context was compacted.',
-  `- If the transcript already contains a ${SUMMARY_OPEN_TAG} block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.`,
+  '- Do NOT mention this summarization request or that the context was compacted.',
+  '- Output only the checkpoint text: do not call any tool or take any other action.',
+  `- If the conversation already contains a ${SUMMARY_OPEN_TAG} block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.`,
 ].join('\n')
 
 /** Framing that makes the replacement user message established context. */
 const CHECKPOINT_PREAMBLE =
   'This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.'
+
+/**
+ * The replayed conversation surface the summarizer condenses. Reproducing the
+ * last routed request's system prompt, tools, and leading messages verbatim
+ * lets the auxiliary call reuse the provider's warm prefix cache; the trailing
+ * compaction instruction is then the only novel input.
+ */
+export interface SummarizationInput {
+  /** The conversation's own system prompt, reused for prefix-cache alignment; absent for a system-less request. */
+  readonly system?: string
+  /** The conversation's tool schemas, reused for prefix-cache alignment; absent when the request carried none. */
+  readonly tools?: readonly ToolSchema[]
+  /** The request prefix followed by the shadowed region, in surface order, that precedes the compaction instruction. */
+  readonly messages: readonly Message[]
+}
 
 /** Safe summary content plus the exact auxiliary call envelope recorded in provenance. */
 export interface SummaryResult {
@@ -64,18 +91,20 @@ export interface SummaryResult {
 }
 
 /**
- * Run the default direct `ctx.llm.stream()` summarization call.
+ * Run the default cache-reusing `ctx.llm.stream()` summarization call: replay
+ * the conversation prefix, then append the compaction instruction as the final
+ * user message so the provider's warm prefix cache is reused.
  * @param ctx - context providing the LLM service.
  * @param config - resolved backend configuration.
- * @param text - rendered transcript region to summarize.
+ * @param input - replayed conversation prefix (system, tools, and leading messages) to condense.
  * @param agent - supplies routed-model history, fallback model, and session id.
  * @param signal - optional cancellation forwarded to the adapter.
  * @returns safe text-only summary blocks and exact call provenance.
  */
 export async function summarizeWithLlm(
   ctx: Context,
-  config: ResolvedConfig,
-  text: string,
+  config: SummaryConfig,
+  input: SummarizationInput,
   agent: Agent,
   signal?: AbortSignal,
 ): Promise<SummaryResult> {
@@ -97,16 +126,19 @@ export async function summarizeWithLlm(
   }
 
   const assembler = new BlockAssembler()
+  const messages: Message[] = [
+    ...input.messages,
+    { role: 'user', content: [{ type: 'text', text: COMPACTION_INSTRUCTION }] },
+  ]
   const options: GenerateOptions = {
     provider: target.provider,
     model: target.model,
-    messages: [{
-      role: 'user',
-      content: [{ type: 'text', text: `Summarize this conversation history:\n\n${text}\n\nSummary:` }],
-    }],
-    system: SUMMARIZE_SYSTEM_PROMPT,
+    messages,
+    ...input.system === undefined ? {} : { system: input.system },
+    ...input.tools === undefined ? {} : { tools: [...input.tools] },
     maxTokens: config.maxTokens,
     sessionId: agent.session.id,
+    purpose: 'compaction',
     ...signal === undefined ? {} : { signal },
   }
   for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)
@@ -141,14 +173,10 @@ export function frameSummary(summary: readonly ContentBlock[]): ContentBlock[] {
 /** Map a terminal summarization finish to its fail-closed error. */
 function finishError(finish: FinishReason): Error | undefined {
   switch (finish.kind) {
-    case 'error': {
-      const error = new Error(finish.message) as Error & { code?: string }
-      if (finish.code !== undefined) error.code = finish.code
-      return error
-    }
+    case 'error':
     case 'aborted': {
-      const error = new Error('summarization stream aborted') as Error & { code?: string }
-      error.code = 'ABORTED'
+      const error = new Error(finish.failure.message) as Error & { code?: string }
+      error.code = finish.failure.code
       return error
     }
     case 'max-tokens': {

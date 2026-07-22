@@ -181,12 +181,12 @@ async function waitForStartupIdle(agent: Agent, signal?: AbortSignal): Promise<v
     return
   }
   if (signal.aborted) {
-    agent.cancel(interruptionReason(signal))
+    agent.cancel({ kind: 'user' })
     throw new CliInterruptedError(interruptionReason(signal))
   }
   await new Promise<void>((resolve, reject) => {
     const onAbort = (): void => {
-      agent.cancel(interruptionReason(signal))
+      agent.cancel({ kind: 'user' })
       reject(new CliInterruptedError(interruptionReason(signal)))
     }
     signal.addEventListener('abort', onAbort, { once: true })
@@ -219,7 +219,7 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
   let targetTurn: number | undefined
   let reason: TurnEndReason | undefined
   let result = ''
-  let usage: TokenUsage | undefined
+  const usageByStep = new Map<number, TokenUsage>()
   let outputError: Error | undefined
   let resolveTurn!: () => void
   let rejectTurn!: (error: Error) => void
@@ -243,7 +243,7 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
       options.onEvent(sessionId, event)
     } catch (error: unknown) {
       outputError = toError(error)
-      agent.cancel('stream output failed')
+      agent.cancel({ kind: 'user' })
     }
   }
 
@@ -254,9 +254,14 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
       targetTurn = event.data.turn
     }
     observe(session.id, event)
+    if (event.type === 'assistant/chunk'
+      && event.data.turn === targetTurn
+      && event.data.chunk.type === 'usage') {
+      usageByStep.set(event.data.step, event.data.chunk.usage)
+    }
     if (event.type === 'assistant/message' && event.data.turn === targetTurn) {
       result = assistantText(event) ?? result
-      if (event.data.usage !== undefined) usage = addUsage(usage, event.data.usage)
+      if (event.data.usage !== undefined) usageByStep.set(event.data.step, event.data.usage)
     }
     if (event.type === 'turn/end' && event.data.turn === targetTurn) {
       reason = event.data.reason
@@ -268,7 +273,7 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
   let onAbort: (() => void) | undefined
   if (signal !== undefined) {
     onAbort = (): void => {
-      agent.cancel(interruptionReason(signal))
+      agent.cancel({ kind: 'user' })
       if (targetTurn === undefined) settleRejected(new CliInterruptedError(interruptionReason(signal)))
     }
     signal.addEventListener('abort', onAbort, { once: true })
@@ -294,6 +299,7 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
   }
   await ctx.sessions.flush(agent.session)
   if (outputError !== undefined) throw outputError
+  const usage = [...usageByStep.values()].reduce<TokenUsage | undefined>(addUsage, undefined)
   return {
     type: 'result',
     success: reason.kind === 'completed',
@@ -364,8 +370,8 @@ async function bootInterruptibly(
 export function formatTurnFailure(reason: TurnEndReason): string {
   switch (reason.kind) {
     case 'completed': return 'completed'
-    case 'aborted': return reason.reason === undefined ? 'was aborted' : `was aborted: ${reason.reason}`
-    case 'error': return `failed at step ${reason.step}: ${reason.message}`
+    case 'aborted': return 'was aborted'
+    case 'error': return `failed at step ${reason.step}: ${'failure' in reason ? reason.failure.message : reason.message}`
     case 'disposed': return 'was disposed'
     case 'max-tokens': return 'reached the model output-token limit'
     case 'rejected': return `was rejected: ${reason.reason}`

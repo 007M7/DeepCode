@@ -5,7 +5,7 @@ import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { runScenario, type AgentUnderTest, type InputStep } from '../src/harness.ts'
+import { runScenario, snapshotSpillRoot, type AgentUnderTest, type InputStep } from '../src/harness.ts'
 import { launchAcpTestAgent } from '../src/launcher.ts'
 
 const fsControl = vi.hoisted(() => ({ cleanupFailure: undefined as Error | undefined }))
@@ -60,6 +60,24 @@ async function scenario(behavior: object): Promise<{ dir: string; fixtureFile: s
 
 const boot: InputStep[] = [{ op: 'initialize' }, { op: 'newSession' }]
 
+it('keeps scenario-owned snapshot spill root length stable across platforms', () => {
+  const fixtureFile = '/fixtures/scenario/session.jsonl'
+  const posix = snapshotSpillRoot(fixtureFile, 'linux')
+  const windows = snapshotSpillRoot(fixtureFile, 'win32')
+  expect(posix).toMatch(/^\/tmp\/dsh-acp-snap-[0-9a-f]{9}$/)
+  expect(windows).toMatch(/^\/t\/dsh-acp-snap-[0-9a-f]{9}$/)
+  expect(windows.length + 2).toBe(posix.length)
+})
+
+function environmentEcho(rawStdout: string): Record<string, unknown> {
+  const frames = rawStdout.trim().split('\n')
+    .map(line => JSON.parse(line) as { params?: { update?: { content?: { text?: unknown } } } })
+  const text = frames.map(frame => frame.params?.update?.content?.text)
+    .find(value => typeof value === 'string' && value.startsWith('env:'))
+  if (typeof text !== 'string') throw new Error('fake ACP agent did not echo its environment')
+  return JSON.parse(text.slice('env:'.length)) as Record<string, unknown>
+}
+
 describe('runScenario', () => {
   it('surfaces an asynchronous child spawn failure through startup and close', async () => {
     const { dir } = await scenario({})
@@ -77,8 +95,8 @@ describe('runScenario', () => {
     expect(clientClosed).toBe(true)
   })
 
-  it('centralizes ACP boot, captures, updates, fail-closed permissions, and shutdown', { timeout: 20_000 }, async () => {
-    const { dir, fixtureFile } = await scenario({ permissionProbe: true, echoEnv: true, stderrNote: 'launcher stderr' })
+  it('centralizes ACP boot, captures, updates, fail-closed interactions, and shutdown', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ permissionProbe: true, elicitationProbe: true, echoEnv: true, stderrNote: 'launcher stderr' })
     const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-launcher-sessions-'))
     tempDirs.push(sessionsRoot)
     const launched = launchAcpTestAgent({
@@ -102,6 +120,7 @@ describe('runScenario', () => {
     expect((await nextChunk).sessionUpdate).toBe('agent_message_chunk')
     expect(launched.updates.some(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
     expect(launched.rawStdout()).toContain('permission:{\\"outcome\\":\\"cancelled\\"}')
+    expect(launched.rawStdout()).toContain('elicitation:{\\"action\\":\\"cancel\\"}')
     expect(launched.stderr()).toContain('launcher stderr')
     const unmatched = expect(launched.waitForUpdate(() => false)).rejects.toThrow(/update stream closed/)
     await launched.close()
@@ -134,6 +153,9 @@ describe('runScenario', () => {
       update.sessionUpdate === 'agent_message_chunk'
       && update.content.type === 'text'
       && update.content.text === 'late inherited stdout')
+    // Arm rejection handling before close may exhaust the stream; the later assertion still
+    // observes the original promise and turns a missing inherited frame into the test failure.
+    void lateUpdate.catch(() => undefined)
 
     await launched.close()
 
@@ -168,6 +190,97 @@ describe('runScenario', () => {
       kill.mockRestore()
       originalKill('SIGKILL')
       await closed
+    }
+  })
+
+  it('preserves the child error when the requested signal sets an exit marker', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('signal failed as the child exited'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockImplementation((signal) => {
+      expect(signal).toBe('SIGTERM')
+      originalKill('SIGKILL')
+      Object.defineProperty(launched.child, 'signalCode', { configurable: true, enumerable: true, writable: true, value: 'SIGTERM' })
+      return true
+    })
+    try {
+      launched.child.emit('error', childFailure)
+      await expect(launched.close('SIGTERM')).rejects.toBe(childFailure)
+      expect(kill).toHaveBeenCalledOnce()
+    } finally {
+      kill.mockRestore()
+      if (launched.child.exitCode === null && launched.child.signalCode === null) originalKill('SIGKILL')
+    }
+  })
+
+  it('preserves the child error when the requested signal publishes its exit marker later', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('signal failed before the delayed exit marker'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockImplementation((signal) => {
+      expect(signal).toBe('SIGTERM')
+      setTimeout(() => { originalKill('SIGKILL') }, 10)
+      return true
+    })
+    try {
+      launched.child.emit('error', childFailure)
+      await expect(launched.close('SIGTERM')).rejects.toBe(childFailure)
+      expect(kill).toHaveBeenCalledOnce()
+    } finally {
+      kill.mockRestore()
+      if (launched.child.exitCode === null && launched.child.signalCode === null) originalKill('SIGKILL')
+    }
+  })
+
+  it('preserves the child error when fallback refusal races with an exit marker', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('signal failed while the child exited'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockImplementation((signal) => {
+      if (signal === 'SIGTERM') return true
+      originalKill('SIGKILL')
+      Object.defineProperty(launched.child, 'signalCode', { configurable: true, enumerable: true, writable: true, value: 'SIGKILL' })
+      return false
+    })
+    try {
+      launched.child.emit('error', childFailure)
+      await expect(launched.close('SIGTERM')).rejects.toBe(childFailure)
+      expect(kill).toHaveBeenNthCalledWith(1, 'SIGTERM')
+      expect(kill).toHaveBeenNthCalledWith(2, 'SIGKILL')
+    } finally {
+      kill.mockRestore()
+      if (launched.child.exitCode === null && launched.child.signalCode === null) originalKill('SIGKILL')
+    }
+  })
+
+  it('preserves the child error after accepted fallback termination drains', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('requested signal failed before fallback'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockImplementation((signal) => {
+      if (signal === 'SIGTERM') return true
+      return originalKill('SIGKILL')
+    })
+    try {
+      launched.child.emit('error', childFailure)
+      await expect(launched.close('SIGTERM')).rejects.toBe(childFailure)
+      expect(kill).toHaveBeenNthCalledWith(1, 'SIGTERM')
+      expect(kill).toHaveBeenNthCalledWith(2, 'SIGKILL')
+    } finally {
+      kill.mockRestore()
+      if (launched.child.exitCode === null && launched.child.signalCode === null) originalKill('SIGKILL')
     }
   })
 
@@ -285,7 +398,11 @@ describe('runScenario', () => {
     expect(result.sessionLogs[0]?.createdAt).toBe(42)
     expect(result.sessionLogs[0]?.content).toContain('turn/start')
     // The harvested log embeds the run's REAL temp cwd (template-substituted).
-    expect(result.sessionLogs[0]?.content).toContain(result.cwd)
+    // The cwd is JSON-encoded in the log line, so compare the parsed field
+    // rather than substring-matching a raw path (which breaks when the path
+    // separator is escaped inside JSON text on Windows).
+    const sessionLine = result.sessionLogs[0]?.content.split('\n').find(l => l.includes('"type":"session"')) ?? '{}'
+    expect((JSON.parse(sessionLine) as { cwd?: string }).cwd).toBe(result.cwd)
   })
 
   it('forwards override/child fixture paths into the child env and captures stderr', { timeout: 20_000 }, async () => {
@@ -306,7 +423,33 @@ describe('runScenario', () => {
     expect(result.stderr).toContain('fake bin booted')
     expect(result.rawStdout).toContain('replay.override.json')
     // Child paths ride one env var, joined with the platform delimiter.
-    expect(result.rawStdout).toContain(JSON.stringify(childFiles.join(delimiter)).slice(1, -1))
+    // Parse the fake bin's env-probe chunk rather than substring-matching a
+    // JSON-encoded path (the escaping breaks raw-substring compares on Windows).
+    const envChunk = result.rawStdout.split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0)
+      .map(l => JSON.parse(l) as { params?: { update?: { content?: { text?: string } } } })
+      .find(f => f.params?.update?.content?.text?.startsWith('env:'))
+    const env = JSON.parse((envChunk?.params?.update?.content?.text ?? 'env:{}').slice('env:'.length)) as {
+      childFiles: string | null
+    }
+    expect(env.childFiles).toBe(childFiles.join(delimiter))
+  })
+
+  it('gives concurrent scenarios distinct equal-length spill roots', { timeout: 20_000 }, async () => {
+    const [first, second] = await Promise.all([scenario({ echoEnv: true }), scenario({ echoEnv: true })])
+    const results = await Promise.all([first, second].map(({ fixtureFile }) => runScenario(
+      { steps: [...boot, { op: 'prompt', text: 'env?' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )))
+    const roots = results.map(result => environmentEcho(result.rawStdout).spillRoot)
+    expect(roots.every(root => typeof root === 'string')).toBe(true)
+    expect(new Set(roots).size).toBe(2)
+    expect((roots[0] as string).length).toBe((roots[1] as string).length)
+    expect(roots).toEqual([
+      snapshotSpillRoot(first.fixtureFile),
+      snapshotSpillRoot(second.fixtureFile),
+    ])
   })
 
   it('seeds the workspace dir into the temp cwd before the run', { timeout: 20_000 }, async () => {
@@ -332,6 +475,21 @@ describe('runScenario', () => {
     expect(result.rawStdout).toContain('"stopReason":"cancelled"')
     // The streamed chunk deterministically precedes the cancelled response.
     expect(result.rawStdout.indexOf('thinking about it')).toBeLessThan(result.rawStdout.indexOf('cancelled'))
+  })
+
+  it('promptAndWaitForAgentMessage keeps the app live through a matching later update', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ prompt: 'respond' })
+    const result = await runScenario(
+      {
+        steps: [...boot, {
+          op: 'promptAndWaitForAgentMessage',
+          text: 'go',
+          waitForText: 'thinking about it',
+        }],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.rawStdout).toContain('thinking about it')
   })
 
   it('promptAndCancel can bracket cancellation with tool-call updates', { timeout: 20_000 }, async () => {
@@ -443,6 +601,7 @@ describe('runScenario', () => {
 
   it.each([
     [{ op: 'prompt', text: 'x' }, /prompt before newSession/],
+    [{ op: 'promptAndWaitForAgentMessage', text: 'x', waitForText: 'later' }, /promptAndWaitForAgentMessage before newSession/],
     [{ op: 'promptExpectError', text: 'x' }, /promptExpectError before newSession/],
     [{ op: 'promptAndCancel', text: 'x' }, /promptAndCancel before newSession/],
     [{ op: 'cancel' }, /cancel before newSession/],
@@ -558,6 +717,69 @@ describe('runScenario', () => {
     expect(result.sessionLogs).toHaveLength(0)
   })
 
+  it('drives session/set_mode and swallows the expected rejection of setModeExpectError', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({})
+    const result = await runScenario(
+      { steps: [...boot, { op: 'setMode', modeId: 'plan' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.rawStdout).toContain('setMode:plan')
+
+    const rejecting = await scenario({ setMode: 'error' })
+    const rejected = await runScenario(
+      { steps: [...boot, { op: 'setModeExpectError', modeId: 'yolo' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile: rejecting.fixtureFile },
+    )
+    expect(rejected.rawStdout).toContain('unknown mode')
+  })
+
+  it('fails the run when setModeExpectError unexpectedly succeeds, and both mode ops require a session', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({})
+    await expect(runScenario(
+      { steps: [...boot, { op: 'setModeExpectError', modeId: 'plan' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )).rejects.toThrow(/expected session\/set_mode to be rejected/)
+    await expect(runScenario(
+      { steps: [{ op: 'initialize' }, { op: 'setMode', modeId: 'plan' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )).rejects.toThrow(/setMode before newSession/)
+    await expect(runScenario(
+      { steps: [{ op: 'initialize' }, { op: 'setModeExpectError', modeId: 'plan' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )).rejects.toThrow(/setModeExpectError before newSession/)
+  })
+
+  it('answers elicitations from the scripted queue, falling back to cancel on exhaustion', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ elicitationProbe: true })
+    // Three prompts → three elicitations: an accept-with-choice, an
+    // accept-with-custom (feedback), then the exhausted-queue cancel.
+    const result = await runScenario(
+      {
+        steps: [...boot, { op: 'prompt', text: 'one' }, { op: 'prompt', text: 'two' }, { op: 'prompt', text: 'three' }],
+        elicitationAnswers: [
+          { action: 'accept', choice: 'Approve' },
+          { action: 'accept', custom: 'add tests first' },
+        ],
+      },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    const first = result.rawStdout.indexOf('elicitation:{\\"action\\":\\"accept\\",\\"content\\":{\\"choice\\":\\"Approve\\"}}')
+    const second = result.rawStdout.indexOf('elicitation:{\\"action\\":\\"accept\\",\\"content\\":{\\"custom\\":\\"add tests first\\"}}')
+    const third = result.rawStdout.indexOf('elicitation:{\\"action\\":\\"cancel\\"}')
+    expect(first).toBeGreaterThanOrEqual(0)
+    expect(second).toBeGreaterThan(first)
+    expect(third).toBeGreaterThan(second)
+  })
+
+  it('a scripted elicitation cancel answers cancel', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({ elicitationProbe: true })
+    const result = await runScenario(
+      { steps: [...boot, { op: 'prompt', text: 'one' }], elicitationAnswers: [{ action: 'cancel' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile },
+    )
+    expect(result.rawStdout).toContain('elicitation:{\\"action\\":\\"cancel\\"}')
+  })
+
   it('answers permission requests from the scripted queue by option kind, falling back to cancelled', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ permissionProbe: true })
     // Two prompts → two permission round-trips; one scripted answer, so the
@@ -586,8 +808,11 @@ describe('runScenario', () => {
 
   it('rejects the run on a scripted permission kind the agent never offered', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({ permissionProbe: true })
-    // The fake offers only allow_once/reject_once. The harness must reject an impossible click,
-    // not merely send an RPC error that a tolerant agent could absorb.
+    // The fake bin offers allow_once/reject_once; scripting allow_always is a
+    // scenario bug. The agent is answered `cancelled` (it must not be able to
+    // absorb the bug as an error-means-denial), and the RUN fails: a callback
+    // throw would only reach the agent as a JSON-RPC error response, letting
+    // a tolerant agent carry on and the scenario pass — or record.
     await expect(runScenario(
       { steps: [...boot, { op: 'prompt', text: 'impossible click' }], permissionAnswers: [{ kind: 'allow_always' }] },
       { agent: AGENT, mode: 'replay', fixtureFile },

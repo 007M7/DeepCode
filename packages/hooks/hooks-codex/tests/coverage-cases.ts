@@ -13,6 +13,8 @@ import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import * as HooksCodex from '@deepseek-ai/dsh-hooks-codex'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
+const testToolSignal = new AbortController().signal
+
 const dirs: string[] = []
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }) })
 function dir(): string { const d = mkdtempSync(join(tmpdir(), 'dsh-hx-cov-')); dirs.push(d); return d }
@@ -74,7 +76,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const located = await capture(dir())
       expect(located.payload.transcript_path).toBe(located.expected)
       expect((await capture()).payload.transcript_path).toBeNull()
-    }, 15_000) // Two real agent/hook subprocess loops need loaded pre-push runner headroom.
+    }, 15_000) // Two real agent/hook subprocess loops need process startup and teardown headroom.
 
     it('UserPromptSubmit block (exit 2) → rejected turn; default reason on empty stderr', async () => {
       const d = dir()
@@ -451,7 +453,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       let ran = false
       ctx.tools.register(defineTool({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { ran = true; return [{ type: 'text', text: 'x' }] } }))
       const { CallId } = await import('@deepseek-ai/dsh-llm')
-      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'Bash', arguments: { command: 'x' } })
+      const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'Bash', arguments: { command: 'x' } })
       expect(ran).toBe(false) // denied
       expect(result.isError).toBe(true)
     })
@@ -462,7 +464,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), new MockAdapter([]))
       ctx.tools.register(defineTool({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const { CallId } = await import('@deepseek-ai/dsh-llm')
-      const result = await ctx.tools.execute({ callId: CallId('c1'), name: 'Bash', arguments: { command: 'x' } })
+      const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'Bash', arguments: { command: 'x' } })
       expect(result.isError).toBeFalsy()
       expect(result.additionalContexts?.[0]?.content.some(b => b.type === 'text' && b.text === 'x')).toBe(true)
     })

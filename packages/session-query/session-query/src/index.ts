@@ -7,6 +7,8 @@
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
+import type { SessionTitleSnapshot } from '@deepseek-ai/dsh-session-title'
 import type {
   SessionEventReadRequest,
   SessionEventRecord,
@@ -62,6 +64,16 @@ export class SessionQueryService extends Service {
    */
   listSessions(): Promise<SessionRecord[]> {
     return this._corpus.listSessions()
+  }
+
+  /**
+   * Fold the latest log-backed title from one live-preferred logical session.
+   * @param sessionId - live or persisted session id to read.
+   * @returns latest title snapshot, or `undefined` when the log has no title event.
+   */
+  async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined> {
+    const loaded = await this._corpus.load(sessionId)
+    return foldSessionTitle(loaded.events)
   }
 
   /**

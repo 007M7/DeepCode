@@ -199,6 +199,28 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'commands',
+    summary: 'Human-command registry.',
+    methods: [
+      {
+        signature: 'register(definition: CommandDefinition): () => void',
+        jsDoc: '/**\n * Register a global or calling-agent-scoped command.\n * @param definition - discovery metadata and direct UI handler.\n * @returns the exact effect disposer that unregisters this definition.\n */',
+      },
+      {
+        signature: 'list(agent: Agent): readonly CommandDescriptor[]',
+        jsDoc: '/**\n * List the effective immutable command descriptors for one agent.\n * @param agent - exact receiving agent and scoped-layer key.\n * @returns name-sorted descriptors after scoped shadowing.\n */',
+      },
+      {
+        signature: 'find(agent: Agent, name: string): CommandDefinition | undefined',
+        jsDoc: '/**\n * Resolve one effective command definition.\n * @param agent - exact receiving agent and scoped-layer key.\n * @param name - command name without a slash.\n * @returns the scoped shadow or global definition.\n */',
+      },
+      {
+        signature: 'async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>',
+        jsDoc: '/**\n * Parse and execute a known command without sending it to the model.\n * @param agent - exact receiving agent.\n * @param line - complete slash-command line.\n * @param signal - cancellation signal owned by the UI request.\n * @returns a detached result, or `undefined` when syntax or name does not resolve.\n */',
+      },
+    ],
+  },
+  {
     key: 'compact',
     summary: 'Abstract compaction service.',
     methods: [
@@ -251,6 +273,58 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'goals',
+    summary: 'Goal service (`ctx.goals`) backed exclusively by the owning session log.',
+    methods: [
+      {
+        signature: 'get(agent: Agent): GoalView | undefined',
+        jsDoc: '/**\n * Read the current goal for one exact live agent.\n * @param agent - owning live agent.\n * @returns a fresh view or `undefined` when no goal is current.\n * @throws {@link GoalError} when the agent is not the registry\'s live instance.\n */',
+      },
+      {
+        signature: 'disarm(agent: Agent): GoalView | undefined',
+        jsDoc: '/**\n * Remove process-local continuation authority without changing durable goal\n * phase or revision. Lifecycle owners use this before unloading a driver;\n * a later human-authorized {@link resume} records the new activation edge.\n * @param agent - owning live agent.\n * @returns a fresh disarmed view, or `undefined` when no goal is current.\n */',
+      },
+      {
+        signature: 'create(agent: Agent, request: CreateGoalRequest): GoalView',
+        jsDoc: '/**\n * Create and arm a goal. A completed goal may be replaced; every other\n * current phase must be cleared or resumed instead.\n * @param agent - owning live agent.\n * @param request - objective and optional round cap.\n * @returns the created live view.\n */',
+      },
+      {
+        signature: 'edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView',
+        jsDoc: '/**\n * Edit objective and/or round cap without changing phase.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @param request - at least one replacement field.\n * @returns the edited view.\n */',
+      },
+      {
+        signature: 'pause(agent: Agent, ref: GoalRef): GoalView',
+        jsDoc: '/**\n * Pause an active goal and disarm automatic continuation.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the paused view.\n */',
+      },
+      {
+        signature: 'resume(agent: Agent, ref: GoalRef): GoalView',
+        jsDoc: '/**\n * Resume and arm a stopped goal, or rearm an active goal after a\n * session-start edge, while its round budget still has capacity.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the active view.\n */',
+      },
+      {
+        signature: 'complete(agent: Agent, ref: GoalRef): GoalView',
+        jsDoc: '/**\n * Mark a current non-complete goal complete and disarm it.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the completed view.\n */',
+      },
+      {
+        signature: 'block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView',
+        jsDoc: '/**\n * Mark an active goal blocked and disarm it.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @param reason - policy-owned stable code and human-readable explanation.\n * @returns the blocked view with its durable reason.\n */',
+      },
+      {
+        signature: 'clear(agent: Agent, ref: GoalRef): GoalRef',
+        jsDoc: '/**\n * Clear the current goal while retaining a durable tombstone and history.\n * @param agent - owning live agent.\n * @param ref - expected current revision.\n * @returns the tombstone ref whose revision is one past the cleared snapshot.\n */',
+      },
+    ],
+  },
+  {
+    key: 'invariants',
+    summary: 'Package-owned invariant registry with global and regex-based selection.',
+    methods: [
+      {
+        signature: 'register(packageName: string, installer: InvariantInstaller): () => void',
+        jsDoc: '/**\n * Register one package\'s invariant installer. The package name is reserved\n * even when filtering disables its checks. Enabled installers run in a child\n * fiber; failure disposes that fiber and releases the reservation.\n * @param packageName - full npm package name that owns the contribution.\n * @param installer - listener or startup-check installer for the child context.\n * @returns an effect-scoped disposer for the registration.\n */',
+      },
+    ],
+  },
+  {
     key: 'llm',
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.',
     methods: [
@@ -265,6 +339,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'async listModels(provider: string): Promise<LlmModelInfo[]>',
         jsDoc: '/**\n * Discover models advertised by one registered provider. Catalog membership\n * is advisory and never changes routing or request validation.\n * @param provider - registered provider route to inspect.\n * @returns detached model metadata in adapter-preferred order.\n */',
+      },
+      {
+        signature: 'async resolveModelContext( provider: string, model: string, ): Promise<LlmModelContext | undefined>',
+        jsDoc: '/**\n * Resolve context capacity from the adapter that owns one exact route.\n * This query is independent of the advisory model catalog: an unlisted model\n * may return metadata, while `undefined` never rejects later routing.\n * @param provider - registered provider route to inspect.\n * @param model - exact model id passed to the adapter.\n * @returns detached context metadata, or `undefined` when the adapter has none.\n */',
       },
       {
         signature: 'stream(options: GenerateOptions): AsyncIterable<StreamChunk>',
@@ -291,6 +369,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'set(session: Session, name: string): void',
         jsDoc: '/**\n * Record a changed preset, then update each changed knob through its own\n * setter. Selecting the effective preset again appends nothing.\n * @param session - the session the switch belongs to.\n * @param name - the preset to switch to; unknown names throw.\n */',
+      },
+    ],
+  },
+  {
+    key: 'planMode',
+    summary: '`ctx.planMode`: owns logged plan state, boundary application and narration, the `plan:policy` section, the `/plan` command, and the stable exit tool.',
+    methods: [
+      {
+        signature: 'get(agent: Agent): { active: boolean; pending?: boolean }',
+        jsDoc: '/**\n * Read the logged plan state and any selected state awaiting a boundary.\n *\n * @param agent The agent to read.\n * @returns Current logged state plus a pending selection, when present.\n */',
+      },
+      {
+        signature: 'set(agent: Agent, active: boolean): void',
+        jsDoc: '/**\n * Select whether plan mode should be active from the next turn boundary.\n * Repeated selection of the current or already-pending state is a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n */',
       },
     ],
   },
@@ -382,6 +474,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @returns deterministic newest-first cloned session records.\n */',
       },
       {
+        signature: 'async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>',
+        jsDoc: '/**\n * Fold the latest log-backed title from one live-preferred logical session.\n * @param sessionId - live or persisted session id to read.\n * @returns latest title snapshot, or `undefined` when the log has no title event.\n */',
+      },
+      {
         signature: 'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
         jsDoc: '/**\n * List lightweight raw-log event records for one logical session.\n * @param sessionId - live-preferred session id to read.\n * @returns event records in ascending seq order.\n */',
       },
@@ -405,7 +501,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'create(id?: SessionId, options?: CreateSessionOptions): Session',
-        jsDoc: '/**\n * Create a session owned by the calling fiber: disposing that fiber stops\n * event notification and removes the session from the store. `options.seed`\n * populates the session with a copy of those events (replay/fork);\n * `options.meta` attaches creation metadata (validated absolute `cwd`,\n * `parentSession` lineage) as the immutable {@link SessionHeader} (the store\n * fills `version`/`id`/`createdAt`).\n *\n * For an agent whose session must be torn down IN ORDER with its loop (so the\n * loop\'s final flush is captured before the store attachment ends), do NOT use this\n * — fold the session lifecycle into the agent\'s own effect via\n * {@link prepare} + {@link enter} + {@link announce} (see\n * `dsh-agent-loop`\'s creation transaction).\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the live session, already entered and announced.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path (storage backends key directories off it).\n */',
+        jsDoc: '/**\n * Create a session owned by the calling fiber: disposing that fiber stops\n * event notification and removes the session from the store. `options.seed`\n * populates the session with a copy of those events (replay/fork);\n * `options.meta` attaches creation metadata (validated absolute `cwd`, seed\n * and parent lineage, and delegation depth) as the immutable\n * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).\n *\n * For an agent whose session must be torn down IN ORDER with its loop (so the\n * loop\'s final flush is captured before the store attachment ends), do NOT use this\n * — fold the session lifecycle into the agent\'s own effect via\n * {@link prepare} + {@link enter} + {@link announce} (see\n * `dsh-agent-loop`\'s creation transaction).\n *\n * @param id - the session id; omitted, the store mints `session-<n>`.\n * @param options - seed events and/or creation metadata for the header.\n * @returns the live session, already entered and announced.\n * @throws if a session with `id` already exists, metadata is not a plain\n *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a\n *   non-absolute path (storage backends key directories off it).\n */',
       },
       {
         signature: 'prepare(id?: SessionId, options?: CreateSessionOptions): Session',
@@ -424,6 +520,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Dispatch the awaited `session/flush` durability checkpoint for `session`,\n * with the carrier captured at {@link enter}. THE flush entry point: the\n * store owns the carrier, so callers (the loop\'s turn-end checkpoint, idle\n * injection, teardown drains) must come through here rather than dispatch a\n * raw `ctx.parallel(\'session/flush\', …)` — one owner, one spelling, and the\n * scoped-dispatch invariant can pin it.\n * @param session - the session whose buffered events must reach durable storage.\n * @returns resolves when every flush listener has settled; after all settle,\n *   rejects with the first registered listener failure if any listener failed.\n */',
       },
       {
+        signature: 'async appendOutOfBand<T extends OutOfBandSessionEventType>( session: Session, type: T, data: SessionEventMap[T], trigger: TurnTrigger, ): Promise<SessionEvent<T>>',
+        jsDoc: '/**\n * Append one plugin-declared log-only event without borrowing the agent\n * loop\'s lifecycle. An open turn receives the event directly and remains\n * responsible for its ordinary checkpoint. A closed log receives one\n * zero-step turn around the event, followed by an awaited flush.\n *\n * Once the synthetic `turn/start` commits, this method always attempts its\n * matching `turn/end` and flush, including when the target append fails.\n * Detachment requested by an event or flush listener is deferred until that\n * sequence settles, so publication cannot switch from a live scoped session\n * to an unobserved bare `Session` halfway through the update.\n *\n * @param session - exact live session that owns the target log.\n * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.\n * @param data - typed JSON payload for the target event.\n * @param trigger - plugin-owned turn trigger used only when the log is closed.\n * @returns the accepted target event with its assigned sequence and timestamp.\n * @throws when the session is detached, another out-of-band append is active,\n *   event acceptance fails, the synthetic turn cannot close, or flushing fails.\n */',
+      },
+      {
         signature: 'get(id: SessionId): Session | undefined',
         jsDoc: '/**\n * Look up a live session.\n * @param id - the session id to look up.\n * @returns the session, or undefined when no live session has that id.\n */',
       },
@@ -434,6 +534,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session',
         jsDoc: '/**\n * Create a live child session from a turn-enclosed prefix of a live source.\n * `boundary` is an inclusive source event seq; omitted means the source\'s\n * current last event. A non-empty selected slice must end at `turn/end`.\n *\n * @param source - Live source session object or id.\n * @param boundary - Inclusive source event seq to fork through; omitted means\n *   the source\'s current last event, and omitted on an empty source forks an\n *   empty child.\n * @param childSessionId - Optional child session id; omitted delegates to\n *   `SessionStore`\'s id policy.\n * @returns The created live child session.\n */',
+      },
+    ],
+  },
+  {
+    key: 'sessionTitle',
+    summary: 'Log-backed title fold plus asynchronous fallback generation.',
+    methods: [
+      {
+        signature: 'get(session: Session): SessionTitleSnapshot | undefined',
+        jsDoc: '/**\n * Read the latest folded title from one live or replayed session.\n * @param session - session whose log is the title source of truth.\n * @returns latest title snapshot, or `undefined` before eligible input.\n */',
+      },
+      {
+        signature: 'async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>',
+        jsDoc: '/**\n * Explicitly retry the registered provider, or materialize the built-in\n * fallback when no provider is registered.\n * @param session - exact live session to refresh.\n * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.\n * @returns latest accepted title, or `undefined` when no eligible text exists.\n */',
+      },
+      {
+        signature: 'register(provider: SessionTitleProvider): () => Promise<void>',
+        jsDoc: '/**\n * Register the sole optional title provider. Disposal aborts its pending and\n * active work before another provider may register.\n * @param provider - provider identity, cadence, and generation function.\n * @returns exact Cordis effect disposer, which settles after active calls quiesce.\n */',
       },
     ],
   },
@@ -566,6 +684,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'toolResultPrune',
+    summary: 'Deterministic head/middle/tail pruning for current tool-result surface nodes.',
+    methods: [
+      {
+        signature: 'measureContent(blocks: readonly ContentBlock[]): number',
+        jsDoc: '/**\n * Measure text content in Unicode code points; non-text blocks cost zero.\n * @param blocks - tool-result content to measure.\n * @returns total Unicode code points across text blocks.\n */',
+      },
+      {
+        signature: 'pruneContent(blocks: readonly ContentBlock[]): ContentBlock[] | null',
+        jsDoc: '/**\n * Replace an over-budget text middle while retaining rich-block order.\n * Text slicing is by Unicode code point, not UTF-16 code unit, so a retained\n * boundary cannot split a surrogate pair. Grapheme clusters may still split.\n * @param blocks - original tool-result content.\n * @returns pruned content, or `null` when the text is within budget.\n */',
+      },
+      {
+        signature: 'pruneSession(session: Session): PruneResult',
+        jsDoc: '/**\n * Prune every over-budget tool result from one stable current-surface snapshot.\n * Each replacement preserves the complete event data except for `content`,\n * and points at the shadowed node for durable provenance and replay.\n * @param session - session whose current surface is rewritten.\n * @returns landed replacements and aggregate Unicode-code-point savings.\n * @throws when the session rejects a replacement; replacements committed\n * earlier in the pass remain durable.\n */',
+      },
+    ],
+  },
+  {
     key: 'tools',
     summary: 'Tool registry and execution pipeline.',
     methods: [
@@ -595,7 +731,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
-        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy, and final\n * notification. Tool and listener failures resolve as materialized error\n * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is\n * the same lossless, frozen snapshot final observers receive.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
+        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy, and final\n * notification. Tool and listener failures resolve as materialized error\n * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is\n * the same lossless, frozen snapshot final observers receive. Cancellation\n * arriving after entry and before final result materialization skips a\n * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a\n * successful started outcome with `ABORTED`; already-started work is still\n * drained and may retain a tool-owned structured error.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
       },
     ],
   },
@@ -657,6 +793,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A declarative agent entry failed before it could publish a live agent.',
   },
   {
+    name: 'agent/cancel-requested',
+    mode: 'emit',
+    signature: '\'agent/cancel-requested\'(this: Scoped<Agent>, agent: Agent, cause: AgentCancelCause): void',
+    jsDoc: '/**\n * Effective broad cancellation was requested, before queued/steering work\n * is cleared or the active turn is aborted. This observe-only notification\n * cannot veto cancellation; listener failures are contained.\n * @param agent - the agent whose current work is being cancelled.\n * @param cause - resolved typed cancellation cause, including the default.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'Effective broad cancellation was requested, before queued/steering work is cleared or the active turn is aborted.',
+  },
+  {
     name: 'agent/created',
     mode: 'emit',
     signature: '\'agent/created\'(this: Scoped<Agent>, agent: Agent): void',
@@ -694,9 +837,9 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/prompt-submit',
     mode: 'waterfall',
-    signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
-    jsDoc: '/**\n * Allow, rewrite, or block one drained prompt before it becomes a user\n * message. Call `next()` for the unchanged default.\n * @param agent - the agent draining its inbox.\n * @param content - the drained message\'s blocks, as queued.\n * @param source - the message\'s resolved source.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
-    summary: 'Allow, rewrite, or block one drained prompt before it becomes a user message.',
+    signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
+    jsDoc: '/**\n * Allow, rewrite, or block one claimed prompt before it becomes a user\n * message. Call `next()` for the unchanged default. The signal controls only\n * this turn; listeners may cooperate with it but must not retain it to\n * control another turn.\n * @param agent - the agent whose turn claimed the message.\n * @param content - the claimed message\'s blocks, as queued.\n * @param source - the message\'s resolved source.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    summary: 'Allow, rewrite, or block one claimed prompt before it becomes a user message.',
   },
   {
     name: 'agent/queued',
@@ -708,22 +851,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/request',
     mode: 'waterfall',
-    signature: '\'agent/request\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>',
-    jsDoc: '/**\n * Replace the frozen call configuration. Model-visible content must use\n * logged channels; this seam cannot mutate messages. Injection here joins\n * the next request because the current step boundary is already fixed.\n * @param agent - the agent making the model call.\n * @param turn - the open turn number.\n * @param step - the step whose request this is.\n * @param config - the config the loop would use (frozen); return a replacement to switch.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    signature: '\'agent/request\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, config: LlmCallConfig, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>',
+    jsDoc: '/**\n * Replace the frozen call configuration. Model-visible content must use\n * logged channels; this seam cannot mutate messages. Injection here joins\n * the next request because the current step boundary is already fixed.\n * @param agent - the agent making the model call.\n * @param turn - the open turn number.\n * @param step - the step whose request this is.\n * @param config - the config the loop would use (frozen); return a replacement to switch.\n * @param signal - the current turn\'s explicit abort signal; ambient\n * initiator identity does not imply liveness or cancellation authority.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Replace the frozen call configuration.',
   },
   {
     name: 'agent/request-error',
     mode: 'waterfall',
-    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, retryAttempt: number, signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>',
-    jsDoc: '/**\n * Recover a model-request failure after its failed step has closed. `retry`\n * opens a new numbered step; `fail` preserves the original request error.\n * Call `next()` to delegate to the next recovery listener or the default.\n * @param agent - the agent whose request failed.\n * @param turn - the open turn number.\n * @param step - the failed step number.\n * @param error - the original model-request failure.\n * @param retryAttempt - zero-based number of prior recovery retries.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    signature: '\'agent/request-error\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, error: RequestError, failure: LlmFailure, priorFailures: readonly LlmFailure[], signal: AbortSignal, next: () => Promise<RequestErrorDecision>): Promise<RequestErrorDecision>',
+    jsDoc: '/**\n * Recover a model-request failure after its failed step has closed. `retry`\n * opens a new numbered step; `fail` preserves the original request error.\n * Call `next()` to delegate to the next recovery listener or the default.\n * @param agent - the agent whose request failed.\n * @param turn - the open turn number.\n * @param step - the failed step number.\n * @param error - the original model-request failure.\n * @param failure - serializable facts normalized at the final adapter boundary.\n * @param priorFailures - immutable failures that already authorized another request in this consecutive sequence.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Recover a model-request failure after its failed step has closed.',
   },
   {
     name: 'agent/session-prefix',
     mode: 'waterfall',
     signature: '\'agent/session-prefix\'(this: Scoped<Agent>, agent: Agent, prefix: Message[], signal: AbortSignal, next: () => Promise<Message[]>): Promise<Message[]>',
-    jsDoc: '/**\n * Compose request-only messages placed before derived history. The frozen\n * result is computed once per loop instance, logged on its anchoring request\n * header, and reused so the provider prefix remains stable. Interrupted\n * composition is discarded. Composition precedes the first `agent/pre-step`\n * and request boundary, so listener appends join the current request.\n * Changing context belongs in history; contributors should prepend to\n * `await next()` to preserve registration order.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - the agent whose session prefix is being composed.\n * @param prefix - the frozen seed; return an extended replacement.\n * @param signal - aborts composition when the step is torn down.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Compose request-only messages placed before derived history. The frozen\n * result is computed once per loop instance, logged on its anchoring request\n * header, and reused so the provider prefix remains stable. Interrupted\n * composition is discarded. Composition precedes the first `agent/pre-step`\n * and request boundary, so listener appends join the current request.\n * Changing context belongs in history; contributors should prepend to\n * `await next()` to preserve registration order.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - the agent whose session prefix is being composed.\n * @param prefix - the frozen seed; return an extended replacement.\n * @param signal - the current turn\'s explicit abort signal.\n * @mode waterfall\n */',
     summary: 'Compose request-only messages placed before derived history.',
   },
   {
@@ -743,22 +886,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/step-result',
     mode: 'waterfall',
-    signature: '\'agent/step-result\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, next: () => Promise<Message>): Promise<Message>',
-    jsDoc: '/**\n * Waterfall: post-process the assembled assistant {@link Message} before\n * tool dispatch (validation, content rewriting, …).\n * @param agent - the agent that received the step\'s response.\n * @param turn - the open turn number.\n * @param step - the step that produced the message.\n * @param message - the assistant message as assembled from the stream.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    signature: '\'agent/step-result\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, message: Message, signal: AbortSignal, next: () => Promise<Message>): Promise<Message>',
+    jsDoc: '/**\n * Waterfall: post-process the assembled assistant {@link Message} before\n * tool dispatch (validation, content rewriting, …).\n * @param agent - the agent that received the step\'s response.\n * @param turn - the open turn number.\n * @param step - the step that produced the message.\n * @param message - the assistant message as assembled from the stream.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Waterfall: post-process the assembled assistant Message before tool dispatch (validation, content rewriting, …).',
   },
   {
     name: 'agent/turn-continuation',
     mode: 'waterfall',
-    signature: '\'agent/turn-continuation\'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>',
-    jsDoc: '/**\n * Override whether the turn continues. The default continues after tool\n * calls or steering and stops otherwise; a continue reason becomes steering.\n * @param agent - the agent deciding whether to run another step.\n * @param turn - the turn being continued or stopped.\n * @param defaultDecision - what the loop would do absent an override.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    signature: '\'agent/turn-continuation\'(this: Scoped<Agent>, agent: Agent, turn: number, defaultDecision: ContinuationDecision, signal: AbortSignal, next: () => Promise<ContinuationDecision>): Promise<ContinuationDecision>',
+    jsDoc: '/**\n * Override whether the turn continues. The default continues after tool\n * calls or steering and stops otherwise; a continue reason becomes steering.\n * @param agent - the agent deciding whether to run another step.\n * @param turn - the turn being continued or stopped.\n * @param defaultDecision - what the loop would do absent an override.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Override whether the turn continues.',
   },
   {
     name: 'agent/turn-stop',
     mode: 'serial',
-    signature: '\'agent/turn-stop\'(this: Scoped<Agent>, agent: Agent, turn: number): ContinuationStop | undefined',
-    jsDoc: '/**\n * Monotonic terminal-stop checkpoint after continuation and steering are\n * folded; a stop remains authoritative through turn close and flush:\n * steering queued in that window is discarded, while ordinary sends survive.\n * @param agent - the agent whose composed continuation outcome may be stopped.\n * @param turn - the turn at its terminal-stop checkpoint.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
+    signature: '\'agent/turn-stop\'(this: Scoped<Agent>, agent: Agent, turn: number, signal: AbortSignal): Promise<ContinuationStop | undefined> | ContinuationStop | undefined',
+    jsDoc: '/**\n * Monotonic terminal-stop checkpoint after continuation and steering are\n * folded; a stop remains authoritative through turn close and flush:\n * steering queued in that window is discarded, while ordinary sends survive.\n * @param agent - the agent whose composed continuation outcome may be stopped.\n * @param turn - the turn at its terminal-stop checkpoint.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
     summary: 'Monotonic terminal-stop checkpoint after continuation and steering are folded; a stop remains authoritative through turn close and flush: steering queued in that window is discarded, while ordinary sends survive.',
   },
   {
@@ -767,6 +910,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'approval/request\'(this: Scoped<ApprovalService>, req: ApprovalRequest, next: () => Promise<ApprovalOutcome>): Promise<ApprovalOutcome>',
     jsDoc: '/**\n * Ask composed answerers for one decision. Return an outcome to claim the\n * request or call `next()`; failure yields the fail-closed default.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param req - the pending decision (agent, tool identity, reason, signal).\n * @mode waterfall\n */',
     summary: 'Ask composed answerers for one decision.',
+  },
+  {
+    name: 'commands/change',
+    mode: 'emit',
+    signature: '\'commands/change\'(): void',
+    jsDoc: '/**\n * A command was registered or unregistered. This is an unfiltered registry\n * notification because a global or scoped change may affect any UI view.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
+    summary: 'A command was registered or unregistered.',
   },
   {
     name: 'fs/edit-intent',
@@ -790,10 +940,17 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Single-slot decision for the next FileSystem.writeText.',
   },
   {
+    name: 'goal/changed',
+    mode: 'emit',
+    signature: '\'goal/changed\'(this: import(\'@deepseek-ai/dsh-scope\').Scoped<Agent>, agent: Agent, change: GoalChanged): void',
+    jsDoc: '/**\n * Goal mutation accepted by one live agent. The matching context event is\n * already appended or queued in that agent\'s active tool-batch FIFO.\n * Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - agent whose session owns the goal.\n * @param change - fresh current projection or clear tombstone.\n * @mode emit\n */',
+    summary: 'Goal mutation accepted by one live agent.',
+  },
+  {
     name: 'llm/stream',
     mode: 'waterfall',
     signature: '\'llm/stream\'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>',
-    jsDoc: '/**\n * Waterfall around every streaming model call (retry, replay, routing).\n * Bound to the {@link LlmService}; call `next()` to reach the resolved\n * adapter\'s stream, or yield your own chunks to short-circuit.\n * @param options - the full request. A LOOP-built request arrives\n *   deep-frozen (mutation throws): its content is a pure function of the\n *   session log (the reconstructability Agent Note), so listeners read it, never\n *   rewrite it. A hand-built one-shot (compaction summarize) is the\n *   caller\'s own object and stays mutable here.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Waterfall around every streaming model call (retry, replay, routing).\n * Bound to the {@link LlmService}; call `next()` to reach the resolved\n * adapter\'s stream, or yield your own chunks to short-circuit.\n * @param options - the full request. A LOOP-built request carries the\n *   process-local {@link markAgentLoopRequest} identity and arrives deep-frozen\n *   (mutation throws): its content is a pure function of the session log (the\n *   reconstructability Agent Note), so listeners read it, never rewrite it.\n *   Hand-built calls own their mutability policy and do not carry that marker.\n * @mode waterfall\n */',
     summary: 'Waterfall around every streaming model call (retry, replay, routing).',
   },
   {
@@ -856,7 +1013,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'system-prompt/assemble',
     mode: 'waterfall',
     signature: '\'system-prompt/assemble\'(this: Scoped<SystemPrompt>, assembly: PromptAssembly, context: AssembleContext, next: () => Promise<PromptAssembly>): Promise<PromptAssembly>',
-    jsDoc: '/**\n * Expert waterfall over the assembled sections, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Expert waterfall over the assembled sections, tools, and variables.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): scoped listeners\n * receive only that scope\'s assemblies. The returned value is authoritative.\n * A supplied signal controls only this explicit assembly request and must not\n * be retained to control later turns.\n * @param assembly - the mutable assembly built from registered providers.\n * @param context - the caller\'s per-assembly context.\n * @mode waterfall\n */',
     summary: 'Expert waterfall over the assembled sections, tools, and variables.',
   },
   {
@@ -876,22 +1033,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'tools/execute',
     mode: 'waterfall',
-    signature: '\'tools/execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>',
-    jsDoc: '/**\n * Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns\n * a normalized result; wrappers may change only `exec.signal`, while call\n * identity remains immutable.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).\n * @mode waterfall\n */',
+    signature: '\'tools/execute\'(this: Scoped<ToolRegistry>, exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>',
+    jsDoc: '/**\n * Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns\n * a normalized result; wrappers may change only `exec.signal`, while call\n * identity remains immutable. The registry re-fuses the original caller\n * signal before the body, so replacement cannot detach caller cancellation;\n * wrappers must still restore their signal and reach quiescence.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the allowed call about to dispatch (name, parsed arguments, caller agent, signal).\n * @mode waterfall\n */',
     summary: 'Around-dispatch waterfall for timeout, retry, or metrics.',
   },
   {
     name: 'tools/post-execute',
     mode: 'waterfall',
     signature: '\'tools/post-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, result: Readonly<ToolExecutionResult>, next: () => Promise<PostToolDecision>): Promise<PostToolDecision>',
-    jsDoc: '/**\n * Accept, replace, enrich, or block a normalized dispatch result. `next()`\n * accepts it unchanged; thrown tools still reach this seam as errors.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the call that just ran (name, parsed arguments, caller agent).\n * @param result - the dispatch outcome a listener may accept, replace, or block.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Accept, replace, enrich, or block a normalized dispatch result. `next()`\n * accepts it unchanged; thrown tools still reach this seam as errors. Async\n * listeners must observe `exec.signal`; after they settle, caller\n * cancellation replaces only a successful accepted outcome with the code\n * selected by whether the tool body was invoked.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the call that just ran (name, parsed arguments, caller agent).\n * @param result - the dispatch outcome a listener may accept, replace, or block.\n * @mode waterfall\n */',
     summary: 'Accept, replace, enrich, or block a normalized dispatch result.',
   },
   {
     name: 'tools/pre-execute',
     mode: 'waterfall',
     signature: '\'tools/pre-execute\'(this: Scoped<ToolRegistry>, exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision>',
-    jsDoc: '/**\n * Allow, deny, or ask before dispatch. `next()` delegates to allow; missing\n * approval support turns `ask` into denial.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the pending call (name, parsed arguments, caller agent).\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Allow, deny, or ask before dispatch. `next()` delegates to allow; missing\n * approval support turns `ask` into denial. Async gates must observe\n * `exec.signal`; the registry rechecks cancellation after they settle but\n * never abandons their promise.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.\n * @param exec - the pending call (name, parsed arguments, caller agent).\n * @mode waterfall\n */',
     summary: 'Allow, deny, or ask before dispatch.',
   },
   {
@@ -949,7 +1106,11 @@ export const EVENT_API: readonly EventApiEntry[] = [
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: InjectOptions): void;\n    cancel(reason?: string): void;\n    whenIdle(): Promise<void>;\n}',
+    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: InjectOptions): void;\n    cancel(cause?: AgentCancelCause): void;\n    whenIdle(): Promise<void>;\n}',
+  },
+  {
+    name: 'AgentCancelCause',
+    declaration: 'export type AgentCancelCause = {\n    readonly kind: \'user\';\n} | {\n    readonly kind: \'parent\';\n};',
   },
   {
     name: 'AgentFactory',
@@ -989,7 +1150,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AskUserQuestionItem',
-    declaration: 'export interface AskUserQuestionItem {\n    id: string;\n    question: string;\n    header?: string;\n    options?: AskUserQuestionOption[];\n    multiSelect?: boolean;\n}',
+    declaration: 'export interface AskUserQuestionItem {\n    id: string;\n    question: string;\n    detail?: string;\n    header?: string;\n    options?: AskUserQuestionOption[];\n    multiSelect?: boolean;\n}',
   },
   {
     name: 'AskUserQuestionOption',
@@ -1001,7 +1162,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AssembleContext',
-    declaration: 'export interface AssembleContext {\n    scope?: ScopeKey;\n}',
+    declaration: 'export interface AssembleContext {\n    scope?: ScopeKey;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'AssembledSection',
@@ -1084,6 +1245,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CollectedOutput {\n    text: string;\n    truncated: boolean;\n    spillPath?: string;\n}',
   },
   {
+    name: 'CommandDefinition',
+    declaration: 'export interface CommandDefinition {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n    readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>;\n}',
+  },
+  {
+    name: 'CommandDescriptor',
+    declaration: 'export interface CommandDescriptor {\n    readonly name: string;\n    readonly description: string;\n    readonly input?: CommandInputDescriptor;\n}',
+  },
+  {
+    name: 'CommandInputDescriptor',
+    declaration: 'export interface CommandInputDescriptor {\n    readonly hint: string;\n}',
+  },
+  {
+    name: 'CommandInvocation',
+    declaration: 'export interface CommandInvocation {\n    readonly agent: Agent;\n    readonly rawInput: string;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'CommandResult',
+    declaration: 'export type CommandResult = {\n    readonly kind: \'success\';\n    readonly text?: string;\n} | {\n    readonly kind: \'error\';\n    readonly text: string;\n};',
+  },
+  {
     name: 'CompactAgentContext',
     declaration: 'export interface CompactAgentContext {\n    session: Session;\n    options: {\n        provider?: string;\n        model?: string;\n    };\n}',
   },
@@ -1113,11 +1294,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CreateAgentOptions',
-    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
+    declaration: 'export interface CreateAgentOptions {\n    readonly sessionId: SessionId;\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n    readonly seed?: readonly SessionEvent[];\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
+  },
+  {
+    name: 'CreateGoalRequest',
+    declaration: 'export interface CreateGoalRequest {\n    readonly objective: string;\n    readonly maxGoalRounds?: number;\n}',
   },
   {
     name: 'CreateSessionOptions',
-    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n    };\n}',
+    declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n}',
   },
   {
     name: 'DiffCallView',
@@ -1134,6 +1319,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DshEnvironmentKey',
     declaration: 'export type DshEnvironmentKey = `${typeof DSH_ENV_PREFIX}${string}`;',
+  },
+  {
+    name: 'EditGoalRequest',
+    declaration: 'export interface EditGoalRequest {\n    readonly objective?: string;\n    readonly maxGoalRounds?: number;\n}',
   },
   {
     name: 'EpochHeader',
@@ -1153,7 +1342,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'FinishReasonMap',
-    declaration: 'export interface FinishReasonMap {\n    \'stop\': {\n        kind: \'stop\';\n    };\n    \'tool-calls\': {\n        kind: \'tool-calls\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    \'aborted\': {\n        kind: \'aborted\';\n    };\n    \'error\': {\n        kind: \'error\';\n        message: string;\n        code?: string;\n    };\n}',
+    declaration: 'export interface FinishReasonMap {\n    \'stop\': {\n        kind: \'stop\';\n    };\n    \'tool-calls\': {\n        kind: \'tool-calls\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    \'aborted\': {\n        kind: \'aborted\';\n        failure: LlmFailure;\n    };\n    \'error\': {\n        kind: \'error\';\n        failure: LlmFailure;\n    };\n}',
   },
   {
     name: 'FsDirEntry',
@@ -1197,7 +1386,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GenerateOptions',
-    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n}',
+    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\';\n}',
   },
   {
     name: 'GenericCallView',
@@ -1208,6 +1397,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface GenericResultView {\n    card: \'generic\';\n    title?: string;\n    content?: ContentBlock[];\n}',
   },
   {
+    name: 'GoalActivation',
+    declaration: 'export type GoalActivation = \'armed\' | \'disarmed\';',
+  },
+  {
+    name: 'GoalBlockReason',
+    declaration: 'export interface GoalBlockReason {\n    readonly code: string;\n    readonly message: string;\n}',
+  },
+  {
+    name: 'GoalId',
+    declaration: 'export type GoalId = Branded<\'GoalId\'>;',
+  },
+  {
+    name: 'GoalPhase',
+    declaration: 'export type GoalPhase = \'active\' | \'paused\' | \'blocked\' | \'complete\';',
+  },
+  {
+    name: 'GoalRef',
+    declaration: 'export interface GoalRef {\n    readonly id: GoalId;\n    readonly revision: number;\n}',
+  },
+  {
+    name: 'GoalSnapshot',
+    declaration: 'export interface GoalSnapshot extends GoalRef {\n    readonly objective: string;\n    readonly phase: GoalPhase;\n    readonly blockedReason?: GoalBlockReason;\n    readonly maxGoalRounds: number;\n}',
+  },
+  {
+    name: 'GoalView',
+    declaration: 'export interface GoalView extends GoalSnapshot {\n    readonly roundsStarted: number;\n    readonly createdAt: number;\n    readonly updatedAt: number;\n    readonly activation: GoalActivation;\n}',
+  },
+  {
     name: 'HookContext',
     declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n    meta?: JsonValue;\n}',
   },
@@ -1216,12 +1433,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface InjectOptions extends SendOptions {\n    meta?: JsonValue;\n}',
   },
   {
+    name: 'InvariantFailure',
+    declaration: 'export type InvariantFailure = (message: string) => never;',
+  },
+  {
+    name: 'InvariantInstaller',
+    declaration: 'export interface InvariantInstaller {\n    (ctx: Context, fail: InvariantFailure): void | Promise<void>;\n    readonly inject?: Inject;\n}',
+  },
+  {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
     name: 'LlmCallConfig',
     declaration: 'export interface LlmCallConfig {\n    provider: string;\n    model: string;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n}',
+  },
+  {
+    name: 'LlmFailure',
+    declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n}',
+  },
+  {
+    name: 'LlmModelContext',
+    declaration: 'export interface LlmModelContext {\n    contextWindow: number;\n}',
   },
   {
     name: 'LlmModelInfo',
@@ -1244,6 +1477,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n}',
   },
   {
+    name: 'OutOfBandSessionEventMap',
+    declaration: 'export interface OutOfBandSessionEventMap {\n}',
+  },
+  {
+    name: 'OutOfBandSessionEventType',
+    declaration: 'export type OutOfBandSessionEventType = Exclude<Extract<SessionEventType, keyof OutOfBandSessionEventMap>, SurfaceEventType>;',
+  },
+  {
     name: 'PresetOption',
     declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n}',
   },
@@ -1258,6 +1499,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PromptSection',
     declaration: 'export interface PromptSection {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n}',
+  },
+  {
+    name: 'ProviderRequestId',
+    declaration: 'export type ProviderRequestId = Branded<\'ProviderRequestId\'>;',
+  },
+  {
+    name: 'PrunedEntry',
+    declaration: 'export interface PrunedEntry {\n    readonly originalSeq: number;\n    readonly replacementSeq: number;\n    readonly callId: CallId;\n    readonly charsBefore: number;\n    readonly charsAfter: number;\n}',
+  },
+  {
+    name: 'PruneResult',
+    declaration: 'export interface PruneResult {\n    readonly pruned: readonly PrunedEntry[];\n    readonly charsRemoved: number;\n}',
   },
   {
     name: 'PtyBackend',
@@ -1405,7 +1658,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionHeader',
-    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n}',
+    declaration: 'export interface SessionHeader {\n    readonly version: number;\n    readonly id: SessionId;\n    readonly createdAt: number;\n    readonly cwd?: string;\n    readonly parentSession?: SessionId;\n    readonly seedLength?: number;\n    readonly delegationDepth?: number;\n}',
   },
   {
     name: 'SessionId',
@@ -1426,6 +1679,46 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionRecord',
     declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n}',
+  },
+  {
+    name: 'SessionTitleAutomaticMode',
+    declaration: 'export type SessionTitleAutomaticMode = \'first-message\' | \'all-user-messages\';',
+  },
+  {
+    name: 'SessionTitleEventData',
+    declaration: 'export interface SessionTitleEventData {\n    readonly title: string;\n    readonly messageSeqs: number[];\n    readonly source: SessionTitleSource;\n}',
+  },
+  {
+    name: 'SessionTitleModelProvenance',
+    declaration: 'export interface SessionTitleModelProvenance {\n    readonly provider: string;\n    readonly model: string;\n}',
+  },
+  {
+    name: 'SessionTitleProvider',
+    declaration: 'export interface SessionTitleProvider {\n    readonly id: SessionTitleProviderId;\n    readonly automatic: SessionTitleAutomaticMode;\n    generate(request: SessionTitleProviderRequest): Promise<SessionTitleProviderResult>;\n}',
+  },
+  {
+    name: 'SessionTitleProviderId',
+    declaration: 'export type SessionTitleProviderId = Branded<\'SessionTitleProviderId\'>;',
+  },
+  {
+    name: 'SessionTitleProviderRequest',
+    declaration: 'export interface SessionTitleProviderRequest {\n    readonly session: Session;\n    readonly messages: readonly SessionTitleUserMessage[];\n    readonly route?: SessionTitleModelProvenance;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'SessionTitleProviderResult',
+    declaration: 'export interface SessionTitleProviderResult {\n    readonly title: string;\n    readonly messageSeqs: readonly number[];\n    readonly model?: SessionTitleModelProvenance;\n}',
+  },
+  {
+    name: 'SessionTitleSnapshot',
+    declaration: 'export interface SessionTitleSnapshot extends SessionTitleEventData {\n    readonly eventSeq: number;\n    readonly updatedAt: number;\n}',
+  },
+  {
+    name: 'SessionTitleSource',
+    declaration: 'export type SessionTitleSource = {\n    readonly kind: \'fallback\';\n} | {\n    readonly kind: \'provider\';\n    readonly provider: SessionTitleProviderId;\n    readonly model?: SessionTitleModelProvenance;\n};',
+  },
+  {
+    name: 'SessionTitleUserMessage',
+    declaration: 'export interface SessionTitleUserMessage {\n    readonly seq: number;\n    readonly text: string;\n}',
   },
   {
     name: 'SkillCandidate',
@@ -1625,7 +1918,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionInput',
-    declaration: 'export interface ToolExecutionInput {\n    readonly callId: CallId;\n    readonly name: string;\n    readonly arguments: unknown;\n    readonly agent?: Agent;\n    readonly parent?: ToolExecutionToken;\n    signal?: AbortSignal;\n}',
+    declaration: 'export interface ToolExecutionInput {\n    readonly callId: CallId;\n    readonly name: string;\n    readonly arguments: unknown;\n    readonly agent?: Agent;\n    readonly parent?: ToolExecutionToken;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'ToolExecutionMode',
@@ -1677,7 +1970,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TurnEndReasonMap',
-    declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n        reason?: string;\n    };\n    error: {\n        kind: \'error\';\n        step: number;\n        message: string;\n        code?: string;\n    };\n    disposed: {\n        kind: \'disposed\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    rejected: {\n        kind: \'rejected\';\n        reason: string;\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
+    declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n    };\n    error: {\n        kind: \'error\';\n        step: number;\n    } & ({\n        failure: LlmFailure;\n        message?: never;\n        code?: never;\n    } | {\n        message: string;\n        code?: string;\n        failure?: never;\n    });\n    disposed: {\n        kind: \'disposed\';\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    rejected: {\n        kind: \'rejected\';\n        reason: string;\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
   },
   {
     name: 'TurnTrigger',
@@ -1745,7 +2038,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'WorkflowStartRequest',
-    declaration: 'export interface WorkflowStartRequest {\n    script: string;\n    meta: WorkflowMeta;\n    args?: unknown;\n    parent: Agent;\n    signal?: AbortSignal;\n}',
+    declaration: 'export interface WorkflowStartRequest {\n    script: string;\n    meta: WorkflowMeta;\n    args?: unknown;\n    subagentProvider?: string;\n    maxTotalAgents?: number;\n    parent: Agent;\n    signal?: AbortSignal;\n}',
   },
   {
     name: 'WorkflowStopReason',

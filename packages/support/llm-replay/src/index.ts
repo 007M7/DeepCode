@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from 'cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelContext, LlmModelInfo, LlmProviderInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter, LlmError, assertNever } from '@deepseek-ai/dsh-llm'
 
 /**
@@ -31,6 +31,8 @@ export interface ReplayModelConfig {
   name?: string
   /** Optional selector description. */
   description?: string
+  /** Optional positive integer context capacity published by the replay adapter. */
+  contextWindow?: number
 }
 
 /** One provider route exposed by the replay adapter. */
@@ -258,6 +260,14 @@ class ReplayAdapter extends LlmAdapter {
       name: model.name ?? model.id,
       ...model.description === undefined ? {} : { description: model.description },
     })))
+  }
+
+  override resolveModelContext(provider: string, model: string): Promise<LlmModelContext | undefined> {
+    const configured = this.providers.get(provider)
+    /* v8 ignore next -- LlmService only asks about routes registered from this same map. */
+    if (configured === undefined) return Promise.resolve(undefined)
+    const contextWindow = configured.models?.find(candidate => candidate.id === model)?.contextWindow
+    return Promise.resolve(contextWindow === undefined ? undefined : { contextWindow })
   }
 
   override stream(options: GenerateOptions): AsyncIterable<StreamChunk> {

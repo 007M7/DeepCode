@@ -1,0 +1,24 @@
+# Test-only composition: create one goal through a Loader-mounted step consumer.
+- id: cli-mock-llm
+  name: '../cli-mock-llm.ts'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+
+- id: goal
+  name: '@deepseek-ai/dsh-goal'
+  config:
+    defaultMaxGoalRounds: 11
+
+- id: seed-goal
+  name: './seed-goal.ts'
+
+- id: cli-agent
+  name: '@deepseek-ai/dsh-cli-demo'
+  config:
+    provider: cli-mock
+    model: cli-mock
+    persona: 'Test the persisted goal domain.'
+    persistenceRoot: './.sessions'
+    persistenceCompression: none
+    workspaceContext: false

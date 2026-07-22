@@ -125,7 +125,6 @@ export function apply(ctx: Context): void {
       if (args.run_in_background === true) {
         const tasks = ctx.get('tasks')
         if (tasks === undefined) throw new Error('background terminal sends require @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
-        if (exec.signal?.aborted === true) throw new Error('terminal send aborted')
         let cancelRequested = false
         const taskId = tasks.start({
           kind: 'pty-send',
@@ -148,9 +147,9 @@ export function apply(ctx: Context): void {
         })
         return { content: textResult(`started background task ${taskId}`), isError: false }
       }
-      const operation = ctx.pty.startSend(owner, id, { ...request, ...exec.signal ? { signal: exec.signal } : {} })
+      const operation = ctx.pty.startSend(owner, id, { ...request, signal: exec.signal })
       const result = await operation.done
-      if (exec.signal?.aborted === true) throw new Error('terminal send aborted')
+      if (exec.signal.aborted) throw new Error('terminal send aborted')
       return { content: textResult(renderSend(result)), isError: false, meta: result }
     },
     presentCall(args) {

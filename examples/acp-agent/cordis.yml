@@ -9,6 +9,11 @@
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
+    models:
+      - id: deepseek-v4-flash
+        contextWindow: 256000
+      - id: deepseek-v4-pro
+        contextWindow: 256000
 
 # The default composition confines bash AND the filesystem tools to the
 # workspace and asks before a wider retry. Snapshot runs select
@@ -41,12 +46,14 @@
 # The ACP server app: the agent-spine-demo spine + JSONL persistence + the ACP bridge.
 # Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness sets it
 # (so it can harvest / isolate the log), else ./.sessions for the demo.
+# Snapshot modes use raw JSONL fixtures; ordinary runs keep the compressed default.
 - id: acp-agent
   name: '@deepseek-ai/dsh-acp-demo'
   config:
     provider: deepseek
     model: deepseek-v4-flash
     persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+    persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
     workspaceContext:
       maxBytes: 65536
     # Keep the persona to identity and behavior; tool plugins own tool guidance.
@@ -56,20 +63,40 @@
 
       Verify your work by running the code or tests. Keep answers brief and factual.
 
-# Replay-aware request pressure with one service-wide context window.
+# Plan mode is additive to the canonical ACP server. The ACP bridge projects
+# it onto the protocol picker; sandbox and approval remain independent options.
+- id: plan-mode
+  name: '@deepseek-ai/dsh-plan-mode'
+  config:
+    section: |
+          You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+          Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+          The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed only to keep the request shape stable. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+          Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+          Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+          When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+
+# Blocking plan decisions and ordinary clarifications share ACP's elicitation
+# provider through the model-facing question tool.
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+# Replay-aware request pressure; the routed adapter supplies model capacity.
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'
-  config:
-    # FIXME: Resolve compaction config per model; this capacity assumes a 256k context window.
-    contextWindow: 256000
 
 # Summarize an older range after measured pressure or a canonical provider overflow.
-# Service-wide policy provides pressure, retention, and one overflow-retry default.
+# Ratios scale against the routed model's context window.
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
   config:
     thresholdRatio: 0.8
-    retainTokens: 20480
+    retainRatio: 0.08
     maxTokens: 8192
     compactionRetries: 1
 
@@ -94,12 +121,14 @@
   config:
     provider: spawn
     toolName: subagent
+    maxDepth: 1
 
 - id: tool-subagent-fork
   name: '@deepseek-ai/dsh-tool-subagent'
   config:
     provider: fork
     toolName: subagent_fork
+    maxDepth: 1
 
 
 # The worker-thread workflow engine fans a model-written JavaScript script's
@@ -111,6 +140,9 @@
 
 - id: tool-workflow
   name: '@deepseek-ai/dsh-tool-workflow'
+
+- id: tool-ralph
+  name: '@deepseek-ai/dsh-tool-ralph'
 # `todo_write` replaces the logged whole list and surfaces an ACP `plan` update.
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'

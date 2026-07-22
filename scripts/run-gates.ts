@@ -5,9 +5,8 @@
  * independent commands can overlap and which commands wait for built artifacts.
  */
 import { spawn } from 'node:child_process'
-import { readdir, rm } from 'node:fs/promises'
 import { availableParallelism } from 'node:os'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
 type Mode =
@@ -19,6 +18,8 @@ type Mode =
   | 'ci-artifacts'
   | 'node-compat'
   | 'pre-push'
+  | 'manual-push'
+  | 'doc-sync'
 type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
 
 interface Gate {
@@ -88,21 +89,25 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-artifacts':
     case 'node-compat':
     case 'pre-push':
+    case 'doc-sync':
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | pre-push, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | pre-push | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
 
 function defaultConcurrency(selectedMode: Mode, total: number): ConcurrencyDefault {
   const available = availableParallelism()
-  const modeLimit = selectedMode === 'pre-push' ? Math.min(4, available) : available
+  // Local modes cap workers: several doc gates each build a full ts.Program,
+  // so an uncapped default on a large host trades wall clock for memory blowups.
+  const localCap = selectedMode === 'pre-push' || selectedMode === 'doc-sync'
+  const modeLimit = localCap ? Math.min(4, available) : available
   return {
     workers: Math.min(total, modeLimit),
-    source: selectedMode === 'pre-push'
-      ? `${available} available CPU(s), pre-push cap 4`
+    source: localCap
+      ? `${available} available CPU(s), ${selectedMode} cap 4`
       : `${available} available CPU(s)`,
   }
 }
@@ -181,15 +186,23 @@ function gatesForMode(selected: Mode): Gate[] {
           'run',
           'packages/workflow/workflow-workerthread/tests/source-worker.compat.spec.ts',
         ], { label: 'source worker smoke' }),
+        pnpmExec('jsonl-zstd-smoke', [
+          'vitest',
+          'run',
+          'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
+        ], { label: 'JSONL Zstandard smoke' }),
       ]
-    case 'pre-push':
+    case 'pre-push': return []
+    case 'manual-push':
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
         pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
+        pnpmScript('client-domain-graph', 'verify-client-domain-graph', { label: 'client domain graph' }),
         pnpmScript('test', 'test'),
         pnpmScript('duplication', 'duplication'),
         snapshotGate(),
         pnpmScript('build', 'build'),
+        pnpmScript('build:web', 'build:web'),
         ...hygieneLeafGates({ artifactNeeds: ['build'] }),
         ...docSyncLeafGates({
           docTypecheckNeeds: ['build'],
@@ -197,6 +210,8 @@ function gatesForMode(selected: Mode): Gate[] {
         }),
         pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
       ]
+    case 'doc-sync':
+      return docSyncLeafGates()
   }
 }
 
@@ -204,23 +219,23 @@ function ciPrimaryGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
+    pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
     pnpmScript('typecheck', 'typecheck'),
     lintGate(),
     pnpmScript('duplication', 'duplication'),
     coverageGate(),
     snapshotGate(),
-    demoSmokeGate({ needs: ['lint'] }),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
-    pnpmScript('website-build', 'website:build', { label: 'website build' }),
     pnpmScript('build', 'build', { needs: ['typecheck'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
       needs: ['build'],
     }),
+    builtPackageInvariantsGate(['build']),
     builtBinSmokeGate(),
   ]
 }
@@ -229,18 +244,12 @@ function ciStaticGates(): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
+    pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
-    ...staticDemoSmokeGates(),
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
-    pnpmScript('website-build', 'website:build', { label: 'website build' }),
   ]
-}
-
-function staticDemoSmokeGates(): Gate[] {
-  // Native Windows session persistence is outside the gates-only support scope.
-  return process.platform === 'win32' ? [] : [demoSmokeGate()]
 }
 
 function ciArtifactGates(): Gate[] {
@@ -251,6 +260,7 @@ function ciArtifactGates(): Gate[] {
       label: 'node-next types',
       needs: ['build'],
     }),
+    builtPackageInvariantsGate(['build']),
     builtBinSmokeGate(),
   ]
 }
@@ -298,6 +308,13 @@ function snapshotGate(): Gate {
   })
 }
 
+function builtPackageInvariantsGate(needs?: string[]): Gate {
+  return pnpmScript('built-package-invariants', 'verify-built-package-invariants', {
+    label: 'built package invariants',
+    ...needs === undefined ? {} : { needs },
+  })
+}
+
 function positiveIntArg(envName: string, flag: string): string[] {
   const raw = process.env[envName]
   if (raw === undefined || raw === '') return []
@@ -314,6 +331,8 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
     pnpmScript('knip', 'knip'),
     pnpmScript('publint', 'publint', artifactOptions),
     pnpmScript('constraints', 'constraints'),
+    pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
+    builtPackageInvariantsGate(options.artifactNeeds),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
       ...artifactOptions,
@@ -331,13 +350,13 @@ function docSyncLeafGates(options: {
   return [
     pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions),
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
+    pnpmScript('cordis-api', 'verify-cordis-api', { label: 'cordis api' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
     pnpmScript('config-catalog', 'verify-config-catalog', { label: 'config catalog' }),
     pnpmScript('persistence-catalog', 'verify-persistence-catalog', { label: 'persistence catalog' }),
     pnpmScript('doc-graphs', 'verify-doc-graphs', { label: 'doc graphs' }),
     pnpmScript('scoped-events', 'verify-scoped-events', { label: 'scoped events' }),
-    pnpmScript('website-api', 'verify-website-api', { label: 'website api' }),
     pnpmScript('markdown-wrap', 'verify-md-wrap', { label: 'markdown wrap' }),
     pnpmScript('markdown-links', 'verify-md-links', { label: 'markdown links' }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs' }),
@@ -350,46 +369,10 @@ function docSyncLeafGates(options: {
     pnpmScript('translation-prompt', 'verify-translation-prompt', { label: 'translation prompt' }),
     pnpmScript('translation-pairing', 'verify-translation-pairing', { label: 'translation pairing' }),
     pnpmScript('doc-budgets', 'verify-doc-budgets', { label: 'doc budgets' }),
+    // Keep the VitePress build in this single gate because projection rewrites website/.generated.
+    pnpmScript('docs-site', 'docs:check', { label: 'documentation site' }),
     pnpmScript('package-readme-limitations', 'verify-package-readme-limitations', { label: 'package README limitations' }),
-    pnpmScript('website-yaml', 'verify-website-yaml', { label: 'website yaml' }),
   ]
-}
-
-function demoSmokeGate(options: { needs?: string[] } = {}): Gate {
-  const dependencyOptions = options.needs === undefined ? {} : { needs: options.needs }
-  return {
-    id: 'demo-smoke',
-    label: 'demo smoke',
-    displayCommand: 'pnpm run demo:echo',
-    ...pnpmInvocation(['run', 'demo:echo']),
-    input: 'echo ci smoke\n',
-    ...dependencyOptions,
-    verify: async (result) => {
-      const output = result.stdout + result.stderr
-      const sessionsRoot = join(root, '.sessions')
-      try {
-        if (!output.includes('[tool call] echo({"text":"ci smoke"})')) {
-          throw new Error('demo smoke did not show the echo tool call.')
-        }
-        if (!output.includes('[tool result] ECHO: CI SMOKE')) {
-          throw new Error('demo smoke did not show the echo tool result.')
-        }
-        const buckets = await readdir(sessionsRoot, { withFileTypes: true })
-        let found = false
-        for (const bucket of buckets) {
-          if (!bucket.isDirectory() || !bucket.name.startsWith('cwd-')) continue
-          const entries = await readdir(join(sessionsRoot, bucket.name))
-          if (entries.some(entry => /^main-session-.+\.jsonl$/.test(entry))) {
-            found = true
-            break
-          }
-        }
-        if (!found) throw new Error('demo smoke did not create a main-session JSONL log in a cwd bucket.')
-      } finally {
-        await rm(sessionsRoot, { recursive: true, force: true })
-      }
-    },
-  }
 }
 
 function builtBinSmokeGate(): Gate {
@@ -398,7 +381,8 @@ function builtBinSmokeGate(): Gate {
     'run',
     '--config',
     'vitest.e2e.config.ts',
-    'packages/examples/stdio-demo/tests/built-bin.e2e.ts',
+    'examples/headless-agent/tests/keyless-smoke.e2e.ts',
+    'examples/tui-agent/tests/tui-keyless-smoke.e2e.ts',
     'packages/examples/cli-demo/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     'packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts',
@@ -410,6 +394,7 @@ function builtBinSmokeGate(): Gate {
   ], {
     label: 'built-bin smoke',
     needs: ['build'],
+    env: { DSH_EXAMPLE_MODE: 'lib' },
   })
 }
 

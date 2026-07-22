@@ -9,7 +9,7 @@ Built with the DeepSeek Harness SDK using the {{model}} model.
 
 Run `{{packageManager}} start` and configure your ACP client to launch this project. Standard output is reserved for ACP JSON-RPC.
 {{else}}
-{{#if isStdio}}
+{{#if isTui}}
 ## Run in a terminal
 
 Run `{{packageManager}} start` to start the interactive agent.

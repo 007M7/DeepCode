@@ -15,9 +15,11 @@ import {
   normalizedToolSchemas,
   parseToolSchemasSnapshot,
   refreshFixtureReplacements,
+  scenarioSkipped,
   sessionFixtureNames,
   restorePinnedToolSchemas,
   stabilizeRefreshLog,
+  stdoutExpectedVariants,
   unknownToolCallIds,
 } from '../src/suite.ts'
 
@@ -90,12 +92,12 @@ function staleRefreshFixtures(dir: string): void {
   writeFileSync(plainBehaviorFile, `${JSON.stringify(plainBehavior, null, 2)}\n`)
 
   writeFileSync(join(dir, 'blocked-log', 'session.jsonl'), [
-    '{"type":"session","id":"99999999-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/blocked-cwd"}',
+    '{"type":"session","id":"99999999-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/blocked-cwd","delegationDepth":0}',
     '{"type":"hook/result","seq":1,"time":13,"data":{"decision":"stale","durationMs":99}}',
     '',
   ].join('\n'))
   writeFileSync(join(dir, 'authored-error', 'session.jsonl'), [
-    '{"type":"session","id":"77777777-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/error-cwd"}',
+    '{"type":"session","id":"77777777-8888-4777-8666-555555555555","createdAt":13,"cwd":"/rec/error-cwd","delegationDepth":0}',
     '{"type":"turn/end","seq":1,"time":9,"data":{"error":"stale"}}',
     '',
   ].join('\n'))
@@ -227,6 +229,48 @@ describe('sessionFixtureNames', () => {
   it('rejects duplicate child indexes', () => {
     expect(() => sessionFixtureNames(['session.jsonl', 'session.1.jsonl', 'session.1.jsonl']))
       .toThrow('expected session.2.jsonl, found session.1.jsonl')
+  })
+})
+
+describe('stdoutExpectedVariants', () => {
+  const scenario: Scenario = {
+    name: 'windows-native',
+    hasModelTurn: true,
+    recorded: true,
+    pinsNativeWindowsStdout: true,
+  }
+
+  it('adds the native sidecar after the shared golden on Windows', () => {
+    expect(stdoutExpectedVariants(scenario, 'win32')).toEqual([
+      { file: 'stdout.expected.jsonl', cwdPathMode: 'canonical' },
+      { file: 'stdout.expected.windows.jsonl', cwdPathMode: 'native' },
+    ])
+  })
+
+  it('keeps only the shared golden on other platforms or without the declaration', () => {
+    expect(stdoutExpectedVariants(scenario, 'linux')).toEqual([
+      { file: 'stdout.expected.jsonl', cwdPathMode: 'canonical' },
+    ])
+    expect(stdoutExpectedVariants({ ...scenario, pinsNativeWindowsStdout: false }, 'win32')).toEqual([
+      { file: 'stdout.expected.jsonl', cwdPathMode: 'canonical' },
+    ])
+  })
+})
+
+describe('scenarioSkipped', () => {
+  const authored: Scenario = { name: 'authored', hasModelTurn: true, recorded: false }
+  const posix: Scenario = { name: 'posix-cancel', hasModelTurn: true, recorded: false, posixOnly: true }
+
+  it('skips authored scenarios only while recording', () => {
+    expect(scenarioSkipped(authored, true, 'linux')).toBe(true)
+    expect(scenarioSkipped(authored, false, 'linux')).toBe(false)
+  })
+
+  it('skips posixOnly scenarios on Windows and nowhere else', () => {
+    expect(scenarioSkipped(posix, false, 'win32')).toBe(true)
+    expect(scenarioSkipped(posix, false, 'linux')).toBe(false)
+    expect(scenarioSkipped(posix, false, 'darwin')).toBe(false)
+    expect(scenarioSkipped(authored, false, 'win32')).toBe(false)
   })
 })
 
@@ -407,6 +451,36 @@ describe('refreshFixtureReplacements', () => {
 })
 
 describe('stabilizeRefreshLog', () => {
+  it('aligns volatile times across a newly inserted log event', () => {
+    const fresh = [
+      '{"type":"session","id":"same","createdAt":200}',
+      '{"type":"turn/start","seq":0,"time":21}',
+      '{"type":"user/message","seq":1,"time":22}',
+      '{"type":"session/title","seq":2,"time":999}',
+      '{"type":"step/start","seq":3,"time":1000}',
+      '{"type":"request/header","seq":4,"time":1001}',
+      '',
+    ].join('\n')
+    const existing = [
+      '{"type":"session","id":"same","createdAt":100}',
+      '{"type":"turn/start","seq":0,"time":11}',
+      '{"type":"user/message","seq":1,"time":12}',
+      '{"type":"step/start","seq":2,"time":13}',
+      '{"type":"request/header","seq":3,"time":14}',
+      '',
+    ].join('\n')
+
+    expect(stabilizeRefreshLog(fresh, existing, [])).toBe([
+      '{"type":"session","id":"same","createdAt":100}',
+      '{"type":"turn/start","seq":0,"time":11}',
+      '{"type":"user/message","seq":1,"time":12}',
+      '{"type":"session/title","seq":2,"time":12}',
+      '{"type":"step/start","seq":3,"time":13}',
+      '{"type":"request/header","seq":4,"time":14}',
+      '',
+    ].join('\n'))
+  })
+
   it('keeps volatile fixture fields while preserving fresh meaningful payloads', () => {
     const fresh = [
       '{"type":"session","id":"new-child","createdAt":200,"cwd":"/new","parentSession":"new-parent","seedLength":1}',

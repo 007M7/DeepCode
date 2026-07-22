@@ -80,7 +80,7 @@ export function mapExaResponse(response: ExaSearchResponse): WebSearchResult {
   return { sources, truncated: false }
 }
 
-/** The Exa-backed search provider. */
+/** The Exa-backed search provider; HTTP redirects fail as `WEB_PROVIDER_ERROR`. */
 export class ExaSearchProvider implements WebSearchProvider {
   readonly id = EXA_PROVIDER_ID
 
@@ -100,6 +100,7 @@ export class ExaSearchProvider implements WebSearchProvider {
     try {
       response = await fetch(`${this.options.baseURL}/search`, {
         method: 'POST',
+        redirect: 'error',
         headers: {
           'authorization': `Bearer ${this.options.apiKey}`,
           'content-type': 'application/json',

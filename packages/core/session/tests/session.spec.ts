@@ -1,7 +1,13 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, {
+  findLastMessageTurnEnd,
+  SESSION_FORMAT_VERSION,
+  Session,
+  SessionEvent,
+  SessionId,
+} from '@deepseek-ai/dsh-session'
 import type { CreateSessionOptions, SessionEventType, SessionHeader, SessionSurface, TodoItem } from '@deepseek-ai/dsh-session'
 
 describe('Session', () => {
@@ -46,6 +52,68 @@ describe('Session', () => {
     expect(turnEnd.data.reason).toEqual({ kind: 'max-tokens' })
     // survives a structuredClone (the persistence-serialization boundary)
     expect(structuredClone(turnEnd.data.reason)).toEqual({ kind: 'max-tokens' })
+  })
+
+  it('finds the latest message-turn outcome past later non-message turns', () => {
+    const session = new Session(SessionId('message-turn-outcome'))
+    expect(findLastMessageTurnEnd(session.events)).toBeUndefined()
+    session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'before' } },
+    })
+    session.append('context/message', {
+      content: [{ type: 'text', text: 'before' }],
+      source: { kind: 'plugin', plugin: 'before' },
+    }, { surfaceOp: 'append' })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    expect(findLastMessageTurnEnd(session.events)).toBeUndefined()
+
+    session.append('turn/start', {
+      turn: 2,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'bounded prompt' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    const messageEnd = session.append('turn/end', { turn: 2, reason: { kind: 'max-tokens' } })
+    session.append('turn/start', {
+      turn: 3,
+      trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'after' } },
+    })
+    session.append('context/message', {
+      content: [{ type: 'text', text: 'after' }],
+      source: { kind: 'plugin', plugin: 'after' },
+    }, { surfaceOp: 'append' })
+    session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
+
+    expect(findLastMessageTurnEnd(session.events)).toBe(messageEnd)
+  })
+
+  it('round-trips the coarse aborted turn outcome', () => {
+    const session = new Session(SessionId('aborted'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
+    const replayed = new Session(SessionId('aborted-replay'), structuredClone(session.events))
+    expect(replayed.events).toEqual(session.events)
+    const turnEnd = replayed.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
+  })
+
+  it('rejects legacy reason-bearing aborted outcomes at the seed/load boundary', () => {
+    const legacy = [
+      {
+        type: 'turn/start', seq: 0, time: 1,
+        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      },
+      {
+        type: 'turn/end', seq: 1, time: 2,
+        data: { turn: 1, reason: { kind: 'aborted', reason: 'legacy cancellation detail' } },
+      },
+    ] as unknown as SessionEvent[]
+
+    expect(() => new Session(SessionId('legacy-aborted'), legacy))
+      .toThrow('seed turn/end at index 1 uses unsupported reason-bearing aborted format')
   })
 
   it('renders context and steering messages as plain user content', () => {
@@ -717,10 +785,11 @@ describe('SessionStore', () => {
     // may create an unrelated property with the old implementation's name,
     // but cannot suppress the durable event feed.
     expect(Reflect.set(session, 'onAppend', undefined)).toBe(true)
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', { content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    expect(events).toHaveLength(1)
-    expect(events[0]![0]).toBe(session)
-    expect(events[0]![1].type).toBe('user/message')
+    expect(events).toHaveLength(2)
+    expect(events[1]![0]).toBe(session)
+    expect(events[1]![1].type).toBe('user/message')
 
     expect(ctx.sessions.get(session.id)).toBe(session)
     expect(ctx.sessions.list()).toEqual([session])
@@ -732,6 +801,7 @@ describe('SessionStore', () => {
     const a = ctx.sessions.create(SessionId('fixed'))
     expect(() => ctx.sessions.create(SessionId('fixed'))).toThrow('already exists')
 
+    a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     a.append('user/message', { content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     const forked = ctx.sessions.create(SessionId('fork'), { seed: [...a.events] })
     expect(forked.deriveMessages()).toEqual(a.deriveMessages())
@@ -881,6 +951,19 @@ describe('SessionStore', () => {
     })
   })
 
+  it('attaches delegationDepth from meta to the header', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('delegated-child'), {
+      meta: { parentSession: SessionId('parent'), delegationDepth: 2 },
+    })
+    expect(session.header).toMatchObject({
+      id: 'delegated-child',
+      parentSession: 'parent',
+      delegationDepth: 2,
+    })
+  })
+
   it('rejects non-JSON and invalid scalar session metadata', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -892,6 +975,9 @@ describe('SessionStore', () => {
       { meta: { seedLength: '1' }, error: /seedLength must be a non-negative safe integer/ },
       { meta: { seedLength: 0.5 }, error: /seedLength must be a non-negative safe integer/ },
       { meta: { seedLength: -1 }, error: /seedLength must be a non-negative safe integer/ },
+      { meta: { delegationDepth: '1' }, error: /delegationDepth must be a non-negative safe integer/ },
+      { meta: { delegationDepth: 0.5 }, error: /delegationDepth must be a non-negative safe integer/ },
+      { meta: { delegationDepth: -1 }, error: /delegationDepth must be a non-negative safe integer/ },
     ]
 
     for (const [index, { meta, error }] of cases.entries()) {
@@ -957,8 +1043,9 @@ describe('SessionStore', () => {
     ctx.on('session/event', (_session, event) => void events.push(event))
     const session = ctx.sessions.create(SessionId('fixed'))
     expect(ctx.sessions.get(SessionId('fixed'))).toBe(session)
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    expect(events).toHaveLength(1)
+    expect(events.at(-1)?.type).toBe('user/message')
   })
 
   it('contains session/event observer failures after the append commit point', async () => {
@@ -1042,6 +1129,8 @@ describe('SessionStore', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('surface-dispatch-veto'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', {
       content: [{ type: 'text', text: 'source' }],
       source: { kind: 'user' },
@@ -1061,19 +1150,19 @@ describe('SessionStore', () => {
       step: 1,
       content: [{ type: 'text', text: 'replacement' }],
     }, {
-      surfaceOp: { op: 'replace', start: 0, end: 0 },
-      sourceEventSeqs: [0],
+      surfaceOp: { op: 'replace', start: 2, end: 2 },
+      sourceEventSeqs: [2],
     })).toThrow('reject surface candidate')
 
-    expect(session.events).toHaveLength(1)
-    expect(surface.nodes).toEqual([0])
+    expect(session.events).toHaveLength(3)
+    expect(surface.nodes).toEqual([2])
     expect(surface.replaceGeneration).toBe(0)
 
     session.append('user/message', {
       content: [{ type: 'text', text: 'next' }],
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
-    expect(surface.nodes).toEqual([0, 1])
+    expect(surface.nodes).toEqual([2, 3])
     expect(surface.replaceGeneration).toBe(0)
   })
 

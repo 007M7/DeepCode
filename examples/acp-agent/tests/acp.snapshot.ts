@@ -31,6 +31,8 @@ const WORKSPACE_CONTEXT_CONFIG = fileURLToPath(new URL('../workspace-context.cor
 const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.meta.url))
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 const PTY_CONFIG = fileURLToPath(new URL('../pty.cordis.yml', import.meta.url))
+const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
+const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 
 function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['mode'] {
   switch (value) {
@@ -50,6 +52,22 @@ function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['m
 const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
+  // Direct command dispatch reports goal state without spending a model turn.
+  { name: 'goal-command-status', hasModelTurn: false, recorded: false },
+  // Protocol-only (keyless, authored): session/new advertises the mode picker,
+  // session/set_mode acknowledges a valid selection, and an unknown mode id
+  // fails loudly. With no model turn, its membership in the plan header class
+  // is vacuous; the class still needs one explicit pin below.
+  { name: 'modes-advertise', hasModelTurn: false, recorded: false, headerClass: 'plan' },
+  // The plan header pin covers the full arc: setMode(plan), a real read under
+  // the independently configured sandbox, plan review through exit_plan_mode,
+  // an approved boundary flip back to default, and a real edit in the next
+  // step. Leaving plan removes the policy section and exit tool, producing one
+  // changed request header.
+  { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderChanges: 1 },
+  // Free-text review feedback returns as a corrective error and leaves the
+  // session in plan mode, so this scenario shares the pinned plan header.
+  { name: 'plan-mode-reject', hasModelTurn: true, recorded: true, headerClass: 'plan' },
   // text-turn is the pinned-header scenario: the minimal single text turn.
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
@@ -74,7 +92,13 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
-  { name: 'workspace-edit', hasModelTurn: true, recorded: true },
+  { name: 'lsp-definition', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'lsp', configPath: LSP_CONFIG },
+  {
+    name: 'workspace-edit',
+    hasModelTurn: true,
+    recorded: true,
+    pinsNativeWindowsStdout: true,
+  },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },
   { name: 'fs-edit', hasModelTurn: true, recorded: true },
@@ -113,11 +137,20 @@ const SCENARIOS: Scenario[] = [
     configPath: WORKSPACE_CONTEXT_CONFIG,
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
-  { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true },
+  // Cancelling a live bash call relies on POSIX process-group termination;
+  // Windows bash process-tree kill is deferred with the Bash execution domain.
+  { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true, posixOnly: true },
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
+  {
+    name: 'subagent-depth-two-rejection',
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    configPath: DEPTH_TWO_CONFIG,
+  },
   // The workflow tool: the model writes a one-child orchestration script; the
   // child runs as a spawn subagent under the worker-thread engine (its session is the
   // child fixture), and the tool result carries the script's return value.

@@ -1,6 +1,6 @@
 terminal 100x36 buffer=normal length=47 base=11 viewport=11
 lifecycle started=1 stopped=0 progress=inactive
-title "DSH TUI snapshot"
+title "Use the workflow tool exactly — DSH TUI snapshot"
 cursor hidden column=1 viewportRow=33 bufferRow=44
 buffer
 0| "╭──────────────────────────────────────────────────────────────────────────────────────────────────╮"
@@ -10,9 +10,9 @@ buffer
   style 2-9 fg=bright-blue bold
   style 11-17 bold
   style 99-99 fg=bright-blue
-2| "│ Recorded replay: dynamic-workflow                                                                │"
+2| "│ Use the workflow tool exactly                                                                    │"
   style 0-0 fg=bright-blue
-  style 2-34 fg=bright-black
+  style 2-30 fg=bright-black
   style 99-99 fg=bright-blue
 3| "│ deepseek-v4-flash  •  main-session                                                               │"
   style 0-0 fg=bright-blue
@@ -101,6 +101,6 @@ buffer
   style 1-1 inverse
 45| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-46| "/workspace/project  ↑3.5k ↓227          idle  reasoning:on  tools:compact"
-  style 0-56 dim
-  style 67-99 dim
+46| "/tmp/dsh-tui-snapshot-dynamic  ↑3.5k ↓227 3% context  tools:compact  deepseek-v4-flash(reasoning:on)"
+  style 0-28 dim
+  style 42-99 dim

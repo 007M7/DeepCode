@@ -25,6 +25,9 @@
     },
     {
       "path": "../../sandbox/sandbox-policy"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

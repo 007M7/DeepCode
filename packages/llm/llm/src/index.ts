@@ -7,7 +7,16 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, Message, StreamChunk } from './types.ts'
+import type {
+  GenerateOptions,
+  LlmFailure,
+  LlmModelContext,
+  LlmModelInfo,
+  LlmProviderInfo,
+  Message,
+  StreamChunk,
+} from './types.ts'
+import type { ProviderRequestId } from './brand.ts'
 import { deepFreeze } from './call-config.ts'
 import { HarnessError } from './error.ts'
 import { bindAdapterFailureScope, markLlmAdapterFailure } from './adapter-failure.ts'
@@ -19,9 +28,9 @@ export * from './never.ts'
 export * from './error.ts'
 export * from './types.ts'
 export { BlockAssembler } from './assembler.ts'
-export { callConfigEquals, deepFreeze } from './call-config.ts'
+export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { LlmCallConfig } from './call-config.ts'
-export { isLlmAdapterFailure } from './adapter-failure.ts'
+export { isLlmAdapterFailure, llmFailureOf } from './adapter-failure.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -33,15 +42,25 @@ declare module 'cordis' {
      * Waterfall around every streaming model call (retry, replay, routing).
      * Bound to the {@link LlmService}; call `next()` to reach the resolved
      * adapter's stream, or yield your own chunks to short-circuit.
-     * @param options - the full request. A LOOP-built request arrives
-     *   deep-frozen (mutation throws): its content is a pure function of the
-     *   session log (the reconstructability Agent Note), so listeners read it, never
-     *   rewrite it. A hand-built one-shot (compaction summarize) is the
-     *   caller's own object and stays mutable here.
+     * @param options - the full request. A LOOP-built request carries the
+     *   process-local {@link markAgentLoopRequest} identity and arrives deep-frozen
+     *   (mutation throws): its content is a pure function of the session log (the
+     *   reconstructability Agent Note), so listeners read it, never rewrite it.
+     *   Hand-built calls own their mutability policy and do not carry that marker.
      * @mode waterfall
      */
     'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
   }
+}
+
+/** Structured provider facts and cause accepted by {@link LlmError}. */
+export interface LlmErrorOptions extends ErrorOptions {
+  /** Valid HTTP status observed at the provider boundary. */
+  status?: number
+  /** Positive finite provider-requested delay in milliseconds. */
+  providerRetryAfterMs?: number
+  /** Non-empty opaque provider request id. */
+  requestId?: ProviderRequestId
 }
 
 /**
@@ -49,9 +68,38 @@ declare module 'cordis' {
  * `code` string (e.g. `AUTH`, `RATE_LIMIT`, `NO_ADAPTER`) is shared taxonomy.
  */
 export class LlmError extends HarnessError {
-  constructor(message: string, code: string, options?: ErrorOptions) {
+  /** Serializable facts retained beside this live Error. */
+  readonly failure: LlmFailure
+
+  /**
+   * @param message - non-empty human-readable failure summary.
+   * @param code - non-empty stable provider-neutral machine code.
+   * @param options - optional cause and validated serializable provider facts.
+   */
+  constructor(message: string, code: string, options?: LlmErrorOptions) {
+    if (typeof message !== 'string' || message.length === 0) throw new Error('LlmError message must be a non-empty string')
+    if (typeof code !== 'string' || code.length === 0) throw new Error('LlmError code must be a non-empty string')
+    if (options?.status !== undefined
+      && (!Number.isInteger(options.status) || options.status < 100 || options.status > 599)) {
+      throw new Error('LlmError status must be an integer from 100 through 599')
+    }
+    if (options?.providerRetryAfterMs !== undefined
+      && (!Number.isFinite(options.providerRetryAfterMs) || options.providerRetryAfterMs <= 0)) {
+      throw new Error('LlmError providerRetryAfterMs must be a positive finite number')
+    }
+    if (options?.requestId !== undefined
+      && (typeof options.requestId !== 'string' || options.requestId.length === 0)) {
+      throw new Error('LlmError requestId must be a non-empty string')
+    }
     super(message, code, options)
     this.name = 'LlmError'
+    this.failure = Object.freeze({
+      message,
+      code,
+      ...options?.status === undefined ? {} : { status: options.status },
+      ...options?.providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs: options.providerRetryAfterMs },
+      ...options?.requestId === undefined ? {} : { requestId: options.requestId },
+    })
   }
 }
 
@@ -80,6 +128,20 @@ export abstract class LlmAdapter {
    */
   listModels(_provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve([])
+  }
+
+  /**
+   * Resolve context capacity for one model accepted by this adapter. Absence
+   * means the adapter does not know the capacity, not that routing is invalid.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _model - exact model id passed to {@link GenerateOptions.model}.
+   * @returns provider-owned context metadata, or `undefined` when unavailable.
+   */
+  resolveModelContext(
+    _provider: string,
+    _model: string,
+  ): Promise<LlmModelContext | undefined> {
+    return Promise.resolve(undefined)
   }
 
   /**
@@ -177,6 +239,29 @@ export class LlmService extends Service {
     })
   }
 
+  /**
+   * Resolve context capacity from the adapter that owns one exact route.
+   * This query is independent of the advisory model catalog: an unlisted model
+   * may return metadata, while `undefined` never rejects later routing.
+   * @param provider - registered provider route to inspect.
+   * @param model - exact model id passed to the adapter.
+   * @returns detached context metadata, or `undefined` when the adapter has none.
+   */
+  async resolveModelContext(
+    provider: string,
+    model: string,
+  ): Promise<LlmModelContext | undefined> {
+    const context = await this.registration(provider).adapter.resolveModelContext(provider, model)
+    if (context === undefined) return undefined
+    if (!Number.isInteger(context.contextWindow) || context.contextWindow <= 0) {
+      throw new LlmError(
+        `adapter returned invalid context metadata for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_CONTEXT',
+      )
+    }
+    return { contextWindow: context.contextWindow }
+  }
+
   private registration(provider: string): { adapter: LlmAdapter; provider: LlmProviderInfo } {
     const registration = this.adapters.get(provider)
     if (!registration) throw new LlmError(`no adapter registered for provider "${provider}"`, 'NO_ADAPTER')
@@ -262,7 +347,7 @@ export class LlmService extends Service {
    * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
    */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const failures: AdapterFailureScope = new WeakSet<Error>()
+    const failures: AdapterFailureScope = new WeakMap<Error, LlmFailure>()
     const stream = this.ctx.waterfall(this, 'llm/stream', options, () => this.adapterStream(options, failures))
     return bindAdapterFailureScope(stream, failures)
   }

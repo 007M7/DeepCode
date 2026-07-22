@@ -15,8 +15,10 @@ import type {
   SimpleStreamOptions,
 } from '@earendil-works/pi-ai'
 import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
-import type { PiAiProviderProfile } from './config.ts'
+import type { GenerateOptions, LlmModelContext, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { resolveProfiles } from './config.ts'
+import type { PiAiProviderProfile, ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { toStreamChunks } from './stream.ts'
 
@@ -48,8 +50,8 @@ function profileOptions(profile: PiAiProviderProfile): SimpleStreamOptions {
     ...profile.transport === undefined ? {} : { transport: profile.transport },
     ...profile.timeoutMs === undefined ? {} : { timeoutMs: profile.timeoutMs },
     ...profile.websocketConnectTimeoutMs === undefined ? {} : { websocketConnectTimeoutMs: profile.websocketConnectTimeoutMs },
-    ...profile.maxRetries === undefined ? {} : { maxRetries: profile.maxRetries },
-    ...profile.maxRetryDelayMs === undefined ? {} : { maxRetryDelayMs: profile.maxRetryDelayMs },
+    // The agent recovery layer owns visible attempts; one adapter call is one SDK attempt.
+    maxRetries: 0,
   }
 }
 
@@ -68,11 +70,11 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined): 
  * request, so models need not be registered during the Cordis lifecycle.
  */
 export class PiAiAdapter extends LlmAdapter {
-  private readonly profiles: ReadonlyMap<string, PiAiProviderProfile>
+  private readonly profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>
 
   constructor(options: PiAiAdapterOptions) {
     super()
-    this.profiles = new Map(options.profiles.map(profile => [profile.provider, profile]))
+    this.profiles = new Map(resolveProfiles(options.profiles).map(profile => [profile.provider, profile]))
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
@@ -87,6 +89,22 @@ export class PiAiAdapter extends LlmAdapter {
     })))
   }
 
+  override resolveModelContext(
+    provider: string,
+    model: string,
+  ): Promise<LlmModelContext | undefined> {
+    const profile = this.profiles.get(provider)
+    if (profile === undefined) {
+      return Promise.reject(new LlmError(
+        `pi-ai adapter does not own provider "${provider}"`,
+        'NO_ADAPTER',
+      ))
+    }
+    return Promise.resolve().then(() => ({
+      contextWindow: resolveModel(profile, model).contextWindow,
+    }))
+  }
+
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     if (options.stop !== undefined) {
       throw new LlmError('llm-pi-ai does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
@@ -97,12 +115,12 @@ export class PiAiAdapter extends LlmAdapter {
     }
     const model = resolveModel(profile, options.model)
 
-    // Pi-ai has no iterator-return cancellation hook. Chain an internal signal
-    // and abort it when this generator exits so early consumers stop the HTTP stream.
-    const controller = new AbortController()
-    const onCallerAbort = (): void => { controller.abort(options.signal?.reason) }
-    if (options.signal?.aborted) controller.abort(options.signal.reason)
-    else options.signal?.addEventListener('abort', onCallerAbort, { once: true })
+    const consumer = new AbortController()
+    const upstream = options.signal === undefined
+      ? consumer.signal
+      : AbortSignal.any([options.signal, consumer.signal])
+    const streamIdleTimeoutMs = profile.streamIdleTimeoutMs
+    using watchdog = idleWatchdog(upstream, streamIdleTimeoutMs, 'LLM_STREAM_IDLE_TIMEOUT')
 
     try {
       const events = streamSimple(model, toPiContext(options), {
@@ -110,15 +128,44 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
-        signal: controller.signal,
+        signal: watchdog.signal,
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
         headers: requestHeaders(profile.headers),
       })
-      yield* toStreamChunks(events, model.contextWindow)
+      const iterator = toStreamChunks(events, model.contextWindow)[Symbol.asyncIterator]()
+      let exhausted = false
+      try {
+        while (true) {
+          const result = await watchdog.next(iterator)
+          const timeout = timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')
+          if (timeout !== undefined) throw timeout
+          if (result.done) {
+            exhausted = true
+            return
+          }
+          yield result.value
+        }
+      } finally {
+        if (!exhausted) {
+          consumer.abort('pi-ai stream consumer stopped')
+          try {
+            await iterator.return(undefined)
+          } catch (_abortedSdkTeardown) {
+            // The stable signal already owns SDK termination; return-time abort cannot add an outcome.
+          }
+        }
+      }
+    } catch (error: unknown) {
+      if (timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT') !== undefined) {
+        throw new LlmError(`pi-ai stream idle timeout after ${streamIdleTimeoutMs}ms`, 'TIMEOUT', { cause: error })
+      }
+      if (options.signal?.aborted) {
+        throw new LlmError('pi-ai request aborted by caller', 'ABORTED', { cause: error })
+      }
+      throw error
     } finally {
-      options.signal?.removeEventListener('abort', onCallerAbort)
-      controller.abort('consumer stopped streaming')
+      consumer.abort('pi-ai stream consumer stopped')
     }
   }
 }

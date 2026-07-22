@@ -81,6 +81,21 @@ function turnNumbers(agent: Agent): number[] {
     .map(e => (e.data as { turn: number }).turn)
 }
 
+function turnEndNumbers(agent: Agent): number[] {
+  return agent.session.events
+    .filter(e => e.type === 'turn/end')
+    .map(e => (e.data as { turn: number }).turn)
+}
+
+function userMessageCountsByTurn(agent: Agent): number[] {
+  const counts: number[] = []
+  for (const event of agent.session.events) {
+    if (event.type === 'turn/start') counts.push(0)
+    if (event.type === 'user/message') counts[counts.length - 1]! += 1
+  }
+  return counts
+}
+
 /** Assert a status trace is a legal run: idle/running alternating, ending idle. */
 function assertLegalStatusTrace(trace: string[]): void {
   for (let i = 1; i < trace.length; i++) {
@@ -90,7 +105,7 @@ function assertLegalStatusTrace(trace: string[]): void {
 }
 
 describe('agent loop scheduling properties', () => {
-  it('a synchronous burst loses no message and uses strictly increasing turns', async () => {
+  it('a synchronous burst gives every message its own strictly increasing turn', async () => {
     await fc.assert(fc.asyncProperty(
       fc.array(fc.string({ minLength: 1 }), { minLength: 1, maxLength: 6 }),
       async (texts) => {
@@ -105,8 +120,11 @@ describe('agent loop scheduling properties', () => {
 
           // No message lost: every send appears as a user/message, in order.
           expect(userMessageTexts(agent)).toEqual(texts)
-          // A synchronous burst batches into exactly one turn.
-          expect(turnNumbers(agent)).toEqual([1])
+          // This failure-free fixture maps every item to an independent turn.
+          expect(turnNumbers(agent)).toEqual(texts.map((_, i) => i + 1))
+          expect(turnEndNumbers(agent)).toEqual(texts.map((_, i) => i + 1))
+          expect(userMessageCountsByTurn(agent)).toEqual(texts.map(() => 1))
+          expect(trace).toEqual(['running', 'idle'])
           assertLegalStatusTrace(trace)
         } finally {
           await ctx.fiber.dispose()
@@ -137,9 +155,9 @@ describe('agent loop scheduling properties', () => {
     ), { numRuns: 20, timeout: 2000 })
   })
 
-  it('mixed schedule (send, optionally settle) loses no message and orders turns', async () => {
-    // Each step is a (text, settle?) pair: settle=true awaits idle before the
-    // next send (own turn); settle=false sends in the same tick (batches).
+  it('mixed settled and same-tick sends preserve one turn per message', async () => {
+    // Each step optionally waits for idle before the next send; that scheduling
+    // choice must not change the ordinary message-to-turn mapping.
     const stepArb = fc.record({ text: fc.string({ minLength: 1 }), settle: fc.boolean() })
     await fc.assert(fc.asyncProperty(
       fc.array(stepArb, { minLength: 1, maxLength: 6 }),
@@ -158,14 +176,13 @@ describe('agent loop scheduling properties', () => {
           }
           await lastIdle
 
-          // No message lost or reordered, regardless of batching.
+          // No message is lost or reordered, regardless of driver timing.
           expect(userMessageTexts(agent)).toEqual(steps.map(s => s.text))
-          // Turn numbers are a strictly increasing 1..N prefix (N = turn count).
+          // Every item forms one FIFO-ordered turn containing only that message.
           const turns = turnNumbers(agent)
-          expect(turns).toEqual(turns.map((_, i) => i + 1))
-          // Every message landed in some turn; turns never exceed messages.
-          expect(turns.length).toBeLessThanOrEqual(steps.length)
-          expect(turns.length).toBeGreaterThanOrEqual(1)
+          expect(turns).toEqual(steps.map((_, i) => i + 1))
+          expect(turnEndNumbers(agent)).toEqual(turns)
+          expect(userMessageCountsByTurn(agent)).toEqual(steps.map(() => 1))
         } finally {
           await ctx.fiber.dispose()
         }

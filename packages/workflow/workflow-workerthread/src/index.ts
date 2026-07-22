@@ -73,6 +73,36 @@ function assertBodyParses(body: string, name: string): void {
   }
 }
 
+/** Resolve one run's provider route before publishing work. */
+function resolveSubagentProvider(ctx: Context, configured: string, override: string | undefined): string {
+  const provider = override ?? configured
+  if (provider.length === 0 || provider !== provider.trim()) {
+    throw new WorkflowError(
+      'workflow subagentProvider must be a non-empty normalized string',
+      'INVALID_ARGUMENT',
+    )
+  }
+  if (ctx.subagents.getProvider(provider) === undefined) {
+    throw new WorkflowError(`no subagent provider registered for "${provider}"`, 'AGENT_START')
+  }
+  return provider
+}
+
+/** Resolve one run's total-child cap against the engine deployment ceiling. */
+function resolveMaxTotalAgents(requested: number | undefined, ceiling: number): number {
+  if (requested === undefined) return ceiling
+  if (!Number.isSafeInteger(requested) || requested < 1) {
+    throw new WorkflowError('workflow maxTotalAgents must be a positive safe integer', 'INVALID_ARGUMENT')
+  }
+  if (requested > ceiling) {
+    throw new WorkflowError(
+      `workflow maxTotalAgents ${requested} exceeds the engine ceiling ${ceiling}`,
+      'INVALID_ARGUMENT',
+    )
+  }
+  return requested
+}
+
 /**
  * The worker-thread engine service. `start()` validates the script up front
  * (meta + a host-side body parse) and returns a {@link WorkflowRun} whose
@@ -113,13 +143,15 @@ class WorkerWorkflowEngine extends WorkflowService {
   start(request: WorkflowStartRequest): WorkflowRun {
     const meta = validateMeta(request.meta)
     assertBodyParses(request.script, meta.name)
+    const subagentProvider = resolveSubagentProvider(this.ctx, this.config.provider, request.subagentProvider)
+    const maxTotalAgents = resolveMaxTotalAgents(request.maxTotalAgents, this.config.maxTotalAgents)
     const id = WorkflowRunId(randomUUID())
     const info: WorkflowRunInfo = { id, meta }
     const limits: WorkerLimits = {
       maxConcurrentAgents: this.config.maxConcurrentAgents === 0
         ? Math.min(16, Math.max(1, availableParallelism() - 2))
         : this.config.maxConcurrentAgents,
-      maxTotalAgents: this.config.maxTotalAgents,
+      maxTotalAgents,
       maxItemsPerCall: this.config.maxItemsPerCall,
       syncTimeoutMs: this.config.syncTimeoutMs,
     }
@@ -144,7 +176,7 @@ class WorkerWorkflowEngine extends WorkflowService {
       meta,
       request.parent,
       init,
-      this.config.provider,
+      subagentProvider,
       this.config.disposeGraceMs,
       {
         phase: (title) => { this.emitWorkflowEvent('workflow/phase', info, title) },
