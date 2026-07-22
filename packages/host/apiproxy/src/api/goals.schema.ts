@@ -60,6 +60,8 @@ export const goalEditRequestSchema = z.object({
   ref: goalRefSchema,
   objective: z.string().min(1).optional(),
   maxGoalRounds: z.number().int().positive().optional(),
+}).refine(value => value.objective !== undefined || value.maxGoalRounds !== undefined, {
+  message: 'goal.edit requires objective or maxGoalRounds',
 }) as unknown as z.ZodType<Wire<RequestPayload<'goal.edit'>>>
 
 /** goal.edit response value. */

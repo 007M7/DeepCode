@@ -167,4 +167,3 @@ Vendored from a pinned upstream commit.
 - **不 vendor `sessionMessageList`/`assistantMessage` 等业务包装**：触发条件=web-ui 消息列表需要滚动锚定/分支切换等具体交互时；返工点=届时读上游对应实现抄交互逻辑（作参考不作源）；预埋=本报告已记其路径与行数。
 - **不跟上游 pnpm patch 体系整体走**：触发条件=vendor md 后流式公式出现崩溃/丢内容 case；返工点=把上游 5 个 patch 中 micromark 系 3 个移植成我们的 patchedDependencies；预埋=patch 文件路径 `common/pnpm-patches/`（上游），本报告 4.1 已标记。
 - **不做 CSS Modules 化改写**：触发条件=全局 class 与未来第三方样式实际冲突；返工点=对冲突组件加 layer/scope 包裹而非改写源码；预埋=全部外来 CSS 保持 `.ds-*` 前缀不动。
-

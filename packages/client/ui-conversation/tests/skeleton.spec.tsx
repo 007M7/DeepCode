@@ -172,9 +172,9 @@ describe('ConversationRoot', () => {
         actions={{ openView: vi.fn() as (v: never) => void, open: vi.fn() }}
         renderView={() => null}
         goalActions={{
-          onEdit: vi.fn(),
-          onResume: vi.fn(),
-          onClear: vi.fn(),
+          onEdit: vi.fn(() => Promise.resolve({ ok: true as const })),
+          onResume: vi.fn(() => Promise.resolve({ ok: true as const })),
+          onClear: vi.fn(() => Promise.resolve({ ok: true as const })),
         }}
       />)
     expect(screen.getByText('Ongoing Goal')).toBeTruthy()

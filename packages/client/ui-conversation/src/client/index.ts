@@ -22,7 +22,7 @@ export type {
 } from './contract/toolview.ts'
 export type {
   ConversationInjected, ConversationSlotProps, DetailsInjected, DetailsSlotProps,
-  EmptyStateInjected, EmptyStateSlotProps, GoalBarActions,
+  EmptyStateInjected, EmptyStateSlotProps, GoalActionResult, GoalBarActions,
 } from './contract/slots.ts'
 
 export { ConversationRoot } from './skeleton/ConversationRoot.tsx'

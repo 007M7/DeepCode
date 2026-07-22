@@ -3,7 +3,7 @@
 // inline edit form, and resume/clear icon actions — driven purely through
 // props, no wire. Loading, absent, and complete goals render nothing.
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GoalView } from '@deepseek-ai/dsh-client-runtime/client'
 import { GoalBar } from '../src/client/skeleton/GoalBar.tsx'
@@ -26,12 +26,12 @@ function makeGoal(over: Partial<GoalView> = {}): GoalView {
   }
 }
 
-function makeActions(): { [K in keyof GoalBarActions]: ReturnType<typeof vi.fn<GoalBarActions[K]>> } {
+function makeActions() {
   return {
-    onEdit: vi.fn<GoalBarActions['onEdit']>(),
-    onResume: vi.fn<GoalBarActions['onResume']>(),
-    onClear: vi.fn<GoalBarActions['onClear']>(),
-  }
+    onEdit: vi.fn<GoalBarActions['onEdit']>(() => Promise.resolve({ ok: true })),
+    onResume: vi.fn<GoalBarActions['onResume']>(() => Promise.resolve({ ok: true })),
+    onClear: vi.fn<GoalBarActions['onClear']>(() => Promise.resolve({ ok: true })),
+  } satisfies GoalBarActions
 }
 
 describe('GoalBar', () => {
@@ -58,7 +58,7 @@ describe('GoalBar', () => {
     expect(actions.onClear).toHaveBeenCalledTimes(1)
   })
 
-  it('edit swaps the strip for a prefilled form; Enter saves, empty stays disabled', () => {
+  it('edit swaps the strip for a prefilled form; Enter saves, empty stays disabled', async () => {
     const actions = makeActions()
     render(<GoalBar goal={makeGoal()} {...actions} />)
     fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
@@ -71,7 +71,7 @@ describe('GoalBar', () => {
     fireEvent.change(box, { target: { value: 'Ship v2' } })
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(actions.onEdit).toHaveBeenCalledWith('Ship v2')
-    expect(screen.getByText('Ongoing Goal')).toBeTruthy()
+    await waitFor(() => { expect(screen.getByText('Ongoing Goal')).toBeTruthy() })
   })
 
   it('Esc cancels the edit without calling onEdit', () => {
@@ -143,5 +143,32 @@ describe('GoalBar', () => {
     render(<GoalBar goal={makeGoal({ phase: 'blocked' })} {...actions} />)
     expect(screen.getByText('Blocked Goal')).toBeTruthy()
     expect(screen.getByText('Blocked Goal').closest('[title]')).toBeNull()
+  })
+
+  it('keeps the edit draft open and reports a failed save', async () => {
+    const actions = makeActions()
+    actions.onEdit.mockResolvedValue({ ok: false, error: { code: 'agent-busy', message: 'stale revision' } })
+    render(<GoalBar goal={makeGoal()} {...actions} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
+    const box = screen.getByRole('textbox', { name: 'Goal objective' })
+    fireEvent.change(box, { target: { value: 'retry this draft' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save goal' }))
+
+    expect((await screen.findByRole('alert')).textContent).toBe('stale revision（agent-busy）')
+    expect((screen.getByRole('textbox', { name: 'Goal objective' }) as HTMLInputElement).value).toBe('retry this draft')
+  })
+
+  it('reports resume and clear failures without hiding the goal', async () => {
+    const actions = makeActions()
+    actions.onResume.mockResolvedValue({ ok: false, error: { code: 'internal', message: 'resume failed' } })
+    const { rerender } = render(<GoalBar goal={makeGoal({ phase: 'paused' })} {...actions} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Resume goal' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('resume failed（internal）')
+
+    actions.onClear.mockResolvedValue({ ok: false, error: { code: 'agent-busy', message: 'clear failed' } })
+    rerender(<GoalBar goal={makeGoal()} {...actions} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Clear goal' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('clear failed（agent-busy）')
+    expect(screen.getByText('Ship the redesign')).toBeTruthy()
   })
 })

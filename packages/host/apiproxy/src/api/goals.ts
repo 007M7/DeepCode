@@ -4,6 +4,7 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RpcRequest, RpcResponse } from './rpc.ts'
 
 /** Identifies one goal across its durable revisions. */
@@ -60,29 +61,29 @@ export interface EditGoalRequest {
 /** Goal-domain unary methods. */
 export interface GoalsApi {
   /** Read the current goal for one session. Returns null when no goal is current. */
-  get(request: RpcRequest<{ sessionId: string }>): Promise<RpcResponse<{ goal: GoalView | null }>>
+  get(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ goal: GoalView | null }>>
 
   /** Create and arm a goal. */
-  create(request: RpcRequest<{ sessionId: string; objective: string; maxGoalRounds?: number }>):
+  create(request: RpcRequest<{ sessionId: SessionId; objective: string; maxGoalRounds?: number }>):
   Promise<RpcResponse<{ goal: GoalView }>>
 
   /** Edit objective and/or round cap without changing phase. */
-  edit(request: RpcRequest<{ sessionId: string; ref: GoalRef; objective?: string; maxGoalRounds?: number }>):
+  edit(request: RpcRequest<{ sessionId: SessionId; ref: GoalRef; objective?: string; maxGoalRounds?: number }>):
   Promise<RpcResponse<{ goal: GoalView }>>
 
   /** Pause an active goal and disarm automatic continuation. */
-  pause(request: RpcRequest<{ sessionId: string; ref: GoalRef }>):
+  pause(request: RpcRequest<{ sessionId: SessionId; ref: GoalRef }>):
   Promise<RpcResponse<{ goal: GoalView }>>
 
   /** Resume and arm a stopped goal. */
-  resume(request: RpcRequest<{ sessionId: string; ref: GoalRef }>):
+  resume(request: RpcRequest<{ sessionId: SessionId; ref: GoalRef }>):
   Promise<RpcResponse<{ goal: GoalView }>>
 
   /** Mark a current non-complete goal complete and disarm it. */
-  complete(request: RpcRequest<{ sessionId: string; ref: GoalRef }>):
+  complete(request: RpcRequest<{ sessionId: SessionId; ref: GoalRef }>):
   Promise<RpcResponse<{ goal: GoalView }>>
 
   /** Clear the current goal while retaining a durable tombstone and history. */
-  clear(request: RpcRequest<{ sessionId: string; ref: GoalRef }>):
+  clear(request: RpcRequest<{ sessionId: SessionId; ref: GoalRef }>):
   Promise<RpcResponse<{ cleared: true }>>
 }

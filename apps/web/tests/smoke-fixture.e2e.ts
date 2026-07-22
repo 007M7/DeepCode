@@ -1,9 +1,9 @@
 // Keyless boot-chain smoke over the REAL carrier: startWebServer + web-plugins
 // registry surface + __DSH_BOOT__ injection + built shell dist in a real
 // chromium. First describe: manifest injection + fail-loud half. Second
-// describe: the settled success pass — five REAL tsdown bundles (the
-// infrastructure four + layout) load through the DI chain in ?fixture mode
-// and the three-column frame appears in one flip. The full conversation
+// describe: the settled success pass — all eight REAL tsdown bundles load
+// through the DI chain in ?fixture mode and the three-column frame appears
+// in one flip. The full conversation
 // round lands in smoke-real under the W5 real-host standard.
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -17,13 +17,16 @@ import { DIST_INDEX, probeFreePort, requireDist, saveFailureShot } from './suppo
 const bundlePath = (dir: string): string =>
   fileURLToPath(new URL(`../../../packages/client/${dir}/lib/client.js`, import.meta.url))
 
-/** id ↔ bundle table for the success pass (immediately four + layout). */
+/** id ↔ bundle table for the success pass. */
 const REAL_PLUGINS: { id: string; dir: string; inject: string[]; immediately?: boolean }[] = [
   { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-runtime', dir: 'runtime', inject: ['@deepseek-ai/dsh-client-connection'], immediately: true },
   { id: '@deepseek-ai/dsh-client-ui-theme', dir: 'ui-theme', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-i18n', dir: 'i18n', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', inject: ['@deepseek-ai/dsh-client-runtime'] },
+  { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
 
 /** Manifest served by the fake registry: one live bundle row, one missing row. */
@@ -90,7 +93,7 @@ describe('web boot chain (keyless, real carrier)', () => {
   })
 })
 
-describe('web boot chain success pass (keyless, five real bundles, ?fixture)', () => {
+describe('web boot chain success pass (keyless, eight real bundles, ?fixture)', () => {
   const missing = REAL_PLUGINS.filter(p => !existsSync(bundlePath(p.dir)))
   let server: Awaited<ReturnType<typeof startWebServer>>
   let browser: Browser
@@ -139,6 +142,30 @@ describe('web boot chain success pass (keyless, five real bundles, ?fixture)', (
     const owners = await page.evaluate(() =>
       [...document.querySelectorAll('style[data-plugin]')].map(s => (s as HTMLElement).dataset['plugin']))
     expect(owners).toContain('@deepseek-ai/dsh-client-ui-layout')
+  })
+
+  it('renders the goal bar through the assembled boot, RPC, runtime, and conversation path', async () => {
+    const tree = page.getByRole('tree', { name: 'Sessions' })
+    await tree.getByRole('treeitem').filter({ hasText: '3 sessions' }).click()
+    await tree.locator('[role="treeitem"][aria-selected]').first().click()
+    const bar = page.locator('[data-goal-bar]')
+    await bar.waitFor({ timeout: 10_000 })
+    const snapshot = {
+      actions: await bar.locator('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
+      text: (await bar.locator('span').allTextContents()).filter(text => text !== ''),
+    }
+    expect(snapshot).toMatchInlineSnapshot(`
+      {
+        "actions": [
+          "Edit goal",
+          "Clear goal",
+        ],
+        "text": [
+          "Ongoing Goal",
+          "Ship the fixture goal bar",
+        ],
+      }
+    `)
   })
 
   it('stayed clean: no page errors across the whole load chain', () => {

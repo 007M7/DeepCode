@@ -276,4 +276,3 @@ agent 纪律沿用既有惯例：playwright 验收 agent 自己跑（chromium he
 2. **`toFetchHandler` 用 `node:crypto` randomUUID**：换 `globalThis.crypto.randomUUID()` 即浏览器可跑（C.1 前提，一行）。
 3. **webserver `RunningWebServer.port` 回显 `options.port` 而非实际监听端口**：port=0（随机端口）时返回 0。测试想用随机端口避免冲突就会撞上；建议改读 `server.address().port`。
 4. **`AbortSignal.timeout` 不可被 vi fake timers 控制**：D.1 已定短真值策略，写 T4 时勿踩。
-

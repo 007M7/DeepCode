@@ -67,15 +67,6 @@ export interface ResolvedConfig {
 /**
  * One accepted mutation waiting to enter or be observed in the session log.
  *
- * TODO(pending-fifo): The pending FIFO + `applied` flag + `sameChange` match +
- * `observedSeq` tracking implements a distributed-transaction-style reconciliation
- * protocol over what is purely synchronous, process-local state. In `commit()` there
- * is no yield point between `agent.inject()` and the `pending.applied` guard (L509),
- * so the guard is always taken — the flag is never `true` at that point. The same
- * outcome is achievable by folding the injected event directly after `inject()`
- * instead of deferring to `sync()`. This would eliminate `PendingGoalChange`,
- * `GoalCache.pending`, `GoalCache.observedSeq`, `sameChange()`, the `applied` flag,
- * the `catch` rollback, and the reconciliation branch in `sync()` (~40 lines).
  */
 interface PendingGoalChange {
   readonly change: GoalChangeMeta

@@ -308,6 +308,16 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     expect((await client.sessions.prompt({ sessionId: id, mode: 'queue', content: [{ type: 'text', text: '嗨' }] })).result.ok).toBe(true)
     expect((await client.sessions.cancel({ sessionId: id })).result.ok).toBe(true)
     expect((await client.host.describe({})).result.ok).toBe(true)
+    const goal = await client.goals.get({ sessionId: sid('fx-alpha') })
+    expect(goal.result).toMatchObject({ ok: true, value: { goal: { objective: 'Ship the fixture goal bar' } } })
+    expect((await client.goals.get({ sessionId: id })).result).toEqual({ ok: true, value: { goal: null } })
+    const ref = { id: 'fx-goal-1' as never, revision: 1 }
+    expect((await client.goals.create({ sessionId: id, objective: 'x' })).result.ok).toBe(false)
+    expect((await client.goals.edit({ sessionId: id, ref, objective: 'x' })).result.ok).toBe(false)
+    expect((await client.goals.pause({ sessionId: id, ref })).result.ok).toBe(false)
+    expect((await client.goals.resume({ sessionId: id, ref })).result.ok).toBe(false)
+    expect((await client.goals.complete({ sessionId: id, ref })).result.ok).toBe(false)
+    expect((await client.goals.clear({ sessionId: id, ref })).result.ok).toBe(false)
   })
 
   it('fires onOpen at stream-iteration start and taps server-request full forms', async () => {

@@ -63,8 +63,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private lastAgentError: string | null = null
   /** Current goal projection; undefined = not yet fetched, null = no goal set. */
   private goal: GoalView | null | undefined = undefined
-  /** Coalesced goal refetch (the open() idiom): live goal-change events share one in-flight get. */
+  /** Coalesced goal refetch; a trigger received in flight schedules one trailing read. */
   private goalFetch: Promise<void> | null = null
+  private goalFetchPending = false
   /** Bumped on every local goal write; a get result older than the latest write is stale and
    *  dropped (a mutation response that landed mid-fetch is always newer than the get's read). */
   private goalWriteRev = 0
@@ -127,15 +128,25 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     return result
   }
 
-  /** Fetch the current goal, coalesced: concurrent triggers share the in-flight get (identity-guarded
-   *  like openPromise — a superseded fetch must not null out the one that replaced it). */
+  /** Fetch the current goal, coalesced: concurrent triggers share the in-flight get. */
   private fetchGoal(): Promise<void> {
-    if (this.goalFetch !== null) return this.goalFetch
-    const promise = this.doFetchGoal().finally(() => {
-      if (this.goalFetch === promise) this.goalFetch = null
-    })
+    if (this.goalFetch !== null) {
+      this.goalFetchPending = true
+      return this.goalFetch
+    }
+    const promise = this.drainGoalFetches().finally(() => { this.goalFetch = null })
     this.goalFetch = promise
     return promise
+  }
+
+  /** Drain the current read plus one coalesced trailing read for triggers received in flight. */
+  private async drainGoalFetches(): Promise<void> {
+    do {
+      this.goalFetchPending = false
+      await this.doFetchGoal()
+      // A goal-change callback can set the flag while doFetchGoal is suspended.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    } while (this.goalFetchPending)
   }
 
   /** The get behind fetchGoal: folds transport failures (fail-soft like loadOlder, logged) and
@@ -153,18 +164,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     }
   }
 
-  /**
-   * Create a goal for this session.
-   * @param objective - the goal's objective text.
-   * @param maxGoalRounds - optional cap on admitted goal rounds (host default when absent).
-   * @returns the created goal view; transport failures fold into a failed result, never a rejection.
-   */
-  async createGoal(objective: string, maxGoalRounds?: number): Promise<RpcResult<{ goal: GoalView }>> {
+  /** Execute a goal mutation and publish its successful projection. */
+  private async updateGoal(
+    request: () => Promise<{ result: RpcResult<{ goal: GoalView }> }>,
+  ): Promise<RpcResult<{ goal: GoalView }>> {
     let result: RpcResult<{ goal: GoalView }>
     try {
-      result = (await this.api.goals.create({
-        sessionId: this.sessionId, objective, ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
-      })).result
+      result = (await request()).result
     } catch (error) {
       result = transportError(error)
     }
@@ -174,6 +180,18 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       this.notifier.markDirty()
     }
     return result
+  }
+
+  /**
+   * Create a goal for this session.
+   * @param objective - the goal's objective text.
+   * @param maxGoalRounds - optional cap on admitted goal rounds (host default when absent).
+   * @returns the created goal view; transport failures fold into a failed result, never a rejection.
+   */
+  async createGoal(objective: string, maxGoalRounds?: number): Promise<RpcResult<{ goal: GoalView }>> {
+    return this.updateGoal(() => this.api.goals.create({
+      sessionId: this.sessionId, objective, ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+    }))
   }
 
   /**
@@ -186,23 +204,22 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     if (this.goal === null || this.goal === undefined) {
       return { ok: false, error: { code: 'internal', message: 'No goal to edit', details: {} } }
     }
-    let result: RpcResult<{ goal: GoalView }>
-    try {
-      result = (await this.api.goals.edit({
-        sessionId: this.sessionId,
-        ref: { id: this.goal.id, revision: this.goal.revision },
-        ...(objective !== undefined ? { objective } : {}),
-        ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
-      })).result
-    } catch (error) {
-      result = transportError(error)
+    const goal = this.goal
+    return this.updateGoal(() => this.api.goals.edit({
+      sessionId: this.sessionId,
+      ref: { id: goal.id, revision: goal.revision },
+      ...(objective !== undefined ? { objective } : {}),
+      ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+    }))
+  }
+
+  /** Apply a phase transition to the current goal. */
+  private transitionGoal(operation: 'pause' | 'resume' | 'complete'): Promise<RpcResult<{ goal: GoalView }>> {
+    if (this.goal === null || this.goal === undefined) {
+      return Promise.resolve({ ok: false, error: { code: 'internal', message: `No goal to ${operation}`, details: {} } })
     }
-    if (result.ok) {
-      this.goal = result.value.goal
-      this.goalWriteRev++
-      this.notifier.markDirty()
-    }
-    return result
+    const ref = { id: this.goal.id, revision: this.goal.revision }
+    return this.updateGoal(() => this.api.goals[operation]({ sessionId: this.sessionId, ref }))
   }
 
   /**
@@ -210,23 +227,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    * @returns the updated goal view; fails without a current goal, and transport failures fold into a failed result.
    */
   async pauseGoal(): Promise<RpcResult<{ goal: GoalView }>> {
-    if (this.goal === null || this.goal === undefined) {
-      return { ok: false, error: { code: 'internal', message: 'No goal to pause', details: {} } }
-    }
-    let result: RpcResult<{ goal: GoalView }>
-    try {
-      result = (await this.api.goals.pause({
-        sessionId: this.sessionId, ref: { id: this.goal.id, revision: this.goal.revision },
-      })).result
-    } catch (error) {
-      result = transportError(error)
-    }
-    if (result.ok) {
-      this.goal = result.value.goal
-      this.goalWriteRev++
-      this.notifier.markDirty()
-    }
-    return result
+    return this.transitionGoal('pause')
   }
 
   /**
@@ -234,23 +235,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    * @returns the updated goal view; fails without a current goal, and transport failures fold into a failed result.
    */
   async resumeGoal(): Promise<RpcResult<{ goal: GoalView }>> {
-    if (this.goal === null || this.goal === undefined) {
-      return { ok: false, error: { code: 'internal', message: 'No goal to resume', details: {} } }
-    }
-    let result: RpcResult<{ goal: GoalView }>
-    try {
-      result = (await this.api.goals.resume({
-        sessionId: this.sessionId, ref: { id: this.goal.id, revision: this.goal.revision },
-      })).result
-    } catch (error) {
-      result = transportError(error)
-    }
-    if (result.ok) {
-      this.goal = result.value.goal
-      this.goalWriteRev++
-      this.notifier.markDirty()
-    }
-    return result
+    return this.transitionGoal('resume')
   }
 
   /**
@@ -258,23 +243,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    * @returns the updated goal view; fails without a current goal, and transport failures fold into a failed result.
    */
   async completeGoal(): Promise<RpcResult<{ goal: GoalView }>> {
-    if (this.goal === null || this.goal === undefined) {
-      return { ok: false, error: { code: 'internal', message: 'No goal to complete', details: {} } }
-    }
-    let result: RpcResult<{ goal: GoalView }>
-    try {
-      result = (await this.api.goals.complete({
-        sessionId: this.sessionId, ref: { id: this.goal.id, revision: this.goal.revision },
-      })).result
-    } catch (error) {
-      result = transportError(error)
-    }
-    if (result.ok) {
-      this.goal = result.value.goal
-      this.goalWriteRev++
-      this.notifier.markDirty()
-    }
-    return result
+    return this.transitionGoal('complete')
   }
 
   /**

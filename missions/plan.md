@@ -15,7 +15,7 @@ DO NOT read AGENTS.md / CLAUDE.md in this project !!
   2. 对话流：输入框、流式输入、Markdown 展示，tool 显示，发送排队，数据走 SSE/WebSocket 不确定
   3. 设置页：Provider 配置/APIKEY 配置、模型列表
 
-最新调研结论，在 
+最新调研结论，在
 - missions/ui-product.md
 - missions/ui-tech.md
 

@@ -63,6 +63,9 @@ async function bench() {
       () => Promise.resolve({ ok: true, value: { accepted: true } })),
     cancel: vi.fn<() => Promise<{ ok: boolean; value?: object; error?: { code: string; message: string } }>>(
       () => Promise.resolve({ ok: true, value: { accepted: true } })),
+    editGoal: vi.fn(() => Promise.resolve({ ok: true as const, value: { goal: {} } })),
+    resumeGoal: vi.fn(() => Promise.resolve({ ok: true as const, value: { goal: {} } })),
+    clearGoal: vi.fn(() => Promise.resolve({ ok: true as const, value: { cleared: true as const } })),
   }
   sessionFake.useSelector = bindSnapshotSelector(sessionFake as never)
   const scopes = new Map<SessionId, Context>()
@@ -164,6 +167,19 @@ describe('conversation slot inject surface', () => {
     b.sessionFake.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'x' } })
     injected.composer.stop()
     await new Promise(r => setTimeout(r, 0))
+  })
+
+  it('goal actions return the runtime mutation results', async () => {
+    const b = await bench()
+    const injected = b.entryOf('conversation').options.inject(b.binding) as {
+      goalActions: import('@deepseek-ai/dsh-client-ui-conversation/client').GoalBarActions
+    }
+    expect((await injected.goalActions.onEdit('updated')).ok).toBe(true)
+    expect((await injected.goalActions.onResume()).ok).toBe(true)
+    expect((await injected.goalActions.onClear()).ok).toBe(true)
+    expect(b.sessionFake.editGoal).toHaveBeenCalledWith('updated')
+    expect(b.sessionFake.resumeGoal).toHaveBeenCalledTimes(1)
+    expect(b.sessionFake.clearGoal).toHaveBeenCalledTimes(1)
   })
 
   it('view actions forward: openDetails writes selection through the scoped service, loadOlder hits the session', async () => {

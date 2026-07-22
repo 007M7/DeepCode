@@ -97,16 +97,6 @@ export default defineConfig({
         'packages/client/ui-trajectory/src/*',
         'packages/client/web-react/src/*',
         'packages/host/webserver/src/*',
-        // GUI goal UI (goal-ui): goal RPC wire glue and the docked GoalBar —
-        // core dispatch paths are unit-covered, the remaining branches are
-        // transport/presenter tails. TODO(gui): cover and remove.
-        'packages/client/ui-conversation/src/client/skeleton/GoalBar.tsx',
-        'packages/client/ui-conversation/src/client/apply.ts',
-        'packages/client/runtime/src/client/sessions/session.ts',
-        'packages/client/connection/src/client/fixture.ts',
-        'packages/host/apiproxy/src/fetch/client.ts',
-        'packages/host/apiproxy/src/fetch/handler.ts',
-        'packages/host/runtime/src/api-proxy.ts',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
       ],

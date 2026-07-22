@@ -154,9 +154,9 @@ export function apply(ctx: Context): void {
         return createElement(Fragment, null, ...children)
       },
       goalActions: {
-        onEdit: (objective) => { void session.editGoal(objective) },
-        onResume: () => { void session.resumeGoal() },
-        onClear: () => { void session.clearGoal() },
+        onEdit: objective => session.editGoal(objective),
+        onResume: () => session.resumeGoal(),
+        onClear: () => session.clearGoal(),
       } satisfies GoalBarActions,
     }
     return injected

@@ -13,14 +13,17 @@ import type { SnapshotSelectorHook, UseSession } from '@deepseek-ai/dsh-client-w
 import type { ConvOwnerProps, DetailsOwnerProps, EmptyOwnerProps } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SelectionTarget, ViewEntry, ViewId } from './views.ts'
 
+/** Result shape the goal strip needs to retain drafts and surface action failures. */
+export type GoalActionResult = { ok: true } | { ok: false; error: { code: string; message: string } }
+
 /** Goal strip callbacks (the docked GoalBar's verb set). State is read from useSession. */
 export interface GoalBarActions {
   /** Replace the current goal's objective. */
-  onEdit(objective: string): void
+  onEdit(objective: string): Promise<GoalActionResult>
   /** Resume a paused goal. */
-  onResume(): void
+  onResume(): Promise<GoalActionResult>
   /** Clear the current goal (tombstone). */
-  onClear(): void
+  onClear(): Promise<GoalActionResult>
 }
 
 /** Injected share of the conversation slot (assembled by apply's inject factory). */

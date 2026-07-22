@@ -425,6 +425,13 @@ describe('goals unary surface', () => {
     const response = await client(scriptedApi()).goals.create({ sessionId: sid('s1'), objective: '' })
     expect(response.result.ok).toBe(false)
     if (!response.result.ok) expect(response.result.error.code).toBe('bad-request')
+
+    let editCalls = 0
+    const api = scriptedApi({ goals: { edit: (r) => { editCalls++; return ok(r, { goal: view }) } } })
+    const emptyEdit = await client(api).goals.edit({ sessionId: sid('s1'), ref })
+    expect(emptyEdit.result.ok).toBe(false)
+    if (!emptyEdit.result.ok) expect(emptyEdit.result.error.code).toBe('bad-request')
+    expect(editCalls).toBe(0)
   })
 })
 

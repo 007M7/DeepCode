@@ -15,6 +15,7 @@ import { hostDescribeRequestSchema, hostDescribeValueSchema } from '../src/api/h
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
+import { goalEditRequestSchema } from '../src/api/goals.schema.ts'
 
 describe('RpcId', () => {
   it('brands a raw string at zero runtime cost', () => {
@@ -123,6 +124,15 @@ describe('host domain schemas', () => {
     const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2 })
     expect(value.attachedSessions).toBe(2)
     expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
+  })
+})
+
+describe('goals domain schemas', () => {
+  it('requires at least one replacement field for goal.edit', () => {
+    const ref = { id: 'g1', revision: 1 }
+    expect(goalEditRequestSchema.parse({ sessionId: 's1', ref, objective: 'updated' }).objective).toBe('updated')
+    expect(goalEditRequestSchema.parse({ sessionId: 's1', ref, maxGoalRounds: 3 }).maxGoalRounds).toBe(3)
+    expect(() => goalEditRequestSchema.parse({ sessionId: 's1', ref })).toThrow()
   })
 })
 

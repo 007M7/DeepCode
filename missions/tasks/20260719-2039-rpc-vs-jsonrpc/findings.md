@@ -84,4 +84,3 @@
 5. **【反面自查，已通过】wire 命名一致性**：对方无 convention 导致 `session/prompt`（斜杠方法名）与 `session.event`（点号通知名）在同一包内互相打架。我方已拍板机械推导 convention（方法点号、Frame 斜杠），此坑已提前规避——无动作，仅记录佐证。
 
 SSE 手工解帧的多字节 UTF-8 跨 chunk 测试（维度 5）并入 client 实现测试计划，不单列为契约建议。
-

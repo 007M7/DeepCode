@@ -15,6 +15,7 @@ import type {} from '@deepseek-ai/dsh-commands'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { ApiProxy, HistoryEntry, HostFrame, MuxFrame, SessionSummary, ToolEventView } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { GoalView } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { GoalView as CoreGoalView } from '@deepseek-ai/dsh-goal'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 
@@ -222,7 +223,7 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
 }
 
 /** Project a server-side GoalView into the wire GoalView shape. */
-function goalView(g: import('@deepseek-ai/dsh-goal').GoalView): GoalView {
+function goalView(g: CoreGoalView): GoalView {
   return {
     id: g.id,
     revision: g.revision,
@@ -293,6 +294,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       }
       // The internal details slot is contractually {}; the reason rides the message.
       return { error: { code: 'internal', message: `resume failed for session "${sessionId}": ${String(error)}`, details: {} } }
+    }
+  }
+
+  /** Resolve a session, apply one goal mutation, and map domain failures to the wire result. */
+  async function mutateGoal(
+    request: RpcRequest<{ sessionId: SessionId }>,
+    mutation: (agent: Agent) => CoreGoalView,
+  ): Promise<RpcResponse<{ goal: GoalView }>> {
+    const found = await agentFor(request.payload.sessionId)
+    if ('error' in found) return err(request, found.error)
+    try {
+      return ok(request, { goal: goalView(mutation(found.agent)) })
+    } catch (error: unknown) {
+      return err(request, { code: 'internal', message: String(error), details: {} })
     }
   }
 
@@ -482,81 +497,43 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     goals: {
       async get(request) {
         const { sessionId } = request.payload
-        const found = await agentFor(sessionId as SessionId)
+        const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const goal = ctx.goals.get(found.agent)
         return ok(request, { goal: goal ? goalView(goal) : null })
       },
 
       async create(request) {
-        const { sessionId, objective, maxGoalRounds } = request.payload
-        const found = await agentFor(sessionId as SessionId)
-        if ('error' in found) return err(request, found.error)
-        try {
-          const goal = ctx.goals.create(found.agent, {
-            objective,
-            ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
-          })
-          return ok(request, { goal: goalView(goal) })
-        } catch (error: unknown) {
-          return err(request, { code: 'internal', message: String(error), details: {} })
-        }
+        const { objective, maxGoalRounds } = request.payload
+        return mutateGoal(request, agent => ctx.goals.create(agent, {
+          objective,
+          ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+        }))
       },
 
       async edit(request) {
-        const { sessionId, ref, objective, maxGoalRounds } = request.payload
-        const found = await agentFor(sessionId as SessionId)
-        if ('error' in found) return err(request, found.error)
-        try {
-          const goal = ctx.goals.edit(found.agent, ref, {
-            ...(objective !== undefined ? { objective } : {}),
-            ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
-          })
-          return ok(request, { goal: goalView(goal) })
-        } catch (error: unknown) {
-          return err(request, { code: 'internal', message: String(error), details: {} })
-        }
+        const { ref, objective, maxGoalRounds } = request.payload
+        return mutateGoal(request, agent => ctx.goals.edit(agent, ref, {
+          ...(objective !== undefined ? { objective } : {}),
+          ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+        }))
       },
 
       async pause(request) {
-        const { sessionId, ref } = request.payload
-        const found = await agentFor(sessionId as SessionId)
-        if ('error' in found) return err(request, found.error)
-        try {
-          const goal = ctx.goals.pause(found.agent, ref)
-          return ok(request, { goal: goalView(goal) })
-        } catch (error: unknown) {
-          return err(request, { code: 'internal', message: String(error), details: {} })
-        }
+        return mutateGoal(request, agent => ctx.goals.pause(agent, request.payload.ref))
       },
 
       async resume(request) {
-        const { sessionId, ref } = request.payload
-        const found = await agentFor(sessionId as SessionId)
-        if ('error' in found) return err(request, found.error)
-        try {
-          const goal = ctx.goals.resume(found.agent, ref)
-          return ok(request, { goal: goalView(goal) })
-        } catch (error: unknown) {
-          return err(request, { code: 'internal', message: String(error), details: {} })
-        }
+        return mutateGoal(request, agent => ctx.goals.resume(agent, request.payload.ref))
       },
 
       async complete(request) {
-        const { sessionId, ref } = request.payload
-        const found = await agentFor(sessionId as SessionId)
-        if ('error' in found) return err(request, found.error)
-        try {
-          const goal = ctx.goals.complete(found.agent, ref)
-          return ok(request, { goal: goalView(goal) })
-        } catch (error: unknown) {
-          return err(request, { code: 'internal', message: String(error), details: {} })
-        }
+        return mutateGoal(request, agent => ctx.goals.complete(agent, request.payload.ref))
       },
 
       async clear(request) {
         const { sessionId, ref } = request.payload
-        const found = await agentFor(sessionId as SessionId)
+        const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         try {
           ctx.goals.clear(found.agent, ref)

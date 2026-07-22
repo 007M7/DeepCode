@@ -10,7 +10,7 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
-  ToolCallView, ToolEventView, ToolResultView,
+  ToolCallView, ToolEventView, ToolResultView, GoalView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { AbstractApiClient, RpcId } from './api.ts'
@@ -243,6 +243,11 @@ export function createFixtureApi(): ApiProxy {
     { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, cwd: '/tmp/fixture' },
   ]
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
+  const fixtureGoal: GoalView = {
+    id: 'fx-goal-1' as GoalView['id'], revision: 1, objective: 'Ship the fixture goal bar',
+    phase: 'active', maxGoalRounds: 4, roundsStarted: 1, createdAt: 1, updatedAt: 2,
+    activation: 'armed',
+  }
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
   let nextRpc = 1
@@ -424,7 +429,7 @@ export function createFixtureApi(): ApiProxy {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions: 1 }),
     },
     goals: {
-      get: request => err(request, { code: 'internal', message: 'fixture: goals not implemented', details: {} }),
+      get: request => ok(request, { goal: request.payload.sessionId === sid('fx-alpha') ? fixtureGoal : null }),
       create: request => err(request, { code: 'internal', message: 'fixture: goals not implemented', details: {} }),
       edit: request => err(request, { code: 'internal', message: 'fixture: goals not implemented', details: {} }),
       pause: request => err(request, { code: 'internal', message: 'fixture: goals not implemented', details: {} }),

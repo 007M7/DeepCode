@@ -325,7 +325,7 @@ describe('goals RPC surface', () => {
   it('an unservable session id is an RPC error on every goal method', async () => {
     const test = await harness()
     const api = createApiProxy(test.ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
-    const missing = 'no-such-session'
+    const missing = SessionId('no-such-session')
     const ref = { id: 'goal-x' as GoalView['id'], revision: 1 }
 
     const attempts = [
