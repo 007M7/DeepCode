@@ -90,11 +90,12 @@ interface SessionRecord {
 interface PendingSpawn {
   readonly controller: AbortController
   readonly settled: Promise<void>
+  rollbackFailure: { error: unknown } | undefined
 }
 
 interface SpawnReservation {
   readonly signal: AbortSignal
-  release(): void
+  release(rollbackFailure: { error: unknown } | undefined): void
 }
 
 /** In-process registry for replaceable PTY backends and exact-Agent sessions. */
@@ -161,6 +162,7 @@ export class PtyService extends Service {
       : AbortSignal.any([signal, spawnReservation.signal])
     const sessionId = PtySessionId(`pty-${++this.nextId}`)
     let session: PtyBackendSession | undefined
+    let rollbackFailure: { error: unknown } | undefined
     try {
       session = await backend.spawn({
         sessionId,
@@ -189,7 +191,6 @@ export class PtyService extends Service {
       this.sessions.set(sessionId, record)
       return this.snapshot(record, session.motd)
     } catch (error) {
-      let rollbackFailure: { error: unknown } | undefined
       if (session !== undefined && !this.sessions.has(sessionId)) {
         try {
           await session.close('PTY spawn rolled back')
@@ -209,7 +210,7 @@ export class PtyService extends Service {
       }
       throw failure
     } finally {
-      spawnReservation.release()
+      spawnReservation.release(rollbackFailure)
       releaseName()
     }
   }
@@ -341,13 +342,14 @@ export class PtyService extends Service {
   private reserveSpawn(owner: Agent): SpawnReservation {
     const controller = new AbortController()
     const settlement = Promise.withResolvers<void>()
-    const pending: PendingSpawn = { controller, settled: settlement.promise }
+    const pending: PendingSpawn = { controller, settled: settlement.promise, rollbackFailure: undefined }
     const owned = this.pendingSpawns.get(owner) ?? new Set<PendingSpawn>()
     owned.add(pending)
     this.pendingSpawns.set(owner, owned)
     return {
       signal: controller.signal,
-      release: () => {
+      release: (rollbackFailure) => {
+        pending.rollbackFailure = rollbackFailure
         owned.delete(pending)
         if (owned.size === 0) this.pendingSpawns.delete(owner)
         settlement.resolve()
@@ -361,6 +363,10 @@ export class PtyService extends Service {
       : [...(this.pendingSpawns.get(owner) ?? [])]
     for (const spawn of pending) spawn.controller.abort(reason)
     await Promise.all(pending.map(spawn => spawn.settled))
+    const failures = pending.flatMap(spawn => spawn.rollbackFailure === undefined ? [] : [spawn.rollbackFailure.error])
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'failed to roll back unpublished PTY setup')
+    }
   }
 
   private expectOwned(owner: Agent, id: PtySessionId): SessionRecord {
@@ -383,11 +389,32 @@ export class PtyService extends Service {
     }
   }
 
+  private async abortAndClose(owner: Agent | undefined, abortReason: PtyError, closeReason: string): Promise<void> {
+    const failures: unknown[] = []
+    try {
+      await this.abortPendingSpawns(owner, abortReason)
+    } catch (error: unknown) {
+      failures.push(error)
+    }
+    const records = [...this.sessions.values()].filter(record => owner === undefined || record.owner === owner)
+    try {
+      await this.closeRecords(records, closeReason)
+    } catch (error: unknown) {
+      failures.push(error)
+    }
+    if (failures.length > 0) throw new AggregateError(failures, 'failed to clean up PTY lifecycle')
+  }
+
   private async disposeOwned(owner: Agent): Promise<void> {
-    await this.abortPendingSpawns(owner, new PtyError('PTY owner is no longer live', 'OWNER_NOT_LIVE'))
-    const owned = [...this.sessions.values()].filter(record => record.owner === owner)
-    await this.closeRecords(owned, 'PTY owner disposed')
-    this.reservedNames.delete(owner)
+    try {
+      await this.abortAndClose(
+        owner,
+        new PtyError('PTY owner is no longer live', 'OWNER_NOT_LIVE'),
+        'PTY owner disposed',
+      )
+    } finally {
+      this.reservedNames.delete(owner)
+    }
   }
 
   private async disposeAll(): Promise<void> {
@@ -396,9 +423,11 @@ export class PtyService extends Service {
     // owner cleanups before the aggregated error propagates, so one stuck
     // session cannot orphan backends, reservations, or owner detachers.
     try {
-      await this.abortPendingSpawns(undefined, new PtyError('PTY service is disposing', 'SERVICE_DISPOSING'))
-      const records = [...this.sessions.values()]
-      await this.closeRecords(records, 'PTY service disposed')
+      await this.abortAndClose(
+        undefined,
+        new PtyError('PTY service is disposing', 'SERVICE_DISPOSING'),
+        'PTY service disposed',
+      )
     } finally {
       this.backends.clear()
       this.reservedNames.clear()

@@ -299,6 +299,26 @@ describe('PtyService ownership and lifecycle', () => {
     expect(session.closed).toEqual(['PTY spawn rolled back'])
   })
 
+  it('reports unpublished rollback failure through service disposal', async () => {
+    const ctx = await harness()
+    const gate = Promise.withResolvers<PtyBackendSession>()
+    const session = new StubSession()
+    session.rejectClose = true
+    ctx.pty.registerBackend({ type: 'slow', spawn: () => gate.promise })
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+
+    const pending = ctx.pty.spawn(owner, { type: 'slow' })
+    const pendingFailure = expect(pending).rejects.toThrow('PTY spawn and rollback both failed')
+    const internal = ctx.pty as unknown as { disposeAll(): Promise<void> }
+    const disposalFailure = expect(internal.disposeAll()).rejects.toThrow('failed to clean up PTY lifecycle')
+    gate.resolve(session)
+
+    await pendingFailure
+    await disposalFailure
+    expect(session.closed).toEqual(['PTY spawn rolled back'])
+  })
+
   it('keeps independent reservations and handles provider failure before publication', async () => {
     const ctx = await harness()
     const firstGate = Promise.withResolvers<PtyBackendSession>()
@@ -343,11 +363,16 @@ describe('PtyService ownership and lifecycle', () => {
     const failedSpawn = new StubSession()
     failedSpawn.rejectClose = true
     let ownerDisposal = Promise.resolve()
+    const internal = ctx.pty as unknown as {
+      disposedOwners: WeakSet<Agent>
+      disposeOwned(owner: Agent): Promise<void>
+    }
     ctx.pty.registerBackend({
       type: 'bad-spawn',
       async spawn({ signal }) {
         if (signal === undefined) throw new Error('missing spawn signal')
-        ownerDisposal = disposeAgentScope(owner)
+        internal.disposedOwners.add(owner)
+        ownerDisposal = internal.disposeOwned(owner)
         if (!signal.aborted) {
           await new Promise<undefined>((resolve) => {
             signal.addEventListener('abort', () => { resolve(undefined) }, { once: true })
@@ -357,7 +382,7 @@ describe('PtyService ownership and lifecycle', () => {
       },
     })
     await expect(ctx.pty.spawn(owner, { type: 'bad-spawn' })).rejects.toThrow('spawn and rollback both failed')
-    await ownerDisposal
+    await expect(ownerDisposal).rejects.toThrow('failed to clean up PTY lifecycle')
 
     const nextOwner = stubAgent(ctx, 'next')
     ctx.agents.register(nextOwner)
@@ -456,7 +481,7 @@ describe('PtyService ownership and lifecycle', () => {
     }
     // Teardown surfaces the close failure, but its finally still clears the
     // backend and owner-cleanup registries instead of orphaning them.
-    await expect(internal.disposeAll()).rejects.toThrow('failed to close 1 PTY session')
+    await expect(internal.disposeAll()).rejects.toThrow('failed to clean up PTY lifecycle')
     expect(internal.backends.size).toBe(0)
     expect(internal.ownerCleanups.size).toBe(0)
   })
