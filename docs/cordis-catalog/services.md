@@ -733,6 +733,33 @@ Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-d
 
 Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/src/index.ts)
 
+## `ctx.planMode` — `PlanModeService`
+
+`ctx.planMode`: owns logged plan state, boundary application and narration, the `plan:policy` section, the `/plan` command, and the stable exit tool. UIs observe committed flips through `session/event`; there is no live mirror.
+
+```ts cordis-catalog
+/**
+ * Read the logged plan state and any selected state awaiting a boundary.
+ *
+ * @param agent The agent to read.
+ * @returns Current logged state plus a pending selection, when present.
+ */
+get(agent: Agent): { active: boolean; pending?: boolean }
+
+/**
+ * Select whether plan mode should be active from the next turn boundary.
+ * Repeated selection of the current or already-pending state is a no-op.
+ *
+ * @param agent The agent to switch.
+ * @param active Whether plan mode should be active.
+ */
+set(agent: Agent, active: boolean): void
+```
+
+Types: [Agent](../core-data-structures/core.md)
+
+Source: [`packages/plan/plan-mode/src/index.ts:141`](../../packages/plan/plan-mode/src/index.ts)
+
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
 Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.

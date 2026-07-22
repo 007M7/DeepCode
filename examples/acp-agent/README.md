@@ -7,7 +7,7 @@ pnpm run demo:acp          # needs DEEPSEEK_API_KEY (repo-root .env or env)
 pnpm run demo:code-mode acp   # the same server in Code Mode: one wire tool, run_code
 ```
 
-The leaf config loads the ACP app, DeepSeek adapter, sandboxed bash, the sandboxed filesystem stack, approval and permission services, model-facing tools, and repeat guard. The app bundles the agent spine, JSONL persistence, and bridge, creates agents on `session/new`, and keeps stdout logger-free. [`fs.cordis.yml`](fs.cordis.yml) adds local tool-result spill storage for its dedicated scenarios; [`code-mode.cordis.yml`](code-mode.cordis.yml) adds `run_code` and its generated TypeScript SDK. See [Code Mode](../../packages/core/tools/README.md#code-mode).
+The leaf config loads the ACP app, DeepSeek adapter, plan mode, sandboxed bash, the sandboxed filesystem stack, approval and permission services, model-facing tools, and repeat guard. The app bundles the agent spine, JSONL persistence, and bridge, creates agents on `session/new`, and keeps stdout logger-free. [`fs.cordis.yml`](fs.cordis.yml) adds local tool-result spill storage for its dedicated scenarios; [`code-mode.cordis.yml`](code-mode.cordis.yml) adds `run_code` and its generated TypeScript SDK. See [Code Mode](../../packages/core/tools/README.md#code-mode).
 
 ## stdout is the protocol
 
@@ -29,11 +29,17 @@ Add to your Zed `settings.json` under `agent_servers`:
 }
 ```
 
-The editor sets each session's `cwd` to the project it opens, and bash uses that directory as its workdir. The current sandbox write boundary is nevertheless fixed when the server starts (`workspaceRoot: process.cwd()`), so launch the server from the workspace it should be allowed to modify; making that root session-scoped is deferred in the [sandbox Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md). The filesystem tools now ride the same sandbox policy through [`@deepseek-ai/dsh-fs-sandbox`](../../packages/fs/fs-sandbox/), so `read`/`write`/`edit` are available under every mode and confined to the same `workspaceRoot`.
+The editor sets each session's `cwd` to the project it opens, and bash uses that directory as its workdir. The current sandbox write boundary is nevertheless fixed when the server starts (`workspaceRoot: process.cwd()`), so launch the server from the workspace it should be allowed to modify; making that root session-scoped is deferred in the [sandbox Agent Note](../../.agents/notes/implemented/feature/2026-07-06-sandbox.md). The filesystem tools ride the same sandbox policy through [`@deepseek-ai/dsh-fs-sandbox`](../../packages/fs/fs-sandbox/), so `read`/`write`/`edit` remain available regardless of plan state and confined to the same `workspaceRoot`.
+
+## Plan mode
+
+The same `demo:acp` server composes [`@deepseek-ai/dsh-plan-mode`](../../packages/plan/plan-mode/), so a capable client advertises `default` and `plan` in its mode picker. ACP owns those protocol ids and projects them onto the plugin's boolean plan state. This composition owns the complete plan instructions in [`cordis.yml`](cordis.yml): remain in plan mode, inspect before asking, avoid mutations, resolve discoverable repository facts, and submit a decision-complete plan through `exit_plan_mode`. Those are the instrumental behaviors shared by the local Codex and Claude Code references; product-specific plan files, phase machinery, and protocol tags stay out of the plugin contract.
+
+Plan mode adds only that configured guidance section. Every tool, including `exit_plan_mode`, keeps the same schema while plan mode is inactive or active; the exit tool describes itself as plan-only and rejects if called while inactive. Stable native schemas and Code Mode SDK bindings avoid tool-catalog churn at the transition. `ask_user_question` carries blocking user-owned choices through ACP elicitation, while `exit_plan_mode` renders the exact logged plan for approval and returns keep-planning feedback to the model. The mode picker and permission select remain independent: switching plan state never changes sandbox or approval state, and deployments that need a hard read-only planning floor configure that policy separately. The [plan-mode Agent Note](../../.agents/notes/implemented/feature/2026-07-07-plan-mode.md) owns the state and review contract.
 
 ## Snapshot tests (record-once / replay-deterministic)
 
-This example hosts the ACP snapshot suite. It replays through `dsh-llm-replay`, which reconstructs model streams from `assistant/chunk` events in each scenario's session JSONL. Recording runs the real ACP agent and harvests its logs; refresh keeps the committed transcript as mock input and rewrites current replay outputs. `replay.override.json` covers throw and hang cases that chunks cannot express, and an optional `workspace/` seeds files. The [snapshot Agent Note](../../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md) owns the ACP harness design.
+This example hosts the ACP snapshot suite, including the picker advertisement and both plan-review branches. It replays through `dsh-llm-replay`, which reconstructs model streams from `assistant/chunk` events in each scenario's session JSONL. Recording runs the real ACP agent and harvests its logs; refresh keeps the committed transcript as mock input and rewrites current replay outputs. `replay.override.json` covers throw and hang cases that chunks cannot express, and an optional `workspace/` seeds files. The [snapshot Agent Note](../../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md) owns the ACP harness design.
 
 ## Permissions and sandboxing
 
