@@ -102,10 +102,10 @@ async function tick(): Promise<void> {
 async function setup(options: TuiHarnessOptions = {}) {
   const terminal = new FakeTerminal()
   const exit = vi.fn()
-  const result = await createTuiTestHarness(terminal, exit, {
-    ...options,
-    cwd: options.cwd === undefined ? process.cwd() : options.cwd,
-  })
+  // Let the harness default cwd ('/workspace') stand: a checkout-dependent
+  // process.cwd() longer than the 88-column fake terminal pushes the footer
+  // token counters off-screen and fails their assertions by location.
+  const result = await createTuiTestHarness(terminal, exit, options)
   await tick()
   return result
 }

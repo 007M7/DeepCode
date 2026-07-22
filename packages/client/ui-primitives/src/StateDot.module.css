@@ -1,0 +1,65 @@
+/* Ongoing blue has no alias token (state-business-primary is the 500 step,
+ * not this 450) — component-level var pinned to the static scale instead. */
+.dot,
+.ring {
+  --dsh-state-ongoing: var(--dsw-static-deepseek-450);
+}
+
+/* Solid states: same-color halo via a 0.10-opacity outer layer (::before)
+ * with a 6/10-scale solid core. Layer color rides currentColor set per state. */
+.dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+}
+
+.dot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.1;
+}
+
+.dot::after {
+  content: '';
+  position: absolute;
+  inset: 20%;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dot[data-state='done'] {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.dot[data-state='warning'] {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.dot[data-state='error'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.ring {
+  flex: none;
+  color: var(--dsh-state-ongoing);
+  animation: dsh-state-dot-spin 1s linear infinite;
+}
+
+.stopFrom {
+  stop-color: currentColor;
+  stop-opacity: 1;
+}
+
+.stopTo {
+  stop-color: currentColor;
+  stop-opacity: 0;
+}
+
+@keyframes dsh-state-dot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
