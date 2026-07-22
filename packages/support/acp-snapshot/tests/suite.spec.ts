@@ -48,7 +48,14 @@ const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.
 // Replay pins explicit header classes; recording covers the default fallback.
 const REPLAY_SCENARIOS: Scenario[] = [
   { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'main' },
-  { name: 'plain-turn', hasModelTurn: true, recorded: true, headerClass: 'main', configPath: AGENT.configPath },
+  {
+    name: 'plain-turn',
+    hasModelTurn: true,
+    recorded: true,
+    headerClass: 'main',
+    configPath: AGENT.configPath,
+    workspaceParent: tmpdir(),
+  },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
   { name: 'authored-error', hasModelTurn: true, recorded: false, overridden: true, headerClass: 'main' },

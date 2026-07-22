@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:254`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:275`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -81,7 +81,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/acp-demo/src/index.ts:38`](../packages/examples/acp-demo/src/index.ts)
+Source: [`packages/examples/acp-demo/src/index.ts:41`](../packages/examples/acp-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -220,11 +220,10 @@ Requires: `sandbox` · `sandboxPolicy`
 ```ts config-catalog
 /**
  * Plugin config: the local executor's knobs, verbatim. The sandbox policy —
- * the default mode and the `workspace-write` boundary root — is NOT here: it
- * lives on `ctx.sandboxPolicy` (`@deepseek-ai/dsh-sandbox-policy`), the one
- * home both enforcing families read, so bash and fs can never confine to
- * different roots. The runner choice is likewise the `ctx.sandbox` provider's
- * config, not this executor's.
+ * the default mode and fallback `workspace-write` root — is NOT here: it lives
+ * on `ctx.sandboxPolicy` (`@deepseek-ai/dsh-sandbox-policy`), which resolves
+ * each calling session's mode and cwd for both enforcing families. The runner
+ * choice is likewise the `ctx.sandbox` provider's config, not this executor's.
  */
 export type Config = LocalConfig
 ```
@@ -273,7 +272,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/cli-demo/src/index.ts:25`](../packages/examples/cli-demo/src/index.ts)
+Source: [`packages/examples/cli-demo/src/index.ts:26`](../packages/examples/cli-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
@@ -391,8 +390,8 @@ Requires: `sandboxPolicy`
 /**
  * Plugin config: the local backend's knobs, verbatim (only `cwd`, the resolve
  * base for relative paths). The sandbox default (mode + `workspace-write`
- * boundary root) is NOT here — it lives on `ctx.sandboxPolicy`, the one home
- * both enforcing families share.
+ * fallback root) is NOT here — `ctx.sandboxPolicy` resolves each calling
+ * session for both enforcing families.
  */
 export type Config = LocalConfig
 ```
@@ -788,6 +787,20 @@ Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMod
 
 Source: [`packages/ui/permission/src/index.ts:83`](../packages/ui/permission/src/index.ts)
 
+## `@deepseek-ai/dsh-plan-mode`
+
+Requires: `tools` · `systemPrompt`
+
+```ts config-catalog
+/** Deployment-owned plan guidance. */
+export interface PlanModeConfig {
+  /** Guidance rendered as the `plan:policy` prompt section while plan mode is active. */
+  section: string
+}
+```
+
+Source: [`packages/plan/plan-mode/src/index.ts:57`](../packages/plan/plan-mode/src/index.ts)
+
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 
 ```ts config-catalog
@@ -862,8 +875,8 @@ export interface Config {
   /** File-sandbox mode a session starts from (default: `read-only`). */
   mode?: SandboxMode
   /**
-   * Absolute root directory `workspace-write` may write under (default:
-   * `process.cwd()`). Both enforcing families fence against this SAME root.
+   * Fallback root for agentless calls and sessions without a cwd (default:
+   * `process.cwd()`). Normal agent calls use their session cwd instead.
    */
   workspaceRoot?: string
 }
@@ -1471,10 +1484,18 @@ Requires: `agents` · `commands` · `userInteraction` · `tools` · `llm` · `sy
 ```ts config-catalog
 /** Serializable plugin configuration. */
 export interface Config extends TuiConfig {
-  /** Header subtitle. Defaults to `ready.`. */
+  /** Banner subtitle line. When absent, the banner has no subtitle and sweeps in on start. */
   welcome?: string
   /** Exact shared agent/session identity driven by this terminal. Defaults to `main`. */
   sessionId?: string
+  /**
+   * Shell command template shown for resuming this session: printed on exit and
+   * listed by `/resume`, with every `{session}` occurrence replaced by the live
+   * session id. Absent disables both surfaces. Deployments set it only when a
+   * persistence backend makes the session resumable (e.g.
+   * `RESUME_SESSION_ID={session} dsh`).
+   */
+  resumeCommand?: string
 }
 
 /** Presentation settings for the pi-tui terminal mode. */
@@ -1499,12 +1520,19 @@ export interface TuiConfig {
   showHardwareCursor?: boolean
   /** Apply the built-in ANSI color palette. */
   color?: boolean
-  /** Terminal window title while the UI is mounted. */
+  /**
+   * Paint the startup banner's product name in the DeepSeek brand gradient
+   * using 24-bit truecolor. Requires {@link TuiConfig.color}; falls back to the
+   * flat accent color when either is off. Unset auto-detects `COLORTERM` at the
+   * process boundary, so most deployments leave it unset.
+   */
+  truecolor?: boolean
+  /** Terminal window title while the UI is mounted; a logged session title prefixes it. */
   title?: string
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:129`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:145`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 
@@ -1531,8 +1559,15 @@ export interface Config {
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
-  /** TUI subtitle rendered on start. Defaults to `ready.`. */
+  /** TUI transcript's optional first line; absent renders nothing on start. */
   welcome?: string
+  /**
+   * Shell command template the TUI prints on exit and lists under `/resume`,
+   * with `{session}` replaced by the live session id (forwarded to the front
+   * door). Set it to a command that resumes via this app's env var, e.g.
+   * `RESUME_SESSION_ID={session} dsh`.
+   */
+  resumeCommand?: string
   /** Full-screen TUI presentation settings. */
   ui?: uiTui.TuiConfig
   /** Skill registry, local-provider, and model-facing consumer config. */
@@ -1737,12 +1772,20 @@ export interface Config {
   maxBytes: number
   /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
   maxSourceBytes?: number
-  /** Ordered same-directory project candidates; the first existing regular file wins in each scope. */
+  /**
+   * Ordered same-directory project candidates; every existing file loads, with
+   * per-directory trimmed-content duplicates collapsed to the earliest candidate.
+   */
   instructionFileCandidates?: string[]
+  /**
+   * Ordered same-directory local-overlay candidates loaded after the base files
+   * under the same per-directory trimmed-content dedup; empty disables the overlay.
+   */
+  localInstructionFileCandidates?: string[]
 }
 ```
 
-Source: [`packages/context/workspace-context/src/config.ts:16`](../packages/context/workspace-context/src/config.ts)
+Source: [`packages/context/workspace-context/src/config.ts:17`](../packages/context/workspace-context/src/config.ts)
 
 ## Loadable plugins with no config
 
@@ -1764,6 +1807,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
+- `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session-persistence/session-checkpoint-policy/src/index.ts`](../packages/session-persistence/session-checkpoint-policy/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-tasks` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))

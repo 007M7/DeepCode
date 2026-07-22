@@ -10,6 +10,7 @@ import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import ToolResultPruneService from '@deepseek-ai/dsh-compact-tool-result-prune'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as SessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
 import type { BasicCompactConfig } from '@deepseek-ai/dsh-compact-basic'
 
@@ -70,7 +71,10 @@ export async function codingHarness(workdir: string, options: CodingHarnessOptio
   // Durable JSONL persistence is opt-in: only the resume e2e needs it, and the
   // other suites stay file-free. Loaded last so a resume's deferred
   // `ctx.inject(['sessionPersistence'])` resolves once this is present.
-  if (options.persistenceRoot !== undefined) await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot })
+  if (options.persistenceRoot !== undefined) {
+    await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot })
+    await ctx.plugin(SessionCheckpointPolicy)
+  }
   return ctx
 }
 

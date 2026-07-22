@@ -1,5 +1,5 @@
 /**
- * Pure ACP transcript and session-log normalizers. They scrub session ids, temp cwd, RPC ids,
+ * Pure ACP transcript and session-log normalizers. They scrub session ids, run cwd, RPC ids,
  * timestamps, and hook duration while preserving deterministic event sequence numbers.
  * Request-header scrubbers stay composable so one scenario per header class can pin prompt and
  * tool-schema sidecars while retaining any model-visible prefix in the session log.
@@ -44,7 +44,7 @@ function canonicalizeEmbeddedPaths(value: string): string {
 export interface NormalizeContext {
   /** The session id(s) the run issued — replaced with `{{sessionId}}`. */
   sessionIds: string[]
-  /** The temp cwd the run used — replaced with `{{cwd}}`. */
+  /** The generated cwd the run used — replaced with `{{cwd}}`. */
   cwd: string
 }
 

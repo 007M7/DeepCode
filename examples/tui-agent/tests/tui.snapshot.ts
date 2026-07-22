@@ -15,6 +15,7 @@ import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
+import PlanModeService from '@deepseek-ai/dsh-plan-mode'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -45,8 +46,15 @@ interface Scenario {
   expectedTools: string[]
   expectedEventCounts?: Record<string, number>
   childSessions?: number
+  enterPlanMode?: boolean
   recorded: boolean
   seedWorkspace?: boolean
+  /**
+   * Load the opt-in `todo_write` tool for this scenario. The shipped tui-agent
+   * config omits it, so only the todo-plan scenario (the enabled-path proof)
+   * mounts it; the rest cover the default, todo-free composition.
+   */
+  enableTodo?: boolean
 }
 
 const SCENARIOS: Scenario[] = [
@@ -54,6 +62,8 @@ const SCENARIOS: Scenario[] = [
     name: 'multi-turn-conversation',
     composition: 'native',
     expectedTools: [],
+    expectedEventCounts: { 'plan/mode': 1 },
+    enterPlanMode: true,
     recorded: true,
   },
   {
@@ -62,6 +72,7 @@ const SCENARIOS: Scenario[] = [
     expectedTools: ['todo_write'],
     expectedEventCounts: { 'todo/write': 1 },
     recorded: true,
+    enableTodo: true,
   },
   {
     name: 'bash-terminal-card',
@@ -196,7 +207,9 @@ async function mountScenarioContext(
   await ctx.plugin(FsPolicy)
   await ctx.plugin(ToolFs)
   await ctx.plugin(UserInteractionService)
-  await ctx.plugin(ToolTodo)
+  // todo_write is opt-in: only the todo-plan scenario mounts it, matching the shipped
+  // config that omits it. The other scenarios prove the default todo-free composition.
+  if (scenario.enableTodo === true) await ctx.plugin(ToolTodo)
   await ctx.plugin(SubagentService)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(ToolSubagent, { provider: 'spawn', toolName: 'subagent', enableRunInBackground: false })
@@ -204,6 +217,9 @@ async function mountScenarioContext(
   await ctx.plugin(ToolWorkflow)
   await ctx.plugin(ToolRalph)
   await ctx.plugin(CommandService)
+  if (scenario.enterPlanMode === true) {
+    await ctx.plugin(PlanModeService, { section: 'Snapshot plan mode instructions.' })
+  }
   if (scenario.composition === 'code' || scenario.composition === 'advanced') {
     await ctx.plugin(WorkerCodeRuntime, {})
   }
@@ -268,7 +284,17 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     })
     await settleTerminal(terminal)
 
-    for (const prompt of prompts) {
+    let remainingPrompts = prompts
+    if (scenario.enterPlanMode === true) {
+      const firstPrompt = prompts[0]!
+      terminal.send(`/plan ${firstPrompt}`)
+      terminal.send('\r')
+      await agent.whenIdle()
+      await settleTerminal(terminal)
+      remainingPrompts = prompts.slice(1)
+    }
+
+    for (const prompt of remainingPrompts) {
       terminal.send(prompt)
       terminal.send('\r')
       await agent.whenIdle()
@@ -279,6 +305,18 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     expect(events.filter(event => event.type === 'tool/call').map(event => event.data.name)).toEqual(scenario.expectedTools)
     for (const [type, count] of Object.entries(scenario.expectedEventCounts ?? {})) {
       expect(events.filter(event => event.type === type), `${scenario.name} must emit ${type}`).toHaveLength(count)
+    }
+    if (scenario.enterPlanMode === true) {
+      expect(ctx.planMode.get(agent)).toEqual({ active: true })
+      const planMode = events.find(event => event.type === 'plan/mode')
+      const firstHeader = events.find(event => event.type === 'request/header')
+      if (planMode === undefined || firstHeader === undefined) {
+        throw new Error('plan-mode command snapshot needs plan/mode before its first request/header')
+      }
+      expect(planMode.seq).toBeLessThan(firstHeader.seq)
+      expect(firstHeader.data.header.system).toContain('Snapshot plan mode instructions.')
+      const firstMessage = events.find(event => event.type === 'user/message')
+      expect(firstMessage?.data.content).toEqual([{ type: 'text', text: prompts[0] }])
     }
     expect(events.filter(event => event.type === 'tool/result').every(event => !event.data.isError)).toBe(true)
     expect(events.filter(event => event.type === 'turn/end').every(event => event.data.reason.kind !== 'error')).toBe(true)

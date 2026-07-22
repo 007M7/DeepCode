@@ -38,6 +38,7 @@
     { "path": "./packages/core/session" },
     { "path": "./packages/core/scope" },
     { "path": "./packages/session-persistence/session-persistence" },
+    { "path": "./packages/session-persistence/session-checkpoint-policy" },
     { "path": "./packages/session-persistence/session-persistence-jsonl" },
     { "path": "./packages/session-persistence/session-persistence-sqlite" },
     { "path": "./packages/session-query/session-query" },
@@ -122,6 +123,7 @@
     { "path": "./packages/workflow/tool-workflow" },
     { "path": "./packages/workflow/tool-ralph" },
     { "path": "./packages/todo/tool-todo" },
+    { "path": "./packages/plan/plan-mode" },
     { "path": "./packages/guard/repeat-tool-guard" },
     { "path": "./packages/cordis/tool-cordis" },
     { "path": "./packages/hooks/hook-protocol" },
@@ -137,6 +139,7 @@
     { "path": "./packages/sdk/telemetry" },
     { "path": "./packages/lsp/lsp" },
     { "path": "./packages/lsp/lsp-local" },
-    { "path": "./packages/lsp/tool-lsp" }
+    { "path": "./packages/lsp/tool-lsp" },
+    { "path": "./apps/cli" }
   ]
 }

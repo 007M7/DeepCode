@@ -1,37 +1,27 @@
 terminal 104x30 buffer=normal length=30 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=9 bufferRow=9
+cursor hidden column=1 viewportRow=7 bufferRow=7
 buffer
-0| "╭──────────────────────────────────────────────────────────────────────────────────────────────────────╮"
-  style 0-103 fg=bright-blue
-1| "│ DEEPSEEK HARNESS                                                                                     │"
-  style 0-0 fg=bright-blue
-  style 2-9 fg=bright-blue bold
-  style 11-17 bold
-  style 103-103 fg=bright-blue
-2| "│ Snapshot agent ready.                                                                                │"
-  style 0-0 fg=bright-blue
-  style 2-22 fg=bright-black
-  style 103-103 fg=bright-blue
-3| "│ deepseek-v4-flash  •  main-session                                                                   │"
-  style 0-0 fg=bright-blue
-  style 2-35 dim
-  style 103-103 fg=bright-blue
-4| "╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯"
-  style 0-103 fg=bright-blue
-5| <blank>
-6| " Context · compact                                                                                      "
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Snapshot agent ready."
+  style 1-21 fg=bright-black
+2| " deepseek-v4-flash  •  main-session"
+  style 1-34 dim
+3| <blank>
+4| " Context · compact                                                                                      "
   style 1-17 dim
-7| " Compacted summary: the prior command completed and its details were retired from the active surface.   "
+5| " Compacted summary: the prior command completed and its details were retired from the active surface.   "
   style 1-100 fg=bright-black
+6| "────────────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-103 dim
+7| "                                                                                                        "
+  style 1-1 inverse
 8| "────────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-103 dim
-9| "                                                                                                        "
-  style 1-1 inverse
-10| "────────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-103 dim
-11| "/workspace/project  ↑0 ↓0                     0% context  tools:compact  deepseek-v4-flash(reasoning:on)"
-  style 0-24 dim
-  style 46-103 dim
-12-29| <blank>
+9| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                                 0% context  tools:collapsed"
+  style 0-43 dim
+  style 77-103 dim
+10-29| <blank>

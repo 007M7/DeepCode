@@ -4,11 +4,15 @@
 
 # The DeepSeek adapter. Swap to '@deepseek-ai/dsh-llm-pi-ai' for the pi-ai-backed
 # twin (same config shape; `reasoning: high` replaces thinking/reasoningEffort).
+# Shipped default: full thinking at max effort on every request (wire-only
+# defaults; they never enter the request header).
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
+    thinking: enabled
+    reasoningEffort: max
     models:
       - id: deepseek-v4-pro
         contextWindow: 128000
@@ -25,6 +29,9 @@
   name: '@deepseek-ai/dsh-cli-demo'
   config:
     provider: deepseek
+    # Stays on flash: the goal/ralph replay corpora were recorded on it, and
+    # their nested-include overlays cannot re-pin the app config (a config
+    # patch cannot target an entry behind a nested include).
     model: deepseek-v4-flash
     persistenceRoot: './.sessions'
     persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"

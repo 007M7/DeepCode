@@ -37,6 +37,7 @@
 | `ctx.web` | [`web/`](../packages/web/README.md) | 搜索与抓取提供方注册表 |
 | `ctx.compact`，`ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | 摘要压缩（compaction）；可选的无模型结果裁剪 |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | 具名委托提供方 |
+| `ctx.planMode` | [`plan/`](../packages/plan/README.md) | 落日志的 plan 协作状态 |
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | 后台任务注册表和通用 `task_*` 控制工具 |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | 脚本驱动的多 agent 编排 |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | 持久化的同会话目标 |
@@ -61,7 +62,7 @@ waterfall（瀑布式事件）的行为类似环绕中间件：监听器调用 `
 
 ## 默认循环生命周期
 
-已交付的循环通过插件可见的服务和事件，持续处理从提示词到检查点的工作。
+已交付的循环通过插件服务和事件，处理从提示词到检查点的工作。
 
 **会话**采用仅追加方式。每个普通**轮次**领取一项已排队的 `send()` 输入；注入不领取输入。后续轮次会等待前一个已领取轮次的检查点，但可以与其共用同一个 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）。模型和插件停止轮次时，该轮次结束；一个**步骤**包含一次模型请求及其工具。在[下文时序](agent-lifecycle.md)中，引号标记持久事件。
 
@@ -89,7 +90,7 @@ forever:
       agent/pre-step
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> log request/header -> llm/stream (frozen)
+      agent/request (config only) -> log request/header -> checkpoint -> llm/stream (frozen)
       on final adapter-path or terminal in-band failure:
         'step/end'
         agent/request-error(original error, failure facts, immutable prior failures, signal)
@@ -101,10 +102,10 @@ forever:
         schedule tool calls by ctx.tools.executionMode:
           exclusive -> one-call barrier
           parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
-          each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+          each start -> 'tool/call' -> ordered tools/pre-execute -> checkpoint -> concurrent tools/execute
           each model-order result -> ordered tools/post-execute -> 'tool/result'
         append accepted tool-batch context after all recorded results, then steering
-        agent/post-step
+        agent/post-step -> checkpoint complete response/results
         'step/end'
         agent/turn-continuation
         agent/turn-stop (terminal policy)
@@ -125,7 +126,7 @@ forever:
 
 其他故障使用 `agent/error`。取消和资源释放均优先于恢复；尚未分派的工具调用会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。轮次信号会在 `turn/end` 前失效。实际生效的 `cancel()` 会在清空队列和中止前发出类型化原因；观察方不能否决该操作，空闲状态下的调用不发出任何事件，持久化会记录 `aborted`。dispose（资源释放）会等待系统停稳（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
-每个会话事件都包围在轮次内。重新加载会保留中断的日志尾部，并用合成的 `interrupted` 轮次结束事件将其闭合。持久轮次关闭后的故障只通过 `agent/error` 报告，因为此时已没有安全的轮次内位置。每个轮次有一个 `TurnEndReason`；各变体由 [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) 统一定义。
+会话事件均位于轮次边界内。重新加载会用合成的 `interrupted` 轮次结束事件闭合中断的日志尾部。关闭后的故障只通过 `agent/error` 报告；此时已没有安全的轮次内位置。每个轮次有一个 `TurnEndReason`；各变体由 [TurnEndReasonMap](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap) 统一定义。
 
 ### Agent 句柄
 
@@ -143,7 +144,7 @@ forever:
 
 **模型可见 ⟺ 已记录**：日志可以重建每个请求，包括由请求头会话前缀置于开头的 `step/start` 时消息，以及通过折叠 `request/header` 得到的请求头；开发期不变量会断言这一点（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
 
-持久性由插件负责。后端会缓冲同步的 `session/event` 通知；循环等待轮次结束检查点。`SessionPersistence` 直接存储 `SessionEvent`，并将元数据存入 `SessionHeader`；JSONL 默认采用带校验和的 Zstandard，SQLite 则遵循同一契约。
+持久性由插件负责。后端会缓冲同步的 `session/event` 通知。语义检查点策略会在适配器分发前刷写请求，在工具分发前刷写已记录的顶层调用，并在 `agent/post-step` 刷写完整的响应与结果批次；循环仍保留最终的轮次结束检查点。`SessionPersistence` 直接存储 `SessionEvent`，并将元数据存入 `SessionHeader`；JSONL 默认采用带校验和的 Zstandard，SQLite 则遵循同一契约（[决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)）。
 
 `ctx.sessions.appendOutOfBand()` 会把插件所属的纯日志事件加入开放轮次，或创建一个平衡且已刷写的零步骤轮次。`session/title` 按后写覆盖方式折叠，并携带源 seq 和来源信息；其即时回退标题和唯一可选异步提供方都不会延迟 agent 响应。fork 会继承标题（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 

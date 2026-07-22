@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
@@ -7,9 +7,8 @@ import Loader from '@cordisjs/plugin-loader'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import LlmService, { CallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents, type Agent, type HookContext } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type HookContext } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsDirEntry,
@@ -24,12 +23,7 @@ import type {
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import type {
-  PostToolDecision,
-  ToolExecution,
-  ToolExecutionResult,
-  ToolExecutionToken,
-} from '@deepseek-ai/dsh-tools'
+import type { ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import {
   discoverBaselineInstructionFiles,
@@ -44,7 +38,11 @@ import {
   type InstructionVersionCache,
   type PendingInstructionChange,
 } from '../src/state.ts'
+import { candidateScopeKey } from '../src/render.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+
+/** Per-candidate reconciliation scope key: directory paired with the file name. */
+const sk = (directory: string, candidateName: string): string => candidateScopeKey(directory, candidateName)
 
 const testToolSignal = new AbortController().signal
 
@@ -59,7 +57,6 @@ async function write(path: string, content: string): Promise<void> {
 
 class RecordingFileSystem extends FileSystem {
   entries = new Map<string, { type: FsInfo['type']; content?: string; version?: FsVersion }>()
-  lstatTypes = new Map<string, FsPathInfo['type']>()
   throwOnStat = new Set<string>()
   throwOnRead = new Set<string>()
   omitSizes = new Set<string>()
@@ -70,6 +67,8 @@ class RecordingFileSystem extends FileSystem {
   override async resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget> {
     if (opts?.signal !== undefined) this.signals.push(opts.signal)
     opts?.signal?.throwIfAborted()
+    // resolve(), not join(): entries are seeded with host join() keys, and on
+    // Windows a joined '/'-rooted prefix would not match a resolved drive path.
     const absolute = resolve(opts?.cwd ?? '/', path)
     return { targetKey: FsTargetKey(absolute), displayPath: absolute }
   }
@@ -92,8 +91,6 @@ class RecordingFileSystem extends FileSystem {
     if (signal !== undefined) this.signals.push(signal)
     signal?.throwIfAborted()
     const target = await this.resolve(path, { ...opts, ...signal === undefined ? {} : { signal } })
-    const lstatType = this.lstatTypes.get(target.targetKey)
-    if (lstatType !== undefined) return { version: FsVersion(`lstat:${target.targetKey}`), type: lstatType }
     const info = await this.stat(target, signal)
     if (info === undefined) return undefined
     return {
@@ -235,29 +232,12 @@ const composedPrefixes = new WeakMap<object, Message[]>()
 
 async function composeBaselinePrefix(ctx: Context, agent: Agent): Promise<Message[]> {
   const empty: Message[] = []
-  const prefix = await agentEvents(ctx, agent).waterfall(
-    'agent/session-prefix', empty, AbortSignal.timeout(1000),
+  const prefix = await ctx.waterfall(
+    'agent/session-prefix', agent, empty, AbortSignal.timeout(1000),
     () => Promise.resolve(empty),
   )
   composedPrefixes.set(agent, prefix)
   return prefix
-}
-
-function toolEventCarrier(ctx: Context, exec: ToolExecution) {
-  return scopeTarget(ctx.get('tools') ?? ctx as unknown as ToolRegistry, exec.agent)
-}
-
-function postExecute(
-  ctx: Context,
-  exec: ToolExecution,
-  result: Readonly<ToolExecutionResult>,
-  next: () => Promise<PostToolDecision>,
-): Promise<PostToolDecision> {
-  return ctx.waterfall(toolEventCarrier(ctx, exec), 'tools/post-execute', exec, result, next)
-}
-
-function emitToolResult(ctx: Context, exec: ToolExecution, result: Readonly<ToolExecutionResult>): void {
-  ctx.emit(toolEventCarrier(ctx, exec), 'tools/result', exec, result)
 }
 
 function derivedText(agent: Agent): string {
@@ -284,7 +264,7 @@ describe('workspace context instruction discovery', () => {
     }
   })
 
-  it('loads user-global first, then root-to-cwd workspace instructions using the default candidate order', async () => {
+  it('loads user-global first, then every root-to-cwd candidate in precedence order', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -292,7 +272,7 @@ describe('workspace context instruction discovery', () => {
       await mkdir(join(root, '.git'), { recursive: true })
       await write(join(home, 'AGENTS.md'), 'global rules')
       await write(join(root, 'AGENTS.md'), 'root agents')
-      await write(join(root, 'CLAUDE.md'), 'root claude ignored')
+      await write(join(root, 'CLAUDE.md'), 'root claude')
       await write(join(root, 'packages/CLAUDE.md'), 'package claude')
       await write(join(cwd, 'AGENTS.md'), 'app agents')
 
@@ -301,10 +281,57 @@ describe('workspace context instruction discovery', () => {
       expect(files.map(file => file.displayPath)).toEqual([
         '$DSH_HOME/AGENTS.md',
         'AGENTS.md',
+        'CLAUDE.md',
         join('packages', 'CLAUDE.md'),
         join('packages', 'app', 'AGENTS.md'),
       ])
-      expect(files.map(file => file.absolutePath)).not.toContain(join(root, 'CLAUDE.md'))
+      expect(files.map(file => file.absolutePath)).toContain(join(root, 'CLAUDE.md'))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('loads a same-directory local overlay in addition to the base file by default', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      const cwd = join(root, 'pkg')
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'root base')
+      await write(join(root, 'AGENTS.local.md'), 'root local')
+      await write(join(cwd, 'CLAUDE.md'), 'pkg base')
+      await write(join(cwd, 'CLAUDE.local.md'), 'pkg local')
+
+      const files = await discoverBaselineInstructionFiles({ cwd, dshHome: home })
+
+      expect(files.map(file => file.displayPath)).toEqual([
+        'AGENTS.md',
+        'AGENTS.local.md',
+        join('pkg', 'CLAUDE.md'),
+        join('pkg', 'CLAUDE.local.md'),
+      ])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('loads no local overlay when localInstructionFileCandidates is empty', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'base rule')
+      await write(join(root, 'AGENTS.local.md'), 'local rule')
+
+      const files = await discoverBaselineInstructionFiles({
+        cwd: root,
+        dshHome: home,
+        localInstructionFileCandidates: [],
+      })
+
+      expect(files.map(file => file.displayPath)).toEqual(['AGENTS.md'])
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -360,44 +387,42 @@ describe('workspace context instruction discovery', () => {
     }
   })
 
-  it('skips a provider file whose read fails after a successful metadata probe', async () => {
+  // POSIX-only fixture: chmod 0 cannot make a file unreadable to its owner on Windows.
+  it.skipIf(process.platform === 'win32')('skips a file that becomes unreadable after discovery without failing the request', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
-    const ctx = new Context()
     try {
       const cwd = join(root, 'pkg')
+      await mkdir(join(root, '.git'), { recursive: true })
+      await mkdir(cwd, { recursive: true })
       const leaf = join(cwd, 'AGENTS.md')
-      await ctx.plugin(RecordingFileSystem)
-      const fs = ctx.fs as RecordingFileSystem
-      fs.entries.set(join(root, '.git'), { type: 'directory' })
-      fs.entries.set(leaf, { type: 'file', content: 'secret-ish rule' })
-      fs.throwOnRead.add(leaf)
+      await write(leaf, 'secret-ish rule')
+      await chmod(leaf, 0)
 
-      const loaded = await loadBaselineInstructions({ cwd, dshHome: home, maxBytes: 65536 }, fs)
+      const loaded = await loadBaselineInstructions({ cwd, dshHome: home, maxBytes: 65536 })
 
       expect(loaded).toBeUndefined()
-      expect(fs.readTargets).toEqual([leaf])
+      await chmod(leaf, 0o600)
     } finally {
-      await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }
   })
 
-  it('rejects symlinked instruction files instead of following repository-controlled links', async () => {
+  it('follows a symlinked instruction file to its target content', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     const outside = await tempRepo()
     try {
       await mkdir(join(root, '.git'), { recursive: true })
-      await write(join(outside, 'secret.txt'), 'outside secret')
-      await symlink(join(outside, 'secret.txt'), join(root, 'AGENTS.md'))
+      await write(join(outside, 'shared.md'), 'shared instruction body')
+      await symlink(join(outside, 'shared.md'), join(root, 'AGENTS.md'))
 
       const files = await discoverBaselineInstructionFiles({ cwd: root, dshHome: home })
       const loaded = await loadBaselineInstructions({ cwd: root, dshHome: home, maxBytes: 65536 })
 
-      expect(files).toEqual([])
-      expect(loaded).toBeUndefined()
+      expect(files.map(file => file.displayPath)).toContain('AGENTS.md')
+      expect(loaded?.text).toContain('shared instruction body')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -405,21 +430,21 @@ describe('workspace context instruction discovery', () => {
     }
   })
 
-  it('rejects symlinked instruction files through ctx.fs instead of following repository-controlled links', async () => {
+  it('follows a symlinked instruction file through ctx.fs to its target content', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     const outside = await tempRepo()
     try {
       await mkdir(join(root, '.git'), { recursive: true })
-      await write(join(outside, 'secret.txt'), 'outside secret')
-      await symlink(join(outside, 'secret.txt'), join(root, 'AGENTS.md'))
+      await write(join(outside, 'shared.md'), 'shared provider instruction body')
+      await symlink(join(outside, 'shared.md'), join(root, 'AGENTS.md'))
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
       const agent = stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
-      expectNoDerivedMessages(agent)
+      expect(derivedText(agent)).toContain('shared provider instruction body')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -465,7 +490,7 @@ describe('workspace context instruction discovery', () => {
     }
   })
 
-  it('uses the configured instruction candidate order without hard-coding AGENTS.md priority', async () => {
+  it('loads every configured instruction candidate in configured order without hard-coding AGENTS.md priority', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -480,7 +505,7 @@ describe('workspace context instruction discovery', () => {
         instructionFileCandidates: ['CLAUDE.local.md', 'AGENTS.md', 'CLAUDE.md'],
       })
 
-      expect(files.map(file => file.displayPath)).toEqual(['CLAUDE.local.md'])
+      expect(files.map(file => file.displayPath)).toEqual(['CLAUDE.local.md', 'AGENTS.md', 'CLAUDE.md'])
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -510,6 +535,12 @@ describe('workspace context instruction discovery', () => {
 
   it('defaults dshHome and uses cwd itself as root when no project marker exists', async () => {
     const root = await tempRepo()
+    const emptyHome = await tempRepo()
+    // Isolate the default-home fallback: blank DSH_HOME is treated as unset, and
+    // HOME points at an empty dir so the default ~/.dsh holds no global scope.
+    // Symlinks are now followed, so a real ~/.dsh/AGENTS.md would otherwise leak in.
+    vi.stubEnv('DSH_HOME', '')
+    vi.stubEnv('HOME', emptyHome)
     try {
       const cwd = join(root, 'child')
       await mkdir(cwd, { recursive: true })
@@ -521,7 +552,9 @@ describe('workspace context instruction discovery', () => {
       expect(files.map(file => file.displayPath)).toEqual(['AGENTS.md'])
       expect(files.map(file => file.absolutePath)).toEqual([join(cwd, 'AGENTS.md')])
     } finally {
+      vi.unstubAllEnvs()
       await rm(root, { recursive: true, force: true })
+      await rm(emptyHome, { recursive: true, force: true })
     }
   })
 
@@ -550,7 +583,6 @@ describe('workspace context instruction discovery', () => {
 
       vi.resetModules()
       vi.doMock('node:os', () => ({ homedir: () => home }))
-      vi.stubEnv('DSH_HOME', undefined)
       const isolated = await import('@deepseek-ai/dsh-workspace-context')
       const files = await isolated.discoverBaselineInstructionFiles({ cwd: root })
 
@@ -558,7 +590,6 @@ describe('workspace context instruction discovery', () => {
     } finally {
       vi.doUnmock('node:os')
       vi.resetModules()
-      vi.unstubAllEnvs()
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
     }
@@ -825,11 +856,11 @@ describe('workspace context request injection', () => {
     try {
       await ctx.plugin(workspaceContext, { maxBytes: 65536 })
 
-      const decision = await postExecute(ctx, stubToolExecution({
+      const decision = await ctx.waterfall('tools/post-execute', stubToolExecution({
         signal: testToolSignal,
         callId: CallId('no-fs-post-execute'),
         name: 'read',
-        arguments: { file_path: 'pkg/file.txt' },
+        arguments: { file_path: join('pkg', 'file.txt') },
         agent: stubAgent('/virtual/repo'),
       }), {
         isError: false,
@@ -865,7 +896,7 @@ describe('workspace context request injection', () => {
         signal: testToolSignal,
         callId: CallId('read-blocked-post-execute'),
         name: 'read',
-        arguments: { file_path: 'pkg/file.txt' },
+        arguments: { file_path: join('pkg', 'file.txt') },
         agent,
       })
       const result = {
@@ -874,7 +905,7 @@ describe('workspace context request injection', () => {
       }
 
       // A later PostToolUse-style policy blocks this otherwise-successful read.
-      const blocked = await postExecute(ctx, exec, result, async () => ({
+      const blocked = await ctx.waterfall('tools/post-execute', exec, result, async () => ({
         kind: 'block' as const,
         feedback: [{ type: 'text' as const, text: 'blocked by policy' }],
       }))
@@ -888,7 +919,7 @@ describe('workspace context request injection', () => {
       // The same read, when the downstream accepts, DOES surface the nested
       // instructions — proving the block branch above is what suppressed them,
       // and that the block did not consume the pending nested change.
-      const accepted = await postExecute(ctx, exec, result, async () => ({
+      const accepted = await ctx.waterfall('tools/post-execute', exec, result, async () => ({
         kind: 'accept' as const,
       }))
       expect(accepted.kind).toBe('accept')
@@ -1013,7 +1044,7 @@ describe('workspace context request injection', () => {
       })
 
       expect(workspaceContextOf(result)?.meta).toMatchObject({
-        changes: [{ action: 'replace', scope: '.', path: 'AGENTS.md' }],
+        changes: [{ action: 'replace', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
       })
       expect(blocksText(workspaceContextOf(result)?.content)).toContain('Updated instructions from: AGENTS.md')
       expect(blocksText(workspaceContextOf(result)?.content)).toContain('new root rule with more detail')
@@ -1042,7 +1073,7 @@ describe('workspace context request injection', () => {
       })
 
       expect(workspaceContextOf(result)?.meta).toMatchObject({
-        changes: [{ action: 'remove', scope: '.', path: 'AGENTS.md' }],
+        changes: [{ action: 'remove', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
       })
       expect(blocksText(workspaceContextOf(result)?.content)).toContain('Instructions removed: AGENTS.md')
     } finally {
@@ -1071,6 +1102,32 @@ describe('workspace context request injection', () => {
       expect(result.additionalContexts).toBeUndefined()
     } finally {
       await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('deduplicates trimmed-identical sibling candidates in one directory and renders the earliest original bytes', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'shared repo rule')
+      await write(join(root, 'CLAUDE.md'), '  shared repo rule\n\n')
+      await write(join(root, 'file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      await composeBaselinePrefix(ctx, agent)
+
+      const text = derivedText(agent)
+      expect(text.match(/shared repo rule/g)).toHaveLength(1)
+      expect(text).toContain('Instructions from: AGENTS.md')
+      expect(text).not.toContain('Instructions from: CLAUDE.md')
+      // The kept candidate's original bytes are rendered, not the whitespace-padded duplicate.
+      expect(text).not.toContain('  shared repo rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
     }
   })
 
@@ -1222,9 +1279,8 @@ describe('workspace context request injection', () => {
       const controller = new AbortController()
       const reason = new Error('cancel prefix')
       const empty: Message[] = []
-      const agent = stubAgent(root)
-      const pending = agentEvents(ctx, agent).waterfall(
-        'agent/session-prefix', empty, controller.signal,
+      const pending = ctx.waterfall(
+        'agent/session-prefix', stubAgent(root), empty, controller.signal,
         () => Promise.resolve(empty),
       )
 
@@ -1291,30 +1347,6 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('skips provider-visible instruction candidates when ctx.fs stat disagrees after no-follow preflight', async () => {
-    const root = await tempRepo()
-    const home = await tempRepo()
-    try {
-      await mkdir(join(root, '.git'), { recursive: true })
-      await write(join(root, 'AGENTS.md'), 'node fs rule')
-      const ctx = new Context()
-      await ctx.plugin(RecordingFileSystem)
-      const fs = ctx.fs as RecordingFileSystem
-      fs.entries.set(join(root, '.git'), { type: 'directory' })
-      fs.entries.set(join(root, 'AGENTS.md'), { type: 'directory' })
-      fs.lstatTypes.set(join(root, 'AGENTS.md'), 'file')
-      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
-      const agent = stubAgent(root)
-
-      await composeBaselinePrefix(ctx, agent)
-
-      expectNoDerivedMessages(agent)
-    } finally {
-      await rm(root, { recursive: true, force: true })
-      await rm(home, { recursive: true, force: true })
-    }
-  })
-
   it('loads instruction files when ctx.fs omits the metadata size', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -1361,7 +1393,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('does not fall through to a lower-priority candidate when the winning provider file becomes unavailable', async () => {
+  it('skips a candidate whose provider probe fails while still loading its available sibling', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1369,16 +1401,16 @@ describe('workspace context request injection', () => {
       await ctx.plugin(RecordingFileSystem)
       const fs = ctx.fs as RecordingFileSystem
       fs.entries.set(join(root, '.git'), { type: 'directory' })
-      fs.lstatTypes.set(join(root, 'AGENTS.md'), 'file')
       fs.throwOnStat.add(join(root, 'AGENTS.md'))
-      fs.entries.set(join(root, 'CLAUDE.md'), { type: 'file', content: 'must not bypass AGENTS failure' })
+      fs.entries.set(join(root, 'CLAUDE.md'), { type: 'file', content: 'claude sibling rule' })
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       const agent = stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
 
-      expectNoDerivedMessages(agent)
-      expect(fs.readTargets).not.toContain(join(root, 'CLAUDE.md'))
+      expect(derivedText(agent)).toContain('claude sibling rule')
+      expect(fs.readTargets).toContain(join(root, 'CLAUDE.md'))
+      expect(fs.readTargets).not.toContain(join(root, 'AGENTS.md'))
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1453,6 +1485,27 @@ describe('workspace context request injection', () => {
 
       expect(derivedText(agent)).toContain('Instructions from: AGENTS.md\n\nroot schema default rule')
       expect(derivedText(agent)).toContain(`Instructions from: ${join('child', 'AGENTS.md')}\n\nchild schema default rule`)
+      await ctx.fiber.dispose()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('renders a default local overlay alongside the base file in the baseline prefix', async () => {
+    const root = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'base rule')
+      await write(join(root, 'AGENTS.local.md'), 'local rule')
+      const ctx = new Context()
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      await ctx.plugin(workspaceContext, { maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      await composeBaselinePrefix(ctx, agent)
+
+      expect(derivedText(agent)).toContain('Instructions from: AGENTS.md\n\nbase rule')
+      expect(derivedText(agent)).toContain('Instructions from: AGENTS.local.md\n\nlocal rule')
       await ctx.fiber.dispose()
     } finally {
       await rm(root, { recursive: true, force: true })
@@ -1562,9 +1615,9 @@ describe('workspace context request injection', () => {
         const actual = await importOriginal<typeof import('node:fs/promises')>()
         return {
           ...actual,
-          lstat: async (path: string) => {
+          stat: async (path: string) => {
             observedStats.set(path, (observedStats.get(path) ?? 0) + 1)
-            return actual.lstat(path)
+            return actual.stat(path)
           },
         }
       })
@@ -1582,22 +1635,22 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('does not bypass an unavailable host AGENTS.md with a lower-priority candidate', async () => {
+  it('skips an unavailable host candidate but still loads its available sibling', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
       await mkdir(join(root, '.git'), { recursive: true })
-      await write(join(root, 'CLAUDE.md'), 'must not bypass unavailable AGENTS')
+      await write(join(root, 'CLAUDE.md'), 'claude host sibling rule')
       vi.resetModules()
       vi.doMock('node:fs/promises', async (importOriginal) => {
         const actual = await importOriginal<typeof import('node:fs/promises')>()
         return {
           ...actual,
-          lstat: async (path: string) => {
+          stat: async (path: string) => {
             if (path === join(root, 'AGENTS.md')) {
               throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
             }
-            return actual.lstat(path)
+            return actual.stat(path)
           },
         }
       })
@@ -1605,7 +1658,7 @@ describe('workspace context request injection', () => {
 
       const rendered = await isolated.loadBaselineInstructions({ cwd: root, dshHome: home, maxBytes: 65536 })
 
-      expect(rendered).toBeUndefined()
+      expect(rendered?.text).toContain('claude host sibling rule')
     } finally {
       vi.doUnmock('node:fs/promises')
       vi.resetModules()
@@ -1632,7 +1685,7 @@ describe('dynamic nested workspace context injection', () => {
           { type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('abort-after-read'), name: 'abort_step', arguments: '{}' } },
           { type: 'finish', reason: { kind: 'tool-calls' } },
         ] satisfies StreamChunk[],
-        toolCallResponse('read-after-abort', 'read', { file_path: 'pkg/deep/file.txt' }),
+        toolCallResponse('read-after-abort', 'read', { file_path: join('pkg', 'deep', 'file.txt') }),
         textResponse('done'),
       ])
       await ctx.plugin(LlmService)
@@ -1684,7 +1737,7 @@ describe('dynamic nested workspace context injection', () => {
       content: 'root rule',
     }])
 
-    const change = state.changes.get('.')
+    const change = state.changes.get(sk('.', 'AGENTS.md'))
     expect(change).toMatchObject({
       action: 'set',
       path: 'AGENTS.md',
@@ -1709,12 +1762,12 @@ describe('dynamic nested workspace context injection', () => {
       const exec = stubToolExecution({
         callId: CallId('cancelled-dynamic-read'),
         name: 'read',
-        arguments: { file_path: 'pkg/file.txt' },
+        arguments: { file_path: join('pkg', 'file.txt') },
         agent: stubAgent(root),
         signal: controller.signal,
       })
 
-      const pending = postExecute(ctx, exec, {
+      const pending = ctx.waterfall('tools/post-execute', exec, {
         content: [{ type: 'text', text: 'ok' }],
         isError: false,
       }, () => Promise.resolve({ kind: 'accept' as const }))
@@ -1744,7 +1797,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-nested'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent,
       })
 
@@ -1755,7 +1808,7 @@ describe('dynamic nested workspace context injection', () => {
         version: 1,
         changes: [{
           action: 'set',
-          scope: 'pkg',
+          scope: sk('pkg', 'AGENTS.md'),
           path: join('pkg', 'AGENTS.md'),
         }],
       })
@@ -1785,7 +1838,7 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('uses configured instruction candidates for nested discovery', async () => {
+  it('loads every configured instruction candidate present in a nested scope', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1804,14 +1857,87 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-configured-nested-candidate'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent: stubAgent(root),
       })
 
       const text = blocksText(workspaceContextOf(result)?.content)
       expect(text).toContain(`Additional instructions from: ${join('pkg', 'CLAUDE.local.md')}`)
       expect(text).toContain('local package rule')
-      expect(text).not.toContain('native package rule')
+      expect(text).toContain(`Additional instructions from: ${join('pkg', 'AGENTS.md')}`)
+      expect(text).toContain('native package rule')
+      expect(text.indexOf(join('pkg', 'CLAUDE.local.md'))).toBeLessThan(text.indexOf(join('pkg', 'AGENTS.md')))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('attaches a nested base file and its local overlay together by default', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'baseline root rule')
+      await write(join(root, 'pkg/AGENTS.md'), 'nested base rule')
+      await write(join(root, 'pkg/AGENTS.local.md'), 'nested local rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+
+      const result = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-nested-overlay'),
+        name: 'read',
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
+        agent: stubAgent(root),
+      })
+
+      const meta = workspaceContextOf(result)?.meta
+      const changes = typeof meta === 'object' && meta !== null && !Array.isArray(meta) && Array.isArray(meta.changes)
+        ? meta.changes
+        : []
+      expect(changes).toEqual(expect.arrayContaining([
+        expect.objectContaining({ action: 'set', path: join('pkg', 'AGENTS.md') }),
+        expect.objectContaining({ action: 'set', path: join('pkg', 'AGENTS.local.md') }),
+      ]))
+      const text = blocksText(workspaceContextOf(result)?.content)
+      expect(text).toContain(`Additional instructions from: ${join('pkg', 'AGENTS.md')}`)
+      expect(text).toContain('nested base rule')
+      expect(text).toContain(`Additional instructions from: ${join('pkg', 'AGENTS.local.md')}`)
+      expect(text).toContain('nested local rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('does not attach a nested local overlay when the overlay is disabled', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested base rule')
+      await write(join(root, 'pkg/AGENTS.local.md'), 'nested local rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, {
+        dshHome: home,
+        maxBytes: 65536,
+        localInstructionFileCandidates: [],
+      })
+
+      const result = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-nested-overlay-disabled'),
+        name: 'read',
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
+        agent: stubAgent(root),
+      })
+
+      const text = blocksText(workspaceContextOf(result)?.content)
+      expect(text).toContain(`Additional instructions from: ${join('pkg', 'AGENTS.md')}`)
+      expect(text).not.toContain(join('pkg', 'AGENTS.local.md'))
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1833,14 +1959,14 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-nested-1'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent,
       })
       const second = await ctx.tools.execute({
         signal: testToolSignal,
         callId: CallId('read-nested-2'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent,
       })
 
@@ -1871,12 +1997,12 @@ describe('dynamic nested workspace context injection', () => {
 
       const first = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-before-version-fast-path'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-before-version-fast-path'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
       appendAdditionalContexts(agent, first)
       const second = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-with-version-fast-path'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-with-version-fast-path'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
       expect(first.additionalContexts).toBeDefined()
@@ -1908,17 +2034,17 @@ describe('dynamic nested workspace context injection', () => {
 
       const first = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-before-same-digest-version-change'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-before-same-digest-version-change'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
       appendAdditionalContexts(agent, first)
       fs.entries.set(instructionPath, { type: 'file', content: 'same package rule', version: FsVersion('revision-2') })
       const afterVersionChange = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-after-same-digest-version-change'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-after-same-digest-version-change'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
       const afterRefresh = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-after-version-cache-refresh'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-after-version-cache-refresh'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
       expect(afterVersionChange.additionalContexts).toBeUndefined()
@@ -1949,11 +2075,11 @@ describe('dynamic nested workspace context injection', () => {
 
       const first = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-from-first-session'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent: stubAgent(root),
+        callId: CallId('read-from-first-session'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent: stubAgent(root),
       })
       const second = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-from-second-session'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent: stubAgent(root),
+        callId: CallId('read-from-second-session'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent: stubAgent(root),
       })
 
       expect(first.additionalContexts).toBeDefined()
@@ -1979,18 +2105,18 @@ describe('dynamic nested workspace context injection', () => {
 
       const first = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-before-change'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-before-change'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
       appendAdditionalContexts(agent, first)
       await write(join(root, 'pkg/AGENTS.md'), 'new package rule with more detail')
       const changed = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-after-change'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-after-change'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
       expect(workspaceContextOf(changed)?.meta).toMatchObject({
         kind: 'workspace-instructions',
-        changes: [{ action: 'replace', scope: 'pkg', path: join('pkg', 'AGENTS.md') }],
+        changes: [{ action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(changed)?.content)).toBe([
         '<system-reminder>',
@@ -2007,13 +2133,13 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('replaces an AGENTS candidate with the configured fallback in the same scope', async () => {
+  it('reconciles distinct sibling candidates as independent scopes', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
       await mkdir(join(root, '.git'), { recursive: true })
       await write(join(root, 'pkg/AGENTS.md'), 'native package rule')
-      await write(join(root, 'pkg/CLAUDE.md'), 'fallback package rule')
+      await write(join(root, 'pkg/CLAUDE.md'), 'sibling package rule')
       await write(join(root, 'pkg/file.txt'), 'hello')
       const ctx = new Context()
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
@@ -2021,29 +2147,170 @@ describe('dynamic nested workspace context injection', () => {
 
       const first = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-before-fallback'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-both-siblings'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
+      const firstText = blocksText(workspaceContextOf(first)?.content)
+      expect(firstText).toContain('native package rule')
+      expect(firstText).toContain('sibling package rule')
       appendAdditionalContexts(agent, first)
       await rm(join(root, 'pkg/AGENTS.md'))
-      const changed = await ctx.tools.execute({
+      const removed = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-after-fallback'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
-      })
-      appendAdditionalContexts(agent, changed)
-      const unchanged = await ctx.tools.execute({
-        signal: testToolSignal,
-        callId: CallId('read-after-logged-fallback'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-after-one-sibling-removed'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
-      expect(workspaceContextOf(changed)?.meta).toMatchObject({
-        changes: [{
-          action: 'replace', scope: 'pkg', path: join('pkg', 'CLAUDE.md'), previousPath: join('pkg', 'AGENTS.md'),
-        }],
+      // Removing one candidate only removes its own scope; the sibling scope is untouched.
+      expect(workspaceContextOf(removed)?.meta).toMatchObject({
+        changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
-      expect(blocksText(workspaceContextOf(changed)?.content)).toContain(`Updated instructions from: ${join('pkg', 'CLAUDE.md')}`)
-      expect(blocksText(workspaceContextOf(changed)?.content)).toContain(`The instructions previously loaded from \`${join('pkg', 'AGENTS.md')}\` no longer apply. Use the following content for \`pkg\` instead.`)
-      expect(blocksText(workspaceContextOf(changed)?.content)).toContain('fallback package rule')
-      expect(unchanged.additionalContexts).toBeUndefined()
+      expect(blocksText(workspaceContextOf(removed)?.content)).toContain(`Instructions removed: ${join('pkg', 'AGENTS.md')}`)
+      expect(blocksText(workspaceContextOf(removed)?.content)).not.toContain('sibling package rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('drops a newly discovered sibling whose content duplicates an earlier candidate in the scope', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested rule')
+      await write(join(root, 'pkg/CLAUDE.md'), 'nested rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      const result = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-nested-dup-siblings'), name: 'read', arguments: { file_path: join('pkg', 'deep', 'file.txt') }, agent,
+      })
+
+      expect(workspaceContextOf(result)?.meta).toMatchObject({
+        changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
+      })
+      const text = blocksText(workspaceContextOf(result)?.content)
+      expect(text.match(/nested rule/g)).toHaveLength(1)
+      expect(text).toContain(`Additional instructions from: ${join('pkg', 'AGENTS.md')}`)
+      expect(text).not.toContain(join('pkg', 'CLAUDE.md'))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps deduplicating against a loaded candidate whose probe transiently fails', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(join(root, 'pkg/AGENTS.md'), { type: 'file', content: 'nested rule' })
+      fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
+      await ctx.plugin(ToolFs)
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      const first = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-before-transient-probe-failure'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+      appendAdditionalContexts(agent, first)
+      expect(first.additionalContexts).toBeDefined()
+
+      // The loaded candidate's probe fails while an identical sibling appears:
+      // the cached candidate stays effective (last good state), so the sibling
+      // must still deduplicate against it rather than land as a duplicate set.
+      fs.throwOnStat.add(join(root, 'pkg/AGENTS.md'))
+      fs.entries.set(join(root, 'pkg/CLAUDE.md'), { type: 'file', content: 'nested rule' })
+      const duringFailure = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-during-transient-probe-failure'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+
+      expect(duringFailure.additionalContexts).toBeUndefined()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('removes a previously rendered sibling once its content becomes a duplicate of an earlier candidate', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'canonical nested rule')
+      await write(join(root, 'pkg/CLAUDE.md'), 'divergent nested rule')
+      await write(join(root, 'pkg/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      const first = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-before-dup-convergence'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+      const firstText = blocksText(workspaceContextOf(first)?.content)
+      expect(firstText).toContain('canonical nested rule')
+      expect(firstText).toContain('divergent nested rule')
+      appendAdditionalContexts(agent, first)
+      await write(join(root, 'pkg/CLAUDE.md'), 'canonical nested rule')
+      const converged = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-after-dup-convergence'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+
+      expect(workspaceContextOf(converged)?.meta).toMatchObject({
+        changes: [{ action: 'remove', scope: sk('pkg', 'CLAUDE.md'), path: join('pkg', 'CLAUDE.md') }],
+      })
+      expect(blocksText(workspaceContextOf(converged)?.content)).toContain(`Instructions removed: ${join('pkg', 'CLAUDE.md')}`)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('removes an unchanged sibling when an earlier candidate changes to match its content', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'primary nested rule')
+      await write(join(root, 'pkg/CLAUDE.md'), 'secondary nested rule')
+      await write(join(root, 'pkg/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      const first = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-before-earlier-converges'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+      appendAdditionalContexts(agent, first)
+      // Only the earlier candidate changes; the sibling stays byte-identical but now duplicates it.
+      await write(join(root, 'pkg/AGENTS.md'), 'secondary nested rule')
+      const converged = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-after-earlier-converges'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+
+      expect(workspaceContextOf(converged)?.meta).toMatchObject({
+        changes: [
+          { action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') },
+          { action: 'remove', scope: sk('pkg', 'CLAUDE.md'), path: join('pkg', 'CLAUDE.md') },
+        ],
+      })
+      const text = blocksText(workspaceContextOf(converged)?.content)
+      expect(text).toContain(`Instructions removed: ${join('pkg', 'CLAUDE.md')}`)
+      expect(text).toContain(`Updated instructions from: ${join('pkg', 'AGENTS.md')}`)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -2063,19 +2330,19 @@ describe('dynamic nested workspace context injection', () => {
 
       const first = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-before-remove'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-before-remove'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
       appendAdditionalContexts(agent, first)
       await rm(join(root, 'pkg/AGENTS.md'))
       const removed = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-after-remove'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-after-remove'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
       expect(workspaceContextOf(removed)?.meta).toEqual({
         kind: 'workspace-instructions',
         version: 1,
-        changes: [{ action: 'remove', scope: 'pkg', path: join('pkg', 'AGENTS.md') }],
+        changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(removed)?.content)).toBe([
         '<system-reminder>',
@@ -2084,6 +2351,45 @@ describe('dynamic nested workspace context injection', () => {
         'The previously loaded instructions from this file no longer apply.',
         '</system-reminder>',
       ].join('\n'))
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('removes a previously loaded instruction file once it resolves to a directory through a symlink', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'package rule')
+      await write(join(root, 'pkg/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      const first = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-before-symlink-dir'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+      appendAdditionalContexts(agent, first)
+      expect(blocksText(workspaceContextOf(first)?.content)).toContain('package rule')
+
+      // The candidate now resolves through a symlink to a directory. A non-file
+      // target is a confirmed absence (not unavailable), so the loaded scope is
+      // removed; an unavailable classification would emit no change at all.
+      await rm(join(root, 'pkg/AGENTS.md'))
+      await mkdir(join(root, 'pkg/elsewhere'), { recursive: true })
+      await symlink(join(root, 'pkg/elsewhere'), join(root, 'pkg/AGENTS.md'))
+      const removed = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-after-symlink-dir'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+
+      expect(workspaceContextOf(removed)?.meta).toMatchObject({
+        changes: [{ action: 'remove', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
+      })
+      expect(blocksText(workspaceContextOf(removed)?.content)).toContain(`Instructions removed: ${join('pkg', 'AGENTS.md')}`)
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -2103,24 +2409,24 @@ describe('dynamic nested workspace context injection', () => {
 
       const first = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-before-tombstone'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-before-tombstone'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
       appendAdditionalContexts(agent, first)
       await rm(join(root, 'pkg/AGENTS.md'))
       const removed = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-to-create-tombstone'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-to-create-tombstone'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
       appendAdditionalContexts(agent, removed)
       await write(join(root, 'pkg/AGENTS.md'), 'restored package rule')
 
       const restored = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-after-tombstone'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-after-tombstone'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
       expect(workspaceContextOf(restored)?.meta).toMatchObject({
-        changes: [{ action: 'set', scope: 'pkg', path: join('pkg', 'AGENTS.md') }],
+        changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(restored)?.content)).toContain(`Additional instructions from: ${join('pkg', 'AGENTS.md')}`)
       expect(blocksText(workspaceContextOf(restored)?.content)).toContain('restored package rule')
@@ -2148,13 +2454,13 @@ describe('dynamic nested workspace context injection', () => {
 
       const first = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-before-provider-failure'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-before-provider-failure'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
       appendAdditionalContexts(agent, first)
       fs.throwOnStat.add(join(root, 'pkg/AGENTS.md'))
       const duringFailure = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-during-provider-failure'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('read-during-provider-failure'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       })
 
       expect(first.additionalContexts).toBeDefined()
@@ -2180,7 +2486,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-before-resume'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent,
       })
       appendAdditionalContexts(agent, first)
@@ -2193,7 +2499,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-after-resume'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent: resumed,
       })
 
@@ -2217,7 +2523,7 @@ describe('dynamic nested workspace context injection', () => {
       const original = stubAgent(root)
       const first = await ctx.tools.execute({
         signal: testToolSignal,
-        callId: CallId('read-before-offline-change'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent: original,
+        callId: CallId('read-before-offline-change'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent: original,
       })
       appendAdditionalContexts(original, first)
       await write(join(root, 'pkg/AGENTS.md'), 'new nested rule after resume')
@@ -2227,7 +2533,7 @@ describe('dynamic nested workspace context injection', () => {
 
       const update = resumed.session.events.findLast(event => event.type === 'context/message')
       expect(update?.type === 'context/message' && update.data.meta).toMatchObject({
-        changes: [{ action: 'replace', scope: 'pkg', path: join('pkg', 'AGENTS.md') }],
+        changes: [{ action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(update?.type === 'context/message' && blocksText(update.data.content)).toContain('new nested rule after resume')
     } finally {
@@ -2250,7 +2556,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-before-compact'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent,
       })
       const contextSeq = appendAdditionalContexts(agent, first)!
@@ -2258,7 +2564,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-while-visible'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent,
       })
 
@@ -2274,7 +2580,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-after-compact'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent,
       })
 
@@ -2304,7 +2610,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-package'),
         name: 'read',
-        arguments: { file_path: 'pkg/file.txt' },
+        arguments: { file_path: join('pkg', 'file.txt') },
         agent,
       })
       appendAdditionalContexts(agent, first)
@@ -2313,7 +2619,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-subtree'),
         name: 'read',
-        arguments: { file_path: 'pkg/sub/file.txt' },
+        arguments: { file_path: join('pkg', 'sub', 'file.txt') },
         agent,
       })
 
@@ -2341,7 +2647,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-subtree-omitting-parent'),
         name: 'read',
-        arguments: { file_path: 'pkg/sub/file.txt' },
+        arguments: { file_path: join('pkg', 'sub', 'file.txt') },
         agent,
       })
       appendAdditionalContexts(agent, first)
@@ -2350,7 +2656,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-parent-after-omit'),
         name: 'read',
-        arguments: { file_path: 'pkg/other.txt' },
+        arguments: { file_path: join('pkg', 'other.txt') },
         agent,
       })
 
@@ -2386,10 +2692,9 @@ describe('dynamic nested workspace context injection', () => {
           version: 1,
           changes: [
             null,
-            { action: 'unknown', scope: 'pkg', path: 'pkg/AGENTS.md' },
+            { action: 'unknown', scope: 'pkg', path: join('pkg', 'AGENTS.md') },
             { action: 'set', scope: 'pkg', path: 42 },
-            { action: 'replace', scope: 'pkg', path: 'pkg/AGENTS.md', previousPath: 42 },
-            { action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md', digest: 42 },
+            { action: 'set', scope: 'pkg', path: join('pkg', 'AGENTS.md'), digest: 42 },
           ],
         },
       }, { surfaceOp: 'append' })
@@ -2404,7 +2709,7 @@ describe('dynamic nested workspace context injection', () => {
         meta: {
           kind: 'workspace-instructions',
           version: 1,
-          changes: [{ action: 'set', scope: 'pkg', path: 'pkg/AGENTS.md', digest: 'spoof' }],
+          changes: [{ action: 'set', scope: 'pkg', path: join('pkg', 'AGENTS.md'), digest: 'spoof' }],
         },
       }, { surfaceOp: 'append' })
 
@@ -2412,7 +2717,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-after-spoofed-state'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent,
       })
 
@@ -2458,7 +2763,7 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('treats provider failures and type disagreement after lstat as unavailable, not removed', async () => {
+  it('treats a reconciliation provider failure as unavailable and a resolved non-file as absent', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     const ctx = new Context()
@@ -2466,7 +2771,6 @@ describe('dynamic nested workspace context injection', () => {
       await ctx.plugin(RecordingFileSystem)
       const fs = ctx.fs as RecordingFileSystem
       fs.entries.set(join(root, '.git'), { type: 'directory' })
-      fs.lstatTypes.set(join(root, 'pkg/AGENTS.md'), 'file')
       fs.throwOnStat.add(join(root, 'pkg/AGENTS.md'))
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       const agent = stubAgent(root)
@@ -2476,15 +2780,15 @@ describe('dynamic nested workspace context injection', () => {
         isError: false,
       }
 
-      const failedStat = await postExecute(ctx, stubToolExecution({
+      const failedStat = await ctx.waterfall('tools/post-execute', stubToolExecution({
         signal: testToolSignal,
-        callId: CallId('provider-stat-failure'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('provider-stat-failure'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       }), result, async () => ({ kind: 'accept' as const }))
       fs.throwOnStat.clear()
       fs.entries.set(join(root, 'pkg/AGENTS.md'), { type: 'directory' })
-      const mismatchedStat = await postExecute(ctx, stubToolExecution({
+      const mismatchedStat = await ctx.waterfall('tools/post-execute', stubToolExecution({
         signal: testToolSignal,
-        callId: CallId('provider-stat-mismatch'), name: 'read', arguments: { file_path: 'pkg/file.txt' }, agent,
+        callId: CallId('provider-stat-mismatch'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
       }), result, async () => ({ kind: 'accept' as const }))
 
       expect(failedStat).toEqual({ kind: 'accept' })
@@ -2497,6 +2801,8 @@ describe('dynamic nested workspace context injection', () => {
   })
 
   it('skips unreadable nested instruction files without attaching empty context', async () => {
+    // Cross-platform unreadable fixture: the provider read throws (chmod 0
+    // cannot make a file unreadable to its owner on Windows).
     const root = await tempRepo()
     const home = await tempRepo()
     const ctx = new Context()
@@ -2517,7 +2823,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-with-unreadable-nested-instruction'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent: stubAgent(root),
       })
 
@@ -2553,7 +2859,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-with-downstream'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent: stubAgent(root),
       })
 
@@ -2562,7 +2868,7 @@ describe('dynamic nested workspace context injection', () => {
       expect(workspaceContextOf(result)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
       expect(workspaceContextOf(result)?.meta).toMatchObject({
         kind: 'workspace-instructions',
-        changes: [{ action: 'set', scope: 'pkg', path: join('pkg', 'AGENTS.md') }],
+        changes: [{ action: 'set', scope: sk('pkg', 'AGENTS.md'), path: join('pkg', 'AGENTS.md') }],
       })
       expect(blocksText(workspaceContextOf(result)?.content)).toContain('nested package rule')
       expect(blocksText(workspaceContextOf(result)?.content)).not.toContain('downstream context')
@@ -2598,7 +2904,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-blocked-downstream'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent: stubAgent(root),
       })
 
@@ -2639,7 +2945,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('outer-block-first'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent,
       })
       shouldBlock = false
@@ -2647,7 +2953,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('outer-block-retry'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent,
       })
 
@@ -2680,12 +2986,13 @@ describe('dynamic nested workspace context injection', () => {
         parameters: {},
         async execute(_args, exec) {
           const nested = await ctx.tools.execute({
+            signal: testToolSignal,
             callId: CallId(`${exec.callId}:nested`),
             name: 'read',
-            arguments: { file_path: 'pkg/deep/file.txt' },
+            arguments: { file_path: join('pkg', 'deep', 'file.txt') },
             ...exec.agent === undefined ? {} : { agent: exec.agent },
             parent: exec.token,
-            signal: exec.signal,
+            ...exec.signal === undefined ? {} : { signal: exec.signal },
           })
           for (const context of nested.additionalContexts ?? []) exec.deferContext(context)
           return nested.content
@@ -2730,23 +3037,23 @@ describe('dynamic nested workspace context injection', () => {
       const parent = Symbol('parent') as ToolExecutionToken
       const plainResult = { callId: CallId('plain'), content: [], isError: false }
 
-      emitToolResult(ctx, stubToolExecution({
+      ctx.emit('tools/result', stubToolExecution({
         signal: testToolSignal,
         callId: CallId('agentless-child'), name: 'read', arguments: {}, parent,
       }), plainResult)
-      emitToolResult(ctx, stubToolExecution({
+      ctx.emit('tools/result', stubToolExecution({
         signal: testToolSignal,
         callId: CallId('contextless-child'), name: 'read', arguments: {}, agent, parent,
       }), { ...plainResult, additionalContexts: [{ content: [], source: { kind: 'plugin', plugin: 'workspace-context' } }] })
-      emitToolResult(ctx, stubToolExecution({
+      ctx.emit('tools/result', stubToolExecution({
         signal: testToolSignal,
         callId: CallId('first-child'), name: 'read', arguments: {}, agent, parent,
       }), { ...plainResult, additionalContexts: [workspaceChangeContext('first', 'one')] })
-      emitToolResult(ctx, stubToolExecution({
+      ctx.emit('tools/result', stubToolExecution({
         signal: testToolSignal,
         callId: CallId('second-child'), name: 'read', arguments: {}, agent, parent,
       }), { ...plainResult, additionalContexts: [workspaceChangeContext('second', 'two')] })
-      emitToolResult(ctx, {
+      ctx.emit('tools/result', {
         ...stubToolExecution({ signal: testToolSignal, callId: CallId('agentless-parent'), name: 'composite', arguments: {} }),
         token: parent,
       }, plainResult)
@@ -2773,8 +3080,8 @@ describe('dynamic nested workspace context injection', () => {
         isError: false,
       }
       const cases = [
-        { name: 'read', arguments: { file_path: 'pkg/deep/file.txt' }, agent: undefined },
-        { name: 'bash', arguments: { file_path: 'pkg/deep/file.txt' }, agent },
+        { name: 'read', arguments: { file_path: join('pkg', 'deep', 'file.txt') }, agent: undefined },
+        { name: 'bash', arguments: { file_path: join('pkg', 'deep', 'file.txt') }, agent },
         { name: 'read', arguments: null, agent },
         { name: 'read', arguments: {}, agent },
         { name: 'read', arguments: { file_path: 1 }, agent },
@@ -2782,7 +3089,7 @@ describe('dynamic nested workspace context injection', () => {
       ]
 
       for (const item of cases) {
-        const decision = await postExecute(ctx, stubToolExecution({
+        const decision = await ctx.waterfall('tools/post-execute', stubToolExecution({
           signal: testToolSignal,
           callId: CallId(`manual-${item.name}-${cases.indexOf(item)}`),
           name: item.name,
@@ -2811,7 +3118,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-with-disabled-budget'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent: stubAgent(root),
       })
 
@@ -2836,7 +3143,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-missing'),
         name: 'read',
-        arguments: { file_path: 'pkg/missing.txt' },
+        arguments: { file_path: join('pkg', 'missing.txt') },
         agent: stubAgent(root),
       })
 
@@ -2863,7 +3170,7 @@ describe('dynamic nested workspace context injection', () => {
         signal: testToolSignal,
         callId: CallId('read-after-dispose'),
         name: 'read',
-        arguments: { file_path: 'pkg/deep/file.txt' },
+        arguments: { file_path: join('pkg', 'deep', 'file.txt') },
         agent: stubAgent(root),
       })
 
@@ -2906,7 +3213,7 @@ describe('workspace context pending state', () => {
     const [change] = commitPendingInstructionContexts(agent, [workspaceChangeContext('pkg', 'one')], pending)
     expect(change).toBeDefined()
     versions.set(agent.session, new Map([['pkg', {
-      path: 'pkg/AGENTS.md', version: FsVersion('v1'), digest: 'one',
+      path: join('pkg', 'AGENTS.md'), version: FsVersion('v1'), digest: 'one', trimmedDigest: 'one',
     }]]))
 
     const unrelated = agent.session.append('context/message', {
@@ -2943,7 +3250,7 @@ describe('workspace context pending state', () => {
     agent.session.append('step/start', { turn: 1, step: 1 })
     commitPendingInstructionContexts(agent, [workspaceChangeContext('pkg', 'one')], pending)
     versions.set(agent.session, new Map([['pkg', {
-      path: 'pkg/AGENTS.md', version: FsVersion('v1'), digest: 'one',
+      path: join('pkg', 'AGENTS.md'), version: FsVersion('v1'), digest: 'one', trimmedDigest: 'one',
     }]]))
 
     const ended = agent.session.append('step/end', { turn: 1, step: 1 })

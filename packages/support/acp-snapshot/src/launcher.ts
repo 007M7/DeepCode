@@ -15,6 +15,8 @@ import {
   ndJsonStream,
   type Agent as AcpAgent,
   type Client,
+  type CreateElicitationRequest,
+  type CreateElicitationResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
@@ -47,6 +49,8 @@ export interface AcpTestLaunchOptions {
   env?: NodeJS.ProcessEnv
   /** Permission handler; omitted requests fail closed as `cancelled`. */
   requestPermission?: (params: RequestPermissionRequest) => Promise<RequestPermissionResponse>
+  /** Elicitation handler; omitted requests fail closed as `cancel`. */
+  createElicitation?: (params: CreateElicitationRequest) => Promise<CreateElicitationResponse>
 }
 
 /** A running ACP test process and its captured client-side surfaces. */
@@ -152,6 +156,8 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
   }
   const requestPermission = options.requestPermission
     ?? (() => Promise.resolve({ outcome: { outcome: 'cancelled' as const } }))
+  const createElicitation = options.createElicitation
+    ?? (() => Promise.resolve({ action: 'cancel' as const }))
   const makeClient = (_agent: AcpAgent): Client => ({
     sessionUpdate(params: SessionNotification): Promise<void> {
       return trackClientCallback(() => {
@@ -175,6 +181,7 @@ export function launchAcpTestAgent(options: AcpTestLaunchOptions): LaunchedAcpTe
       })
     },
     requestPermission: params => trackClientCallback(() => requestPermission(params)),
+    unstable_createElicitation: params => trackClientCallback(() => createElicitation(params)),
   })
   const client = new ClientSideConnection(makeClient, stream)
   // `exit` only reports the parent process's status. Descendants may retain

@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import { expect, it } from 'vitest'
 import { defineAcpSnapshotSuite, type Scenario, type SnapshotSuiteOptions } from '@deepseek-ai/dsh-acp-snapshot'
 import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
@@ -35,6 +36,7 @@ const ADVANCED_CONFIG = fileURLToPath(new URL('../advanced.cordis.yml', import.m
 const FS_CONFIG = fileURLToPath(new URL('../fs.cordis.yml', import.meta.url))
 const DEPTH_TWO_CONFIG = fileURLToPath(new URL('../depth-two.cordis.yml', import.meta.url))
 const PACKED_CHUNKS_CONFIG = fileURLToPath(new URL('../packed-chunks.cordis.yml', import.meta.url))
+const SESSION_SANDBOX_ROOT_CONFIG = fileURLToPath(new URL('../session-sandbox-root.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
@@ -66,6 +68,20 @@ const SCENARIOS: Scenario[] = [
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
   // Direct command dispatch reports goal state without spending a model turn.
   { name: 'goal-command-status', hasModelTurn: false, recorded: false },
+  // Protocol-only (keyless, authored): session/new advertises the mode picker,
+  // session/set_mode acknowledges a valid selection, and an unknown mode id
+  // fails loudly. With no model turn, its membership in the plan header class
+  // is vacuous; the class still needs one explicit pin below.
+  { name: 'modes-advertise', hasModelTurn: false, recorded: false, headerClass: 'plan' },
+  // The plan header pin covers the full arc: setMode(plan), a real read under
+  // the independently configured sandbox, plan review through exit_plan_mode,
+  // an approved boundary flip back to default, and a real edit in the next
+  // step. Leaving plan removes the policy section and exit tool, producing one
+  // changed request header.
+  { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderChanges: 1 },
+  // Free-text review feedback returns as a corrective error and leaves the
+  // session in plan mode, so this scenario shares the pinned plan header.
+  { name: 'plan-mode-reject', hasModelTurn: true, recorded: true, headerClass: 'plan' },
   // text-turn is the pinned-header scenario: the minimal single text turn.
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
@@ -119,8 +135,11 @@ const SCENARIOS: Scenario[] = [
   { name: 'repeat-tool-guard', hasModelTurn: true, recorded: false },
   // Authored replay: a root AGENTS.md pins the session prefix, then a read in
   // nested/ discovers its narrower AGENTS.md as a raw, metadata-bearing
-  // context/message. The scenario-specific config keeps home/root discovery
-  // hermetic, and the resulting prefix needs its own pinned header class.
+  // context/message. Both AGENTS.md fixtures are symlinks to a sibling
+  // AGENTS.canonical.md, so this scenario also guards that discovery follows a
+  // symlinked instruction file to its target's content. The scenario-specific
+  // config keeps home/root discovery hermetic, and the resulting prefix needs
+  // its own pinned header class.
   {
     name: 'workspace-context',
     hasModelTurn: true,
@@ -213,6 +232,19 @@ const SCENARIOS: Scenario[] = [
   { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
   { name: 'fs-escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
+  // Unlike ordinary snapshots, this session cwd is outside the platform temp
+  // roots that workspace-write always grants. The overlay points the
+  // deployment fallback at /tmp, so a successful relative write proves the
+  // assembled app replaced that process-level fallback with SessionHeader.cwd.
+  {
+    name: 'session-sandbox-root',
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    headerClass: 'sandbox',
+    configPath: SESSION_SANDBOX_ROOT_CONFIG,
+    workspaceParent: homedir(),
+  },
 ]
 
 defineAcpSnapshotSuite({
