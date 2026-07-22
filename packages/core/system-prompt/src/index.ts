@@ -6,8 +6,8 @@
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
-import type { ScopeKey, Scoped } from '@deepseek-ai/dsh-scope'
+import { AnonymousEntries, NamedEntries, ScopedLayers, scopeTarget } from '@deepseek-ai/dsh-scope'
+import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 
 declare module 'cordis' {
@@ -209,6 +209,39 @@ function interpolate(section: AssembledSection, variables: Record<string, string
   return result + text.slice(last)
 }
 
+/** One tool-schema provider stored in a prompt layer. */
+type ToolProvider = (context: AssembleContext) => ToolProviderResult
+
+/** One prompt-variable provider stored in a prompt layer. */
+type VariableProvider = (context: AssembleContext) => string | undefined
+
+/** All prompt registrations owned by one global or scoped layer. */
+class PromptLayer implements ScopeLayer {
+  readonly sections: NamedEntries<PromptSection>
+  readonly toolProviders = new AnonymousEntries<ToolProvider>()
+  readonly variables: NamedEntries<VariableProvider>
+
+  /**
+   * Create one prompt layer with diagnostics specific to its ownership scope.
+   * @param scope - the scoped owner, or `undefined` for global registrations.
+   */
+  constructor(scope: ScopeKey | undefined) {
+    this.sections = new NamedEntries(name => new Error(scope === undefined
+      ? `prompt section "${name}" is already registered (for a per-agent override, register through that agent's \`agent.ctx\` instead)`
+      : `prompt section "${name}" is already registered in this scope`))
+    this.variables = new NamedEntries(name => new Error(scope === undefined
+      ? `prompt variable "${name}" is already registered (for a per-agent value, register through that agent's \`agent.ctx\` instead)`
+      : `prompt variable "${name}" is already registered in this scope`))
+  }
+
+  /** @returns whether this layer owns no prompt registrations. */
+  isEmpty(): boolean {
+    return this.sections.isEmpty()
+      && this.toolProviders.isEmpty()
+      && this.variables.isEmpty()
+  }
+}
+
 /** Registry service for the prompt inputs assembled before each model step. */
 export class SystemPrompt extends Service {
   static Config: z<Config> = z.object({
@@ -217,13 +250,10 @@ export class SystemPrompt extends Service {
     toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
   })
 
-  private sections: PromptSection[] = []
-  private toolProviders: ((context: AssembleContext) => ToolProviderResult)[] = []
-  private variableProviders = new Map<string, (context: AssembleContext) => string | undefined>()
-  /** Per-scope layers (`@deepseek-ai/dsh-scope`); entries drop when a layer empties, so a disposed scope leaves no residue. */
-  private scopedSections = new Map<ScopeKey, PromptSection[]>()
-  private scopedToolProviders = new Map<ScopeKey, ((context: AssembleContext) => ToolProviderResult)[]>()
-  private scopedVariableProviders = new Map<ScopeKey, Map<string, (context: AssembleContext) => string | undefined>>()
+  private readonly layers = new ScopedLayers(
+    scope => new PromptLayer(scope),
+    () => { this.ctx.emit('system-prompt/change') },
+  )
   private readonly toolOrder: string[] | undefined
 
   constructor(ctx: Context, config: Config) {
@@ -255,34 +285,11 @@ export class SystemPrompt extends Service {
     if (!Number.isFinite(section.order)) {
       throw new TypeError(`prompt section "${section.name}" order must be a finite number`)
     }
-    const scope = scopeOf(this.ctx)
-    const dispose = this.ctx.effect(function* (this: SystemPrompt) {
-      const layer = scope === undefined
-        ? this.sections
-        : this.scopedSections.get(scope) ?? (() => {
-          const created: PromptSection[] = []
-          this.scopedSections.set(scope, created)
-          return created
-        })()
-      if (layer.some(existing => existing.name === section.name)) {
-        throw new Error(scope === undefined
-          ? `prompt section "${section.name}" is already registered (for a per-agent override, register through that agent's \`agent.ctx\` instead)`
-          : `prompt section "${section.name}" is already registered in this scope`)
-      }
-      layer.push(section)
-      // Install rollback before notifying listeners that may throw.
-      yield () => {
-        const index = layer.indexOf(section)
-        /* v8 ignore next 3 -- defensive: section was registered, so indexOf is guaranteed >= 0 */
-        if (index >= 0) layer.splice(index, 1)
-        if (scope !== undefined && layer.length === 0) this.scopedSections.delete(scope)
-        this.ctx.emit('system-prompt/change')
-      }
-      this.ctx.emit('system-prompt/change')
-    }.bind(this), 'systemPrompt.section()')
-    // Return the exact disposer so composite effects preserve teardown order.
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return dispose
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.sections.insert(section.name, section),
+      { label: 'systemPrompt.section()' },
+    )
   }
 
   /**
@@ -293,29 +300,11 @@ export class SystemPrompt extends Service {
    * @returns the exact Cordis effect disposer.
    */
   tools(provider: (context: AssembleContext) => ToolProviderResult): () => void {
-    const scope = scopeOf(this.ctx)
-    const dispose = this.ctx.effect(function* (this: SystemPrompt) {
-      const layer = scope === undefined
-        ? this.toolProviders
-        : this.scopedToolProviders.get(scope) ?? (() => {
-          const created: ((context: AssembleContext) => ToolProviderResult)[] = []
-          this.scopedToolProviders.set(scope, created)
-          return created
-        })()
-      layer.push(provider)
-      // Install rollback before notifying listeners that may throw.
-      yield () => {
-        const index = layer.indexOf(provider)
-        /* v8 ignore next 3 -- defensive: provider was registered, so indexOf is guaranteed >= 0 */
-        if (index >= 0) layer.splice(index, 1)
-        if (scope !== undefined && layer.length === 0) this.scopedToolProviders.delete(scope)
-        this.ctx.emit('system-prompt/change')
-      }
-      this.ctx.emit('system-prompt/change')
-    }.bind(this), 'systemPrompt.tools()')
-    // Return the exact disposer so composite effects preserve teardown order.
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return dispose
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.toolProviders.append(provider),
+      { label: 'systemPrompt.tools()' },
+    )
   }
 
   /**
@@ -330,32 +319,11 @@ export class SystemPrompt extends Service {
     if (!VARIABLE_NAME.test(name)) {
       throw new Error(`invalid prompt variable name "${name}" (must match ${String(VARIABLE_NAME)})`)
     }
-    const scope = scopeOf(this.ctx)
-    const dispose = this.ctx.effect(function* (this: SystemPrompt) {
-      const layer = scope === undefined
-        ? this.variableProviders
-        : this.scopedVariableProviders.get(scope) ?? (() => {
-          const created = new Map<string, (context: AssembleContext) => string | undefined>()
-          this.scopedVariableProviders.set(scope, created)
-          return created
-        })()
-      if (layer.has(name)) {
-        throw new Error(scope === undefined
-          ? `prompt variable "${name}" is already registered (for a per-agent value, register through that agent's \`agent.ctx\` instead)`
-          : `prompt variable "${name}" is already registered in this scope`)
-      }
-      layer.set(name, provider)
-      // Install rollback before notifying listeners that may throw.
-      yield () => {
-        layer.delete(name)
-        if (scope !== undefined && layer.size === 0) this.scopedVariableProviders.delete(scope)
-        this.ctx.emit('system-prompt/change')
-      }
-      this.ctx.emit('system-prompt/change')
-    }.bind(this), 'systemPrompt.variable()')
-    // Return the exact disposer so composite effects preserve teardown order.
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return dispose
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.variables.insert(name, provider),
+      { label: 'systemPrompt.variable()' },
+    )
   }
 
   /**
@@ -370,23 +338,19 @@ export class SystemPrompt extends Service {
     const scope = context.scope
     // Scoped variables shadow globals.
     const variables: Record<string, string | undefined> = {}
-    for (const [name, provider] of this.variableProviders) {
+    for (const [name, provider] of this.layers.global.variables.entries()) {
       variables[name] = provider(context)
     }
-    const scopedVariables = scope === undefined ? undefined : this.scopedVariableProviders.get(scope)
-    for (const [name, provider] of scopedVariables ?? []) {
+    const scopedVariables = this.layers.peek(scope)?.variables
+    for (const [name, provider] of scopedVariables?.entries() ?? []) {
       variables[name] = provider(context)
     }
     // Scoped sections shadow globals before the stable order sort.
-    const sectionByName = new Map<string, PromptSection>()
-    for (const section of this.sections) sectionByName.set(section.name, section)
-    for (const section of (scope === undefined ? [] : this.scopedSections.get(scope)) ?? []) {
-      sectionByName.set(section.name, section)
-    }
+    const sectionByName = this.layers.merge(scope, layer => layer.sections)
     // Validate order against pre-restriction names while collecting visible schemas.
     const providers = [
-      ...this.toolProviders,
-      ...(scope === undefined ? [] : this.scopedToolProviders.get(scope)) ?? [],
+      ...this.layers.global.toolProviders.values(),
+      ...(this.layers.peek(scope)?.toolProviders.values() ?? []),
     ]
     const collected: ToolSchema[] = []
     const knownNames = new Set<string>()
