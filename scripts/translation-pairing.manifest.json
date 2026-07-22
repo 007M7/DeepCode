@@ -14,6 +14,7 @@
     "docs/core-data-structures/bash.md",
     "docs/core-data-structures/code-runtime.md",
     "docs/core-data-structures/compaction.md",
+    "docs/core-data-structures/core.md",
     "docs/core-data-structures/filesystem.md",
     "docs/core-data-structures/llm-streaming.md",
     "docs/core-data-structures/persistence.md",
