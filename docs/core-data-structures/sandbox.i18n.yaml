@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 sandbox.md: be8e3cd60681077ff5036915fd99520fe9685140
-sandbox.zh.md: 2e9e5aa9a65e636167e45900f169ed6da5219c24
+sandbox.zh.md: ca21c09e7f3d0756f78d7bd1581b9b4b03a43815
