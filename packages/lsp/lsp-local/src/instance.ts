@@ -17,7 +17,7 @@ import type {
 import { deadline } from '@deepseek-ai/dsh-timeout'
 import { abortable, abortError } from './abort.ts'
 import { LspConnection } from './connection.ts'
-import type { ConnectionSpec } from './connection.ts'
+import type { ConnectionSpec, ConnectionWriter } from './connection.ts'
 import type { HostSource } from './host.ts'
 import type { WireInitializeResult, WireServerCapabilities } from './protocol.ts'
 import {
@@ -40,6 +40,15 @@ export interface InstanceSpec extends ConnectionSpec {
 }
 
 /**
+ * Force-kill a process tree only when graceful termination did not make it exit.
+ * @param treeExited - whether the tree exited within its grace period.
+ * @param forceKill - forceful process-tree termination primitive.
+ */
+export function escalateProcessTree(treeExited: boolean, forceKill: () => void): void {
+  if (!treeExited) forceKill()
+}
+
+/**
  * A single initialized server process. Not exported as a provider — the provider single-flights and
  * pools these. `query()` serializes; `dispose()` rejects queued work and tears the process down.
  */
@@ -58,9 +67,10 @@ export class LspInstance {
 
   /**
    * @param spec - the launch, initialize, and teardown parameters.
+   * @param writer - optional connection writer used by transport conformance tests.
    */
-  constructor(private readonly spec: InstanceSpec) {
-    this.connection = new LspConnection(spec, (method, params) => this.answerServerRequest(method, params))
+  constructor(private readonly spec: InstanceSpec, writer?: ConnectionWriter) {
+    this.connection = new LspConnection(spec, (method, params) => this.answerServerRequest(method, params), writer)
     this.ready = this.initialize()
     // A handshake rejection must not surface as an unhandled rejection before the first query awaits
     // it; queries attach the real handler.
@@ -70,7 +80,16 @@ export class LspInstance {
 
   /** Synchronous liveness check: true once the process has closed or the instance was disposed. */
   get dead(): boolean {
-    return this.processClosed || this.disposed
+    return this.processClosed || this.disposed || this.connection.failed
+  }
+
+  /**
+   * Test whether a caught query error came from this instance's transport.
+   * @param error - error caught by the provider.
+   * @returns `true` only for the connection's retained fatal transport cause.
+   */
+  isTransportFailure(error: unknown): boolean {
+    return this.connection.failedWith(error)
   }
 
   /**
@@ -84,7 +103,12 @@ export class LspInstance {
     // Serialize behind prior work, but observe abort DURING the queue wait too: if an earlier query
     // hangs (e.g. a signal-less seam caller), a later tool's timeout must still be able to give up
     // rather than block on the shared tail forever.
-    const run = abortable(this.queue, signal).then(() => this.runQuery(request, source, signal))
+    const run = abortable(this.queue, signal)
+      .then(() => this.runQuery(request, source, signal))
+      .catch(async (error: unknown) => {
+        if (this.isTransportFailure(error)) await this.startTeardown()
+        throw error
+      })
     // Keep the tail alive regardless of this query's outcome so the next caller still serializes. The
     // tail follows the ACTUAL prior work (this.queue), not the abortable view, so a caller giving up
     // on the wait does not deserialize the queue.
@@ -272,7 +296,7 @@ export class LspInstance {
     try {
       await this.gracefulShutdown(shutdownDeadline.signal)
     } catch {
-      // Graceful shutdown failed or timed out; process-group cleanup below remains authoritative.
+      // Graceful shutdown failed or timed out; process-tree cleanup below remains authoritative.
     } finally {
       shutdownDeadline[Symbol.dispose]()
     }
@@ -286,20 +310,20 @@ export class LspInstance {
     await abortable(this.connection.closed, signal)
   }
 
-  /** SIGTERM the group, escalate after `killGraceMs`, then await leader and helper exit. */
+  /** Terminate the tree, escalate after `killGraceMs`, then await leader and helper exit. */
   private async forceTerminate(): Promise<void> {
     this.connection.terminate()
     const graceDeadline = deadline(undefined, this.spec.killGraceMs, 'LSP_KILL_GRACE')
-    let groupExited: boolean
+    let treeExited: boolean
     try {
-      groupExited = await this.connection.waitForProcessGroupExit(graceDeadline.signal)
+      treeExited = await this.connection.waitForProcessTreeExit(graceDeadline.signal)
     } finally {
       graceDeadline[Symbol.dispose]()
     }
-    if (!groupExited) this.connection.kill()
+    escalateProcessTree(treeExited, this.connection.kill.bind(this.connection))
     await Promise.all([
       this.connection.closed,
-      this.connection.waitForProcessGroupExit(),
+      this.connection.waitForProcessTreeExit(),
     ])
   }
 }

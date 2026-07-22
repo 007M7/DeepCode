@@ -266,6 +266,49 @@ describe('scoped execution dispatch', () => {
     expect(bodyCalls).toBe(0)
   })
 
+  it('live-iterates a guard registered by an earlier guard', async () => {
+    const ctx = await mount()
+    const calls: string[] = []
+    let added = false
+    ctx.tools.register(tool('t'))
+    ctx.tools.guard(() => {
+      calls.push('first')
+      if (!added) {
+        added = true
+        ctx.tools.guard(() => {
+          calls.push('late')
+          return 'late denial'
+        })
+      }
+      return undefined
+    })
+
+    expect(await run(ctx, 't')).toBe('Error: late denial')
+    expect(calls).toEqual(['first', 'late'])
+  })
+
+  it('defers a scoped guard that replaces the last guard in its generation', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'a')
+    const calls: string[] = []
+    ctx.tools.register(tool('t'))
+    scope.ctx.tools.register(tool('scope_sibling'))
+    const lift = scope.ctx.tools.guard(() => {
+      calls.push('first')
+      lift()
+      scope.ctx.tools.guard(() => {
+        calls.push('replacement')
+        return 'replacement denial'
+      })
+      return undefined
+    })
+
+    expect(await run(ctx, 't', key)).toBe('ran:t')
+    expect(calls).toEqual(['first'])
+    expect(await run(ctx, 't', key)).toBe('Error: replacement denial')
+    expect(calls).toEqual(['first', 'replacement'])
+  })
+
   it('shares one token and materialized argument value across the pipeline', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')

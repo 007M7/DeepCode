@@ -320,7 +320,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
       { inputTokens: 500, outputTokens: 8 },
       { turn: 3, step: 1 },
     )
-    await tick()
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('final live answer')
+    })
 
     expect(result.terminal.output).toContain('◒ Working · 8s')
     expect(result.terminal.output).toContain('esc interrupt')
@@ -328,7 +330,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('user context')
     expect(result.terminal.output).toContain('Prompt blocked')
     expect(result.terminal.output).toContain('Turn cancelled')
-    expect(result.terminal.output).toContain('final live answer')
     expect(result.terminal.progress).toContain(true)
 
     result.session.append('assistant/chunk', {

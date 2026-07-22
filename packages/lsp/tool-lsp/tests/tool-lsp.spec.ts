@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { Context } from 'cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -40,8 +42,11 @@ async function mount(
 
 let seq = 0
 const testToolSignal = new AbortController().signal
+const workspaceRoot = resolve('/virtual/workspace')
+const resolvedWorkspaceRoot = resolve('/virtual/real-workspace')
+const workspaceAlias = resolve('/virtual/workspace-alias')
 /** `cwd: null` means "no agent" (tests LSP_WORKSPACE_REQUIRED); a string is the session cwd. */
-function call(ctx: Context, args: unknown, cwd: string | null = '/ws') {
+function call(ctx: Context, args: unknown, cwd: string | null = workspaceRoot) {
   return ctx.tools.execute({
     signal: testToolSignal,
     callId: `c-${++seq}` as never,
@@ -53,8 +58,8 @@ function call(ctx: Context, args: unknown, cwd: string | null = '/ws') {
 
 const okLocations: LspQueryResult = {
   kind: 'locations',
-  locations: [{ uri: 'file:///ws/a.ts', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
-  resolvedWorkspaceRoot: '/ws',
+  locations: [{ uri: pathToFileURL(join(workspaceRoot, 'a.ts')).href, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
+  resolvedWorkspaceRoot: workspaceRoot,
 }
 
 describe('tool-lsp registration', () => {
@@ -107,40 +112,39 @@ describe('tool-lsp execution', () => {
   it('converts one-based coordinates and passes the session cwd as workspaceRoot', async () => {
     const provider = stubProvider(() => okLocations)
     const { ctx } = await mount(provider)
-    const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 3, character: 5 }, '/ws')
+    const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 3, character: 5 }, workspaceRoot)
     expect(result.isError).toBe(false)
     expect(provider.seen[0]).toMatchObject({
       operation: 'goToDefinition',
       filePath: 'a.ts',
       position: { line: 2, character: 4 },
-      workspaceRoot: '/ws',
+      workspaceRoot,
     })
   })
 
   it('renders locations relative to the workspace', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations))
-    const result = await call(ctx, { operation: 'findReferences', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
+    const result = await call(ctx, { operation: 'findReferences', file_path: 'a.ts', line: 1, character: 1 }, workspaceRoot)
     expect(result.content[0]).toEqual({ type: 'text', text: 'a.ts:1:1' })
   })
 
   it('relativizes against the provider resolvedWorkspaceRoot, not the session cwd', async () => {
-    // A symlinked session cwd (`/alias`) resolves to a real path (`/real/ws`) that the provider's
-    // location URIs are under. Relativizing against the alias would misclassify the location as
-    // external and print an absolute path; the tool must use resolvedWorkspaceRoot.
+    // A symlinked session cwd resolves to the real path that contains the provider's location URIs.
+    // Relativizing against the alias would misclassify the location as external.
     const provider = stubProvider(() => ({
       kind: 'locations',
-      locations: [{ uri: 'file:///real/ws/a.ts', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
-      resolvedWorkspaceRoot: '/real/ws',
+      locations: [{ uri: pathToFileURL(join(resolvedWorkspaceRoot, 'a.ts')).href, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
+      resolvedWorkspaceRoot,
     }))
     const { ctx } = await mount(provider)
-    const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, '/alias')
-    expect(provider.seen[0]).toMatchObject({ workspaceRoot: '/alias' })
+    const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, workspaceAlias)
+    expect(provider.seen[0]).toMatchObject({ workspaceRoot: workspaceAlias })
     expect(result.content[0]).toEqual({ type: 'text', text: 'a.ts:1:1' })
   })
 
   it('renders hover content', async () => {
     const { ctx } = await mount(stubProvider(() => ({ kind: 'hover', hover: { contents: 'number' } })))
-    const result = await call(ctx, { operation: 'hover', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
+    const result = await call(ctx, { operation: 'hover', file_path: 'a.ts', line: 1, character: 1 }, workspaceRoot)
     expect(result.content[0]).toEqual({ type: 'text', text: 'number' })
   })
 
@@ -153,14 +157,14 @@ describe('tool-lsp execution', () => {
 
   it('surfaces a structured LSP_UNAVAILABLE when no provider handles the file', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations, { '.py': 'python' }))
-    const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
+    const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, workspaceRoot)
     expect(result.isError).toBe(true)
     expect(result.error?.code).toBe('LSP_UNAVAILABLE')
   })
 
   it('returns a structured INVALID_ARGS on a bad operation', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations))
-    const result = await call(ctx, { operation: 'rename', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
+    const result = await call(ctx, { operation: 'rename', file_path: 'a.ts', line: 1, character: 1 }, workspaceRoot)
     expect(result.isError).toBe(true)
     expect(result.error?.code).toBe('INVALID_ARGS')
   })
@@ -176,7 +180,7 @@ describe('tool-lsp execution', () => {
       },
     }
     const { ctx } = await mount(provider)
-    await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
+    await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, workspaceRoot)
     // The timeout policy is not mounted here, so the signal is whatever the registry passes (may be
     // undefined); the point is the tool threads it through without throwing.
     expect(seen).toHaveLength(1)
