@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { createScope, scopeTarget } from '@deepseek-ai/dsh-scope'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, TOOL_NOT_STARTED } from '@deepseek-ai/dsh-session'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import InvariantService, { InvariantError } from '@deepseek-ai/dsh-invariants'
 
@@ -256,7 +256,7 @@ describe('session-log invariants', () => {
     })).toThrow(/outside any open turn/)
   })
 
-  it('allows interrupted repair results and unresolved calls at step end', async () => {
+  it('allows not-started repair results and unresolved calls at step end', async () => {
     const repaired = (await setup()).ctx.sessions.create()
     expect(() => {
       repaired.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -267,7 +267,7 @@ describe('session-log invariants', () => {
         callId: CallId('crashed'),
         content: [],
         isError: true,
-        error: { name: 'InterruptedError', code: 'interrupted' },
+        error: { name: 'ToolNotStartedError', code: TOOL_NOT_STARTED },
       }, { surfaceOp: 'append' })
       repaired.append('step/end', { turn: 1, step: 1 })
       repaired.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })

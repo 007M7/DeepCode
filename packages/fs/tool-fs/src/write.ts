@@ -76,21 +76,21 @@ export function applyWriteTool(ctx: Context, sandbox: FsSandboxSurface): void {
     },
     async execute(args: WriteToolArgs, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
       const input = parseWriteArgs(args)
-      // Resolve the per-call sandbox mode (escalation grant > session override
-      // > backend default) BEFORE anything executes; an escalating call
-      // resolves approval here and throws its distinct text on any non-grant.
-      const sandboxMode = await sandbox.stampMode('write', args, exec)
-      const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec))
+      // Resolve the per-call sandbox policy (approved mode > session override
+      // > backend default, plus the session cwd root) BEFORE anything executes;
+      // an escalating call throws its distinct text on any non-grant.
+      const sandboxPolicy = await sandbox.resolvePolicy('write', args, exec)
+      const target = await ctx.fs.resolve(input.filePath, sessionResolveOptions(exec, input.filePath, sandboxPolicy?.workspaceRoot))
       // Single-slot decision: the policy plugin produces createIfAbsent/
       // replaceIfVersion; the bare default is undefined (unconditional). No stat.
       const intent = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)
       let outcome: FsWriteOutcome
       try {
-        outcome = await ctx.fs.writeText(target, input.content, intent, exec.signal, sandboxMode)
+        outcome = await ctx.fs.writeText(target, input.content, intent, exec.signal, sandboxPolicy)
       } catch (error: unknown) {
         // A sandbox denial becomes the shared [sandbox: …] marker (the model
         // recognizes it from bash); any other error passes through.
-        throw sandbox.mapError(error, sandboxMode)
+        throw sandbox.mapError(error, sandboxPolicy)
       }
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
