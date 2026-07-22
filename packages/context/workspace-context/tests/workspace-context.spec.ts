@@ -1699,7 +1699,7 @@ describe('dynamic nested workspace context injection', () => {
         description: 'Abort the current test step.',
         parameters: {},
         async execute() {
-          ;(agent as unknown as { currentAbort?: AbortController }).currentAbort?.abort('test abort')
+          agent.cancel({ kind: 'user' })
           return [{ type: 'text', text: 'aborted' }]
         },
       }))

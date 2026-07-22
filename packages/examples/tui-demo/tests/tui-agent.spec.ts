@@ -88,7 +88,8 @@ describe('dsh-tui-demo app', () => {
     })
 
     expect(calls[2]?.config).toEqual({ root: './.sessions' })
-    expect(calls[4]?.config).toEqual({ welcome: 'ready.', sessionId: 'persisted-session' })
+    // No configured welcome forwards none: the TUI banner sweeps in without a subtitle.
+    expect(calls[4]?.config).toEqual({ sessionId: 'persisted-session' })
     expect((calls[5]?.config as { agents: Array<Record<string, unknown>> }).agents[0]).toMatchObject({
       id: 'main',
       resumeSessionId: 'persisted-session',
