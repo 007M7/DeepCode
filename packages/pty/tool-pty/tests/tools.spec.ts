@@ -5,7 +5,8 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { renderToolsSdk } from '@deepseek-ai/dsh-tools'
+import type { ToolSdkSchema } from '@deepseek-ai/dsh-tools/src/ts-types.ts'
 import PtyService, { PtySessionId } from '@deepseek-ai/dsh-pty'
 import type { PtyBackend, PtyBackendSession, PtySendOperation, PtySendRequest, PtySessionStatus, PtySignal } from '@deepseek-ai/dsh-pty'
 import TaskService from '@deepseek-ai/dsh-tasks'
@@ -104,6 +105,7 @@ async function setup(tasks: boolean) {
 }
 
 let callNumber = 0
+const TOOL_NAMES = ['terminal_open', 'terminal_send', 'terminal_read', 'terminal_signal', 'terminal_close', 'terminal_list'] as const
 const testToolSignal = new AbortController().signal
 function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
   return ctx.tools.execute({ signal: testToolSignal, callId: CallId(`pty-call-${++callNumber}`), name, arguments: args, ...agent ? { agent } : {} })
@@ -120,7 +122,7 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 describe('tool-pty foreground surface', () => {
   it('registers exactly six schemas and drives the full owner-scoped lifecycle', async () => {
     const { ctx, agent } = await setup(false)
-    expect(['terminal_open', 'terminal_send', 'terminal_read', 'terminal_signal', 'terminal_close', 'terminal_list'].every(name => ctx.tools.get(name) !== undefined)).toBe(true)
+    expect(TOOL_NAMES.every(name => ctx.tools.get(name) !== undefined)).toBe(true)
 
     const spawned = await call(ctx, 'terminal_open', { type: 'stub', name: 'main' }, agent)
     expect(text(spawned)).toContain('started terminal session pty-1 (main)')
@@ -168,6 +170,86 @@ describe('tool-pty foreground surface', () => {
     const empty = await call(ctx, 'terminal_list', {}, agent)
     expect(text(empty)).toBe('(no terminal sessions)')
     expect(empty).toMatchObject({ isError: false, value: [] })
+  })
+
+  it('projects every terminal DTO into the generated Code Mode output map', async () => {
+    const { ctx } = await setup(false)
+    const schemas = TOOL_NAMES.map((toolName): ToolSdkSchema => {
+      const definition = ctx.tools.get(toolName)
+      if (definition === undefined) throw new Error(`missing terminal tool ${toolName}`)
+      return {
+        name: definition.name,
+        description: definition.description,
+        parameters: definition.parameters,
+        output: definition.output.schema,
+      }
+    })
+    const sdk = renderToolsSdk(schemas)
+    const outputMapStart = sdk.indexOf('interface ToolOutputMap')
+    const outputMapEnd = sdk.indexOf('\n\ntype ToolName', outputMapStart)
+
+    expect(sdk.slice(outputMapStart, outputMapEnd)).toMatchInlineSnapshot(`
+      "interface ToolOutputMap {
+        terminal_close: {
+          sessionId: string;
+          outcome: "closed" | "already-closing";
+        };
+        terminal_list: ({
+          sessionId: string;
+          name?: string;
+          type: string;
+          pid?: number;
+          status: {
+            kind: "running";
+          } | {
+            kind: "exited";
+            exitCode: number | null;
+            signal: string | null;
+          };
+        })[];
+        terminal_open: {
+          sessionId: string;
+          name?: string;
+          type: string;
+          pid?: number;
+          status: {
+            kind: "running";
+          } | {
+            kind: "exited";
+            exitCode: number | null;
+            signal: string | null;
+          };
+          motd: string;
+        };
+        terminal_read: {
+          text: string;
+          totalLines: number;
+          lineBegin: number;
+          lineEnd: number;
+          truncated: boolean;
+        };
+        terminal_send: {
+          kind: "background";
+          taskId: string;
+        } | {
+          kind: "foreground";
+          viewport: string;
+          waitReason: "stdin_read" | "inferred_idle" | "timeout" | "session_exit";
+          sessionStatus: {
+            kind: "running";
+          } | {
+            kind: "exited";
+            exitCode: number | null;
+            signal: string | null;
+          };
+          truncated: boolean;
+        };
+        terminal_signal: {
+          delivered: true;
+          targetPgid: number;
+        };
+      }"
+    `)
   })
 
   it('fails without an initiating agent and rejects background before writing', async () => {
