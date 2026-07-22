@@ -4,8 +4,6 @@
  * baseline replay, timing hooks) — this is the vitest-side drift detector for
  * the hand-written fixture/host parallel implementations.
  */
-
-
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
