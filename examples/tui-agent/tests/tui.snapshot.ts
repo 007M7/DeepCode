@@ -49,6 +49,12 @@ interface Scenario {
   enterPlanMode?: boolean
   recorded: boolean
   seedWorkspace?: boolean
+  /**
+   * Load the opt-in `todo_write` tool for this scenario. The shipped tui-agent
+   * config omits it, so only the todo-plan scenario (the enabled-path proof)
+   * mounts it; the rest cover the default, todo-free composition.
+   */
+  enableTodo?: boolean
 }
 
 const SCENARIOS: Scenario[] = [
@@ -66,6 +72,7 @@ const SCENARIOS: Scenario[] = [
     expectedTools: ['todo_write'],
     expectedEventCounts: { 'todo/write': 1 },
     recorded: true,
+    enableTodo: true,
   },
   {
     name: 'bash-terminal-card',
@@ -200,7 +207,9 @@ async function mountScenarioContext(
   await ctx.plugin(FsPolicy)
   await ctx.plugin(ToolFs)
   await ctx.plugin(UserInteractionService)
-  await ctx.plugin(ToolTodo)
+  // todo_write is opt-in: only the todo-plan scenario mounts it, matching the shipped
+  // config that omits it. The other scenarios prove the default todo-free composition.
+  if (scenario.enableTodo === true) await ctx.plugin(ToolTodo)
   await ctx.plugin(SubagentService)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(ToolSubagent, { provider: 'spawn', toolName: 'subagent', enableRunInBackground: false })
