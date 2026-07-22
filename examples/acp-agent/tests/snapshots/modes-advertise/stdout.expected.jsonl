@@ -5,4 +5,4 @@
 {"jsonrpc":"2.0","id":3,"result":{}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"{{sessionId}}","update":{"sessionUpdate":"current_mode_update","currentModeId":"default"}}}
 {"jsonrpc":"2.0","id":4,"result":{}}
-{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"Invalid params: unknown mode \"yolo\" — available modes: default, plan"}}
+{"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"Invalid params: unknown session mode \"yolo\" — available modes: default, plan"}}

@@ -1,6 +1,6 @@
 {"type":"session","version":0,"id":"50138298-1385-449e-b252-146acb0571d0","createdAt":1784525384931,"cwd":"/var/folders/2g/b32ct0qn1d728l_v6tdkjytr0000gn/T/acp-snap-cwd-DTr6Ra","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1784525384935,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
-{"type":"mode/set","seq":1,"time":1784525384935,"data":{"mode":"plan"}}
+{"type":"plan/mode","seq":1,"time":1784525384935,"data":{"active":true}}
 {"type":"user/message","seq":2,"time":1784525384935,"data":{"content":[{"type":"text","text":"Read the file notes.txt (use the relative path notes.txt exactly, never an absolute path), then present a short plan titled '# Fix the greeting typo' via exit_plan_mode, exactly once. If the review does not approve, summarize the reviewer's feedback in plain text and end your reply - do not present the plan again."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"session/title","seq":3,"time":1784525384935,"data":{"title":"Read the file notes.txt (use","messageSeqs":[2],"source":{"kind":"fallback"}}}
 {"type":"step/start","seq":4,"time":1784525384938,"data":{"turn":1,"step":1}}

@@ -164,9 +164,9 @@ importers:
       '@deepseek-ai/dsh-lsp-local':
         specifier: workspace:*
         version: link:../packages/lsp/lsp-local
-      '@deepseek-ai/dsh-mode':
+      '@deepseek-ai/dsh-plan-mode':
         specifier: workspace:*
-        version: link:../packages/mode/mode
+        version: link:../packages/plan/plan-mode
       '@deepseek-ai/dsh-permission':
         specifier: workspace:*
         version: link:../packages/ui/permission
@@ -1697,7 +1697,7 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
-  packages/mode/mode:
+  packages/plan/plan-mode:
     devDependencies:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
@@ -2695,9 +2695,9 @@ importers:
       '@deepseek-ai/dsh-llm-retry':
         specifier: workspace:^
         version: link:../../llm/llm-retry
-      '@deepseek-ai/dsh-mode':
+      '@deepseek-ai/dsh-plan-mode':
         specifier: workspace:^
-        version: link:../../mode/mode
+        version: link:../../plan/plan-mode
       '@deepseek-ai/dsh-permission':
         specifier: workspace:^
         version: link:../permission
@@ -3404,9 +3404,9 @@ importers:
       '@deepseek-ai/dsh-llm-retry':
         specifier: workspace:^
         version: link:../../packages/llm/llm-retry
-      '@deepseek-ai/dsh-mode':
+      '@deepseek-ai/dsh-plan-mode':
         specifier: workspace:^
-        version: link:../../packages/mode/mode
+        version: link:../../packages/plan/plan-mode
       '@deepseek-ai/dsh-paths':
         specifier: workspace:^
         version: link:../../packages/util/paths

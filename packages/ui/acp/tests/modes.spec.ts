@@ -13,7 +13,7 @@ function modeUpdates(updates: CapturedUpdate[]): string[] {
     .map(update => update.currentModeId)
 }
 
-describe('acp bridge — session modes (dsh-mode)', () => {
+describe('acp bridge — plan mode projection', () => {
   let storageDir: string
   let harness: BridgeHarness | undefined
   let loader: BridgeHarness | undefined
@@ -26,7 +26,7 @@ describe('acp bridge — session modes (dsh-mode)', () => {
     await rm(storageDir, { recursive: true, force: true })
   })
 
-  it('advertises no mode surface and rejects session/set_mode when dsh-mode is not composed', async () => {
+  it('advertises no mode surface and rejects session/set_mode when plan mode is not composed', async () => {
     harness = await makeBridgeHarness({ storageDir })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const res = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
@@ -55,15 +55,15 @@ describe('acp bridge — session modes (dsh-mode)', () => {
     await harness.client.setSessionMode({ sessionId, modeId: 'plan' })
     expect(modeUpdates(harness.updates)).toEqual(['plan'])
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
-    expect(harness.ctx.modes.get(agent)).toEqual({ current: 'default', pending: 'plan' })
+    expect(harness.ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
   })
 
-  it('rejects an unknown mode id with the service validation message', async () => {
+  it('rejects an unknown ACP mode id at the adapter boundary', async () => {
     harness = await makeBridgeHarness({ storageDir, withModes: true })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     await expect(harness.client.setSessionMode({ sessionId, modeId: 'nope' }))
-      .rejects.toMatchObject({ message: expect.stringContaining('unknown mode "nope"') as string })
+      .rejects.toMatchObject({ message: expect.stringContaining('unknown session mode "nope"') as string })
     expect(modeUpdates(harness.updates)).toEqual([])
   })
 
@@ -74,7 +74,7 @@ describe('acp bridge — session modes (dsh-mode)', () => {
     await harness.client.setSessionMode({ sessionId, modeId: 'plan' })
     await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go plan' }] })
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
-    expect(agent.session.events.some(event => event.type === 'mode/set')).toBe(true)
+    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(true)
     expect(modeUpdates(harness.updates)).toEqual(['plan'])
   })
 
@@ -87,7 +87,7 @@ describe('acp bridge — session modes (dsh-mode)', () => {
     // A writer other than the picker (exit_plan_mode's execute) appends the
     // flip back; the bridge must re-notify the client off the logged event.
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
-    agent.session.append('mode/set', { mode: 'default' })
+    agent.session.append('plan/mode', { active: false })
     // The notification crosses the in-memory JSON-RPC transport asynchronously.
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(modeUpdates(harness.updates)).toEqual(['plan', 'default'])

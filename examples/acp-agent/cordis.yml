@@ -63,15 +63,12 @@
 
       Verify your work by running the code or tests. Keep answers brief and factual.
 
-# Collaboration modes are additive to the canonical ACP server. The ACP bridge
-# advertises the picker, while dsh-mode owns the logged state, plan guidance,
-# and reviewed exit; sandbox and approval remain independent session options.
-- id: mode
-  name: '@deepseek-ai/dsh-mode'
+# Plan mode is additive to the canonical ACP server. The ACP bridge projects
+# it onto the protocol picker; sandbox and approval remain independent options.
+- id: plan-mode
+  name: '@deepseek-ai/dsh-plan-mode'
   config:
-    modes:
-      plan:
-        section: |
+    section: |
           You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
 
           Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.

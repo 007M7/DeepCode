@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/ui/acp/src/index.ts:263`](../packages/ui/acp/src/index.ts)
+Source: [`packages/ui/acp/src/index.ts:275`](../packages/ui/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -754,36 +754,6 @@ export interface StreamableHttpConfig {
 
 Source: [`packages/mcp/mcp-client/src/index.ts:91`](../packages/mcp/mcp-client/src/index.ts)
 
-## `@deepseek-ai/dsh-mode`
-
-Requires: `tools` · `systemPrompt`
-
-```ts config-catalog
-/**
- * Plugin config: mode definitions by name. The deployment must define
- * {@link PLAN_MODE}, including its complete model instructions;
- * {@link DEFAULT_MODE} is rejected as a key and definition names must be valid
- * slash-command names ({@link resolveConfig} throws at load).
- */
-export interface ModeConfig {
-  /** Mode definitions by name; `plan` is required and owns its full prompt text. */
-  modes: Record<string, ModeDefinition>
-}
-
-/**
- * One mode's deployment-configured policy: the guidance section the model
- * sees. Deliberately nothing else — enforcement knobs (sandbox mode, approval
- * policy) are separate axes a mode never touches, and a tool allow/deny list
- * is an effects question parked until tool definitions declare their effects.
- */
-export interface ModeDefinition {
-  /** Guidance text rendered as the `mode:policy` prompt section while the mode is in force. */
-  section: string
-}
-```
-
-Source: [`packages/mode/mode/src/index.ts:99`](../packages/mode/mode/src/index.ts)
-
 ## `@deepseek-ai/dsh-permission`
 
 Requires: `bash` · `approval`
@@ -815,6 +785,20 @@ export interface PresetSpec {
 Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMode`](core-data-structures/sandbox.md)
 
 Source: [`packages/ui/permission/src/index.ts:83`](../packages/ui/permission/src/index.ts)
+
+## `@deepseek-ai/dsh-plan-mode`
+
+Requires: `tools` · `systemPrompt`
+
+```ts config-catalog
+/** Deployment-owned plan guidance. */
+export interface PlanModeConfig {
+  /** Guidance rendered as the `plan:policy` prompt section while plan mode is active. */
+  section: string
+}
+```
+
+Source: [`packages/plan/plan-mode/src/index.ts:57`](../packages/plan/plan-mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-repeat-tool-guard`
 

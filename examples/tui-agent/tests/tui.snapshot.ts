@@ -15,7 +15,7 @@ import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
-import ModesService, { PLAN_MODE } from '@deepseek-ai/dsh-mode'
+import PlanModeService from '@deepseek-ai/dsh-plan-mode'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -56,7 +56,7 @@ const SCENARIOS: Scenario[] = [
     name: 'multi-turn-conversation',
     composition: 'native',
     expectedTools: [],
-    expectedEventCounts: { 'mode/set': 1 },
+    expectedEventCounts: { 'plan/mode': 1 },
     enterPlanMode: true,
     recorded: true,
   },
@@ -209,7 +209,7 @@ async function mountScenarioContext(
   await ctx.plugin(ToolRalph)
   await ctx.plugin(CommandService)
   if (scenario.enterPlanMode === true) {
-    await ctx.plugin(ModesService, { modes: { plan: { section: 'Snapshot plan mode instructions.' } } })
+    await ctx.plugin(PlanModeService, { section: 'Snapshot plan mode instructions.' })
   }
   if (scenario.composition === 'code' || scenario.composition === 'advanced') {
     await ctx.plugin(WorkerCodeRuntime, {})
@@ -298,13 +298,13 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       expect(events.filter(event => event.type === type), `${scenario.name} must emit ${type}`).toHaveLength(count)
     }
     if (scenario.enterPlanMode === true) {
-      expect(ctx.modes.get(agent)).toEqual({ current: PLAN_MODE })
-      const modeSet = events.find(event => event.type === 'mode/set')
+      expect(ctx.planMode.get(agent)).toEqual({ active: true })
+      const planMode = events.find(event => event.type === 'plan/mode')
       const firstHeader = events.find(event => event.type === 'request/header')
-      if (modeSet === undefined || firstHeader === undefined) {
-        throw new Error('plan-mode command snapshot needs a mode/set before its first request/header')
+      if (planMode === undefined || firstHeader === undefined) {
+        throw new Error('plan-mode command snapshot needs plan/mode before its first request/header')
       }
-      expect(modeSet.seq).toBeLessThan(firstHeader.seq)
+      expect(planMode.seq).toBeLessThan(firstHeader.seq)
       expect(firstHeader.data.header.system).toContain('Snapshot plan mode instructions.')
       const firstMessage = events.find(event => event.type === 'user/message')
       expect(firstMessage?.data.content).toEqual([{ type: 'text', text: prompts[0] }])

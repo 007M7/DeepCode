@@ -67,9 +67,9 @@ import type { ToolCallView, ToolRegistry, ToolResultView, TerminalResultView } f
 // Side-effect type import: declaration-merges `ctx.sessionPersistence` onto
 // Context (the bridge injects it and reads `list()` for load cwd validation).
 import type {} from '@deepseek-ai/dsh-session-persistence'
-// Type-only edge: makes `ctx.get('modes')` resolve the ModesService type when
-// @deepseek-ai/dsh-mode is composed; the runtime read stays opportunistic.
-import type {} from '@deepseek-ai/dsh-mode'
+// Type-only edge: resolves `ctx.get('planMode')` when dsh-plan-mode is composed;
+// the runtime read stays opportunistic.
+import type {} from '@deepseek-ai/dsh-plan-mode'
 // Side-effect type import: declaration-merges prompt assembly onto Context and
 // the scoped waterfall used to keep persona variables aligned with requests.
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -98,6 +98,18 @@ export const inject = ['agents', 'commands', 'sessionPersistence', 'tools', 'use
 /** Preserve invalid-parameter detail in the SDK wire error message. */
 function invalidParams(detail: string): RequestError {
   return RequestError.invalidParams(undefined, detail)
+}
+
+const DEFAULT_SESSION_MODE_ID = 'default'
+const PLAN_SESSION_MODE_ID = 'plan'
+const AVAILABLE_SESSION_MODES = [
+  { id: DEFAULT_SESSION_MODE_ID, name: DEFAULT_SESSION_MODE_ID },
+  { id: PLAN_SESSION_MODE_ID, name: PLAN_SESSION_MODE_ID },
+]
+
+/** Map plan state onto ACP's named collaboration-mode protocol. */
+function sessionModeId(active: boolean): string {
+  return active ? PLAN_SESSION_MODE_ID : DEFAULT_SESSION_MODE_ID
 }
 
 /** Render arbitrary thrown values without trusting their string coercion. */
@@ -298,8 +310,8 @@ interface SessionRecord {
   /**
    * The last mode id this session sent to the client (advertised at
    * session/new+load, echoed optimistically on session/set_mode, re-notified on
-   * each logged `mode/set` that differs). `undefined` when dsh-mode is not
-   * composed — no mode surface is advertised, so nothing is ever notified.
+   * each logged `plan/mode` that differs). `undefined` when dsh-plan-mode is
+   * not composed, so no mode surface is advertised or notified.
    */
   lastModeId: string | undefined
   /** Session-local provider/model selection and the current step snapshot. */
@@ -558,21 +570,18 @@ export function apply(ctx: Context, config: AcpConfig): void {
 
   // --- Stream the harness event taxonomy to ACP session/update --------------
 
-  // --- Session modes (dsh-mode, opportunistic) ------------------------------
-  // The mode PICKER is dsh-mode's ACP surface (the plan-mode Agent Note): advertised
-  // as `modes` on session/new + session/load, switched via session/set_mode —
-  // optimistic `current_mode_update` (the pending mode IS the user's
-  // selection; the logged `mode/set` follows at the turn boundary) — and
-  // re-notified on each logged flip that differs from the last sent (covers
-  // the exit_plan_mode tool flipping the session back). Environment knobs are
-  // NOT modes; they stay `session/set_config_option`.
+  // --- Session modes (dsh-plan-mode, opportunistic) -------------------------
+  // ACP's generic mode picker projects the one plan capability as the fixed
+  // `default` / `plan` vocabulary. A selection is echoed optimistically; the
+  // logged `plan/mode` follows at the boundary and tool-driven exits are
+  // re-notified from that event. Environment knobs remain config options.
   const modesStateFor = (agent: Agent): SessionModeState | undefined => {
-    const modes = ctx.get('modes')
-    if (modes === undefined) return undefined
-    const { current, pending } = modes.get(agent)
+    const planMode = ctx.get('planMode')
+    if (planMode === undefined) return undefined
+    const { active, pending } = planMode.get(agent)
     return {
-      availableModes: modes.list().map(name => ({ id: name, name })),
-      currentModeId: pending ?? current,
+      availableModes: AVAILABLE_SESSION_MODES,
+      currentModeId: sessionModeId(pending ?? active),
     }
   }
 
@@ -601,16 +610,19 @@ export function apply(ctx: Context, config: AcpConfig): void {
         cwd: session.header.cwd,
       }, { includeUserMessages: false })
     } finally {
-      // Re-notify from the EVENT's value, not from modes.get(): the service
+      // Re-notify from the EVENT's value, not from planMode.get(): the service
       // holds one coalesced pending slot (every flush reads the latest
       // selection, so a flush can never be stale against the picker), and for
       // any other writer — the exit tool, a test, a foreign plugin — the logged
       // value IS the truth the picker should track, in log order. Inside the
       // containment `finally` like the prompt settlement: a throwing presenter
       // must not desync the picker.
-      if (event.type === 'mode/set' && event.data.mode !== rec.lastModeId) {
-        rec.lastModeId = event.data.mode
-        notify({ sessionId: rec.agent.session.id, update: { sessionUpdate: 'current_mode_update', currentModeId: event.data.mode } })
+      if (event.type === 'plan/mode') {
+        const modeId = sessionModeId(event.data.active)
+        if (modeId !== rec.lastModeId) {
+          rec.lastModeId = modeId
+          notify({ sessionId: rec.agent.session.id, update: { sessionUpdate: 'current_mode_update', currentModeId: modeId } })
+        }
       }
       const inflight = rec.inflight
       if (inflight !== undefined && event.type === 'turn/start') {
@@ -910,16 +922,14 @@ export function apply(ctx: Context, config: AcpConfig): void {
       setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
         assertOpen()
         const rec = requireSession(SessionId(params.sessionId))
-        const modes = ctx.get('modes')
-        if (modes === undefined) throw invalidParams('session modes are not composed in this deployment')
-        try {
-          modes.set(rec.agent, params.modeId)
-        } catch (error) {
-          // ModesService.set throws only Error (its unknown-name validation).
-          throw invalidParams((error as Error).message)
+        const planMode = ctx.get('planMode')
+        if (planMode === undefined) throw invalidParams('session modes are not composed in this deployment')
+        if (params.modeId !== DEFAULT_SESSION_MODE_ID && params.modeId !== PLAN_SESSION_MODE_ID) {
+          throw invalidParams(`unknown session mode ${JSON.stringify(params.modeId)} — available modes: default, plan`)
         }
+        planMode.set(rec.agent, params.modeId === PLAN_SESSION_MODE_ID)
         // Optimistic echo: the pending mode IS the user's selection; the logged
-        // `mode/set` lands at the next turn boundary and, matching lastModeId,
+        // `plan/mode` lands at the next turn boundary and, matching lastModeId,
         // is not re-notified. A no-op selection (already current) echoes too —
         // cheap, idempotent, and the picker settles regardless.
         rec.lastModeId = params.modeId

@@ -29,7 +29,7 @@
     "@deepseek-ai/dsh-llm-replay": "workspace:*",
     "@deepseek-ai/dsh-lsp": "workspace:*",
     "@deepseek-ai/dsh-lsp-local": "workspace:*",
-    "@deepseek-ai/dsh-mode": "workspace:*",
+    "@deepseek-ai/dsh-plan-mode": "workspace:*",
     "@deepseek-ai/dsh-permission": "workspace:*",
     "@deepseek-ai/dsh-repeat-tool-guard": "workspace:*",
     "@deepseek-ai/dsh-sandbox-local": "workspace:*",
