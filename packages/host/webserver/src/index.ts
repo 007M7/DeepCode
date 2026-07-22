@@ -10,6 +10,7 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
+import type { AddressInfo } from 'node:net'
 import { dirname } from 'node:path'
 import { serveStatic } from './static.ts'
 import type { HostWebPluginRegistry } from './web-plugins.ts'
@@ -23,7 +24,7 @@ export type {
 export interface WebServerOptions {
   /** Address or hostname to listen on. */
   host: string
-  /** Port to listen on. */
+  /** Port to listen on; zero requests an OS-assigned port. */
   port: number
   /**
    * Absolute path of index.html inside the static root — the caller resolves
@@ -42,7 +43,7 @@ export interface WebServerOptions {
 
 /** Listening web server handle. */
 export interface RunningWebServer {
-  /** The listening port (for the shell's URL line; equals options.port). */
+  /** The listening port, including the OS-assigned value when options.port is zero. */
   port: number
   /**
    * Shutdown: close + closeAllConnections (SSE connections never end on their
@@ -118,7 +119,7 @@ export function startWebServer(options: WebServerOptions, onError: (err: Error) 
     server.listen(port, host, () => {
       server.off('error', rejectListen)
       server.on('error', onError)
-      resolveListen({ port, close })
+      resolveListen({ port: (server.address() as AddressInfo).port, close })
     })
   })
 }

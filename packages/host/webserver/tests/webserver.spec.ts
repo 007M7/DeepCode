@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { startWebServer, type RunningWebServer } from '../src/index.ts'
 
-/** RunningWebServer.port echoes options.port, so tests must pick a concrete free port up front. */
+/** Reserve a loopback port for tests that need to address a second server. */
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createNetServer()
@@ -114,9 +114,8 @@ async function boot(onError: (err: Error) => void = () => undefined): Promise<st
 describe('startWebServer', () => {
   it('reports the listening port and closes idempotently', async () => {
     const { distIndex } = makeDist()
-    const port = await freePort()
-    server = await startWebServer({ host: '127.0.0.1', port, distIndex, apiHandler: echoingApi }, () => undefined)
-    expect(server.port).toBe(port)
+    server = await startWebServer({ host: '127.0.0.1', port: 0, distIndex, apiHandler: echoingApi }, () => undefined)
+    expect(server.port).toBeGreaterThan(0)
     const first = server.close()
     const second = server.close()
     expect(second).toBe(first)
@@ -135,11 +134,13 @@ describe('startWebServer', () => {
       queueMicrotask(callback as () => void)
       return this
     })
+    const address = vi.spyOn(NetServer.prototype, 'address').mockReturnValue({ address: host, family: 'IPv4', port })
     try {
       const inertServer = await startWebServer({ host, port, distIndex, apiHandler: echoingApi }, () => undefined)
       expect(listen).toHaveBeenCalledWith(port, host, expect.any(Function))
       await inertServer.close()
     } finally {
+      address.mockRestore()
       listen.mockRestore()
     }
   })

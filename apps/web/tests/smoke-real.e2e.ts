@@ -85,6 +85,39 @@ const notReady = UI_PLUGIN_DIRS.filter((dir) => {
 })
 if (notReady.length > 0) console.warn(`[smoke-real] skipped — client bundles not ready: ${notReady.join(', ')}`)
 
+describe('dsh web keyless CLI smoke', () => {
+  it('listens on 127.0.0.1 by default', async () => {
+    requireDist()
+    const sessionsDir = mkdtempSync(join(tmpdir(), 'dsh-web-keyless-'))
+    const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
+    const child = spawn(
+      process.execPath,
+      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', '0'],
+      {
+        cwd: sessionsDir,
+        env: {
+          ...process.env,
+          DEEPSEEK_API_KEY: 'keyless-web-no-call',
+          TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    try {
+      const readyUrl = await waitForReadyLine(child)
+      expect(readyUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
+      expect((await fetch(readyUrl)).status).toBe(200)
+    } finally {
+      const closed = child.exitCode === null
+        ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })
+        : Promise.resolve()
+      if (child.exitCode === null) child.kill('SIGTERM')
+      await closed
+      rmSync(sessionsDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke (real host, real key, W5)', () => {
   let child: ChildProcess
   let sessionsDir: string

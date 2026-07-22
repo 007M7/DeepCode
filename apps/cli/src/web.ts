@@ -30,7 +30,7 @@ export async function runWeb(argv: string[]): Promise<void> {
   }
   const hostAddress = values.host
   const port = Number(values.port)
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
     process.stderr.write(`dsh web: invalid --port ${values.port}\n`)
     process.exit(1)
   }
