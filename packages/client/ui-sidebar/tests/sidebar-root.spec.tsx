@@ -10,9 +10,10 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { act } from 'react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import { createSidebarTreeStore, type SidebarTreeStore } from '../src/client/store.ts'
-import { SidebarRoot } from '../src/client/SidebarRoot.tsx'
-import type { SidebarActions } from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import {
+  createSidebarTreeStore, SidebarRoot,
+  type SidebarActions, type SidebarTreeStore,
+} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
 const sid = (s: string) => s as SessionId
 

@@ -13,14 +13,11 @@ import { createElement, Fragment, type FC, type ReactNode } from 'react'
 import { bindSnapshotSelector, createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import type { ConversationSnapshot, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import { ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { ConversationRoot } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationRoot.tsx'
+import { ConversationRoot, ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ConvViewProps, ViewEntry, ViewId } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
-import { deriveSpans, deriveSpanStats } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/spans.ts'
-import { TrajectoryStatsHeader } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/TrajectoryStatsHeader.tsx'
-import { TrajectoryView } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/TrajectoryView.tsx'
-import { WaterfallView } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/WaterfallView.tsx'
+import {
+  apply, deriveSpans, deriveSpanStats, inject, TrajectoryStatsHeader, TrajectoryView, WaterfallView,
+} from '@deepseek-ai/dsh-client-ui-trajectory/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 
 const SID = 's1' as SessionId
