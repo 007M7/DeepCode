@@ -235,6 +235,13 @@ interface GenerateOptions {
    * it; replay uses it to keep concurrent parent and child cursors independent.
    */
   sessionId?: Branded<'SessionId'>
+  /**
+   * Marks the auxiliary compaction (summarization) call. The DeepSeek adapter
+   * forwards it as the `x-deepseek-harness-compact: 1` request header so the
+   * host can separate compaction traffic from conversation requests; it never
+   * enters the model-visible request body. Loop-built requests leave it unset.
+   */
+  compact?: boolean
 }
 ```
 
