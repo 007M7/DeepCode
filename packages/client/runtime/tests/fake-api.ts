@@ -58,16 +58,20 @@ export class FakeApiClient implements IApiClient {
   private readonly muxConns: StreamConn<MuxFrame>[] = []
   private readonly hostConns: StreamConn<HostFrame>[] = []
 
+  // Parameters carry local structural annotations: the CI lint lane runs
+  // without built lib/, so IApiClient's indexed-access types collapse to any
+  // and inferred parameters would trip no-unsafe-argument.
   readonly sessions: IApiClient['sessions'] = {
-    list: payload => this.record('session.list', payload, this.onList(payload)),
-    create: payload => this.record('session.create', payload, this.onCreate(payload)),
-    history: payload => this.record('session.history', payload, this.onHistory(payload)),
-    prompt: payload => this.record('session.prompt', payload, this.onPrompt(payload)),
-    cancel: payload => this.record('session.cancel', payload, this.onCancel(payload)),
+    list: (payload: unknown) => this.record('session.list', payload, this.onList(payload)),
+    create: (payload: unknown) => this.record('session.create', payload, this.onCreate(payload)),
+    history: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number }) =>
+      this.record('session.history', payload, this.onHistory(payload)),
+    prompt: (payload: unknown) => this.record('session.prompt', payload, this.onPrompt(payload)),
+    cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
   }
 
   readonly host: IApiClient['host'] = {
-    describe: payload => this.record('host.describe', payload, this.onDescribe(payload)),
+    describe: (payload: unknown) => this.record('host.describe', payload, this.onDescribe(payload)),
   }
 
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */
@@ -85,8 +89,8 @@ export class FakeApiClient implements IApiClient {
   }
 
   readonly events: IApiClient['events'] = {
-    mux: (_payload, signal, onOpen) => this.openStream(this.muxConns, signal, onOpen),
-    host: (_payload, signal, onOpen) => this.openStream(this.hostConns, signal, onOpen),
+    mux: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => this.openStream(this.muxConns, signal, onOpen),
+    host: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => this.openStream(this.hostConns, signal, onOpen),
   }
 
   respond(): Promise<{ accepted: false; reason: 'not-pending' }> {

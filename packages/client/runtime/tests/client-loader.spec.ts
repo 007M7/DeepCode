@@ -238,11 +238,11 @@ describe('DOM default seams (stubbed globals)', () => {
     }
     const g = globalThis as { document?: unknown; fetch: typeof fetch }
     g.document = fakeDoc
-    g.fetch = ((url: URL | RequestInfo) => Promise.resolve(
-      String(url).includes('bad')
+    g.fetch = (url: URL | RequestInfo) => Promise.resolve(
+      (typeof url === 'string' ? url : url instanceof URL ? url.href : url.url).includes('bad')
         ? new Response('x', { status: 500 })
         : new Response('window.DSHClientProxy.loadPlugin(globalThis.__seamHandoff)', { status: 200 }),
-    )) as typeof fetch
+    )
     try {
       delete win.DSHClientProxy
       const ctx = new Context()
