@@ -760,6 +760,81 @@ Types: [Agent](../core-data-structures/core.md)
 
 Source: [`packages/plan/plan-mode/src/index.ts:141`](../../packages/plan/plan-mode/src/index.ts)
 
+## `ctx.pty` — `PtyService`
+
+In-process registry for replaceable PTY backends and exact-Agent sessions.
+
+```ts cordis-catalog
+/**
+ * Register one backend type for this effect scope.
+ * @param backend - provider with a non-empty unique type.
+ * @returns disposer that removes exactly this contribution.
+ */
+registerBackend(backend: PtyBackend): () => void
+
+/**
+ * List registered backend types in registration order.
+ * @returns fresh backend type names.
+ */
+listBackends(): string[]
+
+/**
+ * Create and publish one owner-scoped session after backend setup succeeds.
+ * @param owner - exact registered Agent that owns access and cleanup.
+ * @param request - backend type plus optional owner-local name and cwd.
+ * @param signal - cancellation of unpublished setup.
+ * @returns published identity, metadata, status, and MOTD.
+ */
+async spawn(owner: Agent, request: PtySpawnRequest, signal?: AbortSignal): Promise<PtySpawnResult>
+
+/**
+ * Start one exclusive interactive send.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param request - explicit text, submit behavior, and cancellation.
+ * @returns live operation handle for foreground await or task registration.
+ */
+startSend(owner: Agent, id: PtySessionId, request: PtySendRequest): PtySendOperation
+
+/**
+ * Read one bounded scrollback page from an owned session.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param request - optional newest-relative offset and line count.
+ * @returns bounded retained text and pagination metadata.
+ */
+read(owner: Agent, id: PtySessionId, request: PtyReadRequest = {}): PtyReadResult
+
+/**
+ * Deliver an allowed signal through an owned backend session.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param signal - allowed POSIX signal name.
+ * @returns delivered foreground process-group identity.
+ */
+signal(owner: Agent, id: PtySessionId, signal: PtySignal): Promise<PtySignalResult>
+
+/**
+ * Close one owned session and remove it only after quiescent backend cleanup.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param reason - diagnostic cleanup reason.
+ * @returns true for a newly closed session, false when the same close is already in flight.
+ */
+async kill(owner: Agent, id: PtySessionId, reason = 'model request'): Promise<boolean>
+
+/**
+ * List fresh snapshots for exactly one owner.
+ * @param owner - exact owner whose sessions are visible.
+ * @returns owner-visible snapshots in publication order.
+ */
+list(owner: Agent): PtySessionSnapshot[]
+```
+
+Types: [Agent](../core-data-structures/core.md) · [PtyBackend](../core-data-structures/pty.md) · [PtyReadRequest](../core-data-structures/pty.md) · [PtyReadResult](../core-data-structures/pty.md) · [PtySendOperation](../core-data-structures/pty.md) · [PtySendRequest](../core-data-structures/pty.md) · [PtySessionId](../core-data-structures/pty.md) · [PtySessionSnapshot](../core-data-structures/pty.md) · [PtySignal](../core-data-structures/pty.md) · [PtySignalResult](../core-data-structures/pty.md) · [PtySpawnRequest](../core-data-structures/pty.md) · [PtySpawnResult](../core-data-structures/pty.md)
+
+Source: [`packages/pty/pty/src/index.ts:95`](../../packages/pty/pty/src/index.ts)
+
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
 Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.
