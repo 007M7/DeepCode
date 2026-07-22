@@ -5,8 +5,11 @@
  * Contract: api-contracts v3 section 8.
  */
 import type { Context } from 'cordis'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
+// Engine subpath: createSnapshotStore left the public face in the slot
+// terminal rework (business stores go through defineStore); framework data
+// stores like this locale cell keep the engine via './store'.
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-web-react/store'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react/store'
 import { en } from '../locales/en.ts'
 import { zh } from '../locales/zh.ts'
 

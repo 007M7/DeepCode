@@ -69,6 +69,17 @@ describe('view-ring type-chain negatives (compile-time; body never runs)', () =>
         chrome: { header: (props: ChromePropsOf<'vt-plain'> & { onlyPlain: true }) => null },
       }
       void mixed
+      // 6. Zero-renderSlot inference: the view ring declares no children, so
+      //    view props carry no delegation face (the old hand-written
+      //    ScopedSlots<never> empty surface is retired, not replaced).
+      const renderless = (props: ConvViewPropsOf<'vt-plain'>): ReactNode => {
+        // @ts-expect-error views receive no renderSlot — no sub-slot delegation
+        void props.renderSlot
+        // @ts-expect-error the legacy slots face is gone from view props
+        void props.slots
+        return null
+      }
+      void renderless
       return null as ReactNode
     }
     expect(negatives).toBeTypeOf('function')

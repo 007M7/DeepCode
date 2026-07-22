@@ -154,6 +154,7 @@ describe('bash toolview samples', () => {
     const scope = childSessionScope({
       getSnapshot: () => ({
         ids: [root, child],
+        current: undefined,
         byId: {
           [root]: { id: root, title: 'r', running: false, updatedAt: 0 },
           [child]: { id: child, title: 'c', parentId: root, running: false, updatedAt: 0 },

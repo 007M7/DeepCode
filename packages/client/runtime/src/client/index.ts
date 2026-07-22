@@ -1,21 +1,27 @@
 /**
  * Browser half: the whole runtime contract surface (api-contracts v3 §4) —
- * SlotsService, SessionsService (list store + scope tree + object layer),
- * the ClientLoader interface, and the cordis Context/Events merges. apply
+ * SlotsService (declaration ledger + renderer seam + store axis, built-in
+ * 'root'), SessionsService (list store + current selection + scope tree +
+ * object layer), the ClientLoader interface, and the cordis Context/Events
+ * merges. apply
  * mounts ctx.slots + ctx.sessions and wires the connection stream loop into
  * the object layer. The loader machinery implementation is NOT in the plugin
  * bundle — it ships via the package's `./loader` subpath, statically held by
  * the web shell (a loader cannot load itself).
  */
 import type { Context } from 'cordis'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
-import type { SessionBinding as GenericSessionBinding } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore, UseSession } from '@deepseek-ai/dsh-client-web-react'
 import { SlotsService } from './slots.ts'
 import { SessionsService } from './sessions/service.ts'
+import type { SessionListState } from './sessions/service.ts'
 import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from './sessions/conversation.ts'
 
 export { SlotsService } from './slots.ts'
+// RootOwnerProps rides the 'root' SlotMap row (both migrated here from
+// ui-layout: the framework slot is declared by the framework package).
+export type { RootOwnerProps } from './slots.ts'
 export { SessionsService, scopeOf } from './sessions/service.ts'
 export type { Session } from './sessions/session.ts'
 export type { SessionBinding, SessionListState, SessionSummary } from './sessions/service.ts'
@@ -38,9 +44,6 @@ export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
  */
 export type ClientContext = Context
 
-/** SessionBinding narrowed to the client context (inject factories dot services directly). */
-export type ClientSessionBinding = GenericSessionBinding<ClientContext>
-
 /** The conversation-snapshot selector hook (ConvViewProps/ToolViewProps take this). */
 export type UseConversationSession = UseSession<ConversationSnapshot>
 
@@ -50,6 +53,25 @@ export type UseConversationSession = UseSession<ConversationSnapshot>
  * narrow on the discriminant fields.
  */
 export type ToolCallBlock = RunningToolCall | ToolResultNode
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  /**
+   * Session standard kit, real members (ui-slots declares the empty seat;
+   * the runtime — where the subjects live — merges the concrete types):
+   * every session-scope slot component receives these from the framework.
+   */
+  interface SessionStandardProps {
+    /** Selector hook over this session's conversation snapshot. */
+    useSession: SnapshotSelectorHook<ConversationSnapshot>
+    /** The framework-resolved session id (owners never pass it). */
+    sessionId: SessionId
+  }
+  /** Global standard kit, real members: the session-list hook every slot component receives. */
+  interface GlobalStandardProps {
+    /** Selector hook over the session list snapshot (`current` included — the arbitrated selection seat). */
+    useSessions: SnapshotSelectorHook<SessionListState>
+  }
+}
 
 declare module 'cordis' {
   interface Events {

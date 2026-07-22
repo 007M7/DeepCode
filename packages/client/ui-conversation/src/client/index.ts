@@ -14,14 +14,14 @@ export { ConversationService } from './service.ts'
 export { ToolViewRegistry } from './toolviews/registry.ts'
 
 export type {
-  CallId, ChromeProps, ChromePropsOf, ConversationViewMap, ConvViewProps, ConvViewPropsOf,
-  SelectionTarget, Translate, ViewEntry, ViewEntryDef, ViewId,
+  CallId, ChatStoreState, ChromeProps, ChromePropsOf, ConversationViewMap, ConvViewProps,
+  ConvViewPropsOf, SelectionTarget, Translate, ViewEntry, ViewEntryDef, ViewId,
 } from './contract/views.ts'
 export type {
   ResolvedToolView, ToolCallBlock, ToolViewOptions, ToolViewProps, ToolViewResolver,
 } from './contract/toolview.ts'
 export type {
-  ConversationInjected, ConversationSlotProps, DetailsInjected, DetailsSlotProps,
+  ChatStore, ConversationInjected, ConversationSlotProps, DetailsInjected, DetailsSlotProps,
   EmptyStateInjected, EmptyStateSlotProps,
 } from './contract/slots.ts'
 // Export discipline: packages/client/AGENTS.md.

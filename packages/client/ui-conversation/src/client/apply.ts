@@ -2,20 +2,18 @@
  * Client plugin body: provide the conversation service and toolview registry,
  * register the conversation/details slot occupants and the no-session empty
  * state, and mount the chat view with its samples. Assembly only — components
- * receive everything through inject factories; nothing here renders directly.
+ * receive everything through props: the framework standard kit and store
+ * faces arrive automatically from the declarations below; the inject
+ * factories contribute the plain-data-and-callbacks business face (design §5).
  */
-import { createElement, Fragment, type ReactNode } from 'react'
 import type { Context } from 'cordis'
-import type { SessionBinding } from '@deepseek-ai/dsh-client-ui-slots'
-import { scopedSlots, shallowEqual } from '@deepseek-ai/dsh-client-web-react'
-import type { SnapshotSelectorHook, UseSession } from '@deepseek-ai/dsh-client-web-react'
-import type {
-  SessionId, SessionListState, SessionsService, SlotsService,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionId, SessionsService, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { LayoutService } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { I18nService } from '@deepseek-ai/dsh-client-i18n/client'
-import type { ConvViewProps, SelectionTarget, ViewEntry, ViewId } from './contract/views.ts'
+import type { SelectionTarget } from './contract/views.ts'
 import type { ConversationInjected, DetailsInjected, EmptyStateInjected } from './contract/slots.ts'
+import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
 import { ToolViewRegistry } from './toolviews/registry.ts'
 import { childSessionScope, registerChat } from './chat/register.ts'
@@ -37,20 +35,13 @@ function need<T>(ctx: Context, name: string): T {
   return value
 }
 
-/** Per-list-state cwd set (deduped, list order) for the empty-state picker. */
-const cwdsCache = new WeakMap<SessionListState, readonly string[]>()
-function cwdsOf(state: SessionListState): readonly string[] {
-  let cached = cwdsCache.get(state)
-  if (cached === undefined) {
-    const seen = new Set<string>()
-    for (const id of state.ids) {
-      const cwd = state.byId[id]?.cwd
-      if (cwd !== undefined && cwd !== '') seen.add(cwd)
-    }
-    cached = [...seen]
-    cwdsCache.set(state, cached)
-  }
-  return cached
+/** Resolve the session-scoped conversation service (scope-addressed send/cancel), failing loud. */
+function scopedConversation(sessions: SessionsService, id: SessionId): ConversationService {
+  const scoped = sessions.scope(id)
+  if (scoped === undefined) throw new Error(`ui-conversation: session "${id}" resolved no scope`)
+  const conversation = scoped.get('conversation')
+  if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable through the session scope')
+  return conversation
 }
 
 /**
@@ -80,106 +71,64 @@ export function apply(ctx: Context): void {
     () => registerBashSamples(toolviews, childSessionScope(sessions.list)),
     'ui-conversation: bash toolview samples')
 
-  // ConvViewProps.slots is ScopedSlots<never>: a real outlet with an empty
-  // whitelist (uncallable by type, correct runtime shape for future grants).
-  const emptySlots = scopedSlots<never>(slots.core)
+  // Shared store handle, constructed here so its identity lives and dies with
+  // this fiber (a module-level handle would be a de-facto singleton). Both
+  // session-slot registrations declare it; same scope key = same instance, so
+  // conversation writes and details reads meet in one store.
+  const chat = createChatStore()
 
-  /** conversation slot: skeleton surface assembled once per (entry x session). */
-  const conversationInject = (b: SessionBinding): ConversationInjected => {
-    const bctx = b.ctx as Context
-    const scoped = need<ConversationService>(bctx, 'conversation')
-    const id = b.sessionId as SessionId
-    const useSession = b.session.useSelector as UseSession
-    const selectionStore = scoped.selection
-    const draftsStore = scoped.drafts
-    const session = sessions.manager.get(id)
-    // Watch-driven history pull: assembling the surface IS the watch signal
-    // (once per entry x session; open() is idempotent and self-recovers).
-    void session.open()
-
-    const viewProps: Omit<ConvViewProps, 'slots'> = {
-      sessionId: id,
-      useSession,
-      useSelection: selectionStore.useSelector,
-      actions: {
-        openDetails: (target: SelectionTarget) => { scoped.openDetails(target) },
-        loadOlder: () => { void session.loadOlder() },
-      },
-    }
-
-    const injected: ConversationInjected = {
-      useAncestry: () => sessions.list.useSelector(
-        () => sessions.ancestry(id),
-        (a, b) => shallowEqual(a, b)),
-      views: {
-        list: () => conversation.views(),
-        subscribe: fn => conversation.subscribeViews(fn),
-        version: () => conversation.viewsVersion(),
-      },
-      // layout's viewFor value type is its own looser ViewId; the registry is
-      // the runtime validator (unknown ids fall back to the first view).
-      useActiveView: () => layout.current.useSelector(s => s.viewFor[id]) as ViewId | undefined,
-      composer: {
-        useDraft: () => draftsStore.useSelector(s => s),
-        setDraft: (text) => { draftsStore.set(text) },
-        send: (mode) => {
-          const text = draftsStore.getSnapshot().trim()
-          if (text === '') return
+  slots.register({
+    name: 'conversation',
+    store: chat,
+    inject: (sessionId: SessionId, actions: BoundActions<typeof chat>): ConversationInjected => {
+      const session = sessions.manager.get(sessionId)
+      const scoped = scopedConversation(sessions, sessionId)
+      // Watch-driven history pull: assembling the surface IS the watch signal
+      // (once per entry x session; open() is idempotent and self-recovers).
+      void session.open()
+      return {
+        views: {
+          list: () => conversation.views(),
+          subscribe: fn => conversation.subscribeViews(fn),
+          version: () => conversation.viewsVersion(),
+        },
+        send: (text, mode) => {
+          const trimmed = text.trim()
+          if (trimmed === '') return
           // Optimistic clear with failure restore (choreography lives with the
           // sender; the business failure also lands in snapshot.promptError).
-          draftsStore.set('')
-          void scoped.send(text, mode).catch(() => {
-            if (draftsStore.getSnapshot() === '') draftsStore.set(text)
-          })
+          // The store write path stays inside the declared actions set:
+          // restoreDraft itself no-ops once the user typed something new.
+          actions.clearDraft()
+          void scoped.send(trimmed, mode).catch(() => { actions.restoreDraft(trimmed) })
         },
         stop: () => {
           scoped.cancel().catch(() => {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
           })
         },
-      },
-      actions: {
-        openView: (view: ViewId) => { layout.openView(id, view) },
-        open: (target: SessionId) => { layout.open(target) },
-      },
-      renderView: (entry: ViewEntry): ReactNode => {
-        const children: ReactNode[] = []
-        if (entry.chrome?.header !== undefined) {
-          children.push(createElement(entry.chrome.header, { key: 'header', sessionId: id, useSession }))
-        }
-        children.push(createElement(entry.component, { key: 'view', ...viewProps, slots: emptySlots }))
-        if (entry.chrome?.footer !== undefined) {
-          children.push(createElement(entry.chrome.footer, { key: 'footer', sessionId: id, useSession }))
-        }
-        return createElement(Fragment, null, ...children)
-      },
-    }
-    return injected
-  }
+        openDetails: (target: SelectionTarget) => {
+          actions.select(target)
+          layout.openDetails()
+        },
+        loadOlder: () => { void session.loadOlder() },
+        open: (target: SessionId) => { sessions.open(target) },
+      }
+    },
+  }, ConversationRoot)
 
-  /** details slot: minimal selection-driven panel. */
-  const detailsInject = (b: SessionBinding): DetailsInjected => {
-    const bctx = b.ctx as Context
-    const scoped = need<ConversationService>(bctx, 'conversation')
-    const injected: DetailsInjected = {
-      useSelection: scoped.selection.useSelector,
-      actions: { closeDetails: () => { layout.closeDetails() } },
-    }
-    return injected
-  }
+  slots.register({
+    name: 'details',
+    store: chat,
+    inject: (): DetailsInjected => ({
+      closeDetails: () => { layout.closeDetails() },
+    }),
+  }, DetailsPanel)
 
-  /** conversation.empty root slot: the NEW SESSION hero. */
-  const emptyInject = (): EmptyStateInjected => {
-    const useCwds: SnapshotSelectorHook<readonly string[]> = (sel, eq) =>
-      sessions.list.useSelector(s => sel(cwdsOf(s)), eq)
-    const injected: EmptyStateInjected = {
-      useCwds,
-      actions: { startSession: opts => conversation.startSession(opts) },
-    }
-    return injected
-  }
-
-  slots.register('conversation', ConversationRoot, { inject: conversationInject })
-  slots.register('details', DetailsPanel, { inject: detailsInject })
-  slots.register('conversation.empty', EmptyState, { inject: emptyInject })
+  slots.register({
+    name: 'conversation.empty',
+    inject: (): EmptyStateInjected => ({
+      startSession: opts => conversation.startSession(opts),
+    }),
+  }, EmptyState)
 }

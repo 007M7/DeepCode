@@ -122,7 +122,7 @@ function StreamingTail({ useSession, onGrow }: {
 export function createChatView(deps: ChatViewDeps): FC<ConvViewProps> {
   const { toolviews, t } = deps
 
-  return function ChatView({ sessionId, useSession: useSessionWide, useSelection, actions }: ConvViewProps) {
+  return function ChatView({ sessionId, useSession: useSessionWide, useStore, actions }: ConvViewProps) {
     const useSession = useSessionWide as UseConversation
     const nodes = useSession((s) => s.nodes)
     const runningCalls = useSession((s) => s.runningCalls)
@@ -131,7 +131,7 @@ export function createChatView(deps: ChatViewDeps): FC<ConvViewProps> {
     const openErrorMessage = useSession((s) => s.openError === null ? null : `${s.openError.message}（${s.openError.code}）`)
     const hasMore = useSession((s) => s.hasMore)
     const loadingOlder = useSession((s) => s.loadingOlder)
-    const selectedCallId = useSelection((sel) => sel?.callId)
+    const selectedCallId = useStore((s) => s.selection?.callId)
 
     const items = useMemo(() => deriveChatFlow(nodes), [nodes])
 

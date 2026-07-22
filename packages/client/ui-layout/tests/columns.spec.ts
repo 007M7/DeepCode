@@ -4,8 +4,9 @@ import {
   DETAILS_DEFAULT, DETAILS_MIN, SIDEBAR_DEFAULT, SIDEBAR_MIN,
 } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 
-const open = (width: number) => ({ open: true, width })
-const closed = (width: number) => ({ open: false, width })
+// Numeric preference form (0 = closed); helpers keep the scenario names readable.
+const open = (width: number) => width
+const closed = (_width: number) => 0
 
 describe('clampWidth', () => {
   it('clamps into the range and rounds', () => {

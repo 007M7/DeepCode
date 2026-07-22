@@ -1,18 +1,20 @@
 // @vitest-environment jsdom
 /**
- * SidebarRoot interaction spec on the real framework stack: real tree store
- * (web-react SnapshotStore) feeding the component through the same selector
- * hook the inject surface hands out. Covers expand/collapse, subtree unfold,
- * search filtering, row activation, and the creation entries.
+ * SidebarRoot interaction spec, props-direct (slot-parity test doctrine:
+ * components are fed composed props, no assembly machinery). The standard
+ * useSessions hook is stubbed with a real web-react SnapshotStore selector;
+ * expansion/search live inside the component, so all viewing behavior is
+ * driven through the DOM. Covers expand/collapse, subtree unfold, search
+ * filtering, row activation, and the creation entries.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { act } from 'react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
+// Engine subpath: createSnapshotStore left the public face (wave 3); the
+// engine remains the sanctioned stub source for the standard hooks in tests.
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react/store'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import { createSidebarTreeStore, type SidebarTreeStore } from '../src/client/store.ts'
 import { SidebarRoot } from '../src/client/SidebarRoot.tsx'
-import type { SidebarActions } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
 const sid = (s: string) => s as SessionId
 
@@ -41,29 +43,29 @@ function summary(init: SummaryInit): SessionSummary {
 function listStateOf(...summaries: SessionSummary[]): SessionListState {
   const byId: Record<SessionId, SessionSummary> = {}
   for (const s of summaries) byId[s.id] = s
-  return { ids: summaries.map((s) => s.id), byId }
+  return { ids: summaries.map((s) => s.id), byId, current: undefined }
 }
 
 afterEach(cleanup)
 
 function mount(...summaries: SessionSummary[]) {
-  const list = createSnapshotStore<SessionListState>(listStateOf(...summaries))
-  const tree: SidebarTreeStore = createSidebarTreeStore({ list })
-  const current = createSnapshotStore<{ id: SessionId | undefined }>({ id: undefined })
-  const actions: SidebarActions = {
-    open: vi.fn((id: SessionId) => { current.update((d) => { d.id = id }) }),
-    create: vi.fn(),
-    toggleSidebar: vi.fn(),
-  }
+  // Real engine store as the useSessions stub: same uSES selector shape the
+  // framework delivers, so list updates re-render exactly like production.
+  const sessions = createSnapshotStore<SessionListState>(listStateOf(...summaries))
+  const onOpen = vi.fn((id: SessionId) => { sessions.update((d) => { d.current = id }) })
+  const onCreate = vi.fn()
+  const onToggleSidebar = vi.fn()
   const utils = render(
     <SidebarRoot
-      useTree={tree.store.useSelector}
-      useCurrent={() => current.useSelector((s) => s.id)}
-      actions={actions}
-      tree={tree}
+      collapsed={false}
+      width={300}
+      useSessions={sessions.useSelector}
+      onOpen={onOpen}
+      onCreate={onCreate}
+      onToggleSidebar={onToggleSidebar}
     />,
   )
-  return { list, tree, current, actions, ...utils }
+  return { sessions, onOpen, onCreate, onToggleSidebar, ...utils }
 }
 
 const projectData = () => [
@@ -71,6 +73,9 @@ const projectData = () => [
   summary({ id: 'kid', title: 'forked child', cwd: '/proj', parentId: sid('root'), updatedAt: 4 }),
   summary({ id: 'lone', title: 'elsewhere', cwd: '/other', updatedAt: 3 }),
 ]
+
+/** Flush the store's microtask-batched notification into React. */
+const flush = async () => { await act(async () => { await Promise.resolve() }) }
 
 describe('SidebarRoot', () => {
   it('renders chrome and collapsed project rows', () => {
@@ -94,11 +99,13 @@ describe('SidebarRoot', () => {
     expect(screen.queryByText('forked child')).toBeNull()
   })
 
-  it('opens a session on row click and marks it selected', () => {
-    const { actions } = mount(...projectData())
+  it('opens a session on row click and marks it selected', async () => {
+    const { onOpen } = mount(...projectData())
     act(() => { fireEvent.click(screen.getByText('proj')) })
     act(() => { fireEvent.click(screen.getByText('root work')) })
-    expect(actions.open).toHaveBeenCalledWith('root')
+    expect(onOpen).toHaveBeenCalledWith('root')
+    // The mock routed the open into sessions.current — highlight follows.
+    await flush()
     expect(screen.getByText('root work').closest('[role="treeitem"]')!.getAttribute('aria-selected')).toBe('true')
   })
 
@@ -128,20 +135,20 @@ describe('SidebarRoot', () => {
   })
 
   it('routes the three creation entries with the right cwd', () => {
-    const { actions } = mount(...projectData())
+    const { onCreate } = mount(...projectData())
     act(() => { fireEvent.click(screen.getByText('New Session')) })
-    expect(actions.create).toHaveBeenLastCalledWith()
+    expect(onCreate).toHaveBeenLastCalledWith()
     act(() => { fireEvent.click(screen.getByLabelText('New workspace')) })
-    expect(actions.create).toHaveBeenLastCalledWith()
+    expect(onCreate).toHaveBeenLastCalledWith()
     // Per-project "+" is hover-revealed by CSS; still clickable in jsdom.
     act(() => { fireEvent.click(screen.getAllByLabelText('New session here')[0]!) })
-    expect(actions.create).toHaveBeenLastCalledWith('/proj')
+    expect(onCreate).toHaveBeenLastCalledWith('/proj')
   })
 
   it('collapse button and group-by menu behave', () => {
-    const { actions } = mount(...projectData())
+    const { onToggleSidebar } = mount(...projectData())
     act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
-    expect(actions.toggleSidebar).toHaveBeenCalledOnce()
+    expect(onToggleSidebar).toHaveBeenCalledOnce()
     expect(screen.queryByText('Update')).toBeNull()
     act(() => { fireEvent.click(screen.getByLabelText('Group by')) })
     expect(screen.getByText('Update')).toBeTruthy()
@@ -156,28 +163,27 @@ describe('SidebarRoot', () => {
   })
 
   it('re-renders when the sessions list gains a session', async () => {
-    const { list } = mount(...projectData())
+    const { sessions } = mount(...projectData())
     act(() => {
-      list.update((draft) => {
+      sessions.update((draft) => {
         draft.ids.push(sid('fresh'))
         draft.byId[sid('fresh')] = summary({ id: 'fresh', title: 'brand new', cwd: '/fresh', updatedAt: 99 })
       })
     })
     // Store notifications are microtask-batched.
-    await act(async () => { await Promise.resolve() })
+    await flush()
     expect(screen.getByText('fresh')).toBeTruthy()
   })
 
   it('row "More" anchors swallow the click without opening or toggling', () => {
-    const { actions, tree } = mount(...projectData())
+    const { onOpen } = mount(...projectData())
     act(() => { fireEvent.click(screen.getByText('proj')) })
-    const before = tree.store.getSnapshot().expandedProjects.length
-    // Project-row anchor: must not collapse the project.
+    // Project-row anchor: must not collapse the project (rows stay visible).
     act(() => { fireEvent.click(screen.getAllByLabelText('More')[0]!) })
-    expect(tree.store.getSnapshot().expandedProjects).toHaveLength(before)
+    expect(screen.getByText('root work')).toBeTruthy()
     // Session-row anchor: must not open the session.
     act(() => { fireEvent.click(screen.getAllByLabelText('More')[1]!) })
-    expect(actions.open).not.toHaveBeenCalled()
+    expect(onOpen).not.toHaveBeenCalled()
   })
 
   it('shows the running state dot only for running sessions', () => {
