@@ -12,6 +12,7 @@ import { globSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
 import ts from 'typescript'
+import { cordisConfigFiles } from './cordis-config-files.ts'
 
 interface JsExpr {
   __jsExpr: string
@@ -39,10 +40,7 @@ const jsExprType = new yaml.Type('tag:yaml.org,2002:js', {
 })
 const schema = yaml.JSON_SCHEMA.extend(jsExprType)
 
-const files = globSync(['**/*cordis*.yml', '**/*cordis*.yaml'], {
-  cwd: root,
-  exclude: ['.claude/**', 'node_modules/**', 'vendor/**'],
-}).sort()
+const files = cordisConfigFiles(root)
 const errors: string[] = []
 const examplePluginReferences: PluginReference[] = []
 
