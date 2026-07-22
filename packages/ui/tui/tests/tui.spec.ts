@@ -1480,8 +1480,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
     })
     failed.terminal.send('/model')
     failed.terminal.send('\r')
-    await tick()
-    expect(failed.terminal.output).toContain('Could not read the model catalog: catalog offline')
+    await vi.waitFor(() => {
+      expect(failed.terminal.output).toContain('Could not read the model catalog: catalog offline')
+    })
     expect(failed.terminal.output).toContain('Could not resolve model context: capacity offline')
     await dispose(failed)
   })
