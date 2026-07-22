@@ -130,23 +130,24 @@ describe('tool-lsp execution', () => {
   })
 
   it('keeps all acquired locations in the canonical value when presentation is capped', async () => {
+    const cappedWorkspaceRoot = resolve('/virtual/capped-workspace')
     const locations = [
-      { uri: 'file:///ws/a.ts', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } },
-      { uri: 'file:///ws/b.ts', range: { start: { line: 1, character: 2 }, end: { line: 1, character: 3 } } },
+      { uri: pathToFileURL(join(cappedWorkspaceRoot, 'a.ts')).href, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } },
+      { uri: pathToFileURL(join(cappedWorkspaceRoot, 'b.ts')).href, range: { start: { line: 1, character: 2 }, end: { line: 1, character: 3 } } },
     ]
     const { ctx } = await mount(stubProvider(() => ({
       kind: 'locations',
       locations,
-      resolvedWorkspaceRoot: '/ws',
+      resolvedWorkspaceRoot: cappedWorkspaceRoot,
     })), { maxLocations: 1 })
-    const result = await call(ctx, { operation: 'findReferences', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
+    const result = await call(ctx, { operation: 'findReferences', file_path: 'a.ts', line: 1, character: 1 }, cappedWorkspaceRoot)
     expect(result.content[0]).toEqual({
       type: 'text',
       text: 'a.ts:1:1\n… 1 more location omitted (limit 1).',
     })
     expect(result).toMatchObject({
       isError: false,
-      value: { kind: 'locations', locations, resolvedWorkspaceRoot: '/ws' },
+      value: { kind: 'locations', locations, resolvedWorkspaceRoot: cappedWorkspaceRoot },
     })
   })
 
