@@ -88,8 +88,7 @@
     },
     "packages/client/runtime": {
       "entry": [
-        "tests/**/*.spec.ts",
-        "tests/**/*.e2e.ts"
+        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",

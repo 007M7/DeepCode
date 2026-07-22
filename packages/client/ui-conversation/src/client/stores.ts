@@ -9,8 +9,20 @@
  * Module exports the factory only — a module-level handle would pin identity
  * in the module cache (a de-facto singleton surviving plugin reloads).
  */
-import { defineStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ChatStoreState, SelectionTarget, ViewId } from './contract/views.ts'
+
+/**
+ * Annotation twin of the actions literal below (the export needs a declared
+ * return type); drift fails assignability at the defineStore call.
+ */
+type ChatActions = {
+  select: (draft: ChatStoreState, target: SelectionTarget | null) => void
+  setDraft: (draft: ChatStoreState, text: string) => void
+  clearDraft: (draft: ChatStoreState) => void
+  restoreDraft: (draft: ChatStoreState, text: string) => void
+  setView: (draft: ChatStoreState, view: ViewId) => void
+}
 
 /**
  * Declare the per-session chat store. `selection` is the details-linkage
@@ -20,7 +32,7 @@ import type { ChatStoreState, SelectionTarget, ViewId } from './contract/views.t
  * cross-remount survival channel, null falls back to the first registered view).
  * @returns the store handle (spec + identity + factory in one value).
  */
-export function createChatStore() {
+export function createChatStore(): EngineStoreHandle<ChatStoreState, ChatActions> {
   return defineStore({
     // Anchored to the contract shape: views consume the store through
     // ConvViewProps' SnapshotSelectorHook<ChatStoreState>, so init and the

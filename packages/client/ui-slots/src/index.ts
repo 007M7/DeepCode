@@ -333,6 +333,16 @@ export class SlotCore {
       & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, object>>
       & RendersCheck<C, D>,
   ): () => void
+  /**
+   * Inject-bearing overload: identical semantics to the overload above, plus
+   * the registrant's business face — `I` is inferred from the inject
+   * factory's return and joins the component's composed-props constraint
+   * (factory parameters derive from the declaration, {@link InjectParams}).
+   * @param options - registration options plus the `inject` business-face factory.
+   * @param component - component honoring the four-share composed props
+   * contract including the inject share `I`.
+   * @returns disposer removing the registration and its declarations.
+   */
   register<
     K extends keyof SlotMap & string,
     I extends object,
