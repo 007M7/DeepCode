@@ -29,8 +29,13 @@ const e2eMaxWorkers = positiveIntFromEnv('DSH_E2E_MAX_WORKERS', DEFAULT_E2E_MAX_
 
 export default defineConfig({
   // Same resolution note as vitest.config.ts: bare workspace names resolve
-  // through the root tsconfig paths map; the native option cannot do this.
-  plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
+  // through the vitest-scoped tsconfig paths map (its include spans package
+  // src, so client-package sources get mapping too — the root tsconfig
+  // excludes packages/client, which would drop /client subpath imports onto
+  // package exports and load browser dist bundles into node). Built-artifact
+  // e2e suites are unaffected: their built-ness lives in subprocesses and
+  // createRequire lookups, which bypass vite resolution entirely.
+  plugins: [tsconfigPaths({ projects: ['./tsconfig.vitest.json'] })],
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
     include: ['packages/*/*/tests/**/*.e2e.ts', 'examples/*/tests/**/*.e2e.ts'],

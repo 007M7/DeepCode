@@ -152,15 +152,29 @@ function localPackageDirectories(): Map<string, string> {
 }
 
 function rootProjectReferences(): Set<string> {
-  const config = ts.readConfigFile(resolve(root, 'tsconfig.json'), path => ts.sys.readFile(path))
-  if (config.error !== undefined) {
-    throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'))
+  // Typecheck runs two sibling aggregates (root = host program,
+  // tsconfig.client.json = client program; the two sides merge cordis Context
+  // under the same keys, so one program cannot see both). Seed both and follow
+  // any nested aggregate references to collect the covered leaf project set.
+  const collected = new Set<string>()
+  const queue = [resolve(root, 'tsconfig.json'), resolve(root, 'tsconfig.client.json')]
+  const seen = new Set<string>()
+  for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
+    if (seen.has(file)) continue
+    seen.add(file)
+    const config = ts.readConfigFile(file, path => ts.sys.readFile(path))
+    if (config.error !== undefined) {
+      throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'))
+    }
+    const references = (config.config as { references?: Array<{ path?: unknown }> }).references ?? []
+    for (const reference of references) {
+      if (typeof reference.path !== 'string') continue
+      const target = resolve(dirname(file), reference.path)
+      if (target.endsWith('.json')) queue.push(target)
+      else collected.add(target)
+    }
   }
-  const references = (config.config as { references?: Array<{ path?: unknown }> }).references ?? []
-  return new Set(references.flatMap((reference) => {
-    if (typeof reference.path !== 'string') return []
-    return [resolve(root, reference.path)]
-  }))
+  return collected
 }
 
 function packageNameFromSpecifier(specifier: string): string | undefined {

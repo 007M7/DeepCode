@@ -1,0 +1,23 @@
+{
+  "name": "@deepseek-ai/dsh",
+  "description": "dsh CLI: `dsh web` serves the built web UI over HTTP; `dsh -p` runs one headless task through the in-process ApiProxy carrier",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "dsh": "lib/bin.js"
+  },
+  "files": [
+    "lib/bin.js",
+    "src"
+  ],
+  "license": "BSD-3-Clause",
+  "dependencies": {
+    "@deepseek-ai/dsh-app-boot": "workspace:^",
+    "@deepseek-ai/dsh-frontend": "workspace:^",
+    "@deepseek-ai/dsh-host-apiproxy": "workspace:^",
+    "@deepseek-ai/dsh-host-runtime": "workspace:^",
+    "@deepseek-ai/dsh-host-webserver": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^"
+  }
+}
