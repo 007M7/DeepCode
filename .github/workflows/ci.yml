@@ -323,7 +323,7 @@ jobs:
   node-24:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
     runs-on: dsh-ubuntu-24-04-96core
-    name: node 24 / complete
+    name: node 24 / core
     env:
       # Thirty-two Vitest forks intermittently crash Node's CJS lexer on this image.
       DSH_COVERAGE_MAX_WORKERS: '16'
@@ -380,7 +380,7 @@ jobs:
           if (( install_status != 0 )); then exit "$install_status"; fi
           exit "$sandbox_status"
 
-      - name: Run complete unsharded primary Node CI concurrently
+      - name: Run unsharded primary Node core CI concurrently
         run: pnpm run check:ci:large-runner
 
   # Keep only the longest independent Linux gate on a second coarse-grained
