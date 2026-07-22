@@ -31,6 +31,18 @@ export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 export type ConfinedSandboxMode = Exclude<SandboxMode, 'danger-full-access'>
 
 /**
+ * The complete file-effect policy resolved for one capability call. The root
+ * is carried even under modes that do not consume it so callers can resolve
+ * policy once before choosing the enforcement path.
+ */
+export interface SandboxExecutionPolicy {
+  /** The file-effect mode this execution runs under. */
+  mode: SandboxMode
+  /** Absolute root directory `workspace-write` may write under. */
+  workspaceRoot: string
+}
+
+/**
  * Enforcement completeness for this host. `partial` means an active backend or
  * older kernel ABI cannot govern every promised file effect; callers requiring
  * an absolute boundary must not treat it as `full`.
@@ -42,15 +54,12 @@ export type SandboxEnforcement = 'full' | 'partial'
  * fixed on the provider: two consumers may confine under different policies
  * at the same instant (bash under `read-only` while a confined child agent
  * needs its state directory writable), and an approved escalated retry is a
- * new call with a wider policy. Defaulting/resolution is the consumer's
- * explicit step (its config owns the fallback chain); the provider treats
- * the policy as fully specified.
+ * new call with a wider policy. Defaulting/resolution is an explicit step at
+ * the consumer boundary; the provider treats the policy as fully specified.
  */
-export interface SandboxPolicy {
+export interface SandboxPolicy extends SandboxExecutionPolicy {
   /** The file-effect mode this execution runs under. */
   mode: ConfinedSandboxMode
-  /** Absolute root directory `workspace-write` may write under. */
-  workspaceRoot: string
 }
 
 /**

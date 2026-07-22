@@ -18,9 +18,9 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-user-approval'
-import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { ESCALATION_TARGETS, approveEscalation, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
-import { effectiveSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
 import type { DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
 import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-paths'
@@ -299,11 +299,18 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
 }
 
 /**
- * Resolve an explicit workdir first, making a relative one session-cwd-relative;
- * otherwise use the session cwd and leave executor defaulting as the fallback.
+ * Resolve an explicit workdir first, making a relative one session-workspace-relative;
+ * otherwise use the filesystem identity of the session cwd and leave executor
+ * defaulting as the fallback. A resolved sandbox-policy root wins so workdir
+ * and confinement use the exact same per-call identity.
  */
-function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent }): string | undefined {
-  const sessionCwd = exec.agent?.session.header.cwd
+function resolveWorkdir(
+  modelWorkdir: string | undefined,
+  exec: { agent?: Agent },
+  policyWorkspaceRoot?: string,
+): string | undefined {
+  const headerCwd = exec.agent?.session.header.cwd
+  const sessionCwd = policyWorkspaceRoot ?? (headerCwd === undefined ? undefined : canonicalPath(headerCwd))
   if (modelWorkdir === undefined) return sessionCwd
   if (sessionCwd !== undefined && !isAbsolute(modelWorkdir)) {
     return resolvePath(sessionCwd, modelWorkdir)
@@ -330,9 +337,14 @@ export function apply(ctx: Context, config: Config = {}): void {
   const backgroundEnabled = config.enableRunInBackground ?? true
   const defaultMode = ctx.bash.sandboxMode
   const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
+  const sandboxPolicy: SandboxPolicyService | undefined = defaultMode === undefined ? undefined : ctx.get('sandboxPolicy')
+  if (defaultMode !== undefined && sandboxPolicy === undefined) {
+    throw new Error('tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing')
+  }
 
-  const sessionOverride = (exec: ToolExecution): SandboxMode | undefined =>
-    defaultMode === undefined || exec.agent === undefined ? undefined : effectiveSandboxMode(exec.agent.session.events)
+  /** Resolve the complete standing policy for this call when a confining executor is mounted. */
+  const resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | undefined =>
+    sandboxPolicy?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })
 
   /**
    * Resolve a sandbox-escalation request through `ctx.approval` BEFORE
@@ -342,14 +354,19 @@ export function apply(ctx: Context, config: Config = {}): void {
    * guard (the fields are unadvertised without a sandboxing executor, yet
    * schema validation checks advertised keys only, so an unadvertised
    * `sandbox_permissions` still reaches execute) and the approval ingredients
-   * — the seam is consumed opportunistically (`ctx.get`) so a deployment
-   * without it degrades per call.
+   * The shared policy resolver is required whenever the executor advertises
+   * confinement, so a split composition fails at tool-plugin load.
    */
-  const approveBashEscalation = (mode: string, justification: string, exec: ToolExecution): Promise<SandboxMode> => {
+  const approveBashEscalation = (
+    mode: string,
+    justification: string,
+    exec: ToolExecution,
+    standingPolicy: SandboxExecutionPolicy | undefined,
+  ): Promise<SandboxMode> => {
     if (escalationModes.length === 0) {
       throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
     }
-    const effectiveMode = (sessionOverride(exec) ?? defaultMode) as SandboxMode
+    const effectiveMode = (standingPolicy as SandboxExecutionPolicy).mode
     return approveEscalation(
       { requestedMode: mode, justification, effectiveMode, subject: 'command' },
       {
@@ -401,17 +418,21 @@ export function apply(ctx: Context, config: Config = {}): void {
     async execute(args: BashToolArgs, exec) {
       validateBashArgs(args)
       // Description is display metadata; workdir defaults to the caller's session.
-      const sandboxMode = args.sandbox_permissions !== undefined && args.justification !== undefined
-        ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec)
-        : sessionOverride(exec)
-      const workdir = resolveWorkdir(args.workdir, exec)
+      const standingPolicy = resolveSandboxPolicy(exec)
+      const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+        ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
+        : undefined
+      const policy = approvedMode === undefined
+        ? standingPolicy
+        : { ...(standingPolicy as SandboxExecutionPolicy), mode: approvedMode }
+      const workdir = resolveWorkdir(args.workdir, exec, standingPolicy?.workspaceRoot)
       const dshEnv = bashEnv.collect(exec)
       const request = {
         command: args.command,
         ...workdir !== undefined ? { workdir } : {},
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
         dshEnv,
-        ...sandboxMode !== undefined ? { sandboxMode } : {},
+        ...policy !== undefined ? { sandboxPolicy: policy } : {},
       }
       if (args.run_in_background === true) {
         // Undeclared keys are allowed, so schema omission also needs enforcement.
