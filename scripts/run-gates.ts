@@ -17,7 +17,6 @@ type Mode =
   | 'ci-snapshot'
   | 'ci-artifacts'
   | 'node-compat'
-  | 'pre-push'
   | 'doc-sync'
 type GateStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
 
@@ -87,21 +86,20 @@ function parseMode(raw: string | undefined): Mode {
     case 'ci-snapshot':
     case 'ci-artifacts':
     case 'node-compat':
-    case 'pre-push':
     case 'doc-sync':
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | pre-push | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | node-compat | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
 
 function defaultConcurrency(selectedMode: Mode, total: number): ConcurrencyDefault {
   const available = availableParallelism()
-  // Local modes cap workers: several doc gates each build a full ts.Program,
+  // The local doc mode caps workers: several gates each build a full ts.Program,
   // so an uncapped default on a large host trades wall clock for memory blowups.
-  const localCap = selectedMode === 'pre-push' || selectedMode === 'doc-sync'
+  const localCap = selectedMode === 'doc-sync'
   const modeLimit = localCap ? Math.min(4, available) : available
   return {
     workers: Math.min(total, modeLimit),
@@ -190,21 +188,6 @@ function gatesForMode(selected: Mode): Gate[] {
           'run',
           'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
         ], { label: 'JSONL Zstandard smoke' }),
-      ]
-    case 'pre-push':
-      return [
-        pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
-        pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
-        pnpmScript('test', 'test'),
-        pnpmScript('duplication', 'duplication'),
-        snapshotGate(),
-        pnpmScript('build', 'build'),
-        ...hygieneLeafGates({ artifactNeeds: ['build'] }),
-        ...docSyncLeafGates({
-          docTypecheckNeeds: ['build'],
-          docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
-        }),
-        pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
       ]
     case 'doc-sync':
       return docSyncLeafGates()
@@ -295,8 +278,8 @@ function coverageGate(): Gate {
 }
 
 // The snapshot suite boots the example bins in `lib` mode (built artifact under plain Node,
-// plugins via real exports) — CI and pre-push already build, so they exercise what ships rather
-// than the tsx/source path dev uses. It therefore waits on `build`.
+// plugins via real exports). CI pairs it with `build`, so it exercises what ships rather than
+// the tsx/source path dev uses and therefore waits on `build`.
 function snapshotGate(): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
     env: { DSH_EXAMPLE_MODE: 'lib' },
@@ -321,30 +304,9 @@ function positiveIntArg(envName: string, flag: string): string[] {
   return [`${flag}=${raw}`]
 }
 
-function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
-  const artifactOptions = options.artifactNeeds === undefined ? {} : { needs: options.artifactNeeds }
+function docSyncLeafGates(): Gate[] {
   return [
-    pnpmScript('knip', 'knip'),
-    pnpmScript('publint', 'publint', artifactOptions),
-    pnpmScript('constraints', 'constraints'),
-    pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
-    builtPackageInvariantsGate(options.artifactNeeds),
-    pnpmScript('node-next-types', 'verify-node-next-types', {
-      label: 'node-next types',
-      ...artifactOptions,
-    }),
-  ]
-}
-
-function docSyncLeafGates(options: {
-  docTypecheckNeeds?: string[]
-  docTypecheckEnv?: Record<string, string | undefined>
-} = {}): Gate[] {
-  const docTypecheckOptions: Partial<Gate> = {}
-  if (options.docTypecheckNeeds !== undefined) docTypecheckOptions.needs = options.docTypecheckNeeds
-  if (options.docTypecheckEnv !== undefined) docTypecheckOptions.env = options.docTypecheckEnv
-  return [
-    pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions),
+    pnpmScript('doc-typecheck', 'doc-typecheck'),
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
     pnpmScript('cordis-api', 'verify-cordis-api', { label: 'cordis api' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
