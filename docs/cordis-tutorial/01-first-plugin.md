@@ -26,7 +26,7 @@ This tutorial's launcher assembles the application from configuration. Create `c
 - name: './hello.ts'
 ```
 
-The file is a list of plugin entries. `name` is a module specifier — a relative path or an npm package name — and the loader mounts each entry in order.
+The file is a list of plugin entries. `name` is a module specifier — a relative path or an npm package name — and the loader mounts every entry. Entries start concurrently, so list position guarantees nothing about which plugin loads first; ordering comes from service dependencies (`inject`, [chapter 3](03-services.md)), not from position in the file.
 
 ## Run it
 

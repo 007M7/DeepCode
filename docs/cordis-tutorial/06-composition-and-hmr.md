@@ -25,12 +25,16 @@ Because unloading releases effects ([chapter 2](02-lifecycle-and-effects.md)) an
 In `tmp/cordis-tutorial`, write `cordis.yml`:
 
 ```yaml
-- name: '@cordisjs/plugin-logger-console'
-- name: '@cordisjs/plugin-timer'
-- name: '@cordisjs/plugin-hmr'
+- id: logger
+  name: '@cordisjs/plugin-logger-console'
+- id: timer
+  name: '@cordisjs/plugin-timer'
+- id: hmr
+  name: '@cordisjs/plugin-hmr'
   config:
     root: ['.']
-- name: './hello.ts'
+- id: hello
+  name: './hello.ts'
 ```
 
 Two support plugins joined the list: HMR logs through the Cordis logger service, so without a console exporter you would not see its messages, and it `inject`s the `timer` service for debouncing — without `@cordisjs/plugin-timer` it sits in PENDING forever, silently. That silence is the subject of the next section.
@@ -50,7 +54,7 @@ hello from my first plugin
 hello from my EDITED plugin
 ```
 
-The old instance unloaded (all its effects unwound), the new code loaded, `apply` ran again. Stop the process with Ctrl-C. Editing `cordis.yml` itself is also picked up: the loader diffs entries by `id` and mounts, unmounts, or reconfigures only what changed.
+The old instance unloaded (all its effects unwound), the new code loaded, `apply` ran again. Stop the process with Ctrl-C. Editing `cordis.yml` itself is also picked up: the loader diffs entries by `id` and mounts, unmounts, or reconfigures only what changed. This is why the entries above carry explicit `id`s — an entry without one gets a generated id on every read, so after any config-file edit it counts as removed-plus-added and remounts even if its own lines did not change.
 
 ## Diagnosing a plugin that never loads
 

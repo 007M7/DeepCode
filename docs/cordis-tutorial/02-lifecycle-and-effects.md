@@ -27,11 +27,16 @@ function heartbeat(ctx: Context) {
 export function apply(ctx: Context) {
   // Mount a child plugin and keep its fiber to dispose it later.
   const fiber = ctx.plugin(heartbeat)
-  setTimeout(async () => {
-    await fiber.dispose()
-    console.log('disposed')
-    process.exit(0)
-  }, 700)
+  // The demo timer is itself an effect: if THIS plugin is unloaded first,
+  // the pending callback is cancelled instead of firing on a dead app.
+  ctx.effect(() => {
+    const timer = setTimeout(async () => {
+      await fiber.dispose()
+      console.log('disposed')
+      process.exit(0)
+    }, 700)
+    return () => clearTimeout(timer)
+  })
 }
 ```
 
