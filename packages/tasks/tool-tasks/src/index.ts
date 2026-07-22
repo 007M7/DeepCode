@@ -8,9 +8,10 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { TextRetainer } from '@deepseek-ai/dsh-retention'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, PostToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskSnapshot } from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -84,6 +85,24 @@ function fitCompletionNotice(snapshot: TaskSnapshot): string {
   return `${prefix}${retainHead(detail, maxBytes - fixedBytes)}${omitted}${action}`
 }
 
+function boundSingleText(content: readonly ContentBlock[], maxBytes: number): ContentBlock[] | undefined {
+  if (content.length !== 1) return undefined
+  const block = content[0]
+  if (block?.type !== 'text') return undefined
+  return [{
+    type: 'text',
+    text: fitWithSuffix(block.text, '', maxBytes, '\n[result truncated]'),
+  }]
+}
+
+function rememberOutputLimit(
+  limits: WeakMap<ToolExecution, number>,
+  exec: ToolExecution,
+  snapshot: TaskSnapshot,
+): void {
+  if (snapshot.outputLimitBytes !== undefined) limits.set(exec, snapshot.outputLimitBytes)
+}
+
 /** Validate the non-empty constraint that SchemaSpec cannot express. */
 function validateTaskId(value: string): TaskId {
   if (value.length === 0) {
@@ -103,6 +122,20 @@ export function apply(ctx: Context, config: Config): void {
   if (waitDefault > waitCap) {
     throw new Error(`tool-tasks: waitTimeoutMs (${waitDefault}) exceeds maxWaitTimeoutMs (${waitCap})`)
   }
+
+  const outputLimits = new WeakMap<ToolExecution, number>()
+  ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
+    const decision = await next()
+    const maxBytes = outputLimits.get(exec)
+    outputLimits.delete(exec)
+    if (maxBytes === undefined) return decision
+    const content = decision.kind === 'block' ? decision.feedback : decision.content ?? result.content
+    const bounded = boundSingleText(content, maxBytes)
+    if (bounded === undefined) return decision
+    return decision.kind === 'block'
+      ? { ...decision, feedback: bounded }
+      : { ...decision, content: bounded }
+  }, { prepend: true })
 
   // Producers may start work only while a control surface is attached.
   ctx.tasks.attachSurface('tool-tasks')
@@ -146,6 +179,7 @@ export function apply(ctx: Context, config: Config): void {
     },
     async execute(args, exec) {
       const id = validateTaskId(args.task_id)
+      rememberOutputLimit(outputLimits, exec, ctx.tasks.get(id, exec.agent))
       if (args.wait === true) {
         const timeout = Math.min(args.timeout_ms ?? waitDefault, waitCap)
         await ctx.tasks.wait(id, timeout, exec.agent, exec.signal)
@@ -190,6 +224,7 @@ export function apply(ctx: Context, config: Config): void {
     execute(args, exec) {
       const id = validateTaskId(args.task_id)
       const snapshot = ctx.tasks.get(id, exec.agent)
+      rememberOutputLimit(outputLimits, exec, snapshot)
       const result = ctx.tasks.kill(id, exec.agent, args.reason)
       if (result === 'already-finished') {
         // A snapshot describes terminal state without consuming pending output.

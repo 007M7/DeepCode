@@ -6,7 +6,7 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import TaskService from '@deepseek-ai/dsh-tasks'
+import TaskService, { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { statusLine } from '@deepseek-ai/dsh-tool-tasks'
@@ -149,6 +149,19 @@ describe('task_output', () => {
     expect(output).toContain('[status: running]')
   })
 
+  it('applies a producer limit to a normalized read failure', async () => {
+    const { ctx } = await setup()
+    ctx.tasks.start(producer({
+      outputLimitBytes: 64,
+      readOutput: () => { throw new Error('read failed: '.repeat(100)) },
+    }).spec)
+
+    const result = await call(ctx, 'task_output', { task_id: 'bash-1' })
+    expect(result.isError).toBe(true)
+    expect(Buffer.byteLength(text(result))).toBeLessThanOrEqual(64)
+    expect(text(result)).toContain('[result truncated]')
+  })
+
   it('wait: true blocks until settlement and reports the terminal state', async () => {
     const { ctx } = await setup()
     const p = producer({ kind: 'subagent', label: 'research' })
@@ -221,6 +234,63 @@ describe('task_kill', () => {
     const result = await call(ctx, 'task_kill', { task_id: 'bash-1' })
     expect(Buffer.byteLength(text(result))).toBeLessThanOrEqual(8)
     expect(p.cancels).toEqual([undefined])
+  })
+
+  it('applies the producer output limit to a normalized cancellation failure', async () => {
+    const { ctx } = await setup()
+    ctx.tasks.start(producer({
+      outputLimitBytes: 64,
+      cancel: () => { throw new Error('cancel failed: '.repeat(100)) },
+    }).spec)
+
+    const result = await call(ctx, 'task_kill', { task_id: 'bash-1' })
+    expect(result.isError).toBe(true)
+    expect(Buffer.byteLength(text(result))).toBeLessThanOrEqual(64)
+    expect(text(result)).toContain('[result truncated]')
+    expect(ctx.tasks.get(TaskId('bash-1'))).toMatchObject({ status: 'running', reported: false })
+  })
+
+  it('bounds single-text post policy while preserving structured policy results', async () => {
+    const { ctx } = await setup()
+    ctx.on('tools/post-execute', (exec, _result, next) => {
+      if (exec.name !== 'task_kill') return next()
+      const reason = (exec.arguments as { reason?: unknown }).reason
+      if (reason === 'replace') {
+        return Promise.resolve({ kind: 'accept', content: [{ type: 'text', text: 'r'.repeat(1_000) }] })
+      }
+      if (reason === 'block') {
+        return Promise.resolve({ kind: 'block', feedback: [{ type: 'text', text: 'b'.repeat(1_000) }] })
+      }
+      if (reason === 'multi') {
+        return Promise.resolve({
+          kind: 'block',
+          feedback: [{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }],
+        })
+      }
+      if (reason === 'reasoning') {
+        return Promise.resolve({ kind: 'block', feedback: [{ type: 'reasoning', text: 'policy detail' }] })
+      }
+      return next()
+    })
+    for (let index = 0; index < 4; index += 1) {
+      ctx.tasks.start(producer({ outputLimitBytes: 64 }).spec)
+    }
+
+    const replaced = await call(ctx, 'task_kill', { task_id: 'bash-1', reason: 'replace' })
+    expect(replaced.isError).toBe(false)
+    expect(Buffer.byteLength(text(replaced))).toBeLessThanOrEqual(64)
+    expect(text(replaced)).toContain('[result truncated]')
+
+    const blocked = await call(ctx, 'task_kill', { task_id: 'bash-2', reason: 'block' })
+    expect(blocked.isError).toBe(true)
+    expect(Buffer.byteLength(text(blocked))).toBeLessThanOrEqual(64)
+    expect(text(blocked)).toContain('[result truncated]')
+
+    const multi = await call(ctx, 'task_kill', { task_id: 'bash-3', reason: 'multi' })
+    expect(multi.content).toEqual([{ type: 'text', text: 'first' }, { type: 'text', text: 'second' }])
+
+    const reasoning = await call(ctx, 'task_kill', { task_id: 'bash-4', reason: 'reasoning' })
+    expect(reasoning.content).toEqual([{ type: 'reasoning', text: 'policy detail' }])
   })
 
   it('reports an already-finished task without consuming its pending delta', async () => {
