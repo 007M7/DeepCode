@@ -62,4 +62,19 @@ describe('SlotsService', () => {
     // The slot definition (registered from root) survives; a new occupant may register.
     expect(() => ctx.slots.register('t-single', C)).not.toThrow()
   })
+
+  it('proxies specDynamic/subscribe/getVersion through the core', async () => {
+    const ctx = await boot()
+    ctx.slots.define('t-list', { kind: 'list', scope: 'root' })
+    expect(ctx.slots.specDynamic('t-list')).toEqual({ kind: 'list', scope: 'root' })
+    expect(ctx.slots.specDynamic('never-defined')).toBeUndefined()
+    let notified = 0
+    const unsubscribe = ctx.slots.subscribe('t-list', () => { notified += 1 })
+    ctx.slots.register('t-list', C, { id: 'row' })
+    await new Promise(resolve => setTimeout(resolve, 0)) // microtask-batched flush
+    expect(notified).toBeGreaterThan(0)
+    expect(ctx.slots.getVersion('t-list')).toBeGreaterThan(0)
+    unsubscribe()
+  })
+
 })

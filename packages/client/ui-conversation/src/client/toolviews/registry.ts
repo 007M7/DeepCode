@@ -50,7 +50,8 @@ export class ToolViewRegistry {
       if (disposed) return
       disposed = true
       const at = list.indexOf(entry)
-      /* v8 ignore next -- negative arm: an entry lives in one list and only its own once-guarded disposer removes it, so a live disposer always finds it. */
+      /* v8 ignore next -- negative arm: an entry lives in one list and only its
+         own once-guarded disposer removes it, so a live disposer always finds it. */
       if (at >= 0) list.splice(at, 1)
       if (list.length === 0) this.byTool.delete(tool)
       this.bump()

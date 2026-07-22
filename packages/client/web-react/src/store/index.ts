@@ -117,6 +117,10 @@ export function createSnapshotStore<T>(
  * (quota, private mode) only disable persistence, never break the store.
  */
 function attachPersistence<T>(api: StoreApi<T>, name: string): void {
+  // Non-browser runs (node e2e booting the client tree) have no localStorage:
+  // persistence silently disables — same contract as a storage failure, minus
+  // the per-store console noise a ReferenceError would produce.
+  if (typeof localStorage === 'undefined') return
   try {
     const raw = localStorage.getItem(name)
     if (raw !== null) {
