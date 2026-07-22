@@ -50,6 +50,12 @@ function retainTail(text: string, maxBytes: number): string {
   return retainer.finish().text
 }
 
+function retainHead(text: string, maxBytes: number): string {
+  const retainer = new TextRetainer({ kind: 'head', maxBytes })
+  retainer.push(text)
+  return retainer.finish().text
+}
+
 function fitWithSuffix(
   content: string,
   suffix: string,
@@ -62,6 +68,20 @@ function fitWithSuffix(
   const fixedBytes = encoder.encode(fixed).byteLength
   if (fixedBytes >= maxBytes) return retainTail(fixed, maxBytes)
   return `${retainTail(content, maxBytes - fixedBytes)}${fixed}`
+}
+
+function fitCompletionNotice(snapshot: TaskSnapshot): string {
+  const prefix = `background task ${snapshot.id}`
+  const detail = ` (${snapshot.kind}: ${snapshot.label}) finished ${statusLine(snapshot)}`
+  const action = '\nDone; task_output.'
+  const complete = `${prefix}${detail}. Read its output with task_output.`
+  const maxBytes = snapshot.outputLimitBytes
+  if (maxBytes === undefined || encoder.encode(complete).byteLength <= maxBytes) return complete
+  const omitted = '\n[notice truncated]'
+  const fixed = `${prefix}${omitted}${action}`
+  const fixedBytes = encoder.encode(fixed).byteLength
+  if (fixedBytes >= maxBytes) return retainHead(fixed, maxBytes)
+  return `${prefix}${retainHead(detail, maxBytes - fixedBytes)}${omitted}${action}`
 }
 
 /** Validate the non-empty constraint that SchemaSpec cannot express. */
@@ -98,12 +118,10 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tasks.onTaskDone((snapshot, owner) => {
     if (snapshot.reported || owner === undefined) return
     try {
-      const prefix = `background task ${snapshot.id} (${snapshot.kind}: ${snapshot.label})`
-      const suffix = ` finished ${statusLine(snapshot)}. Read its output with task_output.`
       owner.inject(
         [{
           type: 'text',
-          text: fitWithSuffix(prefix, suffix, snapshot.outputLimitBytes, '\n[notice truncated]'),
+          text: fitCompletionNotice(snapshot),
         }],
         { source: { kind: 'plugin', plugin: 'tool-tasks' } },
       )

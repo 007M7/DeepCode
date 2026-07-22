@@ -272,6 +272,43 @@ describe('completion notices', () => {
     )
   })
 
+  it('preserves task ids and collection guidance in bounded completion notices', async () => {
+    const { ctx } = await setup()
+    const inject = vi.fn()
+    const owner = fakeAgent(ctx, 'sess-1', inject)
+    const first = producer({
+      owner,
+      kind: 'subagent',
+      label: 'x'.repeat(1_000),
+      outputLimitBytes: 64,
+    })
+    ctx.tasks.start(first.spec)
+    first.settle({ status: 'completed', detail: 'd'.repeat(1_000) })
+    await tick()
+
+    expect(inject).toHaveBeenNthCalledWith(
+      1,
+      [{ type: 'text', text: 'background task subagent-1\n[notice truncated]\nDone; task_output.' }],
+      { source: { kind: 'plugin', plugin: 'tool-tasks' } },
+    )
+
+    const second = producer({
+      owner,
+      kind: 'subagent',
+      label: 'x'.repeat(1_000),
+      outputLimitBytes: 80,
+    })
+    ctx.tasks.start(second.spec)
+    second.settle({ status: 'completed', detail: 'd'.repeat(1_000) })
+    await tick()
+
+    const content = inject.mock.calls[1]?.[0] as Array<{ type: string; text?: string }> | undefined
+    const notice = content?.[0]?.text ?? ''
+    expect(Buffer.byteLength(notice)).toBeLessThanOrEqual(80)
+    expect(notice).toContain('background task subagent-2 (subagent: xxxx')
+    expect(notice).toContain('[notice truncated]\nDone; task_output.')
+  })
+
   it('suppresses the notice for a task the model already killed', async () => {
     const { ctx } = await setup()
     const inject = vi.fn()

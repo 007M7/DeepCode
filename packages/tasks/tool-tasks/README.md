@@ -10,11 +10,11 @@ The model-facing control surface for `ctx.tasks`: three kind-independent tools, 
 
 All three use generic ACP cards: `read` for output and list, `execute` for kill.
 
-When a producer supplies `outputLimitBytes`, `task_output`, terminal `task_kill`, and completion notices cap the complete UTF-8 result after adding status or notice text. The output tail and control suffix are retained when they fit; an existing producer truncation marker is reused rather than duplicated. Producers that omit the field retain the existing unbounded control-surface behavior.
+When a producer supplies `outputLimitBytes`, `task_output`, terminal `task_kill`, and completion notices cap the complete UTF-8 result after adding status or notice text. Reads retain the output tail and control suffix when they fit; a bounded completion notice instead reserves `background task <id>` and the `task_output` collection instruction before spending remaining bytes on its variable kind, label, status, and detail. An existing producer truncation marker is reused rather than duplicated. Producers that omit the field retain the existing unbounded control-surface behavior.
 
 ## Completion notices
 
-An unreported completion injects `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` into the exact owner's session. Injection is durable context for the next request, not a wake-up. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice; owner-disposal races are contained.
+An unreported completion injects `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.` into the exact owner's session. When bounded, the stable id prefix and collection command outrank variable label/detail so the notice remains actionable at PTY's supported 64-byte minimum. Injection is durable context for the next request, not a wake-up. A kill or terminal read/wait marks delivery reported and suppresses the redundant notice; owner-disposal races are contained.
 
 ## Config
 
