@@ -679,7 +679,7 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
         Function.prototype.toString = () => 'mutated';
         objectPrototype.get = () => undefined;
         objectPrototype.constructor = arrayPrototype.constructor = null;
-        globalThis.Array = globalThis.Buffer = globalThis.Function = globalThis.Number = globalThis.Object = globalThis.Reflect = globalThis.Set = globalThis.String = undefined;
+        globalThis.Array = globalThis.Buffer = globalThis.Error = globalThis.Function = globalThis.Number = globalThis.Object = globalThis.Reflect = globalThis.Set = globalThis.String = undefined;
         const echoed = await tools.echo({ request: ['€', 1] });
         let failure;
         try { await tools.fail({}) } catch (error) {
