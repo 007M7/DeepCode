@@ -22,6 +22,21 @@ const windowsCoverageExclusions = process.platform === 'win32'
     ]
   : []
 
+const testIncludes = [
+  'packages/*/*/tests/**/*.spec.{ts,tsx}',
+  'examples/*/tests/**/*.spec.ts',
+  'scripts/**/*.spec.ts',
+]
+
+// These suites exercise process-global state or process APIs that worker threads cannot isolate.
+// Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
+const processBoundTests = [
+  'packages/bash/bash-local/tests/run.spec.ts',
+  'packages/context/time-context/tests/time-context.spec.ts',
+  'packages/ui/app-boot/tests/app-boot.spec.ts',
+  'packages/workflow/workflow-workerthread/tests/session.spec.ts',
+]
+
 export default defineConfig({
   // Native path resolution reads each package's nearest tsconfig, but only the root defines
   // workspace paths. Keep this plugin pinned to the root map so bare package imports resolve
@@ -32,8 +47,35 @@ export default defineConfig({
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
-    include: ['packages/*/*/tests/**/*.spec.{ts,tsx}', 'examples/*/tests/**/*.spec.ts', 'scripts/**/*.spec.ts'],
+    include: testIncludes,
     exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+    // One coverage invocation aggregates both projects. Most suites use threads
+    // for lower startup/IPC overhead; only explicit process-bound suites fork.
+    projects: [
+      {
+        plugins: [tsconfigPaths({ projects: ['./tsconfig.vitest.json'] })],
+        test: {
+          name: 'thread-safe',
+          pool: 'threads',
+          setupFiles: ['./scripts/test-invariants.ts'],
+          include: testIncludes,
+          exclude: [
+            ...windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+            ...processBoundTests,
+          ],
+        },
+      },
+      {
+        plugins: [tsconfigPaths({ projects: ['./tsconfig.vitest.json'] })],
+        test: {
+          name: 'process-bound',
+          pool: 'forks',
+          setupFiles: ['./scripts/test-invariants.ts'],
+          include: processBoundTests,
+          exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+        },
+      },
+    ],
     coverage: {
       provider: 'v8',
       // Coverage measures OUR runtime source. Types-only files carry no
