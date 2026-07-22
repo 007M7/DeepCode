@@ -10,7 +10,8 @@
 
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import { decodeStorageRecord, packChunkRuns } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader, SessionId, StorageRecord } from '@deepseek-ai/dsh-session'
 
 /** Physical encoding selected for JSONL session artifacts. */
 export type JsonlCompression = 'zstd' | 'none'
@@ -151,17 +152,26 @@ export function logPath(
 }
 
 /**
- * Serialize one event as a JSONL line (no trailing newline).
- * @param event - the event to serialize verbatim.
- * @returns the event's single-line JSON text; the writer adds the newline.
+ * Serialize an event batch as JSONL lines (no trailing newline). With
+ * `packChunks` on, delta-chunk runs pack into `text-chunks` /
+ * `reasoning-chunks` / `tool-call-chunks` storage rows; off writes one event
+ * per line, byte-identical to the pre-packing layout. Reading is layout-blind
+ * either way ({@link scanLog} always decodes rows), so the switch only shapes
+ * NEW bytes.
+ * @param events - the batch to serialize, in log order.
+ * @param packChunks - whether to pack delta runs into storage rows.
+ * @returns the batch's JSONL text; the writer adds the final newline.
  */
-export function eventLine(event: SessionEvent): string {
-  return JSON.stringify(event)
+export function eventLines(events: readonly SessionEvent[], packChunks: boolean): string {
+  const records: readonly StorageRecord[] = packChunks ? packChunkRuns(events) : events
+  return records.map(record => JSON.stringify(record)).join('\n')
 }
 
 /**
  * Parse a JSONL log buffer into its preserved event prefix (the header is line
- * 0). Fully written events in an interrupted final turn remain part of the
+ * 0). Event lines pass through verbatim; packed chunk rows expand back into
+ * their events, so callers see one contiguous event list regardless of layout.
+ * Fully written events in an interrupted final turn remain part of the
  * prefix. The first unparsable record or seq gap after the last `turn/end`
  * marks a tolerated torn tail; the same hole in the committed region rejects.
  *
@@ -200,46 +210,60 @@ export function scanLog(buffer: Buffer): { meta: SessionHeader; events: SessionE
   }
   const headerLine = parsedHeader
 
-  // Parse every complete record first so the last valid `turn/end` determines
-  // whether an earlier hole is committed corruption or an uncommitted tail.
-  interface Parsed { ok: boolean; event?: SessionEvent; endByte: number }
+  // Parse and decode every complete line first so the last valid `turn/end`
+  // determines whether an earlier hole is committed corruption or an
+  // uncommitted tail. One line yields one event, or a whole run for a packed
+  // chunk row; a row-tagged line that fails row validation is a hole, exactly
+  // like unparsable JSON.
+  interface Parsed { ok: boolean; events?: SessionEvent[]; endByte: number }
   const parsed: Parsed[] = eventEntries.map((entry) => {
     try {
-      return { ok: true, event: JSON.parse(entry.text) as SessionEvent, endByte: entry.endByte }
+      return { ok: true, events: decodeStorageRecord(JSON.parse(entry.text)), endByte: entry.endByte }
     } catch {
       return { ok: false, endByte: entry.endByte }
     }
   })
 
-  // The last index (into eventEntries) that is a valid `turn/end` — holes
-  // through a closed turn are always committed corruption.
+  // The last index (into eventEntries) that ends in a valid `turn/end` — the
+  // last fully-committed boundary (the loop flushes only at turn/end). A packed
+  // row never stores a turn/end, so only single-event lines can match.
   let lastTurnEnd = -1
   for (let i = parsed.length - 1; i >= 0; i--) {
     const p = parsed[i]
-    if (p?.ok && p.event?.type === 'turn/end') { lastTurnEnd = i; break }
+    if (p?.ok && p.events?.some(e => e.type === 'turn/end')) { lastTurnEnd = i; break }
   }
 
   // Preserve the contiguous prefix, including a complete interrupted turn;
   // holes through the last committed boundary throw, while later holes stop.
+  // Contiguity is a cursor over seqs (not the line index): a packed row
+  // advances the cursor by its whole run.
   const preserved: SessionEvent[] = []
-  for (let i = 0; i < parsed.length; i++) {
+  let lastPreservedLine = -1
+  scan: for (let i = 0; i < parsed.length; i++) {
     const p = parsed[i]
-    if (!p?.ok || p.event === undefined) {
+    if (!p?.ok || p.events === undefined) {
       if (i <= lastTurnEnd) throw new Error(`corrupt session log: unparsable committed event at line ${i + 1}`)
       break // torn tail fragment after the last turn/end — stop, tolerate
     }
-    if (p.event.seq !== i) {
-      if (i <= lastTurnEnd) throw new Error(`corrupt session log: seq gap in committed region at line ${i + 1} (expected ${i}, got ${p.event.seq})`)
-      break // gap after the last turn/end — torn tail, stop
+    for (const event of p.events) {
+      if (event.seq !== preserved.length) {
+        if (i <= lastTurnEnd) {
+          throw new Error(`corrupt session log: seq gap in committed region at line ${i + 1} (expected ${preserved.length}, got ${event.seq})`)
+        }
+        break scan // gap after the last turn/end — torn tail, stop
+      }
+      preserved.push(event)
     }
-    preserved.push(p.event)
+    lastPreservedLine = i
   }
 
-  // committedBytes = end of the last PRESERVED line (header if none): the next
-  // append truncates any torn bytes past this point before writing the
-  // synthetic closers + new events.
-  const lastPreserved = parsed[preserved.length - 1]
-  const committedBytes = preserved.length > 0 && lastPreserved ? lastPreserved.endByte : headerEntry.endByte
+  // committedBytes = end of the last FULLY preserved line (header if none): the
+  // next append truncates any torn bytes past this point before writing the
+  // synthetic closers + new events. A line is preserved whole or not at all —
+  // a mid-row seq gap discards the whole row, keeping the truncation offset on
+  // a line boundary.
+  const lastPreserved = parsed[lastPreservedLine]
+  const committedBytes = lastPreserved !== undefined ? lastPreserved.endByte : headerEntry.endByte
   return { meta: fromHeaderLine(headerLine), events: preserved, committedBytes }
 }
 
