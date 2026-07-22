@@ -18,12 +18,15 @@ export default tseslint.config(
       '**/*.js',
       '**/*.mjs',
       '*.config.ts', // root tool configs (vitest, tsdown) — no project service
+      'apps/*/*.config.ts', // app build configs — outside their project programs
+      '**/tsdown.config.ts', // package build configs — in no tsconfig program, and TS syntax breaks the parserless fallback
+      'packages/client/tsdown.client.ts', // shared client build preset, same standing
     ],
   },
 
   // --- our packages: full strictness -------------------------------------
   {
-    files: ['packages/*/*/src/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts'],
+    files: ['packages/*/*/src/**/*.ts', 'apps/*/src/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts'],
     extends: [
       ...tseslint.configs.strictTypeChecked,
     ],
@@ -76,7 +79,7 @@ export default tseslint.config(
 
   // --- tests: same rules, minus the friction that fights test ergonomics --
   {
-    files: ['packages/*/*/tests/**/*.ts', 'examples/*/tests/**/*.ts', 'scripts/**/*.spec.ts'],
+    files: ['packages/*/*/tests/**/*.ts', 'apps/*/tests/**/*.ts', 'examples/*/tests/**/*.ts', 'scripts/**/*.spec.ts'],
     extends: [
       ...tseslint.configs.strictTypeChecked,
     ],
@@ -108,9 +111,23 @@ export default tseslint.config(
     },
   },
 
+  // --- client tests: the root program excludes packages/client (host/client
+  // Context merges collide), so the shared project service cannot resolve
+  // them — parse these through the client aggregate explicitly.
+  {
+    files: ['packages/client/*/tests/**/*.ts', 'scripts/client-bundle-purity.spec.ts'],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: ['./tsconfig.client.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+
   // --- file-local duplication (all owned TypeScript) ---------------------
   {
-    files: ['packages/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts'],
+    files: ['packages/**/*.ts', 'apps/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts'],
     plugins: { sonarjs },
     rules: {
       // Cross-file clones are covered separately by jscpd.
@@ -127,7 +144,7 @@ export default tseslint.config(
 
   // --- formatting (everything we own) -------------------------------------
   {
-    files: ['packages/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts', 'eslint.config.mjs'],
+    files: ['packages/**/*.ts', 'apps/**/*.ts', 'examples/**/*.ts', 'scripts/**/*.ts', 'website/**/*.ts', 'eslint.config.mjs'],
     plugins: { '@stylistic': stylistic },
     rules: {
       '@stylistic/indent': ['error', 2],

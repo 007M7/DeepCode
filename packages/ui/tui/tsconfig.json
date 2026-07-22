@@ -24,6 +24,12 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session-persistence/session-persistence"
+    },
+    {
+      "path": "../../session-title/session-title"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
@@ -37,6 +43,9 @@
     },
     {
       "path": "../commands"
+    },
+    {
+      "path": "../../skill/skill"
     },
     {
       "path": "../user-interaction"

@@ -1,4 +1,6 @@
 {
+  // Host aggregate. packages/client type-checks in tsconfig.client.json: the two
+  // sides merge cordis Context under the same keys, one program cannot see both.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
@@ -13,6 +15,10 @@
     "website/**/*.ts",
     "website/.vitepress/**/*.ts"
   ],
+  "exclude": [
+    "packages/client/**",
+    "scripts/client-bundle-purity.spec.ts"
+  ],
   "references": [
     { "path": "./vendor/cosmokit" },
     { "path": "./vendor/schemastery" },
@@ -24,7 +30,6 @@
     { "path": "./vendor/hmr" },
     { "path": "./vendor/logger-console" },
     { "path": "./packages/util/brand" },
-    { "path": "./packages/util/home" },
     { "path": "./packages/util/paths" },
     { "path": "./packages/util/timeout" },
     { "path": "./packages/util/retention" },
@@ -36,6 +41,10 @@
     { "path": "./packages/session-persistence/session-persistence-jsonl" },
     { "path": "./packages/session-persistence/session-persistence-sqlite" },
     { "path": "./packages/session-query/session-query" },
+    { "path": "./packages/session-title/session-title" },
+    { "path": "./packages/session-title/session-title-llm" },
+    { "path": "./packages/session-title/session-title-first-message-llm" },
+    { "path": "./packages/session-title/session-title-all-messages-llm" },
     { "path": "./packages/core/system-prompt" },
     { "path": "./packages/core/agent" },
     { "path": "./packages/ui/commands" },
@@ -113,18 +122,23 @@
     { "path": "./packages/workflow/tool-workflow" },
     { "path": "./packages/workflow/tool-ralph" },
     { "path": "./packages/todo/tool-todo" },
+    { "path": "./packages/plan/plan-mode" },
     { "path": "./packages/guard/repeat-tool-guard" },
     { "path": "./packages/cordis/tool-cordis" },
     { "path": "./packages/hooks/hook-protocol" },
     { "path": "./packages/hooks/hooks-claude" },
     { "path": "./packages/hooks/hooks-codex" },
     { "path": "./packages/mcp/mcp-client" },
+    { "path": "./packages/host/apiproxy" },
+    { "path": "./packages/host/runtime" },
+    { "path": "./packages/host/webserver" },
     { "path": "./packages/sdk/helper" },
     { "path": "./packages/sdk/scripts" },
     { "path": "./packages/sdk/create-sdk" },
     { "path": "./packages/sdk/telemetry" },
     { "path": "./packages/lsp/lsp" },
     { "path": "./packages/lsp/lsp-local" },
-    { "path": "./packages/lsp/tool-lsp" }
+    { "path": "./packages/lsp/tool-lsp" },
+    { "path": "./apps/cli" }
   ]
 }

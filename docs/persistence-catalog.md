@@ -79,7 +79,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:267`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:274`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:289`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:319`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:351`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -106,7 +106,7 @@ Sources: [`packages/core/session/src/types.ts:267`](../packages/core/session/src
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:45`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:44`](../packages/ui/user-approval/src/index.ts)
 
 #### `approval/decided` — log-only
 
@@ -122,7 +122,7 @@ Source: [`packages/ui/user-approval/src/index.ts:45`](../packages/ui/user-approv
 }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:56`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approval/src/index.ts)
 
 #### `approval/policy` — log-only
 
@@ -138,7 +138,7 @@ Source: [`packages/ui/user-approval/src/index.ts:56`](../packages/ui/user-approv
 'approval/policy': { policy: ApprovalPolicy }
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:68`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approval/src/index.ts)
 
 ### `assistant/*`
 
@@ -151,7 +151,7 @@ Source: [`packages/ui/user-approval/src/index.ts:68`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:231`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:232`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -167,7 +167,7 @@ Source: [`packages/core/session/src/types.ts:231`](../packages/core/session/src/
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:238`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:239`](../packages/core/session/src/types.ts)
 
 ### `compact/*`
 
@@ -246,7 +246,7 @@ Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:225`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
 
 ### `hook/*`
 
@@ -328,6 +328,21 @@ Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src
 
 Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src/index.ts)
 
+### `plan/*`
+
+#### `plan/mode` — log-only
+
+```ts persistence-catalog
+/**
+ * Whether plan mode is in force from this point on: log-only, non-surface,
+ * whole-value replace. The last `plan/mode` wins; a log with none folds to
+ * inactive through {@link foldPlanMode}.
+ */
+'plan/mode': { active: boolean }
+```
+
+Source: [`packages/plan/plan-mode/src/index.ts:40`](../packages/plan/plan-mode/src/index.ts)
+
 ### `prompt/*`
 
 #### `prompt/blocked` — log-only
@@ -342,7 +357,7 @@ Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:214`](../packages/core/session/src/types.ts)
 
 ### `request/*`
 
@@ -356,7 +371,7 @@ Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -376,6 +391,33 @@ Source: [`packages/core/session/src/types.ts:263`](../packages/core/session/src/
 
 Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
+### `session/*`
+
+#### `session/title` — log-only
+
+```ts persistence-catalog
+/**
+ * Latest-wins session title snapshot. Log-only: it never enters the model
+ * surface or derived history.
+ */
+'session/title': SessionTitleEventData
+```
+
+Types: [SessionTitleEventData](core-data-structures/session-title.md)
+
+Source: [`packages/session-title/session-title/src/index.ts:95`](../packages/session-title/session-title/src/index.ts)
+
+#### `session/title-llm-request` — log-only
+
+```ts persistence-catalog
+/** Log-only pre-dispatch record of one session-title model request. */
+'session/title-llm-request': SessionTitleLlmRequestEventData
+```
+
+Types: [SessionTitleLlmRequestEventData](core-data-structures/session-title.md)
+
+Source: [`packages/session-title/session-title-llm/src/index.ts:44`](../packages/session-title/session-title-llm/src/index.ts)
+
 ### `steering/*`
 
 #### `steering/message` — surface
@@ -387,7 +429,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -398,7 +440,7 @@ Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:206`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:207`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -407,7 +449,7 @@ Source: [`packages/core/session/src/types.ts:206`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:205`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -420,7 +462,7 @@ Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:258`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:259`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -437,7 +479,7 @@ Source: [`packages/core/session/src/types.ts:258`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:244`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -481,7 +523,7 @@ Source: [`packages/core/tools/src/code-mode.ts:34`](../packages/core/tools/src/c
 
 Types: [CallId](core-data-structures/core.md) · [ContentBlock](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:255`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -499,7 +541,7 @@ Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:203`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -515,7 +557,7 @@ Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:195`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:196`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -528,4 +570,4 @@ Source: [`packages/core/session/src/types.ts:195`](../packages/core/session/src/
 
 Types: [ContentBlock](core-data-structures/core.md) · [MessageSource](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:208`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:209`](../packages/core/session/src/types.ts)

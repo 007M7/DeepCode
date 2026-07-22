@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { chmod, mkdtemp, mkdir, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { Context } from 'cordis'
 import Lsp, { type LspQueryRequest } from '@deepseek-ai/dsh-lsp'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-local'
@@ -57,7 +57,7 @@ describe('lsp-local provider resolution', () => {
     await expect(ctx.plugin(LspLocal, config('nope', {
       command: 'fake-lsp',
       args: [],
-      env: { PATH: `::${join(root, 'empty')}` },
+      env: { PATH: `${delimiter}${delimiter}${join(root, 'empty')}` },
       extensionToLanguage: { '.ts': 'typescript' },
     }))).rejects.toThrow(/was not found on PATH/)
     await ctx.fiber.dispose()
@@ -116,7 +116,8 @@ describe('lsp-local provider resolution', () => {
     await ctx.fiber.dispose()
   })
 
-  it('rejects an absolute command that is not executable at load', async () => {
+  // Node's X_OK probe is an existence check on Windows, which has no executable mode bit.
+  it.skipIf(process.platform === 'win32')('rejects an absolute command that is not executable at load', async () => {
     const notExe = join(root, 'not-exe.txt')
     await writeFile(notExe, 'plain text, not executable')
     const ctx = new Context()

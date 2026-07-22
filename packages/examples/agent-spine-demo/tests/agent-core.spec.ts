@@ -17,6 +17,8 @@ import * as agentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as scopeInvariant from '@deepseek-ai/dsh-scope/invariant'
 import * as agentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 
+const testToolSignal = new AbortController().signal
+
 declare module '@deepseek-ai/dsh-tasks' {
   interface TaskKindMap {
     probe: 'probe'
@@ -129,6 +131,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(ctx.get('timer')).toBeDefined()
     expect(ctx.get('llm')).toBeDefined()
     expect(ctx.get('sessions')).toBeDefined()
+    expect(ctx.get('sessionTitle')).toBeDefined()
     expect(ctx.get('systemPrompt')).toBeDefined()
     expect(ctx.get('tools')).toBeDefined()
     expect(ctx.get('skills')).toBeDefined()
@@ -137,6 +140,30 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(ctx.get('invariants')).toBeDefined()
     expect(ctx.get('agentLoop')).toBeDefined()
     expect(ctx.get('goals')).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('forwards configurable fallback title limits to the bundled service', async () => {
+    const ctx = await mount({
+      workspaceContext: false,
+      sessionTitle: {
+        fallbackMaxWords: 1,
+        fallbackMaxBytes: 40,
+        maxTitleBytes: 80,
+      },
+    })
+    const session = ctx.sessions.create(SessionId('configured-title-limits'))
+    session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'One two three four' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(ctx.sessionTitle.get(session)?.title).toBe('One')
     await ctx.fiber.dispose()
   })
 
@@ -216,6 +243,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect(retryEvents).toHaveLength(1)
     expect(retryEvents[0]?.data.retry).toBe(1)
     expect(retryEvents[0]?.data.maxRetries).toBe(1)
+    expect(handle.agent.session.events.find(event => event.type === 'session/title')?.data.title).toBe('recover')
     expect(messageText(handle.agent.session.deriveMessages().at(-1))).toBe('recovered by bundled policy')
     await handle.dispose()
     await ctx.fiber.dispose()
@@ -385,6 +413,7 @@ describe('dsh-agent-spine-demo bundle', () => {
 
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['shared-skill'])
     const execution: ToolExecution = {
+      signal: testToolSignal,
       token: Symbol('agent-core-dsh-home-test') as ToolExecution['token'],
       callId: CallId('agent-core-dsh-home'),
       name: 'bash',
@@ -456,11 +485,12 @@ describe('dsh-agent-spine-demo bundle', () => {
     })
     const wait = vi.spyOn(ctx.tasks, 'wait')
     await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('task-config-forwarding'),
       name: 'task_output',
       arguments: { task_id: id, wait: true },
     })
-    expect(wait).toHaveBeenCalledWith(id, 7, undefined, undefined)
+    expect(wait).toHaveBeenCalledWith(id, 7, undefined, testToolSignal)
 
     await ctx.fiber.dispose()
   })
@@ -487,6 +517,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       toolOrder: ['zulu'],
       tools: { mode: 'native' as const },
       dshHome: '/tmp/dsh-home',
+      sessionTitle: { fallbackMaxWords: 3, fallbackMaxBytes: 24, maxTitleBytes: 60 },
       workspaceContext: false as const,
       skills: { enabled: false },
       toolBash: { enableRunInBackground: false },
@@ -500,6 +531,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       toolOrder: appConfig.toolOrder,
       tools: appConfig.tools,
       dshHome: appConfig.dshHome,
+      sessionTitle: appConfig.sessionTitle,
       workspaceContext: false,
       skills: appConfig.skills,
       toolBash: appConfig.toolBash,

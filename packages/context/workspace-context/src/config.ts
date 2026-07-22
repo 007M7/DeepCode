@@ -9,6 +9,7 @@ import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 
 const DEFAULT_PROJECT_ROOT_MARKERS = ['.git'] as const
 const DEFAULT_INSTRUCTION_FILE_CANDIDATES = ['AGENTS.md', 'CLAUDE.md'] as const
+const DEFAULT_LOCAL_INSTRUCTION_FILE_CANDIDATES = ['AGENTS.local.md', 'CLAUDE.local.md'] as const
 const DEFAULT_MAX_SOURCE_BYTES = 1_048_576
 const RESERVED_PATH_SEGMENTS = new Set(['', '.', '..'])
 
@@ -22,8 +23,16 @@ export interface Config {
   maxBytes: number
   /** Maximum UTF-8 bytes read from one instruction file; larger files are ignored. */
   maxSourceBytes?: number
-  /** Ordered same-directory project candidates; the first existing regular file wins in each scope. */
+  /**
+   * Ordered same-directory project candidates; every existing file loads, with
+   * per-directory trimmed-content duplicates collapsed to the earliest candidate.
+   */
   instructionFileCandidates?: string[]
+  /**
+   * Ordered same-directory local-overlay candidates loaded after the base files
+   * under the same per-directory trimmed-content dedup; empty disables the overlay.
+   */
+  localInstructionFileCandidates?: string[]
 }
 
 export const Config: z<Config> = z.object({
@@ -32,6 +41,7 @@ export const Config: z<Config> = z.object({
   maxBytes: z.number().required(),
   maxSourceBytes: z.number().step(1).min(1).default(DEFAULT_MAX_SOURCE_BYTES),
   instructionFileCandidates: z.array(z.string()).default([...DEFAULT_INSTRUCTION_FILE_CANDIDATES]),
+  localInstructionFileCandidates: z.array(z.string()).default([...DEFAULT_LOCAL_INSTRUCTION_FILE_CANDIDATES]),
 })
 
 /** Normalized instruction discovery configuration. */
@@ -39,6 +49,7 @@ export interface ResolvedDiscoveryConfig {
   dshHome: string
   projectRootMarkers: string[]
   instructionFileCandidates: string[]
+  localInstructionFileCandidates: string[]
 }
 
 /** Normalized configuration used by discovery and reconciliation. */
@@ -66,17 +77,24 @@ export function resolveConfig(config: Config): ResolvedConfig {
  * @returns normalized home, root markers, and instruction candidates.
  */
 export function resolveDiscoveryConfig(
-  config: Pick<Config, 'dshHome' | 'projectRootMarkers' | 'instructionFileCandidates'>,
+  config: Pick<Config, 'dshHome' | 'projectRootMarkers' | 'instructionFileCandidates' | 'localInstructionFileCandidates'>,
 ): ResolvedDiscoveryConfig {
   return {
     dshHome: resolveDshHome(config.dshHome),
     projectRootMarkers: config.projectRootMarkers ?? [...DEFAULT_PROJECT_ROOT_MARKERS],
-    instructionFileCandidates: resolveInstructionFileCandidates(config.instructionFileCandidates),
+    instructionFileCandidates: resolveInstructionFileCandidates(
+      config.instructionFileCandidates,
+      DEFAULT_INSTRUCTION_FILE_CANDIDATES,
+    ),
+    localInstructionFileCandidates: resolveInstructionFileCandidates(
+      config.localInstructionFileCandidates,
+      DEFAULT_LOCAL_INSTRUCTION_FILE_CANDIDATES,
+    ),
   }
 }
 
-function resolveInstructionFileCandidates(candidates: string[] | undefined): string[] {
-  return (candidates ?? [...DEFAULT_INSTRUCTION_FILE_CANDIDATES]).filter(candidate => (
+function resolveInstructionFileCandidates(candidates: string[] | undefined, fallback: readonly string[]): string[] {
+  return (candidates ?? [...fallback]).filter(candidate => (
     !RESERVED_PATH_SEGMENTS.has(candidate) && !/[\\/]/.test(candidate)
   ))
 }

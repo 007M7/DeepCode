@@ -162,15 +162,19 @@ describe('parseCliArgs', () => {
       kind: 'run', configPath: 'custom.yml', outputFormat: 'stream-json', task: 'do it',
     })
     expect(parseCliArgs(['--', '-task'])).toMatchObject({ task: '-task' })
+    expect(parseCliArgs(['-p', 'flag task'])).toMatchObject({ task: 'flag task' })
+    expect(parseCliArgs(['--prompt', 'long-flag task'])).toMatchObject({ task: 'long-flag task' })
     expect(parseCliArgs(['--help', 'ignored'])).toEqual({ kind: 'help' })
   })
 
   it('rejects missing, blank, extra, invalid-format, and unsupported flags', () => {
     expect(() => parseCliArgs([])).toThrow('received 0')
     expect(() => parseCliArgs(['   '])).toThrow('must not be blank')
+    expect(() => parseCliArgs(['-p', '   '])).toThrow('must not be blank')
     expect(() => parseCliArgs(['one', 'two'])).toThrow('received 2')
+    expect(() => parseCliArgs(['-p', 'task', 'positional'])).toThrow('mutually exclusive')
     expect(() => parseCliArgs(['--output-format', 'xml', 'task'])).toThrow('unsupported output format')
-    expect(() => parseCliArgs(['-p', 'task'])).toThrow('Unknown option')
+    expect(() => parseCliArgs(['-x', 'task'])).toThrow('Unknown option')
   })
 })
 
@@ -398,9 +402,9 @@ describe('runOneShot and executeCli', () => {
     await running
     abort.abort('received SIGINT')
     const output = await outcome
-    expect(JSON.parse(output.stdout)).toMatchObject({ success: false, reason: { kind: 'aborted', reason: 'received SIGINT' } })
+    expect(JSON.parse(output.stdout)).toMatchObject({ success: false, reason: { kind: 'aborted' } })
     expect(output.code).toBe(1)
-    expect(output.stderr).toContain('was aborted: received SIGINT')
+    expect(output.stderr).toContain('turn 1 was aborted')
     expect(agent.status).toBe('disposed')
   })
 
@@ -486,7 +490,7 @@ describe('formatTurnFailure', () => {
     const cases: [TurnEndReason, string][] = [
       [{ kind: 'completed' }, 'completed'],
       [{ kind: 'aborted' }, 'was aborted'],
-      [{ kind: 'aborted', reason: 'stop' }, 'was aborted: stop'],
+      [{ kind: 'aborted' }, 'was aborted'],
       [{ kind: 'error', step: 2, message: 'bad' }, 'failed at step 2: bad'],
       [{ kind: 'error', step: 3, failure: { message: 'provider bad', code: 'SERVER' } }, 'failed at step 3: provider bad'],
       [{ kind: 'disposed' }, 'was disposed'],

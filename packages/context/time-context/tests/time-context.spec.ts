@@ -367,7 +367,7 @@ describe('real agent-loop request history', () => {
     ctx.on('agent/pre-step', (subject) => {
       laterSawReading = contextTexts(subject.session).length === 1
       if (mode === 'throws') throw new Error('later pre-step failure')
-      subject.cancel('later pre-step cancellation')
+      subject.cancel({ kind: 'user' })
     })
     const agent = ctx.agentLoop.create(SessionId(`late-${mode}`), { provider: 'mock', model: 'mock' })
 

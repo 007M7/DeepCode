@@ -101,7 +101,7 @@ export class FsSandboxSurface {
         agent: exec.agent,
         callId: exec.callId,
         toolName,
-        ...exec.signal ? { signal: exec.signal } : {},
+        signal: exec.signal,
       },
     )
     return { ...policy, mode: approvedMode }

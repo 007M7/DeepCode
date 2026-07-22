@@ -55,6 +55,20 @@ const SCENARIOS: Scenario[] = [
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
   // Direct command dispatch reports goal state without spending a model turn.
   { name: 'goal-command-status', hasModelTurn: false, recorded: false },
+  // Protocol-only (keyless, authored): session/new advertises the mode picker,
+  // session/set_mode acknowledges a valid selection, and an unknown mode id
+  // fails loudly. With no model turn, its membership in the plan header class
+  // is vacuous; the class still needs one explicit pin below.
+  { name: 'modes-advertise', hasModelTurn: false, recorded: false, headerClass: 'plan' },
+  // The plan header pin covers the full arc: setMode(plan), a real read under
+  // the independently configured sandbox, plan review through exit_plan_mode,
+  // an approved boundary flip back to default, and a real edit in the next
+  // step. Leaving plan removes the policy section and exit tool, producing one
+  // changed request header.
+  { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderChanges: 1 },
+  // Free-text review feedback returns as a corrective error and leaves the
+  // session in plan mode, so this scenario shares the pinned plan header.
+  { name: 'plan-mode-reject', hasModelTurn: true, recorded: true, headerClass: 'plan' },
   // text-turn is the pinned-header scenario: the minimal single text turn.
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
@@ -72,7 +86,12 @@ const SCENARIOS: Scenario[] = [
   { name: 'todo-plan', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
   { name: 'lsp-definition', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'lsp', configPath: LSP_CONFIG },
-  { name: 'workspace-edit', hasModelTurn: true, recorded: true },
+  {
+    name: 'workspace-edit',
+    hasModelTurn: true,
+    recorded: true,
+    pinsNativeWindowsStdout: true,
+  },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },
   { name: 'fs-edit', hasModelTurn: true, recorded: true },
@@ -99,8 +118,11 @@ const SCENARIOS: Scenario[] = [
   { name: 'repeat-tool-guard', hasModelTurn: true, recorded: false },
   // Authored replay: a root AGENTS.md pins the session prefix, then a read in
   // nested/ discovers its narrower AGENTS.md as a raw, metadata-bearing
-  // context/message. The scenario-specific config keeps home/root discovery
-  // hermetic, and the resulting prefix needs its own pinned header class.
+  // context/message. Both AGENTS.md fixtures are symlinks to a sibling
+  // AGENTS.canonical.md, so this scenario also guards that discovery follows a
+  // symlinked instruction file to its target's content. The scenario-specific
+  // config keeps home/root discovery hermetic, and the resulting prefix needs
+  // its own pinned header class.
   {
     name: 'workspace-context',
     hasModelTurn: true,
@@ -111,7 +133,9 @@ const SCENARIOS: Scenario[] = [
     configPath: WORKSPACE_CONTEXT_CONFIG,
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
-  { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true },
+  // Cancelling a live bash call relies on POSIX process-group termination;
+  // Windows bash process-tree kill is deferred with the Bash execution domain.
+  { name: 'cancel-tool-calls', hasModelTurn: true, recorded: false, overridden: true, posixOnly: true },
   { name: 'subagent-spawn', hasModelTurn: true, recorded: true },
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },

@@ -1,0 +1,39 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "lib": [
+      "ES2024",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": []
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../ui-slots"
+    },
+    {
+      "path": "../web-react"
+    },
+    {
+      "path": "../connection"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../support/invariants"
+    }
+  ],
+  "exclude": [
+    "**/*.legacy.*"
+  ]
+}

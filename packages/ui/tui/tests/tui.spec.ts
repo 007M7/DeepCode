@@ -1,18 +1,21 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
-import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import { type LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
+import SkillService, { type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
+import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   createTuiChat,
   mountTui,
+  renderSkillInvocation,
   resolveTuiConfig,
   type TuiRuntime,
 } from '../src/index.ts'
@@ -101,10 +104,10 @@ async function tick(): Promise<void> {
 async function setup(options: TuiHarnessOptions = {}) {
   const terminal = new FakeTerminal()
   const exit = vi.fn()
-  const result = await createTuiTestHarness(terminal, exit, {
-    ...options,
-    cwd: options.cwd === undefined ? process.cwd() : options.cwd,
-  })
+  // Let the harness default cwd ('/workspace') stand: a checkout-dependent
+  // process.cwd() longer than the 88-column fake terminal pushes the footer
+  // token counters off-screen and fails their assertions by location.
+  const result = await createTuiTestHarness(terminal, exit, options)
   await tick()
   return result
 }
@@ -121,6 +124,15 @@ function provideTokenMeter(ctx: Context): void {
   } as never)
 }
 
+/** Minimal advisory-catalog llm stub for tests composing their own context. */
+function provideLlmCatalog(ctx: Context): void {
+  ctx.provide('llm', {
+    listProviders: () => [],
+    listModels: () => Promise.resolve([]),
+    resolveModelContext: () => Promise.resolve(undefined),
+  } as never)
+}
+
 describe('TUI config', () => {
   it('defaults every direct-call TUI option', () => {
     expect(resolveTuiConfig(undefined)).toEqual({
@@ -134,6 +146,7 @@ describe('TUI config', () => {
       modelDialogMaxHeight: 20,
       showHardwareCursor: false,
       color: true,
+      truecolor: false,
       title: 'DeepSeek Harness',
     })
     expect(resolveTuiConfig({
@@ -147,6 +160,7 @@ describe('TUI config', () => {
       modelDialogMaxHeight: 16,
       showHardwareCursor: true,
       color: false,
+      truecolor: true,
       title: 'DSH',
     })).toEqual({
       showReasoning: false,
@@ -159,17 +173,162 @@ describe('TUI config', () => {
       modelDialogMaxHeight: 16,
       showHardwareCursor: true,
       color: false,
+      truecolor: true,
       title: 'DSH',
     })
   })
 })
 
+describe('resume command and /resume', () => {
+  const RESUME = 'RESUME_SESSION_ID={session} dsh'
+  const header = (id: string, createdAt: number, cwd: string): SessionHeader =>
+    ({ version: 0, id: SessionId(id), createdAt, cwd })
+
+  it('prints the resume command on exit once the session is persisted', async () => {
+    const result = await setup({
+      cwd: '/workspace',
+      config: { resumeCommand: RESUME },
+      sessionPersistence: { list: async () => [header('main-session', 1000, '/workspace')] },
+    })
+    result.terminal.send('/exit')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('To resume this session: RESUME_SESSION_ID=main-session dsh')
+    expect(result.exit).toHaveBeenCalledWith(0)
+    await dispose(result)
+  })
+
+  it('omits the exit hint when the session is not yet persisted', async () => {
+    const result = await setup({ cwd: '/workspace', config: { resumeCommand: RESUME } })
+    result.terminal.send('/exit')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).not.toContain('To resume this session')
+    expect(result.exit).toHaveBeenCalledWith(0)
+    await dispose(result)
+  })
+
+  it('omits the exit hint when the session listing fails', async () => {
+    const result = await setup({
+      cwd: '/workspace',
+      config: { resumeCommand: RESUME },
+      sessionPersistence: { list: () => Promise.reject(new Error('disk gone')) },
+    })
+    result.terminal.send('/exit')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).not.toContain('To resume this session')
+    expect(result.exit).toHaveBeenCalledWith(0)
+    await dispose(result)
+  })
+
+  it('lists this workspace\'s sessions newest-first and marks the current one', async () => {
+    const result = await setup({
+      cwd: '/workspace',
+      config: { resumeCommand: RESUME },
+      sessionPersistence: {
+        list: async () => [
+          header('main-session', 1000, '/workspace'),
+          header('older-session', 500, '/workspace'),
+          header('newer-session', 2000, '/workspace'),
+          header('foreign-session', 3000, '/elsewhere'),
+        ],
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    const output = result.terminal.output
+    expect(output).toContain('Resumable sessions')
+    expect(output).toContain('RESUME_SESSION_ID=main-session dsh')
+    expect(output).toContain('(current)')
+    expect(output).toContain('RESUME_SESSION_ID=newer-session dsh')
+    expect(output).not.toContain('foreign-session')
+    // Newest-first: the newer session's command precedes the current session's.
+    // Match the full resume command, not the bare id: the banner detail line
+    // echoes the current session id (`main-session`) above the listing.
+    expect(output.indexOf('RESUME_SESSION_ID=newer-session')).toBeLessThan(
+      output.indexOf('RESUME_SESSION_ID=main-session'),
+    )
+    expect(output.indexOf('RESUME_SESSION_ID=main-session')).toBeLessThan(
+      output.indexOf('RESUME_SESSION_ID=older-session'),
+    )
+    await dispose(result)
+  })
+
+  it('warns from /resume when resume is not configured', async () => {
+    const result = await setup({ cwd: '/workspace' })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Resume is not configured')
+    await dispose(result)
+  })
+
+  it('warns from /resume when no persistence backend is mounted', async () => {
+    const result = await setup({ cwd: '/workspace', config: { resumeCommand: RESUME } })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('no persistence backend is mounted')
+    await dispose(result)
+  })
+
+  it('notes from /resume when no workspace sessions are persisted yet', async () => {
+    const result = await setup({
+      cwd: '/workspace',
+      config: { resumeCommand: RESUME },
+      sessionPersistence: { list: async () => [header('foreign-session', 10, '/elsewhere')] },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('No resumable sessions found')
+    await dispose(result)
+  })
+})
+
 describe('pi-tui chat lifecycle and transcript', () => {
+  it('uses the latest log-backed title for the header subtitle and terminal window', async () => {
+    const result = await setup({
+      // A fixed short cwd keeps the footer's token counters inside the 88-column
+      // fake terminal regardless of where the checkout lives; cwd rendering has
+      // its own dedicated variants test below.
+      cwd: '/workspace',
+      beforeMount(session) {
+        session.append('session/title', {
+          title: 'Restored session title',
+          messageSeqs: [1],
+          source: { kind: 'fallback' },
+        })
+      },
+    })
+
+    expect(result.terminal.title).toBe('Restored session title — DeepSeek Harness')
+    expect(result.terminal.output).toContain('Restored session title')
+    expect(result.terminal.output).not.toContain('Coding agent ready.')
+
+    result.session.append('session/title', {
+      title: 'Live title \u001B]0;unsafe\u0007',
+      messageSeqs: [1, 5],
+      source: { kind: 'fallback' },
+    })
+    await tick()
+
+    expect(result.terminal.title).toContain('Live title \\x1b]0;unsafe\\x07 — DeepSeek Harness')
+    expect(result.terminal.title).not.toContain('\u001B')
+    expect(result.terminal.output).toContain('Live title \\x1b]0;unsafe\\x07')
+    await dispose(result)
+  })
+
   it('renders its header, footer, replay, streaming answer, todos, and status', async () => {
     let now = 0
     const result = await setup({
       contextWindow: 100,
       contextTokens: 42,
+      // Short cwd: the footer clips its right (context/tools) segment first,
+      // and the default worktree path would swallow it at 88 columns.
+      cwd: '/opt',
       now: () => now,
       beforeMount(session) {
         appendUser(session, 'restored prompt')
@@ -196,13 +355,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('restored answer')
     expect(result.terminal.output).toContain('write tests')
     expect(result.terminal.output).toContain('↑1.3k ↓42')
-    expect(result.terminal.output).toContain('42% context  tools:compact  deepseek-v4-flash(reasoning:on)')
+    // Context resolution is async (resolveModelContext); settle before reading.
+    await tick()
+    expect(result.terminal.output).toContain('42% context  tools:collapsed')
+    // Narrow terminals clip the right-hand context/tools segment first; the
+    // model-led left segment stays.
     result.terminal.resize(52)
     await tick()
-    expect(result.terminal.output).toContain('42% context  deepseek-v4-flash(reasoning:on)')
-    result.terminal.resize(65)
-    await tick()
-    expect(result.terminal.output).toContain('↑1.3k ↓42 42% context  deepseek-v4-flash(reasoning:on)')
+    expect(result.terminal.output).toContain('deepseek-v4-flash')
     result.terminal.resize(88)
     await tick()
 
@@ -287,15 +447,15 @@ describe('pi-tui chat lifecycle and transcript', () => {
       { inputTokens: 500, outputTokens: 8 },
       { turn: 3, step: 1 },
     )
-    await tick()
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('final live answer')
+    })
 
-    expect(result.terminal.output).toContain('◒ Working · 8s')
-    expect(result.terminal.output).toContain('esc interrupt')
+    expect(result.terminal.output).toContain('Enter sends steering, Esc cancels')
     expect(result.terminal.output).toContain('Steering')
     expect(result.terminal.output).toContain('user context')
     expect(result.terminal.output).toContain('Prompt blocked')
     expect(result.terminal.output).toContain('Turn cancelled')
-    expect(result.terminal.output).toContain('final live answer')
     expect(result.terminal.progress).toContain(true)
 
     result.session.append('assistant/chunk', {
@@ -313,7 +473,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     agentEvents(result.ctx, result.agent).emit('agent/status', 'idle')
     await tick()
     expect(result.terminal.output).toContain('↑1.8k ↓50')
-    expect(result.terminal.output).toContain('deepseek-v4-flash(reasoning:off)')
+    expect(result.terminal.output).toContain('deepseek-v4-flash')
     expect(result.terminal.progress.at(-1)).toBe(false)
     await dispose(result)
     expect(result.terminal.stopped).toBe(1)
@@ -382,8 +542,173 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
+  it('badges queued steering on the running status line and clears it as each drains', async () => {
+    // Pin a cwd free of the substring under test; the footer renders the path.
+    const result = await setup({ status: 'running', cwd: '/workspace' })
+    // Running with nothing queued: the plain steering hint, no badge.
+    expect(result.terminal.output).toContain('— Enter sends steering, Esc cancels')
+    expect(result.terminal.output).not.toContain('queued')
+
+    const queueSteering = (text: string): void => {
+      result.ctx.emit('agent/queued', result.agent, [{ type: 'text', text }], { source: { kind: 'user' }, steering: true })
+    }
+    const drainSteering = (text: string): void => {
+      result.session.append('steering/message', { turn: 1, content: [{ type: 'text', text }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    }
+
+    // A steering queue for a different agent never touches this status line.
+    const other = { ...result.agent, id: SessionId('other') } as Agent
+    result.terminal.output = ''
+    result.ctx.emit('agent/queued', other, [{ type: 'text', text: 'elsewhere' }], { source: { kind: 'user' }, steering: true })
+    await tick()
+    expect(result.terminal.output).not.toContain('queued')
+
+    // Two steering messages queue while the turn runs.
+    queueSteering('first')
+    result.terminal.output = ''
+    queueSteering('second')
+    await tick()
+    expect(result.terminal.output).toContain('2 queued · Enter sends steering, Esc cancels')
+
+    // A non-steering queue (an idle-style send) leaves the badge untouched.
+    result.terminal.output = ''
+    result.ctx.emit('agent/queued', result.agent, [{ type: 'text', text: 'sent' }], { source: { kind: 'user' }, steering: false })
+    drainSteering('first')
+    await tick()
+    expect(result.terminal.output).toContain('1 queued')
+    expect(result.terminal.output).not.toContain('2 queued')
+
+    // Draining the last queued message returns the plain hint.
+    result.terminal.output = ''
+    drainSteering('second')
+    await tick()
+    expect(result.terminal.output).toContain('— Enter sends steering, Esc cancels')
+    expect(result.terminal.output).not.toContain('queued')
+
+    // A drain with no matching queued entry is ignored rather than underflowing.
+    result.terminal.output = ''
+    drainSteering('continuation')
+    queueSteering('after')
+    await tick()
+    expect(result.terminal.output).toContain('1 queued')
+
+    // A loop-authored steering event (plugin source, no matching agent/queued)
+    // cannot consume a pending user slot, even when it drains first.
+    result.terminal.output = ''
+    result.session.append('steering/message', {
+      turn: 1,
+      content: [{ type: 'text', text: 'continue: goal not reached' }],
+      source: { kind: 'plugin', plugin: 'hooks' },
+    }, { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('1 queued')
+    result.terminal.output = ''
+    drainSteering('after')
+    await tick()
+    expect(result.terminal.output).not.toContain('queued')
+
+    // The turn ending resets the badge, so the next running turn starts clean.
+    result.agent.status = 'idle'
+    result.ctx.emit('agent/status', result.agent, 'idle')
+    result.agent.status = 'running'
+    result.terminal.output = ''
+    result.ctx.emit('agent/status', result.agent, 'running')
+    await tick()
+    expect(result.terminal.output).toContain('— Enter sends steering, Esc cancels')
+    expect(result.terminal.output).not.toContain('queued')
+
+    await dispose(result)
+  })
+
+  it('derives the fine-grained turn phase from session lifecycle events', async () => {
+    // A live event before the turn runs has no status controller to move.
+    const idle = await setup()
+    // A steering queue arriving while idle has no status line to badge, so the
+    // refresh is a no-op beyond requesting a render.
+    idle.ctx.emit('agent/queued', idle.agent, [{ type: 'text', text: 'early' }], { source: { kind: 'user' }, steering: true })
+    idle.session.append('tool/call', { turn: 1, step: 0, callId: 'pre' as never, name: 'bash', arguments: '{}' })
+    await tick()
+    expect(idle.terminal.output).not.toContain('Executing tools')
+    expect(idle.terminal.output).not.toContain('queued')
+    await dispose(idle)
+
+    const result = await setup({ status: 'running' })
+    expect(result.terminal.output).toContain('Waiting for the first token')
+
+    result.terminal.output = ''
+    result.session.append('assistant/chunk', { turn: 1, step: 0, chunk: { type: 'block-start', index: 0, blockType: 'reasoning' } })
+    result.session.append('assistant/chunk', { turn: 1, step: 0, chunk: { type: 'reasoning-delta', index: 0, text: 'mull it over' } })
+    await tick()
+    expect(result.terminal.output).toContain('Thinking')
+
+    result.terminal.output = ''
+    result.session.append('assistant/chunk', { turn: 1, step: 0, chunk: { type: 'block-start', index: 1, blockType: 'text' } })
+    result.session.append('assistant/chunk', { turn: 1, step: 0, chunk: { type: 'text-delta', index: 1, text: 'answering' } })
+    await tick()
+    expect(result.terminal.output).toContain('Responding')
+
+    result.terminal.output = ''
+    result.session.append('tool/call', { turn: 1, step: 0, callId: 'c1' as never, name: 'bash', arguments: '{}' })
+    await tick()
+    expect(result.terminal.output).toContain('Executing tools')
+
+    // The next step reopens the wait window and resets the executing label.
+    result.terminal.output = ''
+    result.session.append('step/start', { turn: 1, step: 1 })
+    await tick()
+    expect(result.terminal.output).toContain('Waiting for the first token')
+    expect(result.terminal.output).not.toContain('Executing tools')
+
+    await dispose(result)
+  })
+
+  it('refreshes the running status elapsed time on its own timer', async () => {
+    const result = await setup({ status: 'running' })
+    result.terminal.output = ''
+    // The loader repaints "0s" until the controller's own interval fires; a
+    // non-zero elapsed proves the refresh, not just the loader's animation.
+    await new Promise(resolve => setTimeout(resolve, 1_300))
+    expect(result.terminal.output).toMatch(/Waiting for the first token [1-9]s/)
+    await dispose(result)
+  })
+
+  it('shows minutes and seconds once a step passes a minute', async () => {
+    const result = await setup({ status: 'running' })
+    const base = Date.now()
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(base + 95_000)
+    result.terminal.output = ''
+    result.session.append('assistant/chunk', { turn: 1, step: 0, chunk: { type: 'text-delta', index: 0, text: 'hi' } })
+    await tick()
+    expect(result.terminal.output).toContain('total 1m')
+    nowSpy.mockRestore()
+    await dispose(result)
+  })
+
+  it('preserves the turn phase and elapsed time across a mid-turn color-scheme change', async () => {
+    const result = await setup({ status: 'running' })
+    const base = Date.now()
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(base)
+    // Advance into `responding`, anchoring the phase clock at `base`.
+    result.session.append('assistant/chunk', { turn: 1, step: 0, chunk: { type: 'text-delta', index: 0, text: 'answering' } })
+    await tick()
+
+    // Four seconds later the terminal reports a light color scheme, rebuilding
+    // the status loader; the phase and its elapsed time must survive the rebuild.
+    nowSpy.mockReturnValue(base + 4_000)
+    result.terminal.output = ''
+    result.terminal.send('\x1b[?997;2n')
+    await tick()
+    await tick()
+    expect(result.terminal.output).toContain('Responding 4s')
+    expect(result.terminal.output).not.toContain('Waiting for the first token')
+
+    nowSpy.mockRestore()
+    await dispose(result)
+  })
+
   it('renders the ANSI palette and every markdown/content style', async () => {
     const result = await setup({
+      cwd: '/workspace',
       config: { color: true },
       beforeMount(session) {
         session.append('user/message', {
@@ -467,9 +792,141 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(unsetResult.terminal.output).toContain('cwd unset')
     await dispose(unsetResult)
 
+    const homeParent = resolve(home, '..')
+    const parentResult = await setup({ cwd: homeParent })
+    expect(parentResult.terminal.output).toContain(homeParent)
+    await dispose(parentResult)
+
     const outsideResult = await setup({ cwd: '/opt' })
     expect(outsideResult.terminal.output).toContain('/opt')
     await dispose(outsideResult)
+
+    const logicalResult = await setup({
+      cwd: '/w',
+      formatCwd: cwd => `logical:${cwd}\x1b`,
+    })
+    expect(logicalResult.terminal.output).toContain('logical:/w\\x1b')
+    await dispose(logicalResult)
+  })
+
+  it('shows the session cache hit rate in the footer and updates it live', async () => {
+    // Empty session: no input billed yet, so the cache segment is hidden.
+    // A cwd without "cache" in it keeps the negative assertion unambiguous.
+    const empty = await setup({ cwd: '/opt' })
+    expect(empty.terminal.output).toContain('↑0 ↓0')
+    expect(empty.terminal.output).not.toContain('cache')
+    await dispose(empty)
+
+    const result = await setup({
+      // Pin a short cwd so the footer never clips the cache segment: the
+      // default is process.cwd(), and a deep worktree path truncates
+      // `cache 60%` at the terminal width.
+      cwd: '/opt',
+      beforeMount(session) {
+        // Cold call: 10 billed input tokens, none served from cache.
+        appendAssistant(session, [{ type: 'text', text: 'cold' }], { inputTokens: 10, outputTokens: 5 })
+      },
+    })
+    expect(result.terminal.output).toContain('cache 0%')
+
+    result.terminal.output = ''
+    // Warm call lands live on the next step (same-step usage replaces rather
+    // than accumulates): 5 uncached + 30 cache-read + 5 cache-write billed
+    // input, so 30 of the 50 total prompt tokens are hits → 60%.
+    appendAssistant(result.session, [{ type: 'text', text: 'warm' }], {
+      inputTokens: 5,
+      outputTokens: 5,
+      cacheReadTokens: 30,
+      cacheWriteTokens: 5,
+    }, { turn: 1, step: 2 })
+    await tick()
+    expect(result.terminal.output).toContain('cache 60%')
+    expect(result.terminal.output).not.toContain('cache 0%')
+    await dispose(result)
+  })
+
+  it('shows detailed session diagnostics while the agent is running', async () => {
+    const timestamp = Date.parse('2026-07-22T09:10:11.000Z')
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(timestamp)
+    const result = await setup({
+      cwd: '/workspace/status',
+      contextWindow: 128_000,
+      contextTokens: 42_000,
+      config: { showReasoning: false },
+      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+      beforeMount(session) {
+        session.append('session/title', {
+          title: 'Inspect status \u001B]2;unsafe\u0007',
+          messageSeqs: [1],
+          source: { kind: 'fallback' },
+        })
+        appendAssistant(session, [{ type: 'text', text: 'measured' }], {
+          inputTokens: 1_250,
+          outputTokens: 340,
+          cacheReadTokens: 3_000,
+          cacheWriteTokens: 250,
+        })
+        session.append('tool/call', {
+          turn: 1, step: 1, callId: 'status-call-1' as never, name: 'read', arguments: '{}',
+        })
+        session.append('tool/call', {
+          turn: 1, step: 1, callId: 'status-call-2' as never, name: 'write', arguments: '{}',
+        })
+      },
+    })
+    result.agent.status = 'running'
+    agentEvents(result.ctx, result.agent).emit('agent/status', 'running')
+    result.terminal.send('/status')
+    result.terminal.send('\r')
+    await tick()
+
+    expect(result.terminal.output).toContain('Session status')
+    expect(result.terminal.output).toContain('main-session')
+    expect(result.terminal.output).toContain('Inspect status \\x1b]2;unsafe\\x07')
+    expect(result.terminal.output).toContain('/workspace/status')
+    expect(result.terminal.output).toContain('deepseek/deepseek-v4-pro (reasoning hidden)')
+    expect(result.terminal.output).toContain('running · 6 events · 1 turn · 1 step · 2 tool calls')
+    expect(result.terminal.output).toContain('1,250 input + 340 output')
+    expect(result.terminal.output).toContain('[███████████░░░░░] 67% hit (3,000 read + 250 write)')
+    expect(result.terminal.output).toContain('[█████░░░░░░░░░░░] 33% used (42,000 / 128,000)')
+    expect(result.terminal.output).toContain('2026-07-22 09:10:11 UTC')
+    expect(result.terminal.output).not.toContain('\u001B]2;unsafe\u0007')
+
+    result.terminal.resize(56)
+    result.terminal.send('/redraw')
+    result.terminal.send('\r')
+    await tick()
+
+    await dispose(result)
+    dateNow.mockRestore()
+  })
+
+  it('labels unavailable status diagnostics without inventing values', async () => {
+    const timestamp = Date.parse('2026-07-22T10:11:12.000Z')
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(timestamp)
+    const result = await setup({
+      cwd: null,
+      omitInitialLifecycle: true,
+      contextTokens: 7,
+      agentOptions: {},
+      catalog: {
+        providers: [],
+        models: [],
+        resolveModelContext: () => Promise.resolve(undefined),
+      },
+    })
+    result.terminal.send('/status')
+    result.terminal.send('\r')
+    await tick()
+
+    expect(result.terminal.output).toContain('untitled')
+    expect(result.terminal.output).toContain('unset (reasoning shown)')
+    expect(result.terminal.output).toContain('idle · 0 events · 0 turns · 0 steps · 0 tool calls')
+    expect(result.terminal.output).toContain('n/a (0 read + 0 write)')
+    expect(result.terminal.output).toContain('7 used · capacity unknown')
+    expect(result.terminal.output).toContain('2026-07-22 10:11:12 UTC')
+    await dispose(result)
+    dateNow.mockRestore()
   })
 
   it('sends, steers, handles commands, global keys, and disposed-agent input', async () => {
@@ -493,17 +950,15 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\x03')
     result.terminal.send('\x12')
     result.terminal.send('\x0f')
-    result.terminal.send('/cancel')
-    result.terminal.send('\r')
-    expect(result.agent.cancelled).toContain('cancelled from terminal')
+    expect(result.agent.cancelled).toContainEqual({ kind: 'user' })
 
     result.agent.status = 'idle'
-    for (const command of ['/help', '/reasoning', '/tools', '/redraw']) {
+    for (const command of ['/help', '/reasoning', '/tools', '/redraw', '/reload']) {
       result.terminal.send(command)
       result.terminal.send('\r')
       await tick()
     }
-    for (const command of ['/clear', '/cancel', '/wat']) {
+    for (const command of ['/clear', '/wat']) {
       result.terminal.send(command)
       result.terminal.send('\r')
     }
@@ -516,8 +971,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Keyboard shortcuts')
     expect(result.terminal.output).toContain('Reasoning blocks')
     expect(result.terminal.output).toContain('Tool cards')
-    expect(result.terminal.output).toContain('already idle')
     expect(result.terminal.output).toContain('Unknown command')
+    // /reload without a Loader in the context degrades to a warning.
+    expect(result.terminal.output).toContain('/reload needs the cordis Loader')
     expect(result.exit).toHaveBeenCalledWith(0)
     await result.controller.dispose()
     await result.ctx.fiber.dispose()
@@ -583,7 +1039,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.agent.steered).toEqual([])
     initialContext.resolve({ contextWindow: 100 })
     await tick()
-    expect(result.terminal.output).not.toContain('50% context  tools:compact  b1(reasoning:on)')
+    expect(result.terminal.output).not.toContain('50% context  tools:collapsed')
 
     result.terminal.send('/model')
     result.terminal.send('\r')
@@ -594,13 +1050,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.agent.status = 'idle'
     result.ctx.emit('agent/status', result.agent, 'idle')
     await tick()
-    expect(result.terminal.output).toContain('25% context  tools:compact  b1(reasoning:on)')
+    expect(result.terminal.output).toContain('b1  ')
+    expect(result.terminal.output).toContain('25% context  tools:collapsed')
 
     const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
     expect(assembly.variables).toMatchObject({ provider: 'beta', model: 'b1' })
     const seed: LlmCallConfig = { provider: 'alpha', model: 'a1', temperature: 0.2 }
     const request = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/request', 1, 0, seed, () => Promise.resolve(seed),
+      'agent/request', 1, 0, seed, new AbortController().signal, () => Promise.resolve(seed),
     )
     expect(request).toEqual({ provider: 'beta', model: 'b1', temperature: 0.2 })
     await dispose(result)
@@ -639,7 +1096,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     unset.terminal.send('\r')
     await tick()
     expect(unset.terminal.output).toContain('Model selected: alpha/a1')
-    expect(unset.terminal.output).toContain('context unknown  tools:compact  a1(reasoning:on)')
+    expect(unset.terminal.output).toContain('a1  ')
+    expect(unset.terminal.output).not.toContain('% context')
     await dispose(unset)
 
     const empty = await setup({ agentOptions: {}, catalog: { providers: [], models: [] } })
@@ -652,7 +1110,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(assembly.variables).toEqual({})
     const seed: LlmCallConfig = { provider: 'fallback', model: 'fallback' }
     await expect(agentEvents(empty.ctx, empty.agent).waterfall(
-      'agent/request', 1, 0, seed, () => Promise.resolve(seed),
+      'agent/request', 1, 0, seed, new AbortController().signal, () => Promise.resolve(seed),
     )).resolves.toBe(seed)
     await dispose(empty)
 
@@ -738,6 +1196,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
       description: 'Fail a plugin command',
       handler: () => { throw new Error('plugin command exploded') },
     })
+    result.ctx.commands.register({
+      name: 'plugin-error',
+      description: 'Return an error result',
+      handler: () => ({ kind: 'error' as const, text: 'plugin error result' }),
+    })
 
     result.terminal.send('/plugin-check  value  ')
     result.terminal.send('\r')
@@ -754,6 +1217,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('Command failed: plugin command exploded')
+    result.terminal.send('/plugin-error')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('plugin error result')
     result.terminal.send('/help')
     result.terminal.send('\r')
     await tick()
@@ -763,6 +1230,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await result.controller.dispose()
     expect(result.ctx.commands.list(result.agent).map(command => command.name)).toEqual([
       'plugin-check',
+      'plugin-error',
       'plugin-fail',
     ])
     await result.ctx.fiber.dispose()
@@ -828,7 +1296,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('/exit')
     result.terminal.send('\r')
     await tick()
-    expect(result.agent.cancelled).toContain('terminal exit requested')
+    expect(result.agent.cancelled).toContainEqual({ kind: 'user' })
     expect(result.exit).toHaveBeenCalledWith(0)
 
     const events = await setup()
@@ -845,7 +1313,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     events.session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
     events.session.append('turn/end', { turn: 2, reason: { kind: 'error', step: 1, message: 'durable failure' } })
     events.session.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
-    events.session.append('turn/end', { turn: 3, reason: { kind: 'aborted', reason: 'stopped' } })
+    events.session.append('turn/end', { turn: 3, reason: { kind: 'aborted' } })
     events.session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
     events.session.append('turn/end', { turn: 4, reason: { kind: 'max-tokens' } })
     events.session.append('turn/start', { turn: 5, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -861,13 +1329,160 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(events.terminal.output).toContain('live failure')
     expect(events.terminal.output).toContain('durable failure')
+    expect(events.terminal.output).toContain('Turn cancelled')
     expect(events.terminal.output).toContain('structured provider failure')
-    expect(events.terminal.output).toContain('stopped')
     expect(events.terminal.output).toContain('output-token limit')
     expect(events.terminal.output).toContain('Turn rejected')
     expect(events.terminal.output).toContain('previous process ended')
     expect(events.terminal.output).toContain('was disposed')
     await dispose(events)
+  })
+})
+
+describe('skill slash command', () => {
+  const withSkills = async (ctx: Context): Promise<void> => {
+    ctx.provide('tools', { get() { return undefined } } as never)
+    await ctx.plugin(SkillService)
+    const skills = ctx.get('skills')
+    if (skills === undefined) throw new Error('skills service not mounted')
+    skills.register({ name: 'demo-skill', description: 'Demo skill for tests', source: 'runtime', provider: 'runtime', content: 'Demo instructions body.' })
+    skills.register({ name: 'hidden-skill', description: 'Model-hidden skill', source: 'runtime', provider: 'runtime', content: 'Hidden instructions body.', disableModelInvocation: true })
+  }
+
+  it('offers non-hidden skills as slash completions and hides model-disabled ones', async () => {
+    const result = await setup({ configureContext: withSkills })
+    result.terminal.send('/skill')
+    await tick()
+    expect(result.terminal.output).toContain('demo-skill')
+    expect(result.terminal.output).not.toContain('hidden-skill')
+    await dispose(result)
+  })
+
+  it('loads a skill as a user turn, appending typed instructions', async () => {
+    const result = await setup({ configureContext: withSkills })
+    result.terminal.send('/skill:demo-skill')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.agent.sent).toEqual([[{ type: 'text', text: '<skill name="demo-skill">\nDemo instructions body.\n</skill>' }]])
+
+    result.agent.status = 'running'
+    result.terminal.send('/skill:demo-skill focus on tests')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.agent.steered).toEqual([[{ type: 'text', text: '<skill name="demo-skill">\nDemo instructions body.\n</skill>\n\nfocus on tests' }]])
+    await dispose(result)
+  })
+
+  it('invokes a model-disabled skill by its exact name', async () => {
+    const result = await setup({ configureContext: withSkills })
+    result.terminal.send('/skill:hidden-skill')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.agent.sent).toEqual([[{ type: 'text', text: '<skill name="hidden-skill">\nHidden instructions body.\n</skill>' }]])
+    await dispose(result)
+  })
+
+  it('reports an unknown skill and an empty skill name without sending', async () => {
+    const result = await setup({ configureContext: withSkills })
+    result.terminal.send('/skill:does-not-exist')
+    result.terminal.send('\r')
+    await tick()
+    result.terminal.send('/skill:')
+    result.terminal.send('\r')
+    await tick()
+    // A space right after the colon parses to an empty name, not a name of
+    // "focus"; the documented syntax puts the name immediately after the colon.
+    result.terminal.send('/skill: focus')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Unknown skill: does-not-exist')
+    expect(result.terminal.output).toContain('Usage: /skill:<name>')
+    expect(result.agent.sent).toEqual([])
+    await dispose(result)
+  })
+
+  it('warns when no skill service is mounted', async () => {
+    const result = await setup()
+    result.terminal.send('/skill:demo-skill')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Skills are not available')
+    expect(result.agent.sent).toEqual([])
+    await dispose(result)
+  })
+
+  it('surfaces skill lookup failures as an error notice', async () => {
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get() { return undefined } } as never)
+        ctx.provide('skills', {
+          list: () => Promise.reject(new Error('list boom')),
+          get: () => Promise.reject(new Error('get boom')),
+        } as never)
+      },
+    })
+    result.terminal.send('/skill:demo-skill')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('failed to load')
+    expect(result.terminal.output).toContain('get boom')
+    await dispose(result)
+  })
+
+  it('drops skill list and lookup results that settle after disposal', async () => {
+    const pendingList: Array<(value: SkillSummary[]) => void> = []
+    const pendingGet: Array<{ resolve: (value: SkillDefinition | undefined) => void; reject: (error: unknown) => void }> = []
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get() { return undefined } } as never)
+        ctx.provide('skills', {
+          list: () => new Promise<SkillSummary[]>((resolve) => { pendingList.push(resolve) }),
+          get: () => new Promise<SkillDefinition | undefined>((resolve, reject) => { pendingGet.push({ resolve, reject }) }),
+        } as never)
+      },
+    })
+    result.terminal.send('/skill:demo-skill')
+    result.terminal.send('\r')
+    await tick()
+    result.terminal.send('/skill:other-skill')
+    result.terminal.send('\r')
+    await tick()
+    await dispose(result)
+
+    for (const resolve of pendingList) resolve([{ name: 'late', description: 'late', source: 'runtime', provider: 'runtime' }])
+    pendingGet[0]?.resolve({ name: 'demo-skill', description: 'late', source: 'runtime', provider: 'runtime', content: 'late body' })
+    pendingGet[1]?.reject(new Error('late failure'))
+    await tick()
+    expect(result.agent.sent).toEqual([])
+    expect(result.terminal.output).not.toContain('late failure')
+    expect(result.terminal.output).not.toContain('late body')
+  })
+})
+
+describe('renderSkillInvocation', () => {
+  const skill: SkillDefinition = {
+    name: 'demo-skill',
+    description: 'Demo skill',
+    source: 'runtime',
+    provider: 'runtime',
+    content: 'Body text.',
+  }
+
+  it('renders directory, url, opaque, and absent resource bases', () => {
+    expect(renderSkillInvocation({ ...skill, resourceBase: { kind: 'directory', path: '/skills/demo' } }, '')).toBe(
+      '<skill name="demo-skill">\nReferences in this skill are relative to /skills/demo.\n\nBody text.\n</skill>',
+    )
+    expect(renderSkillInvocation({ ...skill, resourceBase: { kind: 'url', url: 'https://x/y' } }, 'go')).toBe(
+      '<skill name="demo-skill">\nReferences in this skill are relative to https://x/y.\n\nBody text.\n</skill>\n\ngo',
+    )
+    expect(renderSkillInvocation({ ...skill, resourceBase: { kind: 'opaque', description: 'held in memory' } }, '')).toBe(
+      '<skill name="demo-skill">\nheld in memory\n\nBody text.\n</skill>',
+    )
+    expect(renderSkillInvocation(skill, '')).toBe('<skill name="demo-skill">\nBody text.\n</skill>')
+  })
+
+  it('throws on an unknown resource base kind', () => {
+    expect(() => renderSkillInvocation({ ...skill, resourceBase: { kind: 'future' } as never }, '')).toThrow('unreachable variant')
   })
 })
 
@@ -1073,12 +1688,13 @@ describe('TUI user-interaction dialogs', () => {
 
     const single = result.ctx.userInteraction.ask({
       questions: [{
-        id: 'mode', header: 'Mode', question: 'Choose a mode',
+        id: 'mode', header: 'Mode', question: 'Choose a mode', detail: 'This choice controls the next turn.',
         options: [{ label: 'Safe', description: 'Use checks' }, { label: 'Fast' }],
       }],
     })
     await tick()
     expect(result.terminal.output).toContain('Choose a mode')
+    expect(result.terminal.output).toContain('This choice controls the next turn.')
     expect(result.terminal.output).toContain('Question 1/1 (1 unanswered) · Mode')
     expect(result.terminal.output).toContain('1/2')
     result.terminal.send('\x1b[B')
@@ -1145,8 +1761,9 @@ describe('TUI user-interaction dialogs', () => {
     result.terminal.send('x')
     result.terminal.send(' ')
     result.terminal.send('\r')
-    await tick()
-    expect(result.terminal.output).toContain('Select at least one option')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Select at least one option')
+    })
     result.terminal.send('c')
     await tick()
     result.terminal.send('\x1b')
@@ -1239,6 +1856,40 @@ describe('terminal mounting', () => {
     mountTui(ctx, { color: false }, { terminal, exit: vi.fn() })
     await tick()
     expect(terminal.started).toBe(1)
+    await ctx.fiber.dispose()
+  })
+
+  it('degrades /reload to a warning when mounted as a real plugin without a Loader', async () => {
+    // Production shape: the TUI runs inside a plugin fiber, where a bare
+    // `ctx.loader` proxy read would THROW `cannot get property without
+    // inject` — only the non-throwing `ctx.get` lookup degrades gracefully.
+    const ctx = new Context()
+    provideTokenMeter(ctx)
+    provideLlmCatalog(ctx)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
+    await ctx.plugin(UserInteractionService)
+    ctx.provide('tools', { get: () => undefined } as never)
+    const session = ctx.sessions.create(SessionId('main'))
+    ctx.agents.register({
+      id: session.id, options: {}, session, status: 'idle', ctx,
+      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    })
+    const terminal = new FakeTerminal()
+    // Mirror dsh-tui's own inject (minus loader, the absence under test).
+    await ctx.plugin({
+      inject: ['agents', 'commands', 'userInteraction', 'tools', 'llm', 'tokenMeter'],
+      apply: (pluginCtx: Context) => {
+        mountTui(pluginCtx, { color: false }, { terminal, exit: vi.fn() })
+      },
+    })
+    await tick()
+    expect(terminal.started).toBe(1)
+    terminal.send('/reload')
+    terminal.send('\r')
+    await tick()
+    expect(terminal.output).toContain('/reload needs the cordis Loader')
     await ctx.fiber.dispose()
   })
 
@@ -1369,5 +2020,229 @@ describe('terminal mounting', () => {
     const runtime: TuiRuntime = { terminal: new FakeTerminal(), exit: vi.fn() }
     expect(() => createTuiChat(ctx, { sessionId: 'missing' }, runtime)).toThrow('is not running')
     await ctx.fiber.dispose()
+  })
+
+  it('detects a light terminal color scheme and switches from dark- to light-optimised ANSI codes', async () => {
+    const result = await setup({ config: { color: true } })
+    // Initial render uses dark-optimised palette: SGR 2 (dim) for dim text.
+    expect(result.terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
+
+    // A report matching the current scheme is a no-op: no palette rebuild or
+    // re-render (ESC [?997;1n = dark, the startup default).
+    const beforeSameScheme = result.terminal.output.length
+    result.terminal.send('\x1b[?997;1n')
+    await tick()
+    expect(result.terminal.output.length).toBe(beforeSameScheme)
+
+    // Simulate the terminal responding with a light color scheme report
+    // (ESC [?997;2n = light, ESC [?997;1n = dark).
+    result.terminal.send('\x1b[?997;2n')
+    await tick()
+    await tick()
+
+    // After switching to light-optimised palette: palette.dim uses ANSI 90
+    // (gray) instead of SGR 2. The header now uses \x1b[90m for the detail
+    // line. The cumulative output still contains the initial SGR 2 render,
+    // so we assert that a LATER write (appended after the scheme switch)
+    // uses ANSI 90 for the same header text.
+    expect(result.terminal.output).toContain('\x1b[90mdeepseek-v4-flash')
+
+    // Switch back to dark scheme.
+    result.terminal.send('\x1b[?997;1n')
+    await tick()
+    await tick()
+    // After switching back, a new write uses SGR 2 for the header detail.
+    expect(result.terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
+    await dispose(result)
+  })
+
+  it('keeps the dark palette when the terminal rejects the color-scheme query', async () => {
+    class QueryFailTerminal extends FakeTerminal {
+      override write(data: string): void {
+        // The device-status query is the only write that fails; the promise
+        // rejects and the swallowed `.catch` leaves the dark palette in place.
+        if (data === '\x1b[?996n') throw new Error('query write failed')
+        super.write(data)
+      }
+    }
+    const terminal = new QueryFailTerminal()
+    const result = await createTuiTestHarness(terminal, vi.fn(), {
+      config: { color: true },
+      cwd: process.cwd(),
+    })
+    await tick()
+    expect(terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
+    await disposeTuiTestHarness(result)
+  })
+  it('runs /reload against every file-backed loader subtree, reports completion, and rejects re-entry while in flight', async () => {
+    const refreshed: string[] = []
+    let releaseRefresh!: () => void
+    const gate = new Promise<void>((resolve) => { releaseRefresh = resolve })
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get: () => undefined } as never)
+        // A structural Loader: two file-backed subtrees and one plain entry.
+        // The first subtree blocks on a gate so re-entry can be probed
+        // deterministically mid-flight.
+        ctx.provide('loader', {
+          entries: () => [
+            { subtree: { refresh: async () => { refreshed.push('root'); await gate } } },
+            {},
+            { subtree: { refresh: async () => { refreshed.push('nested') } } },
+          ],
+        } as never)
+      },
+    })
+    result.terminal.send('/reload')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Reloading 2 config tree(s)')
+    // Second /reload while the first is gated: refused, no extra refreshes.
+    result.terminal.send('/reload')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('A config reload is already running.')
+    expect(refreshed.sort()).toEqual(['nested', 'root'])
+    releaseRefresh()
+    await tick()
+    expect(result.terminal.output).toContain('Config reload complete.')
+    // The guard released: a third /reload runs again.
+    result.terminal.send('/reload')
+    result.terminal.send('\r')
+    await tick()
+    expect(refreshed).toHaveLength(4)
+    await dispose(result)
+  })
+
+  it('reports a /reload failure if a refresh ever rejects', async () => {
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('loader', {
+          entries: () => [{ subtree: { refresh: () => Promise.reject(new Error('disk gone')) } }],
+        } as never)
+      },
+    })
+    result.terminal.send('/reload')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Config reload failed: disk gone')
+    // The failure arm also releases the re-entrancy guard.
+    result.terminal.send('/reload')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).not.toContain('A config reload is already running.')
+    await dispose(result)
+  })
+
+  it('refuses /reload while the agent is running and allows it back at idle', async () => {
+    const refreshed: string[] = []
+    const result = await setup({
+      status: 'running',
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('loader', {
+          entries: () => [{ subtree: { refresh: async () => { refreshed.push('tree') } } }],
+        } as never)
+      },
+    })
+    result.terminal.send('/reload')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('/reload requires an idle agent (status: running).')
+    expect(refreshed).toHaveLength(0)
+    // Back at idle the same command runs.
+    result.agent.status = 'idle'
+    result.terminal.send('/reload')
+    result.terminal.send('\r')
+    await tick()
+    expect(refreshed).toHaveLength(1)
+    expect(result.terminal.output).toContain('Config reload complete.')
+    await dispose(result)
+  })
+
+})
+
+describe('banner sweep reveal', () => {
+  it('renders the product name through the brand-gradient path when truecolor is enabled', async () => {
+    // The product name carries a per-letter 24-bit gradient from the brand
+    // indigo to light blue; the per-letter layout is pinned by the
+    // `banner-gradient` terminal snapshot.
+    const result = await setup({ config: { color: true, truecolor: true } })
+    expect(result.terminal.output).toContain('\x1b[38;2;77;107;254m')
+    expect(result.terminal.output).toContain('\x1b[38;2;36;152;255m')
+    expect(result.terminal.output).toContain('HARNESS')
+    await dispose(result)
+  })
+
+  it('sweeps the whole borderless banner in when no welcome is configured, ending complete', async () => {
+    const intervals = vi.spyOn(globalThis, 'setInterval')
+    const cleared = vi.spyOn(globalThis, 'clearInterval')
+    const result = await setup({ omitWelcome: true })
+    const revealHandle = intervals.mock.results.at(-1)?.value as ReturnType<typeof setInterval>
+    // Run the sweep to natural completion — it clears its own timer at the end.
+    const done = (): boolean => cleared.mock.calls.some(call => call[0] === revealHandle)
+    const deadline = Date.now() + 5000
+    while (!done() && Date.now() < deadline) await tick()
+    intervals.mockRestore()
+    cleared.mockRestore()
+    // The finished banner carries the title and the model • session detail.
+    expect(result.terminal.output).toContain('DEEPSEEK')
+    expect(result.terminal.output).toContain('HARNESS')
+    expect(result.terminal.output).toContain('main-session')
+    // Borderless: no box-drawing frame around the banner.
+    expect(result.terminal.output).not.toContain('╭')
+    expect(result.terminal.output).not.toContain('╮')
+    // A mid-sweep frame rendered a clipped title: `DEEPSEEK` with no `HARNESS`
+    // on the same line.
+    const clipped = result.terminal.output
+      .split('\n')
+      .some(line => line.includes('DEEPSEEK') && !line.includes('HARNESS'))
+    expect(clipped).toBe(true)
+    await dispose(result)
+  })
+
+  it('renders a configured welcome verbatim in a complete banner with no sweep', async () => {
+    const result = await setup()
+    await tick()
+    expect(result.terminal.output).toContain('Coding agent ready.')
+    expect(result.terminal.output).toContain('DEEPSEEK')
+    expect(result.terminal.output).not.toContain('╭')
+    // No reveal frames: the banner is drawn whole from the first render, so no
+    // clipped-title frame ever appears.
+    const clipped = result.terminal.output
+      .split('\n')
+      .some(line => line.includes('DEEPSEEK') && !line.includes('HARNESS'))
+    expect(clipped).toBe(false)
+    await dispose(result)
+  })
+
+  it('omits the subtitle line entirely when no welcome is configured', async () => {
+    const result = await setup({ omitWelcome: true })
+    const deadline = Date.now() + 5000
+    while (!result.terminal.output.includes('main-session') && Date.now() < deadline) await tick()
+    // Banner is title + detail only — no subtitle between them.
+    expect(result.terminal.output).toContain('deepseek-v4-flash')
+    expect(result.terminal.output).not.toContain('ready.')
+    await dispose(result)
+  })
+
+  it('stops a mid-sweep animation on dispose', async () => {
+    // The output-stability probe alone is insensitive to a leaked interval
+    // (pi-tui's stopped guard silences post-stop renders), so capture the
+    // reveal's own interval handle and assert dispose clears exactly it.
+    const intervals = vi.spyOn(globalThis, 'setInterval')
+    const result = await setup({ omitWelcome: true })
+    const revealHandle = intervals.mock.results.at(-1)?.value as ReturnType<typeof setInterval>
+    expect(revealHandle).toBeDefined()
+    const cleared = vi.spyOn(globalThis, 'clearInterval')
+    await dispose(result)
+    expect(cleared.mock.calls.some(call => call[0] === revealHandle)).toBe(true)
+    intervals.mockRestore()
+    cleared.mockRestore()
+    const settled = result.terminal.output.length
+    await tick()
+    await tick()
+    expect(result.terminal.output.length).toBe(settled)
   })
 })

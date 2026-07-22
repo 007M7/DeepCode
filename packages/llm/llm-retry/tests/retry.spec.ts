@@ -400,13 +400,13 @@ describe('bounded transient retry policy', () => {
     agent.send([{ type: 'text', text: 'go' }])
     await scheduled
     const idle = waitForIdle(context, agent)
-    agent.cancel('user cancelled during retry')
+    agent.cancel({ kind: 'user' })
     await idle
 
     expect(adapter.requests).toHaveLength(1)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'aborted', reason: 'user cancelled during retry' } },
+      data: { reason: { kind: 'aborted' } },
     })
     expect(vi.getTimerCount()).toBe(0)
   })
@@ -419,7 +419,7 @@ describe('bounded transient retry policy', () => {
     ])
     ;({ ctx: context } = await harness(adapter, {}, (ctx) => {
       ctx.on('agent/request-error', async (agent, _turn, _step, _error, _failure, _history, _signal, next) => {
-        agent.cancel('cancelled by earlier recovery policy')
+        agent.cancel({ kind: 'user' })
         return next()
       })
     }))
@@ -433,7 +433,7 @@ describe('bounded transient retry policy', () => {
     expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'aborted', reason: 'cancelled by earlier recovery policy' } },
+      data: { reason: { kind: 'aborted' } },
     })
   })
 
@@ -446,7 +446,7 @@ describe('bounded transient retry policy', () => {
     ;({ ctx: context } = await harness(adapter))
     const agent = context.agentLoop.create(SessionId('retry-event-cancel'), { provider: 'mock', model: 'mock' })
     context.on('session/event', (session, event) => {
-      if (session === agent.session && event.type === 'llm/retry') agent.cancel('cancelled by retry observer')
+      if (session === agent.session && event.type === 'llm/retry') agent.cancel({ kind: 'user' })
     })
     const idle = waitForIdle(context, agent)
 

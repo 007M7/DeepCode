@@ -1,13 +1,19 @@
 /** Tests for the documentation website projection adapter. */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { docsPages, type DocsPage } from '../website/docs.ts'
 import { addProjectionFrontmatter, projectedPageContent, rewriteMarkdown } from './project-doc-site.ts'
 
 const roots: string[] = []
+const repositoryRoot = resolve(import.meta.dirname, '..')
+
+function unexpectedWebsiteMarkdown(files: readonly string[]): string[] {
+  return files.filter(file => file.endsWith('.md') && file !== 'website/AGENTS.md').sort()
+}
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
@@ -33,6 +39,29 @@ function fixture(): { root: string; pages: DocsPage[] } {
     ],
   }
 }
+
+describe('website source layout', () => {
+  it('rejects Markdown outside the subtree instructions', () => {
+    expect(unexpectedWebsiteMarkdown([
+      'website/AGENTS.md',
+      'website/docs.ts',
+      'website/zh-CN/api/harness/service.md',
+    ])).toEqual(['website/zh-CN/api/harness/service.md'])
+  })
+
+  it('contains no tracked or unignored documentation copies', () => {
+    const files = execFileSync(
+      'git',
+      ['ls-files', '--cached', '--others', '--exclude-standard', '--', 'website'],
+      { cwd: repositoryRoot, encoding: 'utf8' },
+    ).split('\n').filter(file => file !== '' && existsSync(resolve(repositoryRoot, file)))
+
+    expect(
+      unexpectedWebsiteMarkdown(files),
+      'Keep canonical Markdown under docs/ and publish it through website/docs.ts.',
+    ).toEqual([])
+  })
+})
 
 describe('rewriteMarkdown', () => {
   it('maps published pages and pins unpublished source links', () => {

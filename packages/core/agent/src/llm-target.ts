@@ -49,7 +49,7 @@ export function installAgentLlmTarget(agentCtx: Context, target: AgentLlmTargetR
   })
   const disposeRequest = agentCtx.on(
     'agent/request',
-    async (_agent, _turn, _step, _config, next): Promise<LlmCallConfig> => {
+    async (_agent, _turn, _step, _config, _signal, next): Promise<LlmCallConfig> => {
       const resolved = await next()
       const selected = target.assembled
       return selected === undefined ? resolved : {

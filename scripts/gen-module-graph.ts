@@ -31,10 +31,12 @@ const GROUP_ORDER = [
   'spill',
   'timeout',
   'todo',
+  'plan',
   'cordis',
   'hooks',
   'session-persistence',
   'session-query',
+  'session-title',
   'support',
   'ui',
 ]

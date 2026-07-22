@@ -70,10 +70,12 @@ const GROUP_ORDER = [
   'web',
   'spill',
   'todo',
+  'plan',
   'cordis',
   'hooks',
   'session-persistence',
   'session-query',
+  'session-title',
   'support',
   'ui',
 ]
@@ -137,6 +139,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Resolves live and optional persisted logs into one logical corpus for exact reads and relationship traces.',
   },
   {
+    key: 'sessionTitle',
+    pkg: 'session-title',
+    title: 'Log-backed session titles',
+    mode: 'seam',
+    implementations: ['session-title-first-message-llm', 'session-title-all-messages-llm'],
+    note: 'Owns the deterministic fallback, latest-title fold, and sole optional asynchronous provider registration.',
+  },
+  {
     key: 'systemPrompt',
     pkg: 'system-prompt',
     title: 'System prompt assembly registry',
@@ -160,6 +170,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['tui', 'acp'],
     consumers: ['tool-ask-user', 'tui', 'acp'],
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
+  },
+  {
+    key: 'planMode',
+    pkg: 'plan-mode',
+    title: 'Plan collaboration state',
+    mode: 'core',
+    consumers: ['acp'],
+    note: 'Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions.',
   },
   {
     key: 'commands',

@@ -167,7 +167,7 @@ describe('request stability across the loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let injected = false
-    ctx.on('agent/request', async (_agent, _turn, _step, _config, next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, _config, _signal, next) => {
       if (!injected) {
         injected = true
         agent.inject([{ type: 'text', text: '[late context]' }], { source: { kind: 'plugin', plugin: 'test' } })
@@ -243,7 +243,7 @@ describe('request stability across the loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/request', async (_agent, _turn, _step, _config, next) => {
+    ctx.on('agent/request', async (_agent, _turn, _step, _config, _signal, next) => {
       const config = await next()
       // next() resolves the SAME frozen seed — in-place shaping after
       // delegation is unrepresentable, so a "mutate what next() returned"
@@ -280,7 +280,7 @@ describe('request stability across the loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
     ctx.systemPrompt.section({ name: 'extra', order: 2, text: 'now with guidance' })
-    ctx.on('agent/request', async (_agent, _turn, _step, config, _next) => ({ ...config, temperature: 0.5, maxTokens: 99, stop: ['<END>'] }))
+    ctx.on('agent/request', async (_agent, _turn, _step, config, _signal, _next) => ({ ...config, temperature: 0.5, maxTokens: 99, stop: ['<END>'] }))
     send(agent, 'again')
     await waitForIdle(ctx, agent)
 

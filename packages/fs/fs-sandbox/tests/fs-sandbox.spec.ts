@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, parse } from 'node:path'
 import { Context } from 'cordis'
 import { FsError, FsTargetKey } from '@deepseek-ai/dsh-fs'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
@@ -167,16 +167,15 @@ describe('workspace-write containment', () => {
 })
 
 describe('workspace-write with the filesystem root as the workspace (a root ending in the path separator)', () => {
-  it('grants writes anywhere: containment against `/` allows any absolute path', async () => {
-    // A degenerate but valid config — workspaceRoot '/'. It exercises isUnder's
-    // separator-suffixed-root branch: `/` already ends in the separator, so the
-    // prefix stays `/` and every absolute path is contained.
+  it('grants writes anywhere on that volume', async () => {
+    // A degenerate but valid config: the filesystem root containing the target.
+    // It exercises the separator-suffixed-root branch on POSIX and Windows.
     const rootCtx = new Context()
-    await rootCtx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: '/' })
+    await rootCtx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: parse(base).root })
     const rootFiber = await rootCtx.plugin(SandboxedFileSystem, { cwd: workspace })
     const rootFs = rootCtx.fs as SandboxedFileSystem
     try {
-      const path = join(base, 'anywhere.txt') // under HOME, outside /tmp — allowed only via the `/` root
+      const path = join(base, 'anywhere.txt') // under HOME, outside temp — allowed only via the filesystem root
       await rootFs.writeText(await rootFs.resolve(path), 'anywhere')
       expect(await readFile(path, 'utf8')).toBe('anywhere')
     } finally {

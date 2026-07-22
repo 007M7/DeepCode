@@ -92,7 +92,8 @@ describe('readHostSource', () => {
     await expect(readHostSource('dir', ws, BIG)).rejects.toThrow(/not a regular file/)
   })
 
-  it('rejects a FIFO with no writer without blocking in open', async () => {
+  // Windows has no filesystem FIFO; the directory case above pins non-regular rejection there.
+  it.skipIf(process.platform === 'win32')('rejects a FIFO with no writer without blocking in open', async () => {
     const fifo = join(ws, 'pipe.ts')
     await execFileAsync('mkfifo', [fifo])
     using d = deadline(undefined, 1000, 'FIFO_READ_TIMEOUT')

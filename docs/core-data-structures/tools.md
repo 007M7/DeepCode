@@ -11,6 +11,15 @@ A `ToolSchema` (the model-facing fields) plus the `execute` function, host-only 
 ```ts type-equiv
 /** A registered tool: its schema plus the execution function. */
 interface ToolDefinition extends ToolSchema {
+  /**
+   * Run one accepted call. Async work must observe or forward `exec.signal` and
+   * settle only after its owned work reaches quiescence. The registry preserves
+   * caller cancellation through around-dispatch signal replacement and does
+   * not abandon this promise, but it cannot hard-kill same-process code.
+   * @param args - losslessly snapshotted, frozen model arguments.
+   * @param exec - execution identity, cancellation signal, and context deferral.
+   * @returns model-facing content plus optional private presentation metadata.
+   */
   execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
@@ -138,7 +147,7 @@ interface ToolRestriction {
 
 ## Execution: extensible waterfalls plus monotonic policy
 
-`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → `tools/result` (the immutable authoritative outcome). The outcome is a `ToolExecutionResult`.
+`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → `tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
 
 ```ts type-equiv
 /** Opaque call identity that permits correlation without exposing mutable execution state. */
@@ -161,10 +170,11 @@ interface ToolExecutionInput {
   /**
    * Opaque token of the enclosing transport execution, when one exists. Code
    * Mode sets this on SDK sub-dispatches so commit-style observers can wait for
-   * the outer `run_code` outcome without receiving its live mutable execution.
-   */
+  * the outer `run_code` outcome without receiving its live mutable execution.
+  */
   readonly parent?: ToolExecutionToken
-  signal?: AbortSignal
+  /** Required caller-owned cancellation for this invocation. */
+  readonly signal: AbortSignal
 }
 ```
 
@@ -203,9 +213,9 @@ type ToolExecutionMode =
 /**
  * One pending tool call inside the registry pipeline. Parsed arguments cross
  * one lossless-JSON materialization boundary before policy and are deep-frozen;
- * call identity and the registry-assigned {@link token} are readonly. An
- * around-dispatch wrapper may set, replace, or remove `signal`. The registry
- * freezes the complete object before `tools/result` observers run.
+ * call identity, the caller signal, and the registry-assigned {@link token} are
+ * readonly. The registry freezes the complete object before `tools/result`
+ * observers run.
  */
 interface ToolExecution extends ToolExecutionInput {
   /** Registry-assigned identity shared with nested calls only as their opaque `parent` token. */
@@ -213,7 +223,19 @@ interface ToolExecution extends ToolExecutionInput {
 }
 ```
 
-`ToolExecutionToken` is an opaque runtime `Symbol` used only for identity comparison. Before policy, `execute()` materializes and freezes arguments, rejects non-JSON input, and assigns the token. Identity fields and the optional parent token remain readonly; only `signal` may change around dispatch. Final observers receive the frozen execution identity.
+```ts type-equiv
+/**
+ * Around-dispatch view of a {@link ToolExecution}. A `tools/execute` wrapper
+ * may replace the signal for its delegated lifetime, but it cannot remove it.
+ * The registry fuses every replacement with the captured caller signal.
+ */
+interface ToolDispatchExecution extends Omit<ToolExecution, 'signal'> {
+  /** Cancellation signal visible to the next wrapper or tool body. */
+  signal: AbortSignal
+}
+```
+
+`ToolExecutionToken` is an opaque runtime `Symbol` used only for identity comparison. Before policy, `execute()` materializes and freezes arguments, rejects non-JSON input, and assigns the token. Identity fields, the required caller signal, and the optional parent token remain readonly. A `ToolDispatchExecution` wrapper may replace but not remove the signal; the registry re-fuses the caller signal before invoking the body. Final observers receive the frozen execution identity.
 
 A `ToolGuard` is scope-aware final pre-dispatch policy. Its shape deliberately has no allow result: `undefined` preserves the waterfall decision, while a returned reason can only reduce permission, so a later listener cannot undo it.
 

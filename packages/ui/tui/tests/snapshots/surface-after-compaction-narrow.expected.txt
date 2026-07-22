@@ -1,40 +1,30 @@
 terminal 44x18 buffer=normal length=18 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=11 bufferRow=11
+cursor hidden column=1 viewportRow=9 bufferRow=9
 buffer
-0| "╭──────────────────────────────────────────╮"
-  style 0-43 fg=bright-blue
-1| "│ DEEPSEEK HARNESS                         │"
-  style 0-0 fg=bright-blue
-  style 2-9 fg=bright-blue bold
-  style 11-17 bold
-  style 43-43 fg=bright-blue
-2| "│ Snapshot agent ready.                    │"
-  style 0-0 fg=bright-blue
-  style 2-22 fg=bright-black
-  style 43-43 fg=bright-blue
-3| "│ deepseek-v4-flash  •  main-session       │"
-  style 0-0 fg=bright-blue
-  style 2-35 dim
-  style 43-43 fg=bright-blue
-4| "╰──────────────────────────────────────────╯"
-  style 0-43 fg=bright-blue
-5| <blank>
-6| " Context · compact                          "
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Snapshot agent ready."
+  style 1-21 fg=bright-black
+2| " deepseek-v4-flash  •  main-session"
+  style 1-34 dim
+3| <blank>
+4| " Context · compact                          "
   style 1-17 dim
-7| " Compacted summary: the prior command       "
+5| " Compacted summary: the prior command       "
   style 1-43 fg=bright-black
-8| " completed and its details were retired     "
+6| " completed and its details were retired     "
   style 1-43 fg=bright-black
-9| " from the active surface.                   "
+7| " from the active surface.                   "
   style 1-24 fg=bright-black
+8| "────────────────────────────────────────────"
+  style 0-43 dim
+9| "                                            "
+  style 1-1 inverse
 10| "────────────────────────────────────────────"
   style 0-43 dim
-11| "                                            "
-  style 1-1 inverse
-12| "────────────────────────────────────────────"
+11| "deepseek-v4-flash  /workspace/project  ↑0 ↓0"
   style 0-43 dim
-13| " 0% context  deepseek-v4-flash(reasoning:on)"
-  style 1-43 dim
-14-17| <blank>
+12-17| <blank>

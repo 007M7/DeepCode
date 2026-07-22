@@ -1,0 +1,22 @@
+#!/bin/sh
+# dsh launcher: runs the apps/cli `dsh` bin FROM SOURCE with this checkout's
+# tsx, so a symlink from anywhere (e.g. ~/.local/bin/dsh) always executes the
+# current working tree — code changes apply on the next launch, no build step.
+# --expose-internals: the shipped config mounts HMR, which needs Loader internals.
+set -eu
+
+# Resolve symlink chains without readlink -f (not on every macOS).
+script=$0
+while [ -L "$script" ]; do
+  target=$(readlink "$script")
+  case $target in
+    /*) script=$target ;;
+    *) script=$(dirname "$script")/$target ;;
+  esac
+done
+root=$(CDPATH='' cd -- "$(dirname -- "$script")/.." && pwd)
+
+# tsx is imported by absolute path because bare `--import tsx` resolves from
+# the invoking cwd, which is usually outside this repository.
+export TSX_TSCONFIG_PATH="$root/tsconfig.json"
+exec node --expose-internals --import "$root/node_modules/tsx/dist/loader.mjs" "$root/apps/cli/src/bin.ts" "$@"

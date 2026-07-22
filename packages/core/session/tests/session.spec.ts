@@ -1,7 +1,13 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, {
+  findLastMessageTurnEnd,
+  SESSION_FORMAT_VERSION,
+  Session,
+  SessionEvent,
+  SessionId,
+} from '@deepseek-ai/dsh-session'
 import type { CreateSessionOptions, SessionEventType, SessionHeader, SessionSurface, TodoItem } from '@deepseek-ai/dsh-session'
 
 describe('Session', () => {
@@ -46,6 +52,68 @@ describe('Session', () => {
     expect(turnEnd.data.reason).toEqual({ kind: 'max-tokens' })
     // survives a structuredClone (the persistence-serialization boundary)
     expect(structuredClone(turnEnd.data.reason)).toEqual({ kind: 'max-tokens' })
+  })
+
+  it('finds the latest message-turn outcome past later non-message turns', () => {
+    const session = new Session(SessionId('message-turn-outcome'))
+    expect(findLastMessageTurnEnd(session.events)).toBeUndefined()
+    session.append('turn/start', {
+      turn: 1,
+      trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'before' } },
+    })
+    session.append('context/message', {
+      content: [{ type: 'text', text: 'before' }],
+      source: { kind: 'plugin', plugin: 'before' },
+    }, { surfaceOp: 'append' })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    expect(findLastMessageTurnEnd(session.events)).toBeUndefined()
+
+    session.append('turn/start', {
+      turn: 2,
+      trigger: { kind: 'message', source: { kind: 'user' } },
+    })
+    session.append('user/message', {
+      content: [{ type: 'text', text: 'bounded prompt' }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    const messageEnd = session.append('turn/end', { turn: 2, reason: { kind: 'max-tokens' } })
+    session.append('turn/start', {
+      turn: 3,
+      trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'after' } },
+    })
+    session.append('context/message', {
+      content: [{ type: 'text', text: 'after' }],
+      source: { kind: 'plugin', plugin: 'after' },
+    }, { surfaceOp: 'append' })
+    session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
+
+    expect(findLastMessageTurnEnd(session.events)).toBe(messageEnd)
+  })
+
+  it('round-trips the coarse aborted turn outcome', () => {
+    const session = new Session(SessionId('aborted'))
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
+    const replayed = new Session(SessionId('aborted-replay'), structuredClone(session.events))
+    expect(replayed.events).toEqual(session.events)
+    const turnEnd = replayed.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
+  })
+
+  it('rejects legacy reason-bearing aborted outcomes at the seed/load boundary', () => {
+    const legacy = [
+      {
+        type: 'turn/start', seq: 0, time: 1,
+        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      },
+      {
+        type: 'turn/end', seq: 1, time: 2,
+        data: { turn: 1, reason: { kind: 'aborted', reason: 'legacy cancellation detail' } },
+      },
+    ] as unknown as SessionEvent[]
+
+    expect(() => new Session(SessionId('legacy-aborted'), legacy))
+      .toThrow('seed turn/end at index 1 uses unsupported reason-bearing aborted format')
   })
 
   it('renders context and steering messages as plain user content', () => {

@@ -4,7 +4,7 @@
  * @module dsh-llm-pi-ai/config
  */
 
-import { getProviders } from '@earendil-works/pi-ai'
+import { getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
 import type { CacheRetention, ThinkingBudgets, ThinkingLevel, Transport } from '@earendil-works/pi-ai'
 import z from 'schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -62,7 +62,7 @@ const profile = z.object({
   apiKey: z.string(),
   baseURL: z.string(),
   headers: z.dict(z.string()),
-  reasoning: z.union(['minimal', 'low', 'medium', 'high', 'xhigh']),
+  reasoning: z.union(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
   thinkingBudgets,
   cacheRetention: z.union(['none', 'short', 'long']),
   transport: z.union(['sse', 'websocket', 'websocket-cached', 'auto']),
@@ -84,7 +84,7 @@ export const Config: z<Config> = z.object({
  */
 export function resolveProfiles(profiles: readonly PiAiProviderProfile[]): ResolvedPiAiProviderProfile[] {
   if (profiles.length === 0) throw new Error('llm-pi-ai: providers must contain at least one profile')
-  const supported = new Set<string>(getProviders())
+  const supported = new Set<string>(getBuiltinProviders())
   const seen = new Set<string>()
   return profiles.map((source) => {
     const legacy = source as PiAiProviderProfile & {

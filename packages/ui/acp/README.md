@@ -27,10 +27,10 @@ The `initialize` handshake reports a fixed server identity (`agentInfo: { name: 
 |---|---|---|
 | `initialize` | static | negotiate `protocolVersion`; advertise baseline prompt capabilities (`text`, plus `resource_link` rendered as text) and `loadSession: true` |
 | `session/new` | `ctx.agents.create({ sessionId, meta:{cwd} })` | creates a new session/agent; N concurrent sessions are allowed, keyed by id; advertises the effective command snapshot; `cwd` must be absolute (it becomes the session's workspace — see Per-session cwd); non-empty `additionalDirectories` and `mcpServers` rejected |
-| `session/load` | `ctx.agents.resume(...)` | reserves the id, verifies the persisted cwd, resumes, replays user, assistant, and tool events, and re-advertises commands |
+| `session/load` | `ctx.agents.resume(...)` | reserves the id, verifies the persisted cwd, resumes, replays user, assistant, tool, and title events, and re-advertises commands |
 | `session/prompt` | `ctx.commands.execute()` or `agent.send()` | a flattened prompt beginning with `/` stays in the direct command plane; ordinary prompts support ACP `text` and `resource_link`; unsupported content and empty prompts are rejected; one request is in flight per session and settles on the owning turn's end, with an error turn rejecting the RPC |
 | `session/cancel` | command `AbortSignal` or `agent.cancel()` | aborts the exact direct command, or applies the queue-aware agent cancel and settles its prompt `cancelled`; one session never cancels another |
-| `session/update` | `session/event` | streams user replay, assistant text/reasoning, retry/failure attempt markers, and tool render intents |
+| `session/update` | `session/event` | streams user replay, assistant text/reasoning, retry/failure attempt markers, tool render intents, and `session_info_update` title revisions |
 | `elicitation/create` | `ctx.userInteraction.ask()` | maps `ask_user_question` questions to ACP form elicitations; option descriptions are shown in enum titles, `multi_select` uses ACP array enums, optionless requests use a required `custom` field, and a non-empty custom answer overrides any selected choice |
 | `session/request_permission` | `approval/request` listener | answers one-shot allow/reject requests for bridge-owned calls; foreign or call-less requests delegate and fail closed if unanswered — see "Permission prompts" |
 | `session/set_config_option` | agent-scoped request target / `ctx.permission.set()` | per-session provider+model and permission-preset switching over [session config options](https://agentclientprotocol.com/protocol/session-config-options) — see "Session config options" |
@@ -55,17 +55,19 @@ The shared [`ctx.tasks` runtime](../../tasks/tasks/) fences access to predictabl
 
 ACP updates are append-only, so `llm/retry` emits a visible separator that marks preceding partial model output discarded before the next attempt streams. A terminal model-request failure emits the same discarded-output warning; replay derives both markers from the durable events.
 
+A log-only `session/title` event maps to ACP `session_info_update` with `title` and the event timestamp as `updatedAt`. The same mapping runs for live events and `session/load` replay, so an asynchronously generated late title and a restored persisted title have one wire representation without entering model history.
+
 ## Per-session cwd
 
 `session/new` records the request's absolute cwd in the session header. Before constructing an agent, `session/load` uses persisted metadata to require an absolute request cwd that matches the stored one. Bash defaults to that workspace; an explicit relative workdir resolves against it, and multiple sessions may use different workspaces. `additionalDirectories` remains unsupported.
 
 ## Tool-call presentation
 
-Tools return provider-neutral `generic`, `terminal`, or `diff` render intents from `presentCall()` and `presentResult()`. The bridge maps the discriminator to ACP without special-casing tool names and falls back to a generic card. Per-session call-id state supplies result events with their omitted name and arguments during live streaming and replay. See [`dsh-tools`](../../core/tools/README.md#tool-owned-ui-presentation).
+Tools return provider-neutral `generic`, `terminal`, or `diff` render intents from `presentCall()` and `presentResult()`. The bridge maps the discriminator to ACP without special-casing tool names and falls back to a generic card. Per-session call-id state supplies result events with their omitted name and arguments during live streaming and replay. File-card titles are relative to the session cwd and use the host separator, while location and diff paths remain raw so the editor opens the real file. See [`dsh-tools`](../../core/tools/README.md#tool-owned-ui-presentation).
 
 ## Terminal card (capability-gated)
 
-When the client advertises `_meta.terminal_output`, terminal intents map to Zed's terminal info, output, and exit metadata. The bridge resolves relative cwd against the session, places the description before the terminal block, and omits result content because ACP updates replace call content. Other clients receive a generic card and bridge-derived fenced console fallback. Session creation snapshots the capability so call and result agree. The command still executes through the harness, not ACP terminal creation. See the [terminal-rendering Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) and [render-intent Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md).
+When the client advertises `_meta.terminal_output`, terminal intents map to Zed's terminal info, output, and exit metadata. The bridge resolves relative cwd against the session and preserves the host filesystem separator, places the description before the terminal block, and omits result content because ACP updates replace call content. Other clients receive a generic card and bridge-derived fenced console fallback. Session creation snapshots the capability so call and result agree. The command still executes through the harness, not ACP terminal creation. See the [terminal-rendering Agent Note](../../../.agents/notes/implemented/feature/2026-06-18-acp-terminal-and-tool-rendering.md) and [render-intent Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md).
 
 ## Settle-exactly-once
 
@@ -132,7 +134,7 @@ Command discovery, dispatch, and direct output never enter a model request and d
 
 #### What the model sees
 
-When optional consumers are loaded, ACP form answers become the exact JSON shape documented by `dsh-tool-ask-user`. Failures become `Error: ACP user questions must come from an agent-owned request`, `Error: ACP user question has no matching session`, `Error: ACP elicitation request failed`, `Error: ask_user_question was cancelled by the user`, `Error: ask_user_question returned no answer`, or `Error: ask_user_question was aborted before the user answered`. Permission decisions control whether another tool yields success or denial. ACP tool cards, terminal output, diffs, and streamed session updates are UI-only.
+When optional consumers are loaded, ACP form answers become the exact JSON shape documented by `dsh-tool-ask-user`. Failures become `Error: ACP user questions must come from an agent-owned request`, `Error: ACP user question has no matching session`, `Error: ACP elicitation request failed`, `Error: ask_user_question was cancelled by the user`, `Error: ask_user_question returned no answer`, or `Error: ask_user_question was aborted before the user answered`. Permission decisions control whether another tool yields success or denial. ACP tool cards, terminal output, diffs, title updates, and other streamed session updates are UI-only.
 
 #### Token effect
 

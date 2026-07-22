@@ -41,6 +41,6 @@ export function sessionResolveOptions(
   const cwd = policyWorkspaceRoot ?? sessionCwd(exec, requestedPath)
   return {
     ...cwd !== undefined ? { cwd } : {},
-    ...exec.signal !== undefined ? { signal: exec.signal } : {},
+    signal: exec.signal,
   }
 }

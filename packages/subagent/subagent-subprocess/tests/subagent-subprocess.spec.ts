@@ -191,7 +191,7 @@ describe('disposeChildProcess', () => {
 
   it('tier 2: a child that ignores EOF but honors SIGTERM dies on the middle rung', async () => {
     const fake = new FakeChild({ diesOn: 'SIGTERM', delayMs: 5 })
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'linux')
     expect(fake.stdinEnded).toBe(true)
     expect(fake.kills).toEqual(['SIGTERM'])
     expect(fake.signalCode).toBe('SIGTERM')
@@ -200,7 +200,7 @@ describe('disposeChildProcess', () => {
 
   it('recognizes a child that exits synchronously on SIGTERM', async () => {
     const fake = new FakeChild({ diesOn: 'SIGTERM', synchronousExit: true })
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'linux')
     expect(fake.kills).toEqual(['SIGTERM'])
     expect(fake.signalCode).toBe('SIGTERM')
     expect(fake.listenerCount('exit')).toBe(0)
@@ -208,7 +208,7 @@ describe('disposeChildProcess', () => {
 
   it('tier 3: a SIGTERM-trapping child is SIGKILLed, and dispose resolves only after the exit', async () => {
     const fake = new FakeChild({ delayMs: 5 }) // only SIGKILL fells it
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 20 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 20 }, 'linux')
     expect(fake.kills).toEqual(['SIGTERM', 'SIGKILL'])
     // Quiescence, not a request: at resolution the child has ACTUALLY exited
     // (the exit event landed, despite the scripted post-SIGKILL delay).
@@ -217,15 +217,102 @@ describe('disposeChildProcess', () => {
 
   it('recognizes a child already gone when the final exit wait begins', async () => {
     const fake = new FakeChild({ synchronousExit: true })
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 20 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 20 }, 'linux')
     expect(fake.kills).toEqual(['SIGTERM', 'SIGKILL'])
     expect(fake.signalCode).toBe('SIGKILL')
   })
 
+  it.each(['exitCode', 'signalCode'] as const)('accepts a late OS %s marker before the final forced wait', async (marker) => {
+    const fake = new FakeChild()
+    vi.spyOn(fake, 'kill').mockImplementation((signal) => {
+      fake.kills.push(signal)
+      queueMicrotask(() => {
+        if (marker === 'exitCode') fake.exitCode = 0
+        else fake.signalCode = 'SIGTERM'
+      })
+      return true
+    })
+
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 1, disposeGraceMs: 10 }, 'linux')
+    expect(fake.kills).toEqual(['SIGTERM'])
+  })
+
   it('walks the ladder for a child spawned without a stdin pipe', async () => {
     const fake = new FakeChild({ stdin: false, diesOn: 'SIGTERM', delayMs: 5 })
-    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'linux')
     expect(fake.kills).toEqual(['SIGTERM'])
+  })
+
+  it('skips the redundant SIGTERM tier on Windows and awaits forced exit', async () => {
+    const fake = new FakeChild({ diesOn: 'SIGTERM', delayMs: 5 })
+    await disposeChildProcess(asChild(fake), { disposeEofGraceMs: 20, disposeGraceMs: 1000 }, 'win32')
+    expect(fake.kills).toEqual(['SIGKILL'])
+    expect(fake.signalCode).toBe('SIGKILL')
+  })
+
+  it('propagates a forced-termination error without waiting for the grace', async () => {
+    const fake = new FakeChild()
+    const failure = Object.assign(new Error('kill EPERM'), { code: 'EPERM' })
+    vi.spyOn(fake, 'kill').mockImplementation((signal) => {
+      fake.kills.push(signal)
+      fake.emit('error', failure)
+      return false
+    })
+
+    await expect(disposeChildProcess(
+      asChild(fake),
+      { disposeEofGraceMs: 1, disposeGraceMs: 1000 },
+      'win32',
+    )).rejects.toBe(failure)
+    expect(fake.kills).toEqual(['SIGKILL'])
+    expect(fake.listenerCount('error')).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
+
+  it('wraps a synchronous forced-termination exception and removes its listeners', async () => {
+    const fake = new FakeChild()
+    const failure = new Error('invalid signal state')
+    vi.spyOn(fake, 'kill').mockImplementation(() => { throw failure })
+
+    await expect(disposeChildProcess(
+      asChild(fake),
+      { disposeEofGraceMs: 1, disposeGraceMs: 1000 },
+      'win32',
+    )).rejects.toMatchObject({ message: 'SIGKILL failed', cause: failure })
+    expect(fake.listenerCount('error')).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
+
+  it('bounds a refused forced termination that produces no error or exit', async () => {
+    const fake = new FakeChild()
+    vi.spyOn(fake, 'kill').mockImplementation((signal) => {
+      fake.kills.push(signal)
+      return false
+    })
+
+    await expect(disposeChildProcess(
+      asChild(fake),
+      { disposeEofGraceMs: 1, disposeGraceMs: 10 },
+      'win32',
+    )).rejects.toThrow('child process did not exit within 10ms after SIGKILL was refused')
+    expect(fake.listenerCount('error')).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
+  })
+
+  it('bounds an accepted forced termination that never reports exit', async () => {
+    const fake = new FakeChild()
+    vi.spyOn(fake, 'kill').mockImplementation((signal) => {
+      fake.kills.push(signal)
+      return true
+    })
+
+    await expect(disposeChildProcess(
+      asChild(fake),
+      { disposeEofGraceMs: 1, disposeGraceMs: 10 },
+      'win32',
+    )).rejects.toThrow('child process did not exit within 10ms after SIGKILL was accepted')
+    expect(fake.listenerCount('error')).toBe(0)
+    expect(fake.listenerCount('exit')).toBe(0)
   })
 })
 
@@ -236,8 +323,9 @@ describe('createIsolatedConfigDir', () => {
       expect(dir.path.startsWith(join(tmpdir(), 'dsh-subagent-subprocess-test-'))).toBe(true)
       const st = await stat(dir.path)
       expect(st.isDirectory()).toBe(true)
-      // Private (0700) per the defensive-patterns temp-dir rule.
-      expect(st.mode & 0o777).toBe(0o700)
+      // Windows reports synthetic POSIX mode bits; privacy comes from the
+      // inherited directory ACL rather than chmod-compatible mode bits.
+      if (process.platform !== 'win32') expect(st.mode & 0o777).toBe(0o700)
     } finally {
       await dir.remove()
     }

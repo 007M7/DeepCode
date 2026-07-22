@@ -25,7 +25,7 @@ export function apply(ctx: Context) {
     async execute(args, exec) {
       // args is TYPED from the schema: { path: string; limit?: number }
       // exec carries immutable identity + token; signal is the operational field
-      return [{ type: 'text', text: await readFile(args.path, 'utf8') }]
+      return [{ type: 'text', text: await readFile(args.path, { encoding: 'utf8', signal: exec.signal }) }]
     },
   }))
 }
@@ -37,7 +37,7 @@ Registration is effect-based: disposing the plugin fiber unregisters the tool (w
 
 - **Args are validated for you.** `defineTool` validates the model-generated `arguments` against the `SchemaSpec` before `execute` runs (type, required keys, enum membership, nested objects/arrays — [runtime arg validation](../../.agents/notes/implemented/architecture/2026-06-11-runtime-arg-validation.md)), so inside `execute` the args already match `InferArgs`. You still hand-check value constraints the DSL can't express (non-empty strings, positive numbers, cross-field rules); throw a descriptive Error for those. Raw JSON-Schema tools registered directly (MCP) are NOT validated by the harness — they validate their own input.
 - **Registration borrows your readonly definition.** A typed same-process contribution is not a serialization boundary; do not mutate its schema or replace callbacks after registration. `schemas()` materializes only the explicit model-facing projection. To hot-swap a tool, dispose its owning effect and register the replacement; mutable state inside the callback's closure remains ordinary plugin state.
-- **Execution identity is protected.** The registry materializes `arguments` as detached lossless JSON in one recursive pass, freezes that value before policy starts, and assigns an opaque `exec.token`; `callId`, `name`, `arguments`, `agent`, `token`, and an optional enclosing-transport `parent` token stay immutable through dispatch. `parent` is identity-only and exposes no live outer execution. Treat `args` as readonly input. An around-dispatch wrapper may add, replace, or remove only `exec.signal` to impose cancellation or a deadline.
+- **Execution identity is protected.** The registry materializes `arguments` as detached lossless JSON in one recursive pass, freezes that value before policy starts, and assigns an opaque `exec.token`; `callId`, `name`, `arguments`, `agent`, `token`, the required caller-owned `signal`, and an optional enclosing-transport `parent` token stay immutable through dispatch. `parent` is identity-only and exposes no live outer execution. Treat `args` as readonly input. Only an around-dispatch wrapper receives a mutable view, and it may replace and restore the required `exec.signal` to impose a deadline but cannot remove it.
 - **Throwing or returning non-JSON data means `isError`.** The registry catches throws and materializes the final result before observers run. A malformed or non-JSON result becomes `{ isError: true }`, preventing a live success that cannot be logged. Throw for infrastructure failures; report domain failures in result text when the model must interpret them.
 - **Honor `exec.signal`.** Cancel in-flight work when it fires.
 - **Attach durable card data with `meta` (optional).** `execute` may return `{ content, meta }` instead of a bare `ContentBlock[]` — `meta` is a JSON-serializable payload the core treats as opaque, persisted on the `tool/result` event and handed back to your `presentResult` (so a card that needs more than `args`, like `write`/`edit`'s applied-hunk diff, survives a session replay). Keep UI-only data here, never in the model-facing `content`.
@@ -45,7 +45,7 @@ Registration is effect-based: disposing the plugin fiber unregisters the tool (w
 
 ## Long-running work
 
-Gate `run_in_background` with producer config, reject a pre-aborted call, then register through `ctx.tasks.start({ kind, label, owner: exec.agent, run })`. The runtime validates ownership and control-surface availability before `run()` starts work, then supplies the id, session fence, generic control tools, notices, and owner cleanup.
+Gate `run_in_background` with producer config, then register through `ctx.tasks.start({ kind, label, owner: exec.agent, run })`. The registry skips a pre-aborted invocation before the producer body; the runtime validates ownership and control-surface availability before `run()` starts work, then supplies the id, session fence, generic control tools, notices, and owner cleanup.
 
 The producer supplies synchronous `cancel`, non-rejecting `done` that settles after resource cleanup, and optional consuming `readOutput` with bounded-output formatting. Once the id is returned, use a task-owned cancellation signal rather than `exec.signal`. See the [background task runtime Agent Note](../../.agents/notes/implemented/architecture/2026-06-20-generic-long-running-tool-runtime.md) and `dsh-tool-bash` for a stream producer.
 
