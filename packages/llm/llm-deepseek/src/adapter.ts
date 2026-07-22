@@ -182,6 +182,9 @@ export class DeepSeekAdapter extends LlmAdapter {
       ...options.sessionId !== undefined
         ? { 'x-deepseek-harness-session-id': String(options.sessionId) }
         : {},
+      ...options.purpose === 'compaction'
+        ? { 'x-deepseek-harness-compact': '1' }
+        : {},
     }
 
     // TODO(http): adopt the Cordis HTTP service when shared transport configuration
