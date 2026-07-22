@@ -1,4 +1,7 @@
 {
+  // Doubles as the resolution facade for vite-tsconfig-paths (vitest configs
+  // point here). NEVER add include/files to this file: it would leak into
+  // every extending package project and narrow the facade's match-all scope.
   "compilerOptions": {
     "target": "es2024",
     "module": "esnext",
@@ -87,8 +90,9 @@
       // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
       // dir names are unique across groups, so first-on-disk-wins resolution is
       // unambiguous; adding a package under an existing group needs no edit
-      // here. The build graph's project references (tsconfig.build.json) stay
-      // explicit — TS project references have no wildcard form.
+      // here. The aggregates' project references (tsconfig.host.json /
+      // tsconfig.client.json) stay explicit — TS project references have no
+      // wildcard form.
       "@deepseek-ai/dsh-host-apiproxy": ["./packages/host/apiproxy/src"],
       "@deepseek-ai/dsh-host-apiproxy/client": ["./packages/host/apiproxy/src/fetch/client.ts"],
       "@deepseek-ai/dsh-host-apiproxy/*": ["./packages/host/apiproxy/src/*"],
