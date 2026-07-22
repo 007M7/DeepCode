@@ -5,7 +5,10 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult, SessionId, ToolEventView } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  HistoryEntry, IApiClient, MuxFrame, QuestionResponsePayload, RpcError, RpcId, RpcReceipt, RpcResult,
+  SessionId, ToolEventView,
+} from '@deepseek-ai/dsh-client-connection/client'
 import { transportError } from '@deepseek-ai/dsh-client-connection/client'
 import type { ObservableSnapshot, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
@@ -118,6 +121,34 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       this.notifier.markDirty()
     }
     return result
+  }
+
+  /**
+   * Answer one host-owned question wait; pending clears only on the authoritative resolved frame.
+   * @param rpcId - Stable id from the requested frame.
+   * @param answer - Complete structured answer batch.
+   * @returns Carrier receipt; rejection leaves pending state unchanged.
+   */
+  answerQuestion(rpcId: RpcId, answer: QuestionResponsePayload['answer']): Promise<RpcReceipt> {
+    return this.api.respond({
+      type: 'client-response', rpcId,
+      result: { ok: true, value: { sessionId: this.sessionId, answer } },
+    })
+  }
+
+  /**
+   * Cancel one host-owned question wait without encoding closure as skipped answers.
+   * @param rpcId - Stable id from the requested frame.
+   * @returns Carrier receipt; rejection leaves pending state unchanged.
+   */
+  cancelQuestion(rpcId: RpcId): Promise<RpcReceipt> {
+    return this.api.respond({
+      type: 'client-response', rpcId,
+      result: {
+        ok: false,
+        error: { code: 'cancelled', message: 'the user closed this question request', details: {} },
+      },
+    })
   }
 
   /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */

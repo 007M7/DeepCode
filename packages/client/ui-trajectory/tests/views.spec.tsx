@@ -14,13 +14,16 @@ import { bindSnapshotSelector, createSnapshotStore } from '@deepseek-ai/dsh-clie
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import type { ConversationSnapshot, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import { ConversationRoot, ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { ConvViewProps, ViewEntry, ViewId } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ConversationInjected, ConvViewProps, ViewEntry, ViewId } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
   apply, deriveSpans, deriveSpanStats, inject, TrajectoryStatsHeader, TrajectoryView, WaterfallView,
 } from '@deepseek-ai/dsh-client-ui-trajectory/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 
 const SID = 's1' as SessionId
+const fallbackSlots: ConversationInjected['slots'] = {
+  renderSlot: (_key, _props, opts) => opts?.fallback ?? null,
+}
 
 afterEach(cleanup)
 
@@ -70,8 +73,14 @@ function mount(svc: ConversationService, nodes: ConversationSnapshot['nodes'] = 
     }
     return createElement(Fragment, null, children)
   }
-  const sessionSnapshot = createSnapshotStore<{ running: boolean; removed: boolean; promptError: null; nodes: ConversationSnapshot['nodes'] }>({
-    running: false, removed: false, promptError: null, nodes,
+  const sessionSnapshot = createSnapshotStore<{
+    running: boolean
+    removed: boolean
+    promptError: null
+    nodes: ConversationSnapshot['nodes']
+    pending: ConversationSnapshot['pending']
+  }>({
+    running: false, removed: false, promptError: null, nodes, pending: [],
   })
   return render(
     <ConversationRoot
@@ -87,6 +96,7 @@ function mount(svc: ConversationService, nodes: ConversationSnapshot['nodes'] = 
       composer={{ useDraft: () => '', setDraft: vi.fn(), send: vi.fn(), stop: vi.fn() }}
       actions={{ openView: ((v: string) => { activeStore.set(v) }) as (v: never) => void, open: vi.fn() }}
       renderView={renderView}
+      slots={fallbackSlots}
     />,
   )
 }

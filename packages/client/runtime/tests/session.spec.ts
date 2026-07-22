@@ -251,6 +251,30 @@ describe('pending interactions', () => {
     session.handleMuxEnvelope('ry' as never, { type: 'question/resolved', sessionId: SID, questionRpcId: 'rq' as never, outcome: 'answered' })
     expect(session.getSnapshot().pending).toEqual([])
   })
+
+  it('backfills the requested rpcId for structured answers and explicit cancellation', async () => {
+    const { api, session } = makeSession()
+    await session.answerQuestion('rq-answer' as never, {
+      answers: [{ id: 'mode', selected: ['Fast'] }],
+    })
+    await session.cancelQuestion('rq-cancel' as never)
+    expect(api.callsOf('respond')).toEqual([
+      {
+        type: 'client-response', rpcId: 'rq-answer',
+        result: {
+          ok: true,
+          value: { sessionId: SID, answer: { answers: [{ id: 'mode', selected: ['Fast'] }] } },
+        },
+      },
+      {
+        type: 'client-response', rpcId: 'rq-cancel',
+        result: {
+          ok: false,
+          error: { code: 'cancelled', message: 'the user closed this question request', details: {} },
+        },
+      },
+    ])
+  })
 })
 
 describe('remaining branches', () => {

@@ -1,20 +1,18 @@
 // @vitest-environment jsdom
 // Branch tails the acceptance specs do not reach: ToolRow stopped-state dot,
-// PendingCard question arm, bash sample error pill, registry disposer
+// Bash sample error pill and registry disposer
 // idempotence re-entry, register.ts explicit bashSampleScope override, the
 // node-half empty apply, and AssistantMarkdown reasoning/unknown block arms.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import type { ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import type { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ConversationService, Translate, ToolViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as nodeApply } from '../src/index.ts'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
 import { ToolRow } from '../src/client/chat/ToolRow.tsx'
-import { PendingCard } from '../src/client/chat/PendingCard.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
 import { registerChat } from '../src/client/chat/register.ts'
@@ -32,13 +30,6 @@ describe('tails', () => {
     )
     expect(view.queryByTestId('icon')).toBeNull()
     expect(view.container.querySelector('[data-state="stopped"]')).not.toBeNull()
-  })
-
-  it('PendingCard renders the question arm with its count', () => {
-    const view = render(
-      <PendingCard item={{ kind: 'question', rpcId: 'r1' as RpcId, questions: [{}, {}] }} />,
-    )
-    expect(view.getByText(/等待回答（2 题）/)).toBeTruthy()
   })
 
   it('AssistantMarkdown renders reasoning as a Think row and unknown blocks as JSON fallback', () => {

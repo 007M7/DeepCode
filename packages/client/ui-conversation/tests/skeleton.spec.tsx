@@ -11,11 +11,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FC } from 'react'
 import { bindSnapshotSelector, createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
-import type { SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
+import type { PendingInteraction, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   ConversationRoot, DetailsPanel, EmptyState,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { SelectionTarget, ViewEntry, ViewId } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ConversationInjected, SelectionTarget, ViewEntry, ViewId } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 const sid = (s: string): SessionId => s as SessionId
 
@@ -28,11 +28,12 @@ interface FakeSnapshot {
   running: boolean
   removed: boolean
   promptError: { op: 'send' | 'stop'; error: { message: string; code: string } } | null
+  pending: readonly PendingInteraction[]
 }
 
 function fakeSession(init: Partial<FakeSnapshot> = {}) {
   const store = createSnapshotStore<FakeSnapshot>({
-    nodes: [], runningCalls: [], running: false, removed: false, promptError: null, ...init,
+    nodes: [], runningCalls: [], running: false, removed: false, promptError: null, pending: [], ...init,
   })
   return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession }
 }
@@ -67,8 +68,11 @@ describe('EmptyState', () => {
 })
 
 describe('ConversationRoot', () => {
-  function bench(views: ViewEntry[], active?: string) {
-    const { useSession } = fakeSession({ nodes: [{ kind: 'user' }, { kind: 'user' }] })
+  function bench(
+    views: ViewEntry[], active?: string, init: Partial<FakeSnapshot> = {},
+    renderSlot?: ConversationInjected['slots']['renderSlot'],
+  ) {
+    const { useSession } = fakeSession({ nodes: [{ kind: 'user' }, { kind: 'user' }], ...init })
     const activeStore = createSnapshotStore<string | undefined>(active)
     const openView = vi.fn((v: string) => { activeStore.set(v) })
     const open = vi.fn()
@@ -98,6 +102,7 @@ describe('ConversationRoot', () => {
         }}
         actions={{ openView: openView as (v: never) => void, open }}
         renderView={(entry) => { rendered.push(entry.id); return <div data-testid={`view-${entry.id}`} /> }}
+        slots={{ renderSlot: renderSlot ?? ((_key, _props, opts) => opts?.fallback ?? null) } as ConversationInjected['slots']}
       />)
     return { ui, openView, open, rendered, send, drafts }
   }
@@ -132,6 +137,23 @@ describe('ConversationRoot', () => {
     fireEvent.change(box, { target: { value: 'hi' } })
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(send).toHaveBeenCalledWith('queue')
+  })
+
+  it('dispatches a pending question to the composer slot instead of rendering InputBar', () => {
+    const renderSlot = vi.fn(() => <div>question takeover</div>) as unknown as ConversationInjected['slots']['renderSlot']
+    bench([view('chat', 'Chat')], undefined, {
+      pending: [{
+        kind: 'question', rpcId: 'rq' as never,
+        questions: [{ id: 'mode', question: 'Choose?', options: [{ label: 'Fast' }] }],
+      }],
+    }, renderSlot)
+    expect(screen.getByText('question takeover')).toBeTruthy()
+    expect(screen.queryByPlaceholderText(/输入消息/)).toBeNull()
+    expect(renderSlot).toHaveBeenCalledWith(
+      'conversation.composer',
+      expect.objectContaining({ interaction: expect.objectContaining({ rpcId: 'rq' }) }),
+      expect.objectContaining({ entryKey: 'question' }),
+    )
   })
 })
 

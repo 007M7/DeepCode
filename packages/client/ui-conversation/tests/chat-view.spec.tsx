@@ -295,11 +295,18 @@ describe('ChatView', () => {
     expect(lv.getByText('载入历史…')).toBeTruthy()
   })
 
-  it('pending interactions render placeholder cards', () => {
+  it('renders approval cards while questions stay in the composer', () => {
     const h = makeHarness({
-      pending: [{ kind: 'approval', rpcId: 'r1' as never, approvalId: 'ap1', toolName: 'bash' }],
+      pending: [
+        { kind: 'approval', rpcId: 'r1' as never, approvalId: 'ap1', toolName: 'bash' },
+        {
+          kind: 'question', rpcId: 'r2' as never,
+          questions: [{ id: 'mode', question: 'Composer only?', options: [{ label: 'Yes' }] }],
+        },
+      ],
     })
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByText(/等待审批/)).toBeTruthy()
+    expect(view.queryByText('Composer only?')).toBeNull()
   })
 })

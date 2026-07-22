@@ -62,6 +62,8 @@ export function apply(ctx: Context): void {
   const layout = need<LayoutService>(ctx, 'layout')
   const i18n = need<I18nService>(ctx, 'i18n')
   const slots = need<SlotsService>(ctx, 'slots')
+  slots.define('conversation.composer', { kind: 'keyed', scope: 'session' })
+  const composerSlots = scopedSlots(slots.core, 'conversation.composer')
 
   const conversation = new ConversationService(ctx)
   const toolviews = new ToolViewRegistry()
@@ -153,6 +155,7 @@ export function apply(ctx: Context): void {
         }
         return createElement(Fragment, null, ...children)
       },
+      slots: composerSlots,
     }
     return injected
   }

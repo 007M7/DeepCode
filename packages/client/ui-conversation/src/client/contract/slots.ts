@@ -8,7 +8,8 @@
  * standard share & own injected share.
  */
 import type { ReactNode } from 'react'
-import type { SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
+import type { PendingInteraction, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ScopedSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotSelectorHook, UseSession } from '@deepseek-ai/dsh-client-web-react'
 import type { ConvOwnerProps, DetailsOwnerProps, EmptyOwnerProps } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { SelectionTarget, ViewEntry, ViewId } from './views.ts'
@@ -38,6 +39,13 @@ export interface ConversationInjected {
   }
   /** Renders the active view's body (the owner closes over ConvViewProps assembly). */
   renderView: (entry: ViewEntry) => ReactNode
+  /** Feature-owned composer replacements, dispatched by pending interaction kind. */
+  slots: ScopedSlots<'conversation.composer'>
+}
+
+/** Question-composer owner share supplied by ConversationRoot. */
+export interface QuestionComposerOwnerProps {
+  interaction: Extract<PendingInteraction, { kind: 'question' }>
 }
 
 /** Full conversation-slot component props: owner share & standard share & injected share. */

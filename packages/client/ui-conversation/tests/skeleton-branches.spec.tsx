@@ -10,11 +10,14 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import type { ConversationSnapshot, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import { ConversationRoot, DetailsPanel, EmptyState } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { SelectionTarget, ViewEntry } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ConversationInjected, SelectionTarget, ViewEntry } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 afterEach(cleanup)
 
 const SID = 's1' as SessionId
+const fallbackSlots: ConversationInjected['slots'] = {
+  renderSlot: (_key, _props, opts) => opts?.fallback ?? null,
+}
 
 function snapshotBase(): ConversationSnapshot {
   return {
@@ -55,6 +58,7 @@ describe('ConversationRoot branches', () => {
         composer={{ useDraft: () => '', setDraft: vi.fn(), send: vi.fn(), stop: vi.fn() }}
         actions={{ openView: vi.fn(), open }}
         renderView={() => <div data-testid="view-body" />}
+        slots={fallbackSlots}
       />,
     )
     return { view, open }
@@ -99,6 +103,7 @@ describe('ConversationRoot branches', () => {
         composer={{ useDraft: () => '', setDraft: vi.fn(), send: vi.fn(), stop: vi.fn() }}
         actions={{ openView: vi.fn(), open: vi.fn() }}
         renderView={(entry) => <div data-testid={`body-${entry.id}`} />}
+        slots={fallbackSlots}
       />,
     )
     expect(view.getByTestId('body-chat')).toBeTruthy()

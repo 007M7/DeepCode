@@ -2,7 +2,7 @@
 // data source on a real clock; behavior tests need per-case responses and
 // deferred-controlled timing). Streams are hand pumps: pushMux/pushHost.
 import type {
-  HostFrame, IApiClient, MuxFrame, RpcError, RpcRequest, RpcResponse, SessionId,
+  ClientResponse, HostFrame, IApiClient, MuxFrame, RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 
@@ -54,6 +54,7 @@ export class FakeApiClient implements IApiClient {
   onCancel: (payload: unknown) => Promise<RpcResponse<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onDescribe: (payload: unknown) => Promise<RpcResponse<{ version: string; cwd: string; attachedSessions: number }>> =
     () => Promise.resolve(ok({ version: '0-fake', cwd: '/f', attachedSessions: 0 }))
+  onRespond: (message: ClientResponse) => Promise<RpcReceipt> = () => Promise.resolve({ accepted: true })
 
   private readonly muxConns: StreamConn<MuxFrame>[] = []
   private readonly hostConns: StreamConn<HostFrame>[] = []
@@ -93,8 +94,8 @@ export class FakeApiClient implements IApiClient {
     host: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => this.openStream(this.hostConns, signal, onOpen),
   }
 
-  respond(): Promise<{ accepted: false; reason: 'not-pending' }> {
-    return Promise.resolve({ accepted: false, reason: 'not-pending' })
+  respond(message: ClientResponse): Promise<RpcReceipt> {
+    return this.record('respond', message, this.onRespond(message))
   }
 
   /** Push one mux frame to every open mux stream (rpcId minted unless pinned by the case). */

@@ -7,6 +7,7 @@
 
 import { useSyncExternalStore } from 'react'
 import clsx from 'clsx'
+import type { PendingInteraction } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSlotProps } from '../contract/slots.ts'
 import { InputBar } from './InputBar.tsx'
 import type { InputBarError } from './InputBar.tsx'
@@ -20,7 +21,7 @@ import css from './ConversationRoot.module.css'
 export type ConversationRootProps = ConversationSlotProps
 
 export function ConversationRoot({
-  sessionId, useSession, useAncestry, views, useActiveView, composer, actions, renderView,
+  sessionId, useSession, useAncestry, views, useActiveView, composer, actions, renderView, slots,
 }: ConversationRootProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const list = views.list()
@@ -33,6 +34,9 @@ export function ConversationRoot({
   const removed = useSession(s => (s as { removed: boolean }).removed)
   const promptError = useSession(s => (s as { promptError: { op: 'send' | 'stop'; error: { message: string; code: string } } | null }).promptError)
   const turns = useSession(s => countTurns(s as { nodes: readonly { kind: string }[] }))
+  const question = useSession(s => (
+    s as { pending: readonly PendingInteraction[] }
+  ).pending.find(item => item.kind === 'question'))
 
   const error: InputBarError | null = promptError === null
     ? null
@@ -87,17 +91,34 @@ export function ConversationRoot({
         {active !== undefined && renderView(active)}
       </div>
 
-      <InputBar
-        draft={draft}
-        running={running}
-        disabled={removed}
-        error={error}
-        variant="composer"
-        onDraftChange={composer.setDraft}
-        onSend={composer.send}
-        onStop={composer.stop}
-      />
+      {question?.kind === 'question'
+        ? slots.renderSlot('conversation.composer', { interaction: question }, {
+            entryKey: 'question',
+            fallback: <ComposerInput {...{ draft, running, removed, error, composer }} />,
+          })
+        : <ComposerInput {...{ draft, running, removed, error, composer }} />}
     </div>
+  )
+}
+
+function ComposerInput({ draft, running, removed, error, composer }: {
+  draft: string
+  running: boolean
+  removed: boolean
+  error: InputBarError | null
+  composer: ConversationSlotProps['composer']
+}) {
+  return (
+    <InputBar
+      draft={draft}
+      running={running}
+      disabled={removed}
+      error={error}
+      variant="composer"
+      onDraftChange={composer.setDraft}
+      onSend={composer.send}
+      onStop={composer.stop}
+    />
   )
 }
 
