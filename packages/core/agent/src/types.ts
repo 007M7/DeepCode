@@ -31,10 +31,16 @@ export interface AgentOptions {
  */
 export interface SendOptions {
   source?: MessageSource
+  /**
+   * Model-facing contexts captured with this inbox item. A queued prompt exposes
+   * them through the default `agent/prompt-submit` allow decision, while steering
+   * records them directly at its next checkpoint.
+   */
+  contexts?: HookContext[]
 }
 
 /** Options specific to durable synthetic context injection. */
-export interface InjectOptions extends SendOptions {
+export interface InjectOptions extends Omit<SendOptions, 'contexts'> {
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
@@ -47,19 +53,28 @@ export interface InjectOptions extends SendOptions {
  */
 export type AgentStatus = 'idle' | 'running' | 'disposed'
 
-/** Model-facing context injected by a listener; `source` prevents plugin text from being labeled as user input. */
+/** Model-facing context injected by a listener or atomically attached to one inbox message. */
 export interface HookContext {
   content: ContentBlock[]
   source: MessageSource
+  /**
+   * Model placement. Absent or `separate` records an independent
+   * `context/message`; `prompt-prefix` prepends this context and a stable
+   * request delimiter to the same user-role message as its attached prompt.
+   */
+  placement?: 'separate' | 'prompt-prefix'
   /** Opaque JSON state retained in the session event but hidden from the model. */
   meta?: JsonValue
 }
 
 /**
- * Prompt interception result. `allow.content` replaces the prompt and each
- * `additionalContexts` entry becomes a separate context message. `block`
- * records a durable `prompt/blocked` and ends the claimed prompt's zero-step
- * turn as rejected.
+ * Prompt interception result. `allow.content` replaces the prompt. Each
+ * `additionalContexts` entry follows its declared placement: separate context
+ * message by default, or a prefix inside the prompt's user-role message.
+ * `block` records a durable `prompt/blocked` and ends the claimed prompt's
+ * zero-step turn as rejected. An `allow` returned by a listener is
+ * authoritative: a listener wrapping `next()` preserves downstream `content`
+ * and `additionalContexts` unless it intentionally replaces them.
  */
 export type PromptDecision =
   | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
@@ -108,7 +123,8 @@ export interface Agent {
    * Queue one detached, frozen lossless-JSON item. If claimed, it is the sole
    * ordinary message in its FIFO-ordered turn; the next claimed item waits for
    * that turn's checkpoint.
-   * Invalid input throws synchronously before notification or enqueue.
+   * Attached contexts share the same snapshot and ownership boundary. Invalid
+   * input throws synchronously before notification or enqueue.
    */
   send(content: ContentBlock[], options?: SendOptions): void
 
@@ -184,11 +200,11 @@ declare module 'cordis' {
      * already been applied, so these are the exact values retained for the log.
      * @param agent - the agent whose inbox received the message.
      * @param content - the accepted content blocks retained by the inbox.
-     * @param info - the accepted source plus whether it entered as steering.
+     * @param info - the accepted source, contexts, and whether it entered as steering.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/queued'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void
+    'agent/queued'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; contexts: HookContext[]; steering: boolean }): void
     /**
      * Effective broad cancellation was requested, before queued/steering work
      * is cleared or the active turn is aborted. This observe-only notification
@@ -230,9 +246,12 @@ declare module 'cordis' {
     'agent/pre-step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
     /**
      * Allow, rewrite, or block one claimed prompt before it becomes a user
-     * message. Call `next()` for the unchanged default. The signal controls only
-     * this turn; listeners may cooperate with it but must not retain it to
-     * control another turn.
+     * message. Call `next()` for the unchanged default. A listener wrapping a
+     * downstream `allow` must preserve its `content` and `additionalContexts`
+     * unless it intentionally replaces them. The signal controls only this turn;
+     * listeners may cooperate with it but must not retain it to control another
+     * turn. Steering messages do not dispatch this event; they join an open turn
+     * at a steering checkpoint.
      * @param agent - the agent whose turn claimed the message.
      * @param content - the claimed message's blocks, as queued.
      * @param source - the message's resolved source.

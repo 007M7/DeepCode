@@ -27,6 +27,20 @@ interface SessionRecord {
 }
 ```
 
+`SessionSurfaceSnapshot` 表示一次精确读取所得的观测，而不是持续保留的订阅。它的原始日志边界与折叠后的事件来自同一次优先使用 live 数据的加载。
+
+```ts type-equiv
+/** One atomic live-preferred observation of a session's current model surface. */
+interface SessionSurfaceSnapshot {
+  /** Cloned session header selected from the same corpus observation as `events`. */
+  session: SessionHeader
+  /** Highest raw-log seq included in the observation, or `null` for an empty log. */
+  capturedThroughSeq: number | null
+  /** Cloned current surface events in model-history order. */
+  events: SurfaceEvent[]
+}
+```
+
 ```ts type-equiv
 /** Lightweight metadata for one event within a logical session. */
 interface SessionEventRecord {

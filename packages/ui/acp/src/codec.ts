@@ -5,6 +5,12 @@
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { TurnEndReason } from '@deepseek-ai/dsh-session'
+import {
+  SESSION_REFERENCE_SCHEME,
+  decodeSessionReferenceUri,
+  parseSessionReferenceText,
+  type SessionReferenceInput,
+} from '@deepseek-ai/dsh-session-reference'
 import type { ContentBlock as AcpContentBlock, StopReason } from '@agentclientprotocol/sdk'
 
 /**
@@ -79,6 +85,45 @@ export function acpPromptToText(prompt: readonly AcpContentBlock[]): string {
       }
     })
     .join('')
+}
+
+/** ACP prompt text plus structured session references extracted from text and resource links. */
+export interface AcpReferencedPrompt {
+  /** Readable prompt text with opaque session URIs removed. */
+  text: string
+  /** Structured session references in ACP block and inline appearance order. */
+  references: SessionReferenceInput[]
+}
+
+/**
+ * Extract canonical session references while preserving ordinary ACP resource links.
+ * @param prompt - already-supported ACP prompt blocks.
+ * @returns readable text and structured references.
+ * @throws when any observed `dsh-session:` URI is malformed.
+ */
+export function acpPromptToReferencedPrompt(prompt: readonly AcpContentBlock[]): AcpReferencedPrompt {
+  const references: SessionReferenceInput[] = []
+  const text = prompt.flatMap((block): string[] => {
+    switch (block.type) {
+      case 'text': {
+        const parsed = parseSessionReferenceText(block.text)
+        references.push(...parsed.references)
+        return [parsed.text]
+      }
+      case 'resource_link': {
+        if (!block.uri.startsWith(SESSION_REFERENCE_SCHEME)) {
+          return [`\n[resource_link name=${JSON.stringify(block.name)} uri=${JSON.stringify(block.uri)}]\n`]
+        }
+        const sessionId = decodeSessionReferenceUri(block.uri)
+        const label = block.name === '' ? sessionId : block.name
+        references.push({ sessionId, label })
+        return [`@${label}`]
+      }
+      default:
+        return []
+    }
+  }).join('')
+  return { text, references }
 }
 
 /**
