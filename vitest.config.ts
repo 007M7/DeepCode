@@ -44,6 +44,7 @@ export default defineConfig({
         // yet. TODO(gui): cover and remove as the client test lane matures.
         'packages/client/ui-trajectory/src/*',
         'packages/client/web-react/src/*',
+        'packages/host/webserver/src/*',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
       ],
       // 100% or it doesn't merge (docs/testing.md: excessive tests are welcome).
