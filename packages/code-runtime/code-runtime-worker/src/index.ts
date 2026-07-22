@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
-import type { CodeBindingFunction, CodeJsonValue, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import type { CodeBindingNamespace, CodeJsonValue, CodeRunFailure, CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
@@ -73,6 +73,9 @@ const RESERVED_WORDS = new Set([
 
 /** Valid async-function parameter name (the binding global becomes one). */
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/
+
+/** Error properties whose binding-member replacement would destroy the promised Error contract. */
+const RESERVED_ERROR_PROPERTIES = new Set(['name', 'message', 'stack'])
 
 /**
  * The shell a program is wrapped in for the type-strip, matching the
@@ -312,17 +315,33 @@ export class WorkerCodeRuntime extends CodeRuntime {
     return new OutputLedger(this.config.maxOutputBytes).failure([], error)
   }
 
-  /** Reject (seam misuse) malformed binding namespaces: non-identifier or reserved globals, duplicates, and the `console` collision. */
-  private validateBindings(request: CodeRunRequest): Map<string, Record<string, CodeBindingFunction>> {
-    const bindings = new Map<string, Record<string, CodeBindingFunction>>()
+  /** Reject malformed binding globals or typed-error declarations as seam misuse. */
+  private validateBindings(request: CodeRunRequest): Map<string, CodeBindingNamespace> {
+    const bindings = new Map<string, CodeBindingNamespace>()
     for (const namespace of request.bindings) {
       if (!IDENTIFIER.test(namespace.global) || RESERVED_WORDS.has(namespace.global)) {
         throw new Error(`dsh-code-runtime-worker: binding global ${JSON.stringify(namespace.global)} is not a usable identifier`)
       }
-      if (namespace.global === 'console' || namespace.global === 'ToolCallError' || bindings.has(namespace.global)) {
+      if (namespace.global === 'console' || bindings.has(namespace.global)) {
         throw new Error(`dsh-code-runtime-worker: duplicate binding global ${JSON.stringify(namespace.global)}`)
       }
-      bindings.set(namespace.global, namespace.functions)
+      bindings.set(namespace.global, namespace)
+    }
+
+    const errorClassNames = new Set<string>()
+    for (const namespace of request.bindings) {
+      const descriptor = namespace.errorClass
+      if (!descriptor) continue
+      if (!IDENTIFIER.test(descriptor.name) || RESERVED_WORDS.has(descriptor.name)) {
+        throw new Error(`dsh-code-runtime-worker: binding error class ${JSON.stringify(descriptor.name)} is not a usable identifier`)
+      }
+      if (descriptor.name === 'console' || bindings.has(descriptor.name) || errorClassNames.has(descriptor.name)) {
+        throw new Error(`dsh-code-runtime-worker: duplicate injected global ${JSON.stringify(descriptor.name)}`)
+      }
+      if (descriptor.memberNameProperty.length === 0 || RESERVED_ERROR_PROPERTIES.has(descriptor.memberNameProperty)) {
+        throw new Error(`dsh-code-runtime-worker: binding error member property ${JSON.stringify(descriptor.memberNameProperty)} is not usable`)
+      }
+      errorClassNames.add(descriptor.name)
     }
     return bindings
   }
@@ -331,11 +350,15 @@ export class WorkerCodeRuntime extends CodeRuntime {
   private execute(
     request: CodeRunRequest,
     code: string,
-    bindings: Map<string, Record<string, CodeBindingFunction>>,
+    bindings: Map<string, CodeBindingNamespace>,
   ): Promise<CodeRunResult> {
     const bootData: WorkerBootData = {
       code,
-      namespaces: [...bindings].map(([global, functions]) => ({ global, names: Object.keys(functions) })),
+      namespaces: [...bindings].map(([global, namespace]) => ({
+        global,
+        names: Object.keys(namespace.functions),
+        ...namespace.errorClass ? { errorClass: namespace.errorClass } : {},
+      })),
       maxOutputBytes: this.config.maxOutputBytes,
     }
     const worker = new Worker(WORKER_PATH, {
@@ -435,7 +458,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
           // this point, so this payload is structured-cloneable by contract.
           worker.postMessage(payload)
         }
-        const record = bindings.get(message.global)
+        const record = bindings.get(message.global)?.functions
         // Own-property lookup only: a forged name like 'constructor' or
         // 'hasOwnProperty' must not walk the record's prototype chain and
         // reach a callable the consumer never declared.

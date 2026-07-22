@@ -16,7 +16,7 @@ Semantics every implementation must honor (contract details in the class JSDoc):
 
 ## Vocabulary
 
-`CodeRunRequest` (`program`, `bindings`, `signal?`) carries everything the runtime acts on — defaulting (time budgets and outer-output cap) is the implementation's validated config, never a hidden `??` inside `run()`. `bindings` is a list of `CodeBindingNamespace`s (`global` + `functions`), each exposed to the program as one global object of async callables returning `CodeJsonValue`, the seam-local structural equivalent of canonical `JsonValue` that keeps this interface package independent of sessions. `CodeRunResult` reports the lossless JSON completion `value?`, ordered `logs: string[]`, and the `error?` (`CodeRunFailure`: `kind` + model-feedable `message`). See `src/types.ts` for the full contracts.
+`CodeRunRequest` (`program`, `bindings`, `signal?`) carries everything the runtime acts on — defaulting (time budgets and outer-output cap) is the implementation's validated config, never a hidden `??` inside `run()`. `bindings` is a list of `CodeBindingNamespace`s (`global` + `functions` + optional `errorClass`), each exposed to the program as one global object of async callables returning `CodeJsonValue`, the seam-local structural equivalent of canonical `JsonValue` that keeps this interface package independent of sessions. An `errorClass` descriptor names a real program-global constructor and the own property that receives the rejected member name; runtimes remain independent of consumer terms such as `ToolCallError`. `CodeRunResult` reports the lossless JSON completion `value?`, ordered `logs: string[]`, and the `error?` (`CodeRunFailure`: `kind` + model-feedable `message`). See `src/types.ts` for the full contracts.
 
 ## Model Experience
 

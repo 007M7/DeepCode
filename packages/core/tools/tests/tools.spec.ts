@@ -1588,6 +1588,55 @@ describe('ToolRegistry', () => {
     expect(result.content[0]).toMatchObject({ text: 'short-circuited' })
   })
 
+  it('revalidates a cached canonical result returned from a different dispatch', async () => {
+    const ctx = await setup()
+    ctx.tools.register({ ...echoTool, name: 'string-output', async execute() { return 'cached' } })
+    let objectBodyRan = false
+    ctx.tools.register(defineTool({
+      name: 'object-output',
+      description: 'Return one closed object.',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          properties: { ok: { type: 'boolean', required: true } },
+          additionalProperties: false,
+        },
+        render: (_args, value) => [{ type: 'text', text: String(value.ok) }],
+      },
+      execute() {
+        objectBodyRan = true
+        return Promise.resolve({ ok: true })
+      },
+    }))
+    let cached: ToolExecutionResult | undefined
+    ctx.on('tools/execute', async (exec, next) => {
+      if (exec.name === 'string-output') {
+        cached = await next()
+        return cached
+      }
+      if (exec.name === 'object-output') {
+        if (cached === undefined) throw new Error('expected the first dispatch result')
+        return cached
+      }
+      return next()
+    })
+
+    const first = await ctx.tools.execute({
+      signal: testToolSignal, callId: CallId('cached-first'), name: 'string-output', arguments: {},
+    })
+    const second = await ctx.tools.execute({
+      signal: testToolSignal, callId: CallId('cached-second'), name: 'object-output', arguments: {},
+    })
+
+    expect(first.isError ? undefined : first.value).toBe('cached')
+    expect(objectBodyRan).toBe(false)
+    expect(second).toMatchObject({
+      isError: true,
+      error: { info: { name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' } },
+    })
+  })
+
   it('preserves additionalContexts supplied by an around-dispatch result', async () => {
     const ctx = await setup()
     ctx.tools.register(echoTool)

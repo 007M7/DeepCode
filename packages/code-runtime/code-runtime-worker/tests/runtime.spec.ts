@@ -18,7 +18,11 @@ async function setup(config: Config = {}) {
 
 /** Convenience: one namespace `tools` with the given functions. */
 function tools(functions: Record<string, (args: unknown) => Promise<unknown>>): CodeBindingNamespace[] {
-  return [{ global: 'tools', functions: functions as Record<string, CodeBindingFunction> }]
+  return [{
+    global: 'tools',
+    functions: functions as Record<string, CodeBindingFunction>,
+    errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' },
+  }]
 }
 
 describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
@@ -72,6 +76,33 @@ describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
       caughtRaw: { name: 'ToolCallError', toolName: 'failRaw', message: 'raw-nope' },
     })
     expect(calls).toEqual([{ n: 1 }])
+  })
+
+  it('materializes a typed rejection from a generic namespace descriptor', async () => {
+    const { runtime } = await setup()
+    const result = await runtime.run({
+      program: `
+        try { await helpers.fail({}) } catch (error) {
+          return {
+            isTyped: error instanceof HelperCallError,
+            name: error.name,
+            helperName: error.helperName,
+            message: error.message,
+          };
+        }
+      `,
+      bindings: [{
+        global: 'helpers',
+        functions: { fail: async () => { throw new Error('nope') } },
+        errorClass: { name: 'HelperCallError', memberNameProperty: 'helperName' },
+      }],
+    })
+    expect(result.value).toEqual({
+      isTyped: true,
+      name: 'HelperCallError',
+      helperName: 'fail',
+      message: 'nope',
+    })
   })
 
   it('bridges a deeply nested lossless JSON argument, resolution, and completion', async () => {
@@ -304,6 +335,31 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
     expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8') + Buffer.byteLength(JSON.stringify(result.error?.message), 'utf8')).toBeLessThanOrEqual(10)
   })
 
+  it('accounts logs and exception diagnostics before the worker port boundary', async () => {
+    // JSON(["abc"]) is seven bytes and JSON("xy") is four.
+    const exact = await setup({ maxOutputBytes: 11 })
+    expect(await exact.runtime.run({ program: 'console.log("abc"); throw "xy"', bindings: [] }))
+      .toEqual({ logs: ['abc'], error: { kind: 'exception', message: 'xy' } })
+
+    const over = await setup({ maxOutputBytes: 10 })
+    const result = await over.runtime.run({ program: 'console.log("abc"); throw "xy"', bindings: [] })
+    expect(result.error?.kind).toBe('output-limit')
+    expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8')
+      + Buffer.byteLength(JSON.stringify(result.error?.message), 'utf8')).toBeLessThanOrEqual(10)
+  })
+
+  it('does not send a giant Error stack across the worker port', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 64 })
+    const result = await runtime.run({
+      program: 'throw new Error("x".repeat(1_000_000))',
+      bindings: [],
+    })
+    expect(result).toEqual({
+      logs: [],
+      error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' },
+    })
+  })
+
   it('completes a program that awaits its write callback, capturing the chunk', async () => {
     // Node's write(chunk[, encoding][, callback]) contract: dropping the
     // callback would leave this promise pending until the wall ceiling and
@@ -446,6 +502,22 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     expect(result.value).toBeUndefined()
     expect(result.error).toEqual({ kind: 'output-limit', message: 'outer output exceeded 200 bytes' })
     expect(Buffer.byteLength(JSON.stringify(result.logs), 'utf8')).toBeLessThan(200)
+  })
+
+  it('re-caps an oversized forged done value at the host boundary', async () => {
+    const { runtime } = await setup({ maxOutputBytes: 64 })
+    const result = await runtime.run({
+      program: `
+        const { parentPort } = await import('node:worker_threads');
+        parentPort.postMessage({ type: 'done', value: ['V'.repeat(100_000)] });
+        for (;;) {}
+      `,
+      bindings: [],
+    })
+    expect(result).toEqual({
+      logs: [],
+      error: { kind: 'output-limit', message: 'outer output exceeded 64 bytes' },
+    })
   })
 
   it('bounds one oversized forged log while retaining its fitting escaped prefix', async () => {
@@ -634,13 +706,12 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
 })
 
 describe('WorkerCodeRuntime — seam misuse and lifecycle', () => {
-  it('rejects invalid binding globals loudly (identifier, reserved word, duplicate, reserved injected globals)', async () => {
+  it('rejects invalid and duplicate binding globals loudly', async () => {
     const { runtime } = await setup()
     const cases: [string, RegExp][] = [
       ['not valid!', /not a usable identifier/],
       ['await', /not a usable identifier/],
       ['console', /duplicate binding global/],
-      ['ToolCallError', /duplicate binding global/],
     ]
     for (const [global, message] of cases) {
       await expect(runtime.run({ program: 'return 1', bindings: [{ global, functions: {} }] })).rejects.toThrow(message)
@@ -649,6 +720,32 @@ describe('WorkerCodeRuntime — seam misuse and lifecycle', () => {
       program: 'return 1',
       bindings: [{ global: 'tools', functions: {} }, { global: 'tools', functions: {} }],
     })).rejects.toThrow(/duplicate binding global/)
+
+    await expect(runtime.run({
+      program: 'return typeof ToolCallError',
+      bindings: [{ global: 'ToolCallError', functions: {} }],
+    })).resolves.toMatchObject({ value: 'object' })
+  })
+
+  it('rejects malformed or colliding binding error-class declarations', async () => {
+    const { runtime } = await setup()
+    const run = async (bindings: CodeBindingNamespace[]) => await runtime.run({ program: 'return 1', bindings })
+    const namespace = (global: string, name: string, memberNameProperty = 'memberName'): CodeBindingNamespace => ({
+      global,
+      functions: {},
+      errorClass: { name, memberNameProperty },
+    })
+
+    await expect(run([namespace('tools', 'not valid!')])).rejects.toThrow(/error class.*not a usable identifier/)
+    await expect(run([namespace('tools', 'await')])).rejects.toThrow(/error class.*not a usable identifier/)
+    await expect(run([namespace('tools', 'console')])).rejects.toThrow(/duplicate injected global/)
+    await expect(run([namespace('tools', 'tools')])).rejects.toThrow(/duplicate injected global/)
+    await expect(run([
+      namespace('tools', 'CallError'),
+      namespace('helpers', 'CallError'),
+    ])).rejects.toThrow(/duplicate injected global/)
+    await expect(run([namespace('tools', 'CallError', '')])).rejects.toThrow(/member property.*not usable/)
+    await expect(run([namespace('tools', 'CallError', 'message')])).rejects.toThrow(/member property.*not usable/)
   })
 
   it('rejects config values that are not positive numbers', async () => {

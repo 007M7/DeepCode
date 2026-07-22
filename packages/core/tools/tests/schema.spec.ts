@@ -71,6 +71,7 @@ describe('the unified author schema DSL', () => {
       { type: 'string', oneOf: [{ type: 'string' }, { type: 'null' }] },
       { oneOf: 'not-an-array' },
       { type: 'string', enum: 'a' },
+      {},
       null,
     ]) {
       expect(() => valueSchemaSpecToJsonSchema(schema as ValueSchemaSpec), JSON.stringify(schema)).toThrow(JsonSchemaError)
@@ -80,6 +81,24 @@ describe('the unified author schema DSL', () => {
     } as unknown as ParameterSchemaSpec)).toThrow(JsonSchemaError)
     expect(() => parameterSchemaSpecToJsonSchema(null as unknown as ParameterSchemaSpec)).toThrow(JsonSchemaError)
     expect(() => parameterSchemaSpecToJsonSchema({ bad: 42 } as unknown as ParameterSchemaSpec)).toThrow(JsonSchemaError)
+
+    const symbolKey = Symbol('hidden')
+    expect(() => parameterSchemaSpecToJsonSchema({
+      value: { type: 'string' },
+      [symbolKey]: { type: 'number' },
+    } as unknown as ParameterSchemaSpec)).toThrow(JsonSchemaError)
+    const hiddenKey = Object.defineProperty({ value: { type: 'string' } }, 'hidden', {
+      value: { type: 'number' },
+    })
+    expect(() => parameterSchemaSpecToJsonSchema(hiddenKey as ParameterSchemaSpec)).toThrow(JsonSchemaError)
+    const sparseOneOf = new Array<ValueSchemaSpec>(2)
+    sparseOneOf[0] = { type: 'string' }
+    expect(() => valueSchemaSpecToJsonSchema({ oneOf: sparseOneOf } as unknown as ValueSchemaSpec)).toThrow(JsonSchemaError)
+    const decoratedEnum = Object.assign(['a'], { hidden: true })
+    expect(() => valueSchemaSpecToJsonSchema({
+      type: 'string',
+      enum: decoratedEnum,
+    })).toThrow(JsonSchemaError)
   })
 
   it('rejects cyclic author schemas', () => {
@@ -143,6 +162,22 @@ describe('the unified author schema DSL', () => {
     }>>().toEqualTypeOf<{ id: number } & Record<string, JsonValue>>()
   })
 
+  it('bounds inference for deeply nested author schemas', () => {
+    type Repeat<Count extends number, Result extends unknown[] = []> =
+      Result['length'] extends Count ? Result : Repeat<Count, [unknown, ...Result]>
+    type DeepArraySchema<Levels extends unknown[]> =
+      Levels extends [unknown, ...infer Rest]
+        ? { type: 'array'; items: DeepArraySchema<Rest> }
+        : { type: 'string' }
+    type PeelArrays<Value, Levels extends unknown[]> =
+      Levels extends [unknown, ...infer Rest]
+        ? Value extends (infer Item)[] ? PeelArrays<Item, Rest> : never
+        : Value
+
+    type DeepValue = InferValue<DeepArraySchema<Repeat<50>>>
+    expectTypeOf<PeelArrays<DeepValue, Repeat<16>>>().toEqualTypeOf<JsonValue>()
+  })
+
   it('infers required and optional parameter keys', () => {
     expectTypeOf<InferArgs<{
       path: { type: 'string'; required: true }
@@ -152,6 +187,7 @@ describe('the unified author schema DSL', () => {
   })
 
   it('makes invalid author forms compile-time errors', () => {
+    const symbolKey = Symbol('parameter')
     const invalidObjects = {
       // @ts-expect-error explicit object schemas require an openness decision
       object: { type: 'object' } satisfies ValueSchemaSpec,
@@ -161,7 +197,9 @@ describe('the unified author schema DSL', () => {
       enum: { type: 'number', enum: ['1'] } satisfies ValueSchemaSpec,
       // @ts-expect-error parameter requiredness is true-or-absent
       required: { value: { type: 'string', required: false } } satisfies ParameterSchemaSpec,
+      // @ts-expect-error parameter maps accept string keys only
+      symbol: { [symbolKey]: { type: 'string' } } satisfies ParameterSchemaSpec,
     }
-    expect(Object.keys(invalidObjects)).toHaveLength(4)
+    expect(Object.keys(invalidObjects)).toHaveLength(5)
   })
 })

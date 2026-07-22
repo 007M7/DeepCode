@@ -11,8 +11,12 @@ import type { WorkerJsonWire } from './worker-json.ts'
 export interface WorkerBootData {
   /** The type-stripped (plain JS) program body. */
   code: string
-  /** Binding namespaces to materialize: the global name plus the function names (functions themselves stay host-side). */
-  namespaces: { global: string; names: string[] }[]
+  /** Binding namespaces to materialize; functions themselves stay host-side. */
+  namespaces: {
+    global: string
+    names: string[]
+    errorClass?: { name: string; memberNameProperty: string }
+  }[]
   /** Hard cap for the combined serialized outer logs plus completion value or failure diagnostic. */
   maxOutputBytes: number
 }
@@ -42,12 +46,12 @@ interface OutputLimitMessage {
 }
 
 /**
- * Worker → host: the program settled. `error` carries a program exception
- * (the only failure the bootstrap itself can report — budgets, aborts, and
- * substrate death are observed host-side). `value` is present only on a
- * clean completion that produced one, as a flat wire value already
- * size-capped and lossless per the bootstrap. Logs are NOT carried here —
- * they streamed eagerly as {@link LogMessage}s.
+ * Worker → host: the program settled. `error` carries a program exception,
+ * invalid completion, or output overflow (budgets, aborts, and substrate death
+ * are observed host-side). `value` is present only on a clean completion that
+ * produced one, as a flat wire value already lossless and admitted against
+ * the remaining combined output cap. Logs are NOT carried here — they streamed
+ * eagerly as {@link LogMessage}s.
  */
 export interface DoneMessage {
   type: 'done'
