@@ -70,6 +70,7 @@ const GROUP_ORDER = [
   'web',
   'spill',
   'todo',
+  'plan',
   'cordis',
   'hooks',
   'session-persistence',
@@ -169,6 +170,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['tui', 'acp'],
     consumers: ['tool-ask-user', 'tui', 'acp'],
     note: 'UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise.',
+  },
+  {
+    key: 'planMode',
+    pkg: 'plan-mode',
+    title: 'Plan collaboration state',
+    mode: 'core',
+    consumers: ['acp'],
+    note: 'Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions.',
   },
   {
     key: 'commands',

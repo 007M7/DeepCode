@@ -328,6 +328,21 @@ Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src
 
 Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src/index.ts)
 
+### `plan/*`
+
+#### `plan/mode` — log-only
+
+```ts persistence-catalog
+/**
+ * Whether plan mode is in force from this point on: log-only, non-surface,
+ * whole-value replace. The last `plan/mode` wins; a log with none folds to
+ * inactive through {@link foldPlanMode}.
+ */
+'plan/mode': { active: boolean }
+```
+
+Source: [`packages/plan/plan-mode/src/index.ts:40`](../packages/plan/plan-mode/src/index.ts)
+
 ### `prompt/*`
 
 #### `prompt/blocked` — log-only
