@@ -101,8 +101,10 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
         // provider's tool-less title call; the scripted adapter answers it, the
         // accepted title lands in the log, and the TUI renders the terminal
         // window title as `<session title> — <configured title>` via OSC 0.
-        // Gating /exit on it keeps the assertion race-free.
-        { waitFor: 'scripted session title — DeepSeek Harness', send: '/exit\r' },
+        // Gating /status on it keeps the assertion race-free; the diagnostics
+        // card is then exercised through the same real Loader/PTY composition.
+        { waitFor: 'scripted session title — DeepSeek Harness', send: '/status\r' },
+        { waitFor: 'Session status', send: '/exit\r' },
       ],
     })
     expect(output).toContain('I need one decision before I continue.')
@@ -114,6 +116,14 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).not.toContain('\u009B31mMODEL_C1')
     expect(output).toContain('Safe')
     expect(output).toContain('\u001B]0;scripted session title — DeepSeek Harness\u0007')
+    expect(output).toContain('Session status')
+    expect(output).toContain('Title')
+    expect(output).toContain('scripted session title')
+    expect(output).toContain('Model')
+    expect(output).toContain('tui-scripted/tui-scripted-model-pro')
+    expect(output).toContain('KV cache')
+    expect(output).toContain('Context')
+    expect(output).toContain('128,000')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 

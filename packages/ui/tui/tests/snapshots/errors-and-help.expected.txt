@@ -1,7 +1,7 @@
 terminal 92x32 buffer=normal length=32 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "DSH snapshot"
-cursor hidden column=1 viewportRow=26 bufferRow=26
+cursor hidden column=1 viewportRow=27 bufferRow=27
 buffer
 0| " DEEPSEEK HARNESS"
   style 1-8 fg=bright-blue bold
@@ -36,26 +36,28 @@ buffer
   style 1-88 fg=bright-black
 16| " /resume — List this workspace's resumable sessions                                         "
   style 1-50 fg=bright-black
-17| " /tools — Expand or collapse all tool cards                                                 "
+17| " /status — Show detailed session diagnostics                                                "
+  style 1-43 fg=bright-black
+18| " /tools — Expand or collapse all tool cards                                                 "
   style 1-42 fg=bright-black
-18| " /skill:<name> [instructions] — load a skill into the conversation                          "
+19| " /skill:<name> [instructions] — load a skill into the conversation                          "
   style 1-65 fg=bright-black
-19| <blank>
-20| " provider stream failed after partial output                                                "
+20| <blank>
+21| " provider stream failed after partial output                                                "
   style 1-43 fg=red
-21| <blank>
-22| " The previous process ended during this turn.                                               "
+22| <blank>
+23| " The previous process ended during this turn.                                               "
   style 1-44 fg=yellow
-23| <blank>
-24| " Unknown command: /unknown-advanced-command                                                 "
+24| <blank>
+25| " Unknown command: /unknown-advanced-command                                                 "
   style 1-42 fg=yellow
-25| "────────────────────────────────────────────────────────────────────────────────────────────"
+26| "────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-91 dim
-26| "                                                                                            "
+27| "                                                                                            "
   style 1-1 inverse
-27| "────────────────────────────────────────────────────────────────────────────────────────────"
+28| "────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-91 dim
-28| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                     0% context  tools:collapsed"
+29| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                     0% context  tools:collapsed"
   style 0-43 dim
   style 65-91 dim
-29-31| <blank>
+30-31| <blank>
