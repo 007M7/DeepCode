@@ -180,66 +180,172 @@ function assertAuthorKeys(source: Record<string, unknown>, path: string, allowed
   }
 }
 
-/** Compile one implicit property map, collecting per-property requiredness. */
-function compilePropertyMap(
-  input: unknown,
-  path: string,
-  seen: Set<object>,
-): { properties: Record<string, JsonSchemaNode>; required?: string[] } {
-  if (!isPlainJsonRecord(input)) authorError(`${path} must be an object of value schemas`)
-  if (seen.has(input)) authorError(`${path} is circular`)
-  seen.add(input)
-  try {
-    const properties: Record<string, JsonSchemaNode> = {}
-    const required: string[] = []
-    for (const [key, property] of Object.entries(input)) {
-      if (!isPlainJsonRecord(property)) authorError(`${path}.${key} must be a value schema object`)
-      if (Object.hasOwn(property, 'required') && property.required !== true) {
-        authorError(`${path}.${key}.required must be true when present`)
-      }
-      Object.defineProperty(properties, key, {
-        value: compileValueSchema(property, `${path}.${key}`, seen, true),
+/** Compiled form of one implicit property map. */
+interface CompiledPropertyMap {
+  properties: Record<string, JsonSchemaNode>
+  required?: string[]
+}
+
+/** Mutable holder used only while an iterative compilation root is unresolved. */
+interface CompileRoot<T> {
+  value?: T
+}
+
+/** Where one compiled value node is installed. */
+type NodeDestination =
+  | { kind: 'root'; holder: CompileRoot<JsonSchemaNode> }
+  | { kind: 'property'; target: Record<string, JsonSchemaNode>; key: string }
+  | { kind: 'item'; target: JsonSchemaNode }
+  | { kind: 'one-of'; target: JsonSchemaNode[]; index: number }
+
+/** Where one compiled property map is installed. */
+type PropertyMapDestination =
+  | { kind: 'root'; holder: CompileRoot<CompiledPropertyMap> }
+  | { kind: 'object'; target: JsonSchemaNode }
+
+/** Deferred work for stack-safe author-schema compilation. */
+type CompileTask =
+  | { kind: 'value'; input: unknown; path: string; allowRequired: boolean; destination: NodeDestination }
+  | { kind: 'property-map'; input: unknown; path: string; destination: PropertyMapDestination }
+  | {
+    kind: 'property'
+    property: unknown
+    path: string
+    key: string
+    properties: Record<string, JsonSchemaNode>
+    required: string[]
+  }
+  | {
+    kind: 'property-map-tail'
+    compiled: CompiledPropertyMap
+    required: string[]
+    destination: PropertyMapDestination
+  }
+  | { kind: 'leave'; input: object }
+
+/** Install a compiled node without giving `__proto__` assignment semantics. */
+function assignCompiledNode(destination: NodeDestination, node: JsonSchemaNode): void {
+  switch (destination.kind) {
+    case 'root':
+      destination.holder.value = node
+      break
+    case 'property':
+      Object.defineProperty(destination.target, destination.key, {
+        value: node,
         enumerable: true,
         configurable: true,
         writable: true,
       })
-      if (property.required === true) required.push(key)
-    }
-    return required.length > 0 ? { properties, required } : { properties }
-  } finally {
-    seen.delete(input)
+      break
+    case 'item':
+      destination.target.items = node
+      break
+    case 'one-of':
+      destination.target[destination.index] = node
+      break
   }
 }
 
-/** Compile one author node without applying any consumer root restriction. */
-function compileValueSchema(
-  input: unknown,
-  path: string,
-  seen: Set<object>,
-  allowRequired = false,
-): JsonSchemaNode {
-  if (!isPlainJsonRecord(input)) authorError(`${path} must be a value schema object`)
-  if (seen.has(input)) authorError(`${path} is circular`)
-  seen.add(input)
-  try {
-    const authorKeys = [...ANNOTATION_KEYS, ...(allowRequired ? ['required'] : [])]
+/** Install a compiled property map at its root or containing object node. */
+function assignCompiledPropertyMap(destination: PropertyMapDestination, compiled: CompiledPropertyMap): void {
+  if (destination.kind === 'root') {
+    destination.holder.value = compiled
+  } else {
+    destination.target.properties = compiled.properties
+  }
+}
+
+/** Execute an author-schema compilation task graph without recursive descent. */
+function runSchemaCompiler(initial: CompileTask): void {
+  const seen = new Set<object>()
+  const tasks: CompileTask[] = [initial]
+  for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
+    if (task.kind === 'leave') {
+      seen.delete(task.input)
+      continue
+    }
+    if (task.kind === 'property-map-tail') {
+      if (task.required.length > 0) {
+        task.compiled.required = task.required
+        if (task.destination.kind === 'object') task.destination.target.required = task.required
+      }
+      continue
+    }
+    if (task.kind === 'property') {
+      if (!isPlainJsonRecord(task.property)) authorError(`${task.path} must be a value schema object`)
+      if (Object.hasOwn(task.property, 'required') && task.property.required !== true) {
+        authorError(`${task.path}.required must be true when present`)
+      }
+      if (task.property.required === true) task.required.push(task.key)
+      tasks.push({
+        kind: 'value',
+        input: task.property,
+        path: task.path,
+        allowRequired: true,
+        destination: { kind: 'property', target: task.properties, key: task.key },
+      })
+      continue
+    }
+    if (task.kind === 'property-map') {
+      if (!isPlainJsonRecord(task.input)) authorError(`${task.path} must be an object of value schemas`)
+      if (seen.has(task.input)) authorError(`${task.path} is circular`)
+      seen.add(task.input)
+      const compiled: CompiledPropertyMap = { properties: {} }
+      const required: string[] = []
+      assignCompiledPropertyMap(task.destination, compiled)
+      tasks.push({ kind: 'leave', input: task.input })
+      tasks.push({ kind: 'property-map-tail', compiled, required, destination: task.destination })
+      const entries = Object.entries(task.input)
+      for (let index = entries.length - 1; index >= 0; index--) {
+        const entry = entries[index]
+        /* v8 ignore next -- the loop is bounded by the captured entry count. */
+        if (entry === undefined) continue
+        tasks.push({
+          kind: 'property',
+          property: entry[1],
+          path: `${task.path}.${entry[0]}`,
+          key: entry[0],
+          properties: compiled.properties,
+          required,
+        })
+      }
+      continue
+    }
+
+    const { input, path } = task
+    if (!isPlainJsonRecord(input)) authorError(`${path} must be a value schema object`)
+    if (seen.has(input)) authorError(`${path} is circular`)
+    seen.add(input)
+    const authorKeys = [...ANNOTATION_KEYS, ...(task.allowRequired ? ['required'] : [])]
     const node: JsonSchemaNode = {}
+    assignCompiledNode(task.destination, node)
+    tasks.push({ kind: 'leave', input })
 
     if (Object.hasOwn(input, 'oneOf')) {
       assertAuthorKeys(input, path, [...authorKeys, 'oneOf', 'type'])
       if (Object.hasOwn(input, 'type')) authorError(`${path} cannot declare both type and oneOf`)
       if (!Array.isArray(input.oneOf)) authorError(`${path}.oneOf must be an array of at least two value schemas`)
-      node.oneOf = input.oneOf.map((branch, index) => compileValueSchema(branch, `${path}.oneOf[${index}]`, seen))
+      const branches: JsonSchemaNode[] = []
+      node.oneOf = branches
       copyAnnotations(input, node)
-      return node
+      for (let index = input.oneOf.length - 1; index >= 0; index--) {
+        tasks.push({
+          kind: 'value',
+          input: input.oneOf[index],
+          path: `${path}.oneOf[${index}]`,
+          allowRequired: false,
+          destination: { kind: 'one-of', target: branches, index },
+        })
+      }
+      continue
     }
 
     switch (input.type) {
       case 'json':
         assertAuthorKeys(input, path, [...authorKeys, 'type'])
         copyAnnotations(input, node)
-        return node
-      case 'object': {
+        break
+      case 'object':
         assertAuthorKeys(input, path, [...authorKeys, 'type', 'properties', 'additionalProperties'])
         if (!Object.hasOwn(input, 'additionalProperties') || typeof input.additionalProperties !== 'boolean') {
           authorError(`${path}.additionalProperties must be explicitly true or false`)
@@ -248,18 +354,28 @@ function compileValueSchema(
         copyAnnotations(input, node)
         node.additionalProperties = input.additionalProperties
         if (Object.hasOwn(input, 'properties')) {
-          const compiled = compilePropertyMap(input.properties, `${path}.properties`, seen)
-          node.properties = compiled.properties
-          if (compiled.required !== undefined) node.required = compiled.required
+          tasks.push({
+            kind: 'property-map',
+            input: input.properties,
+            path: `${path}.properties`,
+            destination: { kind: 'object', target: node },
+          })
         }
-        return node
-      }
+        break
       case 'array':
         assertAuthorKeys(input, path, [...authorKeys, 'type', 'items'])
         node.type = 'array'
         copyAnnotations(input, node)
-        if (Object.hasOwn(input, 'items')) node.items = compileValueSchema(input.items, `${path}.items`, seen)
-        return node
+        if (Object.hasOwn(input, 'items')) {
+          tasks.push({
+            kind: 'value',
+            input: input.items,
+            path: `${path}.items`,
+            allowRequired: false,
+            destination: { kind: 'item', target: node },
+          })
+        }
+        break
       case 'string':
       case 'number':
       case 'integer':
@@ -274,13 +390,27 @@ function compileValueSchema(
             : input.enum as JsonSchemaScalar[]
         }
         if (Object.hasOwn(input, 'const')) node.const = input.const as JsonSchemaScalar
-        return node
+        break
       default:
-        return authorError(`${path}.type must be string/number/integer/boolean/null/array/object/json, or use oneOf`)
+        authorError(`${path}.type must be string/number/integer/boolean/null/array/object/json, or use oneOf`)
     }
-  } finally {
-    seen.delete(input)
   }
+}
+
+/** Compile one implicit property map, collecting per-property requiredness. */
+function compilePropertyMap(input: unknown, path: string): CompiledPropertyMap {
+  const holder: CompileRoot<CompiledPropertyMap> = {}
+  runSchemaCompiler({ kind: 'property-map', input, path, destination: { kind: 'root', holder } })
+  /* v8 ignore next -- the root task assigns before scheduling any descendants. */
+  return holder.value ?? authorError(`${path} did not compile`)
+}
+
+/** Compile one author node without applying any consumer root restriction. */
+function compileValueSchema(input: unknown, path: string): JsonSchemaNode {
+  const holder: CompileRoot<JsonSchemaNode> = {}
+  runSchemaCompiler({ kind: 'value', input, path, allowRequired: false, destination: { kind: 'root', holder } })
+  /* v8 ignore next -- the root task assigns before scheduling any descendants. */
+  return holder.value ?? authorError(`${path} did not compile`)
 }
 
 /**
@@ -290,7 +420,7 @@ function compileValueSchema(
  * @returns The asserted raw schema projection.
  */
 export function valueSchemaSpecToJsonSchema(spec: ValueSchemaSpec): JsonSchemaNode {
-  const schema = compileValueSchema(spec, 'schema', new Set())
+  const schema = compileValueSchema(spec, 'schema')
   assertSupportedJsonSchema(schema)
   return schema
 }
@@ -301,7 +431,7 @@ export function valueSchemaSpecToJsonSchema(spec: ValueSchemaSpec): JsonSchemaNo
  * @returns An object-rooted raw schema with no implicit-root openness override.
  */
 export function parameterSchemaSpecToJsonSchema(spec: ParameterSchemaSpec): ParameterJsonSchema {
-  const compiled = compilePropertyMap(spec, 'parameters', new Set())
+  const compiled = compilePropertyMap(spec, 'parameters')
   const schema: ParameterJsonSchema = {
     type: 'object',
     properties: compiled.properties,

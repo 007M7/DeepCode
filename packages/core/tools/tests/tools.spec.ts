@@ -8,7 +8,7 @@ import ToolRegistry, {
   defineTool, JsonSchemaError, parameterSchemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
   TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH,
   type InferArgs, type JsonValue, type ParameterSchemaSpec, type PreToolDecision, type PostToolDecision,
-  type ToolDispatchExecution, type ToolExecutionResult,
+  type JsonSchemaNode, type ToolDispatchExecution, type ToolExecutionResult,
 } from '@deepseek-ai/dsh-tools'
 
 const testToolSignal = new AbortController().signal
@@ -1287,6 +1287,41 @@ describe('ToolRegistry', () => {
       description: 'echo arguments back',
       parameters: { type: 'object', properties: { text: { type: 'string' } } },
     }])
+  })
+
+  it('schemas() snapshots deeply nested parameters without using structured-clone recursion', async () => {
+    const ctx = await setup()
+    const depth = 5_000
+    let nested: JsonSchemaNode = { type: 'string' }
+    for (let index = 0; index < depth; index++) nested = { oneOf: [nested, { type: 'null' }] }
+    ctx.tools.register({
+      ...echoTool,
+      name: 'deep-schema',
+      parameters: { type: 'object', properties: { nested } },
+    })
+
+    const projected = ctx.tools.schemas()[0]!.parameters as JsonSchemaNode
+
+    let cursor = projected.properties!.nested!
+    let layers = 0
+    while (cursor.oneOf !== undefined) {
+      cursor = cursor.oneOf[0]!
+      layers++
+    }
+    expect(layers).toBe(depth)
+    expect(cursor).toEqual({ type: 'string' })
+  })
+
+  it('rejects schema projection when a raw registration is not lossless JSON', async () => {
+    const ctx = await setup()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'lossy-schema',
+      parameters: { type: 'object', default: Number.NaN },
+    })
+
+    expect(() => ctx.tools.schemas())
+      .toThrow('tool "lossy-schema" parameters must be lossless JSON before schema projection')
   })
 
   it('rejects a non-positive or non-finite registration timeout', async () => {

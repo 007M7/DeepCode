@@ -57,45 +57,105 @@ function hasPlainArrayPrototype(value: unknown[]): boolean {
 }
 /* jscpd:ignore-end */
 
+/** Where one cloned JSON value is installed. */
+type CloneDestination =
+  | { kind: 'root' }
+  | { kind: 'array'; target: unknown[]; index: number }
+  | { kind: 'object'; target: Record<string, unknown>; key: string }
+
+/** Deferred work for stack-safe cross-realm JSON cloning. */
+type CloneTask =
+  | { kind: 'visit'; value: unknown; path: string; destination: CloneDestination }
+  | { kind: 'array-item'; source: unknown[]; index: number; path: string; target: unknown[] }
+  | { kind: 'leave'; source: object }
+
 /** Materialize realm-foreign lossless JSON without allowing JSON.stringify coercions. */
-function cloneJson(value: unknown, path: string, seen = new Set<object>()): unknown {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
-  if (typeof value === 'number') {
-    if (Number.isFinite(value) && !Object.is(value, -0)) return value
-    throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
-  }
-  if (typeof value !== 'object') throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
-  if (seen.has(value)) throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
-  seen.add(value)
-  try {
-    if (Array.isArray(value)) {
-      if (!hasPlainArrayPrototype(value) || Reflect.ownKeys(value).length !== value.length + 1) {
-        throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
-      }
-      const output: unknown[] = []
-      for (let index = 0; index < value.length; index++) {
-        if (!Object.hasOwn(value, index)) throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
-        output.push(cloneJson(value[index], `${path}[${index}]`, seen))
-      }
-      return output
+function cloneJson(value: unknown, path: string): unknown {
+  const ancestors = new Set<object>()
+  let root: unknown
+  const assign = (destination: CloneDestination, item: unknown): void => {
+    if (destination.kind === 'root') {
+      root = item
+      return
     }
-    if (!isPlainRecord(value)) throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
-    if (Reflect.ownKeys(value).some(key => typeof key !== 'string' || !Object.prototype.propertyIsEnumerable.call(value, key))) {
-      throw new Error(`harness.defineTool ${path} must be lossless JSON data`)
+    if (destination.kind === 'array') {
+      destination.target[destination.index] = item
+      return
+    }
+    Object.defineProperty(destination.target, destination.key, {
+      value: item,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    })
+  }
+  const reject = (at: string): never => {
+    throw new Error(`harness.defineTool ${at} must be lossless JSON data`)
+  }
+
+  const tasks: CloneTask[] = [{ kind: 'visit', value, path, destination: { kind: 'root' } }]
+  for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
+    if (task.kind === 'leave') {
+      ancestors.delete(task.source)
+      continue
+    }
+    if (task.kind === 'array-item') {
+      if (!Object.hasOwn(task.source, task.index)) reject(task.path)
+      tasks.push({
+        kind: 'visit',
+        value: task.source[task.index],
+        path: `${task.path}[${task.index}]`,
+        destination: { kind: 'array', target: task.target, index: task.index },
+      })
+      continue
+    }
+
+    const current = task.value
+    if (current === null || typeof current === 'string' || typeof current === 'boolean') {
+      assign(task.destination, current)
+      continue
+    }
+    if (typeof current === 'number') {
+      if (!Number.isFinite(current) || Object.is(current, -0)) reject(task.path)
+      assign(task.destination, current)
+      continue
+    }
+    if (typeof current !== 'object' || ancestors.has(current)) reject(task.path)
+
+    if (Array.isArray(current)) {
+      if (!hasPlainArrayPrototype(current) || Reflect.ownKeys(current).length !== current.length + 1) reject(task.path)
+      const output: unknown[] = []
+      assign(task.destination, output)
+      ancestors.add(current)
+      tasks.push({ kind: 'leave', source: current })
+      for (let index = current.length - 1; index >= 0; index--) {
+        tasks.push({ kind: 'array-item', source: current, index, path: task.path, target: output })
+      }
+      continue
+    }
+    if (!isPlainRecord(current)) reject(task.path)
+    const record = current as Record<string, unknown>
+    if (Reflect.ownKeys(record).some(key => typeof key !== 'string' || !Object.prototype.propertyIsEnumerable.call(record, key))) {
+      reject(task.path)
     }
     const output: Record<string, unknown> = {}
-    for (const [key, entry] of Object.entries(value)) {
-      Object.defineProperty(output, key, {
-        value: cloneJson(entry, `${path}.${key}`, seen),
-        enumerable: true,
-        configurable: true,
-        writable: true,
+    assign(task.destination, output)
+    ancestors.add(record)
+    tasks.push({ kind: 'leave', source: record })
+    const entries = Object.entries(record)
+    for (let index = entries.length - 1; index >= 0; index--) {
+      const entry = entries[index]
+      /* v8 ignore next -- the loop is bounded by the captured entry count. */
+      if (entry === undefined) continue
+      tasks.push({
+        kind: 'visit',
+        value: entry[1],
+        path: `${task.path}.${entry[0]}`,
+        destination: { kind: 'object', target: output, key: entry[0] },
       })
     }
-    return output
-  } finally {
-    seen.delete(value)
   }
+  return root
 }
 
 /** Copy and realm-materialize the shared annotation vocabulary. */
@@ -160,111 +220,229 @@ function normalizeRequiredNames(value: unknown, properties: Record<string, unkno
   return names
 }
 
-/** Normalize one implicit property map. */
+/** Mutable holder used only while one normalized property-map root is unresolved. */
+interface NormalizeRoot {
+  value?: Record<string, unknown>
+}
+
+/** Where a normalized value node is installed. */
+type NormalizeValueDestination =
+  | { kind: 'property'; target: Record<string, unknown>; key: string }
+  | { kind: 'item'; target: Record<string, unknown> }
+  | { kind: 'one-of'; target: Record<string, unknown>[]; index: number }
+
+/** Where a normalized property map is installed. */
+type NormalizeMapDestination =
+  | { kind: 'root'; holder: NormalizeRoot }
+  | { kind: 'properties'; target: Record<string, unknown> }
+
+/** Deferred work for stack-safe sandbox schema normalization. */
+type NormalizeTask =
+  | {
+    kind: 'map'
+    entries: Record<string, unknown>
+    path: string
+    requiredNames: ReadonlySet<string>
+    raw: boolean
+    destination: NormalizeMapDestination
+  }
+  | {
+    kind: 'value'
+    value: unknown
+    path: string
+    forceRequired: boolean
+    raw: boolean
+    parameterProperty: boolean
+    destination: NormalizeValueDestination
+  }
+  | { kind: 'leave'; value: object }
+
+/** Install one normalized node without `__proto__` assignment semantics. */
+function assignNormalizedValue(destination: NormalizeValueDestination, value: Record<string, unknown>): void {
+  if (destination.kind === 'property') {
+    Object.defineProperty(destination.target, destination.key, {
+      value,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    })
+  } else if (destination.kind === 'item') {
+    destination.target.items = value
+  } else {
+    destination.target[destination.index] = value
+  }
+}
+
+/** Install one normalized property map at its root or containing object. */
+function assignNormalizedMap(destination: NormalizeMapDestination, value: Record<string, unknown>): void {
+  if (destination.kind === 'root') destination.holder.value = value
+  else destination.target.properties = value
+}
+
+/** Normalize one implicit property map and all descendants with explicit work frames. */
 function normalizePropertyMap(
   entries: Record<string, unknown>,
   path: string,
   requiredNames: ReadonlySet<string>,
   raw: boolean,
 ): Record<string, unknown> {
-  const spec: Record<string, unknown> = {}
-  for (const [key, prop] of Object.entries(entries)) {
-    Object.defineProperty(spec, key, {
-      value: normalizeValueSchema(prop, `${path}.${key}`, requiredNames.has(key), raw, true),
-      enumerable: true,
-      configurable: true,
-      writable: true,
-    })
-  }
-  return spec
-}
-
-/** Normalize one property or nested value schema into the host realm. */
-function normalizeValueSchema(
-  value: unknown,
-  path: string,
-  forceRequired = false,
-  raw = false,
-  parameterProperty = false,
-): Record<string, unknown> {
-  if (!isPlainRecord(value)) {
-    throw new Error(`harness.defineTool ${path} must be a ParameterSchemaSpec property object`)
-  }
-  const requiredKey = parameterProperty && !raw ? ['required'] : []
-  if (parameterProperty && raw && Object.hasOwn(value, 'required') && value.type !== 'object') {
-    throw new Error(`harness.defineTool ${path}.required belongs to the containing raw object schema`)
-  }
-  if (parameterProperty && !raw && Object.hasOwn(value, 'required') && value.required !== true) {
-    throw new Error(`harness.defineTool ${path}.required must be true when present`)
-  }
-  const prop: Record<string, unknown> = {}
-  if (forceRequired || value.required === true) prop.required = true
-  copyAnnotations(value, prop, path)
-
-  if (Object.hasOwn(value, 'oneOf')) {
-    assertSchemaKeys(value, path, ['oneOf', ...requiredKey, ...ANNOTATION_KEYS])
-    if (!Array.isArray(value.oneOf)) throw new Error(`harness.defineTool ${path}.oneOf must contain at least two schemas`)
-    prop.oneOf = value.oneOf.map((branch, index) => normalizeValueSchema(branch, `${path}.oneOf[${index}]`, false, raw))
-    return prop
-  }
-
-  if (raw && !Object.hasOwn(value, 'type')) {
-    assertSchemaKeys(value, path, ANNOTATION_KEYS)
-    prop.type = 'json'
-    return prop
-  }
-  if (!SCHEMA_TYPES.has(value.type) || raw && value.type === 'json') {
-    throw new Error(`harness.defineTool ${path} must declare a valid type: ${VALID_TYPES} (got ${JSON.stringify(value.type)})`)
-  }
-  const type = value.type
-  prop.type = type
-
-  switch (type) {
-    case 'object': {
-      assertSchemaKeys(value, path, ['type', 'properties', 'additionalProperties', ...requiredKey, ...(raw ? ['required'] : []), ...ANNOTATION_KEYS])
-      if (!raw && (!Object.hasOwn(value, 'additionalProperties') || typeof value.additionalProperties !== 'boolean')) {
-        throw new Error(`harness.defineTool ${path}.additionalProperties must be explicitly true or false`)
-      }
-      if (raw && Object.hasOwn(value, 'additionalProperties') && typeof value.additionalProperties !== 'boolean') {
-        throw new Error(`harness.defineTool ${path}.additionalProperties must be a boolean`)
-      }
-      if (raw && Object.hasOwn(value, 'required') && value.required === undefined) {
-        throw new Error(`harness.defineTool ${path}.required must be an array of declared property names`)
-      }
-      prop.additionalProperties = raw ? value.additionalProperties ?? true : value.additionalProperties
-      if (Object.hasOwn(value, 'properties')) {
-        if (!isPlainRecord(value.properties)) throw new Error(`harness.defineTool ${path}.properties must be an object of schemas`)
-        const nestedRequired = raw ? normalizeRequiredNames(value.required, value.properties, `${path}.required`) : new Set<string>()
-        prop.properties = normalizePropertyMap(value.properties, `${path}.properties`, nestedRequired, raw)
-      } else if (raw && value.required !== undefined) {
-        normalizeRequiredNames(value.required, {}, `${path}.required`)
-      }
-      return prop
+  const holder: NormalizeRoot = {}
+  const ancestors = new Set<object>()
+  const tasks: NormalizeTask[] = [{
+    kind: 'map',
+    entries,
+    path,
+    requiredNames,
+    raw,
+    destination: { kind: 'root', holder },
+  }]
+  for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
+    if (task.kind === 'leave') {
+      ancestors.delete(task.value)
+      continue
     }
-    case 'array':
-      assertSchemaKeys(value, path, ['type', 'items', ...requiredKey, ...ANNOTATION_KEYS])
-      if (Object.hasOwn(value, 'items')) prop.items = normalizeValueSchema(value.items, `${path}.items`, false, raw)
-      return prop
-    case 'string':
-    case 'number':
-    case 'integer':
-    case 'boolean':
-    case 'null':
-      assertSchemaKeys(value, path, ['type', 'enum', 'const', ...requiredKey, ...ANNOTATION_KEYS])
-      if (Object.hasOwn(value, 'enum')) {
-        prop.enum = Array.isArray(value.enum)
-          ? value.enum.map((entry, index) => cloneJson(entry, `${path}.enum[${index}]`))
-          : value.enum
+    if (task.kind === 'map') {
+      if (ancestors.has(task.entries)) throw new Error(`harness.defineTool ${task.path} is circular`)
+      ancestors.add(task.entries)
+      const spec: Record<string, unknown> = {}
+      assignNormalizedMap(task.destination, spec)
+      tasks.push({ kind: 'leave', value: task.entries })
+      const mapEntries = Object.entries(task.entries)
+      for (let index = mapEntries.length - 1; index >= 0; index--) {
+        const entry = mapEntries[index]
+        /* v8 ignore next -- the loop is bounded by the captured entry count. */
+        if (entry === undefined) continue
+        tasks.push({
+          kind: 'value',
+          value: entry[1],
+          path: `${task.path}.${entry[0]}`,
+          forceRequired: task.requiredNames.has(entry[0]),
+          raw: task.raw,
+          parameterProperty: true,
+          destination: { kind: 'property', target: spec, key: entry[0] },
+        })
       }
-      if (Object.hasOwn(value, 'const')) prop.const = cloneJson(value.const, `${path}.const`)
-      return prop
-    case 'json':
-      assertSchemaKeys(value, path, ['type', ...requiredKey, ...ANNOTATION_KEYS])
-      return prop
-    /* v8 ignore next 2 -- SCHEMA_TYPES narrows this closed switch before dispatch. */
-    default:
-      throw new Error(`harness.defineTool ${path} must declare a valid type: ${VALID_TYPES}`)
+      continue
+    }
+
+    const { value, path } = task
+    if (!isPlainRecord(value)) {
+      throw new Error(`harness.defineTool ${path} must be a ParameterSchemaSpec property object`)
+    }
+    if (ancestors.has(value)) throw new Error(`harness.defineTool ${path} is circular`)
+    ancestors.add(value)
+    const requiredKey = task.parameterProperty && !task.raw ? ['required'] : []
+    if (task.parameterProperty && task.raw && Object.hasOwn(value, 'required') && value.type !== 'object') {
+      throw new Error(`harness.defineTool ${path}.required belongs to the containing raw object schema`)
+    }
+    if (task.parameterProperty && !task.raw && Object.hasOwn(value, 'required') && value.required !== true) {
+      throw new Error(`harness.defineTool ${path}.required must be true when present`)
+    }
+    const prop: Record<string, unknown> = {}
+    assignNormalizedValue(task.destination, prop)
+    tasks.push({ kind: 'leave', value })
+    if (task.forceRequired || value.required === true) prop.required = true
+    copyAnnotations(value, prop, path)
+
+    if (Object.hasOwn(value, 'oneOf')) {
+      assertSchemaKeys(value, path, ['oneOf', ...requiredKey, ...ANNOTATION_KEYS])
+      if (!Array.isArray(value.oneOf)) throw new Error(`harness.defineTool ${path}.oneOf must contain at least two schemas`)
+      const oneOf: Record<string, unknown>[] = []
+      prop.oneOf = oneOf
+      for (let index = value.oneOf.length - 1; index >= 0; index--) {
+        tasks.push({
+          kind: 'value',
+          value: value.oneOf[index],
+          path: `${path}.oneOf[${index}]`,
+          forceRequired: false,
+          raw: task.raw,
+          parameterProperty: false,
+          destination: { kind: 'one-of', target: oneOf, index },
+        })
+      }
+      continue
+    }
+
+    if (task.raw && !Object.hasOwn(value, 'type')) {
+      assertSchemaKeys(value, path, ANNOTATION_KEYS)
+      prop.type = 'json'
+      continue
+    }
+    if (!SCHEMA_TYPES.has(value.type) || task.raw && value.type === 'json') {
+      throw new Error(`harness.defineTool ${path} must declare a valid type: ${VALID_TYPES} (got ${JSON.stringify(value.type)})`)
+    }
+    const type = value.type
+    prop.type = type
+
+    switch (type) {
+      case 'object': {
+        assertSchemaKeys(value, path, ['type', 'properties', 'additionalProperties', ...requiredKey, ...(task.raw ? ['required'] : []), ...ANNOTATION_KEYS])
+        if (!task.raw && (!Object.hasOwn(value, 'additionalProperties') || typeof value.additionalProperties !== 'boolean')) {
+          throw new Error(`harness.defineTool ${path}.additionalProperties must be explicitly true or false`)
+        }
+        if (task.raw && Object.hasOwn(value, 'additionalProperties') && typeof value.additionalProperties !== 'boolean') {
+          throw new Error(`harness.defineTool ${path}.additionalProperties must be a boolean`)
+        }
+        if (task.raw && Object.hasOwn(value, 'required') && value.required === undefined) {
+          throw new Error(`harness.defineTool ${path}.required must be an array of declared property names`)
+        }
+        prop.additionalProperties = task.raw ? value.additionalProperties ?? true : value.additionalProperties
+        if (Object.hasOwn(value, 'properties')) {
+          const properties = value.properties
+          if (!isPlainRecord(properties)) throw new Error(`harness.defineTool ${path}.properties must be an object of schemas`)
+          const nestedRequired = task.raw
+            ? normalizeRequiredNames(value.required, properties, `${path}.required`)
+            : new Set<string>()
+          tasks.push({
+            kind: 'map',
+            entries: properties,
+            path: `${path}.properties`,
+            requiredNames: nestedRequired,
+            raw: task.raw,
+            destination: { kind: 'properties', target: prop },
+          })
+        } else if (task.raw && value.required !== undefined) {
+          normalizeRequiredNames(value.required, {}, `${path}.required`)
+        }
+        break
+      }
+      case 'array':
+        assertSchemaKeys(value, path, ['type', 'items', ...requiredKey, ...ANNOTATION_KEYS])
+        if (Object.hasOwn(value, 'items')) {
+          tasks.push({
+            kind: 'value',
+            value: value.items,
+            path: `${path}.items`,
+            forceRequired: false,
+            raw: task.raw,
+            parameterProperty: false,
+            destination: { kind: 'item', target: prop },
+          })
+        }
+        break
+      case 'string':
+      case 'number':
+      case 'integer':
+      case 'boolean':
+      case 'null':
+        assertSchemaKeys(value, path, ['type', 'enum', 'const', ...requiredKey, ...ANNOTATION_KEYS])
+        if (Object.hasOwn(value, 'enum')) {
+          prop.enum = Array.isArray(value.enum)
+            ? Array.from(value.enum, (entry, index) => cloneJson(entry, `${path}.enum[${index}]`))
+            : value.enum
+        }
+        if (Object.hasOwn(value, 'const')) prop.const = cloneJson(value.const, `${path}.const`)
+        break
+      case 'json':
+        assertSchemaKeys(value, path, ['type', ...requiredKey, ...ANNOTATION_KEYS])
+        break
+      /* v8 ignore next 2 -- SCHEMA_TYPES narrows this closed switch before dispatch. */
+      default:
+        throw new Error(`harness.defineTool ${path} must declare a valid type: ${VALID_TYPES}`)
+    }
   }
+  /* v8 ignore next -- the root map task assigns before scheduling descendants. */
+  return holder.value ?? {}
 }
 
 function markDynamicTool(tool: ToolDefinition): DynamicToolDefinition {

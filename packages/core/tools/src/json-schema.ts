@@ -116,18 +116,70 @@ function scalarMatches(type: JsonSchemaScalarType, value: unknown): value is Jso
   }
 }
 
-/** Collect every violation for one raw schema node. */
-function checkSchemaNode(node: unknown, path: string, violations: string[], seen: Set<object>): void {
-  if (!isPlainJsonRecord(node)) {
-    violations.push(`${path} must be a schema object`)
-    return
+/** Deferred work for the stack-safe raw-schema walk. */
+type SchemaWalkTask =
+  | { kind: 'enter'; node: unknown; path: string }
+  | { kind: 'leave'; node: object }
+  | { kind: 'one-of-tail'; node: Record<string, unknown>; path: string }
+  | { kind: 'object-tail'; node: Record<string, unknown>; path: string; properties: unknown }
+
+/** Keywords that are invalid beside `oneOf`. */
+const ONE_OF_SIBLING_KEYWORDS = ['properties', 'required', 'additionalProperties', 'items', 'enum', 'const'] as const
+
+/** Validate object-only fields after its property schemas have been visited. */
+function checkObjectSchemaTail(
+  node: Record<string, unknown>,
+  path: string,
+  properties: unknown,
+  violations: string[],
+): void {
+  const required = node.required
+  if (Object.hasOwn(node, 'required')) {
+    if (!Array.isArray(required) || required.some(entry => typeof entry !== 'string')) {
+      violations.push(`${path}.required must be an array of strings`)
+    } else {
+      const declared = isPlainJsonRecord(properties) ? properties : {}
+      for (const key of required as string[]) {
+        if (!Object.hasOwn(declared, key)) violations.push(`${path}.required names "${key}" which is not in properties`)
+      }
+    }
   }
-  if (seen.has(node)) {
-    violations.push(`${path} is circular`)
-    return
+  if (Object.hasOwn(node, 'additionalProperties') && typeof node.additionalProperties !== 'boolean') {
+    violations.push(`${path}.additionalProperties must be a boolean`)
   }
-  seen.add(node)
-  try {
+}
+
+/** Collect every violation for one raw schema tree without using the JavaScript call stack. */
+function checkSchemaNode(root: unknown, rootPath: string, violations: string[], seen: Set<object>): void {
+  const tasks: SchemaWalkTask[] = [{ kind: 'enter', node: root, path: rootPath }]
+  for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
+    if (task.kind === 'leave') {
+      seen.delete(task.node)
+      continue
+    }
+    if (task.kind === 'one-of-tail') {
+      for (const key of ONE_OF_SIBLING_KEYWORDS) {
+        if (Object.hasOwn(task.node, key)) violations.push(`${task.path}.${key} is not supported beside oneOf`)
+      }
+      continue
+    }
+    if (task.kind === 'object-tail') {
+      checkObjectSchemaTail(task.node, task.path, task.properties, violations)
+      continue
+    }
+
+    const { node, path } = task
+    if (!isPlainJsonRecord(node)) {
+      violations.push(`${path} must be a schema object`)
+      continue
+    }
+    if (seen.has(node)) {
+      violations.push(`${path} is circular`)
+      continue
+    }
+    seen.add(node)
+    tasks.push({ kind: 'leave', node })
+
     for (const key of Object.keys(node)) {
       if (CONSTRAINT_KEYWORDS.has(key)) continue
       if (ANNOTATION_KEYWORDS.has(key)) {
@@ -151,28 +203,26 @@ function checkSchemaNode(node: unknown, path: string, violations: string[], seen
     const hasOneOf = Object.hasOwn(node, 'oneOf')
     if (hasType && hasOneOf) {
       violations.push(`${path} cannot declare both type and oneOf`)
-      return
+      continue
     }
     if (!hasType && !hasOneOf) {
-      for (const key of ['properties', 'required', 'additionalProperties', 'items', 'enum', 'const']) {
+      for (const key of ONE_OF_SIBLING_KEYWORDS) {
         if (Object.hasOwn(node, key)) violations.push(`${path}.${key} requires type or oneOf`)
       }
-      return
+      continue
     }
 
     if (hasOneOf) {
       const oneOf = node.oneOf
+      tasks.push({ kind: 'one-of-tail', node, path })
       if (!Array.isArray(oneOf) || oneOf.length < 2) {
         violations.push(`${path}.oneOf must be an array of at least two schemas`)
       } else {
-        for (let index = 0; index < oneOf.length; index++) {
-          checkSchemaNode(oneOf[index], `${path}.oneOf[${index}]`, violations, seen)
+        for (let index = oneOf.length - 1; index >= 0; index--) {
+          tasks.push({ kind: 'enter', node: oneOf[index], path: `${path}.oneOf[${index}]` })
         }
       }
-      for (const key of ['properties', 'required', 'additionalProperties', 'items', 'enum', 'const']) {
-        if (Object.hasOwn(node, key)) violations.push(`${path}.${key} is not supported beside oneOf`)
-      }
-      return
+      continue
     }
 
     const type = node.type
@@ -180,7 +230,7 @@ function checkSchemaNode(node: unknown, path: string, violations: string[], seen
       violations.push(Array.isArray(type)
         ? `${path}.type must be a single type string (type arrays are not supported)`
         : `${path}.type must be one of ${SCHEMA_TYPES.join('/')}`)
-      return
+      continue
     }
     const schemaType = type as JsonSchemaType
     const allowedFor: Record<string, JsonSchemaType[]> = {
@@ -200,33 +250,24 @@ function checkSchemaNode(node: unknown, path: string, violations: string[], seen
     switch (schemaType) {
       case 'object': {
         const properties = node.properties
+        tasks.push({ kind: 'object-tail', node, path, properties })
         if (Object.hasOwn(node, 'properties')) {
           if (!isPlainJsonRecord(properties)) {
             violations.push(`${path}.properties must be an object of schemas`)
           } else {
-            for (const [key, child] of Object.entries(properties)) {
-              checkSchemaNode(child, `${path}.properties.${key}`, violations, seen)
+            const entries = Object.entries(properties)
+            for (let index = entries.length - 1; index >= 0; index--) {
+              const entry = entries[index]
+              /* v8 ignore next -- the loop is bounded by the captured entry count. */
+              if (entry === undefined) continue
+              tasks.push({ kind: 'enter', node: entry[1], path: `${path}.properties.${entry[0]}` })
             }
           }
-        }
-        const required = node.required
-        if (Object.hasOwn(node, 'required')) {
-          if (!Array.isArray(required) || required.some(entry => typeof entry !== 'string')) {
-            violations.push(`${path}.required must be an array of strings`)
-          } else {
-            const declared = isPlainJsonRecord(properties) ? properties : {}
-            for (const key of required as string[]) {
-              if (!Object.hasOwn(declared, key)) violations.push(`${path}.required names "${key}" which is not in properties`)
-            }
-          }
-        }
-        if (Object.hasOwn(node, 'additionalProperties') && typeof node.additionalProperties !== 'boolean') {
-          violations.push(`${path}.additionalProperties must be a boolean`)
         }
         break
       }
       case 'array': {
-        if (Object.hasOwn(node, 'items')) checkSchemaNode(node.items, `${path}.items`, violations, seen)
+        if (Object.hasOwn(node, 'items')) tasks.push({ kind: 'enter', node: node.items, path: `${path}.items` })
         break
       }
       case 'string':
@@ -238,10 +279,8 @@ function checkSchemaNode(node: unknown, path: string, violations: string[], seen
         const enumValid = Array.isArray(allowed)
           && allowed.length > 0
           && allowed.every(entry => scalarMatches(schemaType, entry))
-        if (Object.hasOwn(node, 'enum')) {
-          if (!enumValid) {
-            violations.push(`${path}.enum must be a non-empty array of ${schemaType} values`)
-          }
+        if (Object.hasOwn(node, 'enum') && !enumValid) {
+          violations.push(`${path}.enum must be a non-empty array of ${schemaType} values`)
         }
         const constValid = scalarMatches(schemaType, node.const)
         if (Object.hasOwn(node, 'const')) {
@@ -256,8 +295,6 @@ function checkSchemaNode(node: unknown, path: string, violations: string[], seen
       /* v8 ignore next -- schemaType was narrowed from the closed SCHEMA_TYPES table above. */
       default: assertNever(schemaType, 'JsonSchemaType')
     }
-  } finally {
-    seen.delete(node)
   }
 }
 
@@ -308,87 +345,222 @@ function propertyPath(path: string, key: string): string {
   return path === '' ? key : `${path}.${key}`
 }
 
-/** Contain hostile getters/proxies so validation remains total for arbitrary values. */
-function checkValue(node: JsonSchemaNode, value: unknown, path: string): string[] {
-  if (node.type !== undefined && !(SCHEMA_TYPES as readonly unknown[]).includes(node.type)) {
-    return checkValueUnchecked(node, value, path)
-  }
-  try {
-    return checkValueUnchecked(node, value, path)
-  } catch {
-    return [`"${diagnosticPath(path)}" must be a lossless JSON value`]
+/** One child evaluation deferred by a container or exact-one union frame. */
+interface ValueChild {
+  readonly node: JsonSchemaNode
+  readonly value: unknown
+  readonly path: string
+}
+
+/** Explicit call frame for stack-safe schema-value validation. */
+interface ValueFrame {
+  readonly node: JsonSchemaNode
+  readonly value: unknown
+  readonly path: string
+  catches: boolean
+  phase: 'start' | 'children'
+  kind?: 'oneOf' | 'object' | 'array'
+  children: ValueChild[]
+  childIndex: number
+  violations: string[]
+  tailViolations: string[]
+  matches: number
+}
+
+/** The generic exception-containment diagnostic owned by one valid schema node. */
+function losslessValueViolation(path: string): string[] {
+  return [`"${diagnosticPath(path)}" must be a lossless JSON value`]
+}
+
+/** Append diagnostics without spreading a potentially wide child result as call arguments. */
+function appendViolations(target: string[], source: readonly string[]): void {
+  for (const violation of source) target.push(violation)
+}
+
+/** Initialize one validation frame with empty aggregation state. */
+function valueFrame(node: JsonSchemaNode, value: unknown, path: string): ValueFrame {
+  return {
+    node,
+    value,
+    path,
+    catches: false,
+    phase: 'start',
+    children: [],
+    childIndex: 0,
+    violations: [],
+    tailViolations: [],
+    matches: 0,
   }
 }
 
-/** Collect value violations for one trusted schema node after the exception boundary. */
-function checkValueUnchecked(node: JsonSchemaNode, value: unknown, path: string): string[] {
-  if (node.oneOf !== undefined) {
-    const matches = node.oneOf.filter(branch => checkValue(branch, value, path).length === 0).length
-    return matches === 1 ? [] : [`"${diagnosticPath(path)}" must match exactly one oneOf branch (matched ${matches})`]
-  }
-  if (node.type === undefined) {
-    return safelyIsJsonValue(value) ? [] : [`"${diagnosticPath(path)}" must be a lossless JSON value`]
-  }
-
-  switch (node.type) {
-    case 'object': {
-      if (!isPlainJsonRecord(value)) return [`"${diagnosticPath(path)}" must be an object`]
-      const violations: string[] = []
-      const properties = node.properties ?? {}
-      for (const key of node.required ?? []) {
-        if (!Object.hasOwn(value, key) || value[key] === undefined) violations.push(`missing required property "${propertyPath(path, key)}"`)
-      }
-      for (const [key, child] of Object.entries(properties)) {
-        if (!Object.hasOwn(value, key) || value[key] === undefined) continue
-        violations.push(...checkValue(child, value[key], propertyPath(path, key)))
-      }
-      if (node.additionalProperties === false) {
-        for (const key of Object.keys(value)) {
-          if (!Object.hasOwn(properties, key)) violations.push(`"${propertyPath(path, key)}" is not a declared property (additionalProperties: false)`)
-        }
-      }
-      if (violations.length > 0) return violations
-      return safelyIsJsonValue(value) ? [] : [`"${diagnosticPath(path)}" must be a lossless JSON object`]
-    }
-    case 'array': {
-      if (!Array.isArray(value)) return [`"${diagnosticPath(path)}" must be an array`]
-      const items = node.items
-      const violations = items === undefined
-        ? []
-        : value.flatMap((entry, index) => checkValue(items, entry, `${path}[${index}]`))
-      if (violations.length > 0) return violations
-      return safelyIsJsonValue(value) ? [] : [`"${diagnosticPath(path)}" must be a dense lossless JSON array`]
-    }
-    case 'string': {
-      if (typeof value !== 'string') return [`"${diagnosticPath(path)}" must be a string`]
-      break
-    }
-    case 'number': {
-      if (typeof value !== 'number') return [`"${diagnosticPath(path)}" must be a number`]
-      if (!isJsonNumber(value)) return [`"${diagnosticPath(path)}" must be a finite JSON number`]
-      break
-    }
-    case 'integer': {
-      if (!isJsonNumber(value) || !Number.isInteger(value)) return [`"${diagnosticPath(path)}" must be an integer`]
-      break
-    }
-    case 'boolean': {
-      if (typeof value !== 'boolean') return [`"${diagnosticPath(path)}" must be a boolean`]
-      break
-    }
-    case 'null': {
-      if (value !== null) return [`"${diagnosticPath(path)}" must be null`]
-      break
-    }
-    default: return assertNever(node.type, 'JsonSchemaType')
-  }
-  if (node.enum !== undefined && !node.enum.includes(value)) {
+/** Validate one scalar node after its primitive type check. */
+function checkScalarValue(node: JsonSchemaNode, value: unknown, path: string): string[] {
+  if (node.enum !== undefined && !node.enum.includes(value as JsonSchemaScalar)) {
     return [`"${diagnosticPath(path)}" must be one of ${JSON.stringify(node.enum)}`]
   }
   if (Object.hasOwn(node, 'const') && value !== node.const) {
     return [`"${diagnosticPath(path)}" must be ${JSON.stringify(node.const)}`]
   }
   return []
+}
+
+/** Validate one trusted schema/value pair with explicit frames rather than recursive calls. */
+function checkValue(schema: JsonSchemaNode, value: unknown, path: string): string[] {
+  const frames: ValueFrame[] = [valueFrame(schema, value, path)]
+  let rootResult: string[] | undefined
+
+  const receive = (result: string[]): void => {
+    const parent = frames.at(-1)
+    if (parent === undefined) {
+      rootResult = result
+      return
+    }
+    if (parent.kind === 'oneOf') {
+      if (result.length === 0) parent.matches++
+    } else {
+      appendViolations(parent.violations, result)
+    }
+  }
+  const finish = (result: string[]): void => {
+    frames.pop()
+    receive(result)
+  }
+
+  while (frames.length > 0) {
+    const frame = frames.at(-1)
+    /* v8 ignore next -- the loop condition guarantees a current frame. */
+    if (frame === undefined) break
+    try {
+      if (frame.phase === 'children') {
+        if (frame.childIndex < frame.children.length) {
+          const child = frame.children[frame.childIndex]
+          /* v8 ignore next -- childIndex is bounded by children.length. */
+          if (child === undefined) throw new Error('missing schema-value child frame')
+          frame.childIndex++
+          frames.push(valueFrame(child.node, child.value, child.path))
+          continue
+        }
+        if (frame.kind === 'oneOf') {
+          finish(frame.matches === 1 ? [] : [`"${diagnosticPath(frame.path)}" must match exactly one oneOf branch (matched ${frame.matches})`])
+          continue
+        }
+        appendViolations(frame.violations, frame.tailViolations)
+        if (frame.violations.length > 0) {
+          finish(frame.violations)
+        } else if (frame.kind === 'object') {
+          finish(safelyIsJsonValue(frame.value) ? [] : [`"${diagnosticPath(frame.path)}" must be a lossless JSON object`])
+        } else {
+          finish(safelyIsJsonValue(frame.value) ? [] : [`"${diagnosticPath(frame.path)}" must be a dense lossless JSON array`])
+        }
+        continue
+      }
+
+      const nodeType = frame.node.type
+      frame.catches = !(nodeType !== undefined && !(SCHEMA_TYPES as readonly unknown[]).includes(nodeType))
+      const oneOf = frame.node.oneOf
+      if (oneOf !== undefined) {
+        frame.kind = 'oneOf'
+        frame.children = Array.from(oneOf, branch => ({ node: branch, value: frame.value, path: frame.path }))
+        frame.childIndex = 0
+        frame.matches = 0
+        frame.phase = 'children'
+        continue
+      }
+      if (nodeType === undefined) {
+        finish(safelyIsJsonValue(frame.value) ? [] : losslessValueViolation(frame.path))
+        continue
+      }
+
+      switch (nodeType) {
+        case 'object': {
+          if (!isPlainJsonRecord(frame.value)) {
+            finish([`"${diagnosticPath(frame.path)}" must be an object`])
+            break
+          }
+          const properties = frame.node.properties ?? {}
+          const violations: string[] = []
+          for (const key of frame.node.required ?? []) {
+            if (!Object.hasOwn(frame.value, key) || frame.value[key] === undefined) {
+              violations.push(`missing required property "${propertyPath(frame.path, key)}"`)
+            }
+          }
+          const children: ValueChild[] = []
+          for (const [key, child] of Object.entries(properties)) {
+            if (!Object.hasOwn(frame.value, key) || frame.value[key] === undefined) continue
+            children.push({ node: child, value: frame.value[key], path: propertyPath(frame.path, key) })
+          }
+          const tailViolations: string[] = []
+          if (frame.node.additionalProperties === false) {
+            for (const key of Object.keys(frame.value)) {
+              if (!Object.hasOwn(properties, key)) {
+                tailViolations.push(`"${propertyPath(frame.path, key)}" is not a declared property (additionalProperties: false)`)
+              }
+            }
+          }
+          frame.kind = 'object'
+          frame.children = children
+          frame.childIndex = 0
+          frame.violations = violations
+          frame.tailViolations = tailViolations
+          frame.phase = 'children'
+          break
+        }
+        case 'array': {
+          if (!Array.isArray(frame.value)) {
+            finish([`"${diagnosticPath(frame.path)}" must be an array`])
+            break
+          }
+          const items = frame.node.items
+          const children = items === undefined
+            ? []
+            : frame.value.flatMap((entry, index): ValueChild[] => [{ node: items, value: entry, path: `${frame.path}[${index}]` }])
+          frame.kind = 'array'
+          frame.children = children
+          frame.childIndex = 0
+          frame.violations = []
+          frame.phase = 'children'
+          break
+        }
+        case 'string':
+          finish(typeof frame.value === 'string'
+            ? checkScalarValue(frame.node, frame.value, frame.path)
+            : [`"${diagnosticPath(frame.path)}" must be a string`])
+          break
+        case 'number':
+          finish(typeof frame.value !== 'number'
+            ? [`"${diagnosticPath(frame.path)}" must be a number`]
+            : !isJsonNumber(frame.value)
+              ? [`"${diagnosticPath(frame.path)}" must be a finite JSON number`]
+              : checkScalarValue(frame.node, frame.value, frame.path))
+          break
+        case 'integer':
+          finish(!isJsonNumber(frame.value) || !Number.isInteger(frame.value)
+            ? [`"${diagnosticPath(frame.path)}" must be an integer`]
+            : checkScalarValue(frame.node, frame.value, frame.path))
+          break
+        case 'boolean':
+          finish(typeof frame.value === 'boolean'
+            ? checkScalarValue(frame.node, frame.value, frame.path)
+            : [`"${diagnosticPath(frame.path)}" must be a boolean`])
+          break
+        case 'null':
+          finish(frame.value === null
+            ? checkScalarValue(frame.node, frame.value, frame.path)
+            : [`"${diagnosticPath(frame.path)}" must be null`])
+          break
+        default:
+          finish(assertNever(nodeType, 'JsonSchemaType'))
+      }
+    } catch (error) {
+      let failed = frames.pop()
+      while (failed !== undefined && !failed.catches) failed = frames.pop()
+      if (failed === undefined) throw error
+      receive(losslessValueViolation(failed.path))
+    }
+  }
+
+  /* v8 ignore next -- every root frame finishes or throws. */
+  return rootResult ?? losslessValueViolation(path)
 }
 
 /**
