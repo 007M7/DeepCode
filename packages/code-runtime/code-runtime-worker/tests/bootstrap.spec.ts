@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { LogBuffer, makeConsoleShim, makeNamespaces, captureStreamWrites, prepareCompletion, runWorkerMain, ToolCallError, truncateUtf8Bytes, wireReplies } from '../src/bootstrap.ts'
 import type { BootstrapPort, PatchableStream, PendingCall } from '../src/bootstrap.ts'
 import type { ReplyMessage, WorkerToHost } from '../src/protocol.ts'
+import { decodeWorkerJson, encodeWorkerJson } from '../src/worker-json.ts'
 
 /**
  * An in-process stand-in for the worker's parentPort: the test plays the
@@ -36,6 +37,11 @@ class FakePort implements BootstrapPort {
 
   done(): WorkerToHost | undefined {
     return this.sent.find(message => message.type === 'done')
+  }
+
+  doneValue(): unknown {
+    const done = this.done()
+    return done?.type === 'done' && done.value !== undefined ? decodeWorkerJson(done.value) : undefined
   }
 }
 
@@ -127,7 +133,7 @@ describe('captureStreamWrites', () => {
 describe('prepareCompletion', () => {
   it('omits undefined and passes lossless JSON values exactly', () => {
     expect(prepareCompletion(undefined, 100)).toEqual({})
-    expect(prepareCompletion({ a: [1, 'two'] }, 100)).toEqual({ value: { a: [1, 'two'] } })
+    expect(prepareCompletion({ a: [1, 'two'] }, 100)).toEqual({ value: encodeWorkerJson({ a: [1, 'two'] }) })
   })
 
   it('turns every lossy completion shape into invalid-output', () => {
@@ -149,7 +155,7 @@ describe('prepareCompletion', () => {
   })
 
   it('measures the exact JSON serialization at and over the boundary', () => {
-    expect(prepareCompletion('€', 5)).toEqual({ value: '€' })
+    expect(prepareCompletion('€', 5)).toEqual({ value: encodeWorkerJson('€') })
     expect(prepareCompletion('€', 4)).toEqual({
       error: { kind: 'output-limit', message: 'outer output exceeded 4 bytes' },
     })
@@ -178,9 +184,20 @@ describe('truncateUtf8Bytes', () => {
 })
 
 describe('makeNamespaces', () => {
+  it('rejects a malformed success reply instead of resolving a lossy binding value', async () => {
+    const port = new FakePort()
+    const pending = new Map<number, PendingCall>()
+    wireReplies(port, pending)
+    const result = new Promise<unknown>((resolve, reject) => { pending.set(1, { resolve, reject }) })
+    port.deliver({ type: 'reply', id: 1, ok: true, value: [undefined] as never })
+    await expect(result).rejects.toThrow('binding resolution must be lossless JSON')
+  })
+
   it('exposes prototype-colliding names as ordinary own properties', async () => {
     const port = new FakePort()
-    port.respond = message => message.type === 'call' ? { type: 'reply', id: message.id, ok: true, value: `${message.name}-ok` } : undefined
+    port.respond = message => message.type === 'call'
+      ? { type: 'reply', id: message.id, ok: true, value: encodeWorkerJson(`${message.name}-ok`) }
+      : undefined
     const pending = new Map<number, PendingCall>()
     wireReplies(port, pending)
     const [tools] = makeNamespaces({ namespaces: [{ global: 'tools', names: ['__proto__', 'constructor', 'toString'] }] }, port, pending, { value: 1 }) as [Record<string, (args: unknown) => Promise<unknown>>]
@@ -268,14 +285,18 @@ describe('makeNamespaces', () => {
 describe('runWorkerMain', () => {
   it('runs a program end-to-end: bindings, console, return value', async () => {
     const port = new FakePort()
-    port.respond = message => message.type === 'call' ? { type: 'reply', id: message.id, ok: true, value: (message.args as { n: number }).n * 2 } : undefined
+    port.respond = (message) => {
+      if (message.type !== 'call') return undefined
+      const args = decodeWorkerJson(message.args) as { n: number }
+      return { type: 'reply', id: message.id, ok: true, value: encodeWorkerJson(args.n * 2) }
+    }
     await runWorkerMain(port, {
       ...BOOT,
       code: 'const doubled = await tools.double({ n: 21 }); console.log("got", doubled); return { doubled };',
       namespaces: [{ global: 'tools', names: ['double'] }],
     }, fakeStreams())
     expect(port.logs()).toEqual(['got 42'])
-    expect(port.done()).toEqual({ type: 'done', value: { doubled: 42 } })
+    expect(port.doneValue()).toEqual({ doubled: 42 })
   })
 
   it('reports worker-side log capture overflow before completing', async () => {
@@ -287,7 +308,7 @@ describe('runWorkerMain', () => {
     }, fakeStreams())
     expect(port.sent).toContainEqual({ type: 'log', text: '1234' })
     expect(port.sent).toContainEqual({ type: 'output-limit' })
-    expect(port.done()).toEqual({ type: 'done', value: null })
+    expect(port.doneValue()).toBeNull()
   })
 
   it('reports a thrown program error on the done message', async () => {
@@ -318,10 +339,7 @@ describe('runWorkerMain', () => {
       code: 'try { await tools.x({}) } catch (error) { return { caught: error instanceof ToolCallError, name: error.name, toolName: error.toolName, message: error.message } }',
       namespaces: [{ global: 'tools', names: ['x'] }],
     }, fakeStreams())
-    expect(port.done()).toEqual({
-      type: 'done',
-      value: { caught: true, name: 'ToolCallError', toolName: 'x', message: 'denied by host' },
-    })
+    expect(port.doneValue()).toEqual({ caught: true, name: 'ToolCallError', toolName: 'x', message: 'denied by host' })
     expect(new ToolCallError('x', 'nope')).toMatchObject({ name: 'ToolCallError', toolName: 'x', message: 'nope' })
   })
 
@@ -330,15 +348,15 @@ describe('runWorkerMain', () => {
     port.respond = (message) => {
       if (message.type !== 'call') return undefined
       // Deliver a stray reply first; the real one follows.
-      port.deliver({ type: 'reply', id: 9_999, ok: true, value: 'stray' })
-      return { type: 'reply', id: message.id, ok: true, value: 'real' }
+      port.deliver({ type: 'reply', id: 9_999, ok: true, value: encodeWorkerJson('stray') })
+      return { type: 'reply', id: message.id, ok: true, value: encodeWorkerJson('real') }
     }
     await runWorkerMain(port, {
       ...BOOT,
       code: 'return await tools.x({})',
       namespaces: [{ global: 'tools', names: ['x'] }],
     }, fakeStreams())
-    expect(port.done()).toEqual({ type: 'done', value: 'real' })
+    expect(port.doneValue()).toBe('real')
   })
 
   it('captures raw stream writes through the patched process streams', async () => {
