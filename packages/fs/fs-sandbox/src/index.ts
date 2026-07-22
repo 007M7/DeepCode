@@ -30,7 +30,6 @@
  * @module @deepseek-ai/dsh-fs-sandbox
  */
 
-import { sep } from 'node:path'
 import { Context } from 'cordis'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-fs-local'
@@ -39,6 +38,7 @@ import type { FsEditOutcome, FsEditRequest, FsTarget, FsVersion, FsWriteIntent, 
 import { writableRoots } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import { isPathUnder } from './containment.ts'
 
 /**
  * Plugin config: the local backend's knobs, verbatim (only `cwd`, the resolve
@@ -47,13 +47,6 @@ import type {} from '@deepseek-ai/dsh-sandbox-policy'
  * both enforcing families share.
  */
 export type Config = LocalConfig
-
-/** Whether `path` is `root` itself or lies beneath it (both already canonical). */
-function isUnder(path: string, root: string): boolean {
-  if (path === root) return true
-  const prefix = root.endsWith(sep) ? root : root + sep
-  return path.startsWith(prefix)
-}
 
 /**
  * Sandbox-enforcing filesystem backend. Registers as `ctx.fs` (loading it
@@ -147,7 +140,14 @@ export class SandboxedFileSystem extends LocalFileSystem {
     // symlink ancestor swapped since the tool resolved this target), and the
     // mutation delegates with THIS fresh target — never the stale one.
     const fresh = await this.resolve(target.displayPath)
-    if (!this.writableRoots.some(root => isUnder(fresh.targetKey, root))) {
+    let contained = false
+    for (const root of this.writableRoots) {
+      if (await isPathUnder(fresh.targetKey, root)) {
+        contained = true
+        break
+      }
+    }
+    if (!contained) {
       throw new FsError(`cannot write "${target.displayPath}": file access denied under workspace-write mode`, 'FS_SANDBOX_DENIED')
     }
     return fresh

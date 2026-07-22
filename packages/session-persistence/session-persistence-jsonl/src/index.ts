@@ -8,7 +8,7 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { open, mkdir, readFile, readdir, link, rm, truncate } from 'node:fs/promises'
+import { open, mkdir, readFile, readdir, link, rm, stat as fsStat, truncate } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
@@ -21,6 +21,7 @@ import {
   type JsonlCompression,
 } from './format.ts'
 import { compressZstdFrame, decompressZstdFrame, scanZstdFrames } from './zstd.ts'
+import { ensureDurableDirectoryWin32, publishNewFileWin32 } from './win32.ts'
 
 export type { JsonlCompression } from './format.ts'
 
@@ -80,9 +81,6 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   private compression: JsonlCompression
   private coordinator: PersistenceCoordinator<JsonlTornMarker>
   private rootEncodingCheck: Promise<void> | undefined
-
-  /** Runtime host platform used to decide whether directory sync is supported. */
-  readonly internals: { platform: NodeJS.Platform } = { platform: process.platform }
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
@@ -254,32 +252,36 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   // --- materialization / append / repair (file mechanics) ---
 
-  /** Atomically write the header line + first batch (temp-write, fsync, collision-safe hard-link publish). */
+  /** Atomically write the header line + first batch (temp-write, fsync, publish). */
   private async materialize(meta: SessionHeader, events: readonly SessionEvent[]): Promise<void> {
     const dir = sessionDir(this.root, meta.cwd)
-    await mkdir(this.root, { recursive: true, mode: 0o700 })
-    await this.syncDir(dirname(this.root))
-    await mkdir(dir, { recursive: true, mode: 0o700 })
-    await this.syncDir(this.root)
     const finalPath = logPath(this.root, meta.cwd, meta.id, this.compression)
-    // Materialization is the first write; an existing log is an id collision.
-    /* v8 ignore next 3 -- createCore guards collisions before materialize; this is a TOCTOU backstop */
-    if (await this.exists(finalPath)) {
-      throw new Error(`refusing to materialize "${meta.id}": a log already exists on disk (load/resume it instead)`)
-    }
     await this.rejectOppositeArtifact(meta.cwd, meta.id)
     const content = await this.encodeMaterialization(meta, events)
-
-    const tmp = `${finalPath}.${randomBytes(6).toString('hex')}.tmp`
-    const handle = await open(tmp, 'wx', 0o600)
-    try {
-      await handle.writeFile(content)
-      await handle.sync()
-    } finally {
-      await handle.close()
+    /* v8 ignore next -- native Windows coverage exercises this platform dispatch; Linux covers the POSIX peer */
+    if (process.platform === 'win32') {
+      await this.materializeWin32(dir, finalPath, meta.id, content)
+    } else {
+      await this.materializePosix(dir, finalPath, meta.id, content)
     }
-    // Publish with link()+unlink(): unlike rename(), link fails if another
-    // process materialized the same id first.
+  }
+
+  /* v8 ignore start -- Windows uses the Win32 durable-publish path; POSIX coverage exercises this peer. */
+  private async materializePosix(
+    dir: string,
+    finalPath: string,
+    id: SessionId,
+    content: Buffer | string,
+  ): Promise<void> {
+    await mkdir(this.root, { recursive: true, mode: 0o700 })
+    await this.syncDirPosix(dirname(this.root))
+    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await this.syncDirPosix(this.root)
+    await this.rejectExistingLog(finalPath, id)
+    const tmp = await this.writeSyncedTempFile(finalPath, content)
+    // Publish via link()+unlink(), NOT rename(): link fails with EEXIST if the
+    // final path already exists, so two processes materializing the same id
+    // concurrently cannot clobber each other. rename() would silently overwrite.
     let linked = false
     try {
       await link(tmp, finalPath)
@@ -290,15 +292,63 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       /* v8 ignore next -- link failure is the TOCTOU/IO race guarded above; not reachable in test */
       if (!linked) await rm(tmp, { force: true })
     }
-    // The published link becomes crash-durable only after its directory fsync.
-    await this.syncDir(dir)
-    // Best-effort temp cleanup: the log is already published and durable, so a failure to
-    // remove the (now-redundant) temp hard link must not reject the append.
+    // link() succeeded — the log is published. fsync the directory so the new
+    // entry survives a power loss: the new link is not crash-durable until the
+    // parent directory's metadata is synced.
+    await this.syncDirPosix(dir)
+    // Best-effort temp cleanup: the log is already published and durable, so a
+    // failure to remove the (now-redundant) temp hard link must NOT reject the
+    // append. Swallow only the rm failure; nothing else of consequence runs here.
     try {
       await rm(tmp, { force: true })
     } catch {
       /* v8 ignore next -- redundant temp link; publish already durable, rm failure is an unreachable IO edge */
     }
+  }
+  /* v8 ignore stop */
+
+  /* v8 ignore start -- native Windows coverage exercises this integration path */
+  private async materializeWin32(
+    dir: string,
+    finalPath: string,
+    id: SessionId,
+    content: Buffer | string,
+  ): Promise<void> {
+    await ensureDurableDirectoryWin32(this.root)
+    await ensureDurableDirectoryWin32(dir)
+    await this.rejectExistingLog(finalPath, id)
+    const tmp = await this.writeSyncedTempFile(finalPath, content)
+    try {
+      await publishNewFileWin32(tmp, finalPath)
+    } catch (error) {
+      await rm(tmp, { force: true })
+      throw error
+    }
+  }
+  /* v8 ignore stop */
+
+  private async rejectExistingLog(finalPath: string, id: SessionId): Promise<void> {
+    // Never publish over an existing committed log: materialize is the first
+    // write of a session the backend believes is new. A file here means a
+    // different session shares this id on disk — reject loudly. (createCore
+    // already guards the create path, so this is unreachable-in-practice TOCTOU
+    // defense.)
+    /* v8 ignore next 3 -- createCore guards collisions before materialize; this is a TOCTOU backstop */
+    if (await this.exists(finalPath)) {
+      throw new Error(`refusing to materialize "${id}": a log already exists on disk (load/resume it instead)`)
+    }
+  }
+
+  private async writeSyncedTempFile(finalPath: string, content: Buffer | string): Promise<string> {
+    const tmp = `${finalPath}.${randomBytes(6).toString('hex')}.tmp`
+    const handle = await open(tmp, 'wx', 0o600)
+    try {
+      await handle.writeFile(content)
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    return tmp
   }
 
   /** Encode the header and first batch without combining their frame boundaries. */
@@ -317,22 +367,17 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return this.compression === 'zstd' ? compressZstdFrame(body) : body
   }
 
-  /** fsync a directory when the host exposes that durability primitive. */
-  private async syncDir(dir: string): Promise<void> {
+  /** fsync a POSIX directory so a just-created/renamed entry is crash-durable. */
+  /* v8 ignore start -- Windows uses write-through namespace operations; POSIX coverage exercises directory fsync. */
+  private async syncDirPosix(dir: string): Promise<void> {
     const handle = await open(dir, 'r')
     try {
-      try {
-        await handle.sync()
-      } catch (error: unknown) {
-        const code = (error as NodeJS.ErrnoException | null)?.code
-        // Node opens directories on Windows but its fsync binding rejects them.
-        // File-content fsync remains mandatory; only this unsupported primitive is skipped.
-        if (this.internals.platform !== 'win32' || code !== 'EPERM') throw error
-      }
+      await handle.sync()
     } finally {
       await handle.close()
     }
   }
+  /* v8 ignore stop */
 
   /**
    * Append and fsync event lines. On a partial write or sync failure, restore the
@@ -343,17 +388,37 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     const content = await this.encodeEventBatch(events)
     const path = logPath(this.root, meta.cwd, meta.id, this.compression)
     const handle = await open(path, 'a')
+    let closed = false
+    const closeAppendHandle = async (): Promise<void> => {
+      if (closed) return
+      closed = true
+      await handle.close()
+    }
+
     try {
       const { size: before } = await handle.stat()
       try {
         await handle.writeFile(content)
         await handle.sync()
       } catch (error) {
-        // Roll back whatever bytes landed so a retry starts from a clean EOF.
-        await handle.truncate(before)
-        await handle.sync()
+        try {
+          await closeAppendHandle()
+          await this.rollbackAppend(path, before)
+        } catch (rollbackError) {
+          throw new AggregateError([error, rollbackError], `failed to roll back append to "${path}"`)
+        }
         throw error
       }
+    } finally {
+      await closeAppendHandle()
+    }
+  }
+
+  private async rollbackAppend(path: string, size: number): Promise<void> {
+    const handle = await open(path, 'r+')
+    try {
+      await handle.truncate(size)
+      await handle.sync()
     } finally {
       await handle.close()
     }
@@ -505,13 +570,36 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
       await handle.close()
       return true
     } catch (error) {
-      // Only ENOENT means absent. A permission/I/O error must surface, not be
-      // collapsed to `false` — otherwise load() reports "not found" and collision
-      // checks proceed under a false absence assumption.
-      if (isENOENT(error)) return false
+      // Only ENOENT means absent. A permission/I/O error must surface rather
+      // than letting load or collision checks proceed under false absence.
+      // Windows reports ENOENT, not ENOTDIR, for `regular-file/child`; verify
+      // the immediate parent so a blocked cwd bucket remains a storage fault.
+      /* v8 ignore else -- Windows reports file-valued parents as ENOENT; POSIX covers direct ENOTDIR. */
+      if (isENOENT(error)) {
+        await this.assertLogParentAllowsAbsence(path)
+        return false
+      }
+      /* v8 ignore next -- Windows repairs ENOTDIR from ENOENT above; POSIX covers direct ENOTDIR. */
       throw error
     }
   }
+
+  /* v8 ignore start -- native Windows coverage exercises this repair; POSIX open reports ENOTDIR before this point. */
+  private async assertLogParentAllowsAbsence(path: string): Promise<void> {
+    try {
+      const parent = dirname(path)
+      const info = await fsStat(parent)
+      if (info.isDirectory()) return
+      const error = new Error(`ENOTDIR: parent path exists but is not a directory: ${parent}`) as NodeJS.ErrnoException
+      error.code = 'ENOTDIR'
+      error.path = parent
+      throw error
+    } catch (error) {
+      if (isENOENT(error)) return
+      throw error
+    }
+  }
+  /* v8 ignore stop */
 }
 
 export default SessionPersistenceJsonl

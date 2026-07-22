@@ -1,0 +1,68 @@
+.root {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Dropdown card (figma MenuDropdown 122:10096): white card, r12, no border,
+ * layered drop shadows via the shadow token, 4px inset padding. */
+.list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 100;
+  min-width: 130px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: var(--dsw-shadow-lv2);
+}
+
+.alignEnd {
+  left: auto;
+  right: 0;
+}
+
+/* Menu cell (figma .Menu_cell 27:5169): r10, pad 10/8, 14/22 primary text,
+ * gap 8 between leading icon / label / trailing check. */
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+}
+
+.item:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.item:disabled {
+  color: var(--dsw-alias-label-dimmed);
+  cursor: not-allowed;
+}
+
+.itemLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+.check {
+  flex: none;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Selected cell keeps the plain fill (marker is the trailing check); the
+ * class remains as a hook for owner-side emphasis. */
+.selected {
+  background: transparent;
+}

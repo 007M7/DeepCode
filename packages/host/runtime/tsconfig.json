@@ -1,0 +1,144 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/timer"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../llm/llm-deepseek"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../tasks/tasks"
+    },
+    {
+      "path": "../../core/agent-loop"
+    },
+    {
+      "path": "../../session-persistence/session-persistence-jsonl"
+    },
+    {
+      "path": "../../bash/bash-local"
+    },
+    {
+      "path": "../../bash/tool-bash"
+    },
+    {
+      "path": "../../compact/compact-basic"
+    },
+    {
+      "path": "../../fs/fs-local"
+    },
+    {
+      "path": "../../fs/fs-policy"
+    },
+    {
+      "path": "../../fs/tool-fs"
+    },
+    {
+      "path": "../../fs/tool-fs-search"
+    },
+    {
+      "path": "../../llm/token-meter"
+    },
+    {
+      "path": "../../skill/skill"
+    },
+    {
+      "path": "../../skill/skill-local"
+    },
+    {
+      "path": "../../skill/tool-skill"
+    },
+    {
+      "path": "../../spill/spill-local"
+    },
+    {
+      "path": "../../spill/spill-policy"
+    },
+    {
+      "path": "../../subagent/subagent"
+    },
+    {
+      "path": "../../subagent/subagent-fork"
+    },
+    {
+      "path": "../../subagent/subagent-spawn"
+    },
+    {
+      "path": "../../subagent/tool-subagent"
+    },
+    {
+      "path": "../../support/invariants"
+    },
+    {
+      "path": "../../tasks/tool-tasks"
+    },
+    {
+      "path": "../../timeout/timeout-policy"
+    },
+    {
+      "path": "../../todo/tool-todo"
+    },
+    {
+      "path": "../../workflow/tool-workflow"
+    },
+    {
+      "path": "../../workflow/workflow-workerthread"
+    },
+    {
+      "path": "../apiproxy"
+    },
+    {
+      "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../../client/connection"
+    },
+    {
+      "path": "../../client/runtime"
+    },
+    {
+      "path": "../../client/ui-theme"
+    },
+    {
+      "path": "../../client/i18n"
+    },
+    {
+      "path": "../../client/ui-layout"
+    },
+    {
+      "path": "../../client/ui-sidebar"
+    },
+    {
+      "path": "../../client/ui-conversation"
+    },
+    {
+      "path": "../../client/ui-trajectory"
+    }
+  ]
+}
