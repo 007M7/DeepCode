@@ -9,8 +9,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionHeader, SurfaceEventType, SurfaceIntent } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, Session, SessionId, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader, SurfaceEventType, SurfaceIntent } from '@deepseek-ai/dsh-session'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionPersistence } from '../src/index.ts'
 
@@ -122,7 +122,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
-    it('crash recovery: an interrupted tool call gets a synthetic error result so resume is a valid transcript', async () => {
+    it('crash recovery: an unstarted assistant tool request gets a retryable synthetic result', async () => {
       const { persistence, dispose } = await make()
       try {
         const m = meta('interrupted-toolcall')
@@ -149,7 +149,7 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         ])
         const synthetic = loaded.events.find(e => e.type === 'tool/result')
         expect(synthetic?.type === 'tool/result' && synthetic.data).toMatchObject({
-          callId: CallId('call-x'), isError: true, error: { code: 'interrupted' },
+          callId: CallId('call-x'), isError: true, error: { code: TOOL_NOT_STARTED },
         })
         // The synthetic result carries the SAME callId as the orphaned tool-call,
         // so deriveMessages() pairs them — no provider-invalid dangling call.
@@ -157,6 +157,40 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         const callId = call?.type === 'assistant/message'
           && call.data.content.find(b => b.type === 'tool-call')
         expect(callId && callId.type === 'tool-call' && callId.id).toBe(CallId('call-x'))
+      } finally {
+        await dispose()
+      }
+    })
+
+    it('crash recovery: a recorded tool call with no result tells the model to assess retry risk', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('unknown-tool-outcome')
+        await persistence.create(m)
+        await persistence.append(m.id, [
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+          { type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 } },
+          { type: 'assistant/message', seq: 2, time: 3, data: { turn: 1, step: 1, content: [
+            { type: 'tool-call', id: CallId('call-risk'), name: 'write', arguments: '{}' },
+          ], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append' },
+          { type: 'tool/call', seq: 3, time: 4, data: { turn: 1, step: 1, callId: CallId('call-risk'), name: 'write', arguments: '{}' } },
+        ])
+
+        const loaded = await persistence.load(m.id)
+        const synthetic = loaded.events.find(e => e.type === 'tool/result')
+        expect(synthetic?.type === 'tool/result' && synthetic.data.error).toEqual({
+          name: 'ToolOutcomeUnknownError', code: TOOL_OUTCOME_UNKNOWN,
+        })
+        if (synthetic?.type !== 'tool/result' || synthetic.data.content[0]?.type !== 'text') {
+          throw new Error('expected a text tool result')
+        }
+        expect(synthetic.data.content[0].text).toContain('retry only if the operation is read-only or idempotent')
+        expect(synthetic.data.content[0].text).toContain('if it may have side effects, first verify external state or ask the user')
+        const resumed = new Session(m.id, loaded.events, loaded.meta)
+        const resumedResult = resumed.deriveMessages().find(message => message.content.some(block => block.type === 'tool-result'))
+        expect(resumedResult?.content[0]).toMatchObject({
+          type: 'tool-result', toolCallId: CallId('call-risk'), isError: true,
+        })
       } finally {
         await dispose()
       }

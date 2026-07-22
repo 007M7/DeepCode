@@ -28,6 +28,8 @@ _CORDIS_YML = """\
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
     root: './sessions'
+- id: session-checkpoints
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
   config:

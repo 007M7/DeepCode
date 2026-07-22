@@ -22,8 +22,8 @@
 # workspace and asks before a wider retry. Snapshot runs select
 # danger-full-access so the established scenarios remain runner-independent;
 # DSH_PERMISSION_MODE provides the same explicit deployment/test override
-# outside the snapshot harness. The sandbox mode + workspace root live on
-# ctx.sandboxPolicy — the one home both enforcing families (bash, fs) read.
+# outside the snapshot harness. The sandbox default + fallback root live on
+# ctx.sandboxPolicy; agent calls resolve both families against the session cwd.
 - id: sandbox
   name: '@deepseek-ai/dsh-sandbox-local'
 

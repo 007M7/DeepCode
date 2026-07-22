@@ -21,6 +21,7 @@ import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, delimiter } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import {
   ClientSideConnection,
   PROTOCOL_VERSION,
@@ -34,6 +35,9 @@ import { launchAcpTestAgent, type AgentUnderTest, type LaunchedAcpTestAgent } fr
 
 export type { AgentUnderTest } from './launcher.ts'
 
+const DEFAULT_WAIT_TIMEOUT_MS = 10_000
+const WAIT_POLL_INTERVAL_MS = 10
+
 /**
  * One step of a scenario's deterministic input script (`input.json`). The
  * harness interprets these in order. `newSession` captures the server-issued
@@ -42,10 +46,13 @@ export type { AgentUnderTest } from './launcher.ts'
  *
  * `promptAndCancel` starts a prompt without awaiting completion, waits until
  * the client observes the selected update (`agent_message_chunk` by default),
- * then cancels and awaits completion. A named `waitForToolCallUpdate` keeps the
- * step open for a terminal tool update that may follow the prompt response.
+ * then cancels and awaits completion. An optional `waitForFile` first observes
+ * a cwd-relative readiness marker, and a named `waitForToolCallUpdate` keeps
+ * the step open for a terminal tool update that may follow the prompt response.
  * `promptAndWaitForAgentMessage` arms an exact text-chunk waiter before sending
  * the prompt, then keeps the application live until that later update arrives.
+ * `waitForTurnEnd` holds the subprocess open until the selected session's latest
+ * complete raw-JSONL turn boundary is `turn/end`; its timeout defaults to 10s.
  */
 export type InputStep =
   | { op: 'initialize'; terminalOutput?: boolean }
@@ -58,8 +65,10 @@ export type InputStep =
     op: 'promptAndCancel'
     text: string
     afterUpdate?: 'agent_message_chunk' | 'tool_call'
+    waitForFile?: { path: string; timeoutMs?: number }
     waitForToolCallUpdate?: string
   }
+  | { op: 'waitForTurnEnd'; timeoutMs?: number }
   | { op: 'cancel' }
   | { op: 'setMode'; modeId: string }
   | { op: 'setModeExpectError'; modeId: string }
@@ -130,7 +139,7 @@ export interface RunResult {
   stderr: string
   /** The session id the server issued (undefined if no session was created). */
   sessionId?: string
-  /** The temp cwd the session ran in (the bash workspace). */
+  /** The generated cwd the session ran in (the bash workspace). */
   cwd: string
   /**
    * Every persisted session log harvested after the run, ordered primary-first:
@@ -161,11 +170,19 @@ export interface RunOptions {
   childFiles?: string[]
   /**
    * Optional `<scenario>/workspace/` directory whose contents are copied into
-   * the temp cwd BEFORE the run — the standard way to seed files the agent
+   * the generated cwd BEFORE the run — the standard way to seed files the agent
    * operates on (a file to read, edit, or grep). Absent for scenarios that
    * start from an empty workspace.
    */
   workspaceDir?: string
+  /**
+   * Parent directory for the generated session cwd. Defaults to
+   * `os.tmpdir()`. A scenario that must distinguish its workspace from the
+   * sandbox's always-writable temporary roots can place the generated child
+   * under `os.homedir()` instead. The harness removes only that generated
+   * child, never the supplied parent.
+   */
+  workspaceParent?: string
   /**
    * Alternate LIVE config path for the boot (absolute), overriding
    * {@link AgentUnderTest.configPath} for this run. A scenario needing a
@@ -196,15 +213,15 @@ export function snapshotSpillRoot(
 
 /**
  * Run a scenario end-to-end against a freshly-spawned subprocess. Owns the
- * child and its temp dirs; always tears them down. Returns the captured stdout
+ * child and its generated dirs; always tears them down. Returns the captured stdout
  * and (record mode) the harvested session-log path.
  *
  * @param input The scenario's input script (steps + optional permission answers).
  * @param opts The agent to boot, the mode, and the fixture wiring.
- * @returns The captured stdout/stderr, session id, temp cwd, and harvested logs.
+ * @returns The captured stdout/stderr, session id, generated cwd, and harvested logs.
  */
 export async function runScenario(input: InputScript, opts: RunOptions): Promise<RunResult> {
-  const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
+  const cwd = await mkdtemp(join(opts.workspaceParent ?? tmpdir(), 'acp-snap-cwd-'))
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
   // Fixed path length: spill-policy budgets the preview against the REAL path
   // before stdout normalization, so tmpdir() length differences churn expected outputs.
@@ -218,7 +235,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   let sessionLogs: HarvestedLog[] = []
   const outcome = await (async (): Promise<RunResult> => {
     // Seed the workspace if the scenario ships one (a file the agent reads/edits).
-    // Copied into the temp cwd so the agent's bash tools see it; the expected outputs
+    // Copied into the generated cwd so the agent's bash tools see it; the expected outputs
     // normalize the cwd, so the seeded paths stay stable across runs.
     if (opts.workspaceDir !== undefined && existsSync(opts.workspaceDir)) {
       await cp(opts.workspaceDir, cwd, { recursive: true })
@@ -287,7 +304,15 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     const { client } = active
 
     for (const step of input.steps) {
-      await runStep(client, step, cwd, match => active.waitForUpdate(match), () => sessionId, (id) => { sessionId = id })
+      await runStep(
+        client,
+        step,
+        cwd,
+        match => active.waitForUpdate(match),
+        () => sessionId,
+        (id) => { sessionId = id },
+        (id, timeoutMs) => waitForPersistedTurnEnd(sessionsRoot, id, timeoutMs),
+      )
       // A permission exchange happens while a step's request is in flight, so
       // by the time the step settles any script bug it exposed is captured —
       // fail the run HERE, as a harness error, rather than hoping the agent's
@@ -298,7 +323,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // persistence) and exits. Then await exit so the harvested log is complete.
     await active.close()
     // Harvest EVERY persisted log (parent + any subagent children) while the
-    // temp dirs still exist, ordered primary-first.
+    // generated dirs still exist, ordered primary-first.
     sessionLogs = await harvestSessionLogs(sessionsRoot)
     return {
       rawStdout: launched.rawStdout(),
@@ -357,6 +382,7 @@ async function runStep(
   waitForUpdate: (match: (u: SessionNotification['update']) => boolean) => Promise<SessionNotification['update']>,
   getSessionId: () => string | undefined,
   setSessionId: (id: string) => void,
+  waitForTurnEnd: (sessionId: string, timeoutMs?: number) => Promise<void>,
 ): Promise<void> {
   switch (step.op) {
     case 'initialize':
@@ -421,6 +447,9 @@ async function runStep(
       const promptDone = client.prompt({ sessionId, prompt: [{ type: 'text', text: step.text }] })
       const afterUpdate = step.afterUpdate ?? 'agent_message_chunk'
       await waitForUpdate(u => u.sessionUpdate === afterUpdate)
+      if (step.waitForFile !== undefined) {
+        await waitForWorkspaceFile(cwd, step.waitForFile.path, step.waitForFile.timeoutMs)
+      }
       // Arm this before cancellation so a fast tool drain cannot outrun the waiter.
       const toolCallUpdateDone = step.waitForToolCallUpdate === undefined
         ? undefined
@@ -428,6 +457,12 @@ async function runStep(
       await client.cancel({ sessionId })
       await promptDone
       if (toolCallUpdateDone !== undefined) await toolCallUpdateDone
+      return
+    }
+    case 'waitForTurnEnd': {
+      const sessionId = getSessionId()
+      if (sessionId === undefined) throw new Error('snapshot-harness: waitForTurnEnd before newSession')
+      await waitForTurnEnd(sessionId, step.timeoutMs)
       return
     }
     case 'cancel': {
@@ -475,6 +510,51 @@ async function runStep(
     default:
       throw new Error(`snapshot-harness: unknown input op ${JSON.stringify(step)}`)
   }
+}
+
+/**
+ * Wait until the raw JSONL backend exposes one complete closing turn boundary.
+ * The ACP cancel notification settles its prompt before the agent necessarily
+ * reaches quiescence, so cancellation snapshots use this external boundary to
+ * keep subprocess disposal from changing an `aborted` turn into `disposed`.
+ */
+async function waitForPersistedTurnEnd(
+  root: string,
+  sessionId: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (true) {
+    const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
+    if (log !== undefined && latestTurnIsClosed(log.content)) return
+    if (Date.now() >= deadline) {
+      throw new Error(`snapshot-harness: session "${sessionId}" did not persist turn/end within ${timeoutMs}ms`)
+    }
+    await delay(WAIT_POLL_INTERVAL_MS)
+  }
+}
+
+/** Wait for a cwd-relative marker proving an external action reached readiness. */
+async function waitForWorkspaceFile(
+  cwd: string,
+  path: string,
+  timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  const target = join(cwd, path)
+  const deadline = Date.now() + timeoutMs
+  while (!existsSync(target)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`snapshot-harness: workspace file "${path}" did not appear within ${timeoutMs}ms`)
+    }
+    await delay(WAIT_POLL_INTERVAL_MS)
+  }
+}
+
+/** Return whether the last complete raw-JSONL turn boundary closes its turn. */
+function latestTurnIsClosed(content: string): boolean {
+  const complete = content.slice(0, content.lastIndexOf('\n') + 1)
+  return complete.lastIndexOf('\n{"type":"turn/end",')
+    > complete.lastIndexOf('\n{"type":"turn/start",')
 }
 
 /**
