@@ -157,6 +157,24 @@ describe('SystemPrompt', () => {
     expect((await ctx.systemPrompt.assemble()).tools.map(t => t.name)).toEqual(['t'])
   })
 
+  it('snapshots tool-provider membership before evaluating an assembly', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    let added = false
+    ctx.systemPrompt.tools(() => {
+      if (!added) {
+        added = true
+        ctx.systemPrompt.tools(() => ({
+          schemas: [{ name: 'late', description: '', parameters: {} }],
+        }))
+      }
+      return { schemas: [{ name: 'first', description: '', parameters: {} }] }
+    })
+
+    expect((await ctx.systemPrompt.assemble()).tools.map(tool => tool.name)).toEqual(['first'])
+    expect((await ctx.systemPrompt.assemble()).tools.map(tool => tool.name)).toEqual(['first', 'late'])
+  })
+
   it('rolls back a variable when a system-prompt/change listener throws (P1-1)', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
@@ -312,6 +330,24 @@ describe('SystemPrompt', () => {
       dispose()
       expect(changeCount).toBe(2)
       expect((await ctx.systemPrompt.assemble()).variables).toEqual({})
+    })
+
+    it('live-iterates variables registered by an earlier provider', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      let added = false
+      ctx.systemPrompt.variable('first', () => {
+        if (!added) {
+          added = true
+          ctx.systemPrompt.variable('late', () => 'second value')
+        }
+        return 'first value'
+      })
+
+      expect((await ctx.systemPrompt.assemble()).variables).toEqual({
+        first: 'first value',
+        late: 'second value',
+      })
     })
 
     it('rejects a duplicate variable name and an unreferenceable name', async () => {

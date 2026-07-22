@@ -5,13 +5,32 @@
  * @module dsh-llm-deepseek/adapter
  */
 
-import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, ProviderRequestId, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
+import type {
+  GenerateOptions,
+  LlmModelContext,
+  LlmModelInfo,
+  LlmProviderInfo,
+  StreamChunk,
+} from '@deepseek-ai/dsh-llm'
+import { idleWatchdog, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { serializeRequest } from './serialize.ts'
 import type { RequestDefaults } from './serialize.ts'
 import { parseSse } from './sse.ts'
 import { translate } from './translate.ts'
 import type { WireError } from './types.ts'
+
+/** One optional model entry advertised by the hand-written adapter. */
+export interface DeepSeekCatalogModel {
+  /** Wire model id accepted by the configured endpoint. */
+  id: string
+  /** Selector label; defaults to {@link id}. */
+  name?: string
+  /** Optional selector detail for deployments with similar model variants. */
+  description?: string
+  /** Known combined request/response context capacity; omitted when deployment metadata is unavailable. */
+  contextWindow?: number
+}
 
 /** Constructor options for {@link DeepSeekAdapter}; the plugin's `apply` resolves them from Config + environment. */
 export interface DeepSeekAdapterOptions {
@@ -21,17 +40,46 @@ export interface DeepSeekAdapterOptions {
   baseURL: string
   /** Request defaults applied to every call (thinking mode, effort). */
   defaults?: RequestDefaults
+  /** Advisory models exposed to discovery consumers; requests remain unrestricted. */
+  models?: readonly DeepSeekCatalogModel[]
+  /** Maximum provider idle time while one stream read is outstanding. */
+  streamIdleTimeoutMs?: number
+}
+
+/** Default maximum idle interval while an adapter stream read is outstanding. */
+export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
+const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
+
+function providerRetryAfterMs(value: string | null): number | undefined {
+  if (value === null) return undefined
+  if (/^\d+$/.test(value)) {
+    const delay = Number(value) * 1_000
+    return Number.isFinite(delay) && delay > 0 ? delay : undefined
+  }
+  const delay = Date.parse(value) - Date.now()
+  return Number.isFinite(delay) && delay > 0 ? delay : undefined
+}
+
+function requestId(headers: Headers): ReturnType<typeof ProviderRequestId> | undefined {
+  const value = headers.get('x-request-id') ?? headers.get('x-deepseek-request-id')
+  return value === null || value.length === 0 ? undefined : ProviderRequestId(value)
 }
 
 /**
  * Map an HTTP status to a stable LlmError code.
  * @param status - status of a non-2xx provider response.
- * @returns `AUTH` (401/403), `RATE_LIMIT` (429), `INVALID_REQUEST` (400), `SERVER` (5xx), or `HTTP_<status>` for anything else.
+ * @param error - parsed provider error body, when available.
+ * @returns the normalized harness error code.
  */
-export function httpErrorCode(status: number): string {
+export function httpErrorCode(status: number, error?: WireError['error']): string {
   if (status === 401 || status === 403) return 'AUTH'
+  const detail = [error?.code, error?.type, error?.message].filter(Boolean).join(' ')
+  if (isQuotaExceededError(detail)) return QUOTA_EXCEEDED_CODE
   if (status === 429) return 'RATE_LIMIT'
-  if (status === 400) return 'INVALID_REQUEST'
+  if (status === 400) {
+    if (isContextWindowExceededError(detail)) return CONTEXT_WINDOW_EXCEEDED_CODE
+    return 'INVALID_REQUEST'
+  }
   if (status >= 500) return 'SERVER'
   return `HTTP_${status}`
 }
@@ -40,43 +88,147 @@ export function httpErrorCode(status: number): string {
  * The first real `LlmAdapter`. One instance serves every model name it was
  * registered under (the harness model name IS the wire model name).
  *
- * Abort: `options.signal` is handed to fetch — both the initial request and
- * the body stream reject on abort, which surfaces to the loop as a rejected
- * step (the loop already contains step errors).
+ * One stable signal reaches both initial fetch and body reads. Caller aborts
+ * map to `ABORTED`; the configured per-read idle watchdog maps to `TIMEOUT`.
  */
 export class DeepSeekAdapter extends LlmAdapter {
+  private readonly streamIdleTimeoutMs: number
+
   constructor(private readonly options: DeepSeekAdapterOptions) {
     super()
+    this.streamIdleTimeoutMs = options.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
+    if (!Number.isFinite(this.streamIdleTimeoutMs)
+      || this.streamIdleTimeoutMs <= 0
+      || this.streamIdleTimeoutMs > MAX_TIMER_DELAY_MS) {
+      throw new Error(
+        `llm-deepseek: streamIdleTimeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
+      )
+    }
+  }
+
+  override providerInfo(provider: string): LlmProviderInfo {
+    return { id: provider, name: 'DeepSeek' }
+  }
+
+  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    return Promise.resolve((this.options.models ?? []).map(model => ({
+      provider,
+      id: model.id,
+      name: model.name ?? model.id,
+      ...model.description === undefined ? {} : { description: model.description },
+    })))
+  }
+
+  override resolveModelContext(
+    _provider: string,
+    model: string,
+  ): Promise<LlmModelContext | undefined> {
+    const contextWindow = this.options.models?.find(entry => entry.id === model)?.contextWindow
+    return Promise.resolve(contextWindow === undefined ? undefined : { contextWindow })
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    const consumer = new AbortController()
+    const upstream = options.signal === undefined
+      ? consumer.signal
+      : AbortSignal.any([options.signal, consumer.signal])
+    using watchdog = idleWatchdog(upstream, this.streamIdleTimeoutMs, STREAM_IDLE_TIMEOUT_CODE)
+    const iterator = this.request(options, watchdog.signal)[Symbol.asyncIterator]()
+    let exhausted = false
+    try {
+      while (true) {
+        const result = await watchdog.next(iterator)
+        if (result.done) {
+          exhausted = true
+          return
+        }
+        yield result.value
+      }
+    } catch (error: unknown) {
+      if (timeoutOf(watchdog.signal, STREAM_IDLE_TIMEOUT_CODE) !== undefined) {
+        throw new LlmError(
+          `DeepSeek stream idle timeout after ${this.streamIdleTimeoutMs}ms`,
+          'TIMEOUT',
+          { cause: error },
+        )
+      }
+      if (options.signal?.aborted) {
+        throw new LlmError('DeepSeek request aborted by caller', 'ABORTED', { cause: error })
+      }
+      if (error instanceof LlmError) throw error
+      throw new LlmError(`DeepSeek API stream from ${this.options.baseURL} failed`, 'TRANSPORT', { cause: error })
+    } finally {
+      consumer.abort('DeepSeek stream consumer stopped')
+      if (!exhausted && iterator.return !== undefined) {
+        try {
+          await iterator.return()
+        } catch (_abortedTransportTeardown) {
+          // The consumer controller already owns termination; a return-time abort cannot add a second outcome.
+        }
+      }
+    }
+  }
+
+  private async * request(options: GenerateOptions, signal: AbortSignal): AsyncIterable<StreamChunk> {
     const body = serializeRequest(options, this.options.defaults ?? {})
+    // Prepared outside the try so the TRANSPORT label below covers exactly the
+    // transport boundary, never a serialization failure.
+    const payload = JSON.stringify(body)
+    const headers = {
+      'authorization': `Bearer ${this.options.apiKey}`,
+      'content-type': 'application/json',
+      'accept': 'text/event-stream',
+      ...attributionHeaders(),
+      ...options.sessionId !== undefined
+        ? { 'x-deepseek-harness-session-id': String(options.sessionId) }
+        : {},
+      ...options.purpose === 'compaction'
+        ? { 'x-deepseek-harness-compact': '1' }
+        : {},
+    }
 
     // TODO(http): adopt the Cordis HTTP service when shared transport configuration
     // outweighs its additional runtime dependencies.
-    const response = await fetch(`${this.options.baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'authorization': `Bearer ${this.options.apiKey}`,
-        'content-type': 'application/json',
-        'accept': 'text/event-stream',
-        ...attributionHeaders(),
-      },
-      body: JSON.stringify(body),
-      ...options.signal ? { signal: options.signal } : {},
-    })
+    let response: Response
+    try {
+      response = await fetch(`${this.options.baseURL}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: payload,
+        signal,
+      })
+    } catch (error: unknown) {
+      // The outer stream distinguishes caller cancellation and watchdog expiry.
+      if (signal.aborted) throw error
+      // fetch wraps every transport failure (DNS, refused connection, TLS,
+      // proxy) in a bare `TypeError: fetch failed` whose actionable detail
+      // lives on `cause`. Wrapping with the endpoint and chaining the cause
+      // lets `errorChain` render the full diagnosis at every reporting seam.
+      throw new LlmError(
+        `DeepSeek API request to ${this.options.baseURL} failed`,
+        'TRANSPORT',
+        { cause: error },
+      )
+    }
 
     if (!response.ok) {
-      const code = httpErrorCode(response.status)
       let message = `DeepSeek API error (HTTP ${response.status})`
+      let providerError: WireError['error']
       try {
         const parsed = await response.json() as WireError
-        if (parsed.error?.message) message = parsed.error.message
+        providerError = parsed.error
+        if (providerError?.message) message = providerError.message
       } catch {
-        // Only swallow error-body parsing: status and code are already captured,
-        // so malformed gateway JSON must not mask the actionable HTTP failure.
+        // Only swallow error-body parsing: the HTTP status still identifies the
+        // failure, so malformed gateway JSON must not mask it.
       }
-      throw new LlmError(message, code, response.status)
+      const delay = providerRetryAfterMs(response.headers.get('retry-after'))
+      const id = requestId(response.headers)
+      throw new LlmError(message, httpErrorCode(response.status, providerError), {
+        status: response.status,
+        ...delay === undefined ? {} : { providerRetryAfterMs: delay },
+        ...id === undefined ? {} : { requestId: id },
+      })
     }
     if (!response.body) {
       throw new LlmError('DeepSeek API returned no response body', 'EMPTY_RESPONSE')

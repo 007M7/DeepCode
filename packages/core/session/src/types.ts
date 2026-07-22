@@ -1,5 +1,6 @@
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { CallId, ContentBlock, LlmCallConfig, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { AssistantProvenance, CallId, ContentBlock, LlmCallConfig, LlmFailure, Message, MessageSource, StreamChunk, TokenUsage, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from './json.ts'
 
 /** Identifies one session in the store (and its persistence artifacts). */
 export type SessionId = Branded<'SessionId'>
@@ -46,6 +47,12 @@ export interface SessionHeader {
    * boundary lets resume and replay distinguish parent history from child work.
    */
   readonly seedLength?: number
+  /**
+   * Delegation depth: absent (zero) for a top-level session, parent depth + 1
+   * for a subagent child. Persisted so a recursion budget survives restart and
+   * resume — a runtime-only depth would reset a resumed child to top-level.
+   */
+  readonly delegationDepth?: number
 }
 
 /**
@@ -65,6 +72,7 @@ export interface CreateSessionOptions {
     readonly parentSession?: SessionId
     readonly createdAt?: number
     readonly seedLength?: number
+    readonly delegationDepth?: number
   }
 }
 
@@ -93,20 +101,25 @@ export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
  */
 export interface TurnEndReasonMap {
   completed: { kind: 'completed' }
-  aborted: { kind: 'aborted'; reason?: string }
+  /** A cancellation request interrupted the live turn. */
+  aborted: { kind: 'aborted' }
   /**
    * The turn failed: a step threw or the model reported a failure. `step` is the
    * step number the failure occurred on (the operational error's location — the
    * single durable record of an in-turn failure; live diagnostics also fire via
-   * `agent/error`). `code` is the error's code when one was attached.
+   * `agent/error`). Final model-request failures retain their normalized facts
+   * as one `failure`; other turn failures retain their live Error message/code.
    */
-  error: { kind: 'error'; step: number; message: string; code?: string }
+  error: { kind: 'error'; step: number } & (
+    | { failure: LlmFailure; message?: never; code?: never }
+    | { message: string; code?: string; failure?: never }
+  )
   disposed: { kind: 'disposed' }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
-   * Policy blocked every prompt before the first step. The zero-step turn still
-   * records a balanced durable boundary and the veto reason.
+   * Policy blocked the turn's claimed prompt before the first step. The
+   * zero-step turn still records a balanced durable boundary and veto reason.
    */
   rejected: { kind: 'rejected'; reason: string }
   /**
@@ -139,11 +152,11 @@ export interface TodoItem {
 
 /**
  * Logged request state outside derived history: call config, system prompt,
- * tools, and session prefix. Header snapshots and deltas reconstruct it;
+ * tools, and prefix. The latest full `request/header` snapshot reconstructs it;
  * canonical empty optional fields are absent.
  */
 export interface EpochHeader {
-  /** The conversation's call configuration (model + sampling scalars). */
+  /** The conversation's call configuration (provider, model, and sampling scalars). */
   config: LlmCallConfig
   /** Rendered system prompt text; absent for a system-less request. */
   system?: string
@@ -163,43 +176,9 @@ export interface EpochHeader {
  * Why a `request/header` snapshot was appended: `'initial'` — the log's first
  * header (a new conversation); `'resume'` — a loop instance's first request
  * over a log that already has header events (process restart, fork seed);
- * `'fallback'` — a mid-run change the delta encoding could not round-trip
- * (e.g. a pure tool reordering), recorded whole instead.
+ * `'change'` — a later request used a different header.
  */
-export type RequestHeaderReason = 'initial' | 'resume' | 'fallback'
-
-/**
- * Line-level edit of the system prompt: keep the first `keepStart` and last
- * `keepEnd` lines of the previous text, with `insert` replacing everything
- * between. Computed as a common-prefix/common-suffix trim — deterministic,
- * library-free, degenerating to a full replacement when nothing is shared.
- * Absence is encoded as zero lines (the canonical form has no empty-string
- * system), so a transition to or from "no system prompt" round-trips.
- */
-export interface SystemDelta {
-  /** Lines kept from the start of the previous system prompt. */
-  keepStart: number
-  /** Lines kept from the end of the previous system prompt. */
-  keepEnd: number
-  /** Lines replacing everything between the kept edges. */
-  insert: string[]
-}
-
-/**
- * Tool-set edit keyed by tool name (names are unique — the registry rejects
- * duplicates): `removed` names drop, `changed` schemas replace their
- * predecessor in place, `added` schemas append at the end. A change this
- * encoding cannot express (a pure reordering) fails the writer's round-trip
- * guard and is recorded as a `'fallback'` snapshot instead.
- */
-export interface ToolsDelta {
-  /** Schemas appended to the end of the tool list. */
-  added: ToolSchema[]
-  /** Names of schemas dropped from the tool list. */
-  removed: string[]
-  /** Schemas replacing the same-named predecessor in place. */
-  changed: ToolSchema[]
-}
+export type RequestHeaderReason = 'initial' | 'resume' | 'change'
 
 /**
  * The merge-extensible, append-only source of truth for an agent interaction.
@@ -209,35 +188,46 @@ export interface ToolsDelta {
  */
 export interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started it — a drained message
-   * batch or an idle-time injection. The turn is the durability/replay
+   * Opens turn `turn`. `trigger` records what started it — one claimed queued
+   * message or an idle-time injection. The turn is the durability/replay
    * boundary: every event sits between a `turn/start` and its matching
    * `turn/end` (the turn-enclosure invariant).
    */
   'turn/start': { turn: number; trigger: TurnTrigger }
   /**
    * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
-   * fires the awaited `session/flush` checkpoint at every turn end, so the turn
-   * boundary is also the durable-commit boundary.
+   * awaits `session/flush` after an ordinary turn ends before claiming the next
+   * queued item. Success commits the turn; rejection is reported live and does
+   * not prevent later work.
    */
   'turn/end': { turn: number; reason: TurnEndReason }
   /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
   'step/start': { turn: number; step: number }
   /** Closes step `step` of turn `turn`. */
   'step/end': { turn: number; step: number }
-  /** A user-visible prompt (queued message drained at turn start). */
+  /** A user-visible prompt (the queued message claimed for this turn). */
   'user/message': { content: ContentBlock[]; source: MessageSource }
   /**
    * Durable record of a prompt veto and its reason. It is log-only: the blocked
-   * prompt never enters the model-visible surface, including in a mixed batch.
+   * prompt never enters the model-visible surface, and its turn runs zero steps.
    */
   'prompt/blocked': { content: ContentBlock[]; source: MessageSource; reason: string }
   /**
    * In-session context injection (file-change notices, subdir AGENTS.md,
    * skill content, cron notifications, …). Rendered into the derived history
-   * as tagged synthetic context — NOT a user prompt.
+   * as a synthetic user-role message carrying `content` verbatim — NOT a
+   * user prompt. `meta` is durable JSON state omitted from the model
+   * projection; it is also the intended channel for any future framing
+   * directive (a producer declares the frame, a dedicated renderer applies it —
+   * see the deferred note in
+   * ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md),
+   * so the surface keeps projecting `content` verbatim rather than wrapping it.
    */
-  'context/message': { content: ContentBlock[]; source: MessageSource }
+  'context/message': {
+    content: ContentBlock[]
+    source: MessageSource
+    meta?: JsonValue
+  }
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**
@@ -246,7 +236,7 @@ export interface SessionEventMap {
    * the model output and its accounting travel together (there is no separate
    * usage record). `usage` is absent when the adapter reported none.
    */
-  'assistant/message': { turn: number; step: number; content: ContentBlock[]; usage?: TokenUsage }
+  'assistant/message': { turn: number; step: number; content: ContentBlock[]; provenance: AssistantProvenance; usage?: TokenUsage }
   /**
    * The model requested one tool invocation: `name` with the raw `arguments`
    * JSON string exactly as the model produced it (unparsed). `callId` pairs the
@@ -265,30 +255,35 @@ export interface SessionEventMap {
   'tool/result': { turn: number; step: number; callId: CallId; content: ContentBlock[]; isError: boolean; error?: { name: string; code: string }; meta?: unknown }
   /** Steering content injected between steps of a running turn. */
   'steering/message': { turn: number; content: ContentBlock[]; source: MessageSource }
-  /**
-   * Whole-list snapshot; the latest write wins on replay. It is log-only UI
-   * state and never enters derived model history.
-   */
+  /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
-   * Full {@link EpochHeader} for the next request, appended inside its step
-   * before dispatch. It is log-only and anchors subsequent deltas.
+   * Full header for the next request, appended inside its step before dispatch.
+   * It is log-only; the latest snapshot reconstructs the request header.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
-  /**
-   * Log-only amendment to the folded {@link EpochHeader}. System and tools use
-   * their delta codecs; config and prefix replace whole, with an empty prefix
-   * encoding removal. Writers verify round-trip equality or log a fallback snapshot.
-   */
-  'request/header-delta': { system?: SystemDelta; tools?: ToolsDelta; config?: LlmCallConfig; messagePrefix?: Message[] }
 }
+
+/**
+ * Marker map for plugin-owned log-only events accepted by
+ * `SessionStore.appendOutOfBand()`. A plugin extends this map with the same key
+ * it adds to {@link SessionEventMap}; surface and lifecycle events stay
+ * ineligible unless their owner explicitly opts them into this narrow seam.
+ */
+export interface OutOfBandSessionEventMap {}
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
 export type SessionEventType = keyof SessionEventMap
 
+/** Plugin-declared non-surface event types accepted by `SessionStore.appendOutOfBand()`. */
+export type OutOfBandSessionEventType = Exclude<
+  Extract<SessionEventType, keyof OutOfBandSessionEventMap>,
+  SurfaceEventType
+>
+
 /**
  * The subset of {@link SessionEventType} values whose events produce LLM
- * messages and are eligible to appear on the surface linked list. Only these
+ * messages and are eligible to appear on the ordered surface. Only these
  * event types may carry {@link SurfaceOp} and {@link SessionEvent.sourceEventSeqs}.
  */
 export type SurfaceEventType =
@@ -299,7 +294,7 @@ export type SurfaceEventType =
   | 'steering/message'
 
 /**
- * A {@link SessionEvent} that is **on** the surface linked list — its
+ * A {@link SessionEvent} that is **on** the ordered surface — its
  * `surfaceOp` is guaranteed present (mandatory), narrowed from a
  * surface-eligible {@link SessionEvent} by checking both `type` and
  * `surfaceOp` at runtime.
@@ -310,7 +305,7 @@ export type SurfaceEventType =
 export type SurfaceEvent = SessionEvent<SurfaceEventType> & { surfaceOp: SurfaceOp }
 
 /**
- * How a session event entered the surface linked list. Only valid on
+ * How a session event entered the ordered surface. Only valid on
  * {@link SurfaceEventType} events.
  *
  * - `'append'`: added to the tail — normal path for user/assistant/tool/context
@@ -331,6 +326,12 @@ export type SurfaceOp =
  */
 export interface SurfaceIntent {
   surfaceOp: SurfaceOp
+  /**
+   * Complete known provenance source set. `assistant/message` may use a
+   * present empty array for a known empty provider stream; omission means its
+   * provenance was not recorded. Other surface events require a non-empty set
+   * when this field is present.
+   */
   sourceEventSeqs?: number[]
 }
 
@@ -359,7 +360,9 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /**
      * Seq numbers of events that are provenance sources of this event
      * (e.g. the `assistant/chunk` seqs that built an `assistant/message`,
-     * or the surface nodes shadowed by a compaction replace node).
+     * or the surface nodes shadowed by a compaction replace node). An
+     * `assistant/message` may carry a present empty array for a known empty
+     * provider stream; omission means unrecorded provenance.
      */
     sourceEventSeqs?: number[]
     /** How this event entered the surface; absent for non-surface events. */

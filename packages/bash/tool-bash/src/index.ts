@@ -1,71 +1,212 @@
 /**
- * Model-facing `bash`, `bash_output`, and `bash_kill` tools over the executor
- * seam. Background tasks are fenced by owning session, completion injects a
- * durable notice, and confining executors add one-shot approval-based escalation.
- * Notices do not wake idle agents. Ownership is stored with the executor task so
- * it survives this plugin's reload; per-call authority is escalation grant,
- * session override, then executor default. See the package README for the tool contract.
+ * Model-facing `bash` tool over the `ctx.bash` executor seam. Background calls
+ * register process handles with `ctx.tasks`; their work uses task cancellation
+ * rather than the tool-call signal after an id is returned.
+ *
+ * TODO(permissions): deployment policy belongs in `tools/pre-execute` and
+ * sandboxing executors; see docs/architecture.md § Extending The Harness.
  * @module @deepseek-ai/dsh-tool-bash
  */
 
-import type { Context } from 'cordis'
+import { Service, type Context } from 'cordis'
+import z from 'schemastery'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { assertNever } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-// Side-effect type import: declaration-merges `ctx.approval`, consumed
-// opportunistically by the escalation gate (`ctx.get('approval')` — the seam
-// stays optional at runtime, same pattern as dsh-tools' ask routing).
+import type {} from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-user-approval'
-import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { BashTaskId, OwnerToken, effectiveSandboxMode } from '@deepseek-ai/dsh-bash'
-import type { BashTask } from '@deepseek-ai/dsh-bash'
-import { parseExitStatus, renderResult } from './render.ts'
+import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
+import type { DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
+import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { processOutcome } from './background.ts'
+import { parseExitStatus, renderProcessRead, renderResult } from './render.ts'
+
+declare module 'cordis' {
+  interface Context {
+    bashEnv: BashEnvRegistry
+  }
+}
 
 export const name = 'tool-bash'
 export const inject = ['tools', 'bash', 'systemPrompt']
 
-/**
- * Validate value constraints absent from SchemaSpec: non-empty strings, a
- * positive finite timeout, and paired escalation mode and justification.
- */
-function validateBashArgs(args: BashToolArgs): void {
-  if (args.command.trim().length === 0) {
-    throw new Error('invalid command: expected a non-empty string')
-  }
-  if (args.description.trim().length === 0) {
-    throw new Error('invalid description: expected a non-empty string')
-  }
-  if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
-    throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
-  }
-  if (args.sandbox_permissions !== undefined && args.justification === undefined) {
-    throw new Error('invalid escalation: sandbox_permissions requires a justification')
-  }
-  if (args.justification !== undefined && args.sandbox_permissions === undefined) {
-    throw new Error('invalid escalation: justification is only valid together with sandbox_permissions')
-  }
-  if (args.justification !== undefined && args.justification.trim().length === 0) {
-    throw new Error('invalid justification: expected a non-empty sentence')
-  }
+/** Configuration for the bash tool and its managed child environment. */
+export interface Config {
+  /** Expose `run_in_background` (default true); disabled calls are also rejected. */
+  enableRunInBackground?: boolean
+  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  dshHome?: string
+}
+
+/** Runtime configuration schema for the bash tool plugin. */
+export const Config: z<Config> = z.object({
+  enableRunInBackground: z.boolean().default(true),
+  dshHome: z.string(),
+})
+
+/** Model-visible metadata for one managed `DSH_*` environment variable. */
+export interface BashEnvVariable {
+  /** Concise description of the environment fact represented by the variable. */
+  description: string
 }
 
 /**
- * Reject an empty `task_id`; SchemaSpec already validates type and presence.
+ * A plugin contribution to the managed environment of each model bash call.
+ * Declared keys make ownership conflicts detectable before the first command;
+ * `resolve` computes only the values available for the current execution.
  */
-function validateTaskId(value: string): BashTaskId {
-  if (value.length === 0) {
-    throw new Error(`invalid task_id: expected a string, got ${JSON.stringify(value)}`)
-  }
-  return BashTaskId(value)
+export interface BashEnvContributor {
+  /** Stable contributor name used in diagnostics and duplicate detection. */
+  name: string
+  /** Complete set of `DSH_*` keys this contributor may return. */
+  variables: Readonly<Record<DshEnvironmentKey, BashEnvVariable>>
+  /**
+   * Resolve this contributor's available values for one tool execution.
+   * @param execution - the bash tool execution and its optional calling agent.
+   * @returns a partial map containing only keys declared in {@link variables}.
+   */
+  resolve(execution: ToolExecution): Readonly<Partial<Record<DshEnvironmentKey, string>>>
 }
 
+/** An enumerable declaration returned by {@link BashEnvRegistry.list}. */
+export interface BashEnvVariableInfo extends BashEnvVariable {
+  /** Contributor that owns the variable. */
+  contributor: string
+  /** Declared `DSH_*` environment variable name. */
+  key: DshEnvironmentKey
+}
+
+const DSH_SHELL_KEY = `${DSH_ENV_PREFIX}SHELL` as const
+const DSH_SESSION_ID_KEY = `${DSH_ENV_PREFIX}SESSION_ID` as const
+const DSH_SESSION_JSONL_KEY = `${DSH_ENV_PREFIX}SESSION_JSONL` as const
+const RESERVED_BASH_ENV_KEYS = new Set<DshEnvironmentKey>([
+  DSH_HOME_ENV,
+  DSH_SHELL_KEY,
+  DSH_SESSION_ID_KEY,
+])
+const BASH_ENV_KEY_SUFFIX = /^[A-Z][A-Z0-9_]*$/
+
 /**
- * Validated bash arguments. Escalation fields are advertised only when the
- * mounted executor reports a confining mode.
+ * Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables.
+ * The namespace is rebuilt for every model bash call: ambient `DSH_*` values
+ * are discarded by the executor, then the registry's current snapshot is
+ * injected. Built-in shell facts remain owned by the registry itself while
+ * plugins can register additional, enumerable facts with effect-scoped
+ * disposal.
  */
+export class BashEnvRegistry extends Service {
+  private readonly contributors = new Map<string, BashEnvContributor>()
+  private readonly keyOwners = new Map<DshEnvironmentKey, string>()
+  private readonly dshHome: string
+
+  /**
+   * Create and install the `ctx.bashEnv` service.
+   * @param ctx - Cordis context that owns the service and registrations.
+   * @param config - home-directory configuration for the built-in variables.
+   */
+  constructor(ctx: Context, config: Config = {}) {
+    super(ctx, 'bashEnv')
+    this.dshHome = resolveDshHome(config.dshHome)
+  }
+
+  /**
+   * Register one environment contributor. Names and keys are unique; built-in
+   * keys are reserved. Registration is disposed with the calling plugin fiber.
+   * @param contributor - declared key ownership and per-execution resolver.
+   * @returns the disposer that unregisters the contribution.
+   */
+  register(contributor: BashEnvContributor): () => void {
+    const dispose = this.ctx.effect(function* (this: BashEnvRegistry) {
+      if (contributor.name.trim().length === 0) {
+        throw new Error('bash env contributor name must be non-empty')
+      }
+      if (this.contributors.has(contributor.name)) {
+        throw new Error(`bash env contributor "${contributor.name}" is already registered`)
+      }
+
+      const variables = Object.entries(contributor.variables) as [DshEnvironmentKey, BashEnvVariable][]
+      for (const [key, variable] of variables) {
+        if (!key.startsWith(DSH_ENV_PREFIX)
+          || !BASH_ENV_KEY_SUFFIX.test(key.slice(DSH_ENV_PREFIX.length))) {
+          throw new Error(`bash env contributor "${contributor.name}" declared invalid key "${key}"`)
+        }
+        if (RESERVED_BASH_ENV_KEYS.has(key)) {
+          throw new Error(`bash env contributor "${contributor.name}" cannot own reserved key "${key}"`)
+        }
+        if (variable.description.trim().length === 0) {
+          throw new Error(`bash env contributor "${contributor.name}" must describe "${key}"`)
+        }
+        const owner = this.keyOwners.get(key)
+        if (owner !== undefined) {
+          throw new Error(`bash env key "${key}" is already owned by contributor "${owner}"; contributor "${contributor.name}" cannot also own it`)
+        }
+      }
+
+      this.contributors.set(contributor.name, contributor)
+      for (const [key] of variables) this.keyOwners.set(key, contributor.name)
+      yield () => {
+        this.contributors.delete(contributor.name)
+        for (const [key] of variables) this.keyOwners.delete(key)
+      }
+    }.bind(this), 'bashEnv.register()')
+    return () => void dispose()
+  }
+
+  /**
+   * Build the trusted `DSH_*` snapshot for one bash tool execution.
+   * @param execution - the current tool execution.
+   * @returns an immutable environment overlay containing built-ins and current contributions.
+   */
+  collect(execution: ToolExecution): DshEnvironment {
+    const values: Record<DshEnvironmentKey, string> = {
+      [DSH_HOME_ENV]: this.dshHome,
+      [DSH_SHELL_KEY]: '1',
+    }
+    if (execution.agent !== undefined) {
+      values[DSH_SESSION_ID_KEY] = execution.agent.session.header.id
+    }
+
+    for (const contributor of [...this.contributors.values()].sort((left, right) => left.name.localeCompare(right.name))) {
+      const resolved = contributor.resolve(execution)
+      for (const [rawKey, value] of Object.entries(resolved)) {
+        const key = rawKey as DshEnvironmentKey
+        if (!Object.hasOwn(contributor.variables, key)) {
+          throw new Error(`bash env contributor "${contributor.name}" returned undeclared key "${key}"`)
+        }
+        if (typeof value !== 'string') {
+          throw new Error(`bash env contributor "${contributor.name}" returned a non-string value for "${key}"`)
+        }
+        values[key] = value
+      }
+    }
+
+    return Object.freeze(Object.fromEntries(Object.entries(values).sort(([left], [right]) => left.localeCompare(right))))
+  }
+
+  // TODO(bash-env-list-builtins): Include registry-owned built-ins before diagnostics,
+  // prompt, or UI code treats list() as an exhaustive environment catalog.
+  /**
+   * Enumerate plugin-contributed variables without executing their resolvers.
+   * @returns declarations sorted by environment variable name.
+   */
+  list(): BashEnvVariableInfo[] {
+    return [...this.contributors.values()]
+      .flatMap(contributor => Object.entries(contributor.variables).map(([key, variable]) => ({
+        contributor: contributor.name,
+        description: variable.description,
+        key: key as DshEnvironmentKey,
+      })))
+      .sort((left, right) => left.key.localeCompare(right.key))
+  }
+}
+
+/** Parsed tool args; execute validates value constraints absent from SchemaSpec. */
 interface BashToolArgs {
   command: string
   description: string
@@ -76,35 +217,32 @@ interface BashToolArgs {
   justification?: string
 }
 
-/**
- * Strictly wider modes for each effective mode. Execution checks this table
- * because the schema is global while the effective mode is per call.
- */
-const WIDER_MODES: Record<string, readonly SandboxMode[]> = {
-  'read-only': ['workspace-write', 'danger-full-access'],
-  'workspace-write': ['danger-full-access'],
+function validateBashArgs(args: BashToolArgs): void {
+  if (args.command.trim().length === 0) {
+    throw new Error('invalid command: expected a non-empty string')
+  }
+  if (args.description.trim().length === 0) {
+    throw new Error('invalid description: expected a non-empty string')
+  }
+  if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
+    throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
+  }
+  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
+  // the shared rule both enforcing families validate identically.
+  validateEscalationArgs(args.sandbox_permissions, args.justification)
 }
 
-/**
- * All possible escalation targets. Advertise the global set because a session
- * override may be narrower than the executor default; execution rejects a
- * target that is not wider for that call.
- */
-const ESCALATION_TARGETS: readonly SandboxMode[] = ['workspace-write', 'danger-full-access']
-
-/**
- * The bash tool's byte-stable base description. Escalation guidance is added
- * only when the mounted executor can honor it, as the one exception to the
- * ordinary no-retry guidance.
- */
-function bashDescription(escalationModes: readonly SandboxMode[]): string {
+function bashDescription(backgroundEnabled: boolean, escalationModes: readonly SandboxMode[]): string {
+  const background = backgroundEnabled
+    ? 'Set `run_in_background: true` for long-running commands: the call returns a task id immediately; read its output with `task_output` and stop it with `task_kill`.'
+    : 'Background execution is not available; long-running commands must finish within the timeout.'
   const base = 'Execute a bash command (`bash -c`) and return its stdout/stderr. '
     + 'Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — '
     + 'pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. '
-    + 'Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way (a background task reports the same marker via bash_output once it has finished). '
+    + `Current harness environment facts are exposed through managed \`$${DSH_ENV_PREFIX}*\` variables; inspect them when needed. `
+    + 'Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. '
     + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
-    + 'Set `run_in_background: true` for long-running commands: the call returns a task id immediately; '
-    + 'poll it with `bash_output` and stop it with `bash_kill`.'
+    + background
   if (escalationModes.length === 0) return base
   return base + ' Attempting a command the sandbox may deny is safe and expected: run it and read the '
     + 'marker rather than assuming the denial. When a command is denied and a wider mode would let it '
@@ -119,16 +257,14 @@ function bashDescription(escalationModes: readonly SandboxMode[]): string {
     + 'it — but it does not forbid attempting or escalating other commands later.'
 }
 
-// Pure tool-owned presentation used for both live events and replay.
-
 /**
  * Present foreground calls as terminals and background starts as generic cards.
+ * The command remains the title on both paths; foreground cwd is passed through
+ * for the bridge to resolve, while background descriptions remain card content.
  */
 type BashCallArgs = { command: string; description: string; workdir?: string; run_in_background?: boolean }
 
 function presentBashCall(args: BashCallArgs): GenericCallView | TerminalCallView {
-  // A background start is not an interactive terminal — a generic execute card
-  // with the command as rawInput and the description as a content block.
   if (args.run_in_background === true) {
     return {
       card: 'generic',
@@ -138,7 +274,6 @@ function presentBashCall(args: BashCallArgs): GenericCallView | TerminalCallView
       content: [{ type: 'text', text: args.description }],
     }
   }
-  // A foreground run is a terminal; an explicit workdir supplies its cwd.
   return {
     card: 'terminal',
     title: args.command,
@@ -156,27 +291,26 @@ function presentBashResult(args: unknown, result: ToolResult): ToolResultView | 
   if (block === undefined || block.type !== 'text') return undefined
   const raw = block.text
   const isBackground = typeof args === 'object' && args !== null && (args as { run_in_background?: unknown }).run_in_background === true
-  // A background ack or an errored run is not a real terminal exit: render the
-  // fenced ```console fallback as generic content (no exit pill).
+  // Background acknowledgements and errors have no terminal exit status.
   if (isBackground || result.isError) {
     return { card: 'generic', content: [{ type: 'text', text: `\`\`\`console\n${raw.replace(/\n+$/, '')}\n\`\`\`` }] }
   }
-  // A finished foreground run supplies raw output and parsed exit status.
-  // The bridge derives the no-capability fenced fallback from `output`.
   return { card: 'terminal', output: raw, ...parseExitStatus(raw) }
 }
 
-/** Pending-state presentation for `bash_output`/`bash_kill` (background-task tools). */
-function presentTaskCall(verb: string, args: { task_id: string }): GenericCallView {
-  return { card: 'generic', title: `${verb} background task ${args.task_id}`, kind: 'execute', rawInput: args.task_id }
-}
-
 /**
- * Resolve an explicit workdir first, making a relative one session-cwd-relative;
- * otherwise use the session cwd and leave executor defaulting as the fallback.
+ * Resolve an explicit workdir first, making a relative one session-workspace-relative;
+ * otherwise use the filesystem identity of the session cwd and leave executor
+ * defaulting as the fallback. A resolved sandbox-policy root wins so workdir
+ * and confinement use the exact same per-call identity.
  */
-function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent }): string | undefined {
-  const sessionCwd = exec.agent?.session.header.cwd
+function resolveWorkdir(
+  modelWorkdir: string | undefined,
+  exec: { agent?: Agent },
+  policyWorkspaceRoot?: string,
+): string | undefined {
+  const headerCwd = exec.agent?.session.header.cwd
+  const sessionCwd = policyWorkspaceRoot ?? (headerCwd === undefined ? undefined : canonicalPath(headerCwd))
   if (modelWorkdir === undefined) return sessionCwd
   if (sessionCwd !== undefined && !isAbsolute(modelWorkdir)) {
     return resolvePath(sessionCwd, modelWorkdir)
@@ -184,119 +318,77 @@ function resolveWorkdir(modelWorkdir: string | undefined, exec: { agent?: Agent 
   return modelWorkdir
 }
 
-/** Status line for background task reads. */
-function statusLine(task: BashTask): string {
-  switch (task.status) {
-    case 'running': return '[status: running]'
-    case 'killed': return `[status: killed${task.signal !== null ? ` by ${task.signal}` : ''}]`
-    case 'completed': return `[status: completed, exit code: ${task.exitCode ?? 0}]`
+export function apply(ctx: Context, config: Config = {}): void {
+  const bashEnv = new BashEnvRegistry(ctx, config)
+  bashEnv.register({
+    name: 'session-persistence',
+    variables: {
+      [DSH_SESSION_JSONL_KEY]: {
+        description: 'Absolute target path of the current session JSONL when the active persistence backend provides one.',
+      },
+    },
+    resolve(execution) {
+      const agent = execution.agent
+      if (agent === undefined) return {}
+      const location = ctx.get('sessionPersistence')?.locate(agent.session.header)
+      return location?.kind === 'jsonl' ? { [DSH_SESSION_JSONL_KEY]: location.path } : {}
+    },
+  })
+  const backgroundEnabled = config.enableRunInBackground ?? true
+  const defaultMode = ctx.bash.sandboxMode
+  const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
+  const sandboxPolicy: SandboxPolicyService | undefined = defaultMode === undefined ? undefined : ctx.get('sandboxPolicy')
+  if (defaultMode !== undefined && sandboxPolicy === undefined) {
+    throw new Error('tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing')
   }
-}
 
-export function apply(ctx: Context): void {
-  // Cross-call guidance belongs in the prompt rather than one tool description.
+  /** Resolve the complete standing policy for this call when a confining executor is mounted. */
+  const resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | undefined =>
+    sandboxPolicy?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })
+
+  /**
+   * Resolve a sandbox-escalation request through `ctx.approval` BEFORE
+   * anything executes, delegating the shared fail-closed sequence (strict
+   * widening, channel resolution, outcome mapping) to
+   * {@link approveEscalation}. This tool contributes only the composition
+   * guard (the fields are unadvertised without a sandboxing executor, yet
+   * schema validation checks advertised keys only, so an unadvertised
+   * `sandbox_permissions` still reaches execute) and the approval ingredients
+   * The shared policy resolver is required whenever the executor advertises
+   * confinement, so a split composition fails at tool-plugin load.
+   */
+  const approveBashEscalation = (
+    mode: string,
+    justification: string,
+    exec: ToolExecution,
+    standingPolicy: SandboxExecutionPolicy | undefined,
+  ): Promise<SandboxMode> => {
+    if (escalationModes.length === 0) {
+      throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
+    }
+    const effectiveMode = (standingPolicy as SandboxExecutionPolicy).mode
+    return approveEscalation(
+      { requestedMode: mode, justification, effectiveMode, subject: 'command' },
+      {
+        approver: ctx.get('approval'),
+        agent: exec.agent,
+        callId: exec.callId,
+        toolName: 'bash',
+        signal: exec.signal,
+      },
+    )
+  }
+
+  // Cross-call guidance belongs in the prompt rather than one-call schema prose.
   ctx.systemPrompt.section({
     name: 'tool:bash',
     order: 105,
     text: 'Check the [exit code: N] marker on every bash result; investigate failures before moving on.',
   })
 
-  /**
-   * Return the canonical session-header id used by ACP and persistence as the
-   * task owner, or undefined for a non-agent caller.
-   */
-  const callerToken = (exec: { agent?: Agent }): OwnerToken | undefined =>
-    exec.agent ? OwnerToken(exec.agent.session.header.id) : undefined
-
-  /**
-   * Reject access when a task has a different session owner. Unowned tasks are
-   * allowed; unknown ids still fail in the subsequent read or kill.
-   */
-  const assertTaskAccess = (taskId: BashTaskId, exec: { agent?: Agent }): void => {
-    const owner = ctx.bash.ownerOf(taskId)
-    if (owner !== undefined && owner !== callerToken(exec)) {
-      throw new Error(`task ${taskId} belongs to another session`)
-    }
-  }
-
-  // Completion runs on the bash fiber, so use topology-independent lookup and
-  // match the executor's stored session-owner token to a live agent.
-  ctx.bash.onTaskDone((task) => {
-    const ownerToken = ctx.bash.ownerOf(task.id)
-    if (ownerToken === undefined) return
-    const agent = ctx.get('agents')?.list().find(a => OwnerToken(a.session.header.id) === ownerToken)
-    if (!agent) return
-    try {
-      agent.inject(
-        [{ type: 'text', text: `background bash task ${task.id} finished ${statusLine(task)}. Read its output with bash_output.` }],
-        { source: { kind: 'plugin', plugin: 'tool-bash' } },
-      )
-    } catch (error: unknown) {
-      // The one expected failure: the agent was disposed between task completion and this
-      // injection (ReactLoopAgent.inject throws `agent "<id>" is disposed`).
-      if (error instanceof Error && error.message.includes('is disposed')) return
-      throw error
-    }
-  })
-
-  // The escalation surface exists whenever the mounted executor confines.
-  // Advertise the closed target vocabulary globally, then enforce strict
-  // widening against each call's effective session mode.
-  const defaultMode = ctx.bash.sandboxMode
-  const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
-
-  /**
-   * Return the calling session's folded standing mode. Approval outranks this
-   * value and the executor default applies when it is absent; non-sandboxing
-   * and agent-less calls have no override.
-   */
-  const sessionOverride = (exec: ToolExecution): SandboxMode | undefined =>
-    defaultMode === undefined || exec.agent === undefined ? undefined : effectiveSandboxMode(exec.agent.session.events)
-
-  /**
-   * Request one-shot escalation before execution. Missing approval context,
-   * rejection, cancellation, and unavailable answers throw without running the
-   * command; the optional seam is resolved per call through `ctx.get`.
-   */
-  const approveEscalation = async (mode: string, justification: string, exec: ToolExecution): Promise<SandboxMode> => {
-    // Reject an unadvertised escalation before prompting for a nonexistent sandbox.
-    if (escalationModes.length === 0) {
-      throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
-    }
-    // Reject sandbox widening against the call's effective mode before requesting approval.
-    const effectiveMode = (sessionOverride(exec) ?? defaultMode) as SandboxMode
-    if (!(WIDER_MODES[effectiveMode] ?? []).includes(mode as SandboxMode)) {
-      throw new Error(`sandbox escalation to "${mode}" is not strictly wider than this call's current "${effectiveMode}" mode`)
-    }
-    const approval = ctx.get('approval')
-    if (approval === undefined) {
-      throw new Error(`sandbox escalation to "${mode}" requires approval, but no approval service is composed`)
-    }
-    if (exec.agent === undefined) {
-      throw new Error(`sandbox escalation to "${mode}" requires approval, but the call has no agent to route it through`)
-    }
-    const outcome = await approval.request({
-      agent: exec.agent,
-      toolName: 'bash',
-      callId: exec.callId,
-      // Self-contained for the audit trail: approval/asked stores this
-      // reason, and the target mode is part of the grant's identity.
-      reason: `escalate sandbox to ${mode}: ${justification}`,
-      ...exec.signal ? { signal: exec.signal } : {},
-    })
-    switch (outcome) {
-      // Schema validation pins the vocabulary; the per-call check proves widening.
-      case 'allowed-once': return mode as SandboxMode
-      case 'rejected': throw new Error(`the user rejected escalating this command to "${mode}"`)
-      case 'cancelled': throw new Error(`approval for escalating to "${mode}" was cancelled`)
-      case 'unavailable': throw new Error(`sandbox escalation to "${mode}" requires approval, but no approval channel is available`)
-      default: return assertNever(outcome, 'ApprovalOutcome')
-    }
-  }
-
   ctx.tools.register(defineTool({
     name: 'bash',
-    description: bashDescription(escalationModes),
+    description: bashDescription(backgroundEnabled, escalationModes),
     parameters: {
       command: { type: 'string', required: true, description: 'The bash command to execute.' },
       description: {
@@ -308,104 +400,75 @@ export function apply(ctx: Context): void {
       },
       timeoutMs: { type: 'number', description: 'Timeout in milliseconds. The executor applies its configured default and cap, and kills the command on expiry.' },
       workdir: { type: 'string', description: 'Working directory for this command. Defaults to the session workspace; a relative path is resolved against it.' },
-      run_in_background: { type: 'boolean', description: 'Run in the background and return a task id immediately. No timeout applies.' },
+      ...backgroundEnabled ? {
+        run_in_background: { type: 'boolean' as const, description: 'Run in the background and return a task id immediately (collect with task_output, stop with task_kill). No timeout applies.' },
+      } : {},
       ...escalationModes.length > 0 ? {
         sandbox_permissions: {
           type: 'string' as const,
           enum: [...escalationModes],
-          description: 'The wider sandbox mode this command needs. Only valid as a one-shot retry '
-            + 'of a command the sandbox just denied; requires justification and user approval.',
+          description: 'The wider sandbox mode this command needs. Only valid as a one-shot retry of a command the sandbox just denied; requires justification and user approval.',
         },
         justification: {
           type: 'string' as const,
-          description: 'Required with sandbox_permissions: one sentence for the user explaining '
-            + 'why this exact command needs the wider access.',
+          description: 'Required with sandbox_permissions: one sentence for the user explaining why this exact command needs the wider access.',
         },
       } : {},
     },
     async execute(args: BashToolArgs, exec) {
       validateBashArgs(args)
-      // `description` is display/logging metadata only. Escalation approval
-      // completes before execution; grant > session override > executor default.
-      const sandboxMode = args.sandbox_permissions !== undefined && args.justification !== undefined
-        ? await approveEscalation(args.sandbox_permissions, args.justification, exec)
-        : sessionOverride(exec)
-      // Default the workdir to the calling agent's session cwd so each ACP
-      // session runs in its own workspace (see resolveWorkdir); an explicit
-      // model workdir still wins.
-      const workdir = resolveWorkdir(args.workdir, exec)
+      // Description is display metadata; workdir defaults to the caller's session.
+      const standingPolicy = resolveSandboxPolicy(exec)
+      const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+        ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
+        : undefined
+      const policy = approvedMode === undefined
+        ? standingPolicy
+        : { ...(standingPolicy as SandboxExecutionPolicy), mode: approvedMode }
+      const workdir = resolveWorkdir(args.workdir, exec, standingPolicy?.workspaceRoot)
+      const dshEnv = bashEnv.collect(exec)
       const request = {
         command: args.command,
         ...workdir !== undefined ? { workdir } : {},
         ...args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {},
-        ...exec.signal ? { signal: exec.signal } : {},
-        ...sandboxMode !== undefined ? { sandboxMode } : {},
+        dshEnv,
+        ...policy !== undefined ? { sandboxPolicy: policy } : {},
       }
       if (args.run_in_background === true) {
-        // Store the session owner on the task for bash_output/bash_kill isolation.
-        const task = ctx.bash.start(ctx.bash.resolve({ ...request, owner: callerToken(exec) }))
-        return [{ type: 'text', text: `started background task ${task.id}` }]
+        // Undeclared keys are allowed, so schema omission also needs enforcement.
+        if (!backgroundEnabled) {
+          throw new Error('run_in_background is disabled for this deployment (enableRunInBackground: false)')
+        }
+        const tasks = ctx.get('tasks')
+        if (tasks === undefined) {
+          throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
+        }
+        // The caller owns cancellation until TaskService commits detached ownership.
+        if (exec.signal.aborted) return []
+        // Task preflight finishes before the starter can spawn a process.
+        const id = tasks.start({
+          kind: 'bash',
+          label: args.command,
+          ...exec.agent ? { owner: exec.agent } : {},
+          run: () => {
+            const proc = ctx.bash.start(ctx.bash.resolve(request))
+            return {
+              cancel: () => void proc.kill(),
+              done: proc.done.then(() => processOutcome(proc)),
+              readOutput: () => renderProcessRead(proc.readOutput(), proc.sandbox, escalationModes),
+            }
+          },
+        })
+        return [{ type: 'text', text: `started background task ${id}` }]
       }
-      const result = await ctx.bash.run(ctx.bash.resolve(request))
+      const result = await ctx.bash.run(ctx.bash.resolve({
+        ...request,
+        signal: exec.signal,
+      }))
       if (result.aborted) throw new Error('command aborted')
       return [{ type: 'text', text: renderResult(result, escalationModes) }]
     },
     presentCall: presentBashCall,
     presentResult: presentBashResult,
-  }))
-
-  ctx.tools.register(defineTool({
-    name: 'bash_output',
-    description: 'Read new output from a background bash task started with `bash` + `run_in_background`. '
-      + 'Returns only output produced since the previous bash_output call, plus the task status. '
-      + 'Tasks keep running while you do other work; poll again later for more output.',
-    parameters: {
-      task_id: { type: 'string', required: true, description: 'Task id returned by the bash tool.' },
-    },
-    // execute is synchronous (registry reads + string shaping) but the
-    // ToolDefinition contract wants a Promise — hence resolve(), not async.
-    execute(args, exec) {
-      const id = validateTaskId(args.task_id)
-      assertTaskAccess(id, exec)
-      const read = ctx.bash.readOutput(id)
-      let text = read.delta.length > 0 ? read.delta : '(no new output)'
-      if (read.lossy) {
-        const paths = [read.stdoutSpillPath, read.stderrSpillPath].filter((p): p is string => p !== undefined)
-        const fullOutput = paths.length > 0 ? paths.join(', ') : '(unavailable)'
-        text += `\n[some output was dropped from memory; full output: ${fullOutput}]`
-      }
-      text += `\n${statusLine(read.task)}`
-      if (read.task.sandbox?.runnerFailed) {
-        // Background settlement carries the runner-failure fact that a
-        // foreground call exposes as SANDBOX_UNAVAILABLE.
-        text += `\n[sandbox: the sandbox runner itself failed under ${read.task.sandbox.mode} mode — the command did not run; this is a sandbox problem, not a command failure]`
-      } else if (read.task.sandbox?.denied) {
-        // Mirrors the foreground result marker (and its same-turn escalation hint).
-        text += `\n[sandbox: file access denied under ${read.task.sandbox.mode} mode]`
-        if (escalationModes.length > 0) {
-          text += '\n[sandbox: escalation available — retry this exact command once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]'
-        }
-      }
-      return Promise.resolve([{ type: 'text', text }])
-    },
-    presentCall: args => presentTaskCall('Read output from', args),
-  }))
-
-  ctx.tools.register(defineTool({
-    name: 'bash_kill',
-    description: 'Ask the executor to kill a running background bash task by task id.',
-    parameters: {
-      task_id: { type: 'string', required: true, description: 'Task id returned by the bash tool.' },
-    },
-    execute(args, exec) {
-      const id = validateTaskId(args.task_id)
-      assertTaskAccess(id, exec)
-      const killed = ctx.bash.kill(id)
-      return Promise.resolve([{
-        type: 'text',
-        text: killed ? `killed background task ${id}` : `task ${id} had already finished`,
-      }])
-    },
-    presentCall: args => presentTaskCall('Kill', args),
   }))
 }

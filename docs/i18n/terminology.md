@@ -33,6 +33,7 @@
 | English | 中文 | 首次出现 | 不要译作 | 备注 |
 |---|---|---|---|---|
 | agent | agent | agent（智能体） | | |
+| Agent Note | Agent Note | Agent Note（agent 决策记录） | 智能体注记、智能体笔记 | 本仓库中由 agent 撰写的提案与决策记录 |
 | agent harness | agent harness | agent harness（智能体框架） | | agent 组合词（agent harness/workflow/loop/skill 等）整体保留英文；未括注过 agent 时首现按对应组合词或 agent 行处理 |
 | agent loop | agent loop | agent loop（智能体循环） | | |
 | backlog | backlog | backlog（待翻清单） | | 仅在双语翻译语境里括注`待翻清单` |
@@ -64,6 +65,7 @@
 | waterfall | waterfall | waterfall（瀑布式事件） | | |
 | wheel | wheel 包 | | | Python 打包格式 |
 | worktree | worktree | | | git 工作区概念 |
+| Zstandard | Zstandard | | | RFC 8878 compression format; `zstd` remains a code value. |
 
 ## 双语类（中英文文本各自使用中英文）
 
@@ -78,12 +80,14 @@
 | block | 块 | | | |
 | build target | 构建目标 | | | |
 | cancel | 取消 | | | |
-| capability | 能力 | | | |
+| feature | 功能 | | 能力 | SDK 产品与工程模型中的可管理产品单元 |
+| feature option | 功能选项 | | variant | 一项 SDK 功能内有限、可选择的实现或配置 |
 | checkpoint | 检查点 | | | |
 | chunk | 分片 | | | |
 | compaction | 压缩 | 压缩（compaction） | | |
 | companion tool | 配套工具 | | | |
-| config | 配置 | | | |
+| Cordis plugin config | Cordis 插件配置 | | | Cordis 插件公开的 `Config` 对象或配置结构 |
+| config key | 配置键 | | | Cordis 插件配置中的单个字段 |
 | consumer | 消费方 | | | |
 | content block | 内容块 | | | |
 | Cookbook | 实操手册 | | | 文档标题用语 |
@@ -91,16 +95,20 @@
 | counterpart | 对侧文件 | | 对应物、配对物 | 双语配对语境；泛指"另一侧"时可写「另一侧」 |
 | context compaction | 上下文压缩 | 上下文压缩（context compaction） | | |
 | contract | 契约 | | | 如：`pairing contract` →`配对契约` |
+| Cordis config entry | Cordis 配置项 | | | 指 `cordis.yml` 插件列表中的一项；插件实现本身写`Cordis 插件` |
+| Cordis plugin | Cordis 插件 | | | Cordis 加载的插件实现，不指 `cordis.yml` 中的一项配置 |
 | coverage | 覆盖率 | | | |
 | crash recovery | 崩溃恢复 | | | |
 | deploy root | 部署根目录 | | | |
 | durability | 持久性 | | | |
+| feature requirement | 功能依赖 | | | 功能或功能选项通过 `requires` 声明的关系 |
 | enforcement frontier | 执行红线 | | 强制边界 | i18n 配对机制用语：manifest `required` 清单所划的门禁生效范围；与金标样例（style-samples ⑦）一致 |
 | event | 事件 | | | |
 | event log | 事件日志 | | | |
 | event stream | 事件流 | | | |
 | event-sourced | 事件溯源 | | | 沿用 DDD 社区通行译法 |
 | executor | 执行器 | | | |
+| expected output | 预期输出 | | 金标 | 指 snapshot 比较产物；翻译语料的人工校准样例不在此列 |
 | extension | 扩展 | | | |
 | extension point | 扩展点 | | | 注意与 `seam` 区分 |
 | fail-fast | 快速失败 | | | |
@@ -123,6 +131,7 @@
 | mod | 模组 | | | |
 | model provider | 模型提供方 | | | |
 | module | 模块 | | | |
+| npm dependency | NPM 依赖 | | | `package.json` 中的包关系；`dependencies`、`devDependencies` 等字段保持原样 |
 | orphan | 遗留 | | 孤儿、孤立 | 指英文源已不存在的 `.zh.md`（如「遗留译文」）；进程语境按 OS 惯用语译「孤儿进程」 |
 | orphan branch | 孤立分支 | | 孤儿分支 | 沿用 git 官方中文翻译 |
 | package | 包 | 包（package） | | 指 npm 包（`@deepseek-ai/dsh-*`）；`package.json` 等代码标识保持原样 |

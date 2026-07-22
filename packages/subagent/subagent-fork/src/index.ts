@@ -39,7 +39,7 @@ export const Config: z<Config> = z.object({
  * @param parent - the agent whose session log to slice.
  * @returns the seed events, contiguous from seq 0; empty when no turn has completed.
  */
-export function completedTurnPrefix(parent: Agent): SessionEvent[] {
+function completedTurnPrefix(parent: Agent): SessionEvent[] {
   const events = parent.session.events
   const lastEnd = events.findLast(e => e.type === 'turn/end')
   if (lastEnd === undefined) return []

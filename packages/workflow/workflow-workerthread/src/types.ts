@@ -42,6 +42,8 @@ export interface ChildStartRequest {
   prompt: string
   /** The structured-output schema, if the call passed one (already subset-checked). */
   schema?: StructuredOutputSchema
+  /** The per-child provider override, if the call passed one. */
+  provider?: string
   /** The per-child model override, if the call passed one. */
   model?: string
 }

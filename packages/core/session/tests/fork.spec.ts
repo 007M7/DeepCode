@@ -102,7 +102,7 @@ describe('SessionStore.fork', () => {
     const { ctx, sessions } = await setup()
     const reasons: TurnEndReason[] = [
       { kind: 'completed' },
-      { kind: 'aborted', reason: 'cancelled by user' },
+      { kind: 'aborted' },
       { kind: 'error', step: 1, message: 'model failed', code: 'MODEL' },
       { kind: 'disposed' },
       { kind: 'max-tokens' },
@@ -195,14 +195,14 @@ describe('SessionStore.fork', () => {
       ['assistant/message', (session) => {
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('step/start', { turn: 1, step: 1 })
-        session.append('assistant/message', { turn: 1, step: 1, content: [{ type: 'text', text: 'partial' }] }, { surfaceOp: 'append' })
+        session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'partial' }] }, { surfaceOp: 'append' })
         return lastSeq(session)
       }],
       ['tool/call', (session) => {
         const callId = CallId('call-open')
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('step/start', { turn: 1, step: 1 })
-        session.append('assistant/message', {
+        session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
           turn: 1,
           step: 1,
           content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
