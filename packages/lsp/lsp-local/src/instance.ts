@@ -40,6 +40,15 @@ export interface InstanceSpec extends ConnectionSpec {
 }
 
 /**
+ * Force-kill a process tree only when graceful termination did not make it exit.
+ * @param treeExited - whether the tree exited within its grace period.
+ * @param forceKill - forceful process-tree termination primitive.
+ */
+export function escalateProcessTree(treeExited: boolean, forceKill: () => void): void {
+  if (!treeExited) forceKill()
+}
+
+/**
  * A single initialized server process. Not exported as a provider — the provider single-flights and
  * pools these. `query()` serializes; `dispose()` rejects queued work and tears the process down.
  */
@@ -297,7 +306,7 @@ export class LspInstance {
     } finally {
       graceDeadline[Symbol.dispose]()
     }
-    if (!treeExited) this.connection.kill()
+    escalateProcessTree(treeExited, this.connection.kill.bind(this.connection))
     await Promise.all([
       this.connection.closed,
       this.connection.waitForProcessTreeExit(),

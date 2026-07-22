@@ -5,6 +5,7 @@ import {
   signalProcessGroup,
   signalProcessTree,
   taskkillProcessTree,
+  waitForTreeExit,
 } from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
 import type {
   ConnectionWriter,
@@ -246,6 +247,19 @@ describe('process-tree signaling', () => {
     const run: ProcessSignalRunner = vi.fn(() => true)
     signalProcessGroup(-42, 'SIGKILL', run)
     expect(run).toHaveBeenCalledWith(-42, 'SIGKILL')
+  })
+
+  it('waits for tree exit and stops when its bound aborts', async () => {
+    const isAlive = vi.fn()
+      .mockReturnValueOnce(true)
+      .mockReturnValue(false)
+    const yieldNow = vi.fn(() => Promise.resolve())
+    await expect(waitForTreeExit(isAlive, undefined, yieldNow)).resolves.toBe(true)
+    expect(yieldNow).toHaveBeenCalledOnce()
+
+    const controller = new AbortController()
+    controller.abort()
+    await expect(waitForTreeExit(() => true, controller.signal, yieldNow)).resolves.toBe(false)
   })
 
   it('uses taskkill for a Windows tree and a negative pid for a POSIX group', () => {

@@ -111,6 +111,25 @@ export function signalProcessGroup(
 }
 
 /**
+ * Wait until a process-tree liveness probe reports exit.
+ * @param isAlive - process-tree liveness probe.
+ * @param signal - optional bound for the wait.
+ * @param yieldNow - event-loop yield primitive.
+ * @returns `true` when the tree exited, or `false` when the signal aborted first.
+ */
+export async function waitForTreeExit(
+  isAlive: () => boolean,
+  signal?: AbortSignal,
+  yieldNow: () => Promise<unknown> = yieldToEventLoop,
+): Promise<boolean> {
+  while (isAlive()) {
+    if (signal?.aborted) return false
+    await yieldNow()
+  }
+  return true
+}
+
+/**
  * Signal a detached process tree with platform-correct semantics and a direct-child fallback.
  * @param platform - host platform.
  * @param pid - detached root process id.
@@ -269,11 +288,7 @@ export class LspConnection {
    * @returns `true` when the tree exited, or `false` when the signal aborted first.
    */
   async waitForProcessTreeExit(signal?: AbortSignal): Promise<boolean> {
-    while (this.processTreeAlive()) {
-      if (signal?.aborted) return false
-      await yieldToEventLoop()
-    }
-    return true
+    return await waitForTreeExit(this.processTreeAlive.bind(this), signal)
   }
 
   /**

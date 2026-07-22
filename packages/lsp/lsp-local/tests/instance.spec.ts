@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, readFile, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,6 +6,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 import { LspInstance, readHostSource } from '@deepseek-ai/dsh-lsp-local'
 import { encodeMessage } from '@deepseek-ai/dsh-lsp-local'
 import type { ConnectionWriter } from '@deepseek-ai/dsh-lsp-local/src/connection.ts'
+import { escalateProcessTree } from '@deepseek-ai/dsh-lsp-local/src/instance.ts'
 import type { InstanceSpec } from '@deepseek-ai/dsh-lsp-local/src/instance.ts'
 import type { LspProviderQuery, LspQueryResult } from '@deepseek-ai/dsh-lsp'
 
@@ -242,6 +243,14 @@ describe('LspInstance query and abort', () => {
 })
 
 describe('LspInstance disposal', () => {
+  it('escalates only when the process tree survives its grace period', () => {
+    const forceKill = vi.fn()
+    escalateProcessTree(false, forceKill)
+    expect(forceKill).toHaveBeenCalledOnce()
+    escalateProcessTree(true, forceKill)
+    expect(forceKill).toHaveBeenCalledOnce()
+  })
+
   it('lets a server finish protocol exit before signal escalation', async () => {
     const marker = join(root, 'graceful-exit.log')
     const instance = makeInstance({

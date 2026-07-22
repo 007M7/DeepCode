@@ -221,10 +221,6 @@ class LocalLspProvider implements LspProvider {
       // synchronous get-or-create so every spawned process remains owned by teardown.
       this.assertActive(signal)
       let instance = this.instanceFor(workspace)
-      if (instance.dead) {
-        this.evictIfCurrent(workspace, instance)
-        instance = this.instanceFor(workspace)
-      }
       try {
         return await instance.query(request, source, signal)
       } catch (error) {
