@@ -83,6 +83,30 @@ describe('GoalBar', () => {
     expect(screen.getByText('Ongoing Goal')).toBeTruthy()
   })
 
+  it('the cancel button exits the form and drops the draft (re-edit starts from the objective)', () => {
+    const actions = makeActions()
+    render(<GoalBar goal={makeGoal()} {...actions} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Goal objective' }), { target: { value: 'abandoned draft' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel edit' }))
+    expect(actions.onEdit).not.toHaveBeenCalled()
+    expect(screen.getByText('Ongoing Goal')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
+    expect((screen.getByRole('textbox', { name: 'Goal objective' }) as HTMLInputElement).value).toBe('Ship the redesign')
+  })
+
+  it('Enter with a blank draft neither saves nor closes the form', () => {
+    const actions = makeActions()
+    render(<GoalBar goal={makeGoal()} {...actions} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit goal' }))
+    const box = screen.getByRole('textbox', { name: 'Goal objective' })
+    fireEvent.change(box, { target: { value: '   ' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(actions.onEdit).not.toHaveBeenCalled()
+    expect(screen.getByRole('textbox', { name: 'Goal objective' })).toBeTruthy()
+  })
+
   it('paused goal: "Paused Goal" with a resume action before edit', () => {
     const actions = makeActions()
     render(<GoalBar goal={makeGoal({ phase: 'paused' })} {...actions} />)
@@ -112,5 +136,12 @@ describe('GoalBar', () => {
     render(<GoalBar goal={goal} {...actions} />)
     expect(screen.getByText('Blocked Goal')).toBeTruthy()
     expect(screen.getByText('Blocked Goal').closest('[title]')?.getAttribute('title')).toBe('No progress in 3 rounds')
+  })
+
+  it('blocked goal without a reason carries no tooltip', () => {
+    const actions = makeActions()
+    render(<GoalBar goal={makeGoal({ phase: 'blocked' })} {...actions} />)
+    expect(screen.getByText('Blocked Goal')).toBeTruthy()
+    expect(screen.getByText('Blocked Goal').closest('[title]')).toBeNull()
   })
 })

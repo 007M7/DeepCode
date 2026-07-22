@@ -5,6 +5,11 @@
  * return ok with the command slot; usage errors and unknown names return RPC
  * errors so the client restores the composer's draft. Non-command prompts
  * still route to agent.send/steer.
+ *
+ * The second suite covers the goals RPC surface over the same live harness:
+ * get/create/edit/pause/resume/complete/clear project the goal service onto
+ * the wire, service rejections (stale ref, duplicate create) become internal
+ * RPC errors, and an unservable session id is an RPC error on every method.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -16,6 +21,7 @@ import GoalService from '@deepseek-ai/dsh-goal'
 import * as commandGoal from '@deepseek-ai/dsh-command-goal'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { ApiProxy, GoalView } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { createApiProxy } from '../src/api-proxy.ts'
@@ -193,5 +199,147 @@ describe('sessions.prompt slash-command dispatch', () => {
     const nonText: ContentBlock[] = [{ type: 'reasoning', text: '/goal not a command' }]
     await api.sessions.prompt(request({ sessionId: test.session.id, mode: 'queue' as const, content: nonText }))
     expect(test.sent).toEqual([empty, nonText])
+  })
+})
+
+describe('goals RPC surface', () => {
+  /** Unwrap an ok goal value or fail the test. */
+  function goalOf(response: Awaited<ReturnType<ApiProxy['goals']['get']>>): GoalView {
+    if (!response.result.ok) throw new Error(`expected ok, got ${response.result.error.message}`)
+    if (response.result.value.goal === null) throw new Error('expected a current goal')
+    return response.result.value.goal
+  }
+
+  it('get returns null when no goal is set', async () => {
+    const test = await harness()
+    const api = createApiProxy(test.ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+
+    const response = await api.goals.get(request({ sessionId: test.session.id }))
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) throw new Error('unreachable')
+    expect(response.result.value.goal).toBeNull()
+  })
+
+  it('create arms a goal, defaulting and honoring the round cap; a duplicate create is an internal error', async () => {
+    const test = await harness()
+    const api = createApiProxy(test.ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+
+    const created = goalOf(await api.goals.create(request({ sessionId: test.session.id, objective: 'first' })))
+    expect(created.phase).toBe('active')
+    expect(created.activation).toBe('armed')
+    expect(created.maxGoalRounds).toBe(256) // service default
+
+    const duplicate = await api.goals.create(request({ sessionId: test.session.id, objective: 'second' }))
+    expect(duplicate.result.ok).toBe(false)
+    if (duplicate.result.ok) throw new Error('unreachable')
+    expect(duplicate.result.error.code).toBe('internal')
+    expect(duplicate.result.error.message).toContain('already exists')
+
+    const cleared = await api.goals.clear(request({ sessionId: test.session.id, ref: created }))
+    expect(cleared.result.ok).toBe(true)
+
+    const capped = goalOf(await api.goals.create(request({ sessionId: test.session.id, objective: 'capped', maxGoalRounds: 4 })))
+    expect(capped.maxGoalRounds).toBe(4)
+  })
+
+  it('get projects the live goal, including the durable blocked reason', async () => {
+    const test = await harness()
+    const api = createApiProxy(test.ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const created = goalOf(await api.goals.create(request({ sessionId: test.session.id, objective: 'block me' })))
+
+    const before = goalOf(await api.goals.get(request({ sessionId: test.session.id })))
+    expect(before.objective).toBe('block me')
+    expect('blockedReason' in before).toBe(false)
+
+    test.ctx.goals.block(test.agent, created, { code: 'stalled', message: 'no progress' })
+    const after = goalOf(await api.goals.get(request({ sessionId: test.session.id })))
+    expect(after.phase).toBe('blocked')
+    expect(after.blockedReason).toEqual({ code: 'stalled', message: 'no progress' })
+  })
+
+  it('edit replaces the objective and/or the round cap, one field at a time', async () => {
+    const test = await harness()
+    const api = createApiProxy(test.ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const created = goalOf(await api.goals.create(request({ sessionId: test.session.id, objective: 'v1', maxGoalRounds: 4 })))
+
+    const renamed = goalOf(await api.goals.edit(request({ sessionId: test.session.id, ref: created, objective: 'v2' })))
+    expect(renamed.objective).toBe('v2')
+    expect(renamed.maxGoalRounds).toBe(4)
+    expect(renamed.revision).toBe(created.revision + 1)
+
+    const recapped = goalOf(await api.goals.edit(request({ sessionId: test.session.id, ref: renamed, maxGoalRounds: 8 })))
+    expect(recapped.objective).toBe('v2')
+    expect(recapped.maxGoalRounds).toBe(8)
+  })
+
+  it('pause, resume, complete, and clear drive the phase machine over the wire', async () => {
+    const test = await harness()
+    const api = createApiProxy(test.ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const created = goalOf(await api.goals.create(request({ sessionId: test.session.id, objective: 'lifecycle' })))
+
+    const paused = goalOf(await api.goals.pause(request({ sessionId: test.session.id, ref: created })))
+    expect([paused.phase, paused.activation]).toEqual(['paused', 'disarmed'])
+
+    const resumed = goalOf(await api.goals.resume(request({ sessionId: test.session.id, ref: paused })))
+    expect([resumed.phase, resumed.activation]).toEqual(['active', 'armed'])
+
+    const completed = goalOf(await api.goals.complete(request({ sessionId: test.session.id, ref: resumed })))
+    expect([completed.phase, completed.activation]).toEqual(['complete', 'disarmed'])
+
+    const cleared = await api.goals.clear(request({ sessionId: test.session.id, ref: completed }))
+    expect(cleared.result.ok).toBe(true)
+    if (!cleared.result.ok) throw new Error('unreachable')
+    expect(cleared.result.value.cleared).toBe(true)
+    expect(goalOfNull(await api.goals.get(request({ sessionId: test.session.id })))).toBeNull()
+  })
+
+  /** Unwrap a get value (goal or null) or fail the test. */
+  function goalOfNull(response: Awaited<ReturnType<ApiProxy['goals']['get']>>): GoalView | null {
+    if (!response.result.ok) throw new Error('unreachable')
+    return response.result.value.goal
+  }
+
+  it('a stale ref surfaces as an internal RPC error on every mutating method', async () => {
+    const test = await harness()
+    const api = createApiProxy(test.ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const created = goalOf(await api.goals.create(request({ sessionId: test.session.id, objective: 'cas' })))
+    const stale = { id: created.id, revision: created.revision + 99 }
+
+    const attempts = [
+      () => api.goals.edit(request({ sessionId: test.session.id, ref: stale, objective: 'nope' })),
+      () => api.goals.pause(request({ sessionId: test.session.id, ref: stale })),
+      () => api.goals.resume(request({ sessionId: test.session.id, ref: stale })),
+      () => api.goals.complete(request({ sessionId: test.session.id, ref: stale })),
+      () => api.goals.clear(request({ sessionId: test.session.id, ref: stale })),
+    ]
+    for (const attempt of attempts) {
+      const response = await attempt()
+      expect(response.result.ok).toBe(false)
+      if (!response.result.ok) expect(response.result.error.code).toBe('internal')
+    }
+    // None of the failed mutations touched the goal.
+    const current = goalOfNull(await api.goals.get(request({ sessionId: test.session.id })))
+    expect([current?.objective, current?.revision]).toEqual(['cas', created.revision])
+  })
+
+  it('an unservable session id is an RPC error on every goal method', async () => {
+    const test = await harness()
+    const api = createApiProxy(test.ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
+    const missing = 'no-such-session'
+    const ref = { id: 'goal-x' as GoalView['id'], revision: 1 }
+
+    const attempts = [
+      () => api.goals.get(request({ sessionId: missing })),
+      () => api.goals.create(request({ sessionId: missing, objective: 'x' })),
+      () => api.goals.edit(request({ sessionId: missing, ref, objective: 'x' })),
+      () => api.goals.pause(request({ sessionId: missing, ref })),
+      () => api.goals.resume(request({ sessionId: missing, ref })),
+      () => api.goals.complete(request({ sessionId: missing, ref })),
+      () => api.goals.clear(request({ sessionId: missing, ref })),
+    ]
+    for (const attempt of attempts) {
+      const response = await attempt()
+      expect(response.result.ok).toBe(false)
+    }
   })
 })

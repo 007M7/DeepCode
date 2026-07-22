@@ -7,7 +7,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { ApiProxy, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy'
+import type { ApiProxy, GoalRef, GoalView, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy'
 import { InProcessApiClient, RpcId, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 
 const sid = (id: string): SessionId => id as SessionId
@@ -351,6 +351,80 @@ describe('SSE stream path', () => {
     expect(count).toBe(2)
     // Generator teardown may lag the abort by a microtask; poll briefly.
     await vi.waitFor(() => { expect(implSawAbort).toBe(true) })
+  })
+})
+
+describe('goals unary surface', () => {
+  /** A wire-valid GoalView the scripted impl hands back. */
+  const view: GoalView = {
+    id: 'goal-1' as GoalView['id'],
+    revision: 2,
+    objective: 'ship it',
+    phase: 'active' as const,
+    maxGoalRounds: 4,
+    roundsStarted: 1,
+    createdAt: 10,
+    updatedAt: 20,
+    activation: 'armed' as const,
+  }
+  const ref: GoalRef = { id: 'goal-1' as GoalRef['id'], revision: 1 }
+
+  it('round-trips every goal method with its own payload and value shape', async () => {
+    const seen: { method: string; payload: unknown }[] = []
+    const record = <P, V>(method: string, respond: (r: RpcRequest<P>) => Promise<RpcResponse<V>>) =>
+      (r: RpcRequest<P>): Promise<RpcResponse<V>> => {
+        seen.push({ method, payload: r.payload })
+        return respond(r)
+      }
+    const api = scriptedApi({
+      goals: {
+        get: record('goal.get', r => ok(r, { goal: view })),
+        create: record('goal.create', r => ok(r, { goal: view })),
+        edit: record('goal.edit', r => ok(r, { goal: { ...view, revision: 3 } })),
+        pause: record('goal.pause', r => ok(r, { goal: { ...view, phase: 'paused' as const, activation: 'disarmed' as const } })),
+        resume: record('goal.resume', r => ok(r, { goal: view })),
+        complete: record('goal.complete', r => ok(r, { goal: { ...view, phase: 'complete' as const, activation: 'disarmed' as const } })),
+        clear: record('goal.clear', r => ok(r, { cleared: true as const })),
+      },
+    })
+    const c = client(api)
+
+    const got = await c.goals.get({ sessionId: sid('s1') })
+    expect(got.result).toEqual({ ok: true, value: { goal: view } })
+    const created = await c.goals.create({ sessionId: sid('s1'), objective: 'ship it', maxGoalRounds: 4 })
+    expect(created.result).toEqual({ ok: true, value: { goal: view } })
+    const edited = await c.goals.edit({ sessionId: sid('s1'), ref, objective: 'ship v2' })
+    expect(edited.result).toEqual({ ok: true, value: { goal: { ...view, revision: 3 } } })
+    const paused = await c.goals.pause({ sessionId: sid('s1'), ref })
+    expect(paused.result.ok && paused.result.value.goal.phase).toBe('paused')
+    const resumed = await c.goals.resume({ sessionId: sid('s1'), ref })
+    expect(resumed.result.ok && resumed.result.value.goal.phase).toBe('active')
+    const completed = await c.goals.complete({ sessionId: sid('s1'), ref })
+    expect(completed.result.ok && completed.result.value.goal.phase).toBe('complete')
+    const cleared = await c.goals.clear({ sessionId: sid('s1'), ref })
+    expect(cleared.result).toEqual({ ok: true, value: { cleared: true } })
+
+    // The handler dispatched each call through its own route row: payload parsed per method.
+    expect(seen.map(s => s.method)).toEqual(['goal.get', 'goal.create', 'goal.edit', 'goal.pause', 'goal.resume', 'goal.complete', 'goal.clear'])
+    expect(seen[1]?.payload).toEqual({ sessionId: 's1', objective: 'ship it', maxGoalRounds: 4 })
+    expect(seen[2]?.payload).toEqual({ sessionId: 's1', ref, objective: 'ship v2' })
+  })
+
+  it('passes a null goal and business errors through the goal.get route', async () => {
+    const api = scriptedApi({ goals: { get: r => ok(r, { goal: null }) } })
+    const response = await client(api).goals.get({ sessionId: sid('s-empty') })
+    expect(response.result).toEqual({ ok: true, value: { goal: null } })
+
+    // Default scripted goals impl answers an err result: it must arrive as a result, not a throw.
+    const failed = await client(scriptedApi()).goals.pause({ sessionId: sid('s1'), ref })
+    expect(failed.result.ok).toBe(false)
+    if (!failed.result.ok) expect(failed.result.error.code).toBe('internal')
+  })
+
+  it('rejects an invalid goal payload at the handler as bad-request', async () => {
+    const response = await client(scriptedApi()).goals.create({ sessionId: sid('s1'), objective: '' })
+    expect(response.result.ok).toBe(false)
+    if (!response.result.ok) expect(response.result.error.code).toBe('bad-request')
   })
 })
 
