@@ -49,6 +49,7 @@ const CHECKPOINTS = [
   'disposed-terminal',
   'resume-sessions',
   'status-diagnostics',
+  'status-diagnostics-narrow',
 ] as const
 
 type Checkpoint = typeof CHECKPOINTS[number]
@@ -672,6 +673,8 @@ describe('TUI terminal-state snapshots', () => {
       harness.terminal.send('\r')
     })
     await checkpoint('status-diagnostics', harness.terminal, { includeScrollback: true })
+    await renderAfter(harness, () => { harness.terminal.resize(56, 36) })
+    await checkpoint('status-diagnostics-narrow', harness.terminal, { includeScrollback: true })
     await disposeSnapshot(harness)
     dateNow.mockRestore()
   })

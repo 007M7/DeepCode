@@ -945,7 +945,70 @@ function formatDiagnosticNumber(value: number): string {
 }
 
 function formatDiagnosticTime(value: number): string {
-  return new Date(value).toISOString()
+  return new Date(value).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/u, ' UTC')
+}
+
+function formatDiagnosticCount(value: number, singular: string): string {
+  return `${String(value)} ${singular}${value === 1 ? '' : 's'}`
+}
+
+function diagnosticMeter(percent: number, palette: Palette): string {
+  const width = 16
+  const filled = Math.round(Math.min(100, Math.max(0, percent)) / 100 * width)
+  return `${palette.dim('[')}${palette.accent('█'.repeat(filled))}${palette.dim(`${'░'.repeat(width - filled)}]`)}`
+}
+
+type StatusCardRow = readonly [label: string, value: string]
+
+/** Bordered, grouped field card for one point-in-time status snapshot. */
+class StatusCardComponent implements Component {
+  constructor(
+    private readonly groups: readonly (readonly StatusCardRow[])[],
+    private readonly palette: Palette,
+  ) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const labels = this.groups.flatMap(group => group.map(([label]) => `${label}:`))
+    const naturalLabelWidth = Math.max(...labels.map(label => label.length))
+    const naturalBodyWidth = Math.max(...this.groups.flatMap(group => group.map(([, value]) =>
+      1 + naturalLabelWidth + 2 + visibleWidth(value))))
+    const cardWidth = Math.min(
+      Math.max(8, width),
+      Math.max('Session status'.length + 5, naturalBodyWidth + 4),
+    )
+    const innerWidth = Math.max(1, cardWidth - 4)
+    const labelWidth = Math.min(
+      naturalLabelWidth,
+      Math.max(1, Math.floor(innerWidth / 3)),
+    )
+    const body: string[] = []
+    for (const [groupIndex, group] of this.groups.entries()) {
+      if (groupIndex > 0) body.push('')
+      for (const [label, value] of group) {
+        const plainLabel = truncateToWidth(`${label}:`, labelWidth, '')
+        const prefix = ` ${this.palette.muted(plainLabel.padEnd(labelWidth))}  `
+        const continuation = ' '.repeat(1 + labelWidth + 2)
+        const valueWidth = Math.max(1, innerWidth - visibleWidth(prefix))
+        const wrapped = wrapTextWithAnsi(value, valueWidth)
+        for (const [lineIndex, line] of wrapped.entries()) {
+          body.push(`${lineIndex === 0 ? prefix : continuation}${line}`)
+        }
+      }
+    }
+
+    const title = truncateToWidth('Session status', Math.max(1, cardWidth - 5), '')
+    const topTail = '─'.repeat(Math.max(0, cardWidth - visibleWidth(title) - 5))
+    const top = `${this.palette.dim('╭─ ')}${this.palette.bold(this.palette.accent(title))}${this.palette.dim(` ${topTail}╮`)}`
+    const lines = [top]
+    for (const line of body) {
+      const clipped = truncateToWidth(line, innerWidth, '')
+      lines.push(`${this.palette.dim('│')} ${clipped}${' '.repeat(Math.max(0, innerWidth - visibleWidth(clipped)))} ${this.palette.dim('│')}`)
+    }
+    lines.push(this.palette.dim(`╰${'─'.repeat(Math.max(0, cardWidth - 2))}╯`))
+    return lines
+  }
 }
 
 class FooterComponent implements Component {
@@ -1965,35 +2028,45 @@ export function createTuiChat(
     const events = agent.session.events
     const latestActivity = events.at(-1)?.time ?? agent.session.header.createdAt
     const usedContext = Math.max(0, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens))
-    const context = contextWindow === undefined
-      ? `${formatDiagnosticNumber(usedContext)} used · capacity unknown`
-      : `${formatDiagnosticNumber(usedContext)} / ${formatDiagnosticNumber(contextWindow)} (${String(Math.round(usedContext / contextWindow * 100))}%)`
+    let context = `${formatDiagnosticNumber(usedContext)} used · capacity unknown`
+    if (contextWindow !== undefined) {
+      const contextPercent = Math.round(usedContext / contextWindow * 100)
+      context = `${diagnosticMeter(contextPercent, palette)} ${String(contextPercent)}% used (${formatDiagnosticNumber(usedContext)} / ${formatDiagnosticNumber(contextWindow)})`
+    }
     const rate = cacheHitRate(tokens)
-    const rows = [
-      ['Session', agent.session.id],
-      ['Title', sessionTitle ?? 'untitled'],
-      ['Working dir', cwd],
-      ['Model', target.current === undefined ? 'unset' : targetLabel(target.current)],
-      ['Reasoning view', showReasoning ? 'shown' : 'hidden'],
-      ['Agent', agent.status],
-      ['Activity', [
-        `events ${String(events.length)}`,
-        `turns ${String(events.filter(event => event.type === 'turn/start').length)}`,
-        `steps ${String(events.filter(event => event.type === 'step/start').length)}`,
-        `tool calls ${String(events.filter(event => event.type === 'tool/call').length)}`,
-      ].join(' · ')],
-      ['Tokens', `input ${formatDiagnosticNumber(tokens.input)} · output ${formatDiagnosticNumber(tokens.output)}`],
-      ['Cache tokens', `read ${formatDiagnosticNumber(tokens.cacheRead)} · write ${formatDiagnosticNumber(tokens.cacheWrite)}`],
-      ['KV cache hit', rate === undefined ? 'n/a' : `${String(rate)}%`],
-      ['Context', context],
-      ['Created', formatDiagnosticTime(agent.session.header.createdAt)],
-      ['Last active', formatDiagnosticTime(latestActivity)],
-    ] as const
-    const labelWidth = Math.max(...rows.map(([label]) => label.length))
-    const card = new GutterBox(text => palette.accent(text), 0)
-    card.addChild(new Text(palette.bold(palette.accent('Session diagnostics')), 0, 0))
-    card.addChild(new Text(rows.map(([label, value]) =>
-      `${palette.muted(label.padEnd(labelWidth))}  ${displayText(value)}`).join('\n'), 0, 0))
+    const turns = events.filter(event => event.type === 'turn/start').length
+    const steps = events.filter(event => event.type === 'step/start').length
+    const toolCalls = events.filter(event => event.type === 'tool/call').length
+    const model = target.current === undefined ? 'unset' : displayText(targetLabel(target.current))
+    const groups: readonly (readonly StatusCardRow[])[] = [
+      [
+        ['Session', displayText(agent.session.id)],
+        ['Title', displayText(sessionTitle ?? 'untitled')],
+        ['Directory', displayText(cwd)],
+        ['Model', `${model} ${palette.dim(`(reasoning ${showReasoning ? 'shown' : 'hidden'})`)}`],
+      ],
+      [
+        ['Agent', [
+          agent.status,
+          formatDiagnosticCount(events.length, 'event'),
+          formatDiagnosticCount(turns, 'turn'),
+          formatDiagnosticCount(steps, 'step'),
+          formatDiagnosticCount(toolCalls, 'tool call'),
+        ].join(' · ')],
+      ],
+      [
+        ['Tokens', `${formatDiagnosticNumber(tokens.input)} input + ${formatDiagnosticNumber(tokens.output)} output`],
+        ['KV cache', rate === undefined
+          ? `n/a (${formatDiagnosticNumber(tokens.cacheRead)} read + ${formatDiagnosticNumber(tokens.cacheWrite)} write)`
+          : `${diagnosticMeter(rate, palette)} ${String(rate)}% hit (${formatDiagnosticNumber(tokens.cacheRead)} read + ${formatDiagnosticNumber(tokens.cacheWrite)} write)`],
+        ['Context', context],
+      ],
+      [
+        ['Created', formatDiagnosticTime(agent.session.header.createdAt)],
+        ['Active', formatDiagnosticTime(latestActivity)],
+      ],
+    ]
+    const card = new StatusCardComponent(groups, palette)
     chat.addChild(new Spacer(1))
     chat.addChild(card)
     requestRender()
