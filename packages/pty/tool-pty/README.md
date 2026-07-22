@@ -46,6 +46,8 @@ Prefix-stable while tool visibility and definitions are unchanged.
 
 Spawn returns the id and bounded MOTD. Send/read return bounded terminal text plus readiness/history markers. Background mode returns a generic task id. Results remain in session history until compaction; incremental task reads do not repeat consumed output.
 
+Programmatic callers receive typed session snapshots, bounded send/read DTOs, signal and close outcomes, or `{ kind: "background", taskId }`; Native rendering preserves the text above.
+
 #### Token effect
 
 Data-dependent and bounded by the backend; each returned result remains in history until compaction.
