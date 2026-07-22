@@ -17,6 +17,8 @@ import type { CodeBindingFunction, CodeJsonValue, CodeRunFailure, CodeRunRequest
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
 import type { ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
+import { decodeWorkerJson, encodeWorkerJson } from './worker-json.ts'
+import type { WorkerJsonWire } from './worker-json.ts'
 
 /** Plugin config: every execution cap, changeable from `cordis.yml` (no hardcoded tunables). */
 export interface Config {
@@ -142,7 +144,7 @@ function parseWorkerMessage(raw: unknown): WorkerToHost | undefined {
   switch (m.type) {
     case 'call': {
       if (typeof m.id !== 'number' || typeof m.global !== 'string' || typeof m.name !== 'string') return undefined
-      return { type: 'call', id: m.id, global: m.global, name: m.name, args: m.args }
+      return { type: 'call', id: m.id, global: m.global, name: m.name, args: m.args as WorkerJsonWire }
     }
     case 'log': {
       if (typeof m.text !== 'string') return undefined
@@ -150,7 +152,7 @@ function parseWorkerMessage(raw: unknown): WorkerToHost | undefined {
     }
     case 'output-limit': return { type: 'output-limit' }
     case 'done': {
-      if (m.error === undefined) return { type: 'done', ...m.value !== undefined ? { value: m.value } : {} }
+      if (m.error === undefined) return { type: 'done', ...m.value !== undefined ? { value: m.value as WorkerJsonWire } : {} }
       const error = m.error
       if (typeof error !== 'object' || error === null) return undefined
       const { kind, message } = error as Record<string, unknown>
@@ -409,10 +411,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
           finish(() => output.success([...logs, ...strayLogs]))
           return
         }
-        // The worker-thread boundary has already structured-cloned this
-        // hostile value, so accessors and proxies cannot survive to throw
-        // during the lossless-JSON snapshot.
-        const value = snapshotJsonValue(message.value) as CodeJsonValue | undefined
+        const value = decodeWorkerJson(message.value)
         if (value === undefined) {
           finish(() => output.failure([...logs, ...strayLogs], { kind: 'invalid-output', message: 'program completion must be lossless JSON' }))
         } else {
@@ -442,9 +441,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
           reply({ type: 'reply', id: message.id, ok: false, message: `unknown binding ${JSON.stringify(`${message.global}.${message.name}`)}` })
           return
         }
-        // Structured clone has already removed accessors and proxies, so the
-        // host can repeat the lossless snapshot without a reflective throw.
-        const args = snapshotJsonValue(message.args) as CodeJsonValue | undefined
+        const args = decodeWorkerJson(message.args)
         if (args === undefined) {
           reply({ type: 'reply', id: message.id, ok: false, message: 'binding arguments must be lossless JSON' })
           return
@@ -461,7 +458,7 @@ export class WorkerCodeRuntime extends CodeRuntime {
             if (value === undefined) {
               reply({ type: 'reply', id: message.id, ok: false, message: 'binding resolution must be lossless JSON' })
             } else {
-              reply({ type: 'reply', id: message.id, ok: true, value })
+              reply({ type: 'reply', id: message.id, ok: true, value: encodeWorkerJson(value) })
             }
           } catch (error: unknown) {
             reply({ type: 'reply', id: message.id, ok: false, message: messageOf(error) })

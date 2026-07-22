@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { expect, it } from 'vitest'
+import { decodeWorkerJson } from '../src/worker-json.ts'
 
 /**
  * Prove the unbuilt worker is a self-contained source closure. Copying it out
@@ -28,7 +29,9 @@ it('boots the source worker without workspace package outputs', async () => {
       worker?.once('error', reject)
     })
 
-    expect(message).toEqual({ type: 'done', value: { answer: 42 } })
+    expect(message).toMatchObject({ type: 'done' })
+    const value = typeof message === 'object' && message !== null ? (message as { value?: unknown }).value : undefined
+    expect(decodeWorkerJson(value)).toEqual({ answer: 42 })
   } finally {
     if (worker) await worker.terminate()
     await rm(directory, { recursive: true, force: true })

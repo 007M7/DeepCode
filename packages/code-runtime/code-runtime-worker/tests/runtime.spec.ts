@@ -92,7 +92,7 @@ describe('WorkerCodeRuntime — programs and bindings (real workers)', () => {
       cursor = Array.isArray(cursor) ? cursor[0] : undefined
     }
     expect(cursor).toBe('leaf')
-  }, 60_000)
+  }, 15_000)
 
   it('reports non-erasable syntax as an exception without spawning a worker', async () => {
     const { runtime } = await setup()
@@ -371,7 +371,7 @@ describe('WorkerCodeRuntime — budgets and containment (real workers)', () => {
         const { parentPort } = await import('node:worker_threads');
         const write = (text) => Object.getPrototypeOf(process.stdout).write.call(process.stdout, text);
         write('late-pipe-' + 'x'.repeat(100_000));
-        parentPort.postMessage({ type: 'done', value: 'done' });
+        parentPort.postMessage({ type: 'done', value: ['done'] });
         for (;;) {}
       `,
       bindings: [],
@@ -438,7 +438,7 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
       program: `
         const { parentPort } = await import('node:worker_threads');
         for (let i = 0; i < 50; i++) parentPort.postMessage({ type: 'log', text: 'F'.repeat(100), forged: true });
-        parentPort.postMessage({ type: 'done', value: 'V'.repeat(100000) });
+        parentPort.postMessage({ type: 'done', value: ['V'.repeat(100000)] });
         for (;;) {}
       `,
       bindings: [],
@@ -482,8 +482,9 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     const result = await runtime.run({
       program: `
         const { parentPort } = await import('node:worker_threads');
-        let value = null;
-        for (let depth = 0; depth < 3_000; depth++) value = [value];
+        const value = [];
+        for (let depth = 0; depth < 3_000; depth++) value.push({ kind: 'array', length: 1 });
+        value.push(null);
         setTimeout(() => { parentPort.postMessage({ type: 'done', value }) }, 25);
         // Prevent bootstrap's normal undefined completion from racing the forged terminal.
         await new Promise(() => {});
@@ -500,7 +501,7 @@ describe('WorkerCodeRuntime — hostile programs (real workers)', () => {
     }
     expect(depth).toBe(3_000)
     expect(value).toBeNull()
-  }, 60_000)
+  }, 15_000)
 
   it('turns forged over-limit error text into output-limit at the host', async () => {
     const { runtime } = await setup({ maxOutputBytes: 64 })

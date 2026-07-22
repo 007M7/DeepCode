@@ -1,7 +1,7 @@
 import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
-import { snapshotCodeJsonValue } from '../src/worker-json.ts'
+import { decodeWorkerJson, encodeWorkerJson, snapshotCodeJsonValue } from '../src/worker-json.ts'
 
 describe('snapshotCodeJsonValue', () => {
   it('matches the canonical scalar boundary', () => {
@@ -140,5 +140,92 @@ describe('snapshotCodeJsonValue', () => {
 
     expect(() => snapshotCodeJsonValue(source)).toThrow(failure)
     expect(snapshotCodeJsonValue({ after: true })).toEqual({ after: true })
+  })
+})
+
+describe('flat worker JSON wire', () => {
+  it('round-trips every JSON root while preserving object keys and container order', () => {
+    const withPrototypeKey = Object.create(null) as Record<string, unknown>
+    withPrototypeKey.__proto__ = { safe: true }
+    const values = [null, false, true, 1.25, 'text', [], {}, [1, { nested: [2] }], withPrototypeKey]
+    for (const value of values) {
+      const snapshot = snapshotCodeJsonValue(value)
+      expect(snapshot).not.toBeUndefined()
+      expect(decodeWorkerJson(encodeWorkerJson(snapshot!))).toEqual(snapshot)
+    }
+    const decoded = decodeWorkerJson(encodeWorkerJson(snapshotCodeJsonValue(withPrototypeKey)!)) as Record<string, unknown>
+    expect(Object.hasOwn(decoded, '__proto__')).toBe(true)
+    expect(decoded.__proto__).toEqual({ safe: true })
+  })
+
+  it('round-trips deep values through a bounded-depth token array', () => {
+    let value: unknown = 'leaf'
+    for (let depth = 0; depth < 5_000; depth++) value = [value]
+    const snapshot = snapshotCodeJsonValue(value)!
+    const wire = encodeWorkerJson(snapshot)
+    expect(wire).toHaveLength(5_001)
+
+    let cursor = decodeWorkerJson(wire)
+    for (let depth = 0; depth < 5_000; depth++) {
+      expect(Array.isArray(cursor)).toBe(true)
+      cursor = Array.isArray(cursor) ? cursor[0] : undefined
+    }
+    expect(cursor).toBe('leaf')
+  })
+
+  it('rejects malformed, incomplete, lossy, sparse, decorated, and throwing wire values', () => {
+    const sparse = new Array(1)
+    const compensatedSparse = new Array(1)
+    Object.defineProperty(compensatedSparse, 'extra', { value: true })
+    const decorated: unknown[] = [null]
+    Object.defineProperty(decorated, 'extra', { value: true })
+    const throwing: unknown[] = []
+    Object.defineProperty(throwing, 0, { enumerable: true, get: () => { throw new Error('wire getter') } })
+    const decoratedKeys: unknown[] = ['x']
+    Object.defineProperty(decoratedKeys, 'extra', { value: true })
+    const foreignMarker: Record<string, unknown> = { kind: 'array', length: 0 }
+    Object.setPrototypeOf(foreignMarker, {})
+    const hiddenMarker = Object.defineProperty({ kind: 'array', length: 0 }, 'hidden', { value: true })
+
+    for (const value of [
+      undefined,
+      null,
+      {},
+      [],
+      sparse,
+      compensatedSparse,
+      decorated,
+      throwing,
+      [undefined],
+      [-0],
+      [Number.NaN],
+      [Number.POSITIVE_INFINITY],
+      [1, 2],
+      [[]],
+      [foreignMarker],
+      [hiddenMarker],
+      [{ kind: 'unknown' }],
+      [{ kind: 'array' }],
+      [{ kind: 'array', length: '1' }],
+      [{ kind: 'array', length: -1 }],
+      [{ kind: 'array', length: Number.MAX_SAFE_INTEGER + 1 }],
+      [{ kind: 'array', length: 1 }],
+      [{ kind: 'array', length: 2 }, { kind: 'array', length: 1 }, null],
+      [{ kind: 'array', length: 0, extra: true }],
+      [{ kind: 'object' }],
+      [{ kind: 'object', keys: 'x' }],
+      [{ kind: 'object', keys: decoratedKeys }],
+      [{ kind: 'object', keys: [1] }],
+      [{ kind: 'object', keys: ['x', 'x'] }, 1, 2],
+      [{ kind: 'object', keys: ['x'] }],
+      [{ kind: 'object', keys: [], extra: true }],
+    ]) {
+      expect(decodeWorkerJson(value)).toBeUndefined()
+    }
+  })
+
+  it('rejects invalid values passed through a forged static type', () => {
+    expect(() => encodeWorkerJson([undefined] as never)).toThrow(/sparse JSON array/)
+    expect(() => encodeWorkerJson({ value: undefined } as never)).toThrow(/undefined JSON object property/)
   })
 })

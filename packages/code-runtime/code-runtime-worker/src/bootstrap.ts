@@ -8,7 +8,7 @@
 import { inspect } from 'node:util'
 import type { DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
 import { jsonValueBytesUpTo } from './output-json.ts'
-import { snapshotCodeJsonValue } from './worker-json.ts'
+import { decodeWorkerJson, encodeWorkerJson, snapshotCodeJsonValue } from './worker-json.ts'
 
 /** The port surface the bootstrap needs — satisfied by `parentPort` and by the tests' fake. */
 export interface BootstrapPort {
@@ -152,7 +152,7 @@ export function truncateUtf8Bytes(text: string, maxBytes: number): string {
  *
  * @param value - the program's completion value.
  * @param maxOutputBytes - the byte cap for the outer result.
- * @returns the done-message fragment: `{}` for `undefined`, else `{ value }`.
+ * @returns the done-message fragment: `{}` for `undefined`, else a flat wire `{ value }`.
  */
 export function prepareCompletion(value: unknown, maxOutputBytes: number): Omit<DoneMessage, 'type'> {
   if (value === undefined) return {}
@@ -168,7 +168,7 @@ export function prepareCompletion(value: unknown, maxOutputBytes: number): Omit<
   if (jsonValueBytesUpTo(snapshot, maxOutputBytes) === undefined) {
     return { error: { kind: 'output-limit', message: `outer output exceeded ${maxOutputBytes} bytes` } }
   }
-  return { value: snapshot }
+  return { value: encodeWorkerJson(snapshot) }
 }
 
 /** One awaited binding call's settlement handles, keyed by call id in the pending map. */
@@ -208,8 +208,13 @@ export function wireReplies(port: BootstrapPort, pending: Map<number, PendingCal
     const entry = pending.get(message.id)
     if (!entry) return
     pending.delete(message.id)
-    if (message.ok) entry.resolve(message.value)
-    else entry.reject(new Error(message.message))
+    if (message.ok) {
+      const value = decodeWorkerJson(message.value)
+      if (value === undefined) entry.reject(new Error('binding resolution must be lossless JSON'))
+      else entry.resolve(value)
+    } else {
+      entry.reject(new Error(message.message))
+    }
   })
 }
 
@@ -238,7 +243,7 @@ export function makeNamespaces(
       Object.defineProperty(namespace, name, {
         enumerable: true,
         value: (args: unknown): Promise<unknown> => {
-          let detached: unknown
+          let detached: ReturnType<typeof snapshotCodeJsonValue>
           try {
             detached = snapshotCodeJsonValue(args)
           } catch {
@@ -254,7 +259,7 @@ export function makeNamespaces(
               },
             })
             try {
-              port.postMessage({ type: 'call', id, global, name, args: detached })
+              port.postMessage({ type: 'call', id, global, name, args: encodeWorkerJson(detached) })
             } catch (error: unknown) {
               pending.delete(id)
               const message = `binding arguments must be structured-cloneable: ${error instanceof Error ? error.message : String(error)}`

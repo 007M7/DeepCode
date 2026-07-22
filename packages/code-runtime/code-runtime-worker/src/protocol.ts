@@ -5,6 +5,8 @@
  * @module @deepseek-ai/dsh-code-runtime-worker/src/protocol
  */
 
+import type { WorkerJsonWire } from './worker-json.ts'
+
 /** What the host hands the worker at spawn, via `workerData`. */
 export interface WorkerBootData {
   /** The type-stripped (plain JS) program body. */
@@ -24,8 +26,8 @@ interface CallMessage {
   global: string
   /** The function name within the namespace. */
   name: string
-  /** The single argument, structured-clone-plain. */
-  args: unknown
+  /** The single argument as a flat lossless-JSON wire value. */
+  args: WorkerJsonWire
 }
 
 /** Worker → host: captured text, streamed eagerly so output survives a mid-run termination (timeout, abort, OOM). */
@@ -43,13 +45,13 @@ interface OutputLimitMessage {
  * Worker → host: the program settled. `error` carries a program exception
  * (the only failure the bootstrap itself can report — budgets, aborts, and
  * substrate death are observed host-side). `value` is present only on a
- * clean completion that produced one (already size-capped and
- * clone-safe per the bootstrap's value preparation). Logs are NOT carried
- * here — they streamed eagerly as {@link LogMessage}s.
+ * clean completion that produced one, as a flat wire value already
+ * size-capped and lossless per the bootstrap. Logs are NOT carried here —
+ * they streamed eagerly as {@link LogMessage}s.
  */
 export interface DoneMessage {
   type: 'done'
-  value?: unknown
+  value?: WorkerJsonWire
   error?: { kind: 'exception' | 'invalid-output' | 'output-limit'; message: string }
 }
 
@@ -58,5 +60,5 @@ export type WorkerToHost = CallMessage | LogMessage | OutputLimitMessage | DoneM
 
 /** Host → worker: the answer to one {@link CallMessage}. */
 export type ReplyMessage =
-  | { type: 'reply'; id: number; ok: true; value: unknown }
+  | { type: 'reply'; id: number; ok: true; value: WorkerJsonWire }
   | { type: 'reply'; id: number; ok: false; message: string }
