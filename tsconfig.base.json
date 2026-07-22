@@ -36,6 +36,13 @@
       "@cordisjs/plugin-logger-console": ["./vendor/logger-console/src"],
       "@deepseek-ai/dsh-invariants": ["./packages/support/invariants/src/index.ts"],
       "@deepseek-ai/dsh-session/invariant": ["./packages/core/session/src/invariant.ts"],
+      "@deepseek-ai/dsh-session/types": ["./packages/core/session/src/types.ts"],
+      "@deepseek-ai/dsh-session/surface": ["./packages/core/session/src/surface.ts"],
+      "@deepseek-ai/dsh-llm/types": ["./packages/llm/llm/src/types.ts"],
+      "@deepseek-ai/dsh-llm/brand": ["./packages/llm/llm/src/brand.ts"],
+      "@deepseek-ai/dsh-tools/presentation": ["./packages/core/tools/src/presentation.ts"],
+      "@deepseek-ai/dsh-user-approval/types": ["./packages/ui/user-approval/src/types.ts"],
+      "@deepseek-ai/dsh-user-interaction/types": ["./packages/ui/user-interaction/src/types.ts"],
       "@deepseek-ai/dsh-agent/invariant": ["./packages/core/agent/src/invariant.ts"],
       "@deepseek-ai/dsh-scope/invariant": ["./packages/core/scope/src/invariant.ts"],
       "@deepseek-ai/dsh-agent-loop/invariant": ["./packages/core/agent-loop/src/invariant.ts"],
@@ -70,11 +77,36 @@
         "./packages/mcp/*/src/invariant.ts",
         "./packages/support/*/src/invariant.ts"
       ],
+      // host/client package names prefix the group dir (dsh-client-<dir>), so
+      // the generic dsh-*/invariant list above cannot map them; strip the
+      // group prefix with a dedicated wildcard per group instead.
+      "@deepseek-ai/dsh-host-*/invariant": ["./packages/host/*/src/invariant.ts"],
+      "@deepseek-ai/dsh-client-*/invariant": ["./packages/client/*/src/invariant.ts"],
+      "@deepseek-ai/dsh-client-*/client": ["./packages/client/*/src/client"],
       // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
       // dir names are unique across groups, so first-on-disk-wins resolution is
       // unambiguous; adding a package under an existing group needs no edit
       // here. The build graph's project references (tsconfig.build.json) stay
       // explicit — TS project references have no wildcard form.
+      "@deepseek-ai/dsh-host-apiproxy": ["./packages/host/apiproxy/src"],
+      "@deepseek-ai/dsh-host-apiproxy/client": ["./packages/host/apiproxy/src/fetch/client.ts"],
+      "@deepseek-ai/dsh-host-apiproxy/*": ["./packages/host/apiproxy/src/*"],
+      "@deepseek-ai/dsh-host-runtime": ["./packages/host/runtime/src"],
+      "@deepseek-ai/dsh-host-webserver": ["./packages/host/webserver/src"],
+      "@deepseek-ai/dsh-client-ui-slots": ["./packages/client/ui-slots/src"],
+      "@deepseek-ai/dsh-client-ui-primitives": ["./packages/client/ui-primitives/src"],
+      "@deepseek-ai/dsh-client-web-react": ["./packages/client/web-react/src"],
+      "@deepseek-ai/dsh-client-web-react/store": ["./packages/client/web-react/src/store"],
+      "@deepseek-ai/dsh-client-connection": ["./packages/client/connection/src"],
+      "@deepseek-ai/dsh-client-runtime": ["./packages/client/runtime/src"],
+      "@deepseek-ai/dsh-client-runtime/loader": ["./packages/client/runtime/src/client/loader"],
+      "@deepseek-ai/dsh-client-ui-layout": ["./packages/client/ui-layout/src"],
+      "@deepseek-ai/dsh-client-ui-sidebar": ["./packages/client/ui-sidebar/src"],
+      "@deepseek-ai/dsh-client-ui-conversation": ["./packages/client/ui-conversation/src"],
+      "@deepseek-ai/dsh-client-ui-trajectory": ["./packages/client/ui-trajectory/src"],
+      "@deepseek-ai/dsh-client-ui-theme": ["./packages/client/ui-theme/src"],
+      "@deepseek-ai/dsh-client-i18n": ["./packages/client/i18n/src"],
+      "@deepseek-ai/dsh-client-web": ["./packages/client/web/src"],
       "@deepseek-ai/dsh-*": [
         "./packages/core/*/src",
         "./packages/prompt/*/src",
@@ -106,7 +138,9 @@
         "./packages/examples/*/src",
         "./packages/util/*/src",
         "./packages/mcp/*/src",
-        "./packages/support/*/src"
+        "./packages/support/*/src",
+        "./packages/host/*/src",
+        "./packages/client/*/src"
       ]
     }
   }
