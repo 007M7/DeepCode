@@ -130,7 +130,7 @@ export interface RunResult {
   stderr: string
   /** The session id the server issued (undefined if no session was created). */
   sessionId?: string
-  /** The temp cwd the session ran in (the bash workspace). */
+  /** The generated cwd the session ran in (the bash workspace). */
   cwd: string
   /**
    * Every persisted session log harvested after the run, ordered primary-first:
@@ -161,11 +161,19 @@ export interface RunOptions {
   childFiles?: string[]
   /**
    * Optional `<scenario>/workspace/` directory whose contents are copied into
-   * the temp cwd BEFORE the run — the standard way to seed files the agent
+   * the generated cwd BEFORE the run — the standard way to seed files the agent
    * operates on (a file to read, edit, or grep). Absent for scenarios that
    * start from an empty workspace.
    */
   workspaceDir?: string
+  /**
+   * Parent directory for the generated session cwd. Defaults to
+   * `os.tmpdir()`. A scenario that must distinguish its workspace from the
+   * sandbox's always-writable temporary roots can place the generated child
+   * under `os.homedir()` instead. The harness removes only that generated
+   * child, never the supplied parent.
+   */
+  workspaceParent?: string
   /**
    * Alternate LIVE config path for the boot (absolute), overriding
    * {@link AgentUnderTest.configPath} for this run. A scenario needing a
@@ -196,15 +204,15 @@ export function snapshotSpillRoot(
 
 /**
  * Run a scenario end-to-end against a freshly-spawned subprocess. Owns the
- * child and its temp dirs; always tears them down. Returns the captured stdout
+ * child and its generated dirs; always tears them down. Returns the captured stdout
  * and (record mode) the harvested session-log path.
  *
  * @param input The scenario's input script (steps + optional permission answers).
  * @param opts The agent to boot, the mode, and the fixture wiring.
- * @returns The captured stdout/stderr, session id, temp cwd, and harvested logs.
+ * @returns The captured stdout/stderr, session id, generated cwd, and harvested logs.
  */
 export async function runScenario(input: InputScript, opts: RunOptions): Promise<RunResult> {
-  const cwd = await mkdtemp(join(tmpdir(), 'acp-snap-cwd-'))
+  const cwd = await mkdtemp(join(opts.workspaceParent ?? tmpdir(), 'acp-snap-cwd-'))
   const sessionsRoot = await mkdtemp(join(tmpdir(), 'acp-snap-sessions-'))
   // Fixed path length: spill-policy budgets the preview against the REAL path
   // before stdout normalization, so tmpdir() length differences churn expected outputs.
@@ -218,7 +226,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   let sessionLogs: HarvestedLog[] = []
   const outcome = await (async (): Promise<RunResult> => {
     // Seed the workspace if the scenario ships one (a file the agent reads/edits).
-    // Copied into the temp cwd so the agent's bash tools see it; the expected outputs
+    // Copied into the generated cwd so the agent's bash tools see it; the expected outputs
     // normalize the cwd, so the seeded paths stay stable across runs.
     if (opts.workspaceDir !== undefined && existsSync(opts.workspaceDir)) {
       await cp(opts.workspaceDir, cwd, { recursive: true })
@@ -298,7 +306,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     // persistence) and exits. Then await exit so the harvested log is complete.
     await active.close()
     // Harvest EVERY persisted log (parent + any subagent children) while the
-    // temp dirs still exist, ordered primary-first.
+    // generated dirs still exist, ordered primary-first.
     sessionLogs = await harvestSessionLogs(sessionsRoot)
     return {
       rawStdout: launched.rawStdout(),
