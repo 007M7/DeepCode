@@ -79,19 +79,6 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
     ],
   }
-  ctx.provide('llm', {
-    listProviders() {
-      return catalog.providers.map(provider => ({ ...provider }))
-    },
-    listModels(provider: string) {
-      return catalog.listModels?.(provider)
-        ?? Promise.resolve(catalog.models.filter(model => model.provider === provider).map(model => ({ ...model })))
-    },
-    resolveModelContext(provider: string, model: string) {
-      return catalog.resolveModelContext?.(provider, model)
-        ?? Promise.resolve({ contextWindow: options.contextWindow ?? 128_000 })
-    },
-  } as never)
   ctx.provide('tokenMeter', {
     measure() {
       return { totalTokens: options.contextTokens ?? 0 }
@@ -106,6 +93,23 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     } as never)
   } else {
     await options.configureContext(ctx)
+  }
+  // A configureContext may mount the real LlmService (e.g. the auto-title
+  // suites); only fill the advisory-catalog stub when none was provided.
+  if (ctx.get('llm') === undefined) {
+    ctx.provide('llm', {
+      listProviders() {
+        return catalog.providers.map(provider => ({ ...provider }))
+      },
+      listModels(provider: string) {
+        return catalog.listModels?.(provider)
+          ?? Promise.resolve(catalog.models.filter(model => model.provider === provider).map(model => ({ ...model })))
+      },
+      resolveModelContext(provider: string, model: string) {
+        return catalog.resolveModelContext?.(provider, model)
+          ?? Promise.resolve({ contextWindow: options.contextWindow ?? 128_000 })
+      },
+    } as never)
   }
   if (ctx.get('systemPrompt') === undefined) await ctx.plugin(SystemPrompt)
   if (options.sessionPersistence !== undefined) {
@@ -156,7 +160,10 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   }, options.config), {
     terminal,
     exit,
-    now: options.now ?? (() => 0),
+    // Default to the real clock (runtime.now falls back to Date.now) so the
+    // elapsed-status suites can drive time via timers or Date.now spies; a
+    // test pins the clock only by passing `now` explicitly.
+    ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.formatCwd === undefined ? {} : { formatCwd: options.formatCwd }),
   })
   return { ctx, session, agent, terminal, exit, controller }

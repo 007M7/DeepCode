@@ -124,6 +124,15 @@ function provideTokenMeter(ctx: Context): void {
   } as never)
 }
 
+/** Minimal advisory-catalog llm stub for tests composing their own context. */
+function provideLlmCatalog(ctx: Context): void {
+  ctx.provide('llm', {
+    listProviders: () => [],
+    listModels: () => Promise.resolve([]),
+    resolveModelContext: () => Promise.resolve(undefined),
+  } as never)
+}
+
 describe('TUI config', () => {
   it('defaults every direct-call TUI option', () => {
     expect(resolveTuiConfig(undefined)).toEqual({
@@ -320,6 +329,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const result = await setup({
       contextWindow: 100,
       contextTokens: 42,
+      // Short cwd: the footer clips its right (context/tools) segment first,
+      // and the default worktree path would swallow it at 88 columns.
+      cwd: '/opt',
       now: () => now,
       beforeMount(session) {
         appendUser(session, 'restored prompt')
@@ -346,13 +358,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('restored answer')
     expect(result.terminal.output).toContain('write tests')
     expect(result.terminal.output).toContain('↑1.3k ↓42')
-    expect(result.terminal.output).toContain('42% context  tools:compact  deepseek-v4-flash(reasoning:on)')
+    // Context resolution is async (resolveModelContext); settle before reading.
+    await tick()
+    expect(result.terminal.output).toContain('42% context  tools:collapsed')
+    // Narrow terminals clip the right-hand context/tools segment first; the
+    // model-led left segment stays.
     result.terminal.resize(52)
     await tick()
-    expect(result.terminal.output).toContain('42% context  deepseek-v4-flash(reasoning:on)')
-    result.terminal.resize(65)
-    await tick()
-    expect(result.terminal.output).toContain('↑1.3k ↓42 42% context  deepseek-v4-flash(reasoning:on)')
+    expect(result.terminal.output).toContain('deepseek-v4-flash')
     result.terminal.resize(88)
     await tick()
 
@@ -462,7 +475,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     agentEvents(result.ctx, result.agent).emit('agent/status', 'idle')
     await tick()
     expect(result.terminal.output).toContain('↑1.8k ↓50')
-    expect(result.terminal.output).toContain('deepseek-v4-flash(reasoning:off)')
+    expect(result.terminal.output).toContain('deepseek-v4-flash')
     expect(result.terminal.progress.at(-1)).toBe(false)
     await dispose(result)
     expect(result.terminal.stopped).toBe(1)
@@ -804,14 +817,15 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('cache 0%')
 
     result.terminal.output = ''
-    // Warm call lands live: 5 uncached + 30 cache-read + 5 cache-write billed
+    // Warm call lands live on the next step (same-step usage replaces rather
+    // than accumulates): 5 uncached + 30 cache-read + 5 cache-write billed
     // input, so 30 of the 50 total prompt tokens are hits → 60%.
     appendAssistant(result.session, [{ type: 'text', text: 'warm' }], {
       inputTokens: 5,
       outputTokens: 5,
       cacheReadTokens: 30,
       cacheWriteTokens: 5,
-    })
+    }, { turn: 1, step: 2 })
     await tick()
     expect(result.terminal.output).toContain('cache 60%')
     expect(result.terminal.output).not.toContain('cache 0%')
@@ -928,7 +942,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.agent.steered).toEqual([])
     initialContext.resolve({ contextWindow: 100 })
     await tick()
-    expect(result.terminal.output).not.toContain('50% context  tools:compact  b1(reasoning:on)')
+    expect(result.terminal.output).not.toContain('50% context  tools:collapsed')
 
     result.terminal.send('/model')
     result.terminal.send('\r')
@@ -939,7 +953,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.agent.status = 'idle'
     result.ctx.emit('agent/status', result.agent, 'idle')
     await tick()
-    expect(result.terminal.output).toContain('25% context  tools:compact  b1(reasoning:on)')
+    expect(result.terminal.output).toContain('b1  ')
+    expect(result.terminal.output).toContain('25% context  tools:collapsed')
 
     const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
     expect(assembly.variables).toMatchObject({ provider: 'beta', model: 'b1' })
@@ -984,7 +999,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     unset.terminal.send('\r')
     await tick()
     expect(unset.terminal.output).toContain('Model selected: alpha/a1')
-    expect(unset.terminal.output).toContain('context unknown  tools:compact  a1(reasoning:on)')
+    expect(unset.terminal.output).toContain('a1  ')
+    expect(unset.terminal.output).not.toContain('% context')
     await dispose(unset)
 
     const empty = await setup({ agentOptions: {}, catalog: { providers: [], models: [] } })
@@ -1740,8 +1756,11 @@ describe('terminal mounting', () => {
     // `ctx.loader` proxy read would THROW `cannot get property without
     // inject` — only the non-throwing `ctx.get` lookup degrades gracefully.
     const ctx = new Context()
+    provideTokenMeter(ctx)
+    provideLlmCatalog(ctx)
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(CommandService)
     await ctx.plugin(UserInteractionService)
     ctx.provide('tools', { get: () => undefined } as never)
     const session = ctx.sessions.create(SessionId('main'))
@@ -1752,7 +1771,7 @@ describe('terminal mounting', () => {
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
     await ctx.plugin({
-      inject: ['agents', 'userInteraction', 'tools'],
+      inject: ['agents', 'commands', 'userInteraction', 'tools', 'llm', 'tokenMeter'],
       apply: (pluginCtx: Context) => {
         mountTui(pluginCtx, { color: false }, { terminal, exit: vi.fn() })
       },

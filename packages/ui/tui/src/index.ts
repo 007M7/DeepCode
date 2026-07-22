@@ -508,7 +508,7 @@ class HeaderComponent implements Component {
 
   constructor(
     private readonly agent: Agent,
-    private readonly welcome: string | undefined,
+    private readonly subtitle: () => string | undefined,
     private readonly palette: Palette,
     private readonly gradient: boolean,
     private readonly currentModel: () => string | undefined,
@@ -529,9 +529,10 @@ class HeaderComponent implements Component {
     const title = `${name} ${this.palette.bold('HARNESS')}`
     const model = displayText(this.currentModel() ?? 'model unset')
     const detail = `${model}  •  ${displayText(this.agent.session.id)}`
+    const subtitle = this.subtitle()
     const lines = [
       title,
-      ...this.welcome === undefined ? [] : [this.palette.muted(displayText(this.welcome))],
+      ...subtitle === undefined ? [] : [this.palette.muted(displayText(subtitle))],
       this.palette.dim(detail),
     ]
       .flatMap(line => wrapTextWithAnsi(line, usable))
@@ -1380,7 +1381,7 @@ export function createTuiChat(
   let sessionTitle = foldSessionTitle(agent.session.events)?.title
   const header = new HeaderComponent(
     agent,
-    config.welcome,
+    () => sessionTitle ?? config.welcome,
     palette,
     resolved.color && resolved.truecolor,
     () => target.current?.model,
@@ -1555,12 +1556,10 @@ export function createTuiChat(
       const assembler = new BlockAssembler()
       for await (const chunk of llm.stream(options)) assembler.push(chunk)
       const title = titleLine(contentText(assembler.message().content))
-      if (!disposed && title.length > 0) {
-        sessionTitle = title
-        header.invalidate()
-        updateTerminalTitle()
-        requestRender()
-      }
+      // Unlike a logged `session/title` (which suffixes the product title), the
+      // process-local auto-title owns the whole terminal title. A logged title
+      // arriving later still wins through `updateTerminalTitle`.
+      if (!disposed && title.length > 0) runtime.terminal.setTitle(displayText(title))
     }
     void applyTitle().catch(ignoreTitleFailure)
   }
