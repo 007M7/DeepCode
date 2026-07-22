@@ -120,6 +120,7 @@ declare module 'cordis' {
  * skipped for a sole candidate, whose own refusal remains the fail-closed end.
  */
 export abstract class SandboxProvider extends Service {
+  /* v8 ignore next -- Windows has no sandbox backend to instantiate this service. */
   constructor(ctx: Context) {
     super(ctx, 'sandbox')
   }

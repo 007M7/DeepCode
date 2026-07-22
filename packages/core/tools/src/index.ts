@@ -6,8 +6,8 @@
 
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import { scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
-import type { ScopeKey, Scoped } from '@deepseek-ai/dsh-scope'
+import { AnonymousEntries, NamedEntries, ScopedLayers, scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
+import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
 import type { CallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { assertNever, deepFreeze, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent, HookContext } from '@deepseek-ai/dsh-agent'
@@ -463,9 +463,40 @@ interface ToolView {
  */
 export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
 
-/** One guard registration; the wrapper preserves independent duplicate registrations. */
-interface ToolGuardRegistration {
-  guard: ToolGuard
+/** One scope's complete tool-registry contribution. */
+class ToolLayer implements ScopeLayer {
+  readonly tools: NamedEntries<ToolDefinition>
+  readonly restrictions = new AnonymousEntries<CompiledToolRestriction>()
+  readonly guards = new AnonymousEntries<ToolGuard>()
+
+  constructor(scope: ScopeKey | undefined) {
+    this.tools = new NamedEntries(name => new Error(scope === undefined
+      ? `tool "${name}" is already registered (for a per-agent variant, register through that agent's \`agent.ctx\` instead)`
+      : `tool "${name}" is already registered in this scope`))
+  }
+
+  /** Whether every contribution table in this aggregate layer is empty. */
+  isEmpty(): boolean {
+    return this.tools.isEmpty() && this.restrictions.isEmpty() && this.guards.isEmpty()
+  }
+
+  /** Whether every compiled restriction in this layer admits a global tool name. */
+  admits(name: string): boolean {
+    for (const filter of this.restrictions.values()) {
+      if ((filter.allow !== undefined && !filter.allow.has(name))
+        || (filter.deny !== undefined && filter.deny.has(name))) return false
+    }
+    return true
+  }
+
+  /** First monotonic denial from this layer's live guard registrations. */
+  guardReason(exec: ToolExecution): string | undefined {
+    for (const guard of this.guards.values()) {
+      const reason = guard(exec)
+      if (reason !== undefined) return reason
+    }
+    return undefined
+  }
 }
 
 /** Approval decision plus whether the approval channel reported cancellation. */
@@ -509,13 +540,10 @@ export class ToolRegistry extends Service {
   private deferredContexts = new WeakMap<ToolRunContext, HookContext[]>()
   /** Original caller cancellation, kept outside the wrapper-mutable execution object. */
   private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
-  private global = new Map<string, ToolDefinition>()
-  private scoped = new Map<ScopeKey, Map<string, ToolDefinition>>()
-  /** Compiled restriction filters, per scope (see {@link restrict}). */
-  private restrictions = new Map<ScopeKey, CompiledToolRestriction[]>()
-  /** Monotonic post-policy guards, split into global and per-agent layers. */
-  private globalGuards = new Set<ToolGuardRegistration>()
-  private scopedGuards = new Map<ScopeKey, Set<ToolGuardRegistration>>()
+  private readonly layers = new ScopedLayers(
+    scope => new ToolLayer(scope),
+    () => { this.ctx.emit('tools/change') },
+  )
   private readonly mode: ToolPresentationMode
   /** Reserved presentation transport, kept outside the filterable registration layers. */
   private readonly codeTransport: ToolDefinition | undefined
@@ -593,7 +621,6 @@ export class ToolRegistry extends Service {
    * @returns the exact disposer that unregisters the tool.
    */
   register(definition: ToolDefinition): () => void {
-    const scope = scopeOf(this.ctx)
     const name = definition.name
     const timeoutMs = definition.timeoutMs
     if (timeoutMs !== undefined
@@ -603,26 +630,11 @@ export class ToolRegistry extends Service {
     if (this.codeTransport !== undefined && name === RUN_CODE_NAME) {
       throw new Error(`tool name "${RUN_CODE_NAME}" is reserved for the Code Mode presentation transport and cannot be registered or shadowed`)
     }
-    const dispose = this.ctx.effect(function* (this: ToolRegistry) {
-      const layer = scope === undefined ? this.global : this.layerFor(scope)
-      if (layer.has(name)) {
-        throw new Error(scope === undefined
-          ? `tool "${name}" is already registered (for a per-agent variant, register through that agent's \`agent.ctx\` instead)`
-          : `tool "${name}" is already registered in this scope`)
-      }
-      layer.set(name, definition)
-      // Install rollback before notifying listeners.
-      yield () => {
-        layer.delete(name)
-        // Drop empty scope layers.
-        if (scope !== undefined && layer.size === 0) this.scoped.delete(scope)
-        this.ctx.emit('tools/change')
-      }
-      this.ctx.emit('tools/change')
-    }.bind(this), 'tools.register()')
-    // Return the exact disposer so composite effects preserve teardown order.
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return dispose
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.tools.insert(name, definition),
+      { label: 'tools.register()' },
+    )
   }
 
   /**
@@ -655,22 +667,11 @@ export class ToolRegistry extends Service {
     if (unknown.length > 0) {
       throw new Error(`tools.restrict() names unknown global tool${unknown.length > 1 ? 's' : ''} ${unknown.map(n => `"${n}"`).join(', ')}; known global tools: ${[...known].sort().join(', ') || '(none)'}`)
     }
-    const dispose = this.ctx.effect(function* (this: ToolRegistry) {
-      const list = this.restrictions.get(scope) ?? []
-      this.restrictions.set(scope, list)
-      list.push(compiled)
-      yield () => {
-        const index = list.indexOf(compiled)
-        /* v8 ignore next 3 -- defensive: the compiled restriction was pushed, so indexOf is guaranteed >= 0 */
-        if (index >= 0) list.splice(index, 1)
-        if (list.length === 0) this.restrictions.delete(scope)
-        this.ctx.emit('tools/change')
-      }
-      this.ctx.emit('tools/change')
-    }.bind(this), 'tools.restrict()')
-    // Return the exact disposer so composite effects preserve teardown order.
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return dispose
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.restrictions.append(compiled),
+      { label: 'tools.restrict()' },
+    )
   }
 
   /**
@@ -684,63 +685,18 @@ export class ToolRegistry extends Service {
    * @returns the exact disposer that unregisters the guard.
    */
   guard(guard: ToolGuard): () => void {
-    const scope = scopeOf(this.ctx)
-    const registration = { guard }
-    const dispose = this.ctx.effect(function* (this: ToolRegistry) {
-      const layer = scope === undefined ? this.globalGuards : this.guardLayerFor(scope)
-      layer.add(registration)
-      yield () => {
-        layer.delete(registration)
-        if (scope !== undefined && layer.size === 0) this.scopedGuards.delete(scope)
-      }
-    }.bind(this), 'tools.guard()')
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return dispose
-  }
-
-  /** The (created-on-demand) scoped layer for `scope`. */
-  private layerFor(scope: ScopeKey): Map<string, ToolDefinition> {
-    let layer = this.scoped.get(scope)
-    if (!layer) {
-      layer = new Map()
-      this.scoped.set(scope, layer)
-    }
-    return layer
-  }
-
-  /** Get or create the guard layer for one agent scope. */
-  private guardLayerFor(scope: ScopeKey): Set<ToolGuardRegistration> {
-    let layer = this.scopedGuards.get(scope)
-    if (layer === undefined) {
-      layer = new Set()
-      this.scopedGuards.set(scope, layer)
-    }
-    return layer
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.guards.append(guard),
+      { label: 'tools.guard()', notify: false },
+    )
   }
 
   /** First monotonic denial from the global then matching scoped guard layers. */
   private guardReason(exec: ToolExecution): string | undefined {
-    for (const { guard } of this.globalGuards) {
-      const reason = guard(exec)
-      if (reason !== undefined) return reason
-    }
-    if (exec.agent !== undefined) {
-      for (const { guard } of this.scopedGuards.get(exec.agent) ?? []) {
-        const reason = guard(exec)
-        if (reason !== undefined) return reason
-      }
-    }
-    return undefined
-  }
-
-  /** Whether every restriction registered for `scope` admits the global tool `name` (intersection semantics). */
-  private admits(scope: ScopeKey | undefined, name: string): boolean {
-    if (scope === undefined) return true
-    const filters = this.restrictions.get(scope)
-    if (!filters) return true
-    return filters.every(filter =>
-      (filter.allow === undefined || filter.allow.has(name))
-      && (filter.deny === undefined || !filter.deny.has(name)))
+    const globalReason = this.layers.global.guardReason(exec)
+    if (globalReason !== undefined) return globalReason
+    return exec.agent === undefined ? undefined : this.layers.peek(exec.agent)?.guardReason(exec)
   }
 
   /**
@@ -752,18 +708,18 @@ export class ToolRegistry extends Service {
    * @returns the complete derived view for that scope.
    */
   private view(scope?: ScopeKey): ToolView {
-    const layer = scope === undefined ? undefined : this.scoped.get(scope)
+    const layer = this.layers.peek(scope)
     const visible = new Map<string, ToolDefinition>()
     const knownNames = new Set<string>()
     const restrictableNames = new Set<string>()
-    for (const [name, definition] of this.global) {
+    for (const [name, definition] of this.layers.global.tools.entries()) {
       knownNames.add(name)
       restrictableNames.add(name)
-      if (this.admits(scope, name)) visible.set(name, definition)
+      if (layer?.admits(name) ?? true) visible.set(name, definition)
     }
     // Scoped layer second: same-name entries REPLACE (shadow) the global ones,
     // and scope-local registrations are never part of the global filter above.
-    for (const [name, definition] of layer ?? []) {
+    for (const [name, definition] of layer?.tools.entries() ?? []) {
       knownNames.add(name)
       visible.set(name, definition)
     }

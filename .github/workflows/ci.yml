@@ -642,6 +642,7 @@ jobs:
     env:
       # Keep ESLint itself single-threaded: 16 ESLint workers took 174 seconds on
       # this image. The outer scheduler still overlaps lint with the other gates.
+      DSH_COVERAGE_MAX_WORKERS: '4'
       DSH_ESLINT_CACHE: '1'
       DSH_GATE_CONCURRENCY: '32'
       DSH_PUBLINT_CONCURRENCY: '32'

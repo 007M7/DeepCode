@@ -137,9 +137,15 @@ describe('lsp-local end to end over a fake server', () => {
     await ctx.fiber.dispose()
   })
 
-  it('rejects a non-utf-16 position encoding at initialize', async () => {
-    const ctx = await mount({ LSP_FAKE_ENCODING: 'utf-8', LSP_FAKE_DEF: 'null' })
+  it('rejects a non-utf-16 position encoding at initialize without retrying', async () => {
+    const marker = join(root, 'initialize-rejection-exit.log')
+    const ctx = await mount({
+      LSP_FAKE_ENCODING: 'utf-8',
+      LSP_FAKE_DEF: 'null',
+      LSP_FAKE_EXIT_MARKER: marker,
+    })
     await expect(ctx.lsp.query(query('goToDefinition'))).rejects.toThrow(/unsupported position encoding/)
+    expect(await readFile(marker, 'utf8')).toBe('EXIT\nCLEAN\n')
     await ctx.fiber.dispose()
   })
 

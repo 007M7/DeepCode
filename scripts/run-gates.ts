@@ -357,6 +357,12 @@ function ciWindowsObservationalGates(): Gate[] {
     ...ciStaticGates(),
     lintGate(),
     pnpmScript('duplication', 'duplication'),
+    {
+      ...coverageGate(),
+      env: { DSH_EXAMPLE_MODE: 'lib' },
+      needs: ['build'],
+    },
+    snapshotGate(),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
