@@ -417,7 +417,9 @@ jobs:
 
   node-compat:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
-    runs-on: ubuntu-latest
+    # Distinct larger-runner pools avoid both standard-runner setup outliers and
+    # the delayed second allocation observed when two jobs shared one pool.
+    runs-on: ${{ matrix.runner }}
     name: node ${{ matrix.node }}
     env:
       DSH_GATE_CONCURRENCY: '2'
@@ -427,10 +429,13 @@ jobs:
       matrix:
         include:
           - node: '22.19'
+            runner: dsh-ubuntu-24-04-4core
             skip_typecheck: '1'
           - node: 24
+            runner: dsh-ubuntu-24-04-8core
             skip_typecheck: '1'
           - node: 26
+            runner: dsh-ubuntu-24-04-32core
             skip_typecheck: '1'
     steps:
       - uses: actions/checkout@v6
@@ -460,7 +465,7 @@ jobs:
 
   python-sdk:
     if: github.event_name != 'workflow_dispatch' || inputs.suite == 'optimized-larger-runners'
-    runs-on: ubuntu-latest
+    runs-on: dsh-ubuntu-24-04-64core
     name: python 3.10 / keyless SDK
     steps:
       - uses: actions/checkout@v6
