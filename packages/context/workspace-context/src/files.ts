@@ -11,7 +11,7 @@ import type { FileSystem, FsInfo, FsPathInfo, FsTarget, FsVersion } from '@deeps
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import { dshHomeDisplay } from '@deepseek-ai/dsh-paths'
 import { resolveConfig, resolveDiscoveryConfig, type ResolvedConfig } from './config.ts'
-import { renderWorkspaceContext, type RenderedWorkspaceContext } from './render.ts'
+import { decodeScopeKey, renderWorkspaceContext, type InstructionTier, type RenderedWorkspaceContext } from './render.ts'
 
 /** An instruction candidate identified by absolute and model-facing paths. */
 export interface InstructionFile {
@@ -24,12 +24,15 @@ export interface LoadedInstructionFile extends InstructionFile {
   content: string
   /** Provider freshness token when the file was loaded through `ctx.fs`. */
   version?: FsVersion
+  /** Base file or additive local overlay; absent is treated as base. */
+  tier?: InstructionTier
 }
 
 interface DiscoveredInstructionFile extends InstructionFile {
   target?: FsTarget
   size?: number
   version?: FsVersion
+  tier: InstructionTier
 }
 
 /** Provider metadata for a winning scope candidate before its content is read. */
@@ -44,6 +47,7 @@ interface DiscoverOptions {
   dshHome?: string
   projectRootMarkers?: string[]
   instructionFileCandidates?: string[]
+  localInstructionFileCandidates?: string[]
   signal?: AbortSignal
 }
 
@@ -236,6 +240,7 @@ async function firstExistingInstructionFile(
   dir: string,
   root: string,
   instructionFileCandidates: readonly string[],
+  tier: InstructionTier,
   fileSystem?: FileSystem,
   signal?: AbortSignal,
 ): Promise<DiscoveredInstructionFile | undefined> {
@@ -247,6 +252,7 @@ async function firstExistingInstructionFile(
         return {
           absolutePath: path,
           displayPath: relativeDisplay(root, path),
+          tier,
           ...probe.info,
         }
       case 'absent':
@@ -281,6 +287,7 @@ async function discoverInstructionFiles(
       addFile({
         absolutePath: userGlobal,
         displayPath: userGlobalDisplayPath(config.dshHome),
+        tier: 'base',
         ...userGlobalProbe.info,
       })
       break
@@ -295,8 +302,12 @@ async function discoverInstructionFiles(
   const cwd = resolve(options.cwd)
   const projectRoot = await findProjectRoot(cwd, config.projectRootMarkers, fileSystem, options.signal)
   for (const dir of ancestorChain(projectRoot, cwd)) {
-    const file = await firstExistingInstructionFile(dir, projectRoot, config.instructionFileCandidates, fileSystem, options.signal)
-    if (file !== undefined) addFile(file)
+    const base = await firstExistingInstructionFile(dir, projectRoot, config.instructionFileCandidates, 'base', fileSystem, options.signal)
+    if (base !== undefined) addFile(base)
+    if (config.localInstructionFileCandidates.length > 0) {
+      const local = await firstExistingInstructionFile(dir, projectRoot, config.localInstructionFileCandidates, 'local', fileSystem, options.signal)
+      if (local !== undefined) addFile(local)
+    }
   }
   return files
 }
@@ -316,7 +327,7 @@ async function* nodeTextChunks(path: string, signal?: AbortSignal): AsyncIterabl
 }
 
 async function readBounded(
-  file: DiscoveredInstructionFile,
+  file: { absolutePath: string; target?: FsTarget; size?: number },
   maxSourceBytes: number,
   fileSystem?: FileSystem,
   signal?: AbortSignal,
@@ -382,6 +393,7 @@ export async function loadBaselineInstructionSet(
         absolutePath: file.absolutePath,
         displayPath: file.displayPath,
         content,
+        tier: file.tier,
         ...file.version === undefined ? {} : { version: file.version },
       })
     }
@@ -394,7 +406,7 @@ export async function loadBaselineInstructionSet(
 
 /**
  * Probe the current first-winning instruction candidate for one logical scope.
- * @param scope - `user-global`, `.`, or a project-relative directory.
+ * @param scope - `user-global`, or a {@link scopeKey} for a project directory's base or local tier.
  * @param projectRoot - project root used to resolve and display project scopes.
  * @param resolved - normalized plugin configuration.
  * @param fileSystem - provider used for no-follow probing.
@@ -408,10 +420,13 @@ export async function probeScopeInstruction(
   fileSystem: FileSystem,
   signal?: AbortSignal,
 ): Promise<ScopeInstructionProbe> {
-  const dir = scope === 'user-global'
+  const { directory, tier } = decodeScopeKey(scope)
+  const dir = directory === 'user-global'
     ? resolved.dshHome
-    : scope === '.' ? projectRoot : join(projectRoot, scope)
-  const candidates = scope === 'user-global' ? ['AGENTS.md'] : resolved.instructionFileCandidates
+    : directory === '.' ? projectRoot : join(projectRoot, directory)
+  const candidates = directory === 'user-global'
+    ? ['AGENTS.md']
+    : tier === 'local' ? resolved.localInstructionFileCandidates : resolved.instructionFileCandidates
   for (const candidate of candidates) {
     const absolutePath = join(dir, candidate)
     let pathInfo: FsPathInfo | undefined
@@ -434,7 +449,7 @@ export async function probeScopeInstruction(
     if (info?.type !== 'file') return { kind: 'unavailable' }
     const file: ProbedInstructionFile = {
       absolutePath,
-      displayPath: scope === 'user-global' ? userGlobalDisplayPath(resolved.dshHome) : relativeDisplay(projectRoot, absolutePath),
+      displayPath: directory === 'user-global' ? userGlobalDisplayPath(resolved.dshHome) : relativeDisplay(projectRoot, absolutePath),
       target,
       version: info.version,
       ...info.size === undefined ? {} : { size: info.size },

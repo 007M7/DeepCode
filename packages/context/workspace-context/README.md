@@ -4,7 +4,7 @@ Per-session workspace instruction loading for `AGENTS.md`-compatible files. The 
 
 ## Lifecycle
 
-The baseline is composed once per agent-loop instance on `agent/session-prefix`. It reads `$DSH_HOME/AGENTS.md` followed by one configured instruction candidate in each directory from the project root to `agent.session.header.cwd`. The prefix is placed before all derived history, recorded in `EpochHeader.messagePrefix`, and reused verbatim for that loop instance. Because the plugin prepends its contribution before delegating, a later-registered skills catalog appears after workspace instructions.
+The baseline is composed once per agent-loop instance on `agent/session-prefix`. It reads `$DSH_HOME/AGENTS.md` followed by, in each directory from the project root to `agent.session.header.cwd`, the first existing base candidate and then the first existing local-overlay candidate. The prefix is placed before all derived history, recorded in `EpochHeader.messagePrefix`, and reused verbatim for that loop instance. Because the plugin prepends its contribution before delegating, a later-registered skills catalog appears after workspace instructions.
 
 The plugin also listens on `tools/post-execute` for successful first-party `read`, `write`, and `edit` calls. Each touch checks newly reached descendant scopes and every previously loaded scope. A new file is attached through the result's `additionalContexts`; a changed file or candidate switch appends a replacement; a missing final candidate appends a removal notice. Native calls and Code Mode sub-dispatches share this path: `run_code` defers each nested context until its outer result, so the loop still appends updates after tool-call/result adjacency is complete. This follows structured filesystem activity rather than shell `cd`, because each local bash call starts a fresh shell and parsing arbitrary shell syntax would be unreliable.
 
@@ -61,12 +61,13 @@ export interface Config {
   maxBytes: number
   maxSourceBytes?: number
   instructionFileCandidates?: string[]
+  localInstructionFileCandidates?: string[]
 }
 ```
 
-`maxBytes` is required so each deployment makes its prompt-budget choice explicitly. `maxSourceBytes` limits each source instruction file before rendering and defaults to 1 MiB. `projectRootMarkers` defaults to `['.git']`, and `instructionFileCandidates` defaults to `['AGENTS.md', 'CLAUDE.md']`. In each project directory, the first existing candidate wins; with defaults, `AGENTS.md` is native and `CLAUDE.md` is the compatibility fallback. Candidate entries must be same-directory file names, so empty entries, `.`/`..`, and entries containing `/` or `\` are ignored.
+`maxBytes` is required so each deployment makes its prompt-budget choice explicitly. `maxSourceBytes` limits each source instruction file before rendering and defaults to 1 MiB. `projectRootMarkers` defaults to `['.git']`, and `instructionFileCandidates` defaults to `['AGENTS.md', 'CLAUDE.md']`. In each project directory, the first existing candidate wins; with defaults, `AGENTS.md` is native and `CLAUDE.md` is the compatibility fallback. `localInstructionFileCandidates` defaults to `['AGENTS.local.md', 'CLAUDE.local.md']` and loads the first existing local overlay *in addition to* the base file of the same directory (rendered after it); an empty list disables the overlay. Candidate entries in both lists must be same-directory file names, so empty entries, `.`/`..`, and entries containing `/` or `\` are ignored.
 
-The user-global file is always `$DSH_HOME/AGENTS.md`; the candidate list only controls project scopes. `$DSH_HOME` defaults to `~/.dsh`, and configured `~`, `~/...`, and Windows-style `~\...` prefixes are expanded against the operating-system home directory. A non-positive or non-finite render budget disables both baseline and dynamic loading; configured `maxSourceBytes` must be a positive integer.
+The user-global file is always `$DSH_HOME/AGENTS.md` with no local overlay; both candidate lists only control project scopes. `$DSH_HOME` defaults to `~/.dsh`, and configured `~`, `~/...`, and Windows-style `~\...` prefixes are expanded against the operating-system home directory. A non-positive or non-finite render budget disables both baseline and dynamic loading; configured `maxSourceBytes` must be a positive integer.
 
 ## Budgeting And Bounded Reads
 
@@ -160,5 +161,5 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 - **Discovery follows structured fs tools, not shell navigation** — a `bash` command that changes directories does not trigger nested instruction discovery because shell syntax and per-call shell state are not a reliable filesystem seam.
 - **Refresh is touch-driven** — there is no watcher; external edits become visible on the next successful first-party `read`, `write`, or `edit`, or when a resumed loop recomposes its prefix.
-- **Candidate semantics stay intentionally small** — lowercase names, `.claude/rules/`, and `@path` imports are not interpreted; same-directory names such as `CLAUDE.local.md` require explicit `instructionFileCandidates` configuration.
+- **Candidate semantics stay intentionally small** — lowercase names, `.claude/rules/`, and `@path` imports are not interpreted; project scopes load `AGENTS.local.md`/`CLAUDE.local.md` overlays by default, but the user-global `$DSH_HOME` scope has no local overlay and other custom names require explicit candidate configuration.
 - **Instruction content is bounded, not summarized** — over-budget broad files are omitted and the most-specific file may be truncated; the plugin never asks a model to compress instruction prose.

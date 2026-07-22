@@ -81,6 +81,35 @@ export function scopeForDisplayPath(displayPath: string): string {
   return dirname(displayPath)
 }
 
+/** Instruction tier: the native base file or the additive local overlay. */
+export type InstructionTier = 'base' | 'local'
+
+const LOCAL_SCOPE_SUFFIX = '\u0000local'
+
+/**
+ * Compose the reconciliation key for a directory scope and instruction tier.
+ * The base tier keeps the human-readable directory; the local overlay appends a
+ * NUL-delimited marker that no directory path can contain, so a directory's base
+ * and local files never collide in the scope-keyed state maps.
+ * @param directory - `user-global`, `.`, or a project-relative directory.
+ * @param tier - base file or additive local overlay.
+ * @returns the collision-free logical scope key.
+ */
+export function scopeKey(directory: string, tier: InstructionTier): string {
+  return tier === 'local' ? `${directory}${LOCAL_SCOPE_SUFFIX}` : directory
+}
+
+/**
+ * Recover the directory and tier that {@link scopeKey} encoded.
+ * @param scope - a base or local scope key.
+ * @returns the directory scope and its instruction tier.
+ */
+export function decodeScopeKey(scope: string): { directory: string; tier: InstructionTier } {
+  return scope.endsWith(LOCAL_SCOPE_SUFFIX)
+    ? { directory: scope.slice(0, -LOCAL_SCOPE_SUFFIX.length), tier: 'local' }
+    : { directory: scope, tier: 'base' }
+}
+
 function additionalSectionText(file: LoadedInstructionFile): string {
   const scope = scopeForDisplayPath(file.displayPath)
   return [
@@ -102,7 +131,7 @@ function changedSectionText(item: ChangeRenderItem): string {
   }
   const description = change.previousPath === undefined
     ? 'This file changed after it was loaded. Use the following content instead of the previously loaded instructions from this file.'
-    : `The instructions previously loaded from \`${change.previousPath}\` no longer apply. Use the following content for \`${change.scope}\` instead.`
+    : `The instructions previously loaded from \`${change.previousPath}\` no longer apply. Use the following content for \`${scopeForDisplayPath(change.path)}\` instead.`
   return [
     `Updated instructions from: ${change.path}`,
     '',

@@ -311,6 +311,52 @@ describe('workspace context instruction discovery', () => {
     }
   })
 
+  it('loads a same-directory local overlay in addition to the base file by default', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      const cwd = join(root, 'pkg')
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'root base')
+      await write(join(root, 'AGENTS.local.md'), 'root local')
+      await write(join(cwd, 'CLAUDE.md'), 'pkg base')
+      await write(join(cwd, 'CLAUDE.local.md'), 'pkg local')
+
+      const files = await discoverBaselineInstructionFiles({ cwd, dshHome: home })
+
+      expect(files.map(file => file.displayPath)).toEqual([
+        'AGENTS.md',
+        'AGENTS.local.md',
+        'pkg/CLAUDE.md',
+        'pkg/CLAUDE.local.md',
+      ])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('loads no local overlay when localInstructionFileCandidates is empty', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'base rule')
+      await write(join(root, 'AGENTS.local.md'), 'local rule')
+
+      const files = await discoverBaselineInstructionFiles({
+        cwd: root,
+        dshHome: home,
+        localInstructionFileCandidates: [],
+      })
+
+      expect(files.map(file => file.displayPath)).toEqual(['AGENTS.md'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('treats a .git file as a project root marker and does not search above it', async () => {
     const outer = await tempRepo()
     const home = await tempRepo()
@@ -1459,6 +1505,27 @@ describe('workspace context request injection', () => {
     }
   })
 
+  it('renders a default local overlay alongside the base file in the baseline prefix', async () => {
+    const root = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'base rule')
+      await write(join(root, 'AGENTS.local.md'), 'local rule')
+      const ctx = new Context()
+      await ctx.plugin(LocalFileSystem, { cwd: '/' })
+      await ctx.plugin(workspaceContext, { maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      await composeBaselinePrefix(ctx, agent)
+
+      expect(derivedText(agent)).toContain('Instructions from: AGENTS.md\n\nbase rule')
+      expect(derivedText(agent)).toContain('Instructions from: AGENTS.local.md\n\nlocal rule')
+      await ctx.fiber.dispose()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('cleans up its agent/session-prefix listener when the plugin fiber is disposed', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
@@ -1812,6 +1879,75 @@ describe('dynamic nested workspace context injection', () => {
       expect(text).toContain(`Additional instructions from: ${join('pkg', 'CLAUDE.local.md')}`)
       expect(text).toContain('local package rule')
       expect(text).not.toContain('native package rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('attaches a nested base file and its local overlay together by default', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'baseline root rule')
+      await write(join(root, 'pkg/AGENTS.md'), 'nested base rule')
+      await write(join(root, 'pkg/AGENTS.local.md'), 'nested local rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+
+      const result = await ctx.tools.execute({
+        callId: CallId('read-nested-overlay'),
+        name: 'read',
+        arguments: { file_path: 'pkg/deep/file.txt' },
+        agent: stubAgent(root),
+      })
+
+      const meta = workspaceContextOf(result)?.meta
+      const changes = typeof meta === 'object' && meta !== null && !Array.isArray(meta) && Array.isArray(meta.changes)
+        ? meta.changes
+        : []
+      expect(changes).toEqual(expect.arrayContaining([
+        expect.objectContaining({ action: 'set', path: 'pkg/AGENTS.md' }),
+        expect.objectContaining({ action: 'set', path: 'pkg/AGENTS.local.md' }),
+      ]))
+      const text = blocksText(workspaceContextOf(result)?.content)
+      expect(text).toContain('Additional instructions from: pkg/AGENTS.md')
+      expect(text).toContain('nested base rule')
+      expect(text).toContain('Additional instructions from: pkg/AGENTS.local.md')
+      expect(text).toContain('nested local rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('does not attach a nested local overlay when the overlay is disabled', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'nested base rule')
+      await write(join(root, 'pkg/AGENTS.local.md'), 'nested local rule')
+      await write(join(root, 'pkg/deep/file.txt'), 'hello')
+      const ctx = new Context()
+      await mountFileToolsAndWorkspaceContext(ctx, {
+        dshHome: home,
+        maxBytes: 65536,
+        localInstructionFileCandidates: [],
+      })
+
+      const result = await ctx.tools.execute({
+        callId: CallId('read-nested-overlay-disabled'),
+        name: 'read',
+        arguments: { file_path: 'pkg/deep/file.txt' },
+        agent: stubAgent(root),
+      })
+
+      const text = blocksText(workspaceContextOf(result)?.content)
+      expect(text).toContain('Additional instructions from: pkg/AGENTS.md')
+      expect(text).not.toContain('pkg/AGENTS.local.md')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })

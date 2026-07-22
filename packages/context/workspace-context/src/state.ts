@@ -23,6 +23,7 @@ import {
 import {
   renderInstructionChanges,
   scopeForDisplayPath,
+  scopeKey,
   type ChangeRenderItem,
   type WorkspaceInstructionChange,
 } from './render.ts'
@@ -169,7 +170,7 @@ export function baselineInstructionState(files: LoadedInstructionFile[]): {
     const digest = instructionContentSha1(file.content)
     const change: WorkspaceInstructionChange = {
       action: 'set',
-      scope: scopeForDisplayPath(file.displayPath),
+      scope: scopeKey(scopeForDisplayPath(file.displayPath), file.tier ?? 'base'),
       path: file.displayPath,
       digest,
     }
@@ -391,13 +392,19 @@ export async function reconcileInstructionContext(
   // recomputing it after marker edits reinterprets the existing relative scope keys.
   const projectRoot = await findProjectRoot(cwd, resolved.projectRootMarkers, fileSystem, options.signal)
   const scopes = new Set<string>()
+  const localEnabled = resolved.localInstructionFileCandidates.length > 0
+  const addProjectScopes = (dir: string): void => {
+    const scope = relativeScope(projectRoot, dir)
+    scopes.add(scope)
+    if (localEnabled) scopes.add(scopeKey(scope, 'local'))
+  }
   if (options.includeBaselineScopes) {
     scopes.add('user-global')
-    for (const dir of ancestorChain(projectRoot, cwd)) scopes.add(relativeScope(projectRoot, dir))
+    for (const dir of ancestorChain(projectRoot, cwd)) addProjectScopes(dir)
   }
   for (const scope of effective.keys()) scopes.add(scope)
   if (options.touchedPath !== undefined) {
-    for (const dir of descendantDirsBetween(cwd, options.touchedPath)) scopes.add(relativeScope(projectRoot, dir))
+    for (const dir of descendantDirsBetween(cwd, options.touchedPath)) addProjectScopes(dir)
   }
 
   const versions = versionStatesFor(session, versionCache)
