@@ -95,12 +95,11 @@ function boundSingleText(content: readonly ContentBlock[], maxBytes: number): Co
   }]
 }
 
-function rememberOutputLimit(
-  limits: WeakMap<ToolExecution, number>,
-  exec: ToolExecution,
-  snapshot: TaskSnapshot,
-): void {
-  if (snapshot.outputLimitBytes !== undefined) limits.set(exec, snapshot.outputLimitBytes)
+function visibleOutputLimit(ctx: Context, exec: ToolExecution): number | undefined {
+  if (exec.name !== 'task_output' && exec.name !== 'task_kill') return undefined
+  const taskId = (exec.arguments as { task_id?: unknown } | null | undefined)?.task_id
+  if (typeof taskId !== 'string' || taskId.length === 0) return undefined
+  return ctx.tasks.list(exec.agent).find(snapshot => snapshot.id === taskId)?.outputLimitBytes
 }
 
 /** Validate the non-empty constraint that SchemaSpec cannot express. */
@@ -124,6 +123,11 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   const outputLimits = new WeakMap<ToolExecution, number>()
+  ctx.on('tools/pre-execute', (exec, next) => {
+    const maxBytes = visibleOutputLimit(ctx, exec)
+    if (maxBytes !== undefined) outputLimits.set(exec, maxBytes)
+    return next()
+  }, { prepend: true })
   ctx.on('tools/post-execute', async (exec, result, next): Promise<PostToolDecision> => {
     const decision = await next()
     const maxBytes = outputLimits.get(exec)
@@ -179,7 +183,6 @@ export function apply(ctx: Context, config: Config): void {
     },
     async execute(args, exec) {
       const id = validateTaskId(args.task_id)
-      rememberOutputLimit(outputLimits, exec, ctx.tasks.get(id, exec.agent))
       if (args.wait === true) {
         const timeout = Math.min(args.timeout_ms ?? waitDefault, waitCap)
         await ctx.tasks.wait(id, timeout, exec.agent, exec.signal)
@@ -224,7 +227,6 @@ export function apply(ctx: Context, config: Config): void {
     execute(args, exec) {
       const id = validateTaskId(args.task_id)
       const snapshot = ctx.tasks.get(id, exec.agent)
-      rememberOutputLimit(outputLimits, exec, snapshot)
       const result = ctx.tasks.kill(id, exec.agent, args.reason)
       if (result === 'already-finished') {
         // A snapshot describes terminal state without consuming pending output.

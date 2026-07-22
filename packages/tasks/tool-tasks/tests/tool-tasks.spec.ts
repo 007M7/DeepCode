@@ -162,6 +162,32 @@ describe('task_output', () => {
     expect(text(result)).toContain('[result truncated]')
   })
 
+  it('captures producer limits before pre- and around-execute policy', async () => {
+    const { ctx } = await setup()
+    ctx.tasks.start(producer({ outputLimitBytes: 64 }).spec)
+    ctx.tasks.start(producer({ outputLimitBytes: 64 }).spec)
+    ctx.on('tools/pre-execute', async (exec, next) => {
+      const taskId = (exec.arguments as { task_id?: unknown }).task_id
+      return taskId === 'bash-1' ? { kind: 'deny', reason: 'd'.repeat(1_000) } : next()
+    })
+    ctx.on('tools/execute', async (exec, next) => {
+      const taskId = (exec.arguments as { task_id?: unknown }).task_id
+      return taskId === 'bash-2'
+        ? { content: [{ type: 'text', text: 'a'.repeat(1_000) }], isError: false }
+        : next()
+    })
+
+    const denied = await call(ctx, 'task_output', { task_id: 'bash-1' })
+    expect(denied.isError).toBe(true)
+    expect(Buffer.byteLength(text(denied))).toBeLessThanOrEqual(64)
+    expect(text(denied)).toContain('[result truncated]')
+
+    const shortCircuited = await call(ctx, 'task_output', { task_id: 'bash-2' })
+    expect(shortCircuited.isError).toBe(false)
+    expect(Buffer.byteLength(text(shortCircuited))).toBeLessThanOrEqual(64)
+    expect(text(shortCircuited)).toContain('[result truncated]')
+  })
+
   it('wait: true blocks until settlement and reports the terminal state', async () => {
     const { ctx } = await setup()
     const p = producer({ kind: 'subagent', label: 'research' })
