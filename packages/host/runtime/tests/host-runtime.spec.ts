@@ -65,6 +65,21 @@ function expectOk<T>(response: RpcResponse<T>): T {
   return response.result.value
 }
 
+async function nextMux(iterator: AsyncIterator<RpcRequest<MuxFrame>>): Promise<RpcRequest<MuxFrame>> {
+  const next = await iterator.next()
+  if (next.done === true) throw new Error('mux ended before the expected frame')
+  return next.value
+}
+
+/** Durably append a title event without mounting title-generation policy. */
+function appendTitle(ctx: Context, agent: Agent, title: string) {
+  return ctx.sessions.appendOutOfBand(agent.session, 'session/title', {
+    title,
+    messageSeqs: [1],
+    source: { kind: 'fallback' },
+  }, { kind: 'session-title' })
+}
+
 let host: RunningHost | undefined
 
 beforeEach(() => {
@@ -203,11 +218,14 @@ describe('sessions.history', () => {
     const idle = waitForIdle(first.ctx, agent)
     agent.send([{ type: 'text', text: 'save me' }])
     await idle
+    const titleEvent = await appendTitle(first.ctx, agent, 'Persisted title')
     await first.dispose()
 
     host = await startHost({ boot: { persistenceRoot, provider: 'scripted', model: 'test-model' } })
     host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([]))
     expect(host.ctx.agents.get(sessionId)).toBeUndefined()
+    const abort = new AbortController()
+    const mux = host.api.events.mux(request({}), abort.signal)[Symbol.asyncIterator]()
     const [a, b] = await Promise.all([
       host.api.sessions.history(request({ sessionId })),
       host.api.sessions.history(request({ sessionId })),
@@ -218,6 +236,11 @@ describe('sessions.history', () => {
     }
     expect(host.ctx.agents.get(sessionId)).toBeDefined()
     expect(host.ctx.agents.list()).toHaveLength(1)
+    expect((await nextMux(mux)).payload).toMatchObject({ type: 'session/subscribed', sessionId })
+    expect((await nextMux(mux)).payload).toEqual(expect.objectContaining({
+      type: 'session/title', sessionId, title: 'Persisted title', eventSeq: titleEvent.seq,
+    }))
+    abort.abort()
   })
 
   it('errors session-not-found when resume fails, deduplicating concurrent resumes', async () => {
@@ -323,6 +346,43 @@ describe('events streams', () => {
 
     ac.abort()
     expect((await stream.next()).done).toBe(true)
+  })
+
+  it('mux: projects durable titles after open baselines and immediately after live raw events', async () => {
+    const running = await boot()
+    const { api, ctx } = running
+    const { sessionId } = expectOk(await api.sessions.create(request({})))
+    const agent = ctx.agents.get(sessionId) as Agent
+    const initial = await appendTitle(ctx, agent, 'Initial title')
+
+    const ac = new AbortController()
+    const stream = api.events.mux(request({}), ac.signal)[Symbol.asyncIterator]()
+    expect((await nextMux(stream)).payload).toMatchObject({ type: 'session/subscribed', sessionId })
+    expect((await nextMux(stream)).payload).toEqual(expect.objectContaining({
+      type: 'session/title', sessionId, title: 'Initial title', eventSeq: initial.seq, updatedAt: initial.time,
+    }))
+
+    const revised = await appendTitle(ctx, agent, 'Revised title')
+    let raw: RpcRequest<MuxFrame>
+    do raw = await nextMux(stream)
+    while (!(raw.payload.type === 'session/event' && raw.payload.event.type === 'session/title'))
+    expect(raw.payload).toMatchObject({ type: 'session/event', sessionId, event: { seq: revised.seq } })
+    expect((await nextMux(stream)).payload).toEqual(expect.objectContaining({
+      type: 'session/title', sessionId, title: 'Revised title', eventSeq: revised.seq, updatedAt: revised.time,
+    }))
+    ac.abort()
+  })
+
+  it('mux: emits no title control for untitled subscriptions', async () => {
+    const { api } = await boot()
+    const first = expectOk(await api.sessions.create(request({}))).sessionId
+    const ac = new AbortController()
+    const stream = api.events.mux(request({}), ac.signal)[Symbol.asyncIterator]()
+    expect((await nextMux(stream)).payload).toMatchObject({ type: 'session/subscribed', sessionId: first })
+
+    const second = expectOk(await api.sessions.create(request({}))).sessionId
+    expect((await nextMux(stream)).payload).toMatchObject({ type: 'session/subscribed', sessionId: second })
+    ac.abort()
   })
 
   it('host: session lifecycle, status flips (disposed suppressed), and agent errors', async () => {

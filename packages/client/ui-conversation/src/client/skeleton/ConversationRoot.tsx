@@ -54,7 +54,7 @@ export function ConversationRoot({
                     disabled={last}
                     onClick={() => { actions.open(s.id) }}
                   >
-                    {s.title}
+                    {s.displayTitle}
                   </button>
                 </span>
               )

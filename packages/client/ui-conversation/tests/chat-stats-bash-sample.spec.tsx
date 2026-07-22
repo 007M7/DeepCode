@@ -155,8 +155,8 @@ describe('bash toolview samples', () => {
       getSnapshot: () => ({
         ids: [root, child],
         byId: {
-          [root]: { id: root, title: 'r', running: false, updatedAt: 0 },
-          [child]: { id: child, title: 'c', parentId: root, running: false, updatedAt: 0 },
+          [root]: { id: root, title: 'r', displayTitle: 'r', running: false, updatedAt: 0 },
+          [child]: { id: child, title: 'c', displayTitle: 'c', parentId: root, running: false, updatedAt: 0 },
         },
       }),
     })

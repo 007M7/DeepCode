@@ -33,7 +33,7 @@ function sessionSource(over?: Partial<ConversationSnapshot>) {
 }
 
 const summary = (id: string, title: string): SessionSummary =>
-  ({ id: id as SessionId, title, running: false, updatedAt: 1 })
+  ({ id: id as SessionId, title: `durable ${title}`, displayTitle: title, running: false, updatedAt: 1 })
 
 describe('ConversationRoot branches', () => {
   const chatEntry: ViewEntry = {

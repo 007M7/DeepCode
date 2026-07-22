@@ -11,6 +11,7 @@ const sid = (s: string) => s as SessionId
 interface SummaryInit {
   id: string
   title?: string
+  displayTitle?: string
   cwd?: string
   parentId?: string
   running?: boolean
@@ -20,10 +21,11 @@ interface SummaryInit {
 function summary(init: SummaryInit): SessionSummary {
   const s: SessionSummary = {
     id: sid(init.id),
-    title: init.title ?? init.id,
+    displayTitle: init.displayTitle ?? init.title ?? init.id,
     running: init.running ?? false,
     updatedAt: init.updatedAt ?? 0,
   }
+  if (init.title !== undefined) s.title = init.title
   if (init.cwd !== undefined) s.cwd = init.cwd
   if (init.parentId !== undefined) s.parentId = sid(init.parentId)
   return s
@@ -210,6 +212,15 @@ describe('deriveRows search', () => {
   it('blank query means normal mode', () => {
     const rows = deriveRows(list, view({ query: '   ' }))
     expect(rows.every(r => r.type === 'project')).toBe(true)
+  })
+
+  it('matches the effective display title when no durable title is available', () => {
+    const fallback = listOf(summary({ id: 'raw-id', displayTitle: 'project fallback', cwd: '/elsewhere' }))
+    const rows = deriveRows(fallback, view({ query: 'fallback' }))
+    expect(rows).toEqual([
+      expect.objectContaining({ type: 'project', key: '/elsewhere' }),
+      expect.objectContaining({ type: 'session', id: 'raw-id', title: 'project fallback' }),
+    ])
   })
 })
 

@@ -11,6 +11,7 @@ import {
   createSessionProvider, RootBindingProvider, scopedSlots,
 } from '@deepseek-ai/dsh-client-web-react'
 import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { DocumentTitle } from './DocumentTitle.tsx'
 
 type LayoutExports = typeof import('@deepseek-ai/dsh-client-ui-layout/client')
 
@@ -47,6 +48,11 @@ export function buildRenderApp(deps: AssemblyDeps): () => ReactNode {
   const useDetails = layout.details.useSelector
   const setSidebarWidth = (px: number): void => { layout.setSidebarWidth(px) }
   const setDetailsWidth = (px: number): void => { layout.setDetailsWidth(px) }
+  const SessionDocumentTitle = (): ReactNode => {
+    const id = useCurrent()
+    const title = sessions.list.useSelector(state => id === undefined ? undefined : state.byId[id]?.title)
+    return <DocumentTitle {...title === undefined ? {} : { title }} />
+  }
 
   const renderBody = (id: SessionId): ReactNode => (
     <>
@@ -75,6 +81,7 @@ export function buildRenderApp(deps: AssemblyDeps): () => ReactNode {
 
   return () => (
     <RootBindingProvider value={rootBinding}>
+      <SessionDocumentTitle />
       <AppFrame
         useSidebar={useSidebar}
         useDetails={useDetails}

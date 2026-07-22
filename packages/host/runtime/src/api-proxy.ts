@@ -12,6 +12,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { ApiProxy, HistoryEntry, HostFrame, MuxFrame, SessionSummary, ToolEventView } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -102,6 +103,28 @@ class FrameQueue<F> {
  */
 function frame<F>(payload: F): RpcRequest<F> {
   return { rpcId: RpcId(randomUUID()), payload }
+}
+
+type SessionTitleFrame = Extract<MuxFrame, { type: 'session/title' }>
+
+/** Project the latest durable title without exposing title-generation policy. */
+function titleFrame(session: Session): SessionTitleFrame | undefined {
+  const title = foldSessionTitle(session.events)
+  if (title === undefined) return undefined
+  return {
+    type: 'session/title',
+    sessionId: session.id,
+    title: title.title,
+    eventSeq: title.eventSeq,
+    updatedAt: title.updatedAt,
+  }
+}
+
+/** Queue the subscription baseline followed by its optional title snapshot. */
+function subscribeSession(queue: FrameQueue<RpcRequest<MuxFrame>>, session: Session): void {
+  queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
+  const title = titleFrame(session)
+  if (title !== undefined) queue.push(frame(title))
 }
 
 /** SessionSummary projection for attached (in-memory) sessions. */
@@ -362,7 +385,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       mux(_request, signal) {
         const queue = new FrameQueue<RpcRequest<MuxFrame>>()
         for (const session of ctx.sessions.list()) {
-          queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
+          subscribeSession(queue, session)
         }
         // Per-session open-call table for result-view pairing. Bounded by the
         // per-turn call count: entries clear on turn/end; a table miss (stream
@@ -385,9 +408,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             const view = viewFor(ctx, event, callId =>
               openCalls.get(session.id)?.get(callId) ?? backscanArgs(session.events, callId))
             queue.push(frame({ type: 'session/event', sessionId: session.id, event, ...view === undefined ? {} : { view } }))
+            if (event.type === 'session/title') {
+              // The accepted raw event is already in session.events, so the fold must find it.
+              queue.push(frame(titleFrame(session) as SessionTitleFrame))
+            }
           }),
           ctx.on('session/created', (session: Session) => {
-            queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
+            subscribeSession(queue, session)
           }),
           ctx.on('session/disposed', (session: Session) => {
             openCalls.delete(session.id)

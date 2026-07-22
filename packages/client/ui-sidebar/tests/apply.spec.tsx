@@ -28,7 +28,7 @@ async function bench() {
   await ctx.plugin(SlotsService).await()
   const list = createSnapshotStore<SessionListState>({
     ids: [sid('a')],
-    byId: { [sid('a')]: { id: sid('a'), title: 'alpha', cwd: '/proj', running: false, updatedAt: 1 } },
+    byId: { [sid('a')]: { id: sid('a'), title: 'alpha', displayTitle: 'alpha', cwd: '/proj', running: false, updatedAt: 1 } },
   })
   const sessions = { list, create: vi.fn(async () => sid('minted')) }
   const layout = {
@@ -132,7 +132,7 @@ describe('apply', () => {
     sessions.list.update((draft) => {
       draft.ids.push(sid('kid'))
       draft.byId[sid('kid')] = {
-        id: sid('kid'), title: 'child', cwd: '/proj', parentId: sid('a'), running: false, updatedAt: 2,
+        id: sid('kid'), title: 'child', displayTitle: 'child', cwd: '/proj', parentId: sid('a'), running: false, updatedAt: 2,
       }
     })
     await ctx.plugin({ inject: [...inject], apply }).await()

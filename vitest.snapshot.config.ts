@@ -41,6 +41,7 @@ export default defineConfig({
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
     include: [
+      'apps/web/tests/**/*.snapshot.ts',
       'examples/*/tests/**/*.snapshot.ts',
       'packages/sdk/*/tests/**/*.snapshot.ts',
       'packages/ui/tui/tests/**/*.snapshot.ts',

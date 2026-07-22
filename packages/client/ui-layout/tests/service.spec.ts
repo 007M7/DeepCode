@@ -20,7 +20,7 @@ function makeCtx() {
 
 /** Test-side brand: specs mint ids the wire would normally brand. */
 const sid = (s: string): SessionId => s as SessionId
-const summary = (id: SessionId) => ({ id, title: id as string, running: false, updatedAt: 1 })
+const summary = (id: SessionId) => ({ id, title: id as string, displayTitle: id as string, running: false, updatedAt: 1 })
 
 beforeEach(() => { localStorage.clear() })
 

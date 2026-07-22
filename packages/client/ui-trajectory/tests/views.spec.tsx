@@ -52,7 +52,7 @@ async function bench() {
 function mount(svc: ConversationService, nodes: ConversationSnapshot['nodes'] = NODES) {
   const { useSession } = fakeSession(nodes)
   const activeStore = createSnapshotStore<string | undefined>(undefined)
-  const ancestry: SessionSummary[] = [{ id: SID, title: 'self', running: false, updatedAt: 1 }]
+  const ancestry: SessionSummary[] = [{ id: SID, title: 'self', displayTitle: 'self', running: false, updatedAt: 1 }]
   const viewProps = {
     sessionId: SID, useSession,
     useSelection: () => null,

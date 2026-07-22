@@ -49,13 +49,14 @@ function feed(b: Bench, rows: { id: string; cwd?: string; running?: boolean }[])
 }
 
 describe('selection survives list refreshes (M1a)', () => {
-  it('create → select → title-upgrading refresh keeps scope, binding, store and value', async () => {
+  it('create → select → display-title-upgrading refresh keeps scope, binding, store and value', async () => {
     const b = bench()
     // First-send shape: client-side create inserts the row without cwd (title = bare id).
     b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s1') }))
     const id = await b.sessions.create({})
     await flush()
-    expect(b.sessions.list.getSnapshot().byId[id]?.title).toBe('s1')
+    expect(b.sessions.list.getSnapshot().byId[id]).toMatchObject({ displayTitle: 's1' })
+    expect(b.sessions.list.getSnapshot().byId[id]?.title).toBeUndefined()
 
     const binding = b.sessions.binding(id)
     expect(binding).toBeDefined()
@@ -63,11 +64,12 @@ describe('selection survives list refreshes (M1a)', () => {
     const store = (scoped.get('conversation') as ConversationService).selection
     store.set({ turnSeq: 3, callId: 'c1' })
 
-    // The late list refresh lands (host knows the cwd → formal title).
+    // The late list refresh lands (host knows the cwd → better fallback label).
     feed(b, [{ id: 's1', cwd: '/w/proj-a' }])
     await b.sessions.manager.refreshList()
     await flush()
-    expect(b.sessions.list.getSnapshot().byId[id]?.title).toBe('proj-a')
+    expect(b.sessions.list.getSnapshot().byId[id]).toMatchObject({ displayTitle: 'proj-a' })
+    expect(b.sessions.list.getSnapshot().byId[id]?.title).toBeUndefined()
 
     // Scope, binding and the selection account must all be identity-stable.
     expect(b.sessions.scope(id)).toBe(scoped)
@@ -87,7 +89,7 @@ describe('selection survives list refreshes (M1a)', () => {
     const store = (scoped.get('conversation') as ConversationService).selection
     store.set({ turnSeq: 1, callId: 'c9' })
 
-    // Reconnect generation: title upgrade arrives with the re-pull.
+    // Reconnect generation: display-title fallback upgrade arrives with the re-pull.
     feed(b, [{ id: 's1', cwd: '/w/proj-a', running: true }])
     b.sessions.manager.handleConnected()
     await flush()

@@ -38,7 +38,7 @@ window.DSHClientProxy.loadPlugin({
           ctx,
         }
         ctx.provide('sessions', {
-          list: createSnapshotStore({ ids: ['s1'], byId: { s1: { id: 's1', title: 'S1', running: false, updatedAt: 1 } } }),
+          list: createSnapshotStore({ ids: ['s1'], byId: { s1: { id: 's1', title: 'S1', displayTitle: 'S1', running: false, updatedAt: 1 } } }),
           binding: (id) => (id === 's1' ? binding : undefined),
         })
       },
@@ -119,6 +119,7 @@ afterEach(() => {
   delete win.__TEST_NAV__
   document.body.innerHTML = ''
   document.head.querySelectorAll('script').forEach((s) => { s.remove() })
+  document.title = ''
 })
 
 describe('bootWebShell (real loader + real script execution)', () => {
@@ -130,6 +131,7 @@ describe('bootWebShell (real loader + real script execution)', () => {
       ],
     }
     const el = mountPoint()
+    document.title = 'DeepSeek Harness'
     let unmount: (() => void) | undefined
     const s = seams({
       '/plugins/fake-runtime.js': RUNTIME_STUB,
@@ -145,9 +147,11 @@ describe('bootWebShell (real loader + real script execution)', () => {
     // Selected session: SessionProvider resolved the binding and renderBody
     // mounted the conversation slot content into the center column.
     expect(el.querySelector('[data-testid="conv-body"]')).not.toBeNull()
+    expect(document.title).toBe('S1 — DeepSeek Harness')
 
     act(() => { unmount!() })
     expect(el.childElementCount).toBe(0)
+    expect(document.title).toBe('DeepSeek Harness')
   })
 
   it('no selected session: renderEmpty keeps the grid and forwards width setters', async () => {
@@ -159,6 +163,7 @@ describe('bootWebShell (real loader + real script execution)', () => {
       ],
     }
     const el = mountPoint()
+    document.title = 'DeepSeek Harness'
     const s = seams({
       '/plugins/fake-runtime.js': RUNTIME_STUB,
       '/plugins/fake-layout.js': LAYOUT_STUB.replace("id: 'fake-layout'", `id: '${LAYOUT_ID}'`),
@@ -169,6 +174,7 @@ describe('bootWebShell (real loader + real script execution)', () => {
     expect(frame).not.toBeNull()
     // Empty path: no conversation body (nothing registered into conversation.empty → fallback null).
     expect(el.querySelector('[data-testid="conv-body"]')).toBeNull()
+    expect(document.title).toBe('DeepSeek Harness')
     // Width setter/selector pass-through (assembly closures over ctx.layout).
     expect((frame as HTMLElement).dataset['widths']).toBe('300x360')
     act(() => { (frame as HTMLElement).click() })

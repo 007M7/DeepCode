@@ -76,8 +76,8 @@ describe('ConversationRoot', () => {
     const send = vi.fn()
     const stop = vi.fn()
     const ancestry: SessionSummary[] = [
-      { id: sid('root'), title: 'proj', running: false, updatedAt: 1 },
-      { id: sid('s1'), title: 'child', running: false, updatedAt: 1, parentId: sid('root') },
+      { id: sid('root'), title: 'proj', displayTitle: 'proj', running: false, updatedAt: 1 },
+      { id: sid('s1'), title: 'child', displayTitle: 'child', running: false, updatedAt: 1, parentId: sid('root') },
     ]
     const rendered: string[] = []
     const ui = render(

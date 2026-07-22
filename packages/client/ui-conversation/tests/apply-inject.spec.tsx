@@ -50,7 +50,7 @@ async function bench() {
 
   const listStore = createSnapshotStore<SessionListState>({
     ids: [ROOT],
-    byId: { [ROOT]: { id: ROOT, title: 'R', cwd: '/proj', running: false, updatedAt: 1 } },
+    byId: { [ROOT]: { id: ROOT, title: 'R', displayTitle: 'R', cwd: '/proj', running: false, updatedAt: 1 } },
   })
   const snap = snapshotBase()
   const sessionFake = {
@@ -208,7 +208,7 @@ describe('conversation slot inject surface', () => {
     // Ancestry and draft/active-view hooks execute inside a component tree.
     const HookProbe = () => {
       const injected2 = b.entryOf('conversation').options.inject(b.binding) as {
-        useAncestry: () => readonly { title: string }[]
+        useAncestry: () => readonly { displayTitle: string }[]
         useActiveView: () => string | undefined
         composer: { useDraft: () => string }
       }

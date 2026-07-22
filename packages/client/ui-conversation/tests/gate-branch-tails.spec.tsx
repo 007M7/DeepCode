@@ -49,9 +49,9 @@ describe('apply need() and cwd cache', () => {
     const listStore = createSnapshotStore<SessionListState>({
       ids: [SID, 'x2' as SessionId, 'x3' as SessionId],
       byId: {
-        [SID]: { id: SID, title: 'a', cwd: '/proj', running: false, updatedAt: 1 },
-        ['x2' as SessionId]: { id: 'x2' as SessionId, title: 'b', cwd: '', running: false, updatedAt: 1 },
-        ['x3' as SessionId]: { id: 'x3' as SessionId, title: 'c', running: false, updatedAt: 1 },
+        [SID]: { id: SID, title: 'a', displayTitle: 'a', cwd: '/proj', running: false, updatedAt: 1 },
+        ['x2' as SessionId]: { id: 'x2' as SessionId, title: 'b', displayTitle: 'b', cwd: '', running: false, updatedAt: 1 },
+        ['x3' as SessionId]: { id: 'x3' as SessionId, title: 'c', displayTitle: 'c', running: false, updatedAt: 1 },
       },
     })
     ctx.provide('sessions', { list: listStore, manager: { get: vi.fn() }, ancestry: () => [], scope: () => undefined, create: vi.fn() })
