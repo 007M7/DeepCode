@@ -5,7 +5,7 @@ import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { runScenario, type AgentUnderTest, type InputStep } from '../src/harness.ts'
+import { runScenario, snapshotSpillRoot, type AgentUnderTest, type InputStep } from '../src/harness.ts'
 import { launchAcpTestAgent } from '../src/launcher.ts'
 
 const fsControl = vi.hoisted(() => ({ cleanupFailure: undefined as Error | undefined }))
@@ -59,6 +59,15 @@ async function scenario(behavior: object): Promise<{ dir: string; fixtureFile: s
 }
 
 const boot: InputStep[] = [{ op: 'initialize' }, { op: 'newSession' }]
+
+it('keeps scenario-owned snapshot spill root length stable across platforms', () => {
+  const fixtureFile = '/fixtures/scenario/session.jsonl'
+  const posix = snapshotSpillRoot(fixtureFile, 'linux')
+  const windows = snapshotSpillRoot(fixtureFile, 'win32')
+  expect(posix).toMatch(/^\/tmp\/dsh-acp-snap-[0-9a-f]{9}$/)
+  expect(windows).toMatch(/^\/t\/dsh-acp-snap-[0-9a-f]{9}$/)
+  expect(windows.length + 2).toBe(posix.length)
+})
 
 function environmentEcho(rawStdout: string): Record<string, unknown> {
   const frames = rawStdout.trim().split('\n')
@@ -143,6 +152,9 @@ describe('runScenario', () => {
       update.sessionUpdate === 'agent_message_chunk'
       && update.content.type === 'text'
       && update.content.text === 'late inherited stdout')
+    // Arm rejection handling before close may exhaust the stream; the later assertion still
+    // observes the original promise and turns a missing inherited frame into the test failure.
+    void lateUpdate.catch(() => undefined)
 
     await launched.close()
 
@@ -177,6 +189,97 @@ describe('runScenario', () => {
       kill.mockRestore()
       originalKill('SIGKILL')
       await closed
+    }
+  })
+
+  it('preserves the child error when the requested signal sets an exit marker', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('signal failed as the child exited'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockImplementation((signal) => {
+      expect(signal).toBe('SIGTERM')
+      originalKill('SIGKILL')
+      Object.defineProperty(launched.child, 'signalCode', { configurable: true, enumerable: true, writable: true, value: 'SIGTERM' })
+      return true
+    })
+    try {
+      launched.child.emit('error', childFailure)
+      await expect(launched.close('SIGTERM')).rejects.toBe(childFailure)
+      expect(kill).toHaveBeenCalledOnce()
+    } finally {
+      kill.mockRestore()
+      if (launched.child.exitCode === null && launched.child.signalCode === null) originalKill('SIGKILL')
+    }
+  })
+
+  it('preserves the child error when the requested signal publishes its exit marker later', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('signal failed before the delayed exit marker'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockImplementation((signal) => {
+      expect(signal).toBe('SIGTERM')
+      setTimeout(() => { originalKill('SIGKILL') }, 10)
+      return true
+    })
+    try {
+      launched.child.emit('error', childFailure)
+      await expect(launched.close('SIGTERM')).rejects.toBe(childFailure)
+      expect(kill).toHaveBeenCalledOnce()
+    } finally {
+      kill.mockRestore()
+      if (launched.child.exitCode === null && launched.child.signalCode === null) originalKill('SIGKILL')
+    }
+  })
+
+  it('preserves the child error when fallback refusal races with an exit marker', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('signal failed while the child exited'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockImplementation((signal) => {
+      if (signal === 'SIGTERM') return true
+      originalKill('SIGKILL')
+      Object.defineProperty(launched.child, 'signalCode', { configurable: true, enumerable: true, writable: true, value: 'SIGKILL' })
+      return false
+    })
+    try {
+      launched.child.emit('error', childFailure)
+      await expect(launched.close('SIGTERM')).rejects.toBe(childFailure)
+      expect(kill).toHaveBeenNthCalledWith(1, 'SIGTERM')
+      expect(kill).toHaveBeenNthCalledWith(2, 'SIGKILL')
+    } finally {
+      kill.mockRestore()
+      if (launched.child.exitCode === null && launched.child.signalCode === null) originalKill('SIGKILL')
+    }
+  })
+
+  it('preserves the child error after accepted fallback termination drains', async () => {
+    const { dir } = await scenario({})
+    const launched = launchAcpTestAgent({ agent: AGENT, cwd: dir })
+    await launched.spawned
+
+    const childFailure = Object.assign(new Error('requested signal failed before fallback'), { code: 'EPERM' })
+    const originalKill = launched.child.kill.bind(launched.child)
+    const kill = vi.spyOn(launched.child, 'kill').mockImplementation((signal) => {
+      if (signal === 'SIGTERM') return true
+      return originalKill('SIGKILL')
+    })
+    try {
+      launched.child.emit('error', childFailure)
+      await expect(launched.close('SIGTERM')).rejects.toBe(childFailure)
+      expect(kill).toHaveBeenNthCalledWith(1, 'SIGTERM')
+      expect(kill).toHaveBeenNthCalledWith(2, 'SIGKILL')
+    } finally {
+      kill.mockRestore()
+      if (launched.child.exitCode === null && launched.child.signalCode === null) originalKill('SIGKILL')
     }
   })
 
@@ -294,7 +397,11 @@ describe('runScenario', () => {
     expect(result.sessionLogs[0]?.createdAt).toBe(42)
     expect(result.sessionLogs[0]?.content).toContain('turn/start')
     // The harvested log embeds the run's REAL temp cwd (template-substituted).
-    expect(result.sessionLogs[0]?.content).toContain(result.cwd)
+    // The cwd is JSON-encoded in the log line, so compare the parsed field
+    // rather than substring-matching a raw path (which breaks when the path
+    // separator is escaped inside JSON text on Windows).
+    const sessionLine = result.sessionLogs[0]?.content.split('\n').find(l => l.includes('"type":"session"')) ?? '{}'
+    expect((JSON.parse(sessionLine) as { cwd?: string }).cwd).toBe(result.cwd)
   })
 
   it('forwards override/child fixture paths into the child env and captures stderr', { timeout: 20_000 }, async () => {
@@ -315,7 +422,17 @@ describe('runScenario', () => {
     expect(result.stderr).toContain('fake bin booted')
     expect(result.rawStdout).toContain('replay.override.json')
     // Child paths ride one env var, joined with the platform delimiter.
-    expect(result.rawStdout).toContain(JSON.stringify(childFiles.join(delimiter)).slice(1, -1))
+    // Parse the fake bin's env-probe chunk rather than substring-matching a
+    // JSON-encoded path (the escaping breaks raw-substring compares on Windows).
+    const envChunk = result.rawStdout.split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0)
+      .map(l => JSON.parse(l) as { params?: { update?: { content?: { text?: string } } } })
+      .find(f => f.params?.update?.content?.text?.startsWith('env:'))
+    const env = JSON.parse((envChunk?.params?.update?.content?.text ?? 'env:{}').slice('env:'.length)) as {
+      childFiles: string | null
+    }
+    expect(env.childFiles).toBe(childFiles.join(delimiter))
   })
 
   it('gives concurrent scenarios distinct equal-length spill roots', { timeout: 20_000 }, async () => {
@@ -328,7 +445,10 @@ describe('runScenario', () => {
     expect(roots.every(root => typeof root === 'string')).toBe(true)
     expect(new Set(roots).size).toBe(2)
     expect((roots[0] as string).length).toBe((roots[1] as string).length)
-    expect((roots[0] as string).length).toBe('/tmp/dsh-acp-snapshot-spill'.length)
+    expect(roots).toEqual([
+      snapshotSpillRoot(first.fixtureFile),
+      snapshotSpillRoot(second.fixtureFile),
+    ])
   })
 
   it('seeds the workspace dir into the temp cwd before the run', { timeout: 20_000 }, async () => {

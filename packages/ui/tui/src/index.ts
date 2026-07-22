@@ -6,7 +6,7 @@
  */
 
 import { homedir } from 'node:os'
-import { relative, resolve, sep } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import {
   CombinedAutocompleteProvider,
   Container,
@@ -30,6 +30,7 @@ import {
   type OverlayHandle,
   type SelectListTheme,
   type Terminal,
+  type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
 import type { Context } from 'cordis'
 import z from 'schemastery'
@@ -169,6 +170,12 @@ export interface TuiRuntime {
   terminal: Terminal
   /** Exit hook used by terminal shutdown or a target-agent startup failure. */
   exit(code: number): void
+  /**
+   * Override the footer's logical working-directory label without changing the session directory used by tools.
+   * @param cwd - Operational working directory from the session header.
+   * @returns Unescaped label; the TUI makes terminal controls visible.
+   */
+  formatCwd?: (cwd: string | undefined) => string
   /** Monotonic-enough wall clock for elapsed status rendering. Defaults to `Date.now`. */
   now?(): number
 }
@@ -237,17 +244,21 @@ function displayText(text: string): string {
  * backgrounds alike; grouping uses foreground-only gutter bars and reverse
  * video rather than fixed background fills.
  */
-function createPalette(enabled: boolean): Palette {
+function createPalette(enabled: boolean, scheme: TerminalColorScheme = 'dark'): Palette {
   return {
     accent: ansi('94', '39', enabled),
     accent2: ansi('95', '39', enabled),
     text: text => text,
     muted: ansi('90', '39', enabled),
-    dim: ansi('2', '22', enabled),
+    // SGR 2 (dim) lightens text on a light background — substitute ANSI 90
+    // (bright black / gray) which renders as a readable muted tone on any scheme.
+    dim: scheme === 'light' ? ansi('90', '39', enabled) : ansi('2', '22', enabled),
     success: ansi('32', '39', enabled),
     warning: ansi('33', '39', enabled),
     error: ansi('31', '39', enabled),
-    code: ansi('36', '39', enabled),
+    // ANSI 36 (cyan) is difficult to read on a light background — use
+    // ANSI 34 (blue) which is legible on both light and dark schemes.
+    code: scheme === 'light' ? ansi('34', '39', enabled) : ansi('36', '39', enabled),
     added: ansi('32', '39', enabled),
     removed: ansi('31', '39', enabled),
     bold: ansi('1', '22', enabled),
@@ -692,8 +703,10 @@ function formatCwd(cwd: string | undefined): string {
   const home = homedir()
   const rel = relative(resolve(home), resolve(cwd))
   if (rel === '') return '~'
-  if (rel !== '..' && !rel.startsWith(`..${sep}`)) return displayText(`~${sep}${rel}`)
-  return displayText(cwd)
+  /* v8 ignore next -- Windows cross-drive coverage; POSIX relative() cannot return an absolute path. */
+  if (isAbsolute(rel)) return cwd
+  if (rel !== '..' && !rel.startsWith(`..${sep}`)) return `~${sep}${rel}`
+  return cwd
 }
 
 interface SessionTokenTotals {
@@ -737,6 +750,7 @@ class FooterComponent implements Component {
     private readonly toolsExpanded: () => boolean,
     private readonly showReasoning: () => boolean,
     private readonly tokens: () => { input: number; output: number },
+    private readonly cwdFormatter: TuiRuntime['formatCwd'],
     private readonly currentModel: () => string | undefined,
     private readonly contextPercent: () => number | undefined,
     private readonly runningSeconds: () => number,
@@ -760,6 +774,9 @@ class FooterComponent implements Component {
     const context = contextPercent === undefined ? 'context unknown' : `${contextPercent}% context`
     const fullRight = `${context}  tools:${this.toolsExpanded() ? 'expanded' : 'compact'}  ${modelState}`
     const compactRight = `${context}  ${modelState}`
+    const formattedCwd = displayText(
+      this.cwdFormatter?.(this.agent.session.header.cwd) ?? formatCwd(this.agent.session.header.cwd),
+    )
     if (visibleWidth(counters) + visibleWidth(compactRight) + 1 > width) {
       const compact = truncateToWidth(compactRight, width, '')
       return [`${' '.repeat(Math.max(0, width - visibleWidth(compact)))}${this.palette.dim(compact)}`]
@@ -768,7 +785,7 @@ class FooterComponent implements Component {
     const right = visibleWidth(fullRight) <= rightAvailable ? fullRight : compactRight
     const rightClipped = truncateToWidth(right, rightAvailable, '')
     const cwdAvailable = Math.max(0, width - visibleWidth(counters) - visibleWidth(rightClipped) - 3)
-    const cwd = truncateToWidth(formatCwd(this.agent.session.header.cwd), cwdAvailable, '')
+    const cwd = truncateToWidth(formattedCwd, cwdAvailable, '')
     const left = [cwd, counters].filter(Boolean).join('  ')
     const gap = ' '.repeat(Math.max(0, width - visibleWidth(left) - visibleWidth(rightClipped)))
     return [`${this.palette.dim(left)}${gap}${this.palette.dim(rightClipped)}`]
@@ -1077,6 +1094,7 @@ export function createTuiChat(
     () => toolsExpanded,
     () => showReasoning,
     () => tokens,
+    runtime.formatCwd,
     () => target.current?.model,
     () => contextWindow === undefined
       ? undefined
@@ -1504,6 +1522,30 @@ export function createTuiChat(
     void shutdown(true)
   }
 
+  /** Swap the palette and all derived themes for the given terminal color scheme. */
+  const applyColorScheme = (scheme: TerminalColorScheme): void => {
+    if (scheme === currentScheme) return
+    currentScheme = scheme
+    Object.assign(palette, createPalette(resolved.color, scheme))
+    Object.assign(mdTheme, markdownTheme(palette))
+    rebuildTranscript(false)
+    setStatus(agent.status)
+    requestRender()
+  }
+  let currentScheme: TerminalColorScheme = 'dark'
+
+  // Apply any color scheme the terminal reports. Registering before the query
+  // below means even a synchronous reply reaches `applyColorScheme`; in practice
+  // the startup query's reply is the only report, since dsh-tui leaves
+  // unsolicited color-scheme notifications disabled.
+  const disposeSchemeListener = ui.onTerminalColorSchemeChange(applyColorScheme)
+
+  // Ask the terminal for its color scheme via device-status report; the reply,
+  // if any, arrives through the listener above. Most terminals do not respond,
+  // so we keep the dark-optimised palette. Swallow a query-write failure for the
+  // same reason.
+  ui.queryTerminalColorScheme({ timeoutMs: 2000 }).catch(() => {})
+
   const toggleTools = (): void => {
     toolsExpanded = !toolsExpanded
     for (const card of allToolCards) card.setExpanded(toolsExpanded)
@@ -1714,6 +1756,7 @@ export function createTuiChat(
     disposeStatus()
     disposeError()
     disposeAgent()
+    disposeSchemeListener()
     disposeTargetListeners()
   }
 

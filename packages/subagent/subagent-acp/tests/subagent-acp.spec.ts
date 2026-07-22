@@ -472,13 +472,9 @@ describe('dsh-subagent-acp', () => {
     }
   })
 
-  it('escalates to SIGTERM for a child that ignores EOF but is not SIGTERM-trapping', async () => {
-    // A child that keeps its loop alive past stdin EOF (so the graceful window
-    // times out) but exits cooperatively on SIGTERM must die on the SIGTERM tier
-    // — dispose returns there, never reaching the SIGKILL tier. The child touches
-    // a SIGTERM marker from its signal handler: SIGKILL is uncatchable, so if
-    // dispose had skipped the middle rung (EOF→SIGKILL) the handler would never
-    // run and the marker would be absent — making this a GENUINE middle-tier guard.
+  it('terminates a child that ignores EOF using the host platform semantics', async () => {
+    // POSIX uses the catchable SIGTERM tier and records the marker. Windows has
+    // no distinct graceful signal, so disposal skips directly to forced exit.
     const tmp = mkdtempSync(join(tmpdir(), 'acp-ignore-eof-'))
     const ready = join(tmp, 'ready')
     const sigterm = join(tmp, 'sigterm')
@@ -492,7 +488,7 @@ describe('dsh-subagent-acp', () => {
           MOCK_HANG: '1', MOCK_IGNORE_EOF: '1', MOCK_TEXT: 'x',
           MOCK_READY_FILE: ready, MOCK_SIGTERM_FILE: sigterm,
         },
-        // Tiny EOF grace so the ignored-EOF window elapses fast, then SIGTERM.
+        // Tiny EOF grace so the ignored-EOF window elapses quickly.
         disposeEofGraceMs: 150,
         disposeGraceMs: 2000,
       }
@@ -503,9 +499,7 @@ describe('dsh-subagent-acp', () => {
         run.dispose(),
         new Promise((_r, reject) => { setTimeout(() => { reject(new Error('dispose did not return')) }, 5000) }),
       ])).resolves.toBeUndefined()
-      // The child caught SIGTERM and exited — proof the middle rung fired (not a
-      // jump straight to the uncatchable SIGKILL).
-      expect(existsSync(sigterm)).toBe(true)
+      expect(existsSync(sigterm)).toBe(process.platform !== 'win32')
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
