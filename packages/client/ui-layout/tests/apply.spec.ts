@@ -62,7 +62,9 @@ describe('node half + invariant companion', () => {
   it('invariant companion registers under the package name', async () => {
     const register = vi.fn().mockReturnValue(() => {})
     const ctx = { invariants: { register } } as never
-    const dispose = await invariant.apply(ctx)
+    // The /invariant subpath types live in lib/types (build product); assert
+    // the surface so the call stays typed where lint runs without a build.
+    const dispose = await (invariant as { apply: (ctx: never) => Promise<() => void> }).apply(ctx)
     expect(register).toHaveBeenCalledWith('@deepseek-ai/dsh-client-ui-layout', expect.any(Function))
     // The installer is the declared no-op — calling it must not throw.
     expect(() => { (register.mock.calls[0]![1] as (c: never) => void)(undefined as never) }).not.toThrow()
