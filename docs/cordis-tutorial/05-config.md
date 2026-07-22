@@ -65,10 +65,6 @@ ValidationError: invalid config:
 
 The plugin's fiber goes to FAILED, and this tutorial's launcher exits with status 1 after printing the error. A plugin should also reject schema-valid config that names an unavailable resource or provider as soon as it can resolve that reference.
 
-## What belongs in config
-
-The harness convention, useful for any Cordis app: **anything two deployments may want to set differently is a config field**, not a constant in the plugin. Timeouts, model ids, directory roots, thresholds — the test is whether `cordis.yml` can change the value without a code edit. Compare `timeoutMs` on [`dsh-bash-local`](../../packages/bash/bash-local/src/index.ts) in the [headless example](../../examples/headless-agent/cordis.yml).
-
 ## Computed config values
 
 The loader used in this repo supports a `!!js` tag for config values that must be computed at load time, such as reading an API key from the environment:
