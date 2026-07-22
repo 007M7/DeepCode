@@ -1,0 +1,934 @@
+import { describe, expect, it, vi } from 'vitest'
+import { Context } from 'cordis'
+import { CallId } from '@deepseek-ai/dsh-llm'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRegistry, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { agentEvents, type Agent, type RequestErrorDecision } from '@deepseek-ai/dsh-agent'
+import { createScope } from '@deepseek-ai/dsh-scope'
+import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
+import CommandService from '@deepseek-ai/dsh-commands'
+import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
+import PlanModeService, { EXIT_PLAN_MODE, foldPlanMode, resolveConfig } from '../src/index.ts'
+import type { PlanModeConfig } from '../src/index.ts'
+
+const TEST_PLAN_SECTION = 'Test plan mode instructions.'
+const PLAN_CONFIG = { section: TEST_PLAN_SECTION } satisfies PlanModeConfig
+
+/**
+ * Drives the REAL plugin: mounts `dsh-plan-mode` beside real `SystemPrompt` and
+ * `ToolRegistry` services, with fake Agents carrying real `Session`s and a
+ * real scoped `agent.ctx` minted through `createScope`.
+ * Turn boundaries are simulated by appending the real boundary events and
+ * dispatching the interception seams the loop fires there. Recovery retries
+ * exercise the separate `agent/request-error` wrapper.
+ */
+
+async function agentWithSession(ctx: Context, id = 'agent-1', { active }: { active?: boolean } = {}): Promise<Agent & { session: Session }> {
+  const session = new Session(SessionId(id))
+  const agent = { id: SessionId(id), session, options: {} } as unknown as Agent & { session: Session }
+  let scoped!: Context
+  await ctx.plugin(Object.assign((inner: Context) => { scoped = createScope(inner, agent).ctx }, {
+    inject: ['tools'],
+  }))
+  ;(agent as { ctx?: Context }).ctx = scoped
+  // Seeded plan state lands before the creation announcement, matching resume.
+  if (active !== undefined) session.append('plan/mode', { active })
+  // The loop announces creation after publication.
+  ctx.emit('agent/created', agent)
+  return agent
+}
+
+/** Assemble exactly as the loop does: the agent is both subject and scope. */
+function assembleFor(ctx: Context, agent: Agent) {
+  return ctx.systemPrompt.assemble({ agent, scope: agent })
+}
+
+async function setup(config: PlanModeConfig = PLAN_CONFIG): Promise<Context> {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(PlanModeService, config)
+  return ctx
+}
+
+/**
+ * Append a boundary event and dispatch the interception seam the loop fires
+ * there — `agent/prompt-submit` inside the just-opened turn,
+ * `agent/turn-continuation` after the step closed. Recovery retries use the
+ * separately covered `agent/request-error` wrapper; post-commit
+ * `session/event` observers remain observe-only.
+ */
+async function boundary(ctx: Context, agent: Agent & { session: Session }, type: 'turn/start' | 'step/end'): Promise<void> {
+  const events = agentEvents(ctx, agent)
+  if (type === 'turn/start') {
+    agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    await events.waterfall('agent/prompt-submit', [{ type: 'text', text: 'boundary probe' }], { kind: 'user' }, new AbortController().signal, () => Promise.resolve({ kind: 'allow' }))
+    return
+  }
+  agent.session.append('step/end', { turn: 1, step: 1 })
+  await events.waterfall('agent/turn-continuation', 1, { action: 'stop' }, new AbortController().signal, () => Promise.resolve({ action: 'stop' }))
+}
+
+/** Dispatch the closed-step recovery seam with one terminal decision. */
+function recoveryBoundary(
+  ctx: Context,
+  agent: Agent & { session: Session },
+  decision: RequestErrorDecision,
+): Promise<RequestErrorDecision> {
+  return agentEvents(ctx, agent).waterfall(
+    'agent/request-error',
+    1,
+    1,
+    new Error('request failed'),
+    { message: 'request failed', code: 'SERVER' },
+    [],
+    new AbortController().signal,
+    () => Promise.resolve(decision),
+  )
+}
+
+/** Append a minimal `request/header` snapshot so the log has a "what the model was told" anchor. */
+function header(session: Session): void {
+  session.append('request/header', { header: { config: { provider: 'test', model: 'test-model' } }, reason: 'initial' })
+}
+
+function noticeTexts(session: Session): string[] {
+  return session.events
+    .filter(event => event.type === 'context/message')
+    .map(event => (event.data as { content: { type: string; text?: string }[] }).content.map(block => block.text ?? '').join(''))
+}
+
+function registerNamedTools(ctx: Context, names: string[]): void {
+  for (const name of names) {
+    ctx.tools.register(defineTool({
+      name,
+      description: `test tool ${name}`,
+      parameters: {},
+      execute: () => Promise.resolve([{ type: 'text', text: `ran ${name}` }]),
+    }))
+  }
+}
+
+let callCounter = 0
+function execute(ctx: Context, name: string, agent?: Agent) {
+  return ctx.tools.execute({
+    callId: CallId(`call-${++callCounter}`),
+    name,
+    arguments: {},
+    signal: new AbortController().signal,
+    ...agent ? { agent } : {},
+  })
+}
+
+describe('resolveConfig', () => {
+  it('requires string, non-empty plan instructions', () => {
+    expect(() => resolveConfig({} as PlanModeConfig))
+      .toThrow('needs a string `section`')
+    expect(() => resolveConfig({ section: 5 } as unknown as PlanModeConfig))
+      .toThrow('needs a string `section`')
+    expect(() => resolveConfig({ section: '   ' }))
+      .toThrow('needs a non-empty `section`')
+  })
+
+  it('returns a detached plan config', () => {
+    const config = { section: TEST_PLAN_SECTION }
+    const resolved = resolveConfig(config)
+    expect(resolved).toEqual(config)
+    expect(resolved).not.toBe(config)
+  })
+
+  it('rejects fields outside the plan policy config', () => {
+    expect(() => resolveConfig({ section: TEST_PLAN_SECTION, tools: ['read'] } as unknown as PlanModeConfig))
+      .toThrow('unknown key(s) tools — config is { section }')
+  })
+})
+
+describe('foldPlanMode', () => {
+  it('folds an empty log to inactive and takes the last plan/mode otherwise', () => {
+    const session = new Session(SessionId('fold'))
+    expect(foldPlanMode(session.events)).toBe(false)
+    session.append('plan/mode', { active: true })
+    session.append('plan/mode', { active: false })
+    session.append('plan/mode', { active: true })
+    expect(foldPlanMode(session.events)).toBe(true)
+  })
+
+  it('folds a prefix when `end` is given', () => {
+    const session = new Session(SessionId('fold-prefix'))
+    session.append('plan/mode', { active: true })
+    session.append('plan/mode', { active: false })
+    expect(foldPlanMode(session.events, 1)).toBe(true)
+    expect(foldPlanMode(session.events, 0)).toBe(false)
+  })
+})
+
+describe('ctx.planMode: get/set', () => {
+  it('reads the folded state', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    expect(ctx.planMode.get(agent)).toEqual({ active: false })
+    agent.session.append('plan/mode', { active: true })
+    expect(ctx.planMode.get(agent)).toEqual({ active: true })
+  })
+
+  it('selects inactive as the plan exit target', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    agent.session.append('plan/mode', { active: true })
+    ctx.planMode.set(agent, false)
+    expect(ctx.planMode.get(agent)).toEqual({ active: true, pending: false })
+  })
+
+  it('drops a no-op set (target equals pending, else the current fold)', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    ctx.planMode.set(agent, false)
+    expect(ctx.planMode.get(agent)).toEqual({ active: false })
+    ctx.planMode.set(agent, true)
+    ctx.planMode.set(agent, true)
+    expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
+  })
+})
+
+describe('the boundary flush', () => {
+  it('flushes the pending intent as a plan/mode at turn/start', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    ctx.planMode.set(agent, true)
+    await boundary(ctx, agent, 'turn/start')
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+    expect(ctx.planMode.get(agent)).toEqual({ active: true })
+  })
+
+  it('flushes a set() that arrives while a downstream listener is still awaiting (post-next ordering)', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    // A downstream async listener (the shipped hooks listeners' shape): the
+    // selection lands DURING its await — after this boundary began, before it
+    // returns. The prepended flush runs after next(), so the plan/mode still
+    // precedes the request this boundary gates.
+    ctx.on('agent/turn-continuation', async (_agent, _turn, decision, _signal, next) => {
+      await new Promise(resolve => setTimeout(resolve, 5))
+      ctx.planMode.set(agent, true)
+      await next()
+      return decision
+    })
+    agent.session.append('step/end', { turn: 1, step: 1 })
+    await agentEvents(ctx, agent).waterfall(
+      'agent/turn-continuation', 1, { action: 'stop' }, new AbortController().signal,
+      () => Promise.resolve({ action: 'stop' }),
+    )
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+    expect(ctx.planMode.get(agent)).toEqual({ active: true })
+  })
+
+  it('skips the flush after the plugin fiber is disposed (a captured wrapper must not write into a dead service)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const fiber = await ctx.plugin(PlanModeService, PLAN_CONFIG)
+    const agent = await agentWithSession(ctx)
+    ctx.planMode.set(agent, true)
+    // A downstream listener captured before disposal keeps the waterfall
+    // continuation alive across the unload; the resumed wrapper must not
+    // append through the disposed service.
+    ctx.on('agent/turn-continuation', async (_agent, _turn, decision, _signal, next) => {
+      await fiber.dispose()
+      await next()
+      return decision
+    })
+    agent.session.append('step/end', { turn: 1, step: 1 })
+    await agentEvents(ctx, agent).waterfall(
+      'agent/turn-continuation', 1, { action: 'stop' }, new AbortController().signal,
+      () => Promise.resolve({ action: 'stop' }),
+    )
+    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
+  })
+
+  it('flushes at step/end too (a mid-turn flip lands on the following step)', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    ctx.planMode.set(agent, true)
+    await boundary(ctx, agent, 'step/end')
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('keeps the pending intent parked when recovery does not retry', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    ctx.planMode.set(agent, true)
+    expect(await recoveryBoundary(ctx, agent, { action: 'fail' })).toEqual({ action: 'fail' })
+    expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
+  })
+
+  it('contains an append failure at the retry boundary without changing its decision', async () => {
+    const ctx = await setup()
+    const warn = vi.fn()
+    ctx.logger.warn = warn as never
+    const agent = await agentWithSession(ctx)
+    ctx.planMode.set(agent, true)
+    const original = agent.session.append.bind(agent.session)
+    agent.session.append = (((type: string, ...rest: unknown[]) => {
+      if (type === 'plan/mode') throw new Error('backend gone')
+      return (original as (...args: unknown[]) => unknown)(type, ...rest)
+    }) as unknown) as typeof agent.session.append
+
+    expect(await recoveryBoundary(ctx, agent, { action: 'retry' })).toEqual({ action: 'retry' })
+    expect(warn).toHaveBeenCalledOnce()
+    expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
+  })
+
+  it('nets out a flip sequence that returns to the folded mode (no append, no notice)', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    ctx.planMode.set(agent, true)
+    ctx.planMode.set(agent, false)
+    await boundary(ctx, agent, 'turn/start')
+    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
+    expect(noticeTexts(agent.session)).toEqual([])
+  })
+
+  it('narrates nothing before the first request header (the section is the state statement)', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    ctx.planMode.set(agent, true)
+    await boundary(ctx, agent, 'turn/start')
+    expect(noticeTexts(agent.session)).toEqual([])
+  })
+
+  it('narrates once when the flushed mode differs from what the last header told the model', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    header(agent.session)
+    ctx.planMode.set(agent, true)
+    await boundary(ctx, agent, 'turn/start')
+    expect(noticeTexts(agent.session)).toEqual(['The user switched this session to plan mode.'])
+    await boundary(ctx, agent, 'step/end')
+    expect(noticeTexts(agent.session)).toEqual(['The user switched this session to plan mode.'])
+  })
+
+  it('narrates a switch back to the default mode with the default wording', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    agent.session.append('plan/mode', { active: true })
+    header(agent.session)
+    ctx.planMode.set(agent, false)
+    await boundary(ctx, agent, 'step/end')
+    expect(noticeTexts(agent.session)).toEqual(['The user switched this session back to the default mode.'])
+  })
+
+  it('stays silent when the header already reflects the flushed mode', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    agent.session.append('plan/mode', { active: true })
+    header(agent.session)
+    agent.session.append('plan/mode', { active: false })
+    ctx.planMode.set(agent, true)
+    await boundary(ctx, agent, 'step/end')
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+    expect(noticeTexts(agent.session)).toEqual([])
+  })
+
+
+  it('contains an append failure instead of blocking the prompt or the turn', async () => {
+    const ctx = await setup()
+    const warn = vi.fn()
+    ctx.logger.warn = warn as never
+    const agent = await agentWithSession(ctx)
+    ctx.planMode.set(agent, true)
+    const original = agent.session.append.bind(agent.session)
+    // Only the flush's own plan/mode append fails; the boundary event itself
+    // lands (the loop appended it before the seam fires).
+    agent.session.append = (((type: string, ...rest: unknown[]) => {
+      if (type === 'plan/mode') throw new Error('backend gone')
+      return (original as (...args: unknown[]) => unknown)(type, ...rest)
+    }) as unknown) as typeof agent.session.append
+    await boundary(ctx, agent, 'step/end')
+    expect(warn).toHaveBeenCalledOnce()
+    // The failed flush re-parks the intent (cleared only after a landed
+    // append), so the next healthy boundary converges the log with the
+    // picker's optimistic state instead of dropping the switch forever.
+    expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
+    agent.session.append = original
+    await boundary(ctx, agent, 'step/end')
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+    expect(ctx.planMode.get(agent).pending).toBeUndefined()
+  })
+
+  it('contains an append failure on the prompt-submit seam the same way', async () => {
+    const ctx = await setup()
+    const warn = vi.fn()
+    ctx.logger.warn = warn as never
+    const agent = await agentWithSession(ctx)
+    ctx.planMode.set(agent, true)
+    const original = agent.session.append.bind(agent.session)
+    agent.session.append = (((type: string, ...rest: unknown[]) => {
+      if (type === 'plan/mode') throw new Error('backend gone')
+      return (original as (...args: unknown[]) => unknown)(type, ...rest)
+    }) as unknown) as typeof agent.session.append
+    await boundary(ctx, agent, 'turn/start')
+    expect(warn).toHaveBeenCalledOnce()
+    expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
+  })
+})
+
+describe('the soft layer', () => {
+  it('keeps the tool schemas identical across default and plan mode', async () => {
+    const ctx = await setup()
+    registerNamedTools(ctx, ['read', 'write'])
+    const agent = await agentWithSession(ctx)
+    const defaultAssembly = await assembleFor(ctx, agent)
+    expect(defaultAssembly.tools.map(tool => tool.name)).toEqual([EXIT_PLAN_MODE, 'read', 'write'])
+    expect(defaultAssembly.sections.find(section => section.name === 'plan:policy')?.text).toBe('')
+
+    agent.session.append('plan/mode', { active: true })
+    const planAssembly = await assembleFor(ctx, agent)
+    expect(planAssembly.tools).toEqual(defaultAssembly.tools)
+    expect(planAssembly.sections.find(section => section.name === 'plan:policy')?.text).toBe(TEST_PLAN_SECTION)
+  })
+
+  it('leaves an agent-less assembly untouched', async () => {
+    const ctx = await setup()
+    registerNamedTools(ctx, ['read'])
+    const assembly = await ctx.systemPrompt.assemble()
+    expect(assembly.tools.map(tool => tool.name)).toEqual([EXIT_PLAN_MODE, 'read'])
+    expect(assembly.sections.find(section => section.name === 'plan:policy')?.text).toBe('')
+  })
+
+  it('keeps the full toolset in plan mode and renders the configured mode section', async () => {
+    const ctx = await setup()
+    registerNamedTools(ctx, ['read', 'write', 'todo_write'])
+    const agent = await agentWithSession(ctx, 'agent-1', { active: true })
+    const assembly = await assembleFor(ctx, agent)
+    expect(assembly.tools.map(tool => tool.name).sort()).toEqual([EXIT_PLAN_MODE, 'read', 'todo_write', 'write'])
+    expect(assembly.sections.find(section => section.name === 'plan:policy')?.text).toBe(TEST_PLAN_SECTION)
+  })
+
+  it('leaves foreign assemble additions alone (no assemble-layer filtering)', async () => {
+    // Plan guidance does not filter the registry or later assembly additions.
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      const final = await next()
+      final.tools = [...final.tools, { name: 'added-later', description: 'added after next()', parameters: {} }]
+      return final
+    })
+    await ctx.plugin(PlanModeService, PLAN_CONFIG)
+    registerNamedTools(ctx, ['read'])
+    const planning = await agentWithSession(ctx, 'planning', { active: true })
+    expect((await assembleFor(ctx, planning)).tools.map(tool => tool.name))
+      .toEqual(['exit_plan_mode', 'read', 'added-later'])
+    const defaulted = await agentWithSession(ctx, 'defaulted')
+    expect((await assembleFor(ctx, defaulted)).tools.map(tool => tool.name))
+      .toEqual(['exit_plan_mode', 'read', 'added-later'])
+  })
+
+  it('keeps run_code the only wire tool in plan mode under the registry Code Mode; the SDK gains the exit binding', async () => {
+    // Minimal scriptable runtime: the SDK section resolves ctx.codeRuntime at
+    // assembly time (the code-mode.spec fake's shape).
+    class FakeRuntime extends CodeRuntime {
+      readonly language = 'typescript'
+      readonly isolation = 'fake'
+      run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
+    }
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'code' })
+    await ctx.plugin(FakeRuntime)
+    await ctx.plugin(PlanModeService, PLAN_CONFIG)
+    registerNamedTools(ctx, ['read', 'write'])
+    const agent = await agentWithSession(ctx, 'agent-1', { active: true })
+    const assembly = await assembleFor(ctx, agent)
+    expect(assembly.tools.map(tool => tool.name)).toEqual(['run_code'])
+    // The SDK documents the full binding set plus the exit; plan mode never
+    // prunes capabilities and restrains through guidance alone.
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    expect(sdk).toContain('read(args:')
+    expect(sdk).toContain('write(args:')
+    expect(sdk).toContain('exit_plan_mode(args:')
+  })
+
+  it('keeps native wire schemas and the SDK in step under mode both', async () => {
+    class FakeRuntime extends CodeRuntime {
+      readonly language = 'typescript'
+      readonly isolation = 'fake'
+      run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
+    }
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'both' })
+    await ctx.plugin(FakeRuntime)
+    await ctx.plugin(PlanModeService, PLAN_CONFIG)
+    registerNamedTools(ctx, ['read', 'write'])
+    const agent = await agentWithSession(ctx, 'agent-1', { active: true })
+    const assembly = await assembleFor(ctx, agent)
+    // The stable registry contribution reaches both surfaces: the exit tool
+    // is present on the wire AND in the SDK alongside the untouched toolset.
+    expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['exit_plan_mode', 'read', 'run_code', 'write'])
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    expect(sdk).toContain('read(args:')
+    expect(sdk).toContain('write(args:')
+    expect(sdk).toContain('exit_plan_mode(args:')
+  })
+
+  it('keeps the Code Mode SDK byte-identical across mode switches', async () => {
+    class FakeRuntime extends CodeRuntime {
+      readonly language = 'typescript'
+      readonly isolation = 'fake'
+      run(_request: CodeRunRequest): Promise<CodeRunResult> { return Promise.resolve({ logs: [] }) }
+    }
+    const withPlanMode = new Context()
+    await withPlanMode.plugin(SystemPrompt)
+    await withPlanMode.plugin(ToolRegistry, { mode: 'code' })
+    await withPlanMode.plugin(FakeRuntime)
+    await withPlanMode.plugin(PlanModeService, PLAN_CONFIG)
+    registerNamedTools(withPlanMode, ['read', 'write'])
+    const agent = await agentWithSession(withPlanMode)
+    const defaultSdk = (await assembleFor(withPlanMode, agent)).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    expect(defaultSdk).toContain('read(args:')
+    expect(defaultSdk).toContain('write(args:')
+    expect(defaultSdk).toContain('exit_plan_mode(args:')
+    agent.session.append('plan/mode', { active: true })
+    const planSdk = (await assembleFor(withPlanMode, agent)).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    expect(planSdk).toBe(defaultSdk)
+
+    // Loading the plan-mode plugin deliberately adds one stable binding compared
+    // with a deployment that does not compose plan mode at all.
+    const bare = new Context()
+    await bare.plugin(SystemPrompt)
+    await bare.plugin(ToolRegistry, { mode: 'code' })
+    await bare.plugin(FakeRuntime)
+    registerNamedTools(bare, ['read', 'write'])
+    const bareSdk = (await bare.systemPrompt.assemble({ agent })).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
+    expect(bareSdk).not.toContain('exit_plan_mode(args:')
+    expect(defaultSdk).not.toBe(bareSdk)
+  })
+})
+
+describe('no execution gating beyond the exit tool', () => {
+  it('passes agent-less and default-mode executions through', async () => {
+    const ctx = await setup()
+    registerNamedTools(ctx, ['write'])
+    const agentless = await execute(ctx, 'write')
+    expect(agentless.isError).toBe(false)
+    const agent = await agentWithSession(ctx)
+    const defaulted = await execute(ctx, 'write', agent)
+    expect(defaulted.isError).toBe(false)
+  })
+
+  it('runs every call in plan mode untouched — guidance and enforcement are separate axes', async () => {
+    const ctx = await setup()
+    registerNamedTools(ctx, ['read', 'write', 'bash'])
+    const agent = await agentWithSession(ctx, 'agent-1', { active: true })
+    for (const name of ['read', 'write', 'bash']) {
+      const result = await execute(ctx, name, agent)
+      expect(result.isError).toBe(false)
+    }
+  })
+})
+
+describe('/plan', () => {
+  it('registers only when a commands service is composed and optionally submits the next-step message', async () => {
+    const bare = await setup()
+    expect(bare.get('commands')).toBeUndefined()
+
+    const ctx = await setup()
+    await ctx.plugin(CommandService)
+    // The `ctx.inject` child mounts asynchronously once `commands` resolves.
+    await new Promise(resolve => setImmediate(resolve))
+    const plainAgent = await agentWithSession(ctx, 'plain-plan-command')
+    const plainSteer = vi.fn()
+    ;(plainAgent as unknown as { steer: typeof plainSteer }).steer = plainSteer
+    expect(ctx.commands.list(plainAgent)).toEqual([
+      { name: 'plan', description: 'Enter plan mode', input: { hint: '[message]' } },
+    ])
+
+    const signal = new AbortController().signal
+    expect(await ctx.commands.execute(plainAgent, '/mode', signal)).toBeUndefined()
+    expect(await ctx.commands.execute(plainAgent, '/review', signal)).toBeUndefined()
+    const plain = await ctx.commands.execute(plainAgent, '/plan', signal)
+    expect(plain).toEqual({ kind: 'success', text: 'Entering plan mode (applies from the next step).' })
+    expect(ctx.planMode.get(plainAgent)).toEqual({ active: false, pending: true })
+    expect(plainSteer).not.toHaveBeenCalled()
+
+    const messageAgent = await agentWithSession(ctx, 'message-plan-command')
+    const messageSteer = vi.fn()
+    ;(messageAgent as unknown as { steer: typeof messageSteer }).steer = messageSteer
+    const plan = await ctx.commands.execute(messageAgent, '/plan   draft the migration  ', signal)
+    expect(plan).toEqual({ kind: 'success', text: 'Entering plan mode (applies from the next step).' })
+    expect(ctx.planMode.get(messageAgent)).toEqual({ active: false, pending: true })
+    expect(messageSteer).toHaveBeenCalledExactlyOnceWith([{ type: 'text', text: 'draft the migration' }])
+  })
+
+  it('removes the contributed command when the plan-mode plugin is disposed', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(CommandService)
+    const fiber = await ctx.plugin(PlanModeService, PLAN_CONFIG)
+    await new Promise(resolve => setImmediate(resolve))
+    const agent = await agentWithSession(ctx)
+    expect(ctx.commands.list(agent).map(command => command.name)).toEqual(['plan'])
+
+    await fiber.dispose()
+
+    expect(ctx.commands.list(agent)).toEqual([])
+  })
+})
+
+describe('exit_plan_mode', () => {
+  async function setupWithReview(answer?: { selected: string[]; custom?: string }) {
+    const ctx = await setup()
+    await ctx.plugin(UserInteractionService)
+    const asked: AskUserQuestionRequest[] = []
+    if (answer !== undefined) {
+      ctx.userInteraction.registerProvider({
+        ask: (request) => {
+          asked.push(request)
+          return Promise.resolve({ answers: [{ id: 'plan-review', ...answer }] })
+        },
+      })
+    }
+    const agent = await agentWithSession(ctx, 'agent-1', { active: true })
+    return { ctx, agent, asked }
+  }
+
+  function callExit(ctx: Context, agent: Agent | undefined, plan = '# The plan\n\ndo things') {
+    return ctx.tools.execute({
+      callId: CallId(`call-exit-${++callCounter}`),
+      name: EXIT_PLAN_MODE,
+      arguments: { plan },
+      signal: new AbortController().signal,
+      ...agent ? { agent } : {},
+    })
+  }
+
+  it('registers the tool with one required plan argument', async () => {
+    const ctx = await setup()
+    const schema = ctx.tools.schemas().find(entry => entry.name === EXIT_PLAN_MODE)
+    const parameters = schema?.parameters as { required?: string[]; properties?: Record<string, unknown> }
+    expect(schema?.description).toMatch(/^Use only in plan mode\./)
+    expect(Object.keys(parameters.properties ?? {})).toEqual(['plan'])
+    expect(parameters.required).toEqual(['plan'])
+  })
+
+  it('rejects an agent-less call', async () => {
+    const ctx = await setup()
+    const result = await callExit(ctx, undefined)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: exit_plan_mode requires a calling agent (no session to switch)' }])
+  })
+
+  it('rejects a call outside plan mode while remaining advertised', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx)
+    expect(ctx.tools.schemas().map(tool => tool.name)).toContain(EXIT_PLAN_MODE)
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: exit_plan_mode is only available in plan mode' }])
+  })
+
+  it('rejects an empty or heading-less plan before asking the reviewer', async () => {
+    const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
+    for (const plan of ['', 'do things']) {
+      const result = await callExit(ctx, agent, plan)
+      expect(result.isError).toBe(true)
+      expect(result.content).toEqual([{ type: 'text', text: 'Error: exit_plan_mode requires a non-empty markdown plan starting with a # heading' }])
+    }
+    expect(asked).toHaveLength(0)
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('degrades to the manual exit when no user-interaction seam is composed', async () => {
+    const ctx = await setup()
+    const agent = await agentWithSession(ctx, 'agent-1', { active: true })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: no user-interaction channel is available to review the plan; ask the user to switch the session mode instead' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('degrades the same way when the seam has no provider (NO_PROVIDER)', async () => {
+    const { ctx, agent } = await setupWithReview()
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: no user-interaction provider is registered' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('approve: records the boundary-applied switch and confirms (the fold flips at the flush)', async () => {
+    const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }])
+    // Boundary-applied, not a direct append: the fold stays plan until the
+    // step's end, so the plan policy covers any remaining call of the SAME batch.
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+    expect(ctx.planMode.get(agent)).toEqual({ active: true, pending: false })
+    await boundary(ctx, agent, 'step/end')
+    expect(foldPlanMode(agent.session.events)).toBe(false)
+    expect(asked).toHaveLength(1)
+    expect(asked[0]?.agent).toBe(agent)
+    expect(asked[0]?.questions[0]?.detail).toBe('# The plan\n\ndo things')
+    expect(asked[0]?.questions[0]?.options?.map(option => option.label)).toEqual(['Approve', 'Keep planning'])
+  })
+
+  it('carries the exact plan through a Code Mode review and logs the nested dispatch', async () => {
+    const plan = '# Code Mode plan\n\nUse the existing seam.'
+    class ExitRuntime extends CodeRuntime {
+      readonly language = 'typescript'
+      readonly isolation = 'fake'
+      async run(request: CodeRunRequest): Promise<CodeRunResult> {
+        const exit = request.bindings[0]?.functions[EXIT_PLAN_MODE]
+        if (exit === undefined) throw new Error('missing exit_plan_mode binding')
+        return { logs: [], value: await exit({ plan }) }
+      }
+    }
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'code' })
+    await ctx.plugin(ExitRuntime)
+    await ctx.plugin(PlanModeService, PLAN_CONFIG)
+    await ctx.plugin(UserInteractionService)
+    const asked: AskUserQuestionRequest[] = []
+    ctx.userInteraction.registerProvider({
+      ask: (request) => {
+        asked.push(request)
+        return Promise.resolve({ answers: [{ id: 'plan-review', selected: ['Approve'] }] })
+      },
+    })
+    const agent = await agentWithSession(ctx, 'code-mode-exit', { active: true })
+
+    const result = await ctx.tools.execute({
+      callId: CallId(`call-exit-${++callCounter}`),
+      name: RUN_CODE_NAME,
+      arguments: { code: `return await tools.${EXIT_PLAN_MODE}({ plan: ${JSON.stringify(plan)} })` },
+      signal: new AbortController().signal,
+      agent,
+    })
+
+    expect(result.isError).toBe(false)
+    expect(asked).toHaveLength(1)
+    expect(asked[0]?.questions[0]).toMatchObject({
+      header: 'Plan review',
+      question: 'Approve this plan and leave plan mode?',
+      detail: plan,
+    })
+    expect(agent.session.events.find(event => event.type === 'tool/code-dispatch')?.data).toMatchObject({
+      name: EXIT_PLAN_MODE,
+      arguments: { plan },
+      isError: false,
+    })
+    expect(ctx.planMode.get(agent)).toEqual({ active: true, pending: false })
+  })
+
+  it('an approved exit keeps plan guidance until the boundary and never removes the tool', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Approve'] })
+    const approved = await callExit(ctx, agent)
+    expect(approved.isError).toBe(false)
+    // Calls of the SAME assistant response (no boundary between) were
+    // requested under the plan-shaped header — the fold stays plan for that
+    // whole batch; the boundary flush is what flips the next step.
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+    const assembly = await ctx.systemPrompt.assemble({ agent })
+    expect(assembly.tools.some(tool => tool.name === EXIT_PLAN_MODE)).toBe(true)
+    expect(assembly.sections.find(section => section.name === 'plan:policy')?.text).toBe(TEST_PLAN_SECTION)
+    await boundary(ctx, agent, 'step/end')
+    expect(foldPlanMode(agent.session.events)).toBe(false)
+    const afterExit = await ctx.systemPrompt.assemble({ agent })
+    expect(afterExit.tools).toEqual(assembly.tools)
+    expect(afterExit.sections.find(section => section.name === 'plan:policy')?.text).toBe('')
+  })
+
+  it('the exit flush narrates nothing — the tool result is the narration', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Approve'] })
+    header(agent.session)
+    await callExit(ctx, agent)
+    await boundary(ctx, agent, 'step/end')
+    expect(foldPlanMode(agent.session.events)).toBe(false)
+    expect(noticeTexts(agent.session)).toEqual([])
+  })
+
+  it('keep planning returns the corrective error carrying the feedback verbatim', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Keep planning'], custom: 'consider the resume path' })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; their feedback: consider the resume path' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('keep planning without feedback returns the generic corrective error', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Keep planning'] })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; revise the plan and present it again.' }])
+  })
+
+  it('a custom-text-only answer is feedback, never consent', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: [], custom: 'add tests first' })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; their feedback: add tests first' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('requires exactly the single Approve selection', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Approve', 'Keep planning'] })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; revise the plan and present it again.' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('treats custom text alongside Approve as feedback, not consent', async () => {
+    const { ctx, agent } = await setupWithReview({ selected: ['Approve'], custom: 'change the tests' })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; their feedback: change the tests' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('treats duplicate review answer items as non-consent', async () => {
+    const { ctx, agent } = await setupWithReview()
+    ctx.userInteraction.registerProvider({
+      ask: () => Promise.resolve({ answers: [
+        { id: 'plan-review', selected: ['Approve'] },
+        { id: 'plan-review', selected: ['Keep planning'] },
+      ] }),
+    })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; revise the plan and present it again.' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('a missing answer item reads as keep-planning', async () => {
+    const { ctx, agent } = await setupWithReview()
+    ctx.userInteraction.registerProvider({ ask: () => Promise.resolve({ answers: [] }) })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; revise the plan and present it again.' }])
+  })
+
+  it('forwards the execution abort signal to the review question', async () => {
+    const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
+    const controller = new AbortController()
+    const result = await ctx.tools.execute({
+      callId: CallId(`call-exit-${++callCounter}`),
+      name: EXIT_PLAN_MODE,
+      arguments: { plan: '# P' },
+      agent,
+      signal: controller.signal,
+    })
+    expect(result.isError).toBe(false)
+    expect(asked[0]?.signal).toBe(controller.signal)
+  })
+
+  it('fails the call when the plugin is disposed while the review awaits (no phantom exit)', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const fiber = await ctx.plugin(PlanModeService, PLAN_CONFIG)
+    await ctx.plugin(UserInteractionService)
+    let answer!: (value: { answers: { id: string; selected: string[] }[] }) => void
+    ctx.userInteraction.registerProvider({
+      ask: () => new Promise((resolve) => { answer = resolve }),
+    })
+    const agent = await agentWithSession(ctx, 'agent-1', { active: true })
+    const pending = callExit(ctx, agent)
+    // Let execute reach the review await, then unload the plugin (HMR) and
+    // only afterwards approve. The boundary listeners are gone, so a success
+    // would claim an exit that can never flush — the call must fail instead.
+    await new Promise(resolve => setImmediate(resolve))
+    await fiber.dispose()
+    answer({ answers: [{ id: 'plan-review', selected: ['Approve'] }] })
+    const result = await pending
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: the plan-mode service was reloaded while the plan was under review; present the plan again' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('a throwing provider surfaces as the corrective isError and the mode stays plan', async () => {
+    const { ctx, agent } = await setupWithReview()
+    ctx.userInteraction.registerProvider({ ask: () => { throw new Error('review aborted') } })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: review aborted' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('presents the call as a generic card titled by the plan first heading', async () => {
+    const ctx = await setup()
+    const def = ctx.tools.get(EXIT_PLAN_MODE)!
+    expect(def.presentCall?.({ plan: '## Fix the flake\n\nsteps' })).toEqual({
+      card: 'generic',
+      title: 'Fix the flake',
+      kind: 'other',
+      content: [{ type: 'text', text: '## Fix the flake\n\nsteps' }],
+    })
+    expect(def.presentCall?.({ plan: 'no heading here' })).toEqual({
+      card: 'generic',
+      title: 'Plan',
+      kind: 'other',
+      content: [{ type: 'text', text: 'no heading here' }],
+    })
+  })
+
+  it('presents the result as a generic review card', async () => {
+    const ctx = await setup()
+    const def = ctx.tools.get(EXIT_PLAN_MODE)!
+    const content = [{ type: 'text' as const, text: 'ok' }]
+    expect(def.presentResult?.({ plan: '# P' }, { content, isError: false })).toEqual({
+      card: 'generic',
+      title: 'Plan review',
+      content,
+    })
+  })
+})
+
+describe('HMR disposal', () => {
+  it('does not flush a retry boundary that resumes after plugin disposal', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const fiber = await ctx.plugin(PlanModeService, PLAN_CONFIG)
+    const agent = await agentWithSession(ctx, 'disposed-in-flight-recovery')
+    const recoveryEntered = Promise.withResolvers<true>()
+    const releaseRecovery = Promise.withResolvers<true>()
+    ctx.on('agent/request-error', async (_agent, _turn, _step, _error, _failure, _history, _signal, _next) => {
+      recoveryEntered.resolve(true)
+      await releaseRecovery.promise
+      return { action: 'retry' }
+    })
+    ctx.planMode.set(agent, true)
+
+    const recovery = recoveryBoundary(ctx, agent, { action: 'fail' })
+    await recoveryEntered.promise
+    await fiber.dispose()
+    releaseRecovery.resolve(true)
+
+    expect(await recovery).toEqual({ action: 'retry' })
+    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
+  })
+
+  it('unregisters the service, listeners, prompt section, and stable exit tool with the plugin fiber', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    const fiber = await ctx.plugin(PlanModeService, PLAN_CONFIG)
+    const agent = await agentWithSession(ctx, 'disposed-recovery')
+    ctx.planMode.set(agent, true)
+    expect(ctx.get('planMode')).toBeInstanceOf(PlanModeService)
+    expect(ctx.tools.get(EXIT_PLAN_MODE)).toBeDefined()
+    expect((await ctx.systemPrompt.assemble()).sections.map(section => section.name)).toContain('plan:policy')
+
+    await fiber.dispose()
+    expect(ctx.get('planMode')).toBeUndefined()
+    expect(ctx.tools.get(EXIT_PLAN_MODE)).toBeUndefined()
+    expect((await ctx.systemPrompt.assemble()).sections.map(section => section.name)).not.toContain('plan:policy')
+    expect(await recoveryBoundary(ctx, agent, { action: 'retry' })).toEqual({ action: 'retry' })
+    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
+  })
+})

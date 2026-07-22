@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "op": "initialize"
+    },
+    {
+      "op": "newSession"
+    },
+    {
+      "op": "setMode",
+      "modeId": "plan"
+    },
+    {
+      "op": "setMode",
+      "modeId": "default"
+    },
+    {
+      "op": "setModeExpectError",
+      "modeId": "yolo"
+    }
+  ]
+}

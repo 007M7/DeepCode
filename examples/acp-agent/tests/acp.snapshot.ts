@@ -53,6 +53,20 @@ const SCENARIOS: Scenario[] = [
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
   // Direct command dispatch reports goal state without spending a model turn.
   { name: 'goal-command-status', hasModelTurn: false, recorded: false },
+  // Protocol-only (keyless, authored): session/new advertises the mode picker,
+  // session/set_mode acknowledges a valid selection, and an unknown mode id
+  // fails loudly. With no model turn, its membership in the plan header class
+  // is vacuous; the class still needs one explicit pin below.
+  { name: 'modes-advertise', hasModelTurn: false, recorded: false, headerClass: 'plan' },
+  // The plan header pin covers the full arc: setMode(plan), a real read under
+  // the independently configured sandbox, plan review through exit_plan_mode,
+  // an approved boundary flip back to default, and a real edit in the next
+  // step. Leaving plan removes the policy section and exit tool, producing one
+  // changed request header.
+  { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderChanges: 1 },
+  // Free-text review feedback returns as a corrective error and leaves the
+  // session in plan mode, so this scenario shares the pinned plan header.
+  { name: 'plan-mode-reject', hasModelTurn: true, recorded: true, headerClass: 'plan' },
   // text-turn is the pinned-header scenario: the minimal single text turn.
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },

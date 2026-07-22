@@ -246,6 +246,9 @@ importers:
       '@deepseek-ai/dsh-lsp-local':
         specifier: workspace:*
         version: link:../packages/lsp/lsp-local
+      '@deepseek-ai/dsh-plan-mode':
+        specifier: workspace:*
+        version: link:../packages/plan/plan-mode
       '@deepseek-ai/dsh-permission':
         specifier: workspace:*
         version: link:../packages/ui/permission
@@ -288,6 +291,9 @@ importers:
       '@deepseek-ai/dsh-token-meter':
         specifier: workspace:*
         version: link:../packages/llm/token-meter
+      '@deepseek-ai/dsh-tool-ask-user':
+        specifier: workspace:*
+        version: link:../packages/ui/tool-ask-user
       '@deepseek-ai/dsh-tool-cordis':
         specifier: workspace:*
         version: link:../packages/cordis/tool-cordis
@@ -2253,6 +2259,42 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
+  packages/plan/plan-mode:
+    devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-agent-loop':
+        specifier: workspace:^
+        version: link:../../core/agent-loop
+      '@deepseek-ai/dsh-code-runtime':
+        specifier: workspace:^
+        version: link:../../code-runtime/code-runtime
+      '@deepseek-ai/dsh-commands':
+        specifier: workspace:^
+        version: link:../../ui/commands
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: workspace:^
+        version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+      '@deepseek-ai/dsh-user-interaction':
+        specifier: workspace:^
+        version: link:../../ui/user-interaction
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+
   packages/sandbox/sandbox:
     devDependencies:
       '@deepseek-ai/dsh-invariants':
@@ -3215,6 +3257,9 @@ importers:
       '@deepseek-ai/dsh-llm-retry':
         specifier: workspace:^
         version: link:../../llm/llm-retry
+      '@deepseek-ai/dsh-plan-mode':
+        specifier: workspace:^
+        version: link:../../plan/plan-mode
       '@deepseek-ai/dsh-permission':
         specifier: workspace:^
         version: link:../permission
@@ -3921,6 +3966,9 @@ importers:
       '@deepseek-ai/dsh-llm-retry':
         specifier: workspace:^
         version: link:../../packages/llm/llm-retry
+      '@deepseek-ai/dsh-plan-mode':
+        specifier: workspace:^
+        version: link:../../packages/plan/plan-mode
       '@deepseek-ai/dsh-paths':
         specifier: workspace:^
         version: link:../../packages/util/paths

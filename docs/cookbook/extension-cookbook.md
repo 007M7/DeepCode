@@ -87,7 +87,7 @@ export function apply(ctx: Context) {
 
 ## Runnable wirings
 
-Four runnable leaves load their plugin trees from `cordis.yml`: [`examples/tui-agent`](../../examples/tui-agent) (DeepSeek coding tools through the full-screen TUI, `pnpm run demo:tui`), [`examples/headless-agent`](../../examples/headless-agent) (the coding capabilities behind a one-shot task and DSH-native output, `pnpm run demo:headless "task"`), [`examples/cordis-agent`](../../examples/cordis-agent) (self-inspection and dynamic plugin mounting through the TUI, `pnpm run demo:cordis`), and [`examples/acp-agent`](../../examples/acp-agent) (an ACP server over JSON-RPC stdio, `pnpm run demo:acp`). Interactive leaves load [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo), non-interactive leaves load [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo), the ACP leaf loads [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), and all three app packages share [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo).
+Runnable leaves load their plugin trees from `examples/*/cordis.yml`; the root `demo:*` scripts and those leaf directories are the authoritative inventory. Interactive leaves use [`@deepseek-ai/dsh-tui-demo`](../../packages/examples/tui-demo), non-interactive leaves use [`@deepseek-ai/dsh-cli-demo`](../../packages/examples/cli-demo), ACP leaves use [`@deepseek-ai/dsh-acp-demo`](../../packages/examples/acp-demo), and the app packages share [`@deepseek-ai/dsh-agent-spine-demo`](../../packages/examples/agent-spine-demo).
 
 ## The feature → mechanism map
 
@@ -113,7 +113,7 @@ Every product feature maps to a listener on a documented extension seam — the 
 | Monotonic terminal turn policy | return `{ action: 'stop' }` from serial `agent/turn-stop`, after continuation and steering have already been folded |
 | Subprocess sandbox (landlock / sandbox-exec) | use a `ctx.sandbox` backend through `dsh-bash-sandbox`; use `tools/pre-execute` for capability-level denial |
 | Permission system / AskUserQuestion | return `ask` from `tools/pre-execute` and answer through `ctx.approval`; register a separate model-facing ask tool for ordinary user questions |
-| Plan mode | `tools/pre-execute` (deny writes) + a mode prompt section via `ctx.systemPrompt.section()` or `agent.inject()` (model-visible ⟺ logged: `agent/request` shapes call config only) |
+| Plan mode | Shipped: [`@deepseek-ai/dsh-plan-mode`](../../packages/plan/plan-mode/README.md) — logged `plan/mode` state, the `plan:policy` guidance section, `/plan [message]`, and the user-reviewed `exit_plan_mode` exit; enforcement stays on the independent sandbox/approval axes |
 | Sub-agent delegation | the `ctx.subagents` provider registry (`dsh-subagent-spawn`/`-fork`/`-acp`) + `dsh-tool-subagent` exposing one configured provider to the model |
 | MCP | one plugin per server: discover tools → `ctx.tools.register()` |
 | Skills | section + tool registration; `inject()` skill content on invocation |
