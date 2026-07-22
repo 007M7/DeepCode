@@ -11,8 +11,16 @@ import { boot, installFailLoud, loadEnv, resolveConfigPath } from '@deepseek-ai/
 const NAME = 'dsh-tui-demo'
 
 /* v8 ignore start -- thin self-executing composition over the unit-tested
-   dsh-app-boot helpers; exercised end-to-end by the keyless Loader-path and
-   built-bin smokes */
+   dsh-app-boot helpers; exercised end-to-end by the tui-agent PTY smoke and
+   the built-bin fail-loud smoke */
+// Refuse pipes BEFORE booting: a compose-time throw inside the Loader tree is
+// logged per-entry rather than rethrown, so a piped launch would otherwise
+// settle into an idle UI-less process instead of exiting nonzero.
+if (!process.stdin.isTTY || !process.stdout.isTTY) {
+  process.stderr.write(`${NAME}: the TUI requires stdin and stdout to be interactive TTYs; `
+    + 'use the one-shot dsh-cli-demo bin for pipes and automation\n')
+  process.exit(1)
+}
 installFailLoud(NAME)
 loadEnv(NAME)
 await boot(NAME, resolveConfigPath(process.argv[2] ?? './cordis.yml', undefined))

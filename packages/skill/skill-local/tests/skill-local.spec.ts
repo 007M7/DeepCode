@@ -391,6 +391,9 @@ describe('LocalSkillProvider', () => {
       await empty.plugin(SkillService)
       SkillLocal.apply(empty, {})
       expect(await empty.skills.list()).toEqual([])
+
+      delete process.env.DSH_AGENTS_HOME
+      expect(new SkillLocal.LocalSkillProvider(empty, { dshHome: join(envHome, 'empty-dsh') }).name).toBe('local')
     } finally {
       if (previousDshHome === undefined) {
         delete process.env.DSH_HOME

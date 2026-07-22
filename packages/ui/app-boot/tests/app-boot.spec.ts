@@ -2,10 +2,11 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import type { Context } from 'cordis'
+import { Context } from 'cordis'
+import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
-  assertEntriesLoaded, boot, installFailLoud, loadEnv, resolveConfigPath,
-  type FailLoudProcess,
+  addHarnessSourceSection, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
+  installFailLoud, loadEnv, parseResumeArg, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
 const NAME = 'dsh-test-bin'
@@ -26,6 +27,31 @@ describe('resolveConfigPath', () => {
   it('leaves a non-cordis basename alone in replay mode and defaults cwd to the process cwd', () => {
     expect(resolveConfigPath('custom.yml', 'replay', `${sep}base`)).toBe(resolve(`${sep}base`, 'custom.yml'))
     expect(resolveConfigPath('./x.yml', undefined)).toBe(resolve(process.cwd(), 'x.yml'))
+  })
+})
+
+describe('parseResumeArg', () => {
+  it('returns no resume id and passes arguments through when the flag is absent', () => {
+    expect(parseResumeArg([])).toEqual({ resumeSessionId: undefined, rest: [] })
+    expect(parseResumeArg(['custom.yml'])).toEqual({ resumeSessionId: undefined, rest: ['custom.yml'] })
+  })
+
+  it('parses the space form, the inline form, and leaves a positional config path in any position', () => {
+    expect(parseResumeArg(['--resume', 'sess-1'])).toEqual({ resumeSessionId: 'sess-1', rest: [] })
+    expect(parseResumeArg(['--resume=sess-2'])).toEqual({ resumeSessionId: 'sess-2', rest: [] })
+    expect(parseResumeArg(['--resume', 'sess-3', 'app.yml'])).toEqual({ resumeSessionId: 'sess-3', rest: ['app.yml'] })
+    expect(parseResumeArg(['app.yml', '--resume', 'sess-4'])).toEqual({ resumeSessionId: 'sess-4', rest: ['app.yml'] })
+  })
+
+  it('fails loud on a valueless, empty, or repeated flag rather than silently starting fresh', () => {
+    expect(() => parseResumeArg(['--resume'])).toThrow('--resume requires a session id')
+    expect(() => parseResumeArg(['--resume='])).toThrow('--resume requires a session id')
+    expect(() => parseResumeArg(['--resume', 'a', '--resume', 'b'])).toThrow('--resume may be given only once')
+  })
+
+  it('rejects resume syntax used as the flag value instead of resuming a session named like the flag', () => {
+    expect(() => parseResumeArg(['--resume', '--resume', 'sess'])).toThrow('--resume requires a session id')
+    expect(() => parseResumeArg(['--resume', '--resume=sess'])).toThrow('--resume requires a session id')
   })
 })
 
@@ -174,5 +200,58 @@ describe('boot', () => {
     const dir = tmp()
     writeFileSync(join(dir, 'cordis.yml'), '- id: ghost\n  name: ./missing.mjs\n')
     await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(`${NAME}: plugin(s) failed to load: ./missing.mjs`)
+  })
+})
+
+describe('addHarnessSourceSection', () => {
+  const SOURCE_ROOT = `${sep}opt${sep}harness-src`
+  const EXPECTED = `Your own source code is the checkout at ${SOURCE_ROOT}; you can read it there to learn how dsh works and how to extend it.`
+
+  it('adds the source path between the harness identity and the deployment persona', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt, { persona: 'You are a coding agent.' })
+      const dispose = addHarnessSourceSection(ctx, SOURCE_ROOT)
+      expect(dispose).toBeTypeOf('function')
+      const systemPrompt = ctx.get('systemPrompt')!
+      const rendered = renderPrompt(await systemPrompt.assemble())
+      expect(rendered).toContain(EXPECTED)
+      // Harness-owned opener (-100) → source (-99) → persona (0). The >= 0 guards
+      // keep a drifted opener/persona string from a false pass through `-1 < n`.
+      const identityAt = rendered.indexOf('You are an AI agent powered by the DeepSeek Harness SDK.')
+      const sourceAt = rendered.indexOf(EXPECTED)
+      const personaAt = rendered.indexOf('You are a coding agent.')
+      expect(identityAt).toBeGreaterThanOrEqual(0)
+      expect(personaAt).toBeGreaterThanOrEqual(0)
+      expect(identityAt).toBeLessThan(sourceAt)
+      expect(sourceAt).toBeLessThan(personaAt)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('is a no-op returning undefined when no systemPrompt service is mounted', async () => {
+    const ctx = new Context()
+    try {
+      expect(addHarnessSourceSection(ctx, SOURCE_ROOT)).toBeUndefined()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('disposes the section it added, so a systemPrompt reload leaves no residue', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt, {})
+      const systemPrompt = ctx.get('systemPrompt')!
+      const dispose = addHarnessSourceSection(ctx, SOURCE_ROOT)!
+      const present = await systemPrompt.assemble()
+      expect(present.sections.some(section => section.name === HARNESS_SOURCE_SECTION)).toBe(true)
+      dispose()
+      const gone = await systemPrompt.assemble()
+      expect(gone.sections.some(section => section.name === HARNESS_SOURCE_SECTION)).toBe(false)
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 })
