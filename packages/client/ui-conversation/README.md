@@ -2,7 +2,7 @@
 
 Conversation domain: skeleton (header/tabs/composer/empty state), chat view (grouped step-summary flow, streaming tail isolation), ctx.toolviews named registry with bash samples, minimal details panel, scope-addressed ConversationService. Contract: api-contracts v3 §7.
 
-`src/client/` is organized for the future package split: `contract/` is the sole inter-domain shared face (`slots.ts` composed slot props, `views.ts` view ring, `toolview.ts` tool ring, `tool-call-model.ts`); the `skeleton/`, `chat/`, and `toolviews/` domain directories import contract files and never each other; `apply.ts` is the only assembly point allowed to import all three domains.
+`src/client/` is organized for the future package split: `contract/` is the sole inter-domain shared face (`slots.ts` composed slot props, `views.ts` view ring, `toolview.ts` tool ring, `tool-call-model.ts`); the `skeleton/`, `chat/`, and `toolviews/` domain directories import contract files and never each other; `apply.ts` is the only assembly point allowed to import all three domains. The `/client` export surface is the contract only — `apply`/`inject`, the two service classes, and the `contract/` type families; implementation components (skeleton, chat rows) stay internal and reach the page exclusively through apply's slot registrations (tests take them via the `./src/*` subpath).
 
 ## Model Experience
 
