@@ -30,6 +30,7 @@ import {
   type OverlayHandle,
   type SelectListTheme,
   type Terminal,
+  type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
 import type { Context } from 'cordis'
 import z from 'schemastery'
@@ -237,17 +238,21 @@ function displayText(text: string): string {
  * backgrounds alike; grouping uses foreground-only gutter bars and reverse
  * video rather than fixed background fills.
  */
-function createPalette(enabled: boolean): Palette {
+function createPalette(enabled: boolean, scheme: TerminalColorScheme = 'dark'): Palette {
   return {
     accent: ansi('94', '39', enabled),
     accent2: ansi('95', '39', enabled),
     text: text => text,
     muted: ansi('90', '39', enabled),
-    dim: ansi('2', '22', enabled),
+    // SGR 2 (dim) lightens text on a light background — substitute ANSI 90
+    // (bright black / gray) which renders as a readable muted tone on any scheme.
+    dim: scheme === 'light' ? ansi('90', '39', enabled) : ansi('2', '22', enabled),
     success: ansi('32', '39', enabled),
     warning: ansi('33', '39', enabled),
     error: ansi('31', '39', enabled),
-    code: ansi('36', '39', enabled),
+    // ANSI 36 (cyan) is difficult to read on a light background — use
+    // ANSI 34 (blue) which is legible on both light and dark schemes.
+    code: scheme === 'light' ? ansi('34', '39', enabled) : ansi('36', '39', enabled),
     added: ansi('32', '39', enabled),
     removed: ansi('31', '39', enabled),
     bold: ansi('1', '22', enabled),
@@ -1504,6 +1509,30 @@ export function createTuiChat(
     void shutdown(true)
   }
 
+  /** Swap the palette and all derived themes for the given terminal color scheme. */
+  const applyColorScheme = (scheme: TerminalColorScheme): void => {
+    if (scheme === currentScheme) return
+    currentScheme = scheme
+    Object.assign(palette, createPalette(resolved.color, scheme))
+    Object.assign(mdTheme, markdownTheme(palette))
+    rebuildTranscript(false)
+    setStatus(agent.status)
+    requestRender()
+  }
+  let currentScheme: TerminalColorScheme = 'dark'
+
+  // Apply any color scheme the terminal reports. Registering before the query
+  // below means even a synchronous reply reaches `applyColorScheme`; in practice
+  // the startup query's reply is the only report, since dsh-tui leaves
+  // unsolicited color-scheme notifications disabled.
+  const disposeSchemeListener = ui.onTerminalColorSchemeChange(applyColorScheme)
+
+  // Ask the terminal for its color scheme via device-status report; the reply,
+  // if any, arrives through the listener above. Most terminals do not respond,
+  // so we keep the dark-optimised palette. Swallow a query-write failure for the
+  // same reason.
+  ui.queryTerminalColorScheme({ timeoutMs: 2000 }).catch(() => {})
+
   const toggleTools = (): void => {
     toolsExpanded = !toolsExpanded
     for (const card of allToolCards) card.setExpanded(toolsExpanded)
@@ -1714,6 +1743,7 @@ export function createTuiChat(
     disposeStatus()
     disposeError()
     disposeAgent()
+    disposeSchemeListener()
     disposeTargetListeners()
   }
 

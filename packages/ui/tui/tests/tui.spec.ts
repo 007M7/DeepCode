@@ -1399,4 +1399,57 @@ describe('terminal mounting', () => {
     expect(() => createTuiChat(ctx, { sessionId: 'missing' }, runtime)).toThrow('is not running')
     await ctx.fiber.dispose()
   })
+
+  it('detects a light terminal color scheme and switches from dark- to light-optimised ANSI codes', async () => {
+    const result = await setup({ config: { color: true } })
+    // Initial render uses dark-optimised palette: SGR 2 (dim) for dim text.
+    expect(result.terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
+
+    // A report matching the current scheme is a no-op: no palette rebuild or
+    // re-render (ESC [?997;1n = dark, the startup default).
+    const beforeSameScheme = result.terminal.output.length
+    result.terminal.send('\x1b[?997;1n')
+    await tick()
+    expect(result.terminal.output.length).toBe(beforeSameScheme)
+
+    // Simulate the terminal responding with a light color scheme report
+    // (ESC [?997;2n = light, ESC [?997;1n = dark).
+    result.terminal.send('\x1b[?997;2n')
+    await tick()
+    await tick()
+
+    // After switching to light-optimised palette: palette.dim uses ANSI 90
+    // (gray) instead of SGR 2. The header now uses \x1b[90m for the detail
+    // line. The cumulative output still contains the initial SGR 2 render,
+    // so we assert that a LATER write (appended after the scheme switch)
+    // uses ANSI 90 for the same header text.
+    expect(result.terminal.output).toContain('\x1b[90mdeepseek-v4-flash')
+
+    // Switch back to dark scheme.
+    result.terminal.send('\x1b[?997;1n')
+    await tick()
+    await tick()
+    // After switching back, a new write uses SGR 2 for the header detail.
+    expect(result.terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
+    await dispose(result)
+  })
+
+  it('keeps the dark palette when the terminal rejects the color-scheme query', async () => {
+    class QueryFailTerminal extends FakeTerminal {
+      override write(data: string): void {
+        // The device-status query is the only write that fails; the promise
+        // rejects and the swallowed `.catch` leaves the dark palette in place.
+        if (data === '\x1b[?996n') throw new Error('query write failed')
+        super.write(data)
+      }
+    }
+    const terminal = new QueryFailTerminal()
+    const result = await createTuiTestHarness(terminal, vi.fn(), {
+      config: { color: true },
+      cwd: process.cwd(),
+    })
+    await tick()
+    expect(terminal.output).toContain('\x1b[2mdeepseek-v4-flash')
+    await disposeTuiTestHarness(result)
+  })
 })
