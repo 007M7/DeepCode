@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { pathToFileURL } from 'node:url'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   DEFAULT_MAX_LOCATIONS,
   DEFAULT_MAX_RESULT_CHARS,
@@ -13,7 +13,7 @@ import {
 } from '@deepseek-ai/dsh-tool-lsp'
 import type { LspLocation } from '@deepseek-ai/dsh-lsp'
 
-const WS = '/home/u/proj'
+const WS = resolve('/home/u/proj')
 
 function loc(uri: string, line: number, character = 0): LspLocation {
   return { uri, range: { start: { line, character }, end: { line, character: character + 1 } } }
@@ -52,8 +52,9 @@ describe('renderUri', () => {
   })
 
   it('returns an absolute path for a file: URI outside the workspace', () => {
-    const uri = pathToFileURL('/other/lib/b.ts').href
-    expect(renderUri(uri, WS)).toBe('/other/lib/b.ts')
+    const outside = resolve(WS, '..', 'other', 'lib', 'b.ts')
+    const uri = pathToFileURL(outside).href
+    expect(renderUri(uri, WS)).toBe(outside)
   })
 
   it('renders the workspace root itself as "."', () => {
@@ -72,8 +73,8 @@ describe('renderUri', () => {
   })
 
   it('keeps a malformed file: URI verbatim when it cannot be parsed to a path', () => {
-    // A file: URI with a host that fileURLToPath rejects falls through to the verbatim path.
-    expect(renderUri('file://host/notlocal', WS)).toBe('file://host/notlocal')
+    // An encoded path separator is invalid on every platform and must remain verbatim.
+    expect(renderUri('file:///bad%2Fpath', WS)).toBe('file:///bad%2Fpath')
   })
 })
 

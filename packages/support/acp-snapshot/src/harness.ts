@@ -153,11 +153,21 @@ export interface RunOptions {
   configPath?: string
 }
 
-/** Derive one stable, fixed-length spill root owned by this scenario. */
-function scenarioSpillRoot(fixtureFile: string): string {
+/**
+ * Derive one stable, fixed-length spill root owned by this scenario.
+ * Windows uses a two-character-shorter root because drive resolution adds its drive prefix.
+ * @param fixtureFile - The scenario fixture whose parent directory provides the stable identity.
+ * @param platform - the host platform, injectable for unit coverage.
+ * @returns the root-relative snapshot spill directory.
+ */
+export function snapshotSpillRoot(
+  fixtureFile: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
   const scenario = basename(dirname(fixtureFile))
   const key = createHash('sha256').update(scenario).digest('hex').slice(0, 9)
-  return `/tmp/dsh-acp-snap-${key}`
+  const root = platform === 'win32' ? '/t' : '/tmp'
+  return `${root}/dsh-acp-snap-${key}`
 }
 
 /**
@@ -176,7 +186,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
   // before stdout normalization, so tmpdir() length differences churn expected outputs.
   // Scenario ownership also matters: replay runs concurrently, and one teardown
   // must never delete another scenario's in-flight full-output recovery file.
-  const spillRoot = scenarioSpillRoot(opts.fixtureFile)
+  const spillRoot = snapshotSpillRoot(opts.fixtureFile)
   // Everything past the temp-dir creation is followed by failure-safe cleanup,
   // so a failure in workspace seeding, spawn, or any step never leaks resources.
   let launched: LaunchedAcpTestAgent | undefined

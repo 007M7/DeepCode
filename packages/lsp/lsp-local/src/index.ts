@@ -2,9 +2,9 @@
  * Generic stdio language-server backend for `ctx.lsp`. One plugin instance configures a named table
  * of server commands and registers one isolated provider for each entry. Every provider lazily
  * single-flights one server process per canonical workspace realpath, serves transient-open queries
- * through it, and evicts a crashed process so a later query can replace it. Providers read sources
- * through Node APIs in the host namespace (not `ctx.fs`) and trust their configured servers — no
- * sandbox confinement.
+ * through it, and replaces a selected transport that fails before or during the next read-only
+ * query. Providers read sources through Node APIs in the host namespace (not `ctx.fs`)
+ * and trust their configured servers — no sandbox confinement.
  *
  * Namespace plugin (named exports, no default export). Lifecycle is effect-scoped: disposal
  * unregisters from `ctx.lsp` and tears down every live server.
@@ -221,15 +221,23 @@ class LocalLspProvider implements LspProvider {
       // synchronous get-or-create so every spawned process remains owned by teardown.
       this.assertActive(signal)
       let instance = this.instanceFor(workspace)
-      if (instance.dead) {
-        this.evictIfCurrent(workspace, instance)
-        instance = this.instanceFor(workspace)
-      }
       try {
         return await instance.query(request, source, signal)
+      } catch (error) {
+        // A selected child can have died while idle or fail during the next write. Queries are
+        // read-only, so replace that transport once and retry transparently.
+        if (!instance.isTransportFailure(error)) throw error
+        await instance.dispose()
+        this.evictIfCurrent(workspace, instance)
+        this.assertActive(signal)
+        instance = this.instanceFor(workspace)
+        return await instance.query(request, source, signal)
       } finally {
-        // Drop a crashed slot only when it still owns this instance; a replacement must survive.
-        if (instance.dead) this.evictIfCurrent(workspace, instance)
+        // Reach quiescence before dropping a dead slot; a replacement must survive this ownership check.
+        if (instance.dead) {
+          await instance.dispose()
+          this.evictIfCurrent(workspace, instance)
+        }
       }
     })
   }

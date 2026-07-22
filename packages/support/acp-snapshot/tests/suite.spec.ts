@@ -15,9 +15,11 @@ import {
   normalizedToolSchemas,
   parseToolSchemasSnapshot,
   refreshFixtureReplacements,
+  scenarioSkipped,
   sessionFixtureNames,
   restorePinnedToolSchemas,
   stabilizeRefreshLog,
+  stdoutExpectedVariants,
   unknownToolCallIds,
 } from '../src/suite.ts'
 
@@ -227,6 +229,48 @@ describe('sessionFixtureNames', () => {
   it('rejects duplicate child indexes', () => {
     expect(() => sessionFixtureNames(['session.jsonl', 'session.1.jsonl', 'session.1.jsonl']))
       .toThrow('expected session.2.jsonl, found session.1.jsonl')
+  })
+})
+
+describe('stdoutExpectedVariants', () => {
+  const scenario: Scenario = {
+    name: 'windows-native',
+    hasModelTurn: true,
+    recorded: true,
+    pinsNativeWindowsStdout: true,
+  }
+
+  it('adds the native sidecar after the shared golden on Windows', () => {
+    expect(stdoutExpectedVariants(scenario, 'win32')).toEqual([
+      { file: 'stdout.expected.jsonl', cwdPathMode: 'canonical' },
+      { file: 'stdout.expected.windows.jsonl', cwdPathMode: 'native' },
+    ])
+  })
+
+  it('keeps only the shared golden on other platforms or without the declaration', () => {
+    expect(stdoutExpectedVariants(scenario, 'linux')).toEqual([
+      { file: 'stdout.expected.jsonl', cwdPathMode: 'canonical' },
+    ])
+    expect(stdoutExpectedVariants({ ...scenario, pinsNativeWindowsStdout: false }, 'win32')).toEqual([
+      { file: 'stdout.expected.jsonl', cwdPathMode: 'canonical' },
+    ])
+  })
+})
+
+describe('scenarioSkipped', () => {
+  const authored: Scenario = { name: 'authored', hasModelTurn: true, recorded: false }
+  const posix: Scenario = { name: 'posix-cancel', hasModelTurn: true, recorded: false, posixOnly: true }
+
+  it('skips authored scenarios only while recording', () => {
+    expect(scenarioSkipped(authored, true, 'linux')).toBe(true)
+    expect(scenarioSkipped(authored, false, 'linux')).toBe(false)
+  })
+
+  it('skips posixOnly scenarios on Windows and nowhere else', () => {
+    expect(scenarioSkipped(posix, false, 'win32')).toBe(true)
+    expect(scenarioSkipped(posix, false, 'linux')).toBe(false)
+    expect(scenarioSkipped(posix, false, 'darwin')).toBe(false)
+    expect(scenarioSkipped(authored, false, 'win32')).toBe(false)
   })
 })
 

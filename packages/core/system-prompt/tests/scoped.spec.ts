@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-scope'
 import type { Scope, ScopeKey } from '@deepseek-ai/dsh-scope'
@@ -63,6 +63,21 @@ describe('scoped sections', () => {
     expect(() => scope.ctx.systemPrompt.section({ name: 'y', order: 1, text: 'b' })).toThrow(/already registered in this scope/)
   })
 
+  it('shadows a global section before evaluating either text provider', async () => {
+    const ctx = await mount()
+    const scope = await mintScope(ctx, 'child')
+    const globalText = vi.fn(() => 'global text')
+    const scopedText = vi.fn(() => 'scoped text')
+    ctx.systemPrompt.section({ name: 'shared', order: 1, text: globalText })
+    scope.ctx.systemPrompt.section({ name: 'shared', order: 1, text: scopedText })
+
+    const assembly = await ctx.systemPrompt.assemble({ scope: scopeKeyOf(scope) })
+
+    expect(assembly.sections.find(section => section.name === 'shared')?.text).toBe('scoped text')
+    expect(globalText).not.toHaveBeenCalled()
+    expect(scopedText).toHaveBeenCalledOnce()
+  })
+
 })
 
 describe('scoped variables', () => {
@@ -85,6 +100,28 @@ describe('scoped variables', () => {
     // Re-minting a scope with the SAME key starts clean.
     const again = await mintScope(ctx, 'child2')
     again.ctx.systemPrompt.variable('v', () => '3')
+  })
+
+  it('defers a scoped variable that replaces the last provider in its generation', async () => {
+    const ctx = await mount({ persona: 'Mode: {{mode}}.' })
+    const scope = await mintScope(ctx, 'child')
+    const key = scopeKeyOf(scope)
+    const calls: string[] = []
+    scope.ctx.systemPrompt.section({ name: 'scope:sibling', order: 1, text: 'Scoped.' })
+    const dispose = scope.ctx.systemPrompt.variable('mode', () => {
+      calls.push('first')
+      dispose()
+      scope.ctx.systemPrompt.variable('mode', () => {
+        calls.push('replacement')
+        return 'replacement'
+      })
+      return 'first'
+    })
+
+    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key }))).toContain('Mode: first.')
+    expect(calls).toEqual(['first'])
+    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key }))).toContain('Mode: replacement.')
+    expect(calls).toEqual(['first', 'replacement'])
   })
 })
 
