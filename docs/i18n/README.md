@@ -21,7 +21,7 @@ This repo's documentation is read by people and agents both inside and outside t
 
 ## The gate: verify-translation-pairing
 
-`pnpm run verify-translation-pairing` (part of `doc-sync`, so CI and the pre-push hook run it) enforces the contract mechanically:
+`pnpm run verify-translation-pairing` (part of `doc-sync`, which contributors run locally for documentation changes and CI runs exhaustively) enforces the contract mechanically:
 
 1. Every file listed as `required` in [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json) has a complete pair.
 2. Every pair that exists at all — required or not — is complete and consistent: all three files present, each side's current blob hash equals the recorded one (editing either side without re-confirming the pair goes red), both sides carry the language switcher, and the structural signatures match in order — heading depths, verbatim code blocks (info string and content), table row and column counts, list kinds, ordered-list starts, item counts, and every link target apart from the switcher.

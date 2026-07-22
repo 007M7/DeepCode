@@ -77,6 +77,12 @@
         "./packages/mcp/*/src/invariant.ts",
         "./packages/support/*/src/invariant.ts"
       ],
+      // host/client package names prefix the group dir (dsh-client-<dir>), so
+      // the generic dsh-*/invariant list above cannot map them; strip the
+      // group prefix with a dedicated wildcard per group instead.
+      "@deepseek-ai/dsh-host-*/invariant": ["./packages/host/*/src/invariant.ts"],
+      "@deepseek-ai/dsh-client-*/invariant": ["./packages/client/*/src/invariant.ts"],
+      "@deepseek-ai/dsh-client-*/client": ["./packages/client/*/src/client"],
       // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
       // dir names are unique across groups, so first-on-disk-wins resolution is
       // unambiguous; adding a package under an existing group needs no edit
@@ -92,23 +98,14 @@
       "@deepseek-ai/dsh-client-web-react": ["./packages/client/web-react/src"],
       "@deepseek-ai/dsh-client-web-react/store": ["./packages/client/web-react/src/store"],
       "@deepseek-ai/dsh-client-connection": ["./packages/client/connection/src"],
-      "@deepseek-ai/dsh-client-connection/client": ["./packages/client/connection/src/client"],
       "@deepseek-ai/dsh-client-runtime": ["./packages/client/runtime/src"],
       "@deepseek-ai/dsh-client-runtime/loader": ["./packages/client/runtime/src/client/loader"],
-      "@deepseek-ai/dsh-client-runtime/client": ["./packages/client/runtime/src/client"],
       "@deepseek-ai/dsh-client-ui-layout": ["./packages/client/ui-layout/src"],
-      "@deepseek-ai/dsh-client-ui-layout/client": ["./packages/client/ui-layout/src/client"],
       "@deepseek-ai/dsh-client-ui-sidebar": ["./packages/client/ui-sidebar/src"],
-      "@deepseek-ai/dsh-client-ui-sidebar/client": ["./packages/client/ui-sidebar/src/client"],
       "@deepseek-ai/dsh-client-ui-conversation": ["./packages/client/ui-conversation/src"],
-      "@deepseek-ai/dsh-client-ui-conversation/client": ["./packages/client/ui-conversation/src/client"],
       "@deepseek-ai/dsh-client-ui-trajectory": ["./packages/client/ui-trajectory/src"],
-      "@deepseek-ai/dsh-client-ui-trajectory/client": ["./packages/client/ui-trajectory/src/client"],
       "@deepseek-ai/dsh-client-ui-theme": ["./packages/client/ui-theme/src"],
-      "@deepseek-ai/dsh-client-ui-theme/client": ["./packages/client/ui-theme/src/client"],
       "@deepseek-ai/dsh-client-i18n": ["./packages/client/i18n/src"],
-      "@deepseek-ai/dsh-client-i18n/invariant": ["./packages/client/i18n/src/invariant"],
-      "@deepseek-ai/dsh-client-i18n/client": ["./packages/client/i18n/src/client"],
       "@deepseek-ai/dsh-client-web": ["./packages/client/web/src"],
       "@deepseek-ai/dsh-*": [
         "./packages/core/*/src",
