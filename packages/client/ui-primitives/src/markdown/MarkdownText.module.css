@@ -1,0 +1,123 @@
+.markdown {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+  overflow-wrap: anywhere;
+  font: var(--dsw-font-markdown-base);
+}
+
+.markdown :where(h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, pre, hr) {
+  margin: 0;
+}
+
+.markdown h1 {
+  font: var(--dsw-font-markdown-h1);
+}
+
+.markdown h2 {
+  font: var(--dsw-font-markdown-h2);
+}
+
+.markdown h3 {
+  font: var(--dsw-font-markdown-h3);
+}
+
+.markdown :where(h4, h5, h6) {
+  font: var(--dsw-font-markdown-h4);
+}
+
+.markdown :where(strong, th) {
+  font-weight: var(--dsw-font-markdown-base-strong-font-weight);
+}
+
+.markdown :where(ul, ol) {
+  padding-inline-start: 24px;
+}
+
+.markdown li + li {
+  margin-block-start: 4px;
+}
+
+.markdown li > :where(ul, ol) {
+  margin-block-start: 4px;
+}
+
+.markdown blockquote {
+  padding-inline-start: 12px;
+  border-inline-start: 3px solid var(--dsw-alias-markdown-citation);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.markdown a {
+  color: var(--dsw-alias-state-business-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown :not(pre) > code {
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--dsw-alias-markdown-inline-code);
+  font: var(--dsw-font-markdown-code);
+}
+
+.markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--dsw-alias-markdown-code-block);
+  font: var(--dsw-font-markdown-code-block);
+}
+
+.markdown pre code {
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: pre;
+}
+
+.markdown hr {
+  width: 100%;
+  border: 0;
+  border-block-start: 1px solid var(--dsw-alias-markdown-citation);
+}
+
+.markdown input[type='checkbox'] {
+  margin: 0 8px 0 0;
+  accent-color: var(--dsw-alias-state-business-primary);
+}
+
+.tableScroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.tableScroll table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font: var(--dsw-font-markdown-table);
+}
+
+.tableScroll :where(th, td) {
+  padding: 6px 12px;
+  border: 1px solid var(--dsw-alias-markdown-citation);
+  text-align: start;
+  white-space: nowrap;
+}
+
+.tableScroll th {
+  background: var(--dsw-alias-markdown-code-block-banner);
+  font: var(--dsw-font-markdown-table-head);
+}
+
+.imageAlt {
+  color: var(--dsw-alias-label-tertiary);
+  font-style: italic;
+}
