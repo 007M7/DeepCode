@@ -222,8 +222,7 @@ const colorSchema = z.boolean().default(true)
 const truecolorSchema = z.boolean()
 const titleSchema = z.string().default('DeepSeek Harness')
 
-/** Schemastery schema for presentation settings embedded by app bundles. */
-export const TuiConfigSchema: z<TuiConfig> = z.object({
+const tuiConfigSchemaFields = {
   showReasoning: showReasoningSchema,
   maxToolOutputLines: maxToolOutputLinesSchema,
   maxQuestionOptions: maxQuestionOptionsSchema,
@@ -239,7 +238,10 @@ export const TuiConfigSchema: z<TuiConfig> = z.object({
   color: colorSchema,
   truecolor: truecolorSchema,
   title: titleSchema,
-})
+}
+
+/** Schemastery schema for presentation settings embedded by app bundles. */
+export const TuiConfigSchema: z<TuiConfig> = z.object(tuiConfigSchemaFields)
 
 /** Serializable plugin configuration. */
 export interface Config extends TuiConfig {
@@ -261,21 +263,7 @@ export const Config: z<Config> = z.object({
   welcome: z.string(),
   sessionId: z.string().default('main'),
   resumeCommand: z.string(),
-  showReasoning: showReasoningSchema,
-  maxToolOutputLines: maxToolOutputLinesSchema,
-  maxQuestionOptions: maxQuestionOptionsSchema,
-  maxModelOptions: maxModelOptionsSchema,
-  questionDialogWidth: questionDialogWidthSchema,
-  questionDialogMaxHeight: questionDialogMaxHeightSchema,
-  modelDialogWidth: modelDialogWidthSchema,
-  modelDialogMaxHeight: modelDialogMaxHeightSchema,
-  fileSearchMaxResults: fileSearchMaxResultsSchema,
-  fileSearchMaxEntries: fileSearchMaxEntriesSchema,
-  fileSearchExcludedDirectories: fileSearchExcludedDirectoriesSchema,
-  showHardwareCursor: showHardwareCursorSchema,
-  color: colorSchema,
-  truecolor: truecolorSchema,
-  title: titleSchema,
+  ...tuiConfigSchemaFields,
 })
 
 /** Fully defaulted TUI presentation settings. */
