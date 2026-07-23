@@ -218,15 +218,11 @@ function severityOf(event: SessionEvent): TelemetrySeverity {
       return event.data.reason.kind === 'error' ? 'error' : 'info'
     case 'prompt/blocked':
       return 'warn'
-    default: {
-      // Merge-extensible fall-through (no assertNever): types this seam does
-      // not depend on still get their RFC-pinned severity via a widened
-      // probe — `compact/end` is declared by dsh-compact, which the seam
-      // deliberately does not import.
-      const type: string = event.type
-      if (type === 'compact/end' && (event.data as { error?: unknown }).error !== undefined) return 'error'
+    default:
+      // Merge-extensible fall-through (no assertNever): event types this seam
+      // does not depend on — including plugin-merged ones it never heard of —
+      // pass through as info; their owners' outcome semantics stay theirs.
       return 'info'
-    }
   }
 }
 

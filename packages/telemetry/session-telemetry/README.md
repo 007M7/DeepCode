@@ -24,7 +24,7 @@ Only the first `assistant/chunk` of each `(turn, step)` ships; the rest are drop
 
 ## The logical record
 
-`TelemetryRecord`: `channel` (`ledger` | `ops`), `time` (epoch ms), `severity` (pre-mapped: ERROR for `tool/result.isError`, `turn/end` error reasons, `compact/end` errors; WARN for `prompt/blocked`; INFO otherwise), identity-only `attributes` (`session.id`, `event.type`, `event.seq`, plus `session.cwd`/`session.parent_id` when the header has them), and the complete deep-copied `event.data` as `body` — post-redaction. Operational records carry `telemetry.op` (`agent-error` | `shutdown`) and `session.id`, and deliberately NO `event.seq`/`event.type` — signals to alert on, not entries to sum. Delivery downstream of the handoff is the backend SDK's; duplicates remain possible (cursor-less re-adoption, SDK retries), so receivers dedupe on `(session.id, event.seq)`.
+`TelemetryRecord`: `channel` (`ledger` | `ops`), `time` (epoch ms), `severity` (pre-mapped: ERROR for `tool/result.isError` and `turn/end` error reasons; WARN for `prompt/blocked`; INFO otherwise, including plugin-merged event types whose outcome semantics stay with their owners), identity-only `attributes` (`session.id`, `event.type`, `event.seq`, plus `session.cwd`/`session.parent_id` when the header has them), and the complete deep-copied `event.data` as `body` — post-redaction. Operational records carry `telemetry.op` (`agent-error` | `shutdown`) and `session.id`, and deliberately NO `event.seq`/`event.type` — signals to alert on, not entries to sum. Delivery downstream of the handoff is the backend SDK's; duplicates remain possible (cursor-less re-adoption, SDK retries), so receivers dedupe on `(session.id, event.seq)`.
 
 ## Model Experience
 

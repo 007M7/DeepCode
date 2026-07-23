@@ -19,12 +19,6 @@ declare module '@deepseek-ai/dsh-session' {
      * @param payload - opaque test payload
      */
     'telemetry-test/opaque': { payload: { nested: string[] } }
-    /**
-     * Test-only stand-in for dsh-compact's merge, exercising the widened severity probe.
-     * @mode emit
-     * @param error - failure text when the compaction failed
-     */
-    'compact/end': { turn: number; error?: string }
   }
 }
 
@@ -104,15 +98,14 @@ describe('TelemetryCoordinator capture', () => {
     }
   })
 
-  it('maps outcome flags to severity, including the widened merge-extensible probe', async () => {
+  it('maps outcome flags to severity, unknown types falling through as info', async () => {
     const { ctx, backend } = await setup()
     const session = liveSession(ctx)
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('tool/result', { turn: 1, step: 1, callId: 'c1' as never, content: [], isError: true }, { surfaceOp: 'append' })
     session.append('tool/result', { turn: 1, step: 1, callId: 'c2' as never, content: [], isError: false }, { surfaceOp: 'append' })
     session.append('prompt/blocked', { content: [], source: { kind: 'user' }, reason: 'vetoed' })
-    session.append('compact/end', { turn: 1, error: 'summarizer died' })
-    session.append('compact/end', { turn: 1 })
+    session.append('telemetry-test/opaque', { payload: { nested: [] } })
     session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'boom' } })
     const severities = backend.ledger().map(r => [r.attributes['event.type'], r.severity])
     expect(severities).toEqual([
@@ -120,8 +113,7 @@ describe('TelemetryCoordinator capture', () => {
       ['tool/result', 'error'],
       ['tool/result', 'info'],
       ['prompt/blocked', 'warn'],
-      ['compact/end', 'error'],
-      ['compact/end', 'info'],
+      ['telemetry-test/opaque', 'info'],
       ['turn/end', 'error'],
     ])
   })
