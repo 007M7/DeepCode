@@ -42,6 +42,7 @@ interface DriverFixture {
   errors: unknown[]
   invalidations: number
   showError?: unknown
+  onShow?: (component: Component) => void
 }
 
 function driverFixture(): DriverFixture {
@@ -81,6 +82,7 @@ function driverFixture(): DriverFixture {
         },
         isFocused: () => shown.focused,
       }
+      fixture.onShow?.(component)
       return handle
     },
     invalidate() {
@@ -154,11 +156,12 @@ describe('TuiOverlayManager', () => {
     expect(firstHost?.theme.accent('x')).toBe('accent:x')
     expect(firstHost?.display('\u001b')).toBe('safe:\u001b')
     firstHost?.invalidate()
+    expect(firstComponent.invalidated).toBe(1)
     expect(fixture.shown[0]?.component.render(40)).toEqual(['first:40'])
     fixture.shown[0]!.component.handleInput?.('x')
     fixture.shown[0]!.component.invalidate()
     expect(firstComponent.inputs).toEqual(['x'])
-    expect(firstComponent.invalidated).toBe(1)
+    expect(firstComponent.invalidated).toBe(2)
     expect(fixture.shown[0]?.component.wantsKeyRelease).toBe(true)
     ;(fixture.shown[0]?.component as Component & { focused: boolean }).focused = true
     expect(firstComponent.focused).toBe(true)
@@ -244,6 +247,65 @@ describe('TuiOverlayManager', () => {
     expect(manager.hasActiveOverlay()).toBe(false)
   })
 
+  it('does not mount entries closed or aborted during component construction', async () => {
+    const fixture = driverFixture()
+    const manager = new TuiOverlayManager(fixture.driver)
+    const closed = manager.open({
+      create(host) {
+        host.invalidate()
+        host.close()
+        return component(['closed during construction'])
+      },
+    })
+    await expect(closed.closed).resolves.toEqual({ reason: 'closed' })
+
+    const controller = new AbortController()
+    const aborted = manager.open({
+      signal: controller.signal,
+      create() {
+        controller.abort()
+        return component(['aborted during construction'])
+      },
+    })
+    await expect(aborted.closed).resolves.toEqual({ reason: 'aborted' })
+
+    const after = manager.open({ create: () => component(['after construction closes']) })
+    expect(fixture.shown).toHaveLength(1)
+    expect(fixture.shown[0]?.component.render(40)).toEqual(['after construction closes'])
+    await after.close()
+  })
+
+  it('hides a handle returned after reentrant closure during mounting', async () => {
+    const fixture = driverFixture()
+    const manager = new TuiOverlayManager(fixture.driver)
+    fixture.onShow = (shown) => {
+      ;(shown as Component & { focused: boolean }).focused = true
+    }
+    const closed = manager.open({
+      create(host) {
+        return {
+          get focused(): boolean {
+            return false
+          },
+          set focused(_value: boolean) {
+            host.close()
+          },
+          render: () => ['closed during mount'],
+          invalidate() {},
+        }
+      },
+    })
+    await expect(closed.closed).resolves.toEqual({ reason: 'closed' })
+    expect(fixture.shown[0]?.hidden).toBe(true)
+    expect(manager.hasActiveOverlay()).toBe(false)
+
+    delete fixture.onShow
+    const after = manager.open({ create: () => component(['after mount close']) })
+    expect(fixture.shown[1]?.hidden).toBe(false)
+    expect(fixture.shown[1]?.component.render(40)).toEqual(['after mount close'])
+    await after.close()
+  })
+
   it('stops admission and disposes active and queued overlays with the TUI', async () => {
     const fixture = driverFixture()
     const manager = new TuiOverlayManager(fixture.driver)
@@ -315,15 +377,22 @@ describe('TuiOverlayManager', () => {
     await microtask()
 
     const invalidateError = new Error('invalidate failed')
+    let invalidatingHost: TuiOverlayHost | undefined
     const invalidating = manager.open({
-      create: () => ({
-        render: () => ['invalidate'],
-        invalidate() {
-          throw invalidateError
-        },
-      }),
+      create(host) {
+        invalidatingHost = host
+        return {
+          render: () => ['invalidate'],
+          invalidate() {
+            throw invalidateError
+          },
+        }
+      },
     })
-    fixture.shown.at(-1)!.component.invalidate()
+    const invalidationsBeforeFailure = fixture.invalidations
+    invalidatingHost?.invalidate()
+    invalidatingHost?.invalidate()
+    expect(fixture.invalidations).toBe(invalidationsBeforeFailure)
     expect(await invalidating.closed).toEqual({ reason: 'error', error: invalidateError })
     await microtask()
 

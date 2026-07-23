@@ -52,6 +52,7 @@ interface OverlayEntry {
   readonly resolveClosed: (outcome: TuiOverlayOutcome) => void
   readonly session: TuiOverlaySession
   state: TuiOverlayState
+  component?: GuardedOverlayComponent
   handle?: OverlayHandle
   removeRequestAbort?: () => void
   outcome?: TuiOverlayOutcome
@@ -130,11 +131,13 @@ class GuardedOverlayComponent implements Component, Focusable {
     }
   }
 
-  invalidate(): void {
+  invalidate(): boolean {
     try {
       this.component.invalidate()
+      return true
     } catch (error) {
       this.fail(error)
+      return false
     }
   }
 }
@@ -242,11 +245,18 @@ export class TuiOverlayManager {
       this.fail(entry, error)
       return
     }
+    if (this.active !== entry) return
     const guarded = new GuardedOverlayComponent(component, (error) => {
       this.fail(entry, error)
     })
+    entry.component = guarded
     try {
-      entry.handle = this.driver.show(guarded, entry.request.options)
+      const handle = this.driver.show(guarded, entry.request.options)
+      if (this.active !== entry) {
+        this.hide(handle)
+        return
+      }
+      entry.handle = handle
       this.driver.invalidate()
     } catch (error) {
       this.fail(entry, error)
@@ -267,7 +277,8 @@ export class TuiOverlayManager {
       },
       display: (value: string) => this.driver.display(value),
       invalidate: () => {
-        if (entry.state !== 'active') return
+        if (this.active !== entry || entry.component === undefined || entry.failing === true) return
+        if (!entry.component.invalidate() || this.active !== entry) return
         try {
           this.driver.invalidate()
         } catch (error) {
@@ -295,6 +306,14 @@ export class TuiOverlayManager {
     }
   }
 
+  private hide(handle: OverlayHandle): void {
+    try {
+      handle.hide()
+    } catch (error) {
+      this.report(error)
+    }
+  }
+
   private close(entry: OverlayEntry, result: TuiOverlayOutcome): Promise<TuiOverlayOutcome> {
     if (entry.outcome !== undefined) return entry.closed
     entry.outcome = result
@@ -306,13 +325,10 @@ export class TuiOverlayManager {
     if (queuedIndex >= 0) this.queue.splice(queuedIndex, 1)
     if (this.active === entry) {
       this.active = undefined
-      try {
-        entry.handle?.hide()
-      } catch (error) {
-        this.report(error)
-      }
+      if (entry.handle !== undefined) this.hide(entry.handle)
       delete entry.handle
     }
+    delete entry.component
     entry.resolveClosed(result)
     try {
       this.driver.invalidate()
