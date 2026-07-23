@@ -34,7 +34,7 @@ ctx.slots.register({
 
 不存在独立的坑位定义 API。`children` 对象同时做两件事：**把子坑声明出来**，并**授权本组件渲染它们**——坑是渲染树上的一个洞，因为有人要渲染它才存在，所以坑的生命周期就是声明它的 entry 的生命周期（entry 一经 dispose（资源释放），坑随之消亡、坑内既有贡献清空）。children 的值是运行时 spec（`kind`/`scope` 驱动 outlet 的迭代形态与 binding 选择；`SlotMap` 是纯类型、运行时即被擦除，这正是键数组形行不通的原因），并与对应 `SlotMap` entry 静态对齐校验——类型与值在同一点声明、交叉验证。
 
-对等原则：**声明子坑的 entry 独占渲染这些子坑的权力**，全部在 register 时结清（配置错误在装载时大声失败；渲染热径零校验）。装载即炸的情形：第二个 entry 声明已被声明的坑；向未声明的坑 register；同一个 store 句柄挂到两个 scope 之下。
+对等原则：**声明子坑的 entry 独占渲染这些子坑的权力**，全部在 register 时结清（配置错误在装载时大声失败；渲染热径零校验）。装载即炸的情形：第二个 entry 声明已被声明的坑；向未声明的坑 register；同一个 store 句柄挂到两个 scope 之下；chain 注册缺 `select`。
 
 `SlotMap` 声明合并仍是类型权威，且 entry 只声明自己的轴加 **owner 份额**——注册方注入的 props 永不进入全局表（「谁注入的，类型归谁」）。
 
@@ -43,11 +43,19 @@ ctx.slots.register({
 | 份额 | 类型 | 真源 | 内容 |
 |---|---|---|---|
 | 运行时 | `PropsRuntime<K>` | K 对应的 SlotMap entry | `OwnerOf<K>`（渲染现场传参）+ session scope 标配 `useSession`/`sessionId` + 全局 `useSessions` |
-| 子坑渲染 | `PropsRenderSlots<S>` | register 的 `children` 键集 | `renderSlot(key, owner)`，键参静态收窄到 S |
+| 子坑渲染 | `PropsRenderSlots<S>` | register 的 `children` 键集 | `renderSlot(key, owner)`，键参静态收窄到 S；chain 键另有 `renderSlotChain` |
 | store | `PropsStore<H>` | store 工厂的返回类型 | `useStore` selector hook + `actions.*`（剥去 draft 形参） |
 | 业务 | `I` | inject 的返回类型 | 普通数据+回调（禁 hook） |
 
 凡声明 `scope: 'session'` 之处，`sessionId` 一律由框架供给——owner 传参不携带它。register 调用点是双向锁的收口：组件的 renderSlot 键集超出 `children` 声明、漏接某个已声明的面、store/inject 形状漂移，任何一条都在那一行上报编译错误。转授就是普通的 props 传递（把 `renderSlot` 函数递下去，可按需包一层更窄的签名）——不存在白名单面对象，也不存在铸面 API。
+
+### chain kind：entry 自荐，首中即渲
+
+第四种 `SlotKind`——`'chain'`——把路由权相对 `keyed` 反转：keyed 的分派现场以 `entryKey` 点选占坑者，chain 则由 entry 自荐——owner 只分派一份通用货币形态的 owner props，永远不知道谁来接管，新的接管包注册进来 owner 零改动。chain 注册携带一个 `select` 纯选择器（`ChainSelect<O, M>`：`(owner) => matched | null`）与可选的 `priority`（升序；同值保持注册序 = 装配序——部署可控的 inject 拓扑——复用 list `order` 的同一稳定排序）；注册缺 `select` 即上文装载即炸情形之一。渲染时 outlet 按链序依次执行各 select：首个非 null 返回值当选，该值以 `matched` 并入组件 props（组件绝不自行重新推导匹配）；返回 `null` 则轮到下一个 entry；全 null 则渲染 owner 的 fallback 体（`ChainRenderOpts`）。
+
+「不接」的判定住在 `select` 里，绝不在挂载后的组件里自探 props：组件为了渲染 null 也得先挂载，其 hook 与 effect 全部白跑，随之而来的挂载/卸载抖动还会破坏 memo 化与 React key 语义；而选择器是纯函数——可单测、零挂载副作用——与「presentation methods are pure functions of `args`」是同一条纪律。纯，就是选择器的契约：不读外部可变状态、不产副作用，路由判定因此完全是 owner props 的函数，每次分派都可安全执行。选择器只做路由、绝不铸对象——按分派逐次构造对象会让引用每次渲染都换新；把匹配值包成更丰富的面这件事，发生在当选组件内部（以 `matched` 为依赖的 `useMemo`）。
+
+类型链上，chain entry 的 SlotMap 形状是 `{ kind: 'chain'; scope; owner }`，`owner` 即链的货币；`M`——`matched` prop 的类型——从 select 返回值推导（选择器收窄 union 成员时，`matched` 类型自动随之收窄），且组件位不参与 `M` 的推断，与钉住 inject 份额的 NoInfer 裁定同源（见下文裁定）。owner 侧，`renderSlotChain(key, owner, { fallback })` 与 `renderSlot` 同住 `PropsRenderSlots` 份额，其键域静态收窄到本 entry children 声明中 chain kind 的键（`ChainKeysOf`）；分派现场只有一行，不含任何自有的派生或路由逻辑。
 
 ### store 席位：引擎归框架，schema 归注册方
 
@@ -93,7 +101,7 @@ register 签名里的两条硬化裁定之所以存在，是因为显然的替�
 
 ## Consequences
 
-渲染权威从此可强制执行，而非仅靠约定：谁渲染什么是装载期事实，审计 UI 结构 = 通读 register 调用。每个 props 面都从单一真源静态推导（SlotMap entry、children 键集、store 工厂、inject 返回值），schema 变更由编译器传播，而不靠 grep。插件不再自带任何订阅机械——store 生命周期（每会话实例、dispose、持久化）是钉在 entry 轴上的框架语义。代价：注册选项稠密（children spec 对象）；框架背上实打实的推断机械（`defineStore` 的 init/actions 同轮推断可能需要柯里化兜底）；编译期双向锁意味着原型阶段的漂移直接是硬错误，而非警告。
+渲染权威从此可强制执行，而非仅靠约定：谁渲染什么是装载期事实，审计 UI 结构 = 通读 register 调用；对 chain 坑，「谁来渲染」额外多出一层渲染期事实，但做决定的选择器全是 register 现场的声明，审计面仍是 register 调用。每个 props 面都从单一真源静态推导（SlotMap entry、children 键集、store 工厂、inject 返回值），schema 变更由编译器传播，而不靠 grep。插件不再自带任何订阅机械——store 生命周期（每会话实例、dispose、持久化）是钉在 entry 轴上的框架语义。代价：注册选项稠密（children spec 对象）；框架背上实打实的推断机械（`defineStore` 的 init/actions 同轮推断可能需要柯里化兜底）；编译期双向锁意味着原型阶段的漂移直接是硬错误，而非警告。
 
 ## Alternatives considered
 
@@ -107,3 +115,5 @@ register 签名里的两条硬化裁定之所以存在，是因为显然的替�
 | 模块级 store 句柄 | 模块级句柄是跨插件重载与跨测试用例的单例；工厂形把身份圈定在单次 apply/测试调用内 |
 | 组件直收 store 实例 | 渲染代码里能用 `update`/`set`，变更面就无从审计；声明的 actions 让「什么能变」保持为 register 现场的事实 |
 | 注册位用 `FC` / 从组件推断 `I` | FC 静态位产生协变噪音、拒绝合法组件；组件侧推断静默吸收 props 漂移（见上文裁定） |
+| 接管坑用 keyed 分派 + owner 侧路由 | owner 会不断攒下逐 entry 契约与硬编码路由表（每种接管一份 `find` + `entryKey`）；chain 货币让新增接管注册保持 owner 零改动 |
+| 组件靠渲染 null 表示不接 | 不接也得先挂载——hook 与 effect 白跑，挂载/卸载抖动破坏 memo 化与 key 语义；纯选择器无需组件实例即可裁决 |
