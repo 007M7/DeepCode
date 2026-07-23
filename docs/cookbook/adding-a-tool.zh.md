@@ -64,9 +64,9 @@ producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 
 
 请把 `output.schema` 设计为实用的程序化 API：直接返回句柄与字段；当标量、数组或 null 确实就是结果时，允许采用相应的根类型；将面向人类的解释放入 `output.render`。中间值只存在于执行期间，不会被持久化或按提示词上限截断，也不设字节上限，因此生产方如实声明的采集边界和进程内存仍然重要。只有外层 `run_code` 日志／结果会受到可配置输出上限和面向模型的输出落盘流水线约束。
 
-## 工具在编辑器中的渲染方式（ACP 展示）
+## 工具在 UI 中的渲染方式
 
-工具的 `output.render` 返回模型可见的内容；其**编辑器卡片**是另一项独立关注点，通过纯展示投影以及可选的 `presentCall`／`presentResult` 方法声明。请将这些内容与规范值一并设计：编辑器（如 Zed，通过 ACP（Agent Client Protocol）桥接）会展示该卡片，没有 UI 展示方法的工具则回退到通用卡片（标题 = 工具名，原始 args 作为输入）。
+工具的 `output.render` 返回模型可见的内容；其 **UI 卡片** 是另一项独立关注点，通过纯展示投影以及可选的 `presentCall`／`presentResult` 方法声明。请将这些内容与规范值一并设计。没有 UI 展示方法的工具会回退到通用卡片（标题 = 工具名，原始 args 作为输入）。
 
 两个方法都返回一个 **`card` 标签的渲染意图**——选择与你的工具行为匹配的卡片类型：
 
@@ -76,17 +76,17 @@ producer 提供同步的 `cancel`、在资源清理后 settle 且不 reject 的 
   - `{ card: 'diff', title, diffs, locations? }`——你的调用创建或修改文件。`diffs: [{ path, oldText, newText }]`（新文件时 `oldText: null`）渲染为内联 diff 卡片。（tool-fs `write`/`edit`。）
 - `presentResult(args, { content, isError, meta? })` 返回完成后的卡片：
   - `generic` 提供可选的标题和内容。
-  - `terminal` 提供原始输出和可选的退出元数据；桥接层渲染能力特定或围栏回退视图。
-  - `diff` 提供已应用的 hunk，通常由 `output.presentationMeta` 派生并通过持久化的 `result.meta` 携带，使回放能重现它们。变更类工具保留 diff 结果，因为 ACP 更新会替换 pending 卡片的内容。
+  - `terminal` 提供原始输出和可选的退出元数据；各 UI 根据自身能力渲染对应视图或回退视图。
+  - `diff` 提供已应用的 hunk，通常由 `output.presentationMeta` 派生并通过持久化的 `result.meta` 携带，使回放能重现它们。变更类工具保留 diff 结果，因为完成后的视图会替换 pending 卡片。
 
 硬性规则（违反会出问题）：
 
-- **纯函数。** 这些方法在实时流式输出和会话日志回放时都会运行，因此必须是 `args`（加 result）的纯函数——不做 I/O、不读会话状态、不用时钟/随机数。diff 从 args 派生（`write` 使用 `oldText: null`，因为调用时的展示器没有文件先前内容）；**桥接层**（而非工具）填充会话 cwd 并相对化展示路径标题。如果你发现自己想在 `presentCall` 内获取文件旧内容或工作目录，请停下——那属于桥接层或未来的 result-event 形态，不属于展示器。
-- **UI 格式不进入模型结果。** 围栏 ` ```console ` 块、diff、相对化路径均不应仅为服务编辑器而进入规范值或 Native 内容。`output.render` 负责模型可见的自然语言；`presentationMeta` 和卡片展示器负责可回放的 UI 状态。`terminal` 结果视图携带原始输出，由桥接层添加围栏。
+- **纯函数。** 这些方法在实时流式输出和会话日志回放时都会运行，因此必须是 `args`（加 result）的纯函数——不做 I/O、不读会话状态、不用时钟/随机数。diff 从 args 派生（`write` 使用 `oldText: null`，因为调用时的展示器没有文件先前内容）；会话上下文由 UI 适配器而非工具提供。如果你发现自己想在 `presentCall` 内获取文件旧内容或工作目录，请停下：那属于持久结果元数据或适配器，不属于展示器。
+- **UI 格式不进入模型结果。** 围栏 ` ```console ` 块、diff、相对化路径均不应仅为服务 UI 而进入规范值或 Native 内容。`output.render` 负责模型可见的自然语言；`presentationMeta` 和卡片展示器负责可回放的 UI 状态。`terminal` 结果视图携带原始输出，由适配器按需添加回退格式。
 - **`defineTool` 对展示路径做软校验。** 格式错误或旧版日志中的 arg 形态会使包装器返回 `undefined`（通用回退）而非抛异常——展示绝不能导致回放崩溃。
 
-中性词汇定义在 `dsh-tools` 中（绝不在工具中导入 ACP 类型）；ACP 桥接层将每个 `card` 映射到协议格式（wire format）。设计与原因见[渲染意图联合体 Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)；`dsh-tool-fs`（generic/diff）和 `dsh-tool-bash`（terminal）是参考实现。
+中性词汇定义在 `dsh-tools` 中；工具绝不导入 UI 或传输类型。TUI 和 host/client 运行时将每个 `card` 映射到各自的视图。设计与原因见[渲染意图联合体 Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)；`dsh-tool-fs`（generic/diff）和 `dsh-tool-bash`（terminal）是参考实现。
 
 ## 每个工具必须的测试
 
-覆盖参数拒绝、每种规范值和 Native 渲染形态、输出 schema 拒绝以及 HMR dispose。对于有副作用的工具，使用脚本化的 `MockAdapter` 驱动真实工具通过 agent loop（智能体循环），并断言其 `tool/call` 和投影后的 `tool/result` 会话事件；同时证明规范值本身未被持久化。对于编辑器卡片，断言 `presentCall` 和 `presentResult` 的精确视图，并通过真实桥接层添加一个 [ACP 快照](../../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md)；终端卡片的场景设置 `terminalOutput: true` 以覆盖 capable-client 路径。
+覆盖参数拒绝、每种规范值和 Native 渲染形态、输出 schema 拒绝以及 HMR dispose。对于有副作用的工具，使用脚本化的 `MockAdapter` 驱动真实工具通过 agent loop（智能体循环），并断言其 `tool/call` 和投影后的 `tool/result` 会话事件；同时证明规范值本身未被持久化。对于 UI 卡片，断言 `presentCall` 和 `presentResult` 的精确视图，并实际运行所属 TUI 或 host/client 投影。如果工具改变了已交付的模型或 UI 行为，请添加组装应用快照。

@@ -14,7 +14,7 @@ While active, `plan:policy` renders the configured `section`. The plugin always 
 
 When `ctx.commands` is composed, the package registers `/plan [message]` and reserves the exact argument `off` for direct exit. Bare `/plan` selects plan mode; any other non-empty argument selects it first and is then submitted through `agent.steer()`, so it becomes the next step's ordinary logged user message under plan guidance. `/plan off` selects inactive without sending model input; it also cancels a pending entry before plan mode reaches a request.
 
-ACP is an adapter, not the owner of this vocabulary: it advertises the fixed wire ids `default` and `plan`, maps `session/set_mode` to the boolean service, and translates committed `plan/mode` events back to `current_mode_update`.
+The TUI consumes the plugin-owned `/plan` command; other front doors may drive the same service directly without defining a second mode vocabulary.
 
 ## Configuration
 

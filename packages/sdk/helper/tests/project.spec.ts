@@ -289,12 +289,13 @@ describe('SdkProject and ProjectEditSession', () => {
     edit.configureFeature(registry.get(featureId('app')), selection('app', ['acp']))
     const acp = (await edit.commit()).project
     expect(acp.profile.runInterface).toBe('acp')
-    expect(acp.cordis.entry('commands')).toMatchObject({ name: '@deepseek-ai/dsh-commands' })
+    expect(acp.cordis.entry('commands')).toBeUndefined()
+    expect(acp.cordis.entry('user-interaction')).toBeUndefined()
     expect(acp.packageManifest().scripts).toMatchObject({
       dev: 'dsh-sdk dev index.ts',
       start: 'dsh-sdk start index.js',
     })
-    expect(await readFile(join(acp.root, 'README.md'), 'utf8')).toContain('Run as an ACP server')
+    expect(await readFile(join(acp.root, 'README.md'), 'utf8')).toContain('Run as an ACP automation server')
     expect(await readFile(join(acp.root, 'index.ts'), 'utf8')).not.toContain('agents.create')
 
     const acpRegistry = createBuiltinRegistry(acp.profile)
@@ -324,12 +325,16 @@ describe('SdkProject and ProjectEditSession', () => {
       .toContain('missing package.json script dev')
   })
 
-  it('rejects enabled features that do not apply to the target app interface', async () => {
+  it('rejects ask-user on non-interactive app interfaces', async () => {
     const project = await createCommitted([selection('ask-user', ['default'])])
     const registry = createBuiltinRegistry(project.profile)
-    const edit = project.edit(registry)
-    edit.configureFeature(registry.get(featureId('app')), selection('app', ['embed']))
-    await expect(edit.commit()).rejects.toThrow('feature ask-user is not available for embed')
+    const embed = project.edit(registry)
+    embed.configureFeature(registry.get(featureId('app')), selection('app', ['embed']))
+    await expect(embed.commit()).rejects.toThrow('feature ask-user is not available for embed')
+
+    const acp = project.edit(registry)
+    acp.configureFeature(registry.get(featureId('app')), selection('app', ['acp']))
+    await expect(acp.commit()).rejects.toThrow('feature ask-user is not available for acp')
   })
 
   it('supports disabled feature reconfiguration and rejects invalid state operations', async () => {

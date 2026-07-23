@@ -10,7 +10,7 @@ Harness 使用 `cordis.yml` 描述 Agent 加载哪些插件以及每个插件的
 
 - [tui-agent](../../../examples/tui-agent/cordis.yml) 组合 DeepSeek 模型、Bash、文件系统、压缩、子代理、工作流和交互式 TUI。
 - [headless-agent](../../../examples/headless-agent/cordis.yml) 以单次任务形式暴露 coding 组装。
-- [acp-agent](../../../examples/acp-agent/cordis.yml) 通过 ACP 接入编辑器客户端。
+- [acp-agent](../../../examples/acp-agent/cordis.yml) 向程序化 ACP（Agent Client Protocol）客户端提供全新会话。
 
 最小配置由一组插件条目组成：
 

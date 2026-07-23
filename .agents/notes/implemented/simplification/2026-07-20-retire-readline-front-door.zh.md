@@ -32,7 +32,7 @@ Status: implemented
 ## 接受的损失
 
 - **单进程内的管道多轮对话**——readline 通道可以通过 stdin 脚本化多个轮次；单次任务 bin 每个进程只运行一个任务。多轮连续性由 `RESUME_SESSION_ID`/resume e2e 和 TUI 的脚本化 PTY 对话覆盖。
-- **非 TTY 的 `ask_user_question`**——readline 提供方是 `ctx.userInteraction` 唯一的非 TTY 终端实现。模型调用 `ask_user_question` 的 headless 运行现在会让该工具调用失败（没有提供方）；ACP 桥接仍是非终端提供方。未来需要它的 headless 部署自行组合提供方。
+- **非 TTY 的 `ask_user_question`**——readline 提供方是 `ctx.userInteraction` 唯一的非 TTY 终端实现。模型调用 `ask_user_question` 的 headless 或 ACP 自动化运行会让该工具调用失败，除非其组合提供相应的 provider；Web 拥有已交付的非终端 provider。
 
 ## 曾考虑的替代方案
 

@@ -64,9 +64,9 @@ In [Code Mode](../../packages/core/tools/README.md), every visible registered to
 
 Design `output.schema` as a useful programmatic API: return handles and fields directly, allow scalar/array/null roots when they are the honest value, and keep human explanation in `output.render`. Intermediate values are execution-local, are not persisted or prompt-truncated, and have no byte cap, so the producer's truthful acquisition bounds and process memory still matter. Only the outer `run_code` logs/result cross the configurable output cap and model-facing spill pipeline.
 
-## How your tool renders in an editor (ACP presentation)
+## How your tool renders in a UI
 
-Your tool's `output.render` returns model-facing content; its **editor card** is a separate concern declared through pure presentation projections and optional `presentCall` / `presentResult` methods. Design these alongside the canonical value—an editor (Zed, over the ACP bridge) shows the card, and a tool with no UI presentation falls back to a generic card (title = tool name, raw args as input).
+Your tool's `output.render` returns model-facing content; its **UI card** is a separate concern declared through pure presentation projections and optional `presentCall` / `presentResult` methods. Design these alongside the canonical value. A tool with no UI presentation falls back to a generic card (title = tool name, raw args as input).
 
 Both methods return a **`card`-tagged render intent** — pick the card kind that matches what your tool does:
 
@@ -76,17 +76,17 @@ Both methods return a **`card`-tagged render intent** — pick the card kind tha
   - `{ card: 'diff', title, diffs, locations? }` — your call creates or modifies a file. `diffs: [{ path, oldText, newText }]` (`oldText: null` for a new file) renders as an inline diff card. (tool-fs `write`/`edit`.)
 - `presentResult(args, { content, isError, meta? })` returns the completed card:
   - `generic` supplies an optional title and content.
-  - `terminal` supplies raw output and optional exit metadata; the bridge renders the capability-specific or fenced fallback view.
-  - `diff` supplies applied hunks, often derived by `output.presentationMeta` and carried in persisted `result.meta` so replay reproduces them. Mutation tools keep a diff result because an ACP update replaces the pending card's content.
+  - `terminal` supplies raw output and optional exit metadata; each UI renders its capable or fallback view.
+  - `diff` supplies applied hunks, often derived by `output.presentationMeta` and carried in persisted `result.meta` so replay reproduces them. Mutation tools keep a diff result because the completed view replaces the pending card.
 
 Hard rules (they bite if broken):
 
-- **Purity.** These run on live streaming AND on session-log REPLAY, so they must be pure functions of `args` (+ the result) — NO I/O, NO reading session state, NO clock/random. A diff is derived from the args (`write` uses `oldText: null` because a call-time presenter has no prior file content); the BRIDGE, not the tool, fills the session cwd and relativizes a display-path title. If you find yourself wanting the file's old content or the working directory inside `presentCall`, stop — that belongs on the bridge or a future result-event shape, not the presenter.
-- **UI-only formatting stays out of the model result.** A fenced ` ```console ` block, a diff, a relativized path—none of these belongs in the canonical value or Native content merely to serve an editor. `output.render` owns model-facing prose; `presentationMeta` plus the card presenters own replayable UI state. A `terminal` result view carries raw output and the bridge adds fences.
+- **Purity.** These run on live streaming AND on session-log REPLAY, so they must be pure functions of `args` (+ the result) — NO I/O, NO reading session state, NO clock/random. A diff is derived from the args (`write` uses `oldText: null` because a call-time presenter has no prior file content); the UI adapter, not the tool, supplies session context. If you find yourself wanting the file's old content or the working directory inside `presentCall`, stop — that belongs in durable result metadata or the adapter, not the presenter.
+- **UI-only formatting stays out of the model result.** A fenced ` ```console ` block, a diff, a relativized path—none of these belongs in the canonical value or Native content merely to serve a UI. `output.render` owns model-facing prose; `presentationMeta` plus the card presenters own replayable UI state. A `terminal` result view carries raw output and the adapter adds any fallback framing.
 - **`defineTool` soft-validates the display path.** A malformed/older logged arg shape makes the wrapper return `undefined` (a generic fallback) rather than throw — display must never crash a replay.
 
-The neutral vocabulary lives in `dsh-tools` (never import an ACP type into a tool); the ACP bridge maps each `card` to the wire. The design and the why are in [the render-intent-union Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md); `dsh-tool-fs` (generic/diff) and `dsh-tool-bash` (terminal) are the reference implementations.
+The neutral vocabulary lives in `dsh-tools`; tools never import a UI or transport type. The TUI and host/client runtime map each `card` into their own view. The design and the why are in [the render-intent-union Agent Note](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md); `dsh-tool-fs` (generic/diff) and `dsh-tool-bash` (terminal) are the reference implementations.
 
 ## Tests every tool needs
 
-Cover argument rejection, every canonical value and Native rendering shape, output-schema rejection, and HMR disposal. For a side-effecting tool, drive the real tool through the agent loop with a scripted `MockAdapter` and assert its `tool/call` and projected `tool/result` session events; prove the canonical value itself is not persisted. For an editor card, assert the exact `presentCall` and `presentResult` views and add an [ACP snapshot](../../.agents/notes/implemented/testing/2026-06-19-acp-snapshot-tests.md) through the real bridge; a terminal card's scenario sets `terminalOutput: true` to exercise the capable-client path.
+Cover argument rejection, every canonical value and Native rendering shape, output-schema rejection, and HMR disposal. For a side-effecting tool, drive the real tool through the agent loop with a scripted `MockAdapter` and assert its `tool/call` and projected `tool/result` session events; prove the canonical value itself is not persisted. For a UI card, assert the exact `presentCall` and `presentResult` views and exercise the owning TUI or host/client projection. Add an assembled snapshot for the shipped model or UI behavior the tool changes.

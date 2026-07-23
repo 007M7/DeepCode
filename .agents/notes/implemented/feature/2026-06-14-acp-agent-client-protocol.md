@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> Superseded by [ACP as an automation-only protocol](../simplification/2026-07-23-acp-automation-only-protocol.md). This note records the retired editor-facing bridge design.
+
 ## Problem
 
 The harness originally exposed agents only through a readline loop. That surface could carry text, but it gave an editor no structured way to create or resume sessions, correlate prompt completion, stream reasoning and tool activity, render tool-specific UI, ask for permission, or cancel one conversation without disturbing another. ACP defines those interactions as JSON-RPC over stdio, and Zed is the target client used to make concrete compatibility decisions.
@@ -10,7 +12,7 @@ The bridge must preserve the harness's existing ownership boundaries. It cannot 
 
 ## Decision
 
-`@deepseek-ai/dsh-acp` is a UI/client-driver plugin under `packages/ui/acp`. It uses `@agentclientprotocol/sdk`'s `AgentSideConnection` over stdin/stdout and programs only interface services: the agent create/resume factory, session persistence, tool registry, user interaction, and optional approval/bash capabilities. It does not change the agent loop and is not a capability-seam implementation.
+`@deepseek-ai/dsh-acp` was a UI/client-driver plugin in the former UI package group. It uses `@agentclientprotocol/sdk`'s `AgentSideConnection` over stdin/stdout and programs only interface services: the agent create/resume factory, session persistence, tool registry, user interaction, and optional approval/bash capabilities. It does not change the agent loop and is not a capability-seam implementation.
 
 The bridge implements the following stable session path:
 
@@ -30,7 +32,7 @@ The bridge also provides the ACP-backed `UserInteractionProvider`: `ask_user_que
 
 Lifecycle ownership is explicit. The bridge holds an `AgentHandle` per live session. Disconnect and Cordis disposal cancel pending prompts, dispose every handle in parallel, await loop quiescence and persistence flush, and then remove the records. Stream notification failures are contained so a vanished client cannot corrupt an agent turn. The ACP app composition loads no stdout logger; a test guards stdout as framed JSON-RPC only.
 
-The precise supported and deferred protocol rows live in [`packages/ui/acp/acp-feature-support.md`](../../../../packages/ui/acp/acp-feature-support.md); the package README is the operational contract.
+The current protocol contract lives in the [`dsh-acp` package README](../../../../packages/acp/acp/README.md).
 
 ## Alternatives considered
 

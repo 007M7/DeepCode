@@ -542,23 +542,23 @@ describe('ConfigWorkflow', () => {
     expect(result.commit?.project.cordis.entry('agent-core')).toBeUndefined()
   })
 
-  it('disables ask-user when switching its app interface to embed', async () => {
+  it('disables ask-user when switching its app interface to ACP', async () => {
     const project = await committedProject([
       { id: featureId('ask-user'), options: ['default'] },
-    ], [], 'acp')
+    ], [], 'tui')
     const registry = createBuiltinRegistry(project.profile)
     const output = outputBuffer()
     const workflow = new ConfigWorkflow(new QueuePort([
       [
         { value: 'feature:provider', choices: ['deepseek'] },
-        { value: 'feature:app', choices: ['embed'] },
+        { value: 'feature:app', choices: ['acp'] },
         { value: 'feature:persistence', choices: ['jsonl'] },
         { value: 'feature:ask-user', choices: ['default'] },
       ],
       true,
     ]), output.stream, async () => {})
     const result = await workflow.run(project, registry)
-    expect(result.commit?.project.profile.runInterface).toBe('embed')
+    expect(result.commit?.project.profile.runInterface).toBe('acp')
     expect(result.commit?.project.cordis.entry('tool-ask-user')?.disabled).toBe(true)
     expect(output.read()).toContain('Disable feature: ask-user')
   })

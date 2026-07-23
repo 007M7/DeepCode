@@ -47,6 +47,8 @@ const PACKED_CHUNK_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool
 /** A snapshot scenario and how its fixtures are produced. */
 export interface Scenario {
   name: string
+  /** Deployment environment for this scenario's subprocess. */
+  env?: NodeJS.ProcessEnv
   /** Whether the scenario drives at least one model turn (so a JSONL expected output applies). */
   hasModelTurn: boolean
   /**
@@ -604,6 +606,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           agent,
           mode: childMode,
           fixtureFile: join(dir, 'session.jsonl'),
+          ...scenario.env !== undefined ? { env: scenario.env } : {},
           ...existsSync(overrideFile) ? { overrideFile } : {},
           // In REPLAY, forward the recorded child fixtures so each subagent session
           // replays from its own script. In RECORD they are harvested, not read.

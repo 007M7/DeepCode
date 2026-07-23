@@ -10,7 +10,7 @@ The repository examples are runnable configurations and the most reliable starti
 
 - [tui-agent](../../../examples/tui-agent/cordis.yml) combines the DeepSeek model, Bash, filesystem, compaction, subagents, workflows, and the interactive TUI.
 - [headless-agent](../../../examples/headless-agent/cordis.yml) exposes the coding composition as a one-shot task.
-- [acp-agent](../../../examples/acp-agent/cordis.yml) connects to editor clients over ACP.
+- [acp-agent](../../../examples/acp-agent/cordis.yml) exposes fresh sessions to programmatic ACP clients.
 
 A minimal configuration is a list of plugin entries:
 

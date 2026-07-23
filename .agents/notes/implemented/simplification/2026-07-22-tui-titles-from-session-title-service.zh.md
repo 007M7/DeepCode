@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-tui-staging 分支合入 master 后，两套模型标题实现并存。TUI 自带 `autoTitle` 特性：在首条用户消息后发起一次 fire-and-forget 的 `ctx.llm.stream` 调用，通过 OSC 0 设置终端窗口标题，带有一次性闩锁、自己的提示词、自己的 40 字符截断和自己的恢复重推导（[auto-title Agent Note](../feature/2026-07-21-tui-auto-pane-title.md)、[default-on Agent Note](../feature/2026-07-21-tui-auto-title-default-on.md)）。而 master 已落地[日志承载的会话标题](../feature/2026-07-21-log-backed-session-titles.md)：一个 `sessionTitle` 能力，其被接受的修订是持久的 `session/title` 事件，带确定性回退和可选的模型 provider。TUI 已经消费 `session/title` 作为横幅副标题和窗口标题，于是一个会话可能被两种策略各标题一次，且 TUI 的进程本地标题对其他所有消费者（ACP、恢复列表、fork）不可见。
+tui-staging 分支合入 master 后，两套模型标题实现并存。TUI 自带 `autoTitle` 特性：在首条用户消息后发起一次 fire-and-forget 的 `ctx.llm.stream` 调用，通过 OSC 0 设置终端窗口标题，带有一次性闩锁、自己的提示词、自己的 40 字符截断和自己的恢复重推导（[auto-title Agent Note](../feature/2026-07-21-tui-auto-pane-title.md)、[default-on Agent Note](../feature/2026-07-21-tui-auto-title-default-on.md)）。而 master 已落地[日志承载的会话标题](../feature/2026-07-21-log-backed-session-titles.md)：一个 `sessionTitle` 能力，其被接受的修订是持久的 `session/title` 事件，带确定性回退和可选的模型 provider。TUI 已经消费 `session/title` 作为横幅副标题和窗口标题，于是一个会话可能被两种策略各标题一次，且 TUI 的进程本地标题对恢复列表、fork 和 Web 消费方不可见。
 
 ## 决策
 

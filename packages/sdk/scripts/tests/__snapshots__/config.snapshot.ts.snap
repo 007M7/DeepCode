@@ -85,7 +85,7 @@ Change file: package.json
           "choices": [
             {
               "default": false,
-              "label": "ACP server",
+              "label": "ACP automation server",
               "value": "acp",
             },
             {

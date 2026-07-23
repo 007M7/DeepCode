@@ -2,7 +2,6 @@
   "steps": [
     { "op": "initialize" },
     { "op": "newSession" },
-    { "op": "setConfigOption", "configId": "permission", "value": "workspace-write" },
     { "op": "prompt", "text": "Use the write tool (NOT bash) to create session-root.txt in the current directory containing exactly: session root. Then reply with exactly the single word DONE." }
   ]
 }

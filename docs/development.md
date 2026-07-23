@@ -9,7 +9,7 @@ This onboarding guide helps project contributors get started with the local envi
 - Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md).
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git.
-- Optional: a DeepSeek API key for the TUI/Headless/ACP agent demos and real-API e2e tests.
+- Optional: a DeepSeek API key for the TUI, headless, and ACP automation demos and real-API e2e tests.
 
 ## First-time setup
 
@@ -142,7 +142,7 @@ The self-referential cordis-agent demo can inspect and modify its live plugin ru
 pnpm run demo:cordis
 ```
 
-The ACP server agent demo exposes the agent over JSON-RPC stdio and also needs `DEEPSEEK_API_KEY`:
+The ACP automation server exposes fresh agent sessions over JSON-RPC stdio and also needs `DEEPSEEK_API_KEY`:
 
 ```sh
 pnpm run demo:acp

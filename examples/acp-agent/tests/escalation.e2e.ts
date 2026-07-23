@@ -25,7 +25,7 @@ import { cleanupAcpExampleTest } from './cleanup.ts'
  * model nor a sandbox runner is ever exercised.
  *
  * With-key escalation flow (self-skips without DEEPSEEK_API_KEY or a usable
- * platform runner): a scripted ACP client plays the human. The subprocess
+ * platform runner): a scripted ACP client supplies machine policy. The subprocess
  * starts read-only, its first real bash write is denied, the model retries with
  * `sandbox_permissions` + `justification`, and the bridge prompts THIS client
  * over `session/request_permission`. An approved workspace-write retry must
@@ -74,8 +74,8 @@ function launchExampleAcpAgent(
     requestPermission(params) {
       permissionRequests.push(params)
       const option = params.options.find(o => o.optionId === answer)
-      // The scripted human: pick the requested option when the prompt offers
-      // it; an unexpected prompt shape cancels (fail closed, never grants).
+      // The scripted machine policy selects the requested option; an
+      // unexpected request shape cancels (fail closed, never grants).
       if (option === undefined) return Promise.resolve({ outcome: { outcome: 'cancelled' } })
       return Promise.resolve({ outcome: { outcome: 'selected', optionId: option.optionId } })
     },
@@ -87,11 +87,6 @@ function escalationPrompt(path: string, content: string): string {
   return `Create ${path} containing exactly ${JSON.stringify(content)} using bash, not filesystem tools. `
     + 'First try the command without sandbox_permissions. If the sandbox denies it, retry that exact command once '
     + 'with sandbox_permissions set to workspace-write and a one-sentence justification.'
-}
-
-function includesReadOnlyDenial(updates: LaunchedAcpTestAgent['updates']): boolean {
-  return updates.some(update => update.sessionUpdate === 'tool_call_update'
-    && JSON.stringify(update.content).includes('[sandbox: file access denied under read-only mode]'))
 }
 
 let spawned: Spawned | undefined
@@ -112,46 +107,20 @@ describe('default sandbox composition keyless smoke (real cordis.yml via the Loa
     const { client } = spawned
     // A dummy key boots the adapter; no prompt is ever sent, so no model call
     // and no sandbox runner probe happen. This drives the fiber tree the same
-    // way an editor would, which is what catches a broken export/inject shape.
+    // way an ACP caller would, which catches a broken export/inject shape.
     const init = await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     expect(init.protocolVersion).toBe(PROTOCOL_VERSION)
+    expect(init.agentCapabilities).toEqual({
+      promptCapabilities: { image: false, audio: false, embeddedContext: false },
+    })
     const { sessionId } = await client.newSession({ cwd: workdir, mcpServers: [] })
     expect(sessionId.length).toBeGreaterThan(0)
   }, 30_000)
 
-  it('advertises model and Permissions selects and honors a permission switch without a model call', async () => {
-    workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-config-'))
-    spawned = launchExampleAcpAgent(workdir, 'reject-once')
-    const { client } = spawned
-    await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-    // This tree composes the permission presets over bash-sandbox + approval →
-    // ONE select advertises, current from the configured default preset.
-    const created = await client.newSession({ cwd: workdir, mcpServers: [] })
-    const advertised = created.configOptions ?? []
-    const modelValue = JSON.stringify(['deepseek', 'deepseek-v4-pro'])
-    expect(advertised.map(option => [option.id, 'currentValue' in option ? option.currentValue : undefined]))
-      .toEqual([['model', modelValue], ['permission', 'workspace-write']])
-    // A switch responds with the COMPLETE refreshed state (the spec contract),
-    // and the new current survives in the response of a second switch.
-    const afterFullAccess = await client.setSessionConfigOption({
-      sessionId: created.sessionId, configId: 'permission', value: 'danger-full-access',
-    })
-    expect(afterFullAccess.configOptions?.find(option => option.id === 'permission'))
-      .toMatchObject({ currentValue: 'danger-full-access' })
-    const again = await client.setSessionConfigOption({
-      sessionId: created.sessionId, configId: 'permission', value: 'danger-full-access',
-    })
-    expect((again.configOptions ?? []).map(option => [option.id, 'currentValue' in option ? option.currentValue : undefined]))
-      .toEqual([['model', modelValue], ['permission', 'danger-full-access']])
-    // An out-of-vocabulary value is a protocol error, never a silent default.
-    await expect(client.setSessionConfigOption({
-      sessionId: created.sessionId, configId: 'permission', value: 'plan',
-    })).rejects.toThrow(/unknown permission value/)
-  }, 30_000)
 })
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('default sandbox composition e2e: the live approval loop', () => {
-  it('denial → model escalation → editor prompt → allow-once → the retried write lands on disk', async () => {
+  it('denial → model escalation → machine allow-once → the retried write lands on disk', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-e2e-'))
     spawned = launchExampleAcpAgent(workdir, 'allow-once', 'read-only')
     const { client, permissionRequests, updates } = spawned
@@ -166,14 +135,14 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('default sandbox co
       }],
     })
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
-    expect(includesReadOnlyDenial(updates)).toBe(true)
+    expect(updates.every(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
 
     // The WORLD: the approved escalated retry landed the write.
     const proof = await readFile(join(workdir, 'escalated.txt'), 'utf8')
     expect(proof).toContain('ACP_ESCALATION_OK')
 
     // The CHANNEL: the grant came through a real session/request_permission
-    // prompt attached to the escalating tool call, offering exactly the
+    // request attached to the escalating tool call, offering exactly the
     // one-shot options.
     expect(permissionRequests.length).toBeGreaterThan(0)
     const prompt = permissionRequests[0]
@@ -198,11 +167,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('default sandbox co
       }],
     })
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
-    expect(includesReadOnlyDenial(updates)).toBe(true)
+    expect(updates.every(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
 
     // The WORLD: rejected means the file never appeared.
     await expect(readFile(join(workdir, 'refused.txt'), 'utf8')).rejects.toThrow()
-    // And the rejection really flowed through a prompt (not a missing channel).
+    // And the rejection flowed through the machine-policy channel.
     expect(permissionRequests.length).toBeGreaterThan(0)
   }, 240_000)
 })

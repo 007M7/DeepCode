@@ -21,22 +21,7 @@
       "path": "../../ui/app-boot"
     },
     {
-      "path": "../../ui/acp"
-    },
-    {
-      "path": "../../session-query/session-query"
-    },
-    {
-      "path": "../../session-query/session-query-sqlite"
-    },
-    {
-      "path": "../../context/session-reference"
-    },
-    {
-      "path": "../../ui/commands"
-    },
-    {
-      "path": "../../goal/command-goal"
+      "path": "../../acp/acp"
     },
     {
       "path": "../../core/agent"
@@ -46,12 +31,6 @@
     },
     {
       "path": "../../context/workspace-context"
-    },
-    {
-      "path": "../../ui/user-interaction"
-    },
-    {
-      "path": "../../ui/tool-ask-user"
     },
     {
       "path": "../../session-persistence/session-checkpoint-policy"

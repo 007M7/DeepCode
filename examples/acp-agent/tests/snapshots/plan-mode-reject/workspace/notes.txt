@@ -1,2 +1,0 @@
-project notes
-- the greeting message still says "helo wrld"

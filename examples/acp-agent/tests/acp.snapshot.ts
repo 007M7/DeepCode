@@ -42,6 +42,9 @@ const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
 
+// FIXME: Migrate backend-oriented scenarios to the headless stream-json suite;
+// this ACP suite should eventually retain only automation-protocol contracts.
+
 function fixtureRecords(name: string): unknown[] {
   return readFileSync(join(SNAPSHOTS_DIR, name, 'session.jsonl'), 'utf8')
     .trimEnd()
@@ -67,22 +70,6 @@ function snapshotModeFromEnv(value: string | undefined): SnapshotSuiteOptions['m
 const SCENARIOS: Scenario[] = [
   { name: 'handshake', hasModelTurn: false, recorded: false },
   { name: 'reject-extra-dirs', hasModelTurn: false, recorded: false },
-  // Direct command dispatch reports goal state without spending a model turn.
-  { name: 'goal-command-status', hasModelTurn: false, recorded: false },
-  // Protocol-only (keyless, authored): session/new advertises the mode picker,
-  // session/set_mode acknowledges a valid selection, and an unknown mode id
-  // fails loudly. With no model turn, its membership in the plan header class
-  // is vacuous; the class still needs one explicit pin below.
-  { name: 'modes-advertise', hasModelTurn: false, recorded: false, headerClass: 'plan' },
-  // The plan header pin covers the full arc: setMode(plan), a real read under
-  // the independently configured sandbox, plan review through exit_plan_mode,
-  // an approved boundary flip back to default, and a real edit in the next
-  // step. Leaving plan removes the policy section and exit tool, producing one
-  // changed request header.
-  { name: 'plan-mode', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'plan', expectedHeaderChanges: 1 },
-  // Free-text review feedback returns as a corrective error and leaves the
-  // session in plan mode, so this scenario shares the pinned plan header.
-  { name: 'plan-mode-reject', hasModelTurn: true, recorded: true, headerClass: 'plan' },
   // text-turn is the pinned-header scenario: the minimal single text turn.
   // Its prompt and tool-schema sidecars pin the composed header.
   { name: 'text-turn', hasModelTurn: true, recorded: true, pinsHeader: true },
@@ -108,15 +95,14 @@ const SCENARIOS: Scenario[] = [
     headerClass: 'pty',
     configPath: PTY_CONFIG,
   },
-  { name: 'fs-terminal-card', hasModelTurn: true, recorded: true },
-  { name: 'todo-plan', hasModelTurn: true, recorded: true },
+  { name: 'bash-tool-turn', hasModelTurn: true, recorded: true },
+  { name: 'todo-write', hasModelTurn: true, recorded: true },
   { name: 'skill-load', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'skill' },
   { name: 'lsp-definition', hasModelTurn: true, recorded: false, pinsHeader: true, headerClass: 'lsp', configPath: LSP_CONFIG },
   {
     name: 'workspace-edit',
     hasModelTurn: true,
     recorded: true,
-    pinsNativeWindowsStdout: true,
   },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },
@@ -125,17 +111,6 @@ const SCENARIOS: Scenario[] = [
   { name: 'fs-read-window', hasModelTurn: true, recorded: true },
   { name: 'fs-policy-reject', hasModelTurn: true, recorded: true },
   { name: 'multi-turn', hasModelTurn: true, recorded: true },
-  // ACP exposes the adapter catalog as a session-scoped model select. This
-  // scenario pins the default flash request, the switch response, and the
-  // resulting changed request-header snapshot for pro.
-  {
-    name: 'model-switching',
-    hasModelTurn: true,
-    recorded: true,
-    pinsHeader: true,
-    expectedHeaderChanges: 1,
-    headerClass: 'model-switching',
-  },
   { name: 'error-finish', hasModelTurn: true, recorded: false, overridden: true },
   // Keyless, authored (like error-finish/cancel): deterministically forcing a
   // LIVE model to repeat one call three times is not a stable recording, so
@@ -231,16 +206,30 @@ const SCENARIOS: Scenario[] = [
     configPath: CODE_MODE_WORKSPACE_CONTEXT_CONFIG,
   },
   { name: 'both-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'both', configPath: BOTH_MODE_CONFIG },
-  // The default tree also owns the Permissions select. Snapshot mode starts in
-  // danger-full-access so established fixtures stay runner-independent; these
-  // policy scenarios switch to workspace-write in their input scripts.
-  // Real-kernel confinement remains in escalation.e2e.ts and the sandbox
-  // packages' e2e suites.
-  { name: 'config-options', hasModelTurn: false, recorded: false, headerClass: 'sandbox' },
-  { name: 'permission-switching', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'sandbox' },
-  { name: 'escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
-  { name: 'escalation-rejected', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
-  { name: 'fs-escalation-approved', hasModelTurn: true, recorded: true, headerClass: 'sandbox' },
+  // Machine permission scenarios use an explicit deployment policy; there is
+  // no session-scoped UI picker on the automation protocol.
+  {
+    name: 'escalation-approved',
+    hasModelTurn: true,
+    recorded: true,
+    pinsHeader: true,
+    headerClass: 'sandbox',
+    env: { DSH_PERMISSION_MODE: 'workspace-write' },
+  },
+  {
+    name: 'escalation-rejected',
+    hasModelTurn: true,
+    recorded: true,
+    headerClass: 'sandbox',
+    env: { DSH_PERMISSION_MODE: 'workspace-write' },
+  },
+  {
+    name: 'fs-escalation-approved',
+    hasModelTurn: true,
+    recorded: true,
+    headerClass: 'sandbox',
+    env: { DSH_PERMISSION_MODE: 'workspace-write' },
+  },
   // Unlike ordinary snapshots, this session cwd is outside the platform temp
   // roots that workspace-write always grants. The overlay points the
   // deployment fallback at /tmp, so a successful relative write proves the
@@ -252,6 +241,7 @@ const SCENARIOS: Scenario[] = [
     overridden: true,
     headerClass: 'sandbox',
     configPath: SESSION_SANDBOX_ROOT_CONFIG,
+    env: { DSH_PERMISSION_MODE: 'workspace-write' },
     workspaceParent: homedir(),
   },
 ]

@@ -18,7 +18,7 @@ harness 已具备文本搜索与文件读取能力，但二者都无法识别程
 
 1. `packages/lsp/lsp` 下的 `@deepseek-ai/dsh-lsp` 负责 `ctx.lsp`、提供方注册与选择、标准化请求与结果、执行控制，以及结构化 LSP 错误。
 2. `packages/lsp/lsp-local` 下的 `@deepseek-ai/dsh-lsp-local` 将配置的 stdio 语言服务器适配到该服务边界。一个插件实例接收具名服务器表，并为每组命令及扩展名到语言 id 的映射注册一个隔离的提供方。
-3. `packages/lsp/tool-lsp` 下的 `@deepseek-ai/dsh-tool-lsp` 负责面向模型的 `lsp` schema、提示词指导、参数校验、结果限制与格式化，以及 ACP（Agent Client Protocol）展示。
+3. `packages/lsp/tool-lsp` 下的 `@deepseek-ai/dsh-tool-lsp` 负责面向模型的 `lsp` schema、提示词指导、参数校验、结果限制与格式化，以及与传输方式无关的 UI 展示。
 
 `dsh-lsp-local` 是通用 host，不是语言服务器目录或安装器。部署显式配置命令与映射；未来 preset 属于组合插件或 `cordis.yml` overlay。
 
@@ -100,7 +100,7 @@ interface LspToolInput {
 
 位置按文件稳定分组并渲染为 `path:line:character`。Node `fileURLToPath()` 可接受的 `file:` URI 在工作区内转换为相对路径，在工作区外转换为绝对路径；其他 URI 保持原样。`maxLocations` 默认值为 `100`，并报告省略的条目；`maxResultChars` 默认值为 `16_000`，并限制每个完整渲染结果，其中包括截断元数据。空位置与 `null` hover 是成功的无结果响应；服务器载荷缺失或格式错误时，以结构化 `LSP_MALFORMED_RESPONSE` 错误失败。
 
-ACP 使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_path, line }] }`，`title` 由参数推导并标明操作与光标。由于 `FileLocation` 没有 character，跟随位置聚焦输入行，标题保留完整光标；展示保持纯函数。
+与传输方式无关的展示器使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_path, line }] }`，`title` 由参数推导并标明操作与光标。由于 `FileLocation` 没有 character，跟随位置聚焦输入行，标题保留完整光标；展示保持纯函数。
 
 ## 超时归属
 
@@ -174,7 +174,7 @@ ACP 使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_p
 ## 测试
 
 - 包测试固定三个包的依赖方向、运行时注入和仅通过 `ctx.lsp` 通信的边界。
-- 工具测试固定四种操作、坐标校验、配置限制与省略标记、提示词和 ACP 展示。
+- 工具测试固定四种操作、坐标校验、配置限制与省略标记、提示词和 UI 展示。
 - 注册表测试固定原子占用/释放、不受顺序影响的选择，以及结构化的不可用、已释放、冲突和不支持操作错误。
 - 测试用 stdio server 固定精确的初始化能力、四种协议映射、`Location`/`LocationLink` 与 `hover` 归一化，以及 `findReferences` 到 `references.includeDeclaration` 的映射。
 - 同步测试固定 UTF-16 协商与转换、受支持和被拒绝的 `textDocumentSync` 形式、打开写入阻塞与失败、配对的临时打开/关闭、关闭写入失败和错误响应拒绝。
@@ -182,7 +182,7 @@ ACP 使用 `{ card: 'generic', kind: 'search', title, locations: [{ path: file_p
 - 生命周期测试固定启动 single-flight、完整生命周期串行化及排队查询读取最新源文件、跨工作区并行、可取消队列、崩溃后不重放的替换、stdin 失败后的进程拆除，以及释放后完全停稳。
 - 主机文件系统测试固定 session cwd 要求、符号链接下相对与绝对源路径的规范 containment、文档校验、file/non-file URI 渲染、无格式源文本和不发送 `fs/observed`。
 - 无密钥且固定版本的 TypeScript 真实服务器 e2e 覆盖四种操作；可运行配置使用同一项显式提供方映射。
-- 快照覆盖模型可见 schema、提示词、结果、省略提示和 ACP 渲染；构建产物冒烟测试覆盖分帧与清理。
+- 快照覆盖模型可见 schema、提示词、结果和省略提示；构建产物冒烟测试覆盖分帧与清理。
 - 包与架构文档覆盖配置、安全边界和搜索/读取指导；同一改动中，新的 `packages/lsp/` 包组要加入 AGENTS.md 的仓库布局块、packages/README.md 的分组表和 architecture.md。
 
 ## 影响

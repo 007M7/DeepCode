@@ -34,7 +34,7 @@ Thin candidates are usually not enough for an Agent Note: deleting one typo, run
 Use parallel subagents when the user asks for breadth or many candidates. Give each agent a domain and require evidence, not guesses. Useful domains:
 
 - Agent loop and session log: turn/step boundaries, steering, abort/cancel, durable events, replay, load/resume.
-- ACP and UI surfaces: `session/*` methods, terminal `_meta`, transcript rendering, single vs multi-session state.
+- ACP automation and human UI surfaces: prompt settlement and teardown on the protocol side; transcript rendering and interaction state on the UI side.
 - LLM/tools/system prompt: stream/generate surfaces, assemblers, registries, tool schema defaults, presentation hooks.
 - Bash and tool execution: foreground/background split, task ownership, output spill files, executor methods.
 - Packages/examples/scripts/tests: package boundaries, static inventories, redundant snapshot expected outputs, support packages.

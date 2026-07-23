@@ -39,27 +39,6 @@ The available tools:
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
 interface ToolArgsMap {
-  /** Ask the user a concise question when you need confirmation, a choice, or missing information before proceeding. Send one or more questions, each with a stable id that will be echoed in the answer. */
-  ask_user_question: {
-    /** Questions to ask the user before continuing. */
-    questions: ({
-      /** Stable id for this question; echoed in the answer. */
-      id: string;
-      /** The specific question to ask the user. */
-      question: string;
-      /** Optional short heading for the question, such as "Confirm" or "Choose Mode". */
-      header?: string;
-      /** Optional choices to show the user. If you recommend one, put it first and append "(Recommended)" to that label. */
-      options?: ({
-        /** Short user-facing option label. */
-        label: string;
-        /** One sentence explaining the tradeoff or impact. */
-        description?: string;
-      } & Record<string, JsonValue>)[];
-      /** Whether the user may select more than one option. Defaults to false. */
-      multi_select?: boolean;
-    } & Record<string, JsonValue>)[];
-  } & Record<string, JsonValue>;
   /** Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell: no state (cwd, variables, functions) persists between calls — pass `workdir` instead of using `cd`. Non-zero exits are reported as `[exit code: N]`. Current harness environment facts are exposed through managed `$DSH_*` variables; inspect them when needed. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]` — a policy denial, not a bug in the command; do not retry another way. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Set `run_in_background: true` for long-running commands: the call returns a task id immediately; read its output with `task_output` and stop it with `task_kill`. Attempting a command the sandbox may deny is safe and expected: run it and read the marker rather than assuming the denial. When a command is denied and a wider mode would let it succeed, escalate immediately in the same turn — the one sanctioned exception to a denial: retry the exact same command once with `sandbox_permissions` (the narrowest wider mode that suffices) plus a one-sentence `justification`. Do not detour through chat to ask permission first — the approval prompt raised by that retry is how the user consents. If the session states approval prompts are disabled, there is no exception: a denial is final — do not set `sandbox_permissions`. Never escalate speculatively: ground the request in a real denial — normally the one this command just hit; escalating up front is fine only when this session already denied the same access. A rejected escalation is final for that command — stop and explain, never work around it — but it does not forbid attempting or escalating other commands later. */
   bash: {
     /** The bash command to execute. */
@@ -115,11 +94,6 @@ interface ToolArgsMap {
     sandbox_permissions?: "workspace-write" | "danger-full-access";
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. */
     justification?: string;
-  } & Record<string, JsonValue>;
-  /** Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. Send the COMPLETE plan as markdown, starting with a # heading that names it. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again. */
-  exit_plan_mode: {
-    /** The complete plan, as markdown, starting with a # heading that names it. */
-    plan: string;
   } & Record<string, JsonValue>;
   /** Read the current same-session goal, including its exact id/revision, objective, phase, completed continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. Call this before updating a goal. */
   get_goal: Record<string, JsonValue>;
@@ -246,13 +220,6 @@ interface ToolArgsMap {
 }
 
 interface ToolOutputMap {
-  ask_user_question: {
-    answers: {
-      id: string;
-      selected: string[];
-      custom?: string;
-    }[];
-  };
   bash: {
     kind: "background";
     taskId: string;
@@ -313,9 +280,6 @@ interface ToolOutputMap {
     path: string;
     before: string;
     after: string;
-  };
-  exit_plan_mode: {
-    approved: true;
   };
   get_goal: {
     goal: null;

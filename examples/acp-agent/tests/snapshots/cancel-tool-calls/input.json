@@ -5,9 +5,7 @@
     {
       "op": "promptAndCancel",
       "text": "Run two shell commands: wait for cancellation, then write skipped.txt.",
-      "afterUpdate": "tool_call",
-      "waitForFile": { "path": "started.txt" },
-      "waitForToolCallUpdate": "call_skipped"
+      "waitForFile": { "path": "started.txt" }
     },
     { "op": "waitForTurnEnd" }
   ]

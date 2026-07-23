@@ -35,8 +35,9 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, bounded reads, lineage, event relationships, semantic filtering, and SQLite full-text search | Product — stable surface |
 | [`session-title/`](session-title/README.md) | Log-backed session titles: fallback service, shared LLM policy, and opt-in providers | Product — stable surface |
 | [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |
-| [`ui/`](ui/README.md) | Editor/client integration surfaces: ACP bridge, JSON-RPC SDK server, user-approval/user-interaction seams, ask-user tool | Product — stable surface |
-| [`examples/`](examples/README.md) | Demo bundles (agent-spine + TUI/one-shot CLI/ACP/JSON-RPC bins) the leaves load | Support — example infra |
+| [`acp/`](acp/README.md) | Automation-only Agent Client Protocol server | Product — stable surface |
+| [`ui/`](ui/README.md) | Human/client integrations: TUI and JSON-RPC, approval/interaction seams, ask-user tool | Product — stable surface |
+| [`examples/`](examples/README.md) | Demo bundles (agent-spine + TUI/CLI/ACP/JSON-RPC bins) leaves load | Support — example infra |
 | [`support/`](support/README.md) | Support infrastructure (testkits, invariants, replay, Loader smokes) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (`Branded<B>`, Harness home/path helpers, timeout, retention) | Support — small, stable, harness-dep-free |
 

@@ -1,6 +1,6 @@
 {
   "steps": [
-    { "op": "initialize", "terminalOutput": true },
+    { "op": "initialize" },
     { "op": "newSession" },
     { "op": "prompt", "text": "Exercise the six PTY tools in order, including one missing-session signal error, then reply DONE." }
   ]

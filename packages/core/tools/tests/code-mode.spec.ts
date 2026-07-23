@@ -696,10 +696,8 @@ describe('the run_code dispatch bridge', () => {
   it('presents the program as the execute-card title', async () => {
     const { ctx } = await setup({ mode: 'code' })
     const tool = ctx.tools.get(RUN_CODE_NAME)!
-    // The program IS the title, mirroring how command tools title their cards
-    // with the command: an ACP client's execute-card header is the only
-    // always-visible slot (Zed renders no body content and no raw input for
-    // execute-kind cards without a real terminal).
+    // The program is the title, mirroring how command tools label their cards
+    // with the command while retaining the same value in the expanded input.
     expect(tool.presentCall?.({ code: 'return 1' })).toEqual({
       card: 'generic',
       title: 'return 1',

@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-tool-lsp
 
-The model-facing **`lsp` tool** over `ctx.lsp`: one read-only tool with four operations for precise code navigation. It owns the model schema, prompt guidance, coordinate conversion, result limits and formatting, and ACP presentation; it imports no provider.
+The model-facing **`lsp` tool** over `ctx.lsp`: one read-only tool with four operations for precise code navigation. It owns the model schema, prompt guidance, coordinate conversion, result limits and formatting, and UI presentation; it imports no provider.
 
 Namespace plugin (`name` / `inject` / `Config` / `apply`, no default export). Injects `tools`, `lsp`, and `systemPrompt`.
 
@@ -68,7 +68,7 @@ Capped per tool result by `maxResultChars`, with `maxLocations` additionally bou
 
 Tool results append after the cached request prefix and do not directly invalidate it.
 
-### ACP presentation
+### UI presentation
 
 #### What the model sees
 
@@ -80,7 +80,7 @@ Zero direct token effect because rendering is client-side only.
 
 #### KV Cache effect
 
-None; ACP presentation is outside the model request.
+None; UI presentation is outside the model request.
 
 ## Known Limitations and Deferred Work
 

@@ -5,9 +5,9 @@
 Built with the DeepSeek Harness SDK using the {{model}} model.
 
 {{#if isAcp}}
-## Run as an ACP server
+## Run as an ACP automation server
 
-Run `{{packageManager}} start` and configure your ACP client to launch this project. Standard output is reserved for ACP JSON-RPC.
+Run `{{packageManager}} start` and configure a programmatic ACP client to launch this project. Standard output is reserved for ACP JSON-RPC.
 {{else}}
 {{#if isTui}}
 ## Run in a terminal

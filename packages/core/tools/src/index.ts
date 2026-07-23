@@ -69,7 +69,7 @@ export { defineContentToolFixture, type ContentToolFixtureOptions } from './test
 
 // The render-intent vocabulary a tool declares via `presentCall`/`presentResult`
 // lives in its own UI-facing module; re-export it so `@deepseek-ai/dsh-tools`
-// stays the single public surface for consumers (producers + the ACP bridge).
+// stays the single public surface for tool producers and UI adapters.
 export type {
   ToolCallKind,
   FileLocation,

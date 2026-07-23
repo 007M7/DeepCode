@@ -1,7 +1,7 @@
 /**
  * Pure formatting and coordinate conversion for the `lsp` tool: one-based↔zero-based UTF-16 cursor
  * conversion, workspace-grouped location rendering with `file:`-URI resolution, complete-result
- * capping, and ACP presentation. No I/O — a UI may call the presenter on live streaming and on
+ * capping, and UI presentation. No I/O — a UI may call the presenter on live streaming and on
  * replay, so it depends only on the tool arguments.
  * @module @deepseek-ai/dsh-tool-lsp/render
  */
@@ -152,9 +152,9 @@ export function renderUri(uri: string, workspaceRoot: string): string {
 }
 
 /**
- * ACP presentation for a pending `lsp` call. Uses a generic search card; the title carries the
- * operation and one-based cursor, and `locations` focuses the queried line (ACP `FileLocation` has
- * no character, so the title preserves the column).
+ * UI presentation for a pending `lsp` call. Uses a generic search card; the title carries the
+ * operation and one-based cursor, and `locations` focuses the queried line. The shared location
+ * shape has no character, so the title preserves the column.
  * @param args - the raw tool arguments.
  * @returns the generic call view.
  */

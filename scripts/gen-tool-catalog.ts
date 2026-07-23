@@ -354,7 +354,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolTodo)
     },
     note:
-      'todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan.',
+      'todo_write is session-owned state; UIs render the latest todo/write event as a checklist.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-workflow',

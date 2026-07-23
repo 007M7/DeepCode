@@ -8,19 +8,17 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 
 /**
- * Category of a tool call, used by a UI to pick an icon / treatment. A neutral
- * vocabulary owned here (NOT an ACP type) so tools describe themselves without
- * depending on any client protocol; a UI bridge maps it to its own enum. The
- * member set mirrors the common ACP `ToolKind` values; `other` is the default.
+ * Category of a tool call, used by a UI to pick an icon or treatment. The
+ * provider-neutral vocabulary lets tools describe themselves without depending
+ * on a particular client; `other` is the default.
  */
 export type ToolCallKind = 'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'
 
 /**
  * A file location a tool reads or modifies, so a capable UI can "follow along" —
- * highlight or jump to the file (and line) as the tool runs. Provider-neutral;
- * a UI bridge maps it to its own affordance (the ACP bridge forwards it as
- * `tool_call.locations`). `path` is what the tool operated on (the model-facing
- * path); `line` is an optional 1-based line to focus (e.g. a read's offset).
+ * highlight or jump to the file (and line) as the tool runs. `path` is what the
+ * tool operated on (the model-facing path); `line` is an optional 1-based line
+ * to focus (e.g. a read's offset).
  */
 export interface FileLocation {
   path: string
@@ -29,10 +27,9 @@ export interface FileLocation {
 
 /**
  * A single-file change a tool is about to make, for a UI that renders inline
- * diffs (an editor's diff card). Provider-neutral; the ACP bridge forwards it as
- * a `{ type: 'diff' }` tool-call content block. `oldText` is `null` for a
- * new-file create (nothing to diff against); an overwrite also uses `null`,
- * because a call-time presenter has no access to the file's prior content.
+ * diffs. `oldText` is `null` for a new-file create (nothing to diff against);
+ * an overwrite also uses `null`, because a call-time presenter has no access to
+ * the file's prior content.
  */
 export interface FileDiff {
   path: string
