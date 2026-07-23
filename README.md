@@ -25,7 +25,7 @@ The installer clones DeepSeek Harness to `~/.dsh/source`, links `dsh` into `~/.l
 For the recommended local interface, build the frontend after installation and after each update, then start the Web UI:
 
 ```sh
-pnpm --dir ~/.dsh/source run build:web
+pnpm --dir ~/.dsh/source run build && pnpm --dir ~/.dsh/source run build:web
 dsh web
 ```
 

@@ -104,6 +104,16 @@ describe('bootHost / startHost', () => {
     await handle.dispose()
   })
 
+  it('uses the JSONL backend compressed default', async () => {
+    const handle: HostHandle = await bootHost({
+      persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-boot-zstd-')),
+      workspaceContext: false,
+    })
+    const session = handle.ctx.sessions.create()
+    expect(handle.ctx.sessionPersistence.locate(session.header)?.path).toMatch(/\.jsonl\.zstd$/)
+    await handle.dispose()
+  })
+
   it('startHost assembles api + handler over the same defaults and dedupes dispose', async () => {
     const running = await boot()
     expect(running.defaults).toMatchObject({ provider: 'scripted', model: 'test-model' })

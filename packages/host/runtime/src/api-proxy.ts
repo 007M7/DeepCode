@@ -8,7 +8,7 @@ import { stat } from 'node:fs/promises'
 import type { Context } from 'cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type {
   ApiProxy, HistoryEntry, HostFrame, MuxFrame, QuestionResponsePayload, SessionSummary, ToolEventView,
@@ -158,7 +158,7 @@ export interface ApiProxyDefaults {
 /** The tool/call payload fields the presenter path reads. */
 interface ToolCallData { callId: string; name: string; arguments: string }
 /** The tool/result payload fields the presenter path reads. */
-interface ToolResultData { callId: string; content: ContentBlock[]; isError: boolean; meta?: unknown }
+interface ToolResultData { callId: string; content: ContentBlock[]; isError: boolean; meta?: JsonValue }
 
 /** One host-owned question wait, addressed by the stable server-request id. */
 interface PendingQuestion {

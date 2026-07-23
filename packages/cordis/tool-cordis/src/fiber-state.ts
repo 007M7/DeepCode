@@ -21,11 +21,11 @@ export const FiberState = {
 export type FiberState = FiberStateEnum
 
 /** Human-readable label for each {@link FiberState}, keyed by member (inlining-safe — no reverse mapping). */
-export const STATE_LABELS: Record<FiberState, string> = {
+export const STATE_LABELS = {
   [FiberState.PENDING]: 'pending',
   [FiberState.LOADING]: 'loading',
   [FiberState.ACTIVE]: 'active',
   [FiberState.FAILED]: 'failed',
   [FiberState.DISPOSED]: 'disposed',
   [FiberState.UNLOADING]: 'unloading',
-}
+} as const satisfies Record<FiberState, string>

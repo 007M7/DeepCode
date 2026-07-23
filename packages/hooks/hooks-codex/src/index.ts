@@ -231,8 +231,7 @@ export function apply(ctx: Context, config: Config): void {
       return { ...downstream, additionalContexts: prependContext(context, downstream.additionalContexts) }
     }
     return {
-      kind: 'accept',
-      ...downstream.content !== undefined ? { content: downstream.content } : {},
+      ...downstream,
       additionalContexts: prependContext(context, downstream.additionalContexts),
     }
   })

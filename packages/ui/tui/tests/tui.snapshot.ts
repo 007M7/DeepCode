@@ -6,8 +6,7 @@ import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import { CallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
-import type { Session } from '@deepseek-ai/dsh-session'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, type JsonValue, type Session } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolDefinition, type ToolResultView } from '@deepseek-ai/dsh-tools'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
@@ -157,7 +156,7 @@ function appendToolResult(
   session: Session,
   id: string,
   content: ContentBlock[],
-  options: { isError?: boolean; meta?: unknown } = {},
+  options: { isError?: boolean; meta?: JsonValue } = {},
 ): void {
   session.append('tool/result', {
     turn: 1,
@@ -178,6 +177,7 @@ function visualTool(
     name,
     description: `${name} snapshot fixture`,
     parameters: {},
+    output: { schema: { type: 'null' }, render: () => [] },
     execute: () => Promise.resolve([]),
     presentCall: call,
     ...result === undefined ? {} : { presentResult: result },

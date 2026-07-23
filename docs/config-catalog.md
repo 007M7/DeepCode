@@ -297,20 +297,17 @@ export interface Config {
    * nobody will resolve).
    */
   maxWallMs?: number
-  /** Shared byte budget for captured log text (console + raw stream writes), truncation marked in-band. */
-  maxLogBytes?: number
   /**
-   * Byte cap for the completion value, measured by its real cross-boundary
-   * size (string bytes, or structured-clone wire size); an oversized or
-   * non-cloneable value crosses as a capped string rendering.
+   * Hard cap for serialized log-array, completion-value, and failure-message payloads;
+   * fixed result-envelope syntax is excluded.
    */
-  maxValueBytes?: number
+  maxOutputBytes?: number
   /** The worker's max old-generation heap in MiB (`resourceLimits`); overflow kills the worker, surfacing as kind `'worker-exit'`. */
   maxOldGenerationSizeMb?: number
 }
 ```
 
-Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:21`](../packages/code-runtime/code-runtime-worker/src/index.ts)
+Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:24`](../packages/code-runtime/code-runtime-worker/src/index.ts)
 
 ## `@deepseek-ai/dsh-compact-basic`
 
@@ -755,7 +752,7 @@ export interface StreamableHttpConfig {
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:91`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:93`](../packages/mcp/mcp-client/src/index.ts)
 
 ## `@deepseek-ai/dsh-permission`
 
@@ -1135,7 +1132,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/spill/spill-policy/src/index.ts:45`](../packages/spill/spill-policy/src/index.ts)
+Source: [`packages/spill/spill-policy/src/index.ts:51`](../packages/spill/spill-policy/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-acp`
 
@@ -1275,7 +1272,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bash/tool-bash/src/index.ts:40`](../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:41`](../packages/bash/tool-bash/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -1387,7 +1384,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/workflow/tool-ralph/src/index.ts:22`](../packages/workflow/tool-ralph/src/index.ts)
+Source: [`packages/workflow/tool-ralph/src/index.ts:23`](../packages/workflow/tool-ralph/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-skill`
 
@@ -1457,7 +1454,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](core-data-structures/core.md)
 
-Source: [`packages/subagent/tool-subagent/src/index.ts:23`](../packages/subagent/tool-subagent/src/index.ts)
+Source: [`packages/subagent/tool-subagent/src/index.ts:24`](../packages/subagent/tool-subagent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-tasks`
 
@@ -1511,7 +1508,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/workflow/tool-workflow/src/index.ts:26`](../packages/workflow/tool-workflow/src/index.ts)
+Source: [`packages/workflow/tool-workflow/src/index.ts:27`](../packages/workflow/tool-workflow/src/index.ts)
 
 ## `@deepseek-ai/dsh-tools`
 
@@ -1533,7 +1530,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:419`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:517`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui`
 
@@ -1590,7 +1587,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:216`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:217`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 
