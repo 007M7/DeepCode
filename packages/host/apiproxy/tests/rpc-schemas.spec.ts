@@ -124,6 +124,7 @@ describe('events frame schemas', () => {
     const frames = [
       { type: 'session/event', sessionId: 's', event: { type: 't', seq: 0, time: 1, data: null } },
       { type: 'session/subscribed', sessionId: 's', lastSeq: -1 },
+      { type: 'session/title', sessionId: 's', title: 'Durable title', eventSeq: 2, updatedAt: 3 },
       { type: 'approval/requested', sessionId: 's', approvalId: 'a', toolName: 'bash', callId: 'c', reason: 'r' },
       { type: 'approval/resolved', sessionId: 's', approvalId: 'a', outcome: 'allowed-once' },
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
@@ -132,6 +133,13 @@ describe('events frame schemas', () => {
     ]
     for (const frame of frames) expect(muxFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
     expect(() => muxFrameSchema.parse({ type: 'unknown/frame' })).toThrow()
+    for (const invalid of [
+      { type: 'session/title', sessionId: 's', title: '', eventSeq: 0, updatedAt: 1 },
+      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: -1, updatedAt: 1 },
+      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0.5, updatedAt: 1 },
+      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0, updatedAt: 'now' },
+      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0, updatedAt: Number.NaN },
+    ]) expect(() => muxFrameSchema.parse(invalid)).toThrow()
     expect(askUserQuestionItemSchema.parse({ id: 'q', question: 'Q?' }).id).toBe('q')
   })
 

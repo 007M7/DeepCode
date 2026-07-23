@@ -41,16 +41,21 @@ async function feedList(b: Bench, rows: { id: string; cwd?: string; parentId?: s
 }
 
 describe('list store projection', () => {
-  it('projects ids/byId with cwd-basename titles (id fallback) and parent links', async () => {
+  it('projects durable titles separately from cwd/id display fallbacks and parent links', async () => {
     const b = bench()
+    b.svc.manager.handleMuxEnvelope({
+      rpcId: 'title' as never,
+      payload: { type: 'session/title', sessionId: sid('s1'), title: 'Durable title', eventSeq: 2, updatedAt: 3 },
+    })
     await feedList(b, [
       { id: 's1', cwd: '/home/u/proj-a/' },
       { id: 's2', parentId: 's1', running: true },
     ])
     const state = b.svc.list.getSnapshot()
     expect(state.ids).toEqual(['s1', 's2'])
-    expect(state.byId[sid('s1')]).toMatchObject({ title: 'proj-a', cwd: '/home/u/proj-a/' })
-    expect(state.byId[sid('s2')]).toMatchObject({ title: 's2', parentId: 's1', running: true })
+    expect(state.byId[sid('s1')]).toMatchObject({ title: 'Durable title', displayTitle: 'Durable title', cwd: '/home/u/proj-a/' })
+    expect(state.byId[sid('s2')]).toMatchObject({ displayTitle: 's2', parentId: 's1', running: true })
+    expect(state.byId[sid('s2')]?.title).toBeUndefined()
   })
 
   it('reflects live increments (host stream via manager) into the store', async () => {
@@ -273,12 +278,13 @@ describe('create', () => {
 })
 
 describe('coverage tails (branch duals)', () => {
-  it('titleOf falls back to the id for empty and separator-only cwd', async () => {
+  it('displayTitleOf falls back to the id for empty and separator-only cwd', async () => {
     const b = bench()
     await feedList(b, [{ id: 'no-base', cwd: '///' }, { id: 'empty-cwd', cwd: '' }])
     const { byId } = b.svc.list.getSnapshot()
-    expect(byId[sid('no-base')]?.title).toBe('no-base')
-    expect(byId[sid('empty-cwd')]?.title).toBe('empty-cwd')
+    expect(byId[sid('no-base')]?.displayTitle).toBe('no-base')
+    expect(byId[sid('empty-cwd')]?.displayTitle).toBe('empty-cwd')
+    expect(byId[sid('no-base')]?.title).toBeUndefined()
   })
 
   it('binding for an unknown session returns undefined and leaves the staged scope intact', async () => {

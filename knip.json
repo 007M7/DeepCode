@@ -555,6 +555,7 @@
     "apps/web": {
       "entry": [
         "tests/**/*.e2e.ts",
+        "tests/**/*.snapshot.ts",
         "tests/support.ts"
       ],
       "project": [
@@ -562,7 +563,6 @@
         "tests/**/*.ts"
       ],
       "ignoreDependencies": [
-        "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-primitives",
         "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-web-react",
