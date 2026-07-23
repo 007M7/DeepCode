@@ -2,7 +2,7 @@
 
 [English](skills.md) | 中文
 
-[skill 能力族](../../packages/skill)拆分为三个包（package）：注册表（[dsh-skill](../../packages/skill/skill)，`ctx.skills`）合并各提供方的目录；本地提供方（[dsh-skill-local](../../packages/skill/skill-local)）扫描项目/自定义/用户目录；消费方（[dsh-tool-skill](../../packages/skill/tool-skill)）拥有会话前缀目录和面向模型的 `skill` 工具。skill（技能）是可选的指令而非会话事件，因此其词汇定义在此处而非 [core.md](core.md)。
+[skill（技能）能力族](../../packages/skill)拆分为三个包（package）：注册表（[dsh-skill](../../packages/skill/skill)，`ctx.skills`）合并各提供方的目录；本地提供方（[dsh-skill-local](../../packages/skill/skill-local)）扫描项目/自定义/用户目录；消费方（[dsh-tool-skill](../../packages/skill/tool-skill)）拥有会话前缀目录和面向模型的 `skill` 工具。skill 是可选的指令而非会话事件，因此其词汇定义在此处而非 [core.md](core.md)。
 
 源码：[`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts)、[`packages/skill/skill-local/src/index.ts`](../../packages/skill/skill-local/src/index.ts) 与 [`packages/skill/tool-skill/src/index.ts`](../../packages/skill/tool-skill/src/index.ts)。
 

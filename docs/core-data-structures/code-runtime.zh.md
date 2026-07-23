@@ -2,7 +2,7 @@
 
 [English](code-runtime.md) | 中文
 
-代码执行 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：其接口（[dsh-code-runtime](../../packages/code-runtime/code-runtime)，`ctx.codeRuntime`）针对宿主提供的异步 binding 运行一段模型编写的程序，并报告其打印内容与返回值。代码执行是**一项可选能力**，不属于 agent loop 主干，因此其词汇定义在此而非 [core.md](core.md) 中。各后端的执行基底与源语言不同，这两项均为服务上的只读描述符；worker-thread 后端和工具注册表消费方（Code Mode）由 [Code Mode Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) 规定。
+代码执行 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：其接口（[dsh-code-runtime](../../packages/code-runtime/code-runtime)，`ctx.codeRuntime`）针对宿主提供的异步 binding 运行一段模型编写的程序，并报告其打印内容与返回值。代码执行是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。各后端的执行基底与源语言不同，这两项均为服务上的只读描述符；worker-thread 后端和工具注册表消费方（Code Mode）由 [Code Mode Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) 规定。
 
 源码：[`packages/code-runtime/code-runtime/src/types.ts`](../../packages/code-runtime/code-runtime/src/types.ts)
 

@@ -102,7 +102,7 @@ interface WorkflowResult {
 
 ## 活跃运行：`WorkflowRun`
 
-脚本执行期间消费方持有的句柄。消费方 await `result`，可中途 `cancel`，且必须在每条路径上 `dispose`。`result` 不会 reject：脚本失败以 `stopReason: 'error'` resolve；一旦运行被取消，即使脚本本身永不 settle，它也会在引擎的有界宽限期内 settle（引擎强制以 `cancelled` settle；worker-thread 引擎随后终止脚本的 worker），因此消费方 await `result` 不会在取消后卡死。`dispose()` = cancel + 有界 settle + 等待子 agent 停稳；它不会因脚本卡死而挂起。
+脚本执行期间消费方持有的句柄。消费方 await `result`，可中途 `cancel`，且必须在每条路径上 `dispose`（资源释放）。`result` 不会 reject：脚本失败以 `stopReason: 'error'` resolve；一旦运行被取消，即使脚本本身永不 settle，它也会在引擎的有界宽限期内 settle（引擎强制以 `cancelled` settle；worker-thread 引擎随后终止脚本的 worker），因此消费方 await `result` 不会在取消后卡死。`dispose()` = cancel + 有界 settle + 等待子 agent 停稳；它不会因脚本卡死而挂起。
 
 ```ts type-equiv
 /**
