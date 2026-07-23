@@ -172,13 +172,13 @@ describe('rewriteMarkdown', () => {
 })
 
 describe('docsPages locale routes', () => {
-  it('publishes every route in both locales and selects paired user sources', () => {
+  it('publishes every route in both locales and selects paired sources', () => {
     const byRoute = new Map(docsPages.map(page => [page.route, page]))
     for (const page of docsPages.filter(page => page.locale === 'root')) {
       const counterpart = byRoute.get(`en/${page.route}`)
       expect(counterpart, page.route).toBeDefined()
       expect(counterpart?.locale).toBe('en')
-      if (page.source.startsWith('docs/user/')) {
+      if (page.source.startsWith('docs/user/') || page.route === 'reference/cordis-primer.md') {
         expect(page.source).toMatch(/\.zh\.md$/)
         expect(page.contentLocale).toBe('zh-CN')
         expect(counterpart?.source).toBe(page.source.replace(/\.zh\.md$/, '.md'))
