@@ -9,7 +9,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 
 afterEach(cleanup)
-import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-web-react'
+// The snapshot-store engine lives with runtime now; the status-store stub
+// uses the same channel production code does.
+import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 import type { LoaderStatus } from '@deepseek-ai/dsh-client-runtime/client'
 import { AppRoot } from '@deepseek-ai/dsh-client-web/src/AppRoot.tsx'
 

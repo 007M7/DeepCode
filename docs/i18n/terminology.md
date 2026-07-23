@@ -52,6 +52,7 @@
 | loader | loader | | | |
 | manifest | manifest | manifest（元数据清单） | | |
 | monorepo | monorepo | | | |
+| Round | Round | | 回合、目标回合、Ralph 回合 | 领域层级为 Session > Round > Turn（轮次） > Step（步骤）；Goal Round 与 Ralph Round 均保留英文。一个 Round 承载一个轮次，一个轮次包含一个或多个步骤。 |
 | schema | schema | | | |
 | schema DSL | schema DSL | | | |
 | seam | seam | | | 与 `extension point` 是不同概念；根据具体语境，可译为`服务边界`或`可替换点` |

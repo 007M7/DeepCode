@@ -25,9 +25,11 @@ describe('runtime slots/changed invariant', () => {
     const ctx = await setup()
     expect(() => { emit(ctx, 'unrelated/event', 'x') }).not.toThrow()
     await ctx.plugin(SlotsService).await() // fiber must reach ACTIVE — the audit reads strict ctx.get
-    // A real define bumps the version first and re-emits through onMutate —
-    // the audit sees version > 0 and stays quiet.
-    expect(() => ctx.slots.define('t-single', { kind: 'single', scope: 'root' })).not.toThrow()
+    // A real registration bumps the version first and re-emits through
+    // onMutate — the audit sees version > 0 and stays quiet. (Erased call:
+    // the typed register face rides the wave-1 ui-slots types.)
+    const slots = ctx.slots as unknown as { register(options: object, component: unknown): () => void }
+    expect(() => slots.register({ name: 'root' }, () => null)).not.toThrow()
   })
 
   it('fails loud on a missing key and on an emission with no applied mutation', async () => {

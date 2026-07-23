@@ -8,8 +8,8 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
   AssistantMessageNode, ConversationSnapshot, SessionId, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
+import { hookOf } from './hook.ts'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChromeProps, ToolViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { StatsLine, deriveStats } from '../src/client/chat/StatsLine.tsx'
@@ -78,7 +78,7 @@ describe('deriveStats', () => {
 
 describe('StatsLine', () => {
   function props(source: { getSnapshot(): ConversationSnapshot; subscribe(fn: () => void): () => void }): ChromeProps {
-    return { sessionId: SID, useSession: bindSnapshotSelector(source) as unknown as UseSession }
+    return { sessionId: SID, useSession: hookOf(source) as unknown as UseSession }
   }
 
   it('renders the joined stats row and hides with zero steps', () => {
@@ -154,6 +154,7 @@ describe('bash toolview samples', () => {
     const scope = childSessionScope({
       getSnapshot: () => ({
         ids: [root, child],
+        current: undefined,
         byId: {
           [root]: { id: root, title: 'r', running: false, updatedAt: 0 },
           [child]: { id: child, title: 'c', parentId: root, running: false, updatedAt: 0 },

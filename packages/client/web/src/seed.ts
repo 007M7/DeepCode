@@ -13,7 +13,6 @@ import * as ReactDomClient from 'react-dom/client'
 import * as Cordis from 'cordis'
 import * as UiSlots from '@deepseek-ai/dsh-client-ui-slots'
 import * as WebReact from '@deepseek-ai/dsh-client-web-react'
-import * as WebReactStore from '@deepseek-ai/dsh-client-web-react/store'
 import * as UiPrimitives from '@deepseek-ai/dsh-client-ui-primitives'
 
 /**
@@ -29,7 +28,6 @@ export function seedModules(): Record<string, unknown> {
     'cordis': Cordis,
     '@deepseek-ai/dsh-client-ui-slots': UiSlots,
     '@deepseek-ai/dsh-client-web-react': WebReact,
-    '@deepseek-ai/dsh-client-web-react/store': WebReactStore,
     '@deepseek-ai/dsh-client-ui-primitives': UiPrimitives,
   }
 }

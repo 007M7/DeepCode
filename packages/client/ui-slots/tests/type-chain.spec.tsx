@@ -1,140 +1,178 @@
-// Slot type-chain negative samples (design.md §9 item 2) plus the slots-ring
-// full-chain positive: register→inject→render composed under the ownership
-// rule (owner share referenced, injected share locally declared).
+// Terminal-design compile-time samples (design.md §11 item 2): the four-share
+// composed register constraint — children spec x SlotMap alignment, renderSlot
+// key-set containment, store share matching, inject face completeness — plus
+// the full positive chain. Bodies with @ts-expect-error sites never run.
 import { describe, expect, it } from 'vitest'
-import type { FC, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import type {
-  OwnerOf, RootBinding, ScopedSlots, SessionBinding, SlotMap, SlotOptions,
+  BoundActions, DefineStore, PropsRenderSlots, PropsRuntime, PropsStore, SlotComponent,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 
-/** Owner share as the slot-owning package's contract would export it. */
-interface ChainOwnerShare { sessionId: string }
-/** Registrant's own injected share (locally declared — ownership rule). */
-interface ChainInjected { useThing: () => number; actions: { open: () => void } }
-
+// Only package-unique SlotMap keys are merged here. The standard-kit
+// interfaces (SessionStandardProps/GlobalStandardProps) are NOT re-merged:
+// the runtime package owns the real members, and in the client aggregate
+// program a toy merge would collide with them — samples below stay
+// shape-agnostic about kit member payloads for the same reason.
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
-    'chain.session': { kind: 'single'; scope: 'session'; props: ChainSessionProps; owner: ChainOwnerShare }
-    'chain.root': { kind: 'single'; scope: 'root'; props: ChainRootProps; owner: object }
-    'chain.keyed': { kind: 'keyed'; scope: 'root'; props: ChainRootProps; owner: object }
+    'chain.frame': { kind: 'single'; scope: 'root' }
+    'chain.side': { kind: 'single'; scope: 'root'; owner: { collapsed: boolean; width: number } }
+    'chain.conv': { kind: 'single'; scope: 'session' }
+    'chain.tools': { kind: 'keyed'; scope: 'session' }
   }
 }
 
-/** Full props = owner share (referenced) + standard share + own injected. */
-type ChainSessionProps = ChainOwnerShare & { useSession: unknown } & ChainInjected
-type ChainRootProps = ChainInjected
+declare const defineStore: DefineStore
 
-const SessionComp: FC<ChainSessionProps> = () => null
-const RootComp: FC<ChainRootProps> = () => null
-
-describe('type-chain negatives (compile-time; bodies never run)', () => {
-  it('holds the six negative samples as expect-error sites', () => {
-    const negatives = (core: SlotCore, slots: ScopedSlots<'chain.session'>) => {
-      // 1. Owner passing a registrant-injected key through renderSlot.
-      //    OwnerOf<'chain.session'> = ChainOwnerShare — useThing is not in it.
-      slots.renderSlot('chain.session', {
-        sessionId: 's1',
-        // @ts-expect-error injected keys are not owner-suppliable
-        useThing: () => 1,
-      })
-      // 2. Inject factory returning a share that mismatches the registrant's
-      //    declared own-injected slice (missing `actions`). The I-typed
-      //    options form is where the mismatch surfaces (the full composed
-      //    register constraint lands with the phase-2 consumer migration).
-      const mismatched: SlotOptions<SlotMap['chain.session'], ChainInjected> = {
-        // @ts-expect-error inject must supply the full registrant share
-        inject: () => ({ useThing: () => 1 }),
-      }
-      void mismatched
-      // 3. renderSlot on a key outside the whitelist.
-      // @ts-expect-error 'chain.root' is not whitelisted on this surface
-      slots.renderSlot('chain.root', {})
-      // 4. keyed registration without options.
-      // @ts-expect-error keyed kind requires options (RegisterArgs)
-      core.register('chain.keyed', RootComp)
-      // 5. Session-slot inject factory typed against RootBinding's surface.
-      const sessionOpts: SlotOptions<{ kind: 'single'; scope: 'session'; props: ChainSessionProps }, ChainInjected> = {
-        // @ts-expect-error session binding has sessionId; RootBinding-only factories don't type-check
-        inject: (b: RootBinding & { notSession: true }) => ({ useThing: () => 1, actions: { open: () => {} } }),
-      }
-      void sessionOpts
-      // 6. Hand-copied owner share drifting from the contract (wrong value type)
-      //    — the composed-reference version right below compiles instead.
-      interface DriftedProps { sessionId: number }
-      const Drifted: FC<DriftedProps & ChainInjected> = () => null
-      // @ts-expect-error drifted hand-copy of the owner share fails at register
-      core.register('chain.session', Drifted)
-      return null as ReactNode
-    }
-    expect(negatives).toBeTypeOf('function')
+/** Factory form (exclusive seat): module-level export, never a handle. */
+function createPanelStore() {
+  return defineStore({
+    init: () => ({ sidebar: 280, details: 0 }),
+    persist: 'test.panels',
+    actions: {
+      setSidebar: (d, px: number) => { d.sidebar = px },
+      setDetails: (d, px: number) => { d.details = px },
+    },
   })
+}
 
-  it('full chain (positive dual): composed props register, inject, and render cleanly', () => {
-    const core = new SlotCore()
-    core.define('chain.session', { kind: 'single', scope: 'session' })
-    const dispose = core.register('chain.session', SessionComp, {
-      inject: (b: SessionBinding): ChainInjected => ({
-        useThing: () => b.sessionId.length,
-        actions: { open: () => {} },
-      }),
-    })
-    const entry = core.entries('chain.session')[0]!
-    // Storage erasure boundary: entries() returns the default-I view; the
-    // registrant share is restored after read-back (the budgeted cast).
-    const injected = (entry.options.inject as unknown as (b: SessionBinding) => ChainInjected)(
-      { sessionId: 's1', session: { useSelector: undefined }, ctx: undefined })
-    expect(injected.useThing()).toBe(2)
-    // Owner share stays reference-typed at the render surface.
-    const ownerShare: OwnerOf<'chain.session'> = { sessionId: 's1' }
-    expect(ownerShare.sessionId).toBe('s1')
-    dispose()
-    expect(core.entries('chain.session')).toHaveLength(0)
-  })
+const chatStore = () => defineStore({
+  init: () => ({ selection: null as { id: string } | null, draft: '' }),
+  actions: {
+    select: (d, t: { id: string }) => { d.selection = t },
+    setDraft: (d, text: string) => { d.draft = text },
+    clearDraft: (d) => { d.draft = '' },
+  },
 })
+type ChatHandle = ReturnType<typeof chatStore>
 
-// ── children validation layer (B-b, opt-in per entry) ───────────────────────
+type FrameProps =
+  & PropsRuntime<'chain.frame'>
+  & PropsRenderSlots<'chain.side' | 'chain.conv'>
+  & PropsStore<ReturnType<typeof createPanelStore>>
+  & { openSettings: () => void }
 
-/** Delegating owner share: entry declares children, component carries a slots face. */
-interface DelegOwnerShare { sessionId: string }
+type ConvProps =
+  & PropsRuntime<'chain.conv'>
+  & PropsStore<ChatHandle>
+  & { send: (t: string) => void }
 
-declare module '@deepseek-ai/dsh-client-ui-slots' {
-  interface SlotMap {
-    'chain.deleg': { kind: 'single'; scope: 'root'; props: object; owner: DelegOwnerShare; children: 'chain.child-a' | 'chain.child-b' }
-    'chain.child-a': { kind: 'single'; scope: 'root'; props: object; owner: object }
-    'chain.child-b': { kind: 'single'; scope: 'root'; props: object; owner: object }
-    'chain.outside': { kind: 'single'; scope: 'root'; props: object; owner: object }
-  }
-}
+// Component fixtures (never rendered; the register call sites are the test).
+declare function Frame(props: FrameProps): ReactNode
+declare function Conv(props: ConvProps): ReactNode
+declare function Details(props: PropsRuntime<'chain.conv'> & PropsStore<ChatHandle>): ReactNode
+declare function Tool(props: PropsRuntime<'chain.tools'>): ReactNode
+declare function Over(props: PropsRuntime<'chain.frame'> & PropsRenderSlots<'chain.side' | 'chain.conv'>): ReactNode
+declare function NoDecl(props: PropsRuntime<'chain.frame'> & PropsRenderSlots<'chain.side'>): ReactNode
+declare function Blind(props: PropsRuntime<'chain.frame'>): ReactNode
+declare function WrongStore(props: PropsRuntime<'chain.conv'> & PropsStore<ReturnType<typeof createPanelStore>>): ReactNode
+declare function Needs(props: PropsRuntime<'chain.conv'> & { send: (t: string) => void }): ReactNode
 
-describe('children validation layer (compile-time; bodies never run)', () => {
-  it('accepts whitelists inside the authorized union, rejects outside keys', () => {
-    const cases = (core: SlotCore) => {
-      // Positive: slots face ⊆ children union (a strict subset is fine).
-      const InUnion: FC<DelegOwnerShare & { slots: ScopedSlots<'chain.child-a'> }> = () => null
-      core.register('chain.deleg', InUnion)
-      // Positive: the full authorized union.
-      const FullUnion: FC<DelegOwnerShare & { slots: ScopedSlots<'chain.child-a' | 'chain.child-b'> }> = () => null
-      core.register('chain.deleg', FullUnion)
-      // Positive: no slots face at all — delegation is optional.
-      const NoSlots: FC<DelegOwnerShare> = () => null
-      core.register('chain.deleg', NoSlots)
-      // Negative: a key outside the authorized union collapses the slots constraint.
-      const Outside: FC<DelegOwnerShare & { slots: ScopedSlots<'chain.outside'> }> = () => null
-      // @ts-expect-error slots whitelist must stay inside the entry's children union
-      core.register('chain.deleg', Outside)
-      // Negative: smuggling an extra key alongside authorized ones still fails.
-      const Mixed: FC<DelegOwnerShare & { slots: ScopedSlots<'chain.child-a' | 'chain.outside'> }> = () => null
-      // @ts-expect-error a partially-authorized whitelist is still out of union
-      core.register('chain.deleg', Mixed)
-      // Entries WITHOUT children stay unchecked: any slots face registers
-      // freely (I inferred from the inject factory as usual).
-      const FreeFace: FC<ChainOwnerShare & { useSession: unknown } & ChainInjected & { slots: ScopedSlots<'chain.outside'> }> = () => null
-      core.register('chain.session', FreeFace, {
-        inject: (): ChainInjected & { slots: ScopedSlots<'chain.outside'> } =>
-          ({ useThing: () => 1, actions: { open: () => {} }, slots: { renderSlot: () => null } }),
-      })
+describe('terminal-design type chain', () => {
+  it('holds the positive chain and the compile-time negatives', () => {
+    // Everything below is compile-surface only.
+    const samples = (core: SlotCore, chat: ChatHandle, fp: FrameProps, cp: ConvProps, acts: BoundActions<ChatHandle>) => {
+      // ── positive chain ─────────────────────────────────────────────
+      // Frame: children + factory store + inject; actions arrive baked.
+      core.register({
+        name: 'chain.frame',
+        children: {
+          'chain.side': { kind: 'single', scope: 'root' },
+          'chain.conv': { kind: 'single', scope: 'session' },
+        },
+        store: createPanelStore,
+        inject: (actions) => {
+          actions.setSidebar(0)
+          return { openSettings: () => {} }
+        },
+      }, Frame)
+
+      // Conv: shared handle; inject params derive as (sessionId, actions).
+      core.register({
+        name: 'chain.conv',
+        store: chat,
+        inject: (sessionId, actions) => ({
+          send: (text: string) => {
+            const sid: string = sessionId
+            actions.setDraft(text)
+            void sid
+          },
+        }),
+      }, Conv)
+
+      // Pure reader: same handle, no inject.
+      core.register({ name: 'chain.conv', store: chat }, Details)
+
+      // Owner + store shares arrive typed on the component face. Standard-kit
+      // member payloads are the runtime merge's property — not probed here
+      // (the runtime package's own tests cover them).
+      fp.renderSlot('chain.side', { collapsed: false, width: 280 })
+      const draft: string = cp.useStore((s) => s.draft)
+      cp.actions.select({ id: 'm1' })
+      void draft
+
+      // Keyed registration carries key.
+      core.register({ name: 'chain.tools', key: 'bash' }, Tool)
+
+      // ── negatives ──────────────────────────────────────────────────
+      // children spec must match the SlotMap entry.
+      core.register({
+        name: 'chain.frame',
+        // @ts-expect-error chain.conv is session-scoped in SlotMap
+        children: { 'chain.conv': { kind: 'single', scope: 'root' } },
+      }, (() => null) as SlotComponent<never>)
+
+      // renderSlot key set ⊄ children declaration.
+      // @ts-expect-error component renderSlot keys exceed the declaration
+      core.register({ name: 'chain.frame', children: { 'chain.side': { kind: 'single', scope: 'root' } } }, Over)
+
+      // renderSlot consumption without any children declaration.
+      // @ts-expect-error no children declaration authorizes rendering
+      core.register({ name: 'chain.frame' }, NoDecl)
+
+      // children declared but component consumes no renderSlot.
+      // @ts-expect-error children declared, component consumes no renderSlot
+      core.register({ name: 'chain.frame', children: { 'chain.side': { kind: 'single', scope: 'root' } } }, Blind)
+
+      // store share mismatch.
+      // @ts-expect-error component's store share doesn't match the declared handle
+      core.register({ name: 'chain.conv', store: chat }, WrongStore)
+
+      // inject face incomplete for the component's business share.
+      // @ts-expect-error inject face missing `send`
+      core.register({ name: 'chain.conv', inject: () => ({ notSend: 1 }) }, Needs)
+      // @ts-expect-error nothing provides `send` (no inject at all)
+      core.register({ name: 'chain.conv' }, Needs)
+
+      // root-scope inject takes no sessionId.
+      core.register({
+        name: 'chain.side',
+        // @ts-expect-error root-scope inject has no sessionId parameter
+        inject: (sessionId: string) => ({ x: sessionId }),
+      }, ((_p) => null) as SlotComponent<PropsRuntime<'chain.side'> & { x: string }>)
+
+      // keyed registration without key.
+      // @ts-expect-error keyed registration requires options.key
+      core.register({ name: 'chain.tools' }, Tool)
+
+      // renderSlot owner share typed at the call site.
+      // @ts-expect-error owner shape mismatch (width missing)
+      fp.renderSlot('chain.side', { collapsed: false })
+      // @ts-expect-error key not in this render share
+      fp.renderSlot('chain.tools', {})
+
+      // baked actions strip the draft parameter.
+      acts.setDraft('x')
+      // @ts-expect-error wrong payload type
+      acts.setDraft(1)
+
+      // SessionProvider seat: derives from a session-scope child declaration.
+      fp.SessionProvider({ empty: () => null, children: () => null })
+      const sideOnly: PropsRenderSlots<'chain.side'> = null as never
+      // @ts-expect-error only root-scope children declared → no SessionProvider seat
+      void sideOnly.SessionProvider
     }
-    expect(cases).toBeTypeOf('function')
+    expect(samples).toBeTypeOf('function')
   })
 })

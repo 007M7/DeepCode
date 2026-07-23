@@ -8,7 +8,6 @@
 // pinned here. Follows the slots-ring exemplar's shape.
 import { describe, expect, it } from 'vitest'
 import type { FC, ReactNode } from 'react'
-import type { SessionBinding } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolViewOptions, ToolViewProps } from '../src/client/contract/toolview.ts'
 import { ToolViewRegistry } from '../src/client/toolviews/registry.ts'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
@@ -66,8 +65,9 @@ describe('tool-ring full chain (positive dual)', () => {
     const registry = new ToolViewRegistry()
     // Registration: I inferred from the factory, component proved ⊇ ToolViewProps & I.
     const disposeGlobal = registry.register('bash', InjectedRow, {
-      inject: (b: SessionBinding): RowInjected => ({
-        useRuns: () => b.sessionId.length,
+      // Terminal channel form: the factory receives the session id only.
+      inject: (sessionId: SessionId): RowInjected => ({
+        useRuns: () => sessionId.length,
         actions2: { rerun: () => {} },
       }),
     })
@@ -81,9 +81,7 @@ describe('tool-ring full chain (positive dual)', () => {
     expect(global?.component).toBe(InjectedRow)
     // Read face: I is erased to object, the factory reference survives; the
     // outlet-side restoration is the budgeted cast (same boundary as slots).
-    const injected = (global?.inject as (b: SessionBinding) => RowInjected)(
-      { sessionId: 'ab', session: { useSelector: undefined }, ctx: undefined },
-    )
+    const injected = (global?.inject as (sessionId: SessionId) => RowInjected)(sid('ab'))
     expect(injected.useRuns()).toBe(2)
     // Unknown tool → undefined (caller falls back to the generic card).
     expect(registry.resolve('ghost-tool', sid('other'))).toBeUndefined()

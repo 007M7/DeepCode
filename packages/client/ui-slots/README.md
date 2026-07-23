@@ -1,8 +1,21 @@
 # @deepseek-ai/dsh-client-ui-slots
 
-Slot registry pure core: SlotMap declaration merging, SlotCore (single/list/keyed), ScopedSlots types. Contract: api-contracts v3 §1 + the slot type-chain design (composed-props registration).
+Slot registry pure core, slot terminal design: SlotMap declaration merging, the single `register` composition API on SlotCore, the four-share component-props type family, the store-seat type family, and the renderer install-seam contract. React types only at runtime — the package is React-free and cordis-free.
 
-A SlotMap entry declares `{ kind; scope; owner; children? }`. `owner` is the render-side props share the slot-owning package declares; registrants reference it through `OwnerOf<K>` and never re-state it. The registrant's injected share `I` stays a local type at the registration site, inferred from the inject factory (`InjectFactory<E, I, Ctx>`; context-narrowing wrappers pin `Ctx`). `SlotCore.register` constrains the component against `ComposedProps<K, I>` — owner share & bottom-typed standard share (`StandardOf`) & `children`-gated slots face (`SlotsFaceOf`) & `I` — through the bare-call-signature `SlotComponent` position. `children` optionally whitelists delegable sub-slot keys (`ChildrenOf`; constraint-side validation only — delivery stays with the renderer); `narrowSlots` narrows a `ScopedSlots` surface to a subset whitelist.
+One `register({ name, children?, store?, inject?, ...kind }, Component)` call contributes a component into a declared slot and, in the same breath, declares child slots (declaration = render authorization = runtime spec, one table), a store seat, and the registrant's business face. The component is checked at the call site against `ComposedProps` — the intersection of four shares, each derived from its single source of truth:
+
+| share | type | source |
+|---|---|---|
+| runtime | `PropsRuntime<K>` | SlotMap entry: `owner` (parent's renderSlot call site) + session standard kit + global seat |
+| child render | `PropsRenderSlots<S>` | the register call's `children` key set (statically narrowed `renderSlot`) |
+| store | `PropsStore<H>` | the declared handle: `useStore` selector hook + draft-stripped `actions` |
+| business | `I` | inferred from the `inject` factory's return |
+
+The standard-kit interfaces (`SessionStandardProps`, `GlobalStandardProps`) are declared empty here and merged by the runtime package (same declare-merge pattern as SlotMap keys). Inject factory parameters derive from the declaration (`InjectParams`): session slots get `sessionId`, a declared store appends baked `actions`, nothing else — data access lives in the apply closure's ctx.
+
+The store family (`defineStore` spec in / `StoreHandle<T, A>` out) types the store seat: `init` infers the state schema, `actions` is the complete draft-transform write set, `BakedActions` strips the draft parameter into the callbacks components and inject factories receive. The `defineStore` value implementation lives in the runtime package (the engine's home) and satisfies the `DefineStore` contract exported here. Engine products and the renderer host contract carry bare snapshot sources (`getSnapshot`/`subscribe`), never React hooks — hook binding is the render machinery's side of the seam; only the props-contract hook type (`SnapshotSelectorHook`) lives here.
+
+`SlotCore` seeds the a-priori `'root'` slot at construction and enforces load-time validation (undeclared-slot registration, duplicate child declaration, one shared handle under two scopes — all throw at register). An entry's disposer collapses its declared child slots recursively: ledger rows, contributions, and store mounts die on one lifecycle axis. `renderer.ts` carries the install seam (`SlotRenderer`, `SlotRendererHost`) plus `StaleAuthorizationError`/`SlotOwnershipError`; the implementation lives in web-react, the installation in the shell boot.
 
 ## Model Experience
 
@@ -14,5 +27,5 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **`StandardOf` is a constraint-position bottom type (`useSession: never`), not the arriving hook type** — this zero-dependency layer cannot see the conversation snapshot; components declare the narrowed hook they consume, and what actually arrives is web-react's renderer responsibility.
-- **The legacy `props` entry member (with `OwnerProps`'s Partial owner share) remains for migration** — entries not yet declaring `owner` keep the P-I full-props constraint; both forms disappear with the last legacy declaration.
+- **`isLive` scans all records linearly** — fine at UI-plugin registration counts (tens); revisit with an entry→record backref if ledgers ever grow hot.
+- **The `__renders` phantom anchor is visible on `PropsRenderSlots`** — the same accepted noise as the type-chain design's `__accepts`: generic method signatures compare loosely across key unions, so the contravariant marker is what enforces "component key set ⊆ children declaration".

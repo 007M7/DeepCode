@@ -2,7 +2,7 @@ import { defineConfig } from 'tsdown'
 
 /**
  * JS bundling for vendored Cordis and Harness TypeScript packages.
- * TypeScript source is compiled first by `tsc -b tsconfig.build.json`; tsdown
+ * TypeScript source is compiled first by `tsc -b` (the root solution); tsdown
  * reads only the emitted JS under lib/types and writes the package root and
  * invariant companion runtime bundles. Declarations are NOT produced here,
  * hence `dts: false`.
