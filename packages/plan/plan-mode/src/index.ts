@@ -228,7 +228,10 @@ export class PlanModeService extends Service {
           }
           this.set(agent, true)
           if (message !== '') agent.steer([{ type: 'text', text: message }])
-          return { kind: 'success', text: 'Entering plan mode (applies from the next step).' }
+          return {
+            kind: 'success',
+            text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
+          }
         },
       })
     })

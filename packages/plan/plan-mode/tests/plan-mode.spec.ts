@@ -553,7 +553,10 @@ describe('/plan', () => {
     expect(await ctx.commands.execute(plainAgent, '/mode', signal)).toBeUndefined()
     expect(await ctx.commands.execute(plainAgent, '/review', signal)).toBeUndefined()
     const plain = await ctx.commands.execute(plainAgent, '/plan', signal)
-    expect(plain).toEqual({ kind: 'success', text: 'Entering plan mode (applies from the next step).' })
+    expect(plain).toEqual({
+      kind: 'success',
+      text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
+    })
     expect(ctx.planMode.get(plainAgent)).toEqual({ active: false, pending: true })
     expect(plainSteer).not.toHaveBeenCalled()
 
@@ -561,7 +564,10 @@ describe('/plan', () => {
     const messageSteer = vi.fn()
     ;(messageAgent as unknown as { steer: typeof messageSteer }).steer = messageSteer
     const plan = await ctx.commands.execute(messageAgent, '/plan   draft the migration  ', signal)
-    expect(plan).toEqual({ kind: 'success', text: 'Entering plan mode (applies from the next step).' })
+    expect(plan).toEqual({
+      kind: 'success',
+      text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
+    })
     expect(ctx.planMode.get(messageAgent)).toEqual({ active: false, pending: true })
     expect(messageSteer).toHaveBeenCalledExactlyOnceWith([{ type: 'text', text: 'draft the migration' }])
   })

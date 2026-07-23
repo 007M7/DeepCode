@@ -11,8 +11,8 @@ buffer
 2| " deepseek-v4-flash  •  main-session"
   style 1-34 dim
 3| <blank>
-4| " Entering plan mode (applies from the next step).                                                   "
-  style 1-48 fg=bright-black
+4| " Entering plan mode (applies from the next step). Use /plan off to leave.                           "
+  style 1-72 fg=bright-black
 5| <blank>
 6| "▌ "
   style 0-0 fg=bright-blue

@@ -2384,6 +2384,7 @@ export function createTuiChat(
         ...ctx.commands.list(agent).map(command => ({
           name: command.name,
           description: command.description,
+          ...(command.input === undefined ? {} : { argumentHint: command.input.hint }),
         })),
         ...skillCommands,
       ],
