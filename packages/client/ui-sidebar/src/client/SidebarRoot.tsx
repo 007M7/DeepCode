@@ -1,11 +1,12 @@
 /**
  * SidebarRoot (figma 133:7629): logo row + collapse, New Session, search,
  * WorkSpace section header with the group-by menu, session tree list,
- * Settings foot. Pure presentational — data and actions arrive through the
- * inject surface; the tree store is subscribed via useTree, never derived in
- * render.
+ * Settings foot. Pure presentational — the session list arrives through the
+ * standard useSessions hook, viewing state (expansion, search) is local
+ * component state, and rows are derived in render via useMemo (slot design
+ * section 6: derived data is a pure function, no materializing store).
  */
-import { Fragment, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import {
   FishLogo,
@@ -14,6 +15,7 @@ import {
   Menu,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarRootComponentProps } from './contract/slots.ts'
+import { deriveRows } from './tree.ts'
 import { ProjectRowItem, SessionRowItem } from './Rows.tsx'
 import css from './SidebarRoot.module.css'
 
@@ -24,16 +26,28 @@ const GROUP_BY_ITEMS = [
   { id: 'status', label: 'Status', disabled: true },
 ]
 
+/** Immutable membership toggle for the local expansion arrays. */
+function toggled(list: readonly string[], key: string): string[] {
+  return list.includes(key) ? list.filter((k) => k !== key) : [...list, key]
+}
+
 /**
  * Render the sidebar column.
- * @param props - composed slot props (owner share + injected surface, contract/slots.ts).
+ * @param props - composed slot props (runtime share + injected callbacks, contract/slots.ts).
  * @returns the sidebar element tree.
  */
-export function SidebarRoot({ useTree, useCurrent, actions, tree }: SidebarRootComponentProps) {
-  const rows = useTree((s) => s.rows)
-  const query = useTree((s) => s.query)
-  const groupBy = useTree((s) => s.groupBy)
-  const current = useCurrent()
+export function SidebarRoot({ useSessions, onOpen, onCreate, onToggleSidebar }: SidebarRootComponentProps) {
+  const list = useSessions((s) => s)
+  // Wave-2 seam: row highlight expects `current` on the sessions list
+  // snapshot (sessions.current lives with the runtime sessions service).
+  const current = useSessions((s) => s.current)
+  const [expandedProjects, setExpandedProjects] = useState<string[]>([])
+  const [expandedSessions, setExpandedSessions] = useState<string[]>([])
+  const [query, setQuery] = useState('')
+  const rows = useMemo(
+    () => deriveRows(list, { expandedProjects, expandedSessions, query }),
+    [list, expandedProjects, expandedSessions, query],
+  )
   const [menuOpen, setMenuOpen] = useState(false)
   const now = Date.now()
 
@@ -60,13 +74,13 @@ export function SidebarRoot({ useTree, useCurrent, actions, tree }: SidebarRootC
             type="button"
             className={css.iconButton}
             aria-label="Collapse sidebar"
-            onClick={() => { actions.toggleSidebar() }}
+            onClick={() => { onToggleSidebar() }}
           >
             <IconPanelLeftOutline16 />
           </button>
         </div>
 
-        <button type="button" className={css.newSession} onClick={() => { actions.create() }}>
+        <button type="button" className={css.newSession} onClick={() => { onCreate() }}>
           <IconNewChatOutline16 size={14} />
           New Session
         </button>
@@ -79,7 +93,7 @@ export function SidebarRoot({ useTree, useCurrent, actions, tree }: SidebarRootC
           open={menuOpen}
           onClose={() => { setMenuOpen(false) }}
           items={GROUP_BY_ITEMS}
-          selectedId={groupBy}
+          selectedId="workspace"
           onSelect={() => { setMenuOpen(false) }}
           align="end"
           anchor={(
@@ -97,7 +111,7 @@ export function SidebarRoot({ useTree, useCurrent, actions, tree }: SidebarRootC
           type="button"
           className={css.iconButton}
           aria-label="New workspace"
-          onClick={() => { actions.create() }}
+          onClick={() => { onCreate() }}
         >
           <IconProjectAddOutline16 />
         </button>
@@ -110,14 +124,14 @@ export function SidebarRoot({ useTree, useCurrent, actions, tree }: SidebarRootC
           type="text"
           placeholder="Search name, keywords..."
           value={query}
-          onChange={(e) => { tree.setQuery(e.target.value) }}
+          onChange={(e) => { setQuery(e.target.value) }}
         />
         {query !== '' && (
           <button
             type="button"
             className={css.clearButton}
             aria-label="Clear search"
-            onClick={() => { tree.setQuery('') }}
+            onClick={() => { setQuery('') }}
           >
             <IconCloseFill14 />
           </button>
@@ -136,8 +150,8 @@ export function SidebarRoot({ useTree, useCurrent, actions, tree }: SidebarRootC
                 <ProjectRowItem
                   row={row}
                   active={row.key === activeGroup}
-                  onToggle={() => { tree.toggleProject(row.key) }}
-                  onCreate={() => { actions.create(row.cwd) }}
+                  onToggle={() => { setExpandedProjects((l) => toggled(l, row.key)) }}
+                  onCreate={() => { onCreate(row.cwd) }}
                 />
               </Fragment>
             )
@@ -147,8 +161,8 @@ export function SidebarRoot({ useTree, useCurrent, actions, tree }: SidebarRootC
                 row={row}
                 selected={row.id === current}
                 now={now}
-                onOpen={() => { actions.open(row.id) }}
-                onToggle={() => { tree.toggleSession(row.id) }}
+                onOpen={() => { onOpen(row.id) }}
+                onToggle={() => { setExpandedSessions((l) => toggled(l, row.id)) }}
               />
             ))}
       </div>

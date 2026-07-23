@@ -508,9 +508,9 @@ importers:
 
   packages/client/i18n:
     dependencies:
-      '@deepseek-ai/dsh-client-web-react':
+      '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
-        version: link:../web-react
+        version: link:../runtime
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -527,18 +527,21 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
-      '@deepseek-ai/dsh-client-web-react':
-        specifier: workspace:^
-        version: link:../web-react
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
+      immer:
+        specifier: ^10.1.1
+        version: 10.2.0
       react:
         specifier: ^18.2.0
         version: 18.3.1
+      zustand:
+        specifier: ~4.4.7
+        version: 4.4.7(@types/react@18.3.31)(immer@10.2.0)(react@18.3.1)
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -567,9 +570,6 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
-      '@deepseek-ai/dsh-client-web-react':
-        specifier: workspace:^
-        version: link:../web-react
       clsx:
         specifier: ^2.0.0
         version: 2.1.1
@@ -595,9 +595,6 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
-      '@deepseek-ai/dsh-client-web-react':
-        specifier: workspace:^
-        version: link:../web-react
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -645,9 +642,6 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
-      '@deepseek-ai/dsh-client-web-react':
-        specifier: workspace:^
-        version: link:../web-react
       clsx:
         specifier: ^2.0.0
         version: 2.1.1
@@ -691,9 +685,6 @@ importers:
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: workspace:^
         version: link:../ui-conversation
-      '@deepseek-ai/dsh-client-web-react':
-        specifier: workspace:^
-        version: link:../web-react
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -738,9 +729,6 @@ importers:
         specifier: ^18.2.0
         version: 18.3.1(react@18.3.1)
     devDependencies:
-      '@deepseek-ai/dsh-client-ui-layout':
-        specifier: workspace:^
-        version: link:../ui-layout
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -762,18 +750,12 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
-      immer:
-        specifier: ^10.1.1
-        version: 10.2.0
       react:
         specifier: ^18.2.0
         version: 18.3.1
       use-sync-external-store:
         specifier: 1.2.0
         version: 1.2.0(react@18.3.1)
-      zustand:
-        specifier: ~4.4.7
-        version: 4.4.7(@types/react@18.3.31)(immer@10.2.0)(react@18.3.1)
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^

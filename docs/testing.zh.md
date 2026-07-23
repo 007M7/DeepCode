@@ -31,6 +31,10 @@ e2e 断言应重新运行命令或从外部重新读取文件；对 agent 自身
 - 一个守卫只有在回归真的能让它失败时才有效。对于没有 `inject` 的插件（bundle/组合插件），Loader 冒烟测试在导出形状损坏时仍然绿着——需要添加显式的 `expect('default' in mod).toBe(false)` 加 `unwrapExports` 往返断言，并证明它有效：引入回归、观察变红、回退。
 - 「真实入口路径」指已发布的产物：包的 `bin` 所运行的是构建后的 `lib/bin.js`，并由普通 `node` 执行，从而暴露 tsx 会掩盖的失败（等待稳定时的竞态、模块解析、被吞掉的加载失败）。同样的规则适用于非 index 运行时入口（worker-thread 的同级文件 `lib/worker.cjs`），也适用于多个 bundle 共享的单例模块（`packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts`）。保持构建产物冒烟测试绿色（`packages/ui/*/tests/built-bin.e2e.ts`、`packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts`），并断言真正缺失的配置以非零状态退出。
 
+## 测试解析：仅限源码
+
+- 每个 vitest 配置都将 vite-tsconfig-paths 指向 `tsconfig.base.json`；工作区包的裸导入解析到 `src`（[布局](development.md#typescript-project-layout)），绝不会经由包的 `exports` 解析到构建后的 `lib/`，因为其中的陈旧产物会加载第二份模块单例。构建产物只在显式指定时使用：以 `lib` 模式运行的子进程，以及下文的构建产物冒烟测试。
+
 ## 测试子进程启动模式
 
 - CI 与已有构建产物的测试通道通过共享双模式启动器，从构建后的 `lib/` 运行每个示例或 Cordis 配置子进程。不要为这些子进程手写 `--import tsx`。

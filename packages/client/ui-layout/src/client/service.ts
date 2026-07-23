@@ -1,132 +1,54 @@
 /**
- * LayoutService implementation: the shell-level viewing-state authority.
- * Four persisted stores (nav + two panels); actions clamp and validate. The
- * concession chain lives in columns.ts and never writes back into these
- * stores — persisted preferences survive window shrinking.
+ * LayoutService: the cross-plugin panel-action face behind ctx.layout.
+ * Panel geometry itself lives in the root entry's layout store (stores.ts);
+ * the current-session selection lives with the runtime sessions service, and
+ * the per-session active view dissolved into ui-conversation's session store
+ * (its only consumer). What remains here is the seam other plugins'
+ * apply worlds reach for panel transitions (sidebar toggle from ui-sidebar,
+ * details open/close from ui-conversation) — writes stay inside the store's
+ * declared action set, delivered as the registration's bound actions.
  */
-import type { Context } from 'cordis'
-import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-web-react'
-import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  clampWidth, DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN,
-  SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
-} from './columns.ts'
+import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import type { createLayoutStore } from './stores.ts'
 
-/** Active conversation view id (keys merged into ConversationViewMap by ui-conversation). */
-export type ViewId = string
+/** The layout store's bound action set (framework-baked, draft params peeled). */
+export type PanelActions = BoundActions<ReturnType<typeof createLayoutStore>>
 
-/** Navigation state: selected session and per-session active view. */
-export interface NavState { sessionId?: SessionId; viewFor: Record<SessionId, ViewId> }
-
-/** Panel viewing state: open flag plus persisted width. */
-export interface PanelState { open: boolean; width: number }
-
-/** Shell-level viewing-state authority (zustand + persist). */
+/** Cross-plugin panel-action face (ctx.layout). */
 export class LayoutService {
-  /** Navigation state store. */
-  readonly current: SnapshotStore<NavState>
-  /** Sidebar panel store (default 300, clamp [240, 420]). */
-  readonly sidebar: SnapshotStore<PanelState>
-  /** Details panel store (default 360, clamp [300, 520]; P-I global, not per-session). */
-  readonly details: SnapshotStore<PanelState>
-
-  #sessions: SessionsService
-  #unprune: () => void
+  #panels: PanelActions | undefined
 
   /**
-   * @param ctx - root context (resolves the sessions service for open validation and list pruning).
+   * Adopt the root entry's bound store actions. Called from the root
+   * registration's inject hook (a sanctioned assembly side effect), so the
+   * face is live from the entry's first render; on entry re-register the
+   * fresh actions overwrite the stale set.
+   * @param actions - bound actions of the entry's layout store instance.
    */
-  constructor(ctx: Context) {
-    // ctx.get instead of ctx.sessions: the typed Context merge is suspended
-    // while the client/host `sessions` declaration collision awaits
-    // arbitration (see the runtime package's Context merge note).
-    const sessions = ctx.get('sessions')
-    if (sessions === undefined) throw new Error('layout: sessions service unavailable')
-    this.#sessions = sessions
-    this.current = createSnapshotStore<NavState>(
-      { viewFor: {} },
-      { persist: { name: 'dsh.layout.nav' } })
-    this.sidebar = createSnapshotStore<PanelState>(
-      { open: true, width: SIDEBAR_DEFAULT },
-      { persist: { name: 'dsh.layout.sidebar' } })
-    this.details = createSnapshotStore<PanelState>(
-      { open: false, width: DETAILS_DEFAULT },
-      { persist: { name: 'dsh.layout.details' } })
-    // Prune is one-directional: list removals clear keyed viewing state, and a
-    // selection pointing at a removed session falls back to the empty state.
-    this.#unprune = sessions.list.subscribe(() => { this.#prune() })
+  attachPanels(actions: PanelActions): void {
+    this.#panels = actions
   }
 
-  /** Drop the sessions.list subscription (plugin teardown). */
-  dispose(): void {
-    this.#unprune()
-  }
-
-  #prune(): void {
-    const byId = this.#sessions.list.getSnapshot().byId
-    const nav = this.current.getSnapshot()
-    // Object.keys erases the branded key type; these entries were written with SessionId keys.
-    const viewKeys = Object.keys(nav.viewFor) as SessionId[]
-    const staleView = viewKeys.some(id => byId[id] === undefined)
-    const staleCurrent = nav.sessionId !== undefined && byId[nav.sessionId] === undefined
-    if (!staleView && !staleCurrent) return
-    this.current.update((draft) => {
-      // Rebuild instead of dynamic delete: viewFor is a plain keyed record and
-      // the survivors are the entries whose session still exists.
-      draft.viewFor = Object.fromEntries(
-        Object.entries(draft.viewFor).filter(([id]) => byId[id as SessionId] !== undefined))
-      if (draft.sessionId !== undefined && byId[draft.sessionId] === undefined) delete draft.sessionId
-    })
-  }
-
-  /**
-   * Select a session. Unknown ids fail loud instead of navigating nowhere.
-   * @param id - session id (must exist in sessions.list).
-   */
-  open(id: SessionId): void {
-    if (this.#sessions.list.getSnapshot().byId[id] === undefined) {
-      throw new Error(`layout.open: unknown session ${id}`)
-    }
-    this.current.update((draft) => { draft.sessionId = id })
-  }
-
-  /**
-   * Activate a view for a session.
-   * @param sessionId - session id.
-   * @param view - view id.
-   */
-  openView(sessionId: SessionId, view: ViewId): void {
-    this.current.update((draft) => { draft.viewFor[sessionId] = view })
-  }
-
-  /** Toggle the sidebar panel. */
+  /** Toggle the sidebar panel (closed ⟷ contract default width). */
   toggleSidebar(): void {
-    this.sidebar.update((draft) => { draft.open = !draft.open })
+    this.#require().toggleSidebar()
   }
 
-  /**
-   * Set the sidebar width (clamped to [240, 420]).
-   * @param px - width in pixels.
-   */
-  setSidebarWidth(px: number): void {
-    this.sidebar.update((draft) => { draft.width = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX) })
-  }
-
-  /** Open the details panel. */
+  /** Open the details panel (no-op when already open). */
   openDetails(): void {
-    this.details.update((draft) => { draft.open = true })
+    this.#require().openDetails()
   }
 
   /** Close the details panel. */
   closeDetails(): void {
-    this.details.update((draft) => { draft.open = false })
+    this.#require().closeDetails()
   }
 
-  /**
-   * Set the details width (clamped to [300, 520]).
-   * @param px - width in pixels.
-   */
-  setDetailsWidth(px: number): void {
-    this.details.update((draft) => { draft.width = clampWidth(px, DETAILS_MIN, DETAILS_MAX) })
+  #require(): PanelActions {
+    // Callers are UI gestures, which cannot fire before the root entry
+    // rendered (the inject hook runs in its first render) — reaching this
+    // unwired is a boot-order bug, not a race to tolerate.
+    if (this.#panels === undefined) throw new Error('layout: panel actions not wired (root entry not mounted)')
+    return this.#panels
   }
 }

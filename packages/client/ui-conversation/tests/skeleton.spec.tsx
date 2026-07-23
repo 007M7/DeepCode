@@ -1,25 +1,33 @@
 // @vitest-environment jsdom
 /**
- * Skeleton acceptance: empty-state transition (same InputBar component in
- * hero position, startSession submit), ConversationRoot view switching over
- * the registry face, DetailsPanel open/close linkage against a layout-shaped
- * fake. Components stay framework-free — everything arrives via props here,
- * exactly as the inject factories will assemble them.
+ * Skeleton acceptance over the four-share props form: empty-state transition
+ * (same InputBar component in hero position, startSession submit, in-component
+ * cwd derivation), ConversationRoot view switching through the store's view
+ * field, DetailsPanel selection through the shared store. Components stay
+ * pure — the framework shares are stubbed (useSession/useSessions), the store
+ * share is a REAL createChatStore().create() instance (same construction path
+ * as production), injected callbacks are spies.
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FC } from 'react'
-import { bindSnapshotSelector, createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
-import type { SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  ConversationRoot, DetailsPanel, EmptyState,
-} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { SelectionTarget, ViewEntry, ViewId } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { hookOf } from './hook.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SelectionTarget, ViewEntry } from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Export discipline: packages/client/AGENTS.md.
+import { createChatStore } from '../src/client/stores.ts'
+import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
+import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
+import { EmptyState } from '../src/client/skeleton/EmptyState.tsx'
 
 const sid = (s: string): SessionId => s as SessionId
 
 afterEach(cleanup)
+beforeEach(() => {
+  localStorage.clear()
+})
 
 /** Minimal conversation snapshot slice the skeleton reads. */
 interface FakeSnapshot {
@@ -34,17 +42,38 @@ function fakeSession(init: Partial<FakeSnapshot> = {}) {
   const store = createSnapshotStore<FakeSnapshot>({
     nodes: [], runningCalls: [], running: false, removed: false, promptError: null, ...init,
   })
-  return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession }
+  return { store, useSession: hookOf(store) as unknown as UseSession<ConversationSnapshot> }
+}
+
+/** Sessions-list stub: the standard useSessions hook over a snapshot store. */
+function fakeSessions(rows: { id: string; title: string; cwd?: string; parentId?: string }[]) {
+  const store = createSnapshotStore<SessionListState>({
+    ids: rows.map(r => sid(r.id)),
+    byId: Object.fromEntries(rows.map(r => [r.id, {
+      id: sid(r.id), title: r.title, running: false, updatedAt: 1,
+      ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
+      ...(r.parentId !== undefined ? { parentId: sid(r.parentId) } : {}),
+    }])),
+    current: undefined,
+  } as SessionListState)
+  return { store, useSessions: hookOf(store) }
 }
 
 describe('EmptyState', () => {
-  it('submits startSession with the typed text and picked cwd; failure surfaces locally', async () => {
-    const cwds = createSnapshotStore<readonly string[]>(['/w/app', '/w/lib'])
+  it('derives cwd options from the sessions list, submits startSession, failure surfaces locally', async () => {
+    const { useSessions } = fakeSessions([
+      { id: 'a', title: 'a', cwd: '/w/app' },
+      { id: 'b', title: 'b', cwd: '/w/lib' },
+      { id: 'c', title: 'c', cwd: '/w/app' }, // duplicate cwd dedupes
+    ])
     let reject!: (e: Error) => void
     const startSession = vi.fn(() => new Promise<void>((_res, rej) => { reject = rej }))
-    render(<EmptyState useCwds={cwds.useSelector} actions={{ startSession }} />)
+    render(<EmptyState useSessions={useSessions} startSession={startSession} />)
 
-    fireEvent.change(screen.getByRole('combobox', { name: '项目目录' }), { target: { value: '/w/app' } })
+    const select = screen.getByRole('combobox', { name: '项目目录' })
+    expect([...(select as HTMLSelectElement).options].map(o => o.value))
+      .toEqual(['', '/w/app', '/w/lib', '::new-directory'])
+    fireEvent.change(select, { target: { value: '/w/app' } })
     const box = screen.getByPlaceholderText('Message to run task, plan and build')
     fireEvent.change(box, { target: { value: '造一个轮子' } })
     fireEvent.keyDown(box, { key: 'Enter' })
@@ -57,8 +86,8 @@ describe('EmptyState', () => {
   })
 
   it('new-directory option swaps the select for a free-form input', () => {
-    const cwds = createSnapshotStore<readonly string[]>([])
-    render(<EmptyState useCwds={cwds.useSelector} actions={{ startSession: () => Promise.resolve() }} />)
+    const { useSessions } = fakeSessions([])
+    render(<EmptyState useSessions={useSessions} startSession={() => Promise.resolve()} />)
     fireEvent.change(screen.getByRole('combobox'), { target: { value: '::new-directory' } })
     const custom = screen.getByPlaceholderText(/目录路径/)
     fireEvent.change(custom, { target: { value: '/tmp/fresh' } })
@@ -67,90 +96,117 @@ describe('EmptyState', () => {
 })
 
 describe('ConversationRoot', () => {
-  function bench(views: ViewEntry[], active?: string) {
+  function bench(views: ViewEntry[], activeView?: string) {
     const { useSession } = fakeSession({ nodes: [{ kind: 'user' }, { kind: 'user' }] })
-    const activeStore = createSnapshotStore<string | undefined>(active)
-    const openView = vi.fn((v: string) => { activeStore.set(v) })
-    const open = vi.fn()
-    const drafts = createSnapshotStore<string>('')
+    const { useSessions } = fakeSessions([
+      { id: 'root', title: 'proj' },
+      { id: 's1', title: 'child', parentId: 'root' },
+    ])
+    const chat = createChatStore().create()
+    if (activeView !== undefined) chat.actions.setView(activeView as never)
     const send = vi.fn()
     const stop = vi.fn()
-    const ancestry: SessionSummary[] = [
-      { id: sid('root'), title: 'proj', running: false, updatedAt: 1 },
-      { id: sid('s1'), title: 'child', running: false, updatedAt: 1, parentId: sid('root') },
-    ]
-    const rendered: string[] = []
+    const openDetails = vi.fn()
+    const loadOlder = vi.fn()
+    const open = vi.fn()
     const ui = render(
       <ConversationRoot
         sessionId={sid('s1')}
         useSession={useSession}
-        useAncestry={() => ancestry}
+        useSessions={useSessions}
+        useStore={hookOf(chat)}
+        actions={chat.actions}
         views={{
           list: () => views,
           subscribe: () => () => {},
           version: () => 1,
         }}
-        useActiveView={() => activeStore.useSelector(s => s) as ViewId | undefined}
-        composer={{
-          useDraft: () => drafts.useSelector(s => s),
-          setDraft: (t) => { drafts.set(t) },
-          send, stop,
-        }}
-        actions={{ openView: openView as (v: never) => void, open }}
-        renderView={(entry) => { rendered.push(entry.id); return <div data-testid={`view-${entry.id}`} /> }}
+        send={send}
+        stop={stop}
+        openDetails={openDetails}
+        loadOlder={loadOlder}
+        open={open}
       />)
-    return { ui, openView, open, rendered, send, drafts }
+    return { ui, chat, send, stop, open }
   }
 
-  const comp = (() => null) as unknown as FC<never>
+  /** View bodies record their mount via testid (renderView is in-component now). */
   const view = (id: string, label: string): ViewEntry =>
-    ({ id, label, component: comp }) as unknown as ViewEntry
+    ({
+      id, label,
+      component: (() => <div data-testid={`view-${id}`} />) as unknown as FC<never>,
+    }) as unknown as ViewEntry
 
-  it('renders breadcrumb chain, meta turns, and the active view (default chat)', () => {
-    const { rendered, open } = bench([view('chat', 'Chat'), view('trajectory', 'Trajectory')])
+  it('renders breadcrumb chain (useSessions-derived), meta turns, and the default chat view', () => {
+    const { open } = bench([view('chat', 'Chat'), view('trajectory', 'Trajectory')])
     expect(screen.getByText('proj')).toBeTruthy()
     expect(screen.getByText('child')).toBeTruthy()
     expect(screen.getByText(/2 turns/)).toBeTruthy()
-    expect(rendered).toEqual(['chat'])
+    expect(screen.getByTestId('view-chat')).toBeTruthy()
     // Ancestor crumb navigates; current crumb is disabled.
     fireEvent.click(screen.getByRole('button', { name: 'proj' }))
     expect(open).toHaveBeenCalledWith('root')
     expect((screen.getByRole('button', { name: 'child' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('switches views through actions.openView and re-renders the new body', () => {
-    const { openView } = bench([view('chat', 'Chat'), view('trajectory', 'Trajectory')])
+  it('switches views through the store view field and falls back on unknown ids', () => {
+    const { chat } = bench([view('chat', 'Chat'), view('trajectory', 'Trajectory')])
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    expect(openView).toHaveBeenCalledWith('trajectory')
+    expect(chat.store.getSnapshot().view).toBe('trajectory')
     expect(screen.getByTestId('view-trajectory')).toBeTruthy()
+    cleanup()
+    // A stale persisted id (its view plugin unloaded) falls to the first view.
+    bench([view('chat', 'Chat'), view('trajectory', 'Trajectory')], 'ghost-view')
+    expect(screen.getByTestId('view-chat')).toBeTruthy()
   })
 
-  it('hides the tab strip with a single view and wires the composer send', () => {
-    const { send } = bench([view('chat', 'Chat')])
+  it('mounts chrome header/footer around the view body', () => {
+    const entry = {
+      id: 'chat', label: 'Chat',
+      component: () => <div data-testid="body" />,
+      chrome: {
+        header: () => <div data-testid="hd" />,
+        footer: () => <div data-testid="ft" />,
+      },
+    } as unknown as ViewEntry
+    bench([entry])
+    expect(screen.getByTestId('hd')).toBeTruthy()
+    expect(screen.getByTestId('body')).toBeTruthy()
+    expect(screen.getByTestId('ft')).toBeTruthy()
+  })
+
+  it('hides the tab strip with a single view; composer writes the store draft and sends it', () => {
+    const { chat, send } = bench([view('chat', 'Chat')])
     expect(screen.queryByRole('tablist')).toBeNull()
     const box = screen.getByPlaceholderText(/输入消息/)
     fireEvent.change(box, { target: { value: 'hi' } })
+    // Typing goes through actions.setDraft into the shared store.
+    expect(chat.store.getSnapshot().draft).toBe('hi')
     fireEvent.keyDown(box, { key: 'Enter' })
-    expect(send).toHaveBeenCalledWith('queue')
+    expect(send).toHaveBeenCalledWith('hi', 'queue')
   })
 })
 
 describe('DetailsPanel', () => {
   function benchDetails(snapshot: Partial<FakeSnapshot>, selection: SelectionTarget | null) {
     const { useSession } = fakeSession(snapshot)
-    const selectionStore = createSnapshotStore<SelectionTarget | null>(selection)
+    const { useSessions } = fakeSessions([])
+    const chat = createChatStore().create()
+    if (selection !== null) chat.actions.select(selection)
     const closeDetails = vi.fn()
     render(
       <DetailsPanel
         sessionId={sid('s1')}
         useSession={useSession}
-        useSelection={selectionStore.useSelector}
-        actions={{ closeDetails }}
+        useSessions={useSessions}
+        useStore={hookOf(chat)}
+        actions={chat.actions}
+        closeDetails={closeDetails}
       />)
-    return { closeDetails, selectionStore }
+    return { closeDetails, chat }
   }
 
-  it('renders the selected call args and result; close fires the layout-linked action', () => {
+  it('renders the selected call args and result off the shared store; close fires the injected callback', () => {
     const { closeDetails } = benchDetails({
       nodes: [{
         kind: 'tool-result', callId: 'c1',

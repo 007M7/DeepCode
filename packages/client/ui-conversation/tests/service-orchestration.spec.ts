@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 /**
- * ConversationService orchestration half: scope-addressed send/cancel (result
- * folding, root throw), openDetails choreography, the startSession chain, and
- * the service-unavailable loud failures. Store semantics live in
- * service-stores.spec.ts.
+ * ConversationService orchestration half after the store-seat slimming:
+ * scope-addressed send/cancel (result folding, root throw), the startSession
+ * chain (create → sessions.open → scoped send), views ordering, and the
+ * service-unavailable loud failures. Selection/draft state left this service
+ * for the declared chat store (chat-store.spec.ts / selection-survival.spec.ts).
  */
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
@@ -13,7 +14,7 @@ import { ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/cli
 
 const sid = (s: string): SessionId => s as SessionId
 
-/** Recover the module-private scope tag through the public seam (same probe as service-stores.spec). */
+/** Recover the module-private scope tag through the public seam (same probe as apply-inject.spec). */
 const SCOPE_TAG: symbol = (() => {
   const recorded: (string | symbol)[] = []
   const spy = new Proxy(new Context(), {
@@ -33,7 +34,7 @@ interface SessionDouble {
   cancel: ReturnType<typeof vi.fn>
 }
 
-async function bench(opts?: { layout?: boolean; sessions?: boolean }) {
+async function bench(opts?: { sessions?: boolean }) {
   const ctx = new Context()
   const sessionDoubles = new Map<SessionId, SessionDouble>()
   const scopes = new Map<SessionId, Context>()
@@ -47,6 +48,7 @@ async function bench(opts?: { layout?: boolean; sessions?: boolean }) {
     return scoped
   }
   const createMock = vi.fn(() => Promise.resolve(sid('new-1')))
+  const openMock = vi.fn()
   const sessionsFake = {
     manager: {
       get: (id: SessionId) => {
@@ -62,16 +64,15 @@ async function bench(opts?: { layout?: boolean; sessions?: boolean }) {
       },
     },
     create: createMock,
+    open: openMock,
     scope: (id: SessionId) => (id === sid('new-1') ? mint(id) : scopes.get(id)),
   } as unknown as SessionsService
   if (opts?.sessions !== false) ctx.provide('sessions', sessionsFake)
-  const layoutFake = { open: vi.fn(), openDetails: vi.fn() }
-  if (opts?.layout !== false) ctx.provide('layout', layoutFake)
   const fiber = ctx.plugin((pluginCtx) => { void new ConversationService(pluginCtx) })
   await fiber.await()
   const svc = ctx.get('conversation') as ConversationService
   const scopedSvc = (id: SessionId) => mint(id).get('conversation') as ConversationService
-  return { ctx, svc, scopedSvc, mint, sessionDoubles, sessionsFake, createMock, layoutFake }
+  return { ctx, svc, scopedSvc, mint, sessionDoubles, sessionsFake, createMock, openMock }
 }
 
 describe('send / cancel', () => {
@@ -109,22 +110,12 @@ describe('send / cancel', () => {
   })
 })
 
-describe('openDetails', () => {
-  it('writes the scoped selection then opens the layout panel', async () => {
-    const b = await bench()
-    const s = b.scopedSvc(sid('s1'))
-    s.openDetails({ turnSeq: 3, callId: 'c1', toolName: 'bash' })
-    expect(s.selection.getSnapshot()).toEqual({ turnSeq: 3, callId: 'c1', toolName: 'bash' })
-    expect(b.layoutFake.openDetails).toHaveBeenCalledTimes(1)
-  })
-})
-
 describe('startSession chain', () => {
-  it('creates, navigates, then sends through the new scope', async () => {
+  it('creates, navigates through sessions.open, then sends through the new scope', async () => {
     const b = await bench()
     await b.svc.startSession({ cwd: '/proj', text: 'first', mode: 'queue' })
     expect(b.createMock).toHaveBeenCalledWith({ cwd: '/proj' })
-    expect(b.layoutFake.open).toHaveBeenCalledWith(sid('new-1'))
+    expect(b.openMock).toHaveBeenCalledWith(sid('new-1'))
     expect(b.sessionDoubles.get(sid('new-1'))!.prompt).toHaveBeenCalledWith(
       [{ type: 'text', text: 'first' }], 'queue')
   })
@@ -148,12 +139,6 @@ describe('service-unavailable loud failures', () => {
     await expect(b.svc.startSession({ text: 't', mode: 'queue' })).rejects.toThrow(/sessions service unavailable/)
   })
 
-  it('throws when layout is missing', async () => {
-    const b = await bench({ layout: false })
-    const s = b.scopedSvc(sid('s1'))
-    expect(() => { s.openDetails({ turnSeq: 1 }) }).toThrow(/layout service unavailable/)
-  })
-
   it('startSession fails loud when the new scope cannot resolve conversation', async () => {
     const b = await bench()
     // A scope minted outside the service tree: scoped.get('conversation') finds nothing.
@@ -165,7 +150,7 @@ describe('service-unavailable loud failures', () => {
   })
 })
 
-describe('views ordering and draft persistence branches', () => {
+describe('views ordering', () => {
   it('orders by explicit order with undefined treated as zero (both comparator arms)', async () => {
     const b = await bench()
     const entry = (id: string, order?: number) => ({
@@ -176,16 +161,5 @@ describe('views ordering and draft persistence branches', () => {
     b.svc.registerView(entry('default-zero') as never)
     b.svc.registerView(entry('first', -1) as never)
     expect(b.svc.views().map(v => v.id)).toEqual(['first', 'default-zero', 'z-late'])
-  })
-
-  it('draft store round-trips through localStorage and removes the key when emptied', async () => {
-    const b = await bench()
-    localStorage.setItem('dsh.conversation.draft.s9', 'restored')
-    const s = b.scopedSvc(sid('s9'))
-    expect(s.drafts.getSnapshot()).toBe('restored')
-    s.drafts.set('typed')
-    expect(localStorage.getItem('dsh.conversation.draft.s9')).toBe('typed')
-    s.drafts.set('')
-    expect(localStorage.getItem('dsh.conversation.draft.s9')).toBeNull()
   })
 })

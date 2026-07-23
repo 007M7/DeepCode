@@ -20,4 +20,4 @@ pre-commit:
 pre-push:
   jobs:
     - name: typecheck
-      run: node_modules/.bin/tsc -b tsconfig.json --pretty false
+      run: node_modules/.bin/tsc -b --pretty false

@@ -16,7 +16,7 @@ import {
 import type {
   ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
+import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConvViewProps, SelectionTarget, Translate } from '../contract/views.ts'
 import type { ToolViewProps } from '../contract/toolview.ts'
@@ -38,7 +38,7 @@ const FOLLOW_THRESHOLD = 24
 
 type OpenDetails = (target: SelectionTarget) => void
 
-/** web-react's UseSession is deliberately wide (dependency direction); the
+/** ui-slots' UseSession is deliberately wide (dependency direction); the
  *  chat view narrows once to the runtime snapshot the binding actually feeds. */
 type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
 
@@ -122,7 +122,7 @@ function StreamingTail({ useSession, onGrow }: {
 export function createChatView(deps: ChatViewDeps): FC<ConvViewProps> {
   const { toolviews, t } = deps
 
-  return function ChatView({ sessionId, useSession: useSessionWide, useSelection, actions }: ConvViewProps) {
+  return function ChatView({ sessionId, useSession: useSessionWide, useStore, actions }: ConvViewProps) {
     const useSession = useSessionWide as UseConversation
     const nodes = useSession((s) => s.nodes)
     const runningCalls = useSession((s) => s.runningCalls)
@@ -131,7 +131,7 @@ export function createChatView(deps: ChatViewDeps): FC<ConvViewProps> {
     const openErrorMessage = useSession((s) => s.openError === null ? null : `${s.openError.message}（${s.openError.code}）`)
     const hasMore = useSession((s) => s.hasMore)
     const loadingOlder = useSession((s) => s.loadingOlder)
-    const selectedCallId = useSelection((sel) => sel?.callId)
+    const selectedCallId = useStore((s) => s.selection?.callId)
 
     const items = useMemo(() => deriveChatFlow(nodes), [nodes])
 
