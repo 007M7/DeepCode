@@ -403,6 +403,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Create and publish one owner-scoped session after backend setup succeeds.\n * @param owner - exact registered Agent that owns access and cleanup.\n * @param request - backend type plus optional owner-local name and cwd.\n * @param signal - cancellation of unpublished setup.\n * @returns published identity, metadata, status, and MOTD.\n */',
       },
       {
+        signature: 'hasOwnerActivity(owner: Agent): boolean',
+        jsDoc: '/**\n * Test whether an exact owner has a published session or unpublished spawn.\n * @param owner - exact live owner to inspect.\n * @returns true across the entire spawn-to-close interval, with no publication gap.\n */',
+      },
+      {
         signature: 'startSend(owner: Agent, id: PtySessionId, request: PtySendRequest): PtySendOperation',
         jsDoc: '/**\n * Start one exclusive interactive send.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param request - explicit text, submit behavior, and cancellation.\n * @returns live operation handle for foreground await or task registration.\n */',
       },
@@ -458,25 +462,45 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>',
-        jsDoc: '/**\n * Durably persist a batch of events (called from the write-behind drain at\n * the `session/flush` checkpoint). Honors the append-only and contiguous-seq\n * contracts: the first event\'s `seq` MUST equal the stored next-seq (after\n * `load` has durably closed any interrupted turn). Rejects non-JSON-\n * serializable `event.data` with an error naming the offending event type.\n * @param id - the session the batch belongs to.\n * @param events - the contiguous batch to persist, in seq order.\n */',
+        jsDoc: '/**\n * Durably persist a batch of events. Honors the append-only and contiguous-\n * seq contracts: the first event\'s `seq` MUST equal the stored next-seq\n * (after `load` has durably closed any interrupted turn). Rejects non-JSON-\n * serializable `event.data` with an error naming the offending event type.\n * @param id - the session the batch belongs to.\n * @param events - the contiguous batch to persist, in seq order.\n */',
       },
       {
         signature: 'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+      },
+      {
+        signature: 'abstract inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
+        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values, so observers cannot mutate backend-owned state.\n * @param id - the persisted session to inspect.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
       },
       {
         signature: 'abstract list(): Promise<SessionHeader[]>',
         jsDoc: '/**\n * Lightweight listing from metadata, without a full-log parse.\n * @returns one header per materialized session.\n */',
       },
+      {
+        signature: 'abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>',
+        jsDoc: '/**\n * List materialized sessions with cheap per-log change tokens.\n *\n * Repeated observations of an unchanged log return the same revision. A\n * successful mutating {@link load} repair changes the next listed revision.\n * Revisions also distinguish independently backed stores so backend-local\n * counters cannot compare equal across different persistence sources.\n * @returns one header and opaque revision per materialized session without loading full logs.\n */',
+      },
     ],
   },
   {
     key: 'sessionQuery',
-    summary: 'Live-preferred logical-corpus exact-read and relationship-tracing service.',
+    summary: 'Unified live-preferred session query service.',
     methods: [
+      {
+        signature: 'abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>',
+        jsDoc: '/**\n * Search the live-preferred logical corpus and group by session.\n * @param request - query text, metadata filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns session hits ranked by their strongest matching event.\n */',
+      },
+      {
+        signature: 'abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>',
+        jsDoc: '/**\n * Search events within one live-preferred logical session.\n * @param request - target session, query text, filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns matching event hits in deterministic relevance order.\n */',
+      },
       {
         signature: 'listSessions(): Promise<SessionRecord[]>',
         jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @returns deterministic newest-first cloned session records.\n */',
+      },
+      {
+        signature: 'async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>',
+        jsDoc: '/**\n * Filter the complete logical corpus with provider-independent predicates.\n * @param filters - ANDed session metadata and availability clauses.\n * @returns matching cloned records in deterministic newest-first order.\n */',
       },
       {
         signature: 'async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>',
@@ -485,6 +509,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>',
         jsDoc: '/**\n * List lightweight raw-log event records for one logical session.\n * @param sessionId - live-preferred session id to read.\n * @returns event records in ascending seq order.\n */',
+      },
+      {
+        signature: 'async filterEvents( sessionId: SessionId, filters: readonly SessionEventResultFilter[], ): Promise<SessionEventSearchDocument[]>',
+        jsDoc: '/**\n * Scan first-party semantic event documents with provider-independent filters.\n * @param sessionId - live-preferred session id to scan.\n * @param filters - ANDed metadata and literal-text predicates.\n * @returns matching semantic documents in ascending seq order.\n */',
       },
       {
         signature: 'async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>',
@@ -730,7 +758,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'register(definition: ToolDefinition): () => void',
-        jsDoc: '/**\n * Register globally or in the calling agent scope. Scoped tools shadow\n * globals; duplicates within one layer and the reserved `run_code` name fail.\n * @param definition - the tool schema, execution, and optional presentation functions.\n * @returns the exact disposer that unregisters the tool.\n */',
+        jsDoc: '/**\n * Register globally or in the calling agent scope. Scoped tools shadow\n * globals; duplicates within one layer and the reserved `run_code` name fail.\n * @param definition - tool schema, execution, and optional finalization/presentation callbacks.\n * @returns the exact disposer that unregisters the tool.\n */',
       },
       {
         signature: 'restrict(filter: ToolRestriction): () => void',
@@ -754,7 +782,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
-        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy, and final\n * notification. Tool and listener failures resolve as materialized error\n * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is\n * the same lossless, frozen snapshot final observers receive. Cancellation\n * arriving after entry and before final result materialization skips a\n * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a\n * successful started outcome with `ABORTED`; already-started work is still\n * drained and may retain a tool-owned structured error.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
+        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy,\n * definition-owned content finalization, and final notification. Tool and\n * listener failures resolve as materialized error results; an invisible tool\n * reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen\n * snapshot final observers receive. Cancellation\n * arriving after entry and before final result materialization skips a\n * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a\n * successful started outcome with `ABORTED`; already-started work is still\n * drained and may retain a tool-owned structured error.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
       },
     ],
   },
@@ -1427,7 +1455,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GenerateOptions',
-    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\';\n}',
+    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\' | \'session-title\';\n}',
   },
   {
     name: 'GenericCallView',
@@ -1698,6 +1726,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SendOptions {\n    source?: MessageSource;\n    contexts?: HookContext[];\n}',
   },
   {
+    name: 'SessionAvailability',
+    declaration: 'export type SessionAvailability = \'live\' | \'persisted\';',
+  },
+  {
     name: 'SessionEvent',
     declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: number;\n        time: number;\n        data: SessionEventMap[K];\n    } & (K extends SurfaceEventType ? {\n        sourceEventSeqs?: number[];\n        surfaceOp?: SurfaceOp;\n    } : object);\n}[T];',
   },
@@ -1706,12 +1738,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: R /* …truncated — full shape in source */',
   },
   {
+    name: 'SessionEventMetadataFilter',
+    declaration: 'export type SessionEventMetadataFilter = Exclude<SessionEventResultFilter, {\n    kind: \'text\';\n}>;',
+  },
+  {
     name: 'SessionEventReadRequest',
     declaration: 'export interface SessionEventReadRequest {\n    sessionId: SessionId;\n    seq: number;\n    before?: number;\n    after?: number;\n}',
   },
   {
     name: 'SessionEventRecord',
     declaration: 'export interface SessionEventRecord {\n    sessionId: SessionId;\n    seq: number;\n    type: SessionEventType;\n    time: number;\n    surface: SessionEventSurface;\n}',
+  },
+  {
+    name: 'SessionEventResultFilter',
+    declaration: 'export type SessionEventResultFilter = ({\n    kind: \'seq\';\n} & SessionResultRange) | ({\n    kind: \'time\';\n} & SessionResultRange) | {\n    kind: \'type\';\n    values: readonly SessionEventType[];\n} | {\n    kind: \'surface\';\n    values: readonly SessionEventSurface[];\n} | {\n    kind: \'text\';\n    text: string;\n};',
+  },
+  {
+    name: 'SessionEventSearchDocument',
+    declaration: 'export interface SessionEventSearchDocument extends SessionEventRecord {\n    text: string;\n}',
+  },
+  {
+    name: 'SessionEventSearchHit',
+    declaration: 'export interface SessionEventSearchHit extends SessionEventRecord {\n    snippet: string;\n}',
+  },
+  {
+    name: 'SessionEventSearchRequest',
+    declaration: 'export interface SessionEventSearchRequest {\n    sessionId: SessionId;\n    query: string;\n    filters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: SessionSearchCursor;\n}',
   },
   {
     name: 'SessionEventSurface',
@@ -1758,6 +1810,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionLocation {\n    readonly kind: string;\n    readonly path: string;\n}',
   },
   {
+    name: 'SessionPersistenceRevision',
+    declaration: 'export type SessionPersistenceRevision = Branded<\'SessionPersistenceRevision\'>;',
+  },
+  {
+    name: 'SessionPersistenceSnapshot',
+    declaration: 'export interface SessionPersistenceSnapshot {\n    header: SessionHeader;\n    revision: SessionPersistenceRevision;\n}',
+  },
+  {
     name: 'SessionRecord',
     declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n}',
   },
@@ -1768,6 +1828,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionReferenceInput',
     declaration: 'export interface SessionReferenceInput {\n    sessionId: SessionId;\n    label?: string;\n}',
+  },
+  {
+    name: 'SessionResultFilter',
+    declaration: 'export type SessionResultFilter = {\n    kind: \'id\';\n    values: readonly SessionId[];\n} | {\n    kind: \'cwd\';\n    values: readonly (string | null)[];\n} | ({\n    kind: \'created-at\';\n} & SessionResultRange) | {\n    kind: \'parent\';\n    values: readonly (SessionId | null)[];\n} | {\n    kind: \'availability\';\n    values: readonly SessionAvailability[];\n};',
+  },
+  {
+    name: 'SessionResultRange',
+    declaration: 'export interface SessionResultRange {\n    from?: number;\n    to?: number;\n}',
+  },
+  {
+    name: 'SessionSearchCursor',
+    declaration: 'export type SessionSearchCursor = Branded<\'SessionSearchCursor\'>;',
+  },
+  {
+    name: 'SessionSearchExecContext',
+    declaration: 'export interface SessionSearchExecContext {\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'SessionSearchHit',
+    declaration: 'export interface SessionSearchHit extends SessionRecord {\n    bestMatch: SessionEventSearchHit;\n}',
+  },
+  {
+    name: 'SessionSearchPage',
+    declaration: 'export interface SessionSearchPage<T> {\n    items: readonly T[];\n    nextCursor?: SessionSearchCursor;\n}',
+  },
+  {
+    name: 'SessionSearchRequest',
+    declaration: 'export interface SessionSearchRequest {\n    query: string;\n    sessionFilters?: readonly SessionResultFilter[];\n    eventFilters?: readonly SessionEventMetadataFilter[];\n    limit?: number;\n    cursor?: SessionSearchCursor;\n}',
   },
   {
     name: 'SessionSurfaceSnapshot',
@@ -1935,11 +2023,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TaskSnapshot',
-    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: TaskKind;\n    label: string;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
+    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: TaskKind;\n    label: string;\n    outputLimitBytes?: number;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
   },
   {
     name: 'TaskStart',
-    declaration: 'export interface TaskStart {\n    kind: TaskKind;\n    label: string;\n    owner?: Agent;\n    run(): TaskHooks;\n}',
+    declaration: 'export interface TaskStart {\n    kind: TaskKind;\n    label: string;\n    outputLimitBytes?: number;\n    owner?: Agent;\n    run(): TaskHooks;\n}',
   },
   {
     name: 'TaskStatus',
@@ -1987,7 +2075,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolErrorInfo',

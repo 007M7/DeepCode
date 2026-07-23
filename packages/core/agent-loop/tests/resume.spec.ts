@@ -111,6 +111,27 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx.fiber.dispose()
   })
 
+  it('resume cannot crash-repair a turn owned by a live agent', async () => {
+    const { ctx } = await persistentHarness(new MockAdapter([textResponse('unused')]))
+    const sessionId = SessionId('live-resume-race')
+    const first = (await ctx.agents.create({ sessionId })).agent
+    first.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    await ctx.sessions.flush(first.session)
+
+    await expect(ctx.agents.resume({ resumeSessionId: sessionId }))
+      .rejects.toThrow(/live turn is open/)
+
+    first.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await ctx.sessions.flush(first.session)
+    const loaded = await ctx.sessionPersistence.load(sessionId)
+    expect(loaded.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+    expect(loaded.events.at(-1)).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'completed' } },
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('createAgent works without meta (no cwd)', async () => {
     const adapter = new MockAdapter([textResponse('hi')])
     const { ctx } = await persistentHarness(adapter)

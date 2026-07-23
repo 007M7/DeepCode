@@ -51,7 +51,7 @@ describe('dsh-tui-demo app', () => {
       'command-goal',
       'SessionPersistenceJsonl',
       'session-checkpoint-policy',
-      'SessionQueryService',
+      'SessionQuerySqlite',
       'SessionReferenceService',
       'UserInteractionService',
       'ui-tui',
@@ -60,6 +60,7 @@ describe('dsh-tui-demo app', () => {
     ])
     expect(calls[0]?.config).toBeUndefined()
     expect(calls[2]?.config).toEqual({ root: '/tmp/tui-sessions', compression: 'none' })
+    expect(calls[4]?.config).toEqual({ path: '/tmp/tui-sessions/session-query.db' })
     expect(calls[5]?.config).toEqual({
       maxReferences: 2,
       candidateLimit: 7,

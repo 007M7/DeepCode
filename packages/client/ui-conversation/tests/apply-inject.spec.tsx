@@ -51,7 +51,7 @@ async function bench() {
 
   const listStore = createSnapshotStore<SessionListState>({
     ids: [ROOT],
-    byId: { [ROOT]: { id: ROOT, title: 'R', cwd: '/proj', running: false, updatedAt: 1 } },
+    byId: { [ROOT]: { id: ROOT, title: 'R', displayTitle: 'R', cwd: '/proj', running: false, updatedAt: 1 } },
     current: ROOT,
   } as SessionListState)
   const sessionFake = {

@@ -26,4 +26,4 @@ None; this package neither assembles nor sends a provider request.
 - **Details panel is the minimal form** — selected call args/result raw display; the Input/Output/Metadata switch, Prev/Next stepping, and See-in-trajectory deep link are deferred.
 - **Assistant footer extensions (IconActions row, per-message paging) are reserved slots** — drawn in the design, not implemented.
 - **The sparkle icon for the others tool row is a hand-drawn approximation** — the design glyph's vector geometry is not exportable locally; promotion into ui-primitives waits on an exact export.
-- **Approval/question cards are display-only placeholders** — web-side answering (composer takeover panel) is the P-II approvals project.
+- **Approval cards are display-only placeholders** — question requests answer through the composer chain (ui-question), while web-side approval answering is the P-II approvals project.

@@ -1,5 +1,5 @@
 /**
- * Web UI plugin assembly: the in-memory Loader tree mounts all eight UI
+ * Web UI plugin assembly: the in-memory Loader tree mounts all nine UI
  * packages (node halves), and the webserver registry built over it yields the
  * full __DSH_BOOT__ manifest — the P-I config-source bar end to end.
  *
@@ -10,6 +10,9 @@
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { Context } from 'cordis'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createHostWebPluginRegistry } from '@deepseek-ai/dsh-host-webserver'
 import { WEB_UI_PLUGINS, mountWebPlugins } from '../src/web-plugins.ts'
@@ -31,8 +34,16 @@ afterEach(async () => {
 })
 
 describe.skipIf(!built)('mountWebPlugins + registry', () => {
-  it('mounts the eight-package in-memory Loader tree and projects the boot manifest', async () => {
+  async function rootWithHostServices(): Promise<Context> {
     root = new Context()
+    await root.plugin(SystemPrompt)
+    await root.plugin(ToolRegistry)
+    await root.plugin(UserInteractionService)
+    return root
+  }
+
+  it('mounts the nine-package in-memory Loader tree and projects the boot manifest', async () => {
+    root = await rootWithHostServices()
     const mounted = await mountWebPlugins(root)
     const registry = createHostWebPluginRegistry({
       ctx: root,
@@ -59,7 +70,7 @@ describe.skipIf(!built)('mountWebPlugins + registry', () => {
   })
 
   it('is idempotent: a second mount reuses the loader and creates no duplicate entries', async () => {
-    root = new Context()
+    root = await rootWithHostServices()
     await mountWebPlugins(root)
     const second = await mountWebPlugins(root)
     // ctx.loader hands out a fresh traced proxy per access, so loader identity

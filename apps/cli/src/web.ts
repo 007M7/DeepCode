@@ -40,6 +40,7 @@ export async function runWeb(argv: string[]): Promise<void> {
     boot: {
       persistenceRoot: './.sessions',
       workspaceContext: { maxBytes: 65_536 },
+      sessionTitleLlm: true,
     },
   })
 
