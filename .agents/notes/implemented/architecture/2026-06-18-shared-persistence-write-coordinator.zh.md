@@ -18,11 +18,10 @@ Status: implemented
 
 ### 钩子接口（`PersistenceBackend<TornMarker>`）
 
-六个方法（五个必需 + 一个可选的生命周期钩子）——协调器与存储之间唯一的 seam：
+五个必需成员加一个可选的生命周期钩子，构成协调器与存储之间唯一的边界：
 
 - `name`——后端标签，用于 dispose 失败时的 `AggregateError`。
-- `loadStored(id)`——按 id 读取已存储的前缀，扫描任何存储范围（JSONL 的每个 cwd bucket；SQLite 的 id 全局唯一）。用于恢复/加载，以及通过 `!== undefined` 进行创建碰撞探测。
-- `loadLive(id, cwd)`——读取限定于 `cwd` 的已存储前缀。**与 `loadStored` 有意区分**：HMR live-adoption 只能接管与存活会话处于同一 cwd 的持久化日志；同 id 但不同 cwd 的日志是碰撞而非恢复。合并二者会重新引入跨 cwd 接管 bug。SQLite 忽略 `cwd`。
+- `loadStored(id)`——按 id 跨所有存储范围读取一个已存储前缀（JSONL 的所有 cwd bucket；SQLite 的 id 全局唯一）。恢复/加载、存活会话接管与创建碰撞探测共用此查找。协调器会断言返回的 id，并在修复或发布状态之前拒绝已存储记录与存活会话的 cwd 不匹配。
 - `appendBatch(meta, events, isMaterialized)`——持久追加一个连续批次，在尚未物化时原子地惰性物化会话（物化写入与首批事件必须一起提交——崩溃不得留下一个已物化但为空的会话；这就是为什么没有单独的 `materialize` 钩子）。
 - `commitRepair(meta, tornMarker, closers)`——使崩溃修复持久化：截断损坏的尾部（当且仅当 `tornMarker !== undefined`）并追加 `closers`。**不要求原子性**——JSONL 合理地分两步 fsync（先截断再追加），SQLite 在一个事务中完成 DELETE+INSERT。用于 `load`（截断 + 合成 closers）和 live-adoption（仅截断，`closers = []`）。
 - `list()`——列出所有已存储的元数据。
@@ -39,8 +38,8 @@ Status: implemented
 ## 曾考虑的替代方案
 
 - **后端继承的基类**——否决，改用组合：后端只暴露钩子，无法触及协调器的私有编排状态，且第三方后端仍可完全不使用协调器、直接实现抽象服务。
-- **更宽的钩子面**——每个候选钩子都被折叠掉：没有单独的 `materialize` 钩子（物化写入必须在 `appendBatch` 内与首批事件原子提交）；没有单独的创建碰撞探测（即 `loadStored(id) !== undefined`）；`list()` 也不经由协调器透传（列举不需要任何编排）。
+- **更宽的钩子面**——每个候选钩子都被折叠掉：没有限定存储范围的实时查找，因为 `loadStored` 加上协调器的 cwd 检查即可维持碰撞边界；没有存储定位器泛型，因为经验证的 JSONL 元数据可还原其路径，而 SQLite 已按 id 绑定；没有单独的 `materialize` 钩子，因为首批事件必须与物化原子提交；没有单独的创建碰撞探测，因为它就是 `loadStored(id) !== undefined`；`list()` 也不经由协调器透传，因为列举不需要任何编排。
 
 ## 后果
 
-协调器增加了一层间接、一个不透明的 torn marker 和脱离会话生命周期的退役任务，但将此前每个后端重复的、对正确性要求很高的编排逻辑集中到一处。会话 dispose 仍是仅观察事件，因此会话所有者不会等待持久化退役；协调器会收容失败、保留未提交的缓冲区，并以后端 teardown 为静止状态边界。其钩子面保持窄小：碰撞检查复用 `loadStored`，物化保持在 `appendBatch` 内原子完成，列举绕过协调器。新后端只需实现存储原语，而无需复制事件-缓冲区-flush 生命周期。
+协调器增加了一层间接、一个不透明的 torn marker 和脱离会话生命周期的退役任务，但将此前每个后端重复的、对正确性要求很高的编排逻辑集中到一处。会话 dispose 仍是仅观察事件，因此会话所有者不会等待持久化退役；协调器会收容失败、保留未提交的缓冲区，并以后端 teardown 为静止状态边界。其钩子面保持窄小：标识校验、接管与碰撞检查复用 `loadStored`；物化保持在 `appendBatch` 内原子完成；列举绕过协调器。新后端只需实现存储原语，而无需复制事件-缓冲区-flush 生命周期。

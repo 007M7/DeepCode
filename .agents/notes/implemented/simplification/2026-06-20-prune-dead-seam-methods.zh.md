@@ -14,7 +14,7 @@ Status: implemented
 
 该抽象服务在 create/append 之外声明了更多操作：`load`、`list`、`has`、`delete`。`ctx.sessionPersistence` 的生产消费方只用了两个：agent loop（智能体循环）的恢复路径调用 `load()`（[packages/core/agent-loop/src/index.ts:176](../../../../packages/core/agent-loop/src/index.ts)），ACP（Agent Client Protocol）桥接层为 `session/list` 调用 `list()`（[packages/ui/acp/src/index.ts:494](../../../../packages/ui/acp/src/index.ts)）。在 `packages/*/src` 和 `examples/` 中 grep 所有 `sessionPersistence.*` / `persistence.*` 的使用，找不到对该服务的 `has(` 或 `delete(` 调用。`packages/ui/acp/src/index.ts` 中的 `.has(`/`.delete(` 调用作用于内存中的 `SessionStore` 和一个本地的 loading id `Set`，而非 persistence。`has`/`delete` 的唯一调用者是契约测试套件和各后端的 spec。
 
-`has()` 不仅没有被使用——它还是共享协调器中最复杂的分支：带有多行理由说明的“已跟踪/未跟踪”双重探测（对实时跟踪的 session 使用 `loadLive(id, cwd)`，对未跟踪 session 使用 `loadStored(id)`）。`delete()` 则拖入每个后端都必须实现的 `deleteStored` 后端 hook。这属于[删除可变 session summary](2026-06-19-drop-mutable-session-summary.md) 的同类模式：契约测试覆盖了两者，但已发布代码从不会询问“这个 session 是否已持久化？”或删除某个 session。
+`has()` 不仅未被使用：在 `loadStored(id)` 已负责持久化存在性检查的情况下，它仍增加了协调器的已跟踪/未跟踪探测和一个契约分支。`delete()` 则拖入每个后端都必须实现的 `deleteStored` 后端 hook。这属于[删除可变 session summary](2026-06-19-drop-mutable-session-summary.md) 的同类模式：契约测试覆盖了两者，但已发布代码从不会询问“这个 session 是否已持久化？”或删除某个 session。
 
 ## 决策
 
