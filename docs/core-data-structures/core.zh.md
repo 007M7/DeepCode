@@ -20,7 +20,7 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [llm-streaming.md](llm-streaming.md) | `StreamChunk` 协议格式（wire format）+ 适配器契约（adapter contract）、`BlockAssembler`、`LlmAdapter` seam |
 | [token-meter.md](token-meter.md) | 不可变的标量与位置回放度量，附带已消费日志修订号 |
 | [scope.md](scope.md) | 作用域注册标识、dispatch 载体，以及拥有的 `Scope` 上下文 |
-| [goal.md](goal.md) | 持久 goal 标识、生命周期快照、激活、变更记录与 round 归属 |
+| [goal.md](goal.md) | 持久 goal 标识、生命周期快照、激活、变更记录与 Round 归属 |
 | [commands.md](commands.md) | 人类命令 seam：定义、适配器发现、直接调用、结果与解析视图 |
 | [session.md](session.md) | 完整的 `SessionEventMap` 变体目录、`TurnTrigger`/`TurnEndReason`、`deriveMessages()`、轮次封闭不变式 |
 | [persistence.md](persistence.md) | 持久性 seam：`SessionPersistence`、JSONL + SQLite 后端、`session/flush`、崩溃恢复、`SessionHeader` |
@@ -357,7 +357,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-十四种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`prompt/blocked`、`context/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及 turn enclosure 不变量都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
+十四种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`prompt/blocked`、`context/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及轮次封闭不变量都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
 
 ## Agent 句柄
 
@@ -454,11 +454,11 @@ interface Agent {
 }
 ```
 
-`AgentStatus` 为 `'idle' | 'running' | 'disposed'`，`SessionId` 是品牌类型。`running` 描述整个驱动器的排空区间，可能跨越 turn 关闭、其持久化检查点以及连续的排队 turn；它不能证明某个 turn 仍然打开。`AgentOptions` 可合并扩展：core 声明 `provider?` 与 `model?`（在 `agent/request` 后，分发要求两者都存在）。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
+`AgentStatus` 为 `'idle' | 'running' | 'disposed'`，`SessionId` 是品牌类型。`running` 描述整个驱动器的排空区间，可能跨越轮次关闭、其持久化检查点以及连续的排队轮次；它不能证明某个轮次仍然打开。`AgentOptions` 可合并扩展：core 声明 `provider?` 与 `model?`（在 `agent/request` 后，分发要求两者都存在）。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
 
 cause 是由 TypeScript 强制约束的同进程输入。活跃持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`；该值在发布 `turn/end` 前退役。`agentInterruptReasonOf(signal)` 无需查询环境中的 initiator 状态，即可识别 `user`、`parent` 与仅用于生命周期的 `disposed`。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 
-[事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall 契约。Turn 和 step 边界是持久会话事件，而不是 agent emit。
+[事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall 契约。轮次和步骤边界是持久会话事件，而不是 agent emit。
 
 ## 发起 Agent
 
@@ -486,7 +486,7 @@ interface HookContext {
 }
 ```
 
-`agent/prompt-submit` 返回 `PromptDecision`（允许 turn 已领取的排队消息——可选地改写其 `content` 或附加 `additionalContexts`——或者记录 `prompt/blocked` 并以 `rejected` 结束这个零 step turn）：
+`agent/prompt-submit` 返回 `PromptDecision`（允许该轮次已领取的排队消息——可选地改写其 `content` 或附加 `additionalContexts`——或者记录 `prompt/blocked` 并以 `rejected` 结束这个零步骤轮次）：
 
 ```ts type-equiv
 /**
@@ -503,7 +503,7 @@ type PromptDecision =
   | { kind: 'block'; reason: string }
 ```
 
-`agent/turn-continuation` 返回 `ContinuationDecision`（step 有工具调用或注入了 steering 时，循环默认为 `continue`，否则为 `stop`；`continue` 的 `reason` 会记录为同一 turn 中下一 step 的 steering，因此不携带上下文元数据——即类型化 `/goal` 模式）：
+`agent/turn-continuation` 返回 `ContinuationDecision`（步骤有工具调用或注入了 steering 时，循环默认为 `continue`，否则为 `stop`；`continue` 的 `reason` 会记录为同一轮次中下一个步骤的 steering，因此不携带上下文元数据——即类型化 `/goal` 模式）：
 
 ```ts type-equiv
 /** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
@@ -512,14 +512,14 @@ type ContinuationDecision =
   | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 ```
 
-`agent/request-error` 接收确切的原始 `RequestError`、其不可变 `LlmFailure`、在连续序列中已批准另一次请求的不可变失败列表、turn signal 以及 `next()`。恢复插件按 `failure.code` 路由，而不是按活跃错误的消息路由；每项策略只统计自身的 code，一次成功请求会清空历史：
+`agent/request-error` 接收确切的原始 `RequestError`、其不可变 `LlmFailure`、在连续序列中已批准另一次请求的不可变失败列表、轮次信号以及 `next()`。恢复插件按 `failure.code` 路由，而不是按活跃错误的消息路由；每项策略只统计自身的 code，一次成功请求会清空历史：
 
 ```ts type-equiv
 /** Model-request failure with an optional machine-routable provider code. */
 type RequestError = Error & { code?: string }
 ```
 
-它返回 `RequestErrorDecision`；`retry` 在恢复 listener 的持久变更之后打开一个带新编号的 step，而 `fail` 在 `turn/end` 上保留结构化失败：
+它返回 `RequestErrorDecision`；`retry` 在恢复 listener 的持久变更之后打开一个带新编号的步骤，而 `fail` 在 `turn/end` 上保留结构化失败：
 
 ```ts type-equiv
 /** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */
