@@ -209,6 +209,62 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     expect(loaded.events).toEqual(log) // chunks preserved, contiguous seqs
   })
 
+  it('source-qualifies revisions across roots while preserving same-log reopen identity', async () => {
+    const m = meta('revision-source')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const revision = (await ctx.sessionPersistence.listSnapshots())[0]?.revision
+
+    const reopenedCtx = new Context()
+    await reopenedCtx.plugin(SessionStore)
+    await reopenedCtx.plugin(SessionPersistenceJsonl, { root, compression: 'none' })
+    expect((await reopenedCtx.sessionPersistence.listSnapshots())[0]?.revision).toBe(revision)
+
+    const otherRoot = await freshRoot()
+    const otherCtx = new Context()
+    await otherCtx.plugin(SessionStore)
+    await otherCtx.plugin(SessionPersistenceJsonl, { root: otherRoot, compression: 'none' })
+    await otherCtx.sessionPersistence.create(m)
+    await otherCtx.sessionPersistence.append(m.id, oneTurnLog())
+    expect((await otherCtx.sessionPersistence.listSnapshots())[0]?.revision).not.toBe(revision)
+
+    await reopenedCtx.fiber.dispose()
+    await otherCtx.fiber.dispose()
+  })
+
+  it('omits a snapshot artifact removed after discovery', async () => {
+    const m = meta('vanishing-snapshot')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const persistence = ctx.sessionPersistence as unknown as {
+      listArtifacts(): Promise<Array<{ header: SessionHeader; path: string }>>
+    }
+    const listArtifacts = persistence.listArtifacts.bind(persistence)
+    const discovery = vi.spyOn(persistence, 'listArtifacts').mockImplementation(async () => {
+      const artifacts = await listArtifacts()
+      await rm(artifacts[0]!.path)
+      return artifacts
+    })
+
+    await expect(ctx.sessionPersistence.listSnapshots()).resolves.toEqual([])
+    discovery.mockRestore()
+  })
+
+  it('surfaces non-ENOENT snapshot stat failures after discovery', async () => {
+    const blocker = join(root, 'snapshot-not-a-directory')
+    await writeFile(blocker, 'x')
+    const persistence = ctx.sessionPersistence as unknown as {
+      listArtifacts(): Promise<Array<{ header: SessionHeader; path: string }>>
+    }
+    const discovery = vi.spyOn(persistence, 'listArtifacts').mockResolvedValue([{
+      header: meta('snapshot-stat-failure'),
+      path: join(blocker, 'session.jsonl'),
+    }])
+
+    await expect(ctx.sessionPersistence.listSnapshots()).rejects.toThrow(/ENOTDIR/)
+    discovery.mockRestore()
+  })
+
   it('rejects a stored v0 log containing a legacy request/header-delta event', async () => {
     const m = meta('legacy-header-delta', '/legacy')
     const path = rawLogPath(root, m.cwd, m.id)

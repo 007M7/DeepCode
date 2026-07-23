@@ -96,11 +96,25 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
           { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
           { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
         ])
+        const beforeRepair = (await persistence.listSnapshots())
+          .find(snapshot => snapshot.header.id === m.id)?.revision
+
+        const inspected = await persistence.inspect(m.id)
+        const afterInspect = (await persistence.listSnapshots())
+          .find(snapshot => snapshot.header.id === m.id)?.revision
+        expect(afterInspect).toBe(beforeRepair)
+        expect(inspected.events.map(e => e.type)).toEqual([
+          'turn/start', 'user/message', 'step/start', 'assistant/message', 'step/end', 'turn/end',
+          'turn/start', 'step/start',
+        ])
 
         // load PRESERVES the interrupted turn's events (a turn can be huge — they
         // must not be truncated) and closes the orphaned turn with synthetic
         // boundary events: step/end (the step was open) then turn/end {interrupted}.
         const loaded = await persistence.load(m.id)
+        const afterRepair = (await persistence.listSnapshots())
+          .find(snapshot => snapshot.header.id === m.id)?.revision
+        expect(afterRepair).not.toBe(beforeRepair)
         expect(loaded.events.map(e => e.type)).toEqual([
           'turn/start', 'user/message', 'step/start', 'assistant/message', 'step/end', 'turn/end', // turn 1
           'turn/start', 'step/start', 'step/end', 'turn/end', // turn 2: real events + synthetic closers
@@ -201,18 +215,33 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       try {
         await persistence.create(meta('empty'))
         expect((await persistence.list()).map(m => m.id)).not.toContain(SessionId('empty'))
+        expect((await persistence.listSnapshots()).map(snapshot => snapshot.header.id))
+          .not.toContain(SessionId('empty'))
       } finally {
         await dispose()
       }
     })
 
-    it('list() includes a session once it has events', async () => {
+    it('lists stable lightweight revisions that change after an append', async () => {
       const { persistence, dispose } = await make()
       try {
         const m = meta('s2')
         await persistence.create(m)
         await persistence.append(m.id, oneTurnLog())
         expect((await persistence.list()).map(x => x.id)).toContain(m.id)
+        const first = (await persistence.listSnapshots()).find(snapshot => snapshot.header.id === m.id)
+        const repeated = (await persistence.listSnapshots()).find(snapshot => snapshot.header.id === m.id)
+        expect(first).toBeDefined()
+        expect(repeated?.revision).toBe(first?.revision)
+
+        await persistence.append(m.id, [{
+          type: 'turn/start',
+          seq: 6,
+          time: 7,
+          data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } },
+        }])
+        const changed = (await persistence.listSnapshots()).find(snapshot => snapshot.header.id === m.id)
+        expect(changed?.revision).not.toBe(first?.revision)
       } finally {
         await dispose()
       }
