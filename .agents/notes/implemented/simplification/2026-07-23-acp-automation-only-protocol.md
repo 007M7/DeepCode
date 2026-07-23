@@ -26,11 +26,7 @@ Disconnect and plugin disposal share one memoized quiescence boundary. Both succ
 
 ## Snapshot boundary
 
-The ACP snapshot suite retains the backend-oriented scenarios and still boots the assembled ACP example. The refactor keeps 53 scenarios covering loop, tool, hook, compaction, subagent, filesystem, PTY, Code Mode, permission escalation, and persistence behavior. Names that described deleted presentation are backend-oriented (`bash-tool-turn` and `todo-write`).
-
-Seven scenarios are removed because their scripts exercised deleted ACP UI controls: configuration advertisement, mode advertisement, model selection, permission-preset selection, command status, and plan-mode review through the picker and elicitation flow. Their owning packages retain focused keyless coverage. The semantic-checkpoint scenario uses the headless `stream-json` example instead of ACP.
-
-A FIXME in [`examples/acp-agent/tests/acp.snapshot.ts`](../../../../examples/acp-agent/tests/acp.snapshot.ts) records the deliberate follow-up: move the remaining backend corpus to the headless `stream-json` suite, leaving ACP snapshots responsible only for the automation protocol. That migration is separate because rewriting the shared snapshot harness and every fixture would obscure this protocol simplification.
+The ACP snapshot suite still boots the assembled ACP example and retains scenarios that pin backend behavior. Only scenarios driven through deleted UI methods leave the suite; semantic-checkpoint recovery runs through the headless `stream-json` example because ACP no longer loads sessions.
 
 ## Alternatives considered
 
@@ -48,4 +44,4 @@ ACP has a narrow contract suitable for agents and automation, while TUI and Web 
 
 Automation clients receive complete committed text rather than token deltas or structured tool UI. They inspect durable logs or another API when they need reasoning, tool traces, titles, or richer state. Fresh-session-only operation also means callers that need durable browsing or resume use a host API rather than ACP.
 
-The backend snapshot coverage remains available during the transition, but its transport is temporarily incidental. The FIXME makes that debt explicit without expanding this PR into a repository-wide snapshot migration.
+Backend snapshot coverage therefore remains transport-coupled to ACP even though that transport is incidental to the behavior under test.

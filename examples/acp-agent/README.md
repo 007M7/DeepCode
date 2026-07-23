@@ -25,7 +25,7 @@ Under `workspace-write`, a model retry requesting wider sandbox access triggers 
 
 This example owns the ACP snapshot suite. It boots the real automation server, replays committed model streams through `dsh-llm-replay`, and compares both normalized protocol output and re-persisted session logs. Recording uses the real model; refresh reuses committed replay input. Overrides cover throw/hang behavior, and optional `workspace/` fixtures seed world-state checks.
 
-Most scenarios pin backend behavior rather than ACP-specific behavior and remain in this suite until they can move without losing coverage. The FIXME in [`tests/acp.snapshot.ts`](tests/acp.snapshot.ts) names their migration to the headless `stream-json` suite.
+Most scenarios pin backend behavior rather than ACP-specific behavior; the [automation-only ACP decision](../../.agents/notes/implemented/simplification/2026-07-23-acp-automation-only-protocol.md#snapshot-boundary) owns why that coverage remains transport-coupled.
 
 ## Protocol limitations
 

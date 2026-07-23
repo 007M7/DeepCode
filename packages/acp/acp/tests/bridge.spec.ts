@@ -54,6 +54,14 @@ describe('automation-only ACP bridge', () => {
     expect(harness.adapter.requests[0]?.messages.at(-1)?.content).toEqual([{ type: 'text', text: 'say hello' }])
   })
 
+  it('leaves absent agent targets for request listeners to supply', async () => {
+    harness = await makeBridgeHarness({ config: { provider: undefined, model: undefined } })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+
+    expect(harness.ctx.agents.get(SessionId(sessionId))?.options).toEqual({})
+  })
+
   it('concatenates text blocks without exposing protocol framing to the model', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('done')] })
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })

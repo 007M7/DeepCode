@@ -300,7 +300,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
  * @param config - ACP provider/model configuration.
  * @returns the configured fields only.
  */
-export function agentOptions(config: AcpConfig): { provider?: string; model?: string } {
+function agentOptions(config: AcpConfig): { provider?: string; model?: string } {
   return {
     ...config.provider !== undefined ? { provider: config.provider } : {},
     ...config.model !== undefined ? { model: config.model } : {},

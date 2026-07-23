@@ -67,4 +67,4 @@ None; this package neither assembles nor sends a provider request.
 
 - **Session harvest requires raw JSONL mode** — `runScenario` collects persisted `.jsonl` logs, so snapshot configs set `persistenceCompression: 'none'`; compressed JSONL and SQLite compositions have no snapshot-harvest path.
 - **Built mode requires current artifacts** — run `pnpm run build` before selecting `DSH_EXAMPLE_MODE=lib`; source mode remains the zero-build path.
-- **Backend coverage still rides an ACP driver** — most `examples/acp-agent` scenarios assert assembled agent behavior through the persisted log rather than ACP-specific behavior. The suite carries an explicit FIXME to migrate those scenarios to headless `stream-json`; this package remains until that coverage moves without loss.
+- **Backend coverage still rides an ACP driver** — see the [automation-only ACP decision](../../../.agents/notes/implemented/simplification/2026-07-23-acp-automation-only-protocol.md#snapshot-boundary) for why retained scenarios use this transport.
