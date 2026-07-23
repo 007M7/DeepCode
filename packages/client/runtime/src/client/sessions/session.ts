@@ -7,7 +7,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult, SessionId, ToolEventView } from '@deepseek-ai/dsh-client-connection/client'
 import { transportError } from '@deepseek-ai/dsh-client-connection/client'
-import type { ObservableSnapshot } from '../store/index.ts'
+import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
   ConversationNode, ConversationSnapshot, OpenState, PendingInteraction, PromptError, RunningToolCall,
 } from './conversation.ts'

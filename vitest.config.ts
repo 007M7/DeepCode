@@ -1,6 +1,12 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
+// Resolution facade shared by every plugin instance below: tsconfig.base.json
+// has no include, which vite-tsconfig-paths treats as match-all, so its paths
+// map applies to every test file. paths must win over package exports so built
+// lib/ never loads a second module-singleton copy.
+const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ projects: ['./tsconfig.base.json'] })
+
 const windowsUnsupportedPackages = process.platform === 'win32'
   ? [
       'packages/bash/*',
@@ -40,12 +46,7 @@ const processBoundTests = [
 ]
 
 export default defineConfig({
-  // Native path resolution reads each package's nearest tsconfig, but only the root defines
-  // workspace paths. Keep this plugin pinned to the root map so bare package imports resolve
-  // to source — with built lib/ present, manifest-exports fallthrough would load a second
-  // copy of module singletons. tsconfig.vitest.json widens include to .tsx specs (the root
-  // include stops at .ts for tsc -b; the plugin scopes applicability by include).
-  plugins: [tsconfigPaths({ projects: ['./tsconfig.vitest.json'] })],
+  plugins: [pathsPlugin()],
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
@@ -55,7 +56,7 @@ export default defineConfig({
     // for lower startup/IPC overhead; only explicit process-bound suites fork.
     projects: [
       {
-        plugins: [tsconfigPaths({ projects: ['./tsconfig.vitest.json'] })],
+        plugins: [pathsPlugin()],
         test: {
           name: 'thread-safe',
           pool: 'threads',
@@ -68,7 +69,7 @@ export default defineConfig({
         },
       },
       {
-        plugins: [tsconfigPaths({ projects: ['./tsconfig.vitest.json'] })],
+        plugins: [pathsPlugin()],
         test: {
           name: 'process-bound',
           pool: 'forks',

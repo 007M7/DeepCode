@@ -370,7 +370,7 @@ function quote(value: string): string {
 
 /**
  * Render the generated scoped-event resolver module for one repository root.
- * @param projectRoot - repository root carrying tsconfig.json.
+ * @param projectRoot - repository root carrying tsconfig.host.json.
  * @returns complete generated TypeScript source.
  */
 export function renderScopedEvents(projectRoot: string = root): string {

@@ -14,10 +14,10 @@
     "website"
   ],
   "scripts": {
-    "build": "tsc -b tsconfig.build.json && tsdown",
+    "build": "tsc -b && tsdown",
     "build:web": "pnpm --filter @deepseek-ai/dsh-frontend run build",
     "clean:build": "rm -rf .typecheck packages/*/*/lib vendor/*/lib *.tsbuildinfo",
-    "typecheck": "tsc -b tsconfig.json tsconfig.client.json",
+    "typecheck": "tsc -b",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "duplication": "jscpd --config .jscpd.json packages scripts",
