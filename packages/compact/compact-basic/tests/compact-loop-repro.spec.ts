@@ -4,7 +4,7 @@ import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-a
 import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -134,7 +134,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(TokenMeterService)
   ctx.llm.registerAdapter(['mock'], new StepwiseToolAdapter(toolSteps))
-  ctx.tools.register(defineTool({
+  ctx.tools.register(defineContentToolFixture({
     name: 'work',
     description: 'does work',
     parameters: { i: { type: 'number' } },

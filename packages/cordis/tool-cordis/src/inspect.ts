@@ -33,8 +33,13 @@ function withinFiber(fiber: Fiber, root: Fiber): boolean {
   }
 }
 
-/** The service names provided by a mount's fiber subtree, sorted. */
-function providedBy(ctx: Context, fiber: Fiber): string[] {
+/**
+ * Return the service names provided by a mount's fiber subtree.
+ * @param ctx - the runtime whose service registrations are inspected.
+ * @param fiber - the root of the mounted fiber subtree.
+ * @returns the provided service names in lexical order.
+ */
+export function providedServices(ctx: Context, fiber: Fiber): string[] {
   return liveImpls(ctx)
     .filter(impl => withinFiber(impl.fiber, fiber))
     .map(impl => impl.name)
@@ -96,7 +101,7 @@ export function describeTools(ctx: Context, scope?: ScopeKey): string[] {
 export function describeDynamic(ctx: Context, mounts: ReadonlyMap<string, DynamicMount>): string[] {
   if (mounts.size === 0) return ['(no dynamic plugins mounted)']
   return [...mounts].map(([id, mount]) => {
-    const provides = providedBy(ctx, mount.fiber)
+    const provides = providedServices(ctx, mount.fiber)
     const waiting = missingServices(ctx, mount.fiber)
     const providesNote = provides.length > 0 ? ` — provides: ${provides.join(', ')}` : ''
     const waitingNote = waiting.length > 0 ? ` — waiting for: ${waiting.join(', ')}` : ''

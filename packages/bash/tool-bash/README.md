@@ -49,6 +49,8 @@ The overlay is computed from the current `ToolExecution` and passed through the 
 
 Result text contains stdout, an optional `[stderr]` section, then applicable sandbox-denial, timeout, signal, exit-code, and truncation markers. Timeout is reported independently of final exit status; nonzero exit remains a model-interpreted result rather than `isError`. Truncation links a safe complete spill file or reports it unavailable. Only infrastructure failures such as spawn errors and aborts produce `isError`.
 
+The canonical success is `{ kind: 'foreground', ...BashRunResult }` for a completed foreground process or `{ kind: 'background', taskId }` for a published task. The Native renderer preserves the text above, including exactly `started background task <id>`; programmatic consumers use the typed fields without parsing those strings. Executor stream caps remain acquisition limits on `BashRunResult` and carry their spill paths.
+
 When `run_in_background` is true, this plugin preflights `ctx.tasks.start()` before spawning, registers the calling agent as owner, and adapts the returned `BashProcess` handle into generic cancel/done/incremental-output hooks. The task runtime owns ids, cross-session isolation, completion notices, waiting, and disposal cleanup; this plugin only maps bash exit/sandbox facts into task output and outcome detail. `enableRunInBackground: false` removes the parameter and rejects a forced background call at execution time.
 
 ## UI presentation

@@ -511,17 +511,32 @@
     },
     {
       "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolOutputDefinition",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
       "symbol": "ToolDefinition",
       "source": "packages/core/tools/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.md",
-      "symbol": "SchemaProp",
+      "symbol": "ValueSchemaSpec",
       "source": "packages/core/tools/src/schema.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.md",
-      "symbol": "SchemaSpec",
+      "symbol": "ParameterPropertySpec",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ParameterSchemaSpec",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "InferValue",
       "source": "packages/core/tools/src/schema.ts"
     },
     {
@@ -571,6 +586,21 @@
     },
     {
       "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolFailure",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolExecutionSuccess",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolExecutionFailure",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
       "symbol": "ToolExecutionResult",
       "source": "packages/core/tools/src/index.ts"
     },
@@ -586,22 +616,22 @@
     },
     {
       "doc": "docs/core-data-structures/tools.md",
-      "symbol": "StructuredScalar",
+      "symbol": "JsonSchemaScalar",
       "source": "packages/core/tools/src/json-schema.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.md",
-      "symbol": "StructuredSchemaType",
+      "symbol": "JsonSchemaType",
       "source": "packages/core/tools/src/json-schema.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.md",
-      "symbol": "StructuredSchemaNode",
+      "symbol": "JsonSchemaNode",
       "source": "packages/core/tools/src/json-schema.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.md",
-      "symbol": "StructuredOutputSchema",
+      "symbol": "ObjectJsonSchema",
       "source": "packages/core/tools/src/json-schema.ts"
     },
     {
@@ -801,6 +831,11 @@
     },
     {
       "doc": "docs/core-data-structures/code-runtime.md",
+      "symbol": "CodeJsonValue",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.md",
       "symbol": "CodeRunRequest",
       "source": "packages/code-runtime/code-runtime/src/types.ts"
     },
@@ -812,6 +847,11 @@
     {
       "doc": "docs/core-data-structures/code-runtime.md",
       "symbol": "CodeBindingNamespace",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.md",
+      "symbol": "CodeBindingErrorClass",
       "source": "packages/code-runtime/code-runtime/src/types.ts"
     },
     {
@@ -1449,17 +1489,32 @@
     },
     {
       "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolOutputDefinition",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
       "symbol": "ToolDefinition",
       "source": "packages/core/tools/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.zh.md",
-      "symbol": "SchemaProp",
+      "symbol": "ValueSchemaSpec",
       "source": "packages/core/tools/src/schema.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.zh.md",
-      "symbol": "SchemaSpec",
+      "symbol": "ParameterPropertySpec",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ParameterSchemaSpec",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "InferValue",
       "source": "packages/core/tools/src/schema.ts"
     },
     {
@@ -1509,6 +1564,21 @@
     },
     {
       "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolFailure",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolExecutionSuccess",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
+      "symbol": "ToolExecutionFailure",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.zh.md",
       "symbol": "ToolExecutionResult",
       "source": "packages/core/tools/src/index.ts"
     },
@@ -1524,22 +1594,22 @@
     },
     {
       "doc": "docs/core-data-structures/tools.zh.md",
-      "symbol": "StructuredScalar",
+      "symbol": "JsonSchemaScalar",
       "source": "packages/core/tools/src/json-schema.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.zh.md",
-      "symbol": "StructuredSchemaType",
+      "symbol": "JsonSchemaType",
       "source": "packages/core/tools/src/json-schema.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.zh.md",
-      "symbol": "StructuredSchemaNode",
+      "symbol": "JsonSchemaNode",
       "source": "packages/core/tools/src/json-schema.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.zh.md",
-      "symbol": "StructuredOutputSchema",
+      "symbol": "ObjectJsonSchema",
       "source": "packages/core/tools/src/json-schema.ts"
     },
     {
@@ -1679,6 +1749,11 @@
     },
     {
       "doc": "docs/core-data-structures/code-runtime.zh.md",
+      "symbol": "CodeJsonValue",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.zh.md",
       "symbol": "CodeRunRequest",
       "source": "packages/code-runtime/code-runtime/src/types.ts"
     },
@@ -1690,6 +1765,11 @@
     {
       "doc": "docs/core-data-structures/code-runtime.zh.md",
       "symbol": "CodeBindingNamespace",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.zh.md",
+      "symbol": "CodeBindingErrorClass",
       "source": "packages/code-runtime/code-runtime/src/types.ts"
     },
     {

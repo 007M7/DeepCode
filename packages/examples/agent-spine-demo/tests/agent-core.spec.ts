@@ -562,7 +562,8 @@ describe('dsh-agent-spine-demo bundle', () => {
         name,
         description: name,
         parameters: {},
-        execute: async () => [],
+        output: { schema: { type: 'null' }, render: () => [] },
+        execute: async () => null,
       })
     }
     const assembly = await ctx.get('systemPrompt')!.assemble()

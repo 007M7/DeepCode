@@ -10,6 +10,8 @@ The model-facing control surface for [`ctx.goals`](../goal/README.md): `get_goal
 
 All calls are exclusive, so a model-ordered batch observes earlier mutations and their new revisions. ACP and other clients receive pure generic cards: read for `get_goal`, other for mutations.
 
+All three canonical values match the compact JSON already rendered to Native callers: `{ goal: null }` or `{ goal: { id, revision, objective, phase, roundsStarted, maxGoalRounds, blockedReason? }, activation }`. Programmatic consumers therefore receive the same domain structure without parsing the rendered JSON.
+
 An autonomous goal round that successfully reports `complete` or `blocked` contributes the existing terminal `agent/turn-stop` decision for that physical turn. Direct-human mutations never contribute this stop: the assistant may acknowledge the change and concurrent human steering remains available to the loop.
 
 ## Authority

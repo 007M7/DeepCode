@@ -5,13 +5,14 @@
  * slot-parity design), session scope tree (mintScope pattern: no-op plugin
  * Fiber + ctx.extend scope tag), stable SessionBinding cache, ancestry walk.
  *
- * Scope lifecycle is watch-driven: a scope is minted lazily on first
- * resolution; a session leaving the list tears its scope down only when
- * nobody is watching it. "Watched" is approximated as the most recently
- * resolved binding id — SessionProvider re-resolves on every selection
- * change (keyed remount), so a switch away always re-evaluates the deferred
- * teardown; a host-side death without list removal keeps the scope (frozen
- * read-only view).
+ * Scope lifecycle is stage-driven: a scope is minted lazily on first
+ * resolution (pure — resolution has no side effects and is render-safe);
+ * the event window and deferred teardown key off the STAGED session, which
+ * follows `list.current` exactly. Staging is the open signal: the window
+ * opens ⟺ the session is on stage (today the stage is `current`; the staged
+ * state can widen to a multi-pane list later). A session leaving the list
+ * tears its scope down immediately unless it is the staged one, whose scope
+ * survives frozen (read-only view) until the stage moves on.
  */
 import type { Context, Fiber } from 'cordis'
 import type { IApiClient, SessionId } from '@deepseek-ai/dsh-client-connection/client'
@@ -97,9 +98,14 @@ export class SessionsService {
   private readonly selection: SnapshotStore<{ sessionId?: SessionId }>
 
   private readonly scopes = new Map<SessionId, ScopeRecord>()
-  /** Most recently resolved binding id — the watch approximation for deferred teardown. */
+  /**
+   * The staged session id — follows `list.current` exactly, holding its last
+   * defined value across masked gaps (a transiently absent selection blanks
+   * `current` without moving the stage, so reconnect re-pulls and removals
+   * keep the staged scope's frozen view alive until the stage moves on).
+   */
   private watched: SessionId | undefined
-  /** Removed-while-watched sessions whose teardown waits for the watch to move away. */
+  /** Removed-while-staged sessions whose teardown waits for the stage to move away. */
   private readonly deferredRemovals = new Set<SessionId>()
 
   /**
@@ -115,6 +121,13 @@ export class SessionsService {
     // The manager owns wire truth; the store is its projection. Manager
     // notifications are already microtask-batched.
     this.manager.subscribe(() => { this.projectList() })
+    // Stage follower: every current write (open() and projection alike)
+    // re-evaluates staging, so startup restore (persisted selection validated
+    // by the projection) and reconnect resurfacing open their window with no
+    // dedicated code path. Safe to run synchronously inside the store notify:
+    // the follower writes no list state — session.open()'s synchronous prefix
+    // touches only session-side state and its own microtask-batched notifier.
+    this.list.subscribe(() => { this.followCurrent() })
     rootCtx.reflect.provide('sessions', this, undefined)
   }
 
@@ -152,35 +165,50 @@ export class SessionsService {
   }
 
   /**
-   * Resolve the stable session binding (SessionProvider's resolveBinding feed).
+   * Resolve the stable session binding (scope-addressed assembly feed). Pure
+   * resolution — no staging, no window side effects.
    * @param id - session id.
    * @returns binding, or undefined for a session neither listed nor already scoped.
    */
   binding(id: SessionId): SessionBinding | undefined {
-    const record = this.resolve(id)
-    if (record === undefined) return undefined
-    if (this.watched !== id) {
-      this.watched = id
-      this.sweepDeferred()
-    }
-    return record.binding
+    return this.resolve(id)?.binding
   }
 
   /**
    * Resolve the render-layer session cell (SessionProvider's feed through
-   * the renderer host; ctx never enters the render layer). Marks the session
-   * watched, same as {@link SessionsService.binding}.
+   * the renderer host; ctx never enters the render layer). Pure resolution —
+   * render-safe: SessionProvider calls this during render, so no staging, no
+   * window side effects (StrictMode double-invokes and concurrent discarded
+   * passes must stay free).
    * @param id - session id.
    * @returns cell, or undefined for a session neither listed nor already scoped.
    */
   cell(id: string): SessionCell | undefined {
-    const record = this.resolve(id as SessionId)
-    if (record === undefined) return undefined
-    if (this.watched !== id) {
-      this.watched = id as SessionId
-      this.sweepDeferred()
+    return this.resolve(id as SessionId)?.cell
+  }
+
+  /**
+   * Move the stage to the list's current session: sweep teardowns deferred
+   * behind the previous occupant and pull the new occupant's history window.
+   * Staging IS the open signal — the window opens ⟺ the session is on stage
+   * — and open() is idempotent (an in-flight or completed open no-ops; a
+   * failed one retries the next time current is touched).
+   */
+  private followCurrent(): void {
+    const current = this.list.getSnapshot().current
+    // A masked gap (current blanked while the selection's session is
+    // transiently absent) holds the stage: tearing down on the gap would
+    // destroy exactly the frozen scope the mask exists to preserve.
+    if (current === undefined || current === this.watched) return
+    this.watched = current
+    this.sweepDeferred()
+    const record = this.resolve(current)
+    /* v8 ignore next 3 -- defensive: current is always a listed id (open()
+     * validates and the projection masks absent selections), so resolve
+     * cannot miss; kept so a future current writer cannot crash the notify. */
+    if (record !== undefined) {
+      void record.binding.session.open()
     }
-    return record.cell
   }
 
   /**
@@ -246,7 +274,7 @@ export class SessionsService {
     this.pruneScopes(byId)
   }
 
-  /** Tear down scopes for removed sessions nobody watches; the watched one defers until the watch moves. */
+  /** Tear down scopes for removed sessions off stage; the staged one defers until the stage moves. */
   private pruneScopes(byId: Record<SessionId, SessionSummary>): void {
     for (const [id, record] of this.scopes) {
       if (byId[id] !== undefined) continue
@@ -268,11 +296,11 @@ export class SessionsService {
     this.rootCtx.get('slots')?.pruneStoreScope(id)
   }
 
-  /** Run deferred teardowns whose session is no longer watched (called when the watch moves). */
+  /** Run deferred teardowns whose session is no longer staged (called when the stage moves). */
   private sweepDeferred(): void {
     for (const id of [...this.deferredRemovals]) {
-      /* v8 ignore next -- defensive: only the watched id ever defers, and every
-       * watch move sweeps first, so the set cannot contain the id the watch just
+      /* v8 ignore next -- defensive: only the staged id ever defers, and every
+       * stage move sweeps first, so the set cannot contain the id the stage just
        * moved to; kept as a guard against future extra sweep call sites. */
       if (id === this.watched) continue
       // Still absent from the list? (A re-added id cancels the deferred teardown.)

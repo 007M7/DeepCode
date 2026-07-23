@@ -8,21 +8,36 @@
 
 ## `ToolDefinition` — 一个已注册的工具
 
-由一个 `ToolSchema`（面向模型的字段）、`execute` 函数、仅供宿主使用的调度器元数据和可选 UI 展示函数组成。注册表持有这些定义，循环通过它们分派调用。注册表的 `schemas()` 通过显式允许列表构建面向模型的 `ToolSchema[]`；`execute`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` 绝不能泄漏到模型请求中。
+由一个 `ToolSchema`（面向模型的字段）、必需的规范输出声明、`execute` 函数、仅供宿主使用的调度器元数据和可选 UI 展示函数组成。注册表持有这些定义，循环通过它们分派调用。注册表的 `schemas()` 通过显式允许列表构建面向模型的 `ToolSchema[]`；`output`/`execute`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` 绝不能泄漏到模型请求中。
+
+```ts type-equiv
+/** Tool-owned canonical output contract used after the body returns a JSON value. */
+interface ToolOutputDefinition {
+  /** Raw supported JSON Schema enforced against every successful canonical value. */
+  readonly schema: JsonSchemaNode
+  /** Pure projection from validated arguments and value to Native/model content. */
+  render(args: unknown, value: JsonValue): ContentBlock[]
+  /** Pure replayable presentation projection, computed only for surface calls. */
+  presentationMeta?(args: unknown, value: JsonValue): JsonValue
+}
+```
 
 ```ts type-equiv
 /** A registered tool: its schema plus the execution function. */
 interface ToolDefinition extends ToolSchema {
+  /** Mandatory canonical output declaration. */
+  readonly output: ToolOutputDefinition
   /**
-   * Run one accepted call. Async work must observe or forward `exec.signal` and
-   * settle only after its owned work reaches quiescence. The registry preserves
-   * caller cancellation through around-dispatch signal replacement and does
-   * not abandon this promise, but it cannot hard-kill same-process code.
+   * Run one accepted call and return only its canonical lossless-JSON value.
+   * Async work must observe or forward `exec.signal` and settle only after its
+   * owned work reaches quiescence. The registry preserves caller cancellation
+   * through around-dispatch signal replacement and does not abandon this
+   * promise, but it cannot hard-kill same-process code.
    * @param args - losslessly snapshotted, frozen model arguments.
    * @param exec - execution identity, cancellation signal, and context deferral.
-   * @returns model-facing content plus optional private presentation metadata.
+   * @returns the canonical value declared by `output.schema`.
    */
-  execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>
+  execute(args: unknown, exec: ToolRunContext): Promise<unknown>
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
@@ -57,7 +72,7 @@ interface ToolDefinition extends ToolSchema {
   presentCall?(args: unknown): ToolCallView | undefined
   /**
    * Optional: how to present the COMPLETED state, given the same `args` and the
-   * `result` (`execute`'s content + whether it errored). Returns a
+   * durable result projection (`content`, failure state, and optional `meta`). Returns a
    * {@link ToolResultView}, or `undefined` (or omit the method) to keep the
    * pending title and render the raw result content. Pure and side-effect-free
    * for the same replay reason.
@@ -66,69 +81,62 @@ interface ToolDefinition extends ToolSchema {
 }
 ```
 
-`execute` 接收 `args: unknown`——原始的 `ToolDefinition` 自行校验输入。第一方工具不需要手写校验；它们使用 `defineTool`，由后者代为校验并收窄类型。
+`execute` 接收 `args: unknown`——原始的 `ToolDefinition` 自行校验输入。第一方工具不需要手写校验；它们使用 `defineTool`，由后者代为校验并收窄参数类型、根据 `output.schema` 推导函数体返回类型，并为两个输出投影器提供类型约束。
 
-## 类型化 schema DSL
+## 统一的 JSON 值 schema DSL
 
-插件作者为每个属性编写带有布尔值 `required: true` 的规格，类型层面的辅助工具将规格映射为 `execute` 的参数类型——零类型断言。该 DSL 是*提供类型推导的机制*，作用于 `ToolDefinition`；它有意作为子页面细节，而非核心内容。
+插件作者使用同一套词汇描述类型化参数和类型化输出值。`ValueSchemaSpec` 支持 `string`、`number`、`integer`、`boolean`、`null`、`array`、`object`、仅作者侧可用的 `json`，以及要求恰好命中一个分支的 `oneOf`；标量 `enum` 和 `const` 值必须与节点类型匹配。显式对象节点始终声明 `additionalProperties: true | false`。参数定义仍是隐式的开放对象属性映射，每个必填属性都附带 `required: true`。
 
 源码：[`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts)
 
 ```ts type-equiv
-/** One schema-spec property entry. */
-interface SchemaProp {
-  type: SchemaType
-  /** Per-property required flag (NOT the JSON Schema top-level required array). */
-  required?: true
-  /** Human-readable description, surfaced in the JSON Schema as well. */
-  description?: string
-  /** Enum of allowed values (strings only). */
-  enum?: string[]
-  /**
-   * Model-visible JSON Schema default annotation. Validation does not apply it;
-   * dynamic tool mounts may supply it even though first-party definitions do not.
-   */
-  default?: unknown
-  /** Nested properties for type: 'object'. */
-  properties?: SchemaSpec
-  /** Items schema for type: 'array'. */
-  items?: SchemaProp
+/** One author-facing schema for any lossless JSON value root. */
+type ValueSchemaSpec =
+  | StringValueSchemaSpec
+  | NumberValueSchemaSpec
+  | IntegerValueSchemaSpec
+  | BooleanValueSchemaSpec
+  | NullValueSchemaSpec
+  | ArrayValueSchemaSpec
+  | ObjectValueSchemaSpec
+  | JsonValueSchemaSpec
+  | OneOfValueSchemaSpec
+```
+
+```ts type-equiv
+/** One implicit parameter-root property, optionally required. */
+type ParameterPropertySpec = ValueSchemaSpec & { required?: true }
+```
+
+```ts type-equiv
+/**
+ * Tool parameter schema. The map itself is an implicit open object root;
+ * requiredness remains a per-property `required: true` annotation.
+ */
+type ParameterSchemaSpec = {
+  [key: string]: ParameterPropertySpec
+  [key: symbol]: never
 }
 ```
 
-```ts type-equiv
-/**
- * The author-facing parameter schema: a shallow map of property name to
- * {@link SchemaProp}. Required-ness is a per-property boolean (`required:
- * true`), not a separate array.
- */
-type SchemaSpec = Record<string, SchemaProp>
-```
-
-`SchemaType` 是原始联合类型 `'string' | 'number' | 'boolean' | 'object' | 'array'`。`InferArgs<S>` 将一个 `SchemaSpec` 映射为 TS 参数类型——`required: true` 的属性成为必选键，其余为真正的可选：
+`{ type: 'json' }` 推导为 `JsonValue`，并编译成仅含注解、不施加约束的原始 schema。输出根可以是对象、数组、标量或 null。`InferValue<S>` 在 16 层容器内保留字面量约束与对象开放性，之后回退为 `JsonValue`，避免耗尽 TypeScript 的类型实例化栈。`InferArgs<P>` 依据逐属性的必填标记生成必填和可选的字符串键：
 
 ```ts type-equiv
 /**
- * Infer the TS argument type for a complete {@link SchemaSpec}.
- *
- * Properties marked `required: true` are required keys; all others are
- * genuinely optional keys (`?`), so callers may omit them entirely.
- *
- * Example:
- * ```ts
- * type Args = InferArgs<{ path: { type: 'string'; required: true }; limit: { type: 'number' } }>
- * // → { path: string; limit?: number }
- * ```
+ * Infer the TypeScript value accepted by an author-facing value schema. Exact
+ * inference is bounded to 16 container levels, then falls back to `JsonValue`.
  */
-type InferArgs<S extends SchemaSpec> = Simplify<
-  & { [K in RequiredKeys<S>]: InferPropValue<S[K]> }
-  & { [K in Exclude<keyof S, RequiredKeys<S>>]?: InferPropValue<S[K]> }
->
+type InferValue<S> = InferValueAt<S, []>
 ```
 
-`defineTool({ name, description, parameters, execute, … })` 将各部分串联：`parameters` 是一个 `SchemaSpec`，`execute(args, exec)` 获得 `args: InferArgs<typeof parameters>`，辅助函数将规格转换为 JSON Schema（`schemaSpecToJsonSchema`）用于协议传输，并在类型化函数体运行前校验模型生成的参数（`validateArgs`）。校验不通过时抛出 `ToolArgsError`（`code: 'INVALID_ARGS'`），注册表将其转为 `isError` 结果以便模型自行修正。为何用自定义 DSL 而非 schemastery：工具参数需要 JSON Schema（LLM（大语言模型）的协议格式），而非校验/转换——轻量 DSL 以最小的接口面积提供最佳的编写体验。
+```ts type-equiv
+/** Infer the TypeScript argument object for an implicit parameter schema. */
+type InferArgs<S> = InferProperties<S, []>
+```
 
-注册是一个受信任的同进程契约。注册表以 readonly 输入借用类型化定义，仅校验语义要求（如 `timeoutMs` 必须为正有限值）；`schemas()` 在模型边界处物化显式的面向模型投影，使执行和展示共享同一份已解析定义，而不会将回调泄漏到协议上。
+`defineTool({ name, description, parameters, output, execute, … })` 将参数推导与 `parameterSchemaSpecToJsonSchema()` 和 `validateArgs()` 绑定，并将 `execute`/`render`/`presentationMeta` 与 `InferValue<OutputSchema>` 绑定。Schema 记录只包含自有且可枚举的字符串键，schema 数组是稠密的内建数组，因此推导、编译与校验观察到的是同一份声明。精确推导保持到 16 层容器，之后放宽为 `JsonValue`；运行时校验仍会继续遍历完整 schema。`valueSchemaSpecToJsonSchema()` 通过同一套已强制执行的原始子集编译输出声明。参数不匹配时抛出 `ToolArgsError`（`INVALID_ARGS`）；函数体或后置策略产生的值无效时抛出 `ToolOutputError`（`INVALID_TOOL_OUTPUT`）。两者都经由常规工具错误路径处理。原始 JSON Schema 默认保持开放；不支持的关键字会被拒绝，而不会在未强制执行的情况下获准进入。
+
+注册是一个受信任的同进程契约。注册表以 readonly 输入借用类型化定义，要求它声明 `output`，校验其原始 schema，并检查 `timeoutMs` 必须为正有限值等语义要求；`schemas()` 在模型边界处物化显式的面向模型投影，使执行和展示共享同一份已解析定义，而不会将回调泄漏到协议上。
 
 ## `ToolRestriction` — 单个作用域的实时全局过滤器
 
@@ -254,34 +262,48 @@ type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
 ```
 
 ```ts type-equiv
-/** The outcome of one tool call. */
-interface ToolExecutionResult {
-  content: ContentBlock[]
-  isError: boolean
-  /**
-   * Set when the call failed with a {@link HarnessError}: machine-routable
-   * `{ name, code }` for retry/sandbox plugins and replay. The model-facing
-   * text in `content` is always present; this is extra structure for code.
-   */
-  error?: ToolErrorInfo
-  /**
-   * Model-facing context for the next request, separate from this tool result. The loop
-   * accepts it into the active-batch FIFO, then appends after recorded results even if interrupted.
-   */
-  additionalContexts?: HookContext[]
-  /**
-   * The tool-private presentation payload from a successful `execute` (the object
-   * return form). Threaded onto the `tool/result` session event and back into
-   * {@link ToolResult} for `presentResult`. Opaque (`unknown`); absent when the
-   * tool attached none or the call failed.
-   */
-  meta?: unknown
+/** Canonical failure detail; internal routing information remains optional. */
+interface ToolFailure {
+  /** Human-readable failure message without the Native `Error: ` envelope. */
+  message: string
+  /** Internal error class/code used by policy and durable diagnostics. */
+  info?: ToolErrorInfo
 }
 ```
 
-结果仅承载产出。调用身份保留在不可变的 `ToolExecution` 上，后者伴随结果经过每个钩子，并出现在持久化的 `tool/call` / `tool/result` 会话事件上，因此包装层无法创建第二个相互矛盾的身份。
+```ts type-equiv
+/** Successful canonical tool execution, including its Native/model projection. */
+interface ToolExecutionSuccess {
+  readonly isError: false
+  /** Execution-local canonical value; deliberately omitted from durable events. */
+  readonly value: JsonValue
+  readonly content: ContentBlock[]
+  readonly error?: never
+  readonly meta?: JsonValue
+  readonly additionalContexts?: HookContext[]
+}
+```
 
-注册表在 `tools/result` 之前立即物化并冻结最终接受的结果。其内容、结构化错误、附加上下文和展示元数据必须通过 JSON 无损往返；无效的产出会被转为 JSON 安全的 `isError` 结果，从而保证被观察到的实时产出对后续持久化的 `tool/result` 追加是安全的。
+```ts type-equiv
+/** Failed canonical tool execution; failures never carry a successful value. */
+interface ToolExecutionFailure {
+  readonly isError: true
+  readonly error: ToolFailure
+  readonly value?: never
+  readonly content: ContentBlock[]
+  readonly meta?: JsonValue
+  readonly additionalContexts?: HookContext[]
+}
+```
+
+```ts type-equiv
+/** The discriminated, execution-local outcome of one tool call. */
+type ToolExecutionResult = ToolExecutionSuccess | ToolExecutionFailure
+```
+
+结果仅承载产出。调用身份保留在不可变的 `ToolExecution` 上，后者伴随结果经过每个钩子，并出现在持久化的 `tool/call` / `tool/result` 会话事件上，因此包装层无法创建第二个相互矛盾的身份。规范的 `value` 仅存在于执行期间：循环只持久化 `content`、`error` 和 `meta`，`tool/code-dispatch` 则存储有界摘要。回放可以重现展示，却无法重建中间值。
+
+成功时，注册表会快照并校验函数体返回值，将其冻结，然后调用纯渲染器；对于直接的外层调用，还会调用可选的元数据投影器。注册表会在 `tools/result` 之前另行物化持久展示字段；无效值、渲染器/投影器失败或非 JSON 展示都会转为 JSON 安全的 `isError`。因此，最终实时观察者能看到精确的执行期值，以及可安全用于后续持久追加的字段。
 
 每个拦截 waterfall 返回一个类型化的 **Decision**（与 `agent/*` seam 共享的惯用模式）。`tools/pre-execute` 监听器接收 `(exec, next)` 并返回 `PreToolDecision`；`tools/execute` 包装层返回 `ToolExecutionResult`；`tools/post-execute` 监听器接收 `(exec, result, next)` 并返回 `PostToolDecision`：
 
@@ -300,67 +322,70 @@ type PreToolDecision =
 
 ```ts type-equiv
 /**
- * Post-dispatch decision: accept or replace content, attach context for the next
- * request, or block by turning corrective feedback into an error result.
+ * Post-dispatch decision: accept, replace one projection, attach context for the
+ * next request, or block by turning corrective feedback into an error result.
  */
 type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: HookContext[] }
+  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: HookContext[] }
   | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
 ```
 
 调用 `next()` 获取默认决策，或直接返回一个决策以短路。前置策略可以 deny 或 ask；只有 `allowed-once` 才继续执行，而未授权、缺少审批通道或服务、或无 agent 的请求都会变为拒绝。Guard 仍可施加最终拒绝。参数不可被改写，因为历史记录、审计、UI 和执行必须保持一致。
 
-后置策略可以替换内容；阻止决策会变为包含纠正反馈的 `isError` 结果。`tools/result` 在归一化后接收冻结的执行和结果；观察者无法对其进行变换，观察者的失败也会被隔离。未知工具和抛出异常的工具都会变为结构化错误（`ToolNotFoundError` 映射为 `UNKNOWN_TOOL`），调用失败但不终止当前轮次。
+后置策略可以替换内容或值，但不能同时替换两者。替换内容会保留规范值和现有元数据；替换值会重新校验并重新计算内容/元数据；阻止会移除值，并转为包含纠正反馈的 `isError`。内容替换是展示策略，而非保密策略；需要隐藏程序化值的监听器必须阻止或替换该值。`tools/result` 在归一化后接收冻结的执行和结果；观察者无法对其进行变换，观察者的失败也会被隔离。未知工具和抛出异常的工具都会变为结构化错误（`ToolNotFoundError` 映射为 `UNKNOWN_TOOL`），调用失败但不终止当前轮次。
 
-## 结构化输出 schema 子集
+## 已强制执行的原始 JSON Schema 子集
 
-调用方用来向 subagent 要求机器可读结果的词汇（`SubagentStartRequest.outputSchema`，见 [subagent.md](subagent.md#the-start-request)），或工作流 `agent()` 调用使用的词汇。它有意不是完整的 JSON Schema：schema 原样传给模型作为强制工具的 `parameters`，产出的值由 `validateStructuredValue` 在客户端校验——因此每个被接受的关键字都必须是校验器实际执行的，`assertSupportedOutputSchema` 会大声拒绝其他任何内容（`OutputSchemaError`，列出所有违规项）。两个遍历器仅推理自有可枚举属性（JSON 不携带其他内容），并拒绝会有损序列化的非纯对象（`Date`、`Map`）。
+subagent、工作流、MCP 和动态注册提供的原始 schema 使用作者侧 DSL 在协议层的对应表示。`assertSupportedJsonSchema()` 接受任意 JSON 根，`validateJsonSchemaValue()` 强制执行该 schema，`JsonSchemaError` 则报告每条不受支持或格式错误的 schema 路径。仅含注解的空节点表示不受约束的无损 JSON。`oneOf` 至少要求两个分支，且一个值必须恰好匹配其中一个。仍要求对象根的消费方调用 `assertObjectJsonSchema()` 并携带 `ObjectJsonSchema`；这样，subagent/工作流中由调用方定义的结构化输出可以继续以对象为根，而不会限制共享词汇。
 
 ```ts type-equiv
-/** The scalar values `enum`/`const` may carry (finite numbers only). */
-type StructuredScalar = string | number | boolean | null
+/** Scalar JSON values supported by `enum` and `const`. */
+type JsonSchemaScalar = string | number | boolean | null
 ```
 
 ```ts type-equiv
-/** The `type` keywords the subset accepts. */
-type StructuredSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null'
+/** Single-type keywords accepted by the enforced subset. */
+type JsonSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null'
 ```
 
 ```ts type-equiv
 /**
- * One node of the structured-output schema subset. Recursive via `properties`
- * and `items`; see the module doc for the exact keyword semantics.
+ * One raw JSON Schema node in the enforced subset. The optional fields express
+ * the external wire shape; {@link assertSupportedJsonSchema} rejects invalid
+ * combinations before a caller treats the node as trusted.
  */
-interface StructuredSchemaNode {
-  type: StructuredSchemaType
+interface JsonSchemaNode {
+  /** Omit with no constraints for any JSON value, or use `oneOf`. */
+  type?: JsonSchemaType
+  /** Exactly one branch must validate; at least two branches are required. */
+  oneOf?: JsonSchemaNode[]
   /** Nested property schemas (`type: 'object'` only). */
-  properties?: Record<string, StructuredSchemaNode>
+  properties?: Record<string, JsonSchemaNode>
   /** Required property names; each must appear in `properties`. */
   required?: string[]
-  /** `false` rejects undeclared keys; absent/`true` allows them (JSON Schema default). */
+  /** `false` rejects undeclared keys; absent/`true` follows JSON Schema's open default. */
   additionalProperties?: boolean
-  /** Item schema (`type: 'array'` only); absent ⇒ any JSON items. */
-  items?: StructuredSchemaNode
-  /** Allowed values (scalar types only). */
-  enum?: StructuredScalar[]
-  /** The single allowed value (scalar types only). */
-  const?: StructuredScalar
+  /** Item schema (`type: 'array'` only); absent accepts any JSON item. */
+  items?: JsonSchemaNode
+  /** Allowed values for a scalar node. */
+  enum?: JsonSchemaScalar[]
+  /** The single allowed value for a scalar node. */
+  const?: JsonSchemaScalar
   /** Annotation, ignored for validation. */
   description?: string
   /** Annotation, ignored for validation. */
   title?: string
-  /** Annotation, ignored for validation (must still be JSON data). */
-  default?: unknown
-  /** Annotation, ignored for validation (must still be JSON data). */
-  examples?: unknown
+  /** Annotation, ignored for validation but required to be lossless JSON. */
+  default?: JsonValue
+  /** Annotation, ignored for validation but required to be lossless JSON. */
+  examples?: JsonValue
 }
 ```
 
-schema 是一个以 object 为根的节点（`enum`/`const` 仅限标量；`description`/`title`/`default`/`examples` 是注解，允许但忽略，但仍要求为 JSON 数据——它们随协议传输）：
-
 ```ts type-equiv
-/** A structured-output schema: an OBJECT-rooted {@link StructuredSchemaNode}. */
-type StructuredOutputSchema = StructuredSchemaNode & { type: 'object' }
+/** A consumer-constrained object-rooted schema. */
+type ObjectJsonSchema = JsonSchemaNode & { type: 'object' }
 ```
 
 ## 工具展示 UI 词汇

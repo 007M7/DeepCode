@@ -317,11 +317,11 @@ list(): BashEnvVariableInfo[]
 
 Types: [DshEnvironment](../core-data-structures/bash.md) · [ToolExecution](../core-data-structures/tools.md)
 
-Source: [`packages/bash/tool-bash/src/index.ts:103`](../../packages/bash/tool-bash/src/index.ts)
+Source: [`packages/bash/tool-bash/src/index.ts:104`](../../packages/bash/tool-bash/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 
-Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate failures resolve in CodeRunResult; only seam misuse rejects. Implementations bridge structured-cloneable bindings while treating programs as hostile peers, isolate runs from one another, and terminate and await in-flight runs during disposal.
+Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate failures resolve in CodeRunResult; only seam misuse rejects. Implementations bridge structured-cloneable bindings, materialize each declared namespace rejection class, treat programs as hostile peers, isolate runs from one another, and terminate and await in-flight runs during disposal.
 
 ```ts cordis-catalog
 /**
@@ -338,7 +338,7 @@ abstract run(request: CodeRunRequest): Promise<CodeRunResult>
 
 Types: [CodeRunRequest](../core-data-structures/code-runtime.md) · [CodeRunResult](../core-data-structures/code-runtime.md)
 
-Source: [`packages/code-runtime/code-runtime/src/index.ts:30`](../../packages/code-runtime/code-runtime/src/index.ts)
+Source: [`packages/code-runtime/code-runtime/src/index.ts:33`](../../packages/code-runtime/code-runtime/src/index.ts)
 
 ## `ctx.commands` — `CommandService`
 
@@ -1612,7 +1612,30 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:524`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:622`](../../packages/core/tools/src/index.ts)
+
+## `ctx.tui` — `TuiExtensionService` (abstract seam)
+
+Optional terminal-local interaction service provided by one mounted TUI.
+
+The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugins receive only effect-owned overlay sessions.
+
+```ts cordis-catalog
+/**
+ * Queue an interactive overlay owned by the calling plugin fiber.
+ *
+ * The TUI displays one overlay at a time in FIFO order. Disposing the caller
+ * removes a queued overlay or closes an active one before plugin teardown
+ * settles. This live presentation is neither logged nor replayed.
+ *
+ * @param request - component factory, layout constraints, and cancellation.
+ * @returns the effect-owned overlay session.
+ * @throws when the TUI has begun shutting down.
+ */
+abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
+```
+
+Source: [`packages/ui/tui/src/index.ts:132`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 
