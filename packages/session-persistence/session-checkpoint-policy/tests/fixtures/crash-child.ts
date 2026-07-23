@@ -45,6 +45,7 @@ ctx.tools.register({
   name: 'crash_tool',
   description: 'records an external effect and never returns',
   parameters: {},
+  output: { schema: { type: 'null' }, render: () => [] },
   async execute() {
     await writeFile(failpoint, 'tool-side-effect')
     return waitForCrash()

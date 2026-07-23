@@ -2,8 +2,9 @@
  * SessionsService: list store projection (manager → {ids, byId, current}
  * with derived titles), the migrated current-selection account (open
  * validation, persisted mask semantics, cell resolution), scope-tree
- * lifecycle (lazy mint / frozen survival / removed teardown with watch
- * deferral), binding identity, ancestry walk, create.
+ * lifecycle (lazy mint / frozen survival / removed teardown with staged
+ * deferral — the stage follows list.current), binding identity, ancestry
+ * walk, create.
  */
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -76,21 +77,21 @@ describe('scope tree', () => {
     expect(binding?.ctx).toBe(scoped)
   })
 
-  it('tears down an unwatched removed session but defers the watched one until the watch moves', async () => {
+  it('tears down an off-stage removed session but defers the staged one until the stage moves', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }, { id: 's2' }])
     const ctx1 = b.svc.scope(sid('s1'))
-    b.svc.binding(sid('s1')) // s1 is watched
-    b.svc.scope(sid('s2')) // s2 scoped but not watched
+    b.svc.open(sid('s1')) // s1 staged (current)
+    b.svc.scope(sid('s2')) // s2 scoped but off stage
 
-    await feedList(b, [{ id: 's1' }]) // s2 removed, unwatched: torn down
+    await feedList(b, [{ id: 's1' }]) // s2 removed, off stage: torn down
     expect(b.svc.scope(sid('s2'))).toBeUndefined()
 
-    await feedList(b, []) // s1 removed while watched: deferred, scope survives
+    await feedList(b, []) // s1 removed while staged (current masks): deferred, scope survives
     expect(b.svc.scope(sid('s1'))).toBe(ctx1)
 
     await feedList(b, [{ id: 's3' }])
-    b.svc.binding(sid('s3')) // watch moves: deferred teardown sweeps s1
+    b.svc.open(sid('s3')) // stage moves: deferred teardown sweeps s1
     expect(b.svc.scope(sid('s1'))).toBeUndefined()
   })
 
@@ -106,10 +107,10 @@ describe('scope tree', () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }])
     const scoped = b.svc.scope(sid('s1'))
-    b.svc.binding(sid('s1'))
-    await feedList(b, []) // removed while watched → deferred
-    await feedList(b, [{ id: 's1' }, { id: 's2' }]) // reappears
-    b.svc.binding(sid('s2')) // watch moves; sweep must NOT tear down the re-listed s1
+    b.svc.open(sid('s1'))
+    await feedList(b, []) // removed while staged → deferred
+    await feedList(b, [{ id: 's1' }, { id: 's2' }]) // reappears (current resurfaces, stage unchanged)
+    b.svc.open(sid('s2')) // stage moves; sweep must NOT tear down the re-listed s1
     expect(b.svc.scope(sid('s1'))).toBe(scoped)
   })
 })
@@ -168,15 +169,52 @@ describe('cell (render-layer session kit)', () => {
     expect(b.svc.cell('ghost')).toBeUndefined()
   })
 
-  it('moves the watch like binding(): switching cells sweeps a deferred removal', async () => {
+  it('cell()/binding() are pure resolution: no staging, no deferred sweep', async () => {
     const b = bench()
-    await feedList(b, [{ id: 's1' }])
-    b.svc.cell('s1') // watched
-    await feedList(b, []) // removed while watched → deferred, scope survives
+    await feedList(b, [{ id: 's1' }, { id: 's2' }])
+    b.svc.open(sid('s1')) // staged
+    b.svc.cell('s2') // resolution only — must NOT move the stage
+    b.svc.binding(sid('s2'))
+    await feedList(b, [{ id: 's2' }]) // s1 removed: still staged → deferred, scope survives
     expect(b.svc.scope(sid('s1'))).toBeDefined()
-    await feedList(b, [{ id: 's2' }])
-    b.svc.cell('s2') // watch moves → sweep tears s1 down
-    expect(b.svc.scope(sid('s1'))).toBeUndefined()
+  })
+
+  it('staging (current write) opens the session event window; resolution and re-staging do not re-pull', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }, { id: 's2' }])
+    const historyCalls = () => b.api.calls.filter(c => c.method === 'session.history')
+    // Resolution is addressing, not staging: no window pull.
+    b.svc.scope(sid('s1'))
+    b.svc.cell('s1')
+    b.svc.binding(sid('s1'))
+    expect(historyCalls()).toHaveLength(0)
+    b.svc.open(sid('s1'))
+    expect(historyCalls().map(c => (c.payload as { sessionId: string }).sessionId)).toEqual(['s1'])
+    // Same current again: no second pull.
+    b.svc.open(sid('s1'))
+    expect(historyCalls()).toHaveLength(1)
+    // Stage moves: the new occupant opens.
+    b.svc.open(sid('s2'))
+    expect(historyCalls().map(c => (c.payload as { sessionId: string }).sessionId)).toEqual(['s1', 's2'])
+  })
+
+  it('startup restore: a persisted selection validated by the first projection opens its window unprompted', async () => {
+    const storage = new Map<string, string>([
+      ['dsh.sessions.current', JSON.stringify({ sessionId: 's1' })],
+    ])
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => { storage.set(k, v) },
+    })
+    try {
+      const b = bench()
+      expect(b.api.calls.filter(c => c.method === 'session.history')).toHaveLength(0)
+      await feedList(b, [{ id: 's1' }]) // projection validates the persisted id → current lands → stage follows
+      const historyCalls = b.api.calls.filter(c => c.method === 'session.history')
+      expect(historyCalls.map(c => (c.payload as { sessionId: string }).sessionId)).toEqual(['s1'])
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 
@@ -187,12 +225,13 @@ describe('slot-store scope prune hook', () => {
     b.ctx.reflect.provide('slots', { pruneStoreScope })
     await feedList(b, [{ id: 's1' }, { id: 's2' }])
     b.svc.scope(sid('s1'))
-    b.svc.binding(sid('s2')) // s2 watched
-    await feedList(b, []) // s1 unwatched → immediate drop; s2 watched → deferred
+    b.svc.scope(sid('s2'))
+    b.svc.open(sid('s2')) // s2 staged
+    await feedList(b, []) // s1 off stage → immediate drop; s2 staged → deferred
     expect(pruneStoreScope).toHaveBeenCalledWith('s1')
     expect(pruneStoreScope).not.toHaveBeenCalledWith('s2')
     await feedList(b, [{ id: 's3' }])
-    b.svc.binding(sid('s3')) // watch moves → deferred sweep drops s2
+    b.svc.open(sid('s3')) // stage moves → deferred sweep drops s2
     expect(pruneStoreScope).toHaveBeenCalledWith('s2')
   })
 
@@ -242,44 +281,46 @@ describe('coverage tails (branch duals)', () => {
     expect(byId[sid('empty-cwd')]?.title).toBe('empty-cwd')
   })
 
-  it('binding for an unknown session returns undefined without moving the watch', async () => {
+  it('binding for an unknown session returns undefined and leaves the staged scope intact', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }])
-    b.svc.binding(sid('s1'))
+    b.svc.open(sid('s1'))
     expect(b.svc.binding(sid('ghost'))).toBeUndefined()
-    // Watch unchanged: removing s1 defers (still watched), proving the ghost lookup did not steal the watch.
+    // Stage unchanged: removing s1 defers (still staged), proving the ghost lookup touched nothing.
     await feedList(b, [])
     expect(b.svc.scope(sid('s1'))).toBeDefined()
   })
 
-  it('sweep skips the id that is itself still watched and tolerates a scope record already gone', async () => {
+  it('a masked current gap holds the stage (no teardown, no re-open) until the stage moves', async () => {
     const b = bench()
     await feedList(b, [{ id: 's1' }])
-    b.svc.binding(sid('s1'))
-    await feedList(b, []) // deferred removal of the watched id
-    // Re-resolving the SAME watched id: sweep runs but must skip it (watched-continue branch).
-    expect(b.svc.binding(sid('s1'))).toBeDefined()
+    b.svc.open(sid('s1'))
+    const historyCalls = () => b.api.calls.filter(c => c.method === 'session.history')
+    expect(historyCalls()).toHaveLength(1)
+    await feedList(b, []) // removed while staged: current masks to undefined, stage holds → deferred
     expect(b.svc.scope(sid('s1'))).toBeDefined()
+    // Resurfacing re-projects current = s1: same stage occupant, no second pull.
+    await feedList(b, [{ id: 's1' }])
+    expect(historyCalls()).toHaveLength(1)
+    expect(b.svc.list.getSnapshot().current).toBe('s1')
   })
 
-  it('sweep hits both deferral edges: watched-id skip and an already-vacated scope record', async () => {
+  it('sweep hits both deferral edges: staged-id skip and an already-vacated scope record', async () => {
     const b = bench()
     await feedList(b, [{ id: 'a' }, { id: 'b' }])
-    b.svc.binding(sid('a'))
-    b.svc.binding(sid('b')) // watch: b; both scoped
-    await feedList(b, []) // a removed unwatched → torn immediately; b removed watched → deferred
-    // Move the watch to a THIRD id while b stays deferred: sweep now walks a
-    // set containing b (torn) — and the watched-continue branch fires when the
-    // deferral set still holds the current watch target.
+    b.svc.scope(sid('a'))
+    b.svc.open(sid('b')) // stage: b; both scoped
+    await feedList(b, []) // a removed off stage → torn immediately; b removed staged → deferred
+    // Move the stage to a THIRD id while b stays deferred: sweep walks a set
+    // containing b (torn).
     await feedList(b, [{ id: 'c' }])
-    b.svc.binding(sid('c'))
+    b.svc.open(sid('c'))
     expect(b.svc.scope(sid('b'))).toBeUndefined()
-    // Deferral for an id whose record was never minted: force-add via removed
-    // list state (scope teardown raced) — sweep must tolerate the missing record.
-    await feedList(b, [])
-    b.svc.binding(sid('c')) // c now watched+removed → deferred
+    // Deferral for an id whose record was never minted: force the deferral
+    // via removed list state — sweep must tolerate the missing record.
+    await feedList(b, []) // c removed while staged → deferred (scope exists)
     await feedList(b, [{ id: 'd' }])
-    b.svc.binding(sid('d')) // sweep tears c
+    b.svc.open(sid('d')) // sweep tears c
     expect(b.svc.scope(sid('c'))).toBeUndefined()
   })
 

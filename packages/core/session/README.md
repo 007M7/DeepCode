@@ -46,7 +46,7 @@ Plain class (not a Cordis Service). Create via `ctx.sessions.create()`.
 
 ### Lossless JSON utilities
 
-Durable values need one accepted representation, not a check followed by a second read. `isJsonValue(value)` is the boolean predicate; `snapshotJsonValue(value)` recursively validates and copies a plain value in one pass, returning `undefined` for invalid input and propagating a throwing getter. The snapshot helper accepts finite JSON numbers except `-0` (JSON rewrites it to `0`), dense ordinary arrays, and plain or null-prototype objects; it rejects cycles, unsupported scalars, and exotic prototypes before normalization.
+Durable values need one accepted representation, not a check followed by a second read. `isJsonValue(value)` is the boolean predicate; `snapshotJsonValue(value)` iteratively validates and copies a plain value in one pass, returning `undefined` for invalid input and propagating a throwing getter. The snapshot helper accepts finite JSON numbers except `-0` (JSON rewrites it to `0`), dense ordinary arrays, and plain or null-prototype objects; it rejects cycles, unsupported scalars, and exotic prototypes before normalization without imposing a call-stack depth limit.
 
 ### Chunk-row storage codec (`chunk-rows.ts`)
 
@@ -65,6 +65,8 @@ Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/
 `request/header` records a full canonical snapshot of the non-history request envelope with reason `initial`, `resume`, or `change`. `foldRequestHeader()` selects the latest snapshot; legacy delta events and the removed `fallback` reason are rejected. `messagePrefix` remains separate from derived history. See the [reconstructable-requests Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md).
 
 `context/message` renders its `content` verbatim as a user-role message, and may attach JSON `meta` for replayable plugin state; metadata remains durable but is excluded from `deriveMessages()`. A `user/message` or `steering/message` with prompt-prefix context keeps the exact combined model bytes in `content` and stores a model-hidden `envelope` containing the direct `displayContent` and prefix context source/metadata descriptors. `displayPromptContent()` selects the human-facing prompt without changing derived history.
+
+`tool/result` persists the model-facing content, optional internal failure identity, and optional presentation metadata. A tool's successful canonical `value` and human-readable canonical failure message remain execution-local; rendered error content is the replay-authoritative message. This preserves the existing event shape and does not change `SESSION_FORMAT_VERSION`.
 
 ### Session event vocabulary (`types.ts`)
 

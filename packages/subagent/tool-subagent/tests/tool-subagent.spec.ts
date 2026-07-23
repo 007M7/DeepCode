@@ -65,6 +65,12 @@ describe('dsh-tool-subagent', () => {
     const ctx = await setup({ provider: 'mock' }, { reply: 'child says hi' })
     const result = await callSubagent(ctx, { description: 'do a thing', prompt: 'go research X' })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected subagent success')
+    expect(result.value).toEqual({
+      kind: 'foreground',
+      runId: 'scripted-subagent:mock:parent-1',
+      output: [{ type: 'text', text: 'child says hi' }],
+    })
     expect(text(result)).toBe('child says hi')
   })
 
@@ -445,7 +451,10 @@ describe('dsh-tool-subagent', () => {
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p' }, { signal: controller.signal })
     expect(sawAborted).not.toHaveBeenCalled()
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(result.error).toEqual({
+      message: 'tool call aborted before dispatch',
+      info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    })
   })
 
   it('tools depend on the service: no `subagent` tool without ctx.subagents', async () => {
@@ -643,6 +652,8 @@ describe('dsh-tool-subagent background mode', () => {
 
     const start = await callSubagent(ctx, { description: 'deep research', prompt: 'dig in', run_in_background: true }, { agent: parent })
     expect(start.isError).toBe(false)
+    if (start.isError) throw new Error('expected background subagent success')
+    expect(start.value).toEqual({ kind: 'background', taskId: 'subagent-1' })
     expect(text(start)).toBe('started background subagent task subagent-1')
 
     const collected = await ctx.tools.execute({
@@ -679,7 +690,10 @@ describe('dsh-tool-subagent background mode', () => {
     controller.abort()
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true }, { agent: parent, signal: controller.signal })
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(result.error).toEqual({
+      message: 'tool call aborted before dispatch',
+      info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    })
     expect(text(result)).toBe('Error: tool call aborted before dispatch')
   })
 
