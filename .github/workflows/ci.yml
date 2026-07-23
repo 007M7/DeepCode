@@ -27,19 +27,19 @@ env:
 
 jobs:
 
-  # One portable hosted runner pays setup once, then executes the complete
-  # unsharded primary Node inventory without organization-owned capacity.
+  # One enterprise runner pays setup once, then executes the complete
+  # unsharded primary Node inventory with repository-level concurrency.
   node-24:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: dsh-enterprise-ubuntu-24-04-32core-test
     name: node 24 / complete
     env:
-      DSH_COVERAGE_MAX_WORKERS: '1'
+      DSH_COVERAGE_MAX_WORKERS: '16'
       DSH_ESLINT_CACHE: '1'
-      DSH_ESLINT_CONCURRENCY: '1'
-      DSH_GATE_CONCURRENCY: '1'
-      DSH_PUBLINT_CONCURRENCY: '1'
-      DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
+      DSH_ESLINT_CONCURRENCY: '16'
+      DSH_GATE_CONCURRENCY: '10'
+      DSH_PUBLINT_CONCURRENCY: '16'
+      DSH_SNAPSHOT_MAX_CONCURRENCY: '8'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -152,13 +152,13 @@ jobs:
   # from observational gates without allowing them to fail the required job.
   windows:
     if: github.event_name == 'pull_request'
-    runs-on: windows-2025
+    runs-on: dsh-enterprise-windows-2025-32core-test
     name: windows node 24 / complete
     env:
-      DSH_COVERAGE_MAX_WORKERS: '1'
+      DSH_COVERAGE_MAX_WORKERS: '12'
       DSH_ESLINT_CACHE: '1'
-      DSH_GATE_CONCURRENCY: '1'
-      DSH_PUBLINT_CONCURRENCY: '1'
+      DSH_GATE_CONCURRENCY: '16'
+      DSH_PUBLINT_CONCURRENCY: '16'
     steps:
       - uses: actions/checkout@v6
 
