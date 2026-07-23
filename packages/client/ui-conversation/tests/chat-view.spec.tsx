@@ -10,7 +10,8 @@ import type {
   AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
+import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ChatViewSlotProps, SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
@@ -342,7 +343,8 @@ describe('ChatView', () => {
 
   it('pending interactions render placeholder cards', () => {
     const h = makeHarness({
-      pending: [{ kind: 'approval', rpcId: 'r1' as never, approvalId: 'ap1', toolName: 'bash' }],
+      pending: [new PendingWait('approval', RpcId('r1'), SID,
+        { approvalId: 'ap1', toolName: 'bash' } as PendingWait<'approval'>['payload'], vi.fn())],
     })
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByText(/等待审批/)).toBeTruthy()

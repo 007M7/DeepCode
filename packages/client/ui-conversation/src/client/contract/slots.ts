@@ -11,7 +11,7 @@
  * here.
  */
 import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionId, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { PendingInteraction, SessionId, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createChatStore } from '../stores.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
@@ -33,6 +33,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * `fallback` for unregistered tools.
      */
     'conversation.chat.toolview': { kind: 'keyed'; scope: 'session'; owner: ToolRowOwnerProps }
+    /**
+     * The composer takeover chain: entries are selector-routed replacements
+     * of the default InputBar. Declared by this package's 'conversation'
+     * entry; the owner dispatches the {@link ComposerChainProps} currency and
+     * routing lives in entry selectors — new takeover kinds register with
+     * zero owner changes.
+     */
+    'conversation.composer': { kind: 'chain'; scope: 'session'; owner: ComposerChainProps }
   }
 }
 
@@ -107,9 +115,22 @@ export interface ConversationInjected {
   open(id: SessionId): void
 }
 
-/** Full conversation-slot component props: runtime share & view-slot render share & store share & injected share. */
+/**
+ * Composer chain currency: what ConversationRoot dispatches at its
+ * renderSlotChain site. The owner declares the currency only — never a
+ * per-entry contract; takeover packages narrow it in their own selectors
+ * (`interactions.find(i => i.kind === ...)`), so new takeover kinds register
+ * with zero owner changes.
+ */
+export interface ComposerChainProps {
+  /** The session's live pending waits, in arrival order (snapshot reference). */
+  interactions: readonly PendingInteraction[]
+}
+
+/** Full conversation-slot component props: runtime & child-render (view ring + composer chain) & store & injected shares. */
 export type ConversationSlotProps =
-  PropsRuntime<'conversation'> & PropsRenderSlots<'conversation.view'> & PropsStore<ChatStore> & ConversationInjected
+  PropsRuntime<'conversation'> & PropsRenderSlots<'conversation.view' | 'conversation.composer'>
+  & PropsStore<ChatStore> & ConversationInjected
 
 /**
  * Injected share of the chat view entry: the two callbacks whose targets live
