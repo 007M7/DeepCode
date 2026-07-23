@@ -63,6 +63,9 @@
       "path": "../../fs/tool-fs-search"
     },
     {
+      "path": "../../context/workspace-context"
+    },
+    {
       "path": "../../llm/token-meter"
     },
     {

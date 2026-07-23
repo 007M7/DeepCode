@@ -69,6 +69,7 @@
     "@deepseek-ai/dsh-tool-todo": "workspace:^",
     "@deepseek-ai/dsh-tool-workflow": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-workspace-context": "workspace:^",
     "@deepseek-ai/dsh-workflow-workerthread": "workspace:^"
   },
   "peerDependencies": {

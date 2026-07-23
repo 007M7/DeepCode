@@ -5,6 +5,21 @@
   height: 100%;
   overflow: hidden;
   background: var(--dsw-alias-bg-base);
+  /* Collapse/expand animates the tracks on the deepsuite sider curve
+     (--ds-ease-in-out / --ds-transition-duration-slow, ui-theme base.css). */
+  transition: grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+/* Dragging writes widths at pointer cadence; easing them would detach the
+   column from the handle. */
+.frame[data-dragging] {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame {
+    transition: none;
+  }
 }
 
 .sidebarCol {
@@ -27,13 +42,8 @@
   border-left: 1px solid var(--dsw-alias-border-l2);
 }
 
-/* Collapsed columns keep children mounted; the border must not paint a 1px seam.
-   Flags live on the frame — DetailsColumn renders inside the provider body and
-   does not know its own width. */
-.frame[data-sidebar-collapsed] .sidebarCol {
-  border-right: none;
-}
-
+/* The details subtree stays mounted at zero width, so its border must not paint
+   a 1px seam. The collapsed sidebar instead retains a bordered compact rail. */
 .frame[data-details-collapsed] .detailsCol {
   border-left: none;
 }
@@ -51,6 +61,19 @@
   cursor: col-resize;
   z-index: 2;
   touch-action: none;
+  /* Rides the same curve as the tracks so the pill stays on the moving
+     border during collapse/expand; paused while dragging (frame rule). */
+  transition: left var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.frame[data-dragging] .handle {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .handle {
+    transition: none;
+  }
 }
 
 .handle::after {
