@@ -69,7 +69,12 @@ export function apply(ctx: Context): void {
   // ConversationRoot is the only component authorized to render the ring.
   slots.register({
     name: 'conversation',
-    children: { 'conversation.view': { kind: 'list', scope: 'session' } },
+    // The composer chain rides the same declaration table: takeover plugins
+    // register selector-routed replacements of the InputBar.
+    children: {
+      'conversation.view': { kind: 'list', scope: 'session' },
+      'conversation.composer': { kind: 'chain', scope: 'session' },
+    },
     store: chatStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ConversationInjected => {
       // History pull is NOT triggered here: the runtime sessions service opens

@@ -20,8 +20,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'chain.side': { kind: 'single'; scope: 'root'; owner: { collapsed: boolean; width: number } }
     'chain.conv': { kind: 'single'; scope: 'session' }
     'chain.tools': { kind: 'keyed'; scope: 'session' }
+    'chain.takeover': { kind: 'chain'; scope: 'session'; owner: { items: readonly Item[] } }
   }
 }
+
+/** Chain-currency fixture: the owner share carries a union the selectors narrow. */
+interface Item { kind: 'q' | 'a'; id: string }
 
 declare const defineStore: DefineStore
 
@@ -68,6 +72,9 @@ declare function NoDecl(props: PropsRuntime<'chain.frame'> & PropsRenderSlots<'c
 declare function Blind(props: PropsRuntime<'chain.frame'>): ReactNode
 declare function WrongStore(props: PropsRuntime<'chain.conv'> & PropsStore<ReturnType<typeof createPanelStore>>): ReactNode
 declare function Needs(props: PropsRuntime<'chain.conv'> & { send: (t: string) => void }): ReactNode
+declare function Takeover(props: PropsRuntime<'chain.takeover'> & { matched: Item }): ReactNode
+declare function WideTakeover(props: PropsRuntime<'chain.takeover'> & { matched: Item | string }): ReactNode
+declare function NarrowTakeover(props: PropsRuntime<'chain.takeover'> & { matched: { kind: 'q'; id: string; extra: number } }): ReactNode
 
 describe('terminal-design type chain', () => {
   it('holds the positive chain and the compile-time negatives', () => {
@@ -115,6 +122,28 @@ describe('terminal-design type chain', () => {
       // Keyed registration carries key.
       core.register({ name: 'chain.tools', key: 'bash' }, Tool)
 
+      // Chain registration: select is mandatory, M infers from its return,
+      // matched joins the component constraint; priority is the explicit
+      // chain position.
+      core.register({
+        name: 'chain.takeover',
+        select: ({ items }) => items.find((i) => i.kind === 'q') ?? null,
+        priority: 1,
+      }, Takeover)
+
+      // A component accepting a wider matched than the selector supplies
+      // checks through parameter contravariance.
+      core.register({
+        name: 'chain.takeover',
+        select: ({ items }) => items.find((i) => i.kind === 'q') ?? null,
+      }, WideTakeover)
+
+      // renderSlotChain share: chain keys dispatch with the fallback bag;
+      // non-chain keys stay on renderSlot.
+      const chainSlots: PropsRenderSlots<'chain.takeover' | 'chain.conv'> = null as never
+      chainSlots.renderSlotChain('chain.takeover', { items: [] }, { fallback: null })
+      chainSlots.renderSlot('chain.conv', {})
+
       // ── negatives ──────────────────────────────────────────────────
       // children spec must match the SlotMap entry.
       core.register({
@@ -155,6 +184,34 @@ describe('terminal-design type chain', () => {
       // keyed registration without key.
       // @ts-expect-error keyed registration requires options.key
       core.register({ name: 'chain.tools' }, Tool)
+
+      // chain registration without select.
+      // @ts-expect-error chain registration requires options.select
+      core.register({ name: 'chain.takeover' }, Takeover)
+
+      // Drifted chain component: demands a matched shape the selector cannot
+      // supply (NoInfer pins M to the select return — the component position
+      // must not widen it).
+      // @ts-expect-error component matched prop drifts from the select return
+      core.register({
+        name: 'chain.takeover',
+        select: ({ items }: { items: readonly Item[] }) => items.find((i) => i.kind === 'q') ?? null,
+      }, NarrowTakeover)
+
+      // select must return M | null, not undefined (find() must be coalesced).
+      // @ts-expect-error select may not return undefined
+      core.register({
+        name: 'chain.takeover',
+        select: ({ items }: { items: readonly Item[] }) => items.find((i) => i.kind === 'q'),
+      }, Takeover)
+
+      // Chain keys are not renderSlot-dispatchable (and vice versa).
+      // @ts-expect-error chain keys dispatch through renderSlotChain only
+      chainSlots.renderSlot('chain.takeover', { items: [] })
+      // @ts-expect-error non-chain keys have no renderSlotChain dispatch
+      chainSlots.renderSlotChain('chain.conv', {})
+      // @ts-expect-error a children set without chain keys provides no renderSlotChain
+      fp.renderSlotChain
 
       // renderSlot owner share typed at the call site.
       // @ts-expect-error owner shape mismatch (width missing)
