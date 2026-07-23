@@ -925,6 +925,16 @@ abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 
 /**
+ * Inspect a header and its valid contiguous stored prefix without repairing
+ * a torn tail, closing an interrupted turn, or publishing coordinator state.
+ * This read is serialized with writes for the same id and returns detached
+ * values, so observers cannot mutate backend-owned state.
+ * @param id - the persisted session to inspect.
+ * @returns the header and valid stored event prefix exactly as observed.
+ */
+abstract inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+
+/**
  * Lightweight listing from metadata, without a full-log parse.
  * @returns one header per materialized session.
  */

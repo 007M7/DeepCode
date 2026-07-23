@@ -60,8 +60,9 @@ export async function openSearchDatabase(path: string, journalMode: JournalMode)
     if (applicationId === 0 && userTables.length > 0) {
       throw new Error(`session-search database at "${actual}" is not an empty or recognized derived index`)
     }
-    if (applicationId === SESSION_QUERY_SQLITE_APPLICATION_ID && version !== SESSION_QUERY_SQLITE_SCHEMA_VERSION) {
-      resetDerivedSchema(db, actual, userTables)
+    if (applicationId === SESSION_QUERY_SQLITE_APPLICATION_ID) {
+      assertDerivedUserTables(actual, userTables)
+      if (version !== SESSION_QUERY_SQLITE_SCHEMA_VERSION) resetDerivedSchema(db, userTables)
     }
     // Apply mutating pragmas only after refusing foreign or canonical files.
     // journalMode is a validated closed union, not caller-controlled SQL.
@@ -82,13 +83,16 @@ function listUserTables(db: DatabaseSync): string[] {
   return rows.map(row => row.name)
 }
 
-function resetDerivedSchema(db: DatabaseSync, path: string, userTables: readonly string[]): void {
+function assertDerivedUserTables(path: string, userTables: readonly string[]): void {
   const unknownTables = userTables.filter(name => !DERIVED_USER_TABLES.has(name))
   if (unknownTables.length > 0) {
     throw new Error(
       `session-search database at "${path}" has unrecognized user tables: ${unknownTables.join(', ')}`,
     )
   }
+}
+
+function resetDerivedSchema(db: DatabaseSync, userTables: readonly string[]): void {
   for (const name of userTables) {
     db.exec(`DROP TABLE IF EXISTS ${quoteIdentifier(name)}`)
   }

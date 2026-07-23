@@ -67,7 +67,9 @@ class TestPersistence extends SessionPersistence {
   static revisions = new Map<SessionIdType, number>()
   static nextRevision = 0
   static loads = new Map<SessionIdType, number>()
+  static inspections = new Map<SessionIdType, number>()
   static loadEffect: ((entry: { meta: SessionHeader; events: SessionEvent[] }) => void) | undefined
+  static inspectEffect: ((entry: { meta: SessionHeader; events: SessionEvent[] }) => void | Promise<void>) | undefined
   static listGate: Promise<void> | undefined
   static listStarted: (() => void) | undefined
   static snapshotEffect: (() => void | Promise<void>) | undefined
@@ -82,7 +84,9 @@ class TestPersistence extends SessionPersistence {
     this.entries = new Map()
     this.revisions = new Map()
     this.loads = new Map()
+    this.inspections = new Map()
     this.loadEffect = undefined
+    this.inspectEffect = undefined
     for (const entry of entries) this.set(entry)
     this.listGate = undefined
     this.listStarted = undefined
@@ -120,6 +124,16 @@ class TestPersistence extends SessionPersistence {
       effect(entry)
       TestPersistence.revisions.set(id, ++TestPersistence.nextRevision)
     }
+    return structuredClone(entry)
+  }
+
+  async inspect(id: SessionIdType): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    TestPersistence.inspections.set(id, (TestPersistence.inspections.get(id) ?? 0) + 1)
+    if (TestPersistence.failure !== undefined) throw TestPersistence.failure
+    const entry = TestPersistence.entries.get(id)
+    if (entry === undefined) throw new Error('missing test session')
+    await TestPersistence.inspectEffect?.(entry)
+    TestPersistence.inspectEffect = undefined
     return structuredClone(entry)
   }
 
@@ -602,11 +616,13 @@ describe('SQLite reconciliation and source lifecycle', () => {
       items: [{ header: shared, live: true, persisted: true }],
     })
     expect(TestPersistence.loads.get(shared.id)).toBeUndefined()
+    expect(TestPersistence.inspections.get(shared.id)).toBeUndefined()
 
     detach()
     await expect(ctx.sessionQuery.searchSessions({ query: 'persisted' }))
       .resolves.toMatchObject({ items: [{ header: shared, live: false, persisted: true }] })
-    expect(TestPersistence.loads.get(shared.id)).toBe(1)
+    expect(TestPersistence.loads.get(shared.id)).toBeUndefined()
+    expect(TestPersistence.inspections.get(shared.id)).toBe(1)
     await persistence.dispose()
   })
 
@@ -621,6 +637,28 @@ describe('SQLite reconciliation and source lifecycle', () => {
 
     await expect(ctx.sessionQuery.searchSessions({ query: 'attached' }))
       .resolves.toMatchObject({ items: [{ header: { id: SessionId('attached') } }] })
+  })
+
+  it('cannot crash-repair a log when live ownership begins during persisted inspection', async () => {
+    const shared = header('attach-during-inspect', 10)
+    const persistedEvents = messageEvents('persisted needle')
+    TestPersistence.reset([{ meta: shared, events: persistedEvents }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    TestPersistence.loadEffect = (entry) => {
+      entry.events = messageEvents('incorrect repair')
+    }
+    TestPersistence.inspectEffect = () => {
+      ctx.sessions.create(shared.id, {
+        seed: messageEvents('live needle'),
+        meta: { createdAt: shared.createdAt },
+      })
+    }
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'live' }))
+      .resolves.toMatchObject({ items: [{ header: shared, live: true, persisted: true }] })
+    expect(TestPersistence.loads.get(shared.id)).toBeUndefined()
+    expect(TestPersistence.entries.get(shared.id)?.events).toEqual(persistedEvents)
   })
 
   it('retries when one live owner replaces another during persistence observation', async () => {
@@ -733,10 +771,10 @@ describe('SQLite reconciliation and source lifecycle', () => {
     TestPersistence.revisions.set(durable.id, revision)
     const replacement = await ctx.plugin(TestPersistence)
     const page = await ctx.sessionQuery.searchSessions({ query: 'new needle' })
-    expect(TestPersistence.loads.get(durable.id)).toBe(2)
+    expect(TestPersistence.inspections.get(durable.id)).toBe(2)
     expect(page).toMatchObject({ items: [{ header: durable }] })
     await expect(ctx.sessionQuery.searchSessions({ query: 'old' })).resolves.toEqual({ items: [] })
-    expect(TestPersistence.loads.get(durable.id)).toBe(2)
+    expect(TestPersistence.inspections.get(durable.id)).toBe(2)
     await replacement.dispose()
   })
 
@@ -768,8 +806,8 @@ describe('SQLite reconciliation and source lifecycle', () => {
 
     const page = await ctx.sessionQuery.searchSessions({ query: 'needle' })
     expect(page.items.map(item => item.header.id).sort()).toEqual([added.id, first.id].sort())
-    expect(TestPersistence.loads.get(first.id)).toBe(2)
-    expect(TestPersistence.loads.get(added.id)).toBe(1)
+    expect(TestPersistence.inspections.get(first.id)).toBe(2)
+    expect(TestPersistence.inspections.get(added.id)).toBe(1)
   })
 
   it('fails after one retry when persistence snapshots keep changing', async () => {
@@ -811,7 +849,7 @@ describe('SQLite reconciliation and source lifecycle', () => {
 
     await expect(ctx.sessionQuery.searchSessions({ query: 'needle' }))
       .resolves.toMatchObject({ items: [{ header: durable }] })
-    expect(TestPersistence.loads.get(durable.id)).toBe(2)
+    expect(TestPersistence.inspections.get(durable.id)).toBe(2)
     list.mockRestore()
   })
 
@@ -869,9 +907,9 @@ describe('SQLite reconciliation and source lifecycle', () => {
     const firstPersistence = await first.plugin(TestPersistence)
     const firstSearch = await first.plugin(SessionQuerySqlite, { path })
     await first.sessionQuery.searchSessions({ query: 'needle' })
-    expect(Object.fromEntries(TestPersistence.loads)).toEqual({ unchanged: 1, changed: 1, deleted: 1 })
+    expect(Object.fromEntries(TestPersistence.inspections)).toEqual({ unchanged: 1, changed: 1, deleted: 1 })
     await first.sessionQuery.searchSessions({ query: 'needle' })
-    expect(Object.fromEntries(TestPersistence.loads)).toEqual({ unchanged: 1, changed: 1, deleted: 1 })
+    expect(Object.fromEntries(TestPersistence.inspections)).toEqual({ unchanged: 1, changed: 1, deleted: 1 })
     await firstSearch.dispose()
     await firstPersistence.dispose()
 
@@ -890,7 +928,7 @@ describe('SQLite reconciliation and source lifecycle', () => {
     const secondSearch = await second.plugin(SessionQuerySqlite, { path })
     const result = await second.sessionQuery.searchSessions({ query: 'needle' })
     expect(result.items.map(item => item.header.id).sort()).toEqual([added.id, changed.id, unchanged.id].sort())
-    expect(Object.fromEntries(TestPersistence.loads)).toEqual({
+    expect(Object.fromEntries(TestPersistence.inspections)).toEqual({
       unchanged: 1,
       changed: 2,
       deleted: 1,
@@ -929,25 +967,30 @@ describe('SQLite reconciliation and source lifecycle', () => {
     await expect(second.sessionQuery.searchSessions({ query: 'live' })).resolves.toEqual({ items: [] })
     await expect(second.sessionQuery.searchSessions({ query: 'persisted' }))
       .resolves.toMatchObject({ items: [{ header: shared, live: false, persisted: true }] })
-    expect(TestPersistence.loads.get(shared.id)).toBe(1)
+    expect(TestPersistence.inspections.get(shared.id)).toBe(1)
     await searchAgain.dispose()
     await persistenceAgain.dispose()
   })
 
-  it('refreshes the stored revision after a mutating load repair', async () => {
+  it('refreshes after an external mutating load repair without loading from the query path', async () => {
     const durable = header('repair')
     TestPersistence.reset([{ meta: durable, events: messageEvents('before repair') }])
+    const ctx = await liveContext()
+    const persistence = await ctx.plugin(TestPersistence)
+    await expect(ctx.sessionQuery.searchSessions({ query: 'before' }))
+      .resolves.toMatchObject({ items: [{ header: durable }] })
     TestPersistence.loadEffect = (entry) => {
       entry.events = messageEvents('repaired needle')
     }
-    const ctx = await liveContext()
-    await ctx.plugin(TestPersistence)
+    await ctx.sessionPersistence.load(durable.id)
 
     await expect(ctx.sessionQuery.searchSessions({ query: 'repaired' }))
       .resolves.toMatchObject({ items: [{ header: durable }] })
-    expect(TestPersistence.loads.get(durable.id)).toBe(2)
+    expect(TestPersistence.inspections.get(durable.id)).toBe(2)
     await ctx.sessionQuery.searchSessions({ query: 'repaired' })
-    expect(TestPersistence.loads.get(durable.id)).toBe(2)
+    expect(TestPersistence.inspections.get(durable.id)).toBe(2)
+    expect(TestPersistence.loads.get(durable.id)).toBe(1)
+    await persistence.dispose()
   })
 
   it('recovers on the next search after source and SQLite transaction failures', async () => {
@@ -1065,6 +1108,27 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     expect(stillAugmented.prepare('SELECT value FROM unrelated').get()).toEqual({ value: 'safe' })
     expect(stillAugmented.prepare('PRAGMA user_version').get()).toEqual({ user_version: 999 })
     stillAugmented.close()
+
+    const currentAugmentedPath = await temporaryPath('current-augmented.db')
+    const currentAugmentedOwner = await liveContext({ path: currentAugmentedPath })
+    await (currentAugmentedOwner.sessionQuery as SessionQuerySqlite).close()
+    const currentAugmented = new DatabaseSync(currentAugmentedPath)
+    currentAugmented.exec('CREATE TABLE unrelated(value TEXT)')
+    currentAugmented.exec("INSERT INTO unrelated VALUES ('safe')")
+    currentAugmented.close()
+    const currentAugmentedCtx = new Context()
+    await currentAugmentedCtx.plugin(SessionStore)
+    await expect(currentAugmentedCtx.plugin(SessionQuerySqlite, {
+      path: currentAugmentedPath,
+      journalMode: 'delete',
+    })).rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
+    expect(currentAugmentedCtx.sessionQuery).toBeUndefined()
+    const stillCurrentAugmented = new DatabaseSync(currentAugmentedPath)
+    expect(stillCurrentAugmented.prepare('SELECT value FROM unrelated').get()).toEqual({ value: 'safe' })
+    expect(stillCurrentAugmented.prepare('PRAGMA user_version').get())
+      .toEqual({ user_version: SESSION_QUERY_SQLITE_SCHEMA_VERSION })
+    expect(stillCurrentAugmented.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
+    stillCurrentAugmented.close()
 
     const foreignPath = await temporaryPath('foreign.db')
     const foreign = new DatabaseSync(foreignPath)
@@ -1260,22 +1324,22 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const persistenceA = await first.plugin(SessionPersistenceSqlite, { path: persistencePathA })
     await first.sessionPersistence.create(shared)
     await first.sessionPersistence.append(shared.id, messageEvents('alpha source'))
-    const loadA = vi.spyOn(first.sessionPersistence, 'load')
+    const inspectA = vi.spyOn(first.sessionPersistence, 'inspect')
     const searchA = await first.plugin(SessionQuerySqlite, { path: searchPath })
     await expect(first.sessionQuery.searchSessions({ query: 'alpha' }))
       .resolves.toMatchObject({ items: [{ header: shared }] })
-    expect(loadA).toHaveBeenCalledTimes(1)
+    expect(inspectA).toHaveBeenCalledTimes(1)
     await searchA.dispose()
     await persistenceA.dispose()
 
     const reopened = new Context()
     await reopened.plugin(SessionStore)
     const persistenceAAgain = await reopened.plugin(SessionPersistenceSqlite, { path: persistencePathA })
-    const reopenedLoad = vi.spyOn(reopened.sessionPersistence, 'load')
+    const reopenedInspect = vi.spyOn(reopened.sessionPersistence, 'inspect')
     const searchAAgain = await reopened.plugin(SessionQuerySqlite, { path: searchPath })
     await expect(reopened.sessionQuery.searchSessions({ query: 'alpha' }))
       .resolves.toMatchObject({ items: [{ header: shared }] })
-    expect(reopenedLoad).not.toHaveBeenCalled()
+    expect(reopenedInspect).not.toHaveBeenCalled()
     await searchAAgain.dispose()
     await persistenceAAgain.dispose()
 
@@ -1284,12 +1348,12 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const persistenceB = await second.plugin(SessionPersistenceSqlite, { path: persistencePathB })
     await second.sessionPersistence.create(shared)
     await second.sessionPersistence.append(shared.id, messageEvents('bravo source'))
-    const loadB = vi.spyOn(second.sessionPersistence, 'load')
+    const inspectB = vi.spyOn(second.sessionPersistence, 'inspect')
     const searchB = await second.plugin(SessionQuerySqlite, { path: searchPath })
     await expect(second.sessionQuery.searchSessions({ query: 'bravo' }))
       .resolves.toMatchObject({ items: [{ header: shared }] })
     await expect(second.sessionQuery.searchSessions({ query: 'alpha' })).resolves.toEqual({ items: [] })
-    expect(loadB).toHaveBeenCalledTimes(1)
+    expect(inspectB).toHaveBeenCalledTimes(1)
     await searchB.dispose()
     await persistenceB.dispose()
   })

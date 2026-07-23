@@ -252,6 +252,28 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     return this.serialize(id, () => this.loadCore(id))
   }
 
+  /**
+   * Read a detached valid stored prefix without recovery mutations or
+   * coordinator-state publication.
+   * @param id - persisted session to inspect.
+   * @returns stored header and events before any synthetic recovery closers.
+   */
+  inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.serialize(id, () => this.inspectCore(id))
+  }
+
+  private async inspectCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const stored = await this.backend.loadStored(id)
+    if (stored === undefined) throw new Error(`session "${id}" not found`)
+    this.assertStoredId(id, stored.meta)
+    this.assertVersion(stored.meta)
+    assertSupportedEvents(stored.events, id)
+    return {
+      meta: structuredClone(stored.meta),
+      events: structuredClone(stored.events),
+    }
+  }
+
   private async loadCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     const stored = await this.backend.loadStored(id)
     if (stored === undefined) throw new Error(`session "${id}" not found`)

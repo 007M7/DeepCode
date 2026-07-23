@@ -27,13 +27,15 @@ function eventLog(text = 'hello'): SessionEvent[] {
 class TestPersistence extends SessionPersistence {
   static entries = new Map<SessionIdType, { meta: SessionHeader; events: SessionEvent[] }>()
   static listFailure: unknown
-  static loadFailure: unknown
+  static inspectFailure: unknown
+  static inspectEffect: (() => void) | undefined
   static afterList: (() => void) | undefined
 
   static reset(entries: readonly { meta: SessionHeader; events: SessionEvent[] }[] = []): void {
     this.entries = new Map(entries.map(entry => [entry.meta.id, structuredClone(entry)]))
     this.listFailure = undefined
-    this.loadFailure = undefined
+    this.inspectFailure = undefined
+    this.inspectEffect = undefined
     this.afterList = undefined
   }
 
@@ -54,10 +56,17 @@ class TestPersistence extends SessionPersistence {
   }
 
   load(id: SessionIdType): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    if (TestPersistence.loadFailure !== undefined) return rejectUnknown(TestPersistence.loadFailure)
+    return this.inspect(id)
+  }
+
+  inspect(id: SessionIdType): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    if (TestPersistence.inspectFailure !== undefined) return rejectUnknown(TestPersistence.inspectFailure)
     const entry = TestPersistence.entries.get(id)
     if (entry === undefined) return Promise.reject(new Error('missing test session'))
-    return Promise.resolve(structuredClone(entry))
+    const result = structuredClone(entry)
+    TestPersistence.inspectEffect?.()
+    TestPersistence.inspectEffect = undefined
+    return Promise.resolve(result)
   }
 
   list(): Promise<SessionHeader[]> {
@@ -96,6 +105,22 @@ function rejectUnknown<T>(reason: unknown): Promise<T> {
 }
 
 describe('session-query exact reads', () => {
+  it('prefers a live owner that attaches while its persisted prefix is inspected', async () => {
+    const shared = header('attach-during-inspect', 2)
+    TestPersistence.reset([{ meta: shared, events: eventLog('persisted') }])
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    TestPersistence.inspectEffect = () => {
+      ctx.sessions.create(shared.id, {
+        seed: eventLog('live'),
+        meta: { createdAt: shared.createdAt },
+      })
+    }
+
+    await expect(ctx.sessionQuery.filterEvents(shared.id, []))
+      .resolves.toMatchObject([{ sessionId: shared.id, text: 'live' }])
+  })
+
   it('reads the latest title from one live-preferred or persisted log without widening listSessions', async () => {
     const persistedHeader = header('persisted-title', 2)
     const sharedHeader = header('shared-title', 3)
@@ -363,7 +388,7 @@ describe('session-query exact reads', () => {
     )
     await ctx.plugin(TestPersistence)
     TestPersistence.listFailure = new Error('list unavailable')
-    TestPersistence.loadFailure = new Error('load unavailable')
+    TestPersistence.inspectFailure = new Error('inspect unavailable')
 
     await expect(ctx.sessionQuery.listEvents(live.id)).resolves.toHaveLength(2)
     await expect(ctx.sessionQuery.readEvent({ sessionId: live.id, seq: 1 })).resolves.toMatchObject({ target: { seq: 1 } })
@@ -381,10 +406,10 @@ describe('session-query exact reads', () => {
     await expect(ctx.sessionQuery.listEvents(SessionId('absent')))
       .rejects.toThrow(expectCode('SESSION_QUERY_SESSION_NOT_FOUND'))
 
-    TestPersistence.loadFailure = 'raw failure'
+    TestPersistence.inspectFailure = 'raw failure'
     await expect(ctx.sessionQuery.listEvents(durable.id))
       .rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
-    TestPersistence.loadFailure = undefined
+    TestPersistence.inspectFailure = undefined
     const durableEntry = TestPersistence.entries.get(durable.id)!
     durableEntry.meta = { ...durableEntry.meta, cwd: '/changed-after-list' }
     TestPersistence.afterList = () => {

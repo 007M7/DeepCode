@@ -72,16 +72,18 @@ export class SessionCorpus {
     if (persistence === undefined) throw notFound(sessionId)
     const listed = (await listPersisted(persistence)).find(header => header.id === sessionId)
     if (listed === undefined) throw notFound(sessionId)
-    let loaded: Awaited<ReturnType<SessionPersistence['load']>>
+    let loaded: Awaited<ReturnType<SessionPersistence['inspect']>>
     try {
-      loaded = await persistence.load(sessionId)
+      loaded = await persistence.inspect(sessionId)
     } catch (error: unknown) {
       throw new SessionQueryError(
-        `failed to load session "${sessionId}": ${errorMessage(error)}`,
+        `failed to inspect session "${sessionId}": ${errorMessage(error)}`,
         'SESSION_QUERY_PERSISTENCE_FAILED',
         { cause: error },
       )
     }
+    const attached = this._ctx.sessions.get(sessionId)
+    if (attached !== undefined) return snapshotLive(attached)
     assertSessionHeadersCompatible(loaded.meta, listed)
     return {
       header: structuredClone(loaded.meta),

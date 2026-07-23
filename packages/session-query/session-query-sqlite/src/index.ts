@@ -438,11 +438,12 @@ export class SessionQuerySqlite extends SessionQueryService {
           persisted = materializePersistenceSnapshots(before)
           for (const entry of persisted.values()) {
             if (canReuseIndexed && indexed.get(entry.header.id)?.revision === entry.revision) continue
-            // `load()` may durably repair an interrupted tail. Never invoke it
-            // for a session currently owned by the live store: a checkpointed
-            // open turn is active, not crash-interrupted.
+            // Skip work already shadowed by a live owner. `inspect()` is
+            // non-mutating, so an owner attaching after this check cannot cause
+            // crash-repair side effects; the live-membership retry below makes
+            // the returned observation live-preferred.
             if (initiallyLive.has(entry.header.id) || this.ctx.sessions.get(entry.header.id) !== undefined) continue
-            const loaded = await waitWithAbort(persistence.load(entry.header.id), signal)
+            const loaded = await waitWithAbort(persistence.inspect(entry.header.id), signal)
             assertSessionHeadersCompatible(entry.header, loaded.meta)
             entry.loaded = observeSession(loaded.meta, loaded.events)
           }
