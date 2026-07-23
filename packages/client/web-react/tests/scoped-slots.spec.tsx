@@ -312,6 +312,55 @@ describe('chain outlets and the renderSlotChain binding', () => {
     expect(declinerBody).not.toHaveBeenCalled()
   })
 
+  it('contains a throwing selector to its entry: reported, treated as declined, chain and fallback intact', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    h.add('k.chain', chainEntryOf({
+      component: () => <span>never</span>,
+      select: () => { throw new Error('selector boom') },
+    }))
+    h.add('k.chain', chainEntryOf({
+      component: ({ matched }: { matched?: string }) => <b>{matched}</b>,
+      select: (owner) => (owner as { pick?: string }).pick ?? null,
+    }))
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { view } = mountChainRoot(h, { 'k.chain': CHAIN_ROOT }, (renderSlotChain) => <>
+      <main>{renderSlotChain('k.chain', { pick: 'OK' })}</main>
+      <aside>{renderSlotChain('k.chain', {}, { fallback: <i>fb</i> })}</aside>
+    </>)
+    // The breach never escapes to the owner region: later entries still get
+    // tried, and an all-throw/all-null pass still lands on the fallback.
+    expect(view.container.querySelector('main')!.textContent).toBe('OK')
+    expect(view.container.querySelector('aside')!.textContent).toBe('fb')
+    expect(spy.mock.calls.some(([msg]) => String(msg).includes('chain selector crashed'))).toBe(true)
+    spy.mockRestore()
+  })
+
+  it('remounts the boundary on re-election: a failed entry does not black out its replacement', () => {
+    const h = makeHost()
+    h.declare('k.chain', CHAIN_ROOT)
+    h.add('k.chain', chainEntryOf({
+      component: () => { throw new Error('entry A boom') },
+      select: (owner) => (owner as { pick?: string }).pick === 'A' ? {} : null,
+    }))
+    h.add('k.chain', chainEntryOf({
+      component: () => <b>B-ok</b>,
+      select: (owner) => (owner as { pick?: string }).pick === 'B' ? {} : null,
+    }))
+    let pick = 'A'
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { view } = mountChainRoot(h, { 'k.chain': CHAIN_ROOT },
+      (renderSlotChain) => renderSlotChain('k.chain', { pick }))
+    spy.mockRestore()
+    expect(view.container.querySelector('[data-slot-error]')).not.toBeNull()
+    // Re-elect entry B: the entry-keyed boundary remounts fresh instead of
+    // holding A's failed state over the healthy replacement.
+    pick = 'B'
+    act(() => { h.add('root', { component: () => null }) })   // root bump re-renders the dispatch site
+    expect(view.container.textContent).toBe('B-ok')
+    expect(view.container.querySelector('[data-slot-error]')).toBeNull()
+  })
+
   it('falls to the owner fallback when every selector declines, and re-routes live', () => {
     const h = makeHost()
     h.declare('k.chain', CHAIN_ROOT)
