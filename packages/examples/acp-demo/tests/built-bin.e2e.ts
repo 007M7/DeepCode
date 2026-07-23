@@ -23,8 +23,7 @@ import { ACP_SESSION_REFERENCE_META_KEY } from '@deepseek-ai/dsh-acp'
 /**
  * Published-entry smoke: run `lib/bin.js` under plain Node in a symlinked external consumer and
  * complete a mock-backed turn. This catches built-only settle races, stdout protocol leaks, and
- * published persistence behavior that the tsx source-path smoke cannot. It skips before build;
- * `--expose-internals` enables Cordis bare-plugin loading.
+ * published persistence behavior that the tsx source-path smoke cannot. It skips before build.
  */
 
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
@@ -134,7 +133,7 @@ afterEach(async () => {
 describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, no tsx)', () => {
   it('boots the published bin, completes a turn, and writes default Zstandard persistence', async () => {
     consumer = await makeConsumer()
-    child = spawn(process.execPath, ['--expose-internals', acpBin, '--config', './cordis.yml'], {
+    child = spawn(process.execPath, [acpBin, '--config', './cordis.yml'], {
       cwd: consumer,
       env: {
         ...process.env,
@@ -227,7 +226,7 @@ describe.skipIf(!existsSync(acpBin))('dsh-acp-demo BUILT bin (node lib/bin.js, n
 /** Spawn the built acp bin against `configArg` and resolve with its exit code + stderr. */
 function runBinExpectingExit(configArg: string, cwd: string = tmpdir()): Promise<{ code: number; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(process.execPath, ['--expose-internals', acpBin, '--config', configArg], {
+    const proc = spawn(process.execPath, [acpBin, '--config', configArg], {
       cwd,
       env: {
         ...process.env,
