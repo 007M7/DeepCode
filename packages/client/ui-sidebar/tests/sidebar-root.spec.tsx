@@ -197,6 +197,9 @@ describe('SidebarRoot', () => {
     vi.useFakeTimers()
     try {
       const { onToggleSidebar } = mount(...projectData())
+      // While expanded the search control is inert (the row click focuses instead).
+      act(() => { fireEvent.click(screen.getByLabelText('Search sessions')) })
+      expect(onToggleSidebar).not.toHaveBeenCalled()
       act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
       act(() => { vi.advanceTimersByTime(300) })
       act(() => { fireEvent.click(screen.getByLabelText('Search sessions')) })
