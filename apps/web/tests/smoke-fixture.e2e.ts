@@ -147,8 +147,11 @@ describe('web boot chain success pass (keyless, six real bundles, ?fixture)', ()
       await expect.poll(firstTrack, { timeout: 2000 }).toBe(px)
     }
     await page.getByRole('button', { name: 'Collapse sidebar' }).click()
+    // Mid-collapse the wide chrome is still mounted, fading — not swapped out.
+    expect(await page.locator('text=HARNESS').count()).toBe(1)
     await settledTrack('56px')
-    for (const name of ['Expand sidebar', 'New session', 'Search sessions', 'New workspace', 'Settings']) {
+    await expect.poll(() => page.locator('text=HARNESS').count(), { timeout: 2000 }).toBe(0)
+    for (const name of ['Expand sidebar', 'New session', 'New workspace', 'Search sessions', 'Settings']) {
       await expect(page.getByRole('button', { name }).isVisible(), name).resolves.toBe(true)
     }
     await page.getByRole('button', { name: 'Expand sidebar' }).click()
