@@ -263,7 +263,21 @@ export const Config: z<Config> = z.object({
   welcome: z.string(),
   sessionId: z.string().default('main'),
   resumeCommand: z.string(),
-  ...tuiConfigSchemaFields,
+  showReasoning: tuiConfigSchemaFields.showReasoning,
+  maxToolOutputLines: tuiConfigSchemaFields.maxToolOutputLines,
+  maxQuestionOptions: tuiConfigSchemaFields.maxQuestionOptions,
+  maxModelOptions: tuiConfigSchemaFields.maxModelOptions,
+  questionDialogWidth: tuiConfigSchemaFields.questionDialogWidth,
+  questionDialogMaxHeight: tuiConfigSchemaFields.questionDialogMaxHeight,
+  modelDialogWidth: tuiConfigSchemaFields.modelDialogWidth,
+  modelDialogMaxHeight: tuiConfigSchemaFields.modelDialogMaxHeight,
+  fileSearchMaxResults: tuiConfigSchemaFields.fileSearchMaxResults,
+  fileSearchMaxEntries: tuiConfigSchemaFields.fileSearchMaxEntries,
+  fileSearchExcludedDirectories: tuiConfigSchemaFields.fileSearchExcludedDirectories,
+  showHardwareCursor: tuiConfigSchemaFields.showHardwareCursor,
+  color: tuiConfigSchemaFields.color,
+  truecolor: tuiConfigSchemaFields.truecolor,
+  title: tuiConfigSchemaFields.title,
 })
 
 /** Fully defaulted TUI presentation settings. */
