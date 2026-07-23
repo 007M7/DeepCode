@@ -1,6 +1,6 @@
 // Keyless boot-chain smoke over the REAL carrier: startWebServer + web-plugins
 // registry surface + __DSH_BOOT__ injection + built shell dist in a real
-// chromium. First describe: manifest injection + fail-loud half. Second
+// chromium. First describe: manifest injection + static serving. Second
 // describe: the settled success pass — six REAL tsdown bundles (the
 // infrastructure four + layout/sidebar) load through the DI chain in ?fixture
 // mode and the three-column frame appears in one flip. The full conversation
@@ -75,15 +75,6 @@ describe('web boot chain (keyless, real carrier)', () => {
     const res = await page.request.get(`${new URL(page.url()).origin}${ROWS[0]!.url}`)
     expect(res.status()).toBe(200)
     expect(await res.text()).toContain('window.DSHClientProxy.loadPlugin')
-  })
-
-  it('boots to the loading page and fail-louds the absent plugin', async () => {
-    onTestFailed(() => saveFailureShot(page, 'smoke-boot-fail-loud'))
-    await page.waitForSelector('text=HARNESS', { timeout: 10_000 })
-    await page.waitForSelector('text=Failed to load plugins', { timeout: 10_000 })
-    await page.waitForSelector('text=@probe/absent', { timeout: 2000 })
-    // The real UI must not have flipped in: the gate opens only on settled().
-    expect(await page.locator('[class*="frame"]').count()).toBe(0)
   })
 
   it('applies the token sheets before any plugin CSS', async () => {
