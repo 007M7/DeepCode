@@ -105,7 +105,10 @@ describe('bootHost / startHost', () => {
   })
 
   it('uses the JSONL backend compressed default', async () => {
-    const handle: HostHandle = await bootHost({ persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-boot-zstd-')) })
+    const handle: HostHandle = await bootHost({
+      persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-boot-zstd-')),
+      workspaceContext: false,
+    })
     const session = handle.ctx.sessions.create()
     expect(handle.ctx.sessionPersistence.locate(session.header)?.path).toMatch(/\.jsonl\.zstd$/)
     await handle.dispose()
