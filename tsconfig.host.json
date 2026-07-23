@@ -1,5 +1,25 @@
 {
-  "files": [],
+  // Host aggregate (one of the two check units; see tsconfig.json). packages/client
+  // type-checks in tsconfig.client.json: the two sides merge cordis Context under
+  // the same keys, one program cannot see both.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rewriteRelativeImportExtensions": false
+  },
+  "include": [
+    "examples/*/src/**/*.ts",
+    "examples/*/start.ts",
+    "examples/*/tests/**/*.ts",
+    "packages/*/*/tests/**/*.ts",
+    "scripts/**/*.ts",
+    "website/**/*.ts",
+    "website/.vitepress/**/*.ts"
+  ],
+  "exclude": [
+    "packages/client/**",
+    "scripts/client-bundle-purity.spec.ts"
+  ],
   "references": [
     { "path": "./vendor/cosmokit" },
     { "path": "./vendor/schemastery" },
@@ -33,7 +53,9 @@
     { "path": "./packages/goal/goal" },
     { "path": "./packages/goal/tool-goal" },
     { "path": "./packages/goal/goal-session" },
+    { "path": "./packages/goal/command-goal" },
     { "path": "./packages/context/time-context" },
+    { "path": "./packages/context/session-reference" },
     { "path": "./packages/ui/user-interaction" },
     { "path": "./packages/ui/user-approval" },
     { "path": "./packages/ui/permission" },
@@ -53,9 +75,6 @@
     { "path": "./packages/pty/tool-pty" },
     { "path": "./packages/code-runtime/code-runtime" },
     { "path": "./packages/code-runtime/code-runtime-worker" },
-    { "path": "./packages/compact/compact" },
-    { "path": "./packages/compact/compact-basic" },
-    { "path": "./packages/compact/compact-tool-result-prune" },
     { "path": "./packages/llm/llm-deepseek" },
     { "path": "./packages/llm/llm-pi-ai" },
     { "path": "./packages/bash/bash-local" },
@@ -70,6 +89,9 @@
     { "path": "./packages/fs/fs-sandbox" },
     { "path": "./packages/fs/tool-fs" },
     { "path": "./packages/fs/tool-fs-search" },
+    { "path": "./packages/compact/compact" },
+    { "path": "./packages/compact/compact-basic" },
+    { "path": "./packages/compact/compact-tool-result-prune" },
     { "path": "./packages/web/web" },
     { "path": "./packages/web/web-search-exa" },
     { "path": "./packages/web/web-search-perplexity" },
@@ -116,18 +138,6 @@
     { "path": "./packages/host/apiproxy" },
     { "path": "./packages/host/runtime" },
     { "path": "./packages/host/webserver" },
-    { "path": "./packages/client/ui-slots" },
-    { "path": "./packages/client/ui-primitives" },
-    { "path": "./packages/client/web-react" },
-    { "path": "./packages/client/connection" },
-    { "path": "./packages/client/runtime" },
-    { "path": "./packages/client/ui-layout" },
-    { "path": "./packages/client/ui-sidebar" },
-    { "path": "./packages/client/ui-conversation" },
-    { "path": "./packages/client/ui-trajectory" },
-    { "path": "./packages/client/ui-theme" },
-    { "path": "./packages/client/i18n" },
-    { "path": "./packages/client/web" },
     { "path": "./packages/sdk/helper" },
     { "path": "./packages/sdk/scripts" },
     { "path": "./packages/sdk/create-sdk" },
