@@ -1706,6 +1706,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
       handler: () => ({ kind: 'error' as const, text: 'plugin error result' }),
     })
 
+    result.terminal.send('/plugin-ch')
+    await tick()
+    expect(result.terminal.output).toContain('<value> — Run a plugin command')
+    result.terminal.send('\x03')
+
     result.terminal.send('/plugin-check  value  ')
     result.terminal.send('\r')
     await tick()

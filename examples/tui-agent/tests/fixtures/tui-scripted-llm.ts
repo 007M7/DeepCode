@@ -5,6 +5,8 @@ import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 const CONTROL_PROBE = '\u001b]2;MODEL_CONTROLLED\u0007\u001b[999CMODEL_CURSOR\u009b31mMODEL_C1'
 const INITIAL_TEXT = `I need one decision before I continue. ${CONTROL_PROBE}`
 const FINAL_TEXT = 'Decision received. Scripted TUI run complete.'
+const DEFAULT_MODE_PROBE = 'Confirm the scripted run left plan mode.'
+const DEFAULT_MODE_TEXT = 'Default mode confirmed.'
 // The `skill` scenario types `/skill:scripted-skill`; the manual-invocation front
 // door delivers the loaded skill as a user turn wrapped in `<skill name="…">`. The
 // body marker below lives in the fixture skill, so echoing it back proves the whole
@@ -53,6 +55,13 @@ class ScriptedTuiAdapter extends LlmAdapter {
       .filter(block => block.type === 'text')
       .map(block => block.text)
       .join('\n')
+    if (lastText.includes(DEFAULT_MODE_PROBE)) {
+      if (options.system?.includes('Stay in plan mode for this scripted TUI test.')) {
+        throw new Error('the scripted TUI request retained plan guidance after /plan off')
+      }
+      for (const chunk of textChunks(DEFAULT_MODE_TEXT)) yield chunk
+      return
+    }
     if (lastText.includes(SKILL_BLOCK_OPEN)) {
       const ack = lastText.includes(SKILL_BODY_MARKER)
         ? SKILL_RECEIVED_TEXT
