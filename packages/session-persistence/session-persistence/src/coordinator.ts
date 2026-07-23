@@ -346,7 +346,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     ctx.effect(() => async () => {
       let disposeError: unknown
       try {
-        const errors = await settledErrors([...this.live.keys()].map(session => this.flushForDispose(session)))
+        const errors = await settledErrors([...this.live.keys()].map(session => this.flush(session)))
         while (this.chains.size > 0) await Promise.allSettled([...this.chains.values()])
         if (errors.length > 0) {
           throw new AggregateError(errors, `${this.backend.name} dispose failed`)
@@ -474,7 +474,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
         if (suffix.length > 0) await this.appendCore(id, suffix)
         return
       }
-      throw new Error(`session "${id}" is already bound to a different live session in this backend (id collision)`)
+      const owner = this.live.get(tracked.owner)
+      if (!tracked.materialized && !owner?.pending.length) {
+        this.states.delete(id)
+      } else {
+        throw new Error(`session "${id}" is already bound to a different live session in this backend (id collision)`)
+      }
     }
 
     // case 2/3: an artifact at THIS cwd is adopted as a live prefix (or rejected
@@ -530,16 +535,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private async flush(session: Session): Promise<void> {
     const live = this.initFor(session)
     await live.init
+    const overlapping = live.flush
+    if (overlapping !== undefined) await Promise.allSettled([overlapping])
     while (live.flush !== undefined || live.pending.length > 0) {
-      await this.ensureFlush(session, live)
+      if (live.flush !== undefined) await live.flush
+      else await this.ensureFlush(session, live)
     }
-  }
-
-  /** Let an eager attempt settle, then make one teardown-owned retry observable. */
-  private async flushForDispose(session: Session): Promise<void> {
-    const current = this.live.get(session)?.flush
-    if (current !== undefined) await Promise.allSettled([current])
-    await this.flush(session)
   }
 
   /** Start an eager drain without exposing its failure to the synchronous append. */
@@ -549,9 +550,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     })
   }
 
-  /** Return the current drain, or start one for the complete pending batch. */
+  /** Start one drain for the complete pending batch. */
   private ensureFlush(session: Session, live: LiveSessionState): Promise<void> {
-    if (live.flush !== undefined) return live.flush
     const flush = live.init
       .then(() => this.serialize(session.header.id, () => this.drain(session.header.id, live)))
       .finally(() => { live.flush = undefined })

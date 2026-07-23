@@ -234,6 +234,41 @@ describe('PersistenceCoordinator eager writes', () => {
       await ctx.fiber.dispose()
     }
   })
+
+  it('retries a failed overlapping eager write at the explicit flush barrier', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const appendGate = Promise.withResolvers<boolean>()
+    backend.beforeAppend = async (attempt) => {
+      if (attempt === 1) {
+        await appendGate.promise
+        throw new Error('transient eager failure')
+      }
+    }
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const session = ctx.sessions.create(SessionId('eager-flush-retry'))
+      await ctx.sessions.flush(session)
+      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
+
+      const barriers = [ctx.sessions.flush(session), ctx.sessions.flush(session)]
+      appendGate.resolve(true)
+
+      await expect(Promise.all(barriers)).resolves.toEqual([undefined, undefined])
+      expect(backend.appendAttempts).toBe(2)
+      expect(backend.store.get(session.id)?.events.map(event => event.seq)).toEqual([0, 1])
+    } finally {
+      appendGate.resolve(true)
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
 })
 
 describe('PersistenceCoordinator retirement', () => {
@@ -241,29 +276,32 @@ describe('PersistenceCoordinator retirement', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const backend = new ControlledBackend()
-    let coordinator!: PersistenceCoordinator<never>
     const backendFiber = await ctx.plugin(Object.assign((inner: Context) => {
-      coordinator = new PersistenceCoordinator(inner, backend)
+      new PersistenceCoordinator(inner, backend)
     }, { inject: ['sessions'] }))
+    const loadGate = Promise.withResolvers<boolean>()
+    backend.beforeLoadStored = async (attempt) => {
+      if (attempt === 1) await loadGate.promise
+    }
 
     try {
       const id = SessionId('retiring-lazy-owner')
-      let first!: Session
       const firstFiber = await ctx.plugin(Object.assign((inner: Context) => {
-        first = inner.sessions.create(id)
+        inner.sessions.create(id)
       }, { inject: ['sessions'] }))
-      await ctx.sessions.flush(first)
+      await vi.waitFor(() => { expect(backend.loadAttempts).toBe(1) })
       await firstFiber.dispose()
-      const internals = coordinator as unknown as CoordinatorInternals
-      await vi.waitFor(() => { expect(internals.states.has(id)).toBe(false) })
 
       let reuse!: Session
       await ctx.plugin(Object.assign((inner: Context) => {
         reuse = inner.sessions.create(id)
       }, { inject: ['sessions'] }))
+      const reuseFlush = ctx.sessions.flush(reuse)
 
-      await expect(ctx.sessions.flush(reuse)).resolves.toBeUndefined()
+      loadGate.resolve(true)
+      await expect(reuseFlush).resolves.toBeUndefined()
     } finally {
+      loadGate.resolve(true)
       await backendFiber.dispose()
       await ctx.fiber.dispose()
     }
