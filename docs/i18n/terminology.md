@@ -58,11 +58,13 @@
 | seam | seam | | | 与 `extension point` 是不同概念；根据具体语境，可译为`服务边界`或`可替换点` |
 | skill | skill | skill（技能） | | |
 | spawn | spawn | | | |
+| Step | Step | Step（步骤） | | 领域层级术语；普通流程或操作步骤不在此列，按中文语境翻译。 |
 | steering | steering | steering（中途引导） | | |
 | task id | task id | | 任务 id | 保留英文 |
 | subagent | subagent | | | |
 | thinking | thinking | | | API 字段保留英文；描述模型模式时译为`思考` |
 | transcript | transcript | transcript（文本记录） | | 指会话渲染给用户或编辑器的完整文本，区别于事件日志 |
+| Turn | Turn | Turn（轮次） | | 领域层级术语；普通非领域用法（如轮流、转向或往返）按中文语境翻译。 |
 | waterfall | waterfall | waterfall（瀑布式事件） | | |
 | wheel | wheel 包 | | | Python 打包格式 |
 | worktree | worktree | | | git 工作区概念 |
@@ -164,7 +166,6 @@
 | spine | 主干 | | | |
 | staged | 暂存 | | | 沿用 git 官方中文翻译 |
 | stale | 陈旧 | | 过期 | 与 `fresh`（`新鲜`）成对；门禁输出中保留英文 `stale` 不翻译；`expired` 才译为`过期` |
-| step | 步骤 | | | |
 | stream | 流 | | | |
 | streaming | 流式输出 | | | |
 | structural signature | 结构签名 | | | i18n 配对机制用语：门禁比对两侧文件时提取的有序结构序列（标题层级、代码块、列表等） |
@@ -176,7 +177,6 @@
 | tool result | 工具结果 | | | |
 | tool schema | 工具 schema | | | |
 | toolkit | 工具包 | | | |
-| turn | 轮次 | | | |
 | VFS | VFS | 虚拟文件系统（VFS） | | |
 | typecheck | 类型检查 | | | |
 | vocabulary | 词汇 | | | |
