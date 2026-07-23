@@ -612,20 +612,31 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const { ctx, fiber } = await freshCtx(fix)
       try {
         // Materialize and load (ownerless, cursor = 6).
-        await ctx.sessionPersistence.create(meta('claim', WORK))
+        const storedMeta = meta('claim', WORK)
+        await ctx.sessionPersistence.create(storedMeta)
         await ctx.sessionPersistence.append(SessionId('claim'), oneTurnLog())
-        const { events } = await ctx.sessionPersistence.load(SessionId('claim'))
+        const { events, meta: durableMeta } = await ctx.sessionPersistence.load(SessionId('claim'))
 
         // A live session SEEDED with the loaded log PLUS a new turn claims the
         // ownerless state and persists only the suffix.
-        const cont = ctx.sessions.create(SessionId('claim'), { seed: [
-          ...events,
-          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
-          { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
-        ], meta: { cwd: WORK } })
+        let cont!: Session
+        const contFiber = await ctx.plugin(Object.assign((inner: Context) => {
+          cont = inner.sessions.create(SessionId('claim'), { seed: [
+            ...events,
+            { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+            { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
+          ], meta: { cwd: WORK, createdAt: 2000 } })
+        }, { inject: ['sessions'] }))
         await ctx.sessions.flush(cont)
         const loaded = await ctx.sessionPersistence.load(SessionId('claim'))
         expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+        expect(loaded.meta).toEqual(durableMeta)
+        expect(loaded.meta.createdAt).toBe(1000)
+
+        await contFiber.dispose()
+        await vi.waitFor(async () => {
+          expect((await ctx.sessionPersistence.load(SessionId('claim'))).meta).toEqual(durableMeta)
+        })
       } finally {
         await fiber.dispose()
         await fix.cleanup()

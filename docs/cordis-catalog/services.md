@@ -919,7 +919,8 @@ abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
  * step and turn boundaries; only a torn final record is discarded. Unknown
  * versions and corruption in the committed prefix reject. Implementations
  * MUST NOT crash-repair an identity still bound to a live Session: a balanced
- * live log may return as a durable snapshot, while an open live turn rejects.
+ * live log may return with its stored header as a durable snapshot, while an
+ * open live turn rejects.
  * A coordinator-backed cold load reserves the identity across storage awaits,
  * so concurrent publication of a same-id live Session rejects.
  * @param id - the persisted session to reload.

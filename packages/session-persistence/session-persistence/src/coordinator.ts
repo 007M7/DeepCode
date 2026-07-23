@@ -286,9 +286,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   /** Return a durable balanced live snapshot without applying cold crash repair. */
   private async loadLiveSnapshot(session: Session): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const meta = structuredClone(session.header)
     const events = session.events.map(event => structuredClone(event))
     await this.flush(session)
+    const state = this.states.get(session.id)
+    /* v8 ignore next -- successful flush always publishes this live session's durable state */
+    if (state === undefined) throw new Error(`session "${session.id}" lost persistence state during load`)
+    const meta = structuredClone(state.meta)
     if (events.length === 0) throw new Error(`session "${session.id}" not found`)
     if (interruptedTurnClosers(events).length > 0) {
       throw new Error(`cannot load session "${session.id}" while its live turn is open; use the live Session or wait for the turn to close`)
