@@ -34,9 +34,12 @@ export type {
 } from './contract/store.ts'
 export type {
   AssistantBlock, AssistantMessageNode, ContextMessageNode, ConversationNode, ConversationSnapshot,
-  PendingInteraction, RunningToolCall, SteeringMessageNode,
+  RunningToolCall, SteeringMessageNode,
   ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
+// PendingWait is a value export: tests construct fixture waits directly.
+export { PendingWait } from './sessions/pending.ts'
+export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
 export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 
 // ---- Narrowed aliases (the single narrowing point of the slot type chain:

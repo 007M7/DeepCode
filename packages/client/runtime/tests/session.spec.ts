@@ -252,28 +252,34 @@ describe('pending interactions', () => {
     expect(session.getSnapshot().pending).toEqual([])
   })
 
-  it('backfills the requested rpcId for structured answers and explicit cancellation', async () => {
+  it('mints waits whose respond() backfills the requested rpcId into the client-response envelope', async () => {
     const { api, session } = makeSession()
-    await session.answerQuestion('rq-answer' as never, {
-      answers: [{ id: 'mode', selected: ['Fast'] }],
+    session.handleMuxEnvelope('rq-answer' as never, { type: 'question/requested', sessionId: SID, questions: [] })
+    const wait = session.getSnapshot().pending[0]!
+    expect(wait).toMatchObject({ kind: 'question', key: 'q:rq-answer', sessionId: SID, payload: { questions: [] } })
+    const receipt = await wait.respond({
+      ok: true,
+      value: { sessionId: SID, answer: { answers: [{ id: 'mode', selected: ['Fast'] }] } },
     })
-    await session.cancelQuestion('rq-cancel' as never)
-    expect(api.callsOf('respond')).toEqual([
-      {
-        type: 'client-response', rpcId: 'rq-answer',
-        result: {
-          ok: true,
-          value: { sessionId: SID, answer: { answers: [{ id: 'mode', selected: ['Fast'] }] } },
-        },
+    expect(receipt).toEqual({ accepted: true })
+    expect(api.callsOf('respond')).toEqual([{
+      type: 'client-response', rpcId: 'rq-answer',
+      result: {
+        ok: true,
+        value: { sessionId: SID, answer: { answers: [{ id: 'mode', selected: ['Fast'] }] } },
       },
-      {
-        type: 'client-response', rpcId: 'rq-cancel',
-        result: {
-          ok: false,
-          error: { code: 'cancelled', message: 'the user closed this question request', details: {} },
-        },
-      },
-    ])
+    }])
+  })
+
+  it('settles the wait on the authoritative resolved frame: respond() then throws synchronously', async () => {
+    const { api, session } = makeSession()
+    session.handleMuxEnvelope('rq1' as never, { type: 'question/requested', sessionId: SID, questions: [] })
+    const wait = session.getSnapshot().pending[0]!
+    session.handleMuxEnvelope('ry' as never, { type: 'question/resolved', sessionId: SID, questionRpcId: 'rq1' as never, outcome: 'answered' })
+    expect(session.getSnapshot().pending).toEqual([])
+    expect(() => wait.respond({ ok: false, error: { code: 'cancelled', message: 'x', details: {} } }))
+      .toThrow('already settled')
+    expect(api.callsOf('respond')).toEqual([])
   })
 })
 
@@ -379,7 +385,7 @@ describe('remaining branches', () => {
     session.handleMuxEnvelope('ra' as never, {
       type: 'approval/requested', sessionId: SID, approvalId: 'ap2' as never, toolName: 'rm', callId: 'c1' as never, reason: '危险',
     })
-    expect(session.getSnapshot().pending[0]).toMatchObject({ kind: 'approval', callId: 'c1', reason: '危险' })
+    expect(session.getSnapshot().pending[0]).toMatchObject({ kind: 'approval', payload: { callId: 'c1', reason: '危险' } })
     session.handleMuxEnvelope('rx' as never, { type: 'approval/resolved', sessionId: SID, approvalId: 'ap2' as never, outcome: 'approved' as never })
     session.handleMuxEnvelope('rx2' as never, { type: 'approval/resolved', sessionId: SID, approvalId: 'ap2' as never, outcome: 'approved' as never })
     session.handleMuxEnvelope('ry2' as never, { type: 'question/resolved', sessionId: SID, questionRpcId: 'never-was' as never, outcome: 'cancelled' })
@@ -590,6 +596,22 @@ describe('resync', () => {
     const cold = makeSession()
     await cold.session.resync()
     expect(cold.api.calls).toEqual([]) // never opened: no traffic
+  })
+
+  it('re-mints a replayed requested frame as a fresh wait with the same key (old reference superseded)', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
+    await session.open()
+    session.handleMuxEnvelope('rq-replay' as never, { type: 'question/requested', sessionId: SID, questions: [] })
+    const before = session.getSnapshot().pending[0]!
+    await session.resync()
+    session.handleMuxEnvelope('rq-replay' as never, { type: 'question/requested', sessionId: SID, questions: [] })
+    const after = session.getSnapshot().pending[0]!
+    expect(after).not.toBe(before)
+    expect(after.key).toBe(before.key)
+    // Superseded ≠ settled: an in-flight respond on the stale reference still reaches the host.
+    await before.respond({ ok: false, error: { code: 'cancelled', message: 'x', details: {} } })
+    expect(api.callsOf('respond')).toMatchObject([{ rpcId: 'rq-replay' }])
   })
 
   it('drops a stale in-flight open superseded by resync (generation guard)', async () => {

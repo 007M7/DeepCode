@@ -4,7 +4,8 @@
 // string here (narrow to real brands when convenient).
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { MuxFrame, RpcError, RpcId, SessionId, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
+import type { RpcError, SessionId, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
+import type { PendingInteraction } from './pending.ts'
 
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
@@ -120,15 +121,6 @@ export interface RunningToolCall {
   /** Host-computed render intent riding the tool/call frame; null = generic JSON card. */
   callView: ToolCallView | null
 }
-
-/** Approval/question pending state; rpcId is the requested frame's response-backfill key. */
-export type PendingInteraction =
-  | { kind: 'approval'; rpcId: RpcId; approvalId: string; toolName: string; callId?: string; reason?: string }
-  | {
-    kind: 'question'
-    rpcId: RpcId
-    questions: readonly Extract<MuxFrame, { type: 'question/requested' }>['questions'][number][]
-  }
 
 /** In-progress assistant output (chunk accumulator product). */
 export interface PartialAssistant {
