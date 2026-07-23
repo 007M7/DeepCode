@@ -1988,7 +1988,7 @@ sendMessage(parent: Agent, childId: SessionId, message: ContentBlock[]): SendMes
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [SendMessageResult](../core-data-structures/subagent.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/subagent/subagent-control/src/index.ts:152`](../../packages/subagent/subagent-control/src/index.ts)
+Source: [`packages/subagent/subagent-control/src/index.ts:156`](../../packages/subagent/subagent-control/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 

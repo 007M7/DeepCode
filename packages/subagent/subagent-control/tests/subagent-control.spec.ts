@@ -482,6 +482,51 @@ describe('SubagentControlService.sendMessage', () => {
   })
 })
 
+describe('service disposal with live activations', () => {
+  it('cancels and settles a starting activation on service disposal instead of stranding it', async () => {
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    const root = mkdtempSync(join(tmpdir(), 'dsh-subagent-control-hmr-'))
+    roots.push(root)
+    await ctx.plugin(JsonlSessionPersistence, { root })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(SubagentService)
+    await ctx.plugin(TaskService)
+    await ctx.plugin(ToolTasks, {})
+    // A provider that stays pending until its signal aborts, so the activation
+    // is observably mid-start when the control service is disposed.
+    let sawAbort = false
+    ctx.subagents.registerProvider({
+      name: 'pending',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: request => new Promise((_resolve, reject) => {
+        request.signal.addEventListener('abort', () => {
+          sawAbort = true
+          reject(new Error('startup aborted'))
+        }, { once: true })
+      }),
+      resume: () => Promise.reject(new Error('unreachable')),
+    })
+    const controlFiber = await ctx.plugin(SubagentControlService)
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([]))
+    const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
+
+    const control = ctx.get('subagentControl')!
+    const started = control.startContinuable({
+      provider: 'pending',
+      label: 'will be interrupted',
+      request: { prompt: message('go'), parent },
+    })
+    // TaskService keeps the producer Task; the disposing control service must
+    // cancel its activation and await settlement rather than strand it.
+    await controlFiber.dispose()
+    expect(sawAbort).toBe(true)
+    const snapshot = await waitTerminal(ctx, started.taskId, parent)
+    expect(snapshot.status).toBe('killed')
+  })
+})
+
 describe('outcome mapping helpers', () => {
   it('runOutcome maps the stop-reason vocabulary onto task outcomes', () => {
     const output = [{ type: 'text' as const, text: 'partial' }]

@@ -209,7 +209,13 @@ config:
       id: 'subagent',
       summary: 'Delegate work to child agents',
       mode: 'multiple',
-      baseResources: [{ kind: 'npm-cordis-config-entry', id: 'subagent', package: '@deepseek-ai/dsh-subagent' }],
+      // The control pair rides every resumable in-process option: background
+      // delegation on spawn/fork is continuable and advertises send_message.
+      baseResources: [
+        { kind: 'npm-cordis-config-entry', id: 'subagent', package: '@deepseek-ai/dsh-subagent' },
+        { kind: 'npm-cordis-config-entry', id: 'subagent-control', package: '@deepseek-ai/dsh-subagent-control' },
+        { kind: 'npm-cordis-config-entry', id: 'tool-subagent-control', package: '@deepseek-ai/dsh-tool-subagent-control' },
+      ],
       options: [
         {
           id: 'spawn',

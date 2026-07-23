@@ -86,6 +86,10 @@ interface ActiveActivation {
   taskId: TaskId | undefined
   /** Filled when the provider publishes; `undefined` while starting or resuming. */
   run: SubagentRun | undefined
+  /** The activation-owned cancellation authority, created before any await. */
+  readonly controller: AbortController
+  /** The producer's settlement (run disposed, outcome produced); assigned when the Task registers. */
+  done: Promise<TaskOutcome> | undefined
   /** Resolved by the completion listener when the Task's terminal snapshot is recorded. */
   readonly terminal: PromiseWithResolvers<void>
 }
@@ -164,7 +168,21 @@ export class SubagentControlService extends Service {
         if (activation.taskId === snapshot.id) activation.terminal.resolve()
       }
     })
-    ctx.effect(() => () => { this.activations.clear() }, 'subagentControl.activations()')
+    // TaskService deliberately keeps producer Tasks alive across a
+    // control-surface or producer reload, so this service's disposal must not
+    // strand the activations it can no longer route to: cancel each one and
+    // await producer settlement (run disposal) before releasing the map. The
+    // effect-scoped onTaskDone listener above is already gone by then, so
+    // terminal publication is resolved here instead of waiting forever.
+    ctx.effect(() => async () => {
+      const active = [...this.activations.values()]
+      this.activations.clear()
+      for (const activation of active) {
+        activation.controller.abort('subagent control service disposed')
+        activation.terminal.resolve()
+      }
+      await Promise.allSettled(active.map(activation => activation.done ?? Promise.resolve()))
+    }, 'subagentControl.activations()')
   }
 
   /**
@@ -368,6 +386,8 @@ export class SubagentControlService extends Service {
     const activation: ActiveActivation = {
       taskId: undefined,
       run: undefined,
+      controller: new AbortController(),
+      done: undefined,
       terminal: Promise.withResolvers<void>(),
     }
     this.activations.set(childId, activation)
@@ -378,21 +398,21 @@ export class SubagentControlService extends Service {
         label,
         owner,
         run: (): TaskHooks => {
-          const controller = new AbortController()
           const done = (async (): Promise<TaskOutcome> => {
             try {
-              const run = await begin(controller.signal)
+              const run = await begin(activation.controller.signal)
               activation.run = run
               return await settleRun(run)
             } catch (error: unknown) {
               // A pre-publication abort rejects only after the provider's
               // creation transaction rolled back to quiescence, so recording
               // `killed` here honors the settlement-after-rollback contract.
-              return controller.signal.aborted
+              return activation.controller.signal.aborted
                 ? { status: 'killed' }
                 : { status: 'failed', detail: String(error) }
             }
           })()
+          activation.done = done
           void Promise.allSettled([done, activation.terminal.promise]).then(() => {
             /* v8 ignore else -- service teardown clears the map while a producer is still settling. */
             if (this.activations.get(childId) === activation) this.activations.delete(childId)
@@ -401,7 +421,7 @@ export class SubagentControlService extends Service {
             cancel: (reason?: string) => {
               // Cancellation targets the whole activation: every message that
               // joined this turn shares the `killed` outcome.
-              controller.abort(reason ?? 'subagent activation killed')
+              activation.controller.abort(reason ?? 'subagent activation killed')
             },
             done,
             // No readOutput: the child session owns intermediate detail.

@@ -903,6 +903,22 @@ describe('dsh-tool-subagent continuable background mode', () => {
     // Nothing was started: no Task exists for the parent.
     expect(ctx.tasks.list(parent)).toEqual([])
   })
+
+  it('resolves send_message availability in the CALLER scope, not the global registry', async () => {
+    // A scoped restriction that keeps this delegation tool but removes
+    // send_message means this agent cannot execute the promised follow-up;
+    // the availability check must see the caller's surface.
+    const { ctx, parent } = await continuableSetup()
+    parent.ctx.tools.restrict({ deny: ['send_message'] })
+    const result = await callSubagent(
+      ctx,
+      { description: 'd', prompt: 'p', run_in_background: true },
+      { agent: parent },
+    )
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('load @deepseek-ai/dsh-tool-subagent-control')
+    expect(ctx.tasks.list(parent)).toEqual([])
+  })
 })
 
 describe('background preflight failure (no orphaned child, by construction)', () => {

@@ -288,8 +288,10 @@ export function apply(ctx: Context, config: Config): void {
             // The schema above tells the model to follow up with
             // `send_message`; starting a durable child the model cannot
             // continue would make that advertisement false. Sibling load order
-            // is undetermined at mount, so the check lives at the operation.
-            if (ctx.tools.get('send_message') === undefined) {
+            // is undetermined at mount, so the check lives at the operation,
+            // and it resolves in the CALLER's scope so a restriction that
+            // removes send_message from this agent also blocks the start.
+            if (ctx.tools.get('send_message', parent) === undefined) {
               throw new Error('continuable background subagents unavailable: load @deepseek-ai/dsh-tool-subagent-control (the advertised send_message tool is not registered)')
             }
             // The control service owns the durable child id, descriptor
