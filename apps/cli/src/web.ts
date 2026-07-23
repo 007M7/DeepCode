@@ -37,6 +37,7 @@ const CLIENT_PACKAGES = [
   '@deepseek-ai/dsh-client-ui-layout',
   '@deepseek-ai/dsh-client-ui-sidebar',
   '@deepseek-ai/dsh-client-ui-conversation',
+  '@deepseek-ai/dsh-client-ui-question',
   '@deepseek-ai/dsh-client-ui-trajectory',
 ] as const
 

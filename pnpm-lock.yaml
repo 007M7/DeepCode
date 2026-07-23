@@ -119,6 +119,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-layout':
         specifier: workspace:^
         version: link:../../packages/client/ui-layout
+      '@deepseek-ai/dsh-client-ui-question':
+        specifier: workspace:^
+        version: link:../../packages/client/ui-question
       '@deepseek-ai/dsh-client-ui-sidebar':
         specifier: workspace:^
         version: link:../../packages/client/ui-sidebar
@@ -159,6 +162,9 @@ importers:
         specifier: ^18.2.0
         version: 18.3.1(react@18.3.1)
     devDependencies:
+      '@deepseek-ai/dsh-client-modules':
+        specifier: workspace:^
+        version: link:../../packages/client/modules
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
         version: link:../../packages/client/runtime
@@ -2181,9 +2187,15 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
+      '@deepseek-ai/dsh-user-interaction':
+        specifier: workspace:^
+        version: link:../../ui/user-interaction
       '@deepseek-ai/dsh-workflow-workerthread':
         specifier: workspace:^
         version: link:../../workflow/workflow-workerthread
+      '@deepseek-ai/dsh-workspace-context':
+        specifier: workspace:^
+        version: link:../../context/workspace-context
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^

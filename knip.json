@@ -18,8 +18,7 @@
   "workspaces": {
     ".": {
       "entry": [
-        "scripts/**/*.mjs",
-        "scripts/dev-web.ts"
+        "scripts/**/*.mjs"
       ],
       "project": [
         "scripts/**/*.ts",

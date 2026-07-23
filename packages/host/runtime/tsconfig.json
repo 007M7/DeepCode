@@ -121,6 +121,12 @@
     },
     {
       "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../../context/workspace-context"
+    },
+    {
+      "path": "../../ui/user-interaction"
     }
   ]
 }
