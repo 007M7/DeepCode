@@ -39,7 +39,7 @@ window.DSHClientProxy.loadPlugin({
     return {
       apply: (ctx) => {
         ctx.plugin(SlotsService)
-        const list = createSnapshotStore({ ids: ['s1'], byId: { s1: { id: 's1', title: 'S1', running: false, updatedAt: 1 } }, current: 's1' })
+        const list = createSnapshotStore({ ids: ['s1'], byId: { s1: { id: 's1', title: 'S1', displayTitle: 'S1', running: false, updatedAt: 1 } }, current: 's1' })
         ctx.provide('sessions', {
           list,
           cell: (id) => (id === 's1' ? { sessionId: 's1', session: { getSnapshot: () => ({}), subscribe: () => () => {} } } : undefined),
@@ -134,6 +134,7 @@ afterEach(() => {
   delete win.__TEST_RUNTIME_STORE__
   document.body.innerHTML = ''
   document.head.querySelectorAll('script').forEach((s) => { s.remove() })
+  document.title = ''
 })
 
 /** Hand the real runtime surface to the stub bundle (runtime is not a seeded library). */
@@ -147,6 +148,7 @@ describe('bootWebShell (real loader + real script execution)', () => {
     win.__DSH_BOOT__ = { plugins: bootPlugins() }
     seedSlotsService()
     const el = mountPoint()
+    document.title = 'DeepSeek Harness'
     let unmount: (() => void) | undefined
     act(() => { unmount = bootWebShell(el, seams(fakeBundles())) })
     expect(el.textContent).toContain('HARNESS')
@@ -155,9 +157,11 @@ describe('bootWebShell (real loader + real script execution)', () => {
     await flushLoader()
     expect(el.querySelector('[data-testid="fake-frame"]')).not.toBeNull()
     expect(el.textContent).not.toContain('HARNESS')
+    expect(document.title).toBe('S1 — DeepSeek Harness')
 
     act(() => { unmount!() })
     expect(el.childElementCount).toBe(0)
+    expect(document.title).toBe('DeepSeek Harness')
   })
 
   it('store seat round-trips through the entry props (useStore + actions)', async () => {
@@ -218,6 +222,9 @@ describe('buildRenderApp — assembly contract', () => {
     const ctx = new Context()
     const fiber = ctx.plugin(SlotsService)
     await fiber.await()
+    ctx.provide('sessions', {
+      list: createSnapshotStore({ ids: [], byId: {}, current: undefined }),
+    })
     const renderApp = buildRenderApp({ ctx, requireModule: () => undefined })
     expect(renderApp).toBeTypeOf('function')
     // No renderer installed: the one-line shell must surface the boot-order error.

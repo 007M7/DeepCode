@@ -89,6 +89,66 @@ describe('list lifecycle', () => {
     expect(result).toMatchObject({ ok: true, value: { sessionId: S2 } })
     expect(manager.getListSnapshot().items.map(i => i.sessionId)).toEqual([S2])
   })
+
+  it('retains monotonic title snapshots before list arrival, merges recency, and clears them on removal', async () => {
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api)
+    manager.handleMuxEnvelope({
+      rpcId: 'title-new' as never,
+      payload: { type: 'session/title', sessionId: S1, title: 'Newest', eventSeq: 4, updatedAt: 300 },
+    })
+    manager.handleMuxEnvelope({
+      rpcId: 'title-stale' as never,
+      payload: { type: 'session/title', sessionId: S1, title: 'Stale', eventSeq: 3, updatedAt: 900 },
+    })
+    manager.handleMuxEnvelope({
+      rpcId: 'title-equal' as never,
+      payload: { type: 'session/title', sessionId: S1, title: 'Equal', eventSeq: 4, updatedAt: 901 },
+    })
+    api.onList = () => Promise.resolve(ok({
+      items: [summary(S1), summary(S2, { updatedAt: 200 })] as never[],
+    }))
+    await manager.refreshList()
+
+    const titled = manager.getListSnapshot()
+    expect(titled.items.map(item => item.sessionId)).toEqual([S1, S2])
+    expect(titled.items[0]).toMatchObject({ title: 'Newest', updatedAt: 300 })
+    expect(titled.items[1]?.title).toBeUndefined()
+
+    manager.handleHostEnvelope({ rpcId: 'removed' as never, payload: { type: 'host/session-removed', sessionId: S1 } })
+    manager.handleHostEnvelope({ rpcId: 'readded' as never, payload: { type: 'host/session-added', sessionId: S1 } })
+    expect(manager.getListSnapshot().items.find(item => item.sessionId === S1)?.title).toBeUndefined()
+  })
+
+  it('drops a retained title beyond the subscription baseline before accepting its durable replay', async () => {
+    const api = new FakeApiClient()
+    api.onList = () => Promise.resolve(ok({ items: [summary(S1)] as never[] }))
+    const manager = new SessionManager(api)
+    await manager.refreshList()
+    manager.handleMuxEnvelope({
+      rpcId: 'title-unflushed' as never,
+      payload: { type: 'session/title', sessionId: S1, title: 'Unflushed', eventSeq: 4, updatedAt: 400 },
+    })
+
+    manager.handleMuxEnvelope({
+      rpcId: 'subscribed-recovered' as never,
+      payload: { type: 'session/subscribed', sessionId: S1, lastSeq: 2 },
+    })
+    expect(manager.getListSnapshot().items[0]?.title).toBeUndefined()
+    expect(manager.getListSnapshot().items[0]?.updatedAt).toBe(100)
+
+    manager.handleMuxEnvelope({
+      rpcId: 'title-durable' as never,
+      payload: { type: 'session/title', sessionId: S1, title: 'Durable', eventSeq: 2, updatedAt: 200 },
+    })
+    expect(manager.getListSnapshot().items[0]).toMatchObject({ title: 'Durable', updatedAt: 200 })
+
+    manager.handleMuxEnvelope({
+      rpcId: 'subscribed-current' as never,
+      payload: { type: 'session/subscribed', sessionId: S1, lastSeq: 2 },
+    })
+    expect(manager.getListSnapshot().items[0]).toMatchObject({ title: 'Durable', updatedAt: 200 })
+  })
 })
 
 describe('host frame routing', () => {

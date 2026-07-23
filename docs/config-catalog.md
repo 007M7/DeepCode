@@ -58,7 +58,7 @@ export interface Config {
   dshHome?: string
   /** Fallback session-title limits forwarded through agent-spine-demo. */
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
-  /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
+  /** Directory for JSONL sessions and the derived query index. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
   packChunks?: boolean
@@ -83,7 +83,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`SessionReferenceConfig`](#deepseek-aidsh-session-reference) · [`ToolsConfig`](#deepseek-aidsh-tools)
 
-Source: [`packages/examples/acp-demo/src/index.ts:43`](../packages/examples/acp-demo/src/index.ts)
+Source: [`packages/examples/acp-demo/src/index.ts:44`](../packages/examples/acp-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-loop`
 
@@ -798,7 +798,7 @@ export interface PlanModeConfig {
 }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:57`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:58`](../packages/plan/plan-mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-pty-local`
 
@@ -955,7 +955,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:38`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:39`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 
@@ -994,21 +994,38 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:55`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:58`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
-## `@deepseek-ai/dsh-session-query`
+## `@deepseek-ai/dsh-session-query-sqlite`
 
 Requires: `sessions`
 
 ```ts config-catalog
-/** Configuration for exact session-query reads and traces. */
-export interface Config {
-  /** Maximum accepted raw read context on either side. Defaults to 50. */
-  readWindowMax?: number
+/** Combined session-query configuration backed by SQLite full-text search. */
+export interface Config extends SessionQueryConfig {
+  /**
+   * Dedicated derived-index path; `:memory:` is supported for tests. Missing
+   * directories and database files are created owner-only on POSIX filesystems;
+   * existing modes are preserved.
+   */
+  path: string
+  /** SQLite journal mode. Defaults to `wal`. */
+  journalMode?: JournalMode
+  /** Page size when a request omits `limit`. At most `Number.MAX_SAFE_INTEGER - 1`; defaults to 20. */
+  defaultLimit?: number
+  /** Largest accepted page size. At most `Number.MAX_SAFE_INTEGER - 1`; defaults to 100. */
+  maxLimit?: number
+  /** Maximum snippet length in Unicode code points. Defaults to 240. */
+  snippetChars?: number
 }
+
+/** Supported SQLite journal modes. */
+export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-query/session-query/src/config.ts:9`](../packages/session-query/session-query/src/config.ts)
+Depends on: [`SessionQueryConfig`](../packages/session-query/session-query/src/index.ts)
+
+Source: [`packages/session-query/session-query-sqlite/src/index.ts:74`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-reference`
 
@@ -1368,6 +1385,22 @@ export interface Config {
 
 Source: [`packages/lsp/tool-lsp/src/index.ts:58`](../packages/lsp/tool-lsp/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-pty`
+
+Requires: `pty` · `tools` · `systemPrompt`
+
+```ts config-catalog
+/** Model-facing terminal tool configuration. */
+export interface Config {
+  /** Expose `run_in_background` and accept background sends (default true). */
+  enableRunInBackground?: boolean
+  /** Maximum UTF-8 bytes in one complete terminal or task-output result. */
+  maxResultBytes?: number
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts:35`](../packages/pty/tool-pty/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-ralph`
 
 Requires: `tools` · `workflows` · `subagents` · `systemPrompt`
@@ -1472,7 +1505,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/tasks/tool-tasks/src/index.ts:21`](../packages/tasks/tool-tasks/src/index.ts)
+Source: [`packages/tasks/tool-tasks/src/index.ts:23`](../packages/tasks/tool-tasks/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-web`
 
@@ -1532,7 +1565,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:517`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:529`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui`
 
@@ -1618,7 +1651,7 @@ export interface Config {
   dshHome?: string
   /** Fallback session-title limits forwarded through agent-spine-demo. */
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
-  /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
+  /** Directory for JSONL sessions and the derived query index. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
@@ -1652,7 +1685,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`SessionReferenceConfig`](#deepseek-aidsh-session-reference) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`uiTui`](../packages/ui/tui/src/index.ts)
 
-Source: [`packages/examples/tui-demo/src/index.ts:38`](../packages/examples/tui-demo/src/index.ts)
+Source: [`packages/examples/tui-demo/src/index.ts:39`](../packages/examples/tui-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
@@ -1862,6 +1895,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-question` — requires `tools` · `userInteraction` ([`packages/client/ui-question/src/index.ts`](../packages/client/ui-question/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-sidebar` ([`packages/client/ui-sidebar/src/index.ts`](../packages/client/ui-sidebar/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-theme` ([`packages/client/ui-theme/src/index.ts`](../packages/client/ui-theme/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-trajectory` ([`packages/client/ui-trajectory/src/index.ts`](../packages/client/ui-trajectory/src/index.ts))
@@ -1878,7 +1912,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-tasks` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))
 - `@deepseek-ai/dsh-timeout-policy` — requires `tools` ([`packages/timeout/timeout-policy/src/index.ts`](../packages/timeout/timeout-policy/src/index.ts))
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userInteraction` ([`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts))
-- `@deepseek-ai/dsh-tool-pty` — requires `pty` · `tools` · `systemPrompt` ([`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts))
 - `@deepseek-ai/dsh-tool-todo` — requires `tools` ([`packages/todo/tool-todo/src/index.ts`](../packages/todo/tool-todo/src/index.ts))
 - `@deepseek-ai/dsh-user-interaction` ([`packages/ui/user-interaction/src/index.ts`](../packages/ui/user-interaction/src/index.ts))
 
@@ -1892,6 +1925,7 @@ Abstract service classes — a deployment loads a concrete implementation packag
 - `@deepseek-ai/dsh-fs` — abstract `FileSystem` ([`packages/fs/fs/src/index.ts`](../packages/fs/fs/src/index.ts))
 - `@deepseek-ai/dsh-sandbox` — abstract `SandboxProvider` ([`packages/sandbox/sandbox/src/index.ts`](../packages/sandbox/sandbox/src/index.ts))
 - `@deepseek-ai/dsh-session-persistence` — abstract `SessionPersistence` ([`packages/session-persistence/session-persistence/src/index.ts`](../packages/session-persistence/session-persistence/src/index.ts))
+- `@deepseek-ai/dsh-session-query` — abstract `SessionQueryService` ([`packages/session-query/session-query/src/index.ts`](../packages/session-query/session-query/src/index.ts))
 - `@deepseek-ai/dsh-spill` — abstract `SpillStore` ([`packages/spill/spill/src/index.ts`](../packages/spill/spill/src/index.ts))
 - `@deepseek-ai/dsh-workflow` — abstract `WorkflowService` ([`packages/workflow/workflow/src/index.ts`](../packages/workflow/workflow/src/index.ts))
 

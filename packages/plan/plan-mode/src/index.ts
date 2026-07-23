@@ -1,9 +1,10 @@
 /**
  * Plan mode is logged per-agent collaboration state: while active, a
  * deployment-owned guidance section shapes each model request, and
- * `exit_plan_mode` presents the completed plan for user review. It is
- * independent of sandbox mode and approval policy; those enforcement axes do
- * not read or write plan state.
+ * `exit_plan_mode` presents the completed plan for user review, while the
+ * `/plan off` command lets a user leave directly. Plan mode is independent of
+ * sandbox mode and approval policy; those enforcement axes do not read or
+ * write plan state.
  *
  * The state in force is folded from the session log (`plan/mode`, last one
  * wins), so resume and fork restore it without a live mirror. User selections
@@ -210,13 +211,27 @@ export class PlanModeService extends Service {
     ctx.inject(['commands'], (commandCtx) => {
       commandCtx.commands.register({
         name: 'plan',
-        description: 'Enter plan mode',
-        input: { hint: '[message]' },
+        description: 'Enter or leave plan mode',
+        input: { hint: '[off|message]' },
         handler: ({ agent, rawInput }) => {
           const message = rawInput.trim()
+          if (message === 'off') {
+            const state = this.get(agent)
+            this.set(agent, false)
+            if (state.active) {
+              return { kind: 'success', text: 'Leaving plan mode (applies from the next step).' }
+            }
+            if (state.pending === true) {
+              return { kind: 'success', text: 'Plan mode entry cancelled.' }
+            }
+            return { kind: 'success', text: 'Plan mode is already inactive.' }
+          }
           this.set(agent, true)
           if (message !== '') agent.steer([{ type: 'text', text: message }])
-          return { kind: 'success', text: 'Entering plan mode (applies from the next step).' }
+          return {
+            kind: 'success',
+            text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
+          }
         },
       })
     })

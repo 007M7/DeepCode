@@ -3,8 +3,8 @@ import { Context } from 'cordis'
 import SessionStore, { SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type StoredPrefix,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix,
 } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from './coordinator-contract.ts'
@@ -96,6 +96,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return this.coordinator.load(id)
   }
 
+  inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.inspect(id)
+  }
+
   // --- PersistenceBackend hooks (the Map storage primitives) ---
 
   // A Map-backed store has no torn tails, so `tornMarker` is never set.
@@ -132,6 +136,13 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
 
   async list(): Promise<SessionHeader[]> {
     return [...this.store.values()].map(e => structuredClone(e.meta))
+  }
+
+  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+    return [...this.store.values()].map(entry => ({
+      header: structuredClone(entry.meta),
+      revision: SessionPersistenceRevision(`events:${entry.events.length}`),
+    }))
   }
 }
 

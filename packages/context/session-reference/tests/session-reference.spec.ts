@@ -15,10 +15,24 @@ import SessionReferenceService, {
 } from '@deepseek-ai/dsh-session-reference'
 import { stringifyTagSafeJson } from '../src/serialization.ts'
 
+class TestSessionQueryService extends SessionQueryService {
+  override searchSessions(
+    ..._args: Parameters<SessionQueryService['searchSessions']>
+  ): ReturnType<SessionQueryService['searchSessions']> {
+    return Promise.resolve({ items: [] })
+  }
+
+  override searchEvents(
+    ..._args: Parameters<SessionQueryService['searchEvents']>
+  ): ReturnType<SessionQueryService['searchEvents']> {
+    return Promise.resolve({ items: [] })
+  }
+}
+
 async function harness(config: Config = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionQueryService)
+  await ctx.plugin(TestSessionQueryService)
   await ctx.plugin(SessionReferenceService, config)
   return ctx
 }
@@ -524,19 +538,19 @@ describe('session reference discovery and preparation', () => {
   it('rejects direct invalid configuration before service publication', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionQueryService)
+    await ctx.plugin(TestSessionQueryService)
     expect(() => new SessionReferenceService(ctx, { maxReferences: 0 }))
       .toThrow(expectCode('SESSION_REFERENCE_INVALID_CONFIG'))
 
     const oversizedCtx = new Context()
     await oversizedCtx.plugin(SessionStore)
-    await oversizedCtx.plugin(SessionQueryService)
+    await oversizedCtx.plugin(TestSessionQueryService)
     expect(() => new SessionReferenceService(oversizedCtx, { maxReferences: 4 }))
       .toThrow(expectCode('SESSION_REFERENCE_INVALID_CONFIG'))
 
     const defaultCtx = new Context()
     await defaultCtx.plugin(SessionStore)
-    await defaultCtx.plugin(SessionQueryService)
+    await defaultCtx.plugin(TestSessionQueryService)
     expect(() => new SessionReferenceService(defaultCtx)).not.toThrow()
   })
 })

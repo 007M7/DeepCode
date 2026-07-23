@@ -90,7 +90,7 @@ export function ConversationRoot({
                     disabled={last}
                     onClick={() => { open(s.id) }}
                   >
-                    {s.title}
+                    {s.displayTitle}
                   </button>
                 </span>
               )

@@ -8,8 +8,10 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { TextRetainer } from '@deepseek-ai/dsh-retention'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
 import { TaskId } from '@deepseek-ai/dsh-tasks'
 import type { TaskSnapshot } from '@deepseek-ai/dsh-tasks'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -84,6 +86,80 @@ export function statusLine(snapshot: Pick<TaskSnapshot, 'status' | 'detail'>): s
     : `[status: ${snapshot.status}]`
 }
 
+const encoder = new TextEncoder()
+
+function retainTail(text: string, maxBytes: number): string {
+  const retainer = new TextRetainer({ kind: 'tail', maxBytes })
+  retainer.push(text)
+  return retainer.finish().text
+}
+
+function retainHead(text: string, maxBytes: number): string {
+  const retainer = new TextRetainer({ kind: 'head', maxBytes })
+  retainer.push(text)
+  return retainer.finish().text
+}
+
+function fitWithSuffix(
+  content: string,
+  suffix: string,
+  maxBytes: number | undefined,
+  omitted: string,
+): string {
+  const complete = `${content}${suffix}`
+  if (maxBytes === undefined || encoder.encode(complete).byteLength <= maxBytes) return complete
+  const fixed = `${content.endsWith(omitted.trimStart()) ? '' : omitted}${suffix}`
+  const fixedBytes = encoder.encode(fixed).byteLength
+  if (fixedBytes >= maxBytes) return retainTail(fixed, maxBytes)
+  return `${retainTail(content, maxBytes - fixedBytes)}${fixed}`
+}
+
+function fitCompletionNotice(snapshot: TaskSnapshot): string {
+  const prefix = `background task ${snapshot.id}`
+  const detail = ` (${snapshot.kind}: ${snapshot.label}) finished ${statusLine(snapshot)}`
+  const action = '\nDone; task_output.'
+  const complete = `${prefix}${detail}. Read its output with task_output.`
+  const maxBytes = snapshot.outputLimitBytes
+  if (maxBytes === undefined || encoder.encode(complete).byteLength <= maxBytes) return complete
+  const omitted = '\n[notice truncated]'
+  const fixed = `${prefix}${omitted}${action}`
+  const fixedBytes = encoder.encode(fixed).byteLength
+  if (fixedBytes <= maxBytes) {
+    return fixedBytes === maxBytes
+      ? fixed
+      : `${prefix}${retainHead(detail, maxBytes - fixedBytes)}${omitted}${action}`
+  }
+  const compact = `${prefix}${action}`
+  const compactBytes = encoder.encode(compact).byteLength
+  if (compactBytes <= maxBytes) return compact
+  const actionBytes = encoder.encode(action).byteLength
+  if (actionBytes >= maxBytes) return retainTail(action, maxBytes)
+  return `${retainHead(prefix, maxBytes - actionBytes)}${action}`
+}
+
+function rawSingleText(content: readonly ContentBlock[]): string | undefined {
+  if (content.length !== 1) return undefined
+  const block = content[0]
+  if (block?.type !== 'text') return undefined
+  return block.text
+}
+
+function boundSingleText(content: readonly ContentBlock[], maxBytes: number): ContentBlock[] | undefined {
+  const text = rawSingleText(content)
+  if (text === undefined) return undefined
+  return [{
+    type: 'text',
+    text: fitWithSuffix(text, '', maxBytes, '\n[result truncated]'),
+  }]
+}
+
+function visibleOutputLimit(ctx: Context, exec: ToolExecution): number | undefined {
+  if (exec.name !== 'task_output' && exec.name !== 'task_kill') return undefined
+  const taskId = (exec.arguments as { task_id?: unknown } | null | undefined)?.task_id
+  if (typeof taskId !== 'string' || taskId.length === 0) return undefined
+  return ctx.tasks.list(exec.agent).find(snapshot => snapshot.id === taskId)?.outputLimitBytes
+}
+
 /** Validate the non-empty constraint that ParameterSchemaSpec cannot express. */
 function validateTaskId(value: string): TaskId {
   if (value.length === 0) {
@@ -104,6 +180,33 @@ export function apply(ctx: Context, config: Config): void {
     throw new Error(`tool-tasks: waitTimeoutMs (${waitDefault}) exceeds maxWaitTimeoutMs (${waitCap})`)
   }
 
+  const outputLimits = new WeakMap<ToolExecution, number>()
+  ctx.on('tools/pre-execute', (exec, next) => {
+    const maxBytes = visibleOutputLimit(ctx, exec)
+    if (maxBytes !== undefined) outputLimits.set(exec, maxBytes)
+    return next()
+  }, { prepend: true })
+  const finalizeTaskContent: NonNullable<ToolDefinition['finalizeContent']> = (exec, result) => {
+    const maxBytes = outputLimits.get(exec) ?? visibleOutputLimit(ctx, exec)
+    outputLimits.delete(exec)
+    if (maxBytes === undefined) return undefined
+    if (exec.name === 'task_output' && !result.isError) {
+      // This definition owns and schema-validates the canonical value. Preserve
+      // its output/status split only while policy left the default rendering intact.
+      const value = result.value as unknown as { text: string; task: PublicTaskSnapshot }
+      const body = value.text.length > 0 ? value.text : '(no new output)'
+      const content = body.endsWith('\n') ? body.slice(0, -1) : body
+      const suffix = `\n${statusLine(value.task)}`
+      if (rawSingleText(result.content) === `${content}${suffix}`) {
+        return [{
+          type: 'text',
+          text: fitWithSuffix(content, suffix, maxBytes, '\n[output truncated]'),
+        }]
+      }
+    }
+    return boundSingleText(result.content, maxBytes)
+  }
+
   // Producers may start work only while a control surface is attached.
   ctx.tasks.attachSurface('tool-tasks')
 
@@ -119,7 +222,10 @@ export function apply(ctx: Context, config: Config): void {
     if (snapshot.reported || owner === undefined) return
     try {
       owner.inject(
-        [{ type: 'text', text: `background task ${snapshot.id} (${snapshot.kind}: ${snapshot.label}) finished ${statusLine(snapshot)}. Read its output with task_output.` }],
+        [{
+          type: 'text',
+          text: fitCompletionNotice(snapshot),
+        }],
         { source: { kind: 'plugin', plugin: 'tool-tasks' } },
       )
     } catch (error: unknown) {
@@ -141,6 +247,7 @@ export function apply(ctx: Context, config: Config): void {
       wait: { type: 'boolean', description: 'Block until the task reaches a terminal status or the timeout expires. A timed-out wait returns [status: running] and leaves the task alive.' },
       timeout_ms: { type: 'number', description: 'Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum.' },
     },
+    finalizeContent: finalizeTaskContent,
     output: {
       schema: {
         type: 'object',
@@ -195,6 +302,7 @@ export function apply(ctx: Context, config: Config): void {
       task_id: { type: 'string', required: true, description: 'Task id returned by the tool that started the background work.' },
       reason: { type: 'string', description: 'Optional short reason, recorded in the log and forwarded to the task.' },
     },
+    finalizeContent: finalizeTaskContent,
     output: {
       schema: {
         type: 'object',

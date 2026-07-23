@@ -5,7 +5,16 @@
  * @module @deepseek-ai/dsh-session-query/types
  */
 
-import type { SessionEvent, SessionEventType, SessionHeader, SessionId, SurfaceEvent } from '@deepseek-ai/dsh-session'
+import type {
+  SessionEvent,
+  SessionEventType,
+  SessionHeader,
+  SessionId,
+  SurfaceEvent,
+} from '@deepseek-ai/dsh-session'
+import type { SessionSearchCursor } from './cursor.ts'
+
+export type { SessionSearchCursor } from './cursor.ts'
 
 /** Whether an event is current model context, replaced context, or raw-log-only. */
 export type SessionEventSurface = 'current' | 'shadowed' | 'log-only'
@@ -123,4 +132,100 @@ export interface SessionEventWindow {
   startSeq: number
   /** Last seq included in `events`. */
   endSeq: number
+}
+
+/** Inclusive numeric interval used by time and sequence filters. */
+export interface SessionResultRange {
+  /** Inclusive lower bound. */
+  from?: number
+  /** Inclusive upper bound. */
+  to?: number
+}
+
+/** Source availability predicates understood by logical-session filters. */
+export type SessionAvailability = 'live' | 'persisted'
+
+/**
+ * One logical-session predicate. A filter array is ANDed; `values` within a
+ * clause are ORed.
+ */
+export type SessionResultFilter =
+  | { kind: 'id'; values: readonly SessionId[] }
+  | { kind: 'cwd'; values: readonly (string | null)[] }
+  | ({ kind: 'created-at' } & SessionResultRange)
+  | { kind: 'parent'; values: readonly (SessionId | null)[] }
+  | { kind: 'availability'; values: readonly SessionAvailability[] }
+
+/**
+ * One event predicate. A filter array is ANDed; list-valued clauses are ORed.
+ * Text is a literal, case-insensitive, whitespace-flexible semantic-text scan.
+ */
+export type SessionEventResultFilter =
+  | ({ kind: 'seq' } & SessionResultRange)
+  | ({ kind: 'time' } & SessionResultRange)
+  | { kind: 'type'; values: readonly SessionEventType[] }
+  | { kind: 'surface'; values: readonly SessionEventSurface[] }
+  | { kind: 'text'; text: string }
+
+/** Event predicates a full-text provider can apply before relevance ranking. */
+export type SessionEventMetadataFilter = Exclude<SessionEventResultFilter, { kind: 'text' }>
+
+/** Searchable semantic document derived from one session event. */
+export interface SessionEventSearchDocument extends SessionEventRecord {
+  /** First-party semantic text used by scan filters and full-text indexes. */
+  text: string
+}
+
+/** One cursor-paginated result page. */
+export interface SessionSearchPage<T> {
+  /** Results for this page in contract-defined order. */
+  items: readonly T[]
+  /** Opaque continuation cursor, absent on the final page. */
+  nextCursor?: SessionSearchCursor
+}
+
+/** Controls shared by cross-session and within-session search calls. */
+export interface SessionSearchExecContext {
+  /** Abort caller waiting and interrupt provider work where supported. */
+  signal?: AbortSignal
+}
+
+/** Cross-session full-text search request. */
+export interface SessionSearchRequest {
+  /** Full-text query interpreted as data, never executable FTS syntax. */
+  query: string
+  /** Logical-session predicates applied before event ranking. */
+  sessionFilters?: readonly SessionResultFilter[]
+  /** Event predicates applied before event ranking. */
+  eventFilters?: readonly SessionEventMetadataFilter[]
+  /** Maximum sessions in this page. */
+  limit?: number
+  /** Opaque cursor returned for the identical normalized request. */
+  cursor?: SessionSearchCursor
+}
+
+/** Within-session full-text search request. */
+export interface SessionEventSearchRequest {
+  /** Session whose live-preferred logical log is searched. */
+  sessionId: SessionId
+  /** Full-text query interpreted as data, never executable FTS syntax. */
+  query: string
+  /** Event predicates applied before ranking. */
+  filters?: readonly SessionEventMetadataFilter[]
+  /** Maximum events in this page. */
+  limit?: number
+  /** Opaque cursor returned for the identical normalized request. */
+  cursor?: SessionSearchCursor
+}
+
+/** One event full-text search hit with a bounded plain-text excerpt. */
+export interface SessionEventSearchHit extends SessionEventRecord {
+  /** Plain text excerpt selected around the match. */
+  snippet: string
+}
+
+/** One grouped cross-session hit, ranked by its strongest matching event. */
+export interface SessionSearchHit extends SessionRecord {
+  /** Strongest matching event for this session. */
+  bestMatch: SessionEventSearchHit
 }

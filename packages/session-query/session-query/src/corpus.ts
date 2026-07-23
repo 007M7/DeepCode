@@ -1,10 +1,11 @@
 /** Live/persisted logical-corpus resolution for session-query. */
 
-import type { Context } from 'cordis'
+import type { Context, Fiber } from 'cordis'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type SessionPersistence from '@deepseek-ai/dsh-session-persistence'
 import type { SessionRecord } from './types.ts'
 import { SessionQueryError } from './config.ts'
+import { assertSessionHeadersCompatible } from './sources.ts'
 
 /** Detached source selected for one exact read. */
 export interface LogicalSession {
@@ -17,18 +18,19 @@ export interface LogicalSession {
 /** Resolves a live-preferred corpus against the persistence service mounted now. */
 export class SessionCorpus {
   private _persistence: SessionPersistence | undefined
+  private readonly _optionalPersistenceFiber: Fiber
 
   constructor(private readonly _ctx: Context) {
+    this._optionalPersistenceFiber = _ctx.inject(['sessionPersistence'], (childCtx: Context) => {
+      const service = childCtx.sessionPersistence
+      this._persistence = service
+      childCtx.effect(() => () => {
+        /* v8 ignore next -- a stale optional-service disposer cannot clear a replacement */
+        if (this._persistence === service) this._persistence = undefined
+      }, 'sessionQuery.persistenceBinding')
+    })
     _ctx.effect(() => {
-      const fiber = _ctx.inject(['sessionPersistence'], (childCtx: Context) => {
-        const service = childCtx.sessionPersistence
-        this._persistence = service
-        childCtx.effect(() => () => {
-          /* v8 ignore next -- a stale optional-service disposer cannot clear a replacement */
-          if (this._persistence === service) this._persistence = undefined
-        }, 'sessionQuery.persistenceBinding')
-      })
-      return () => void fiber.dispose()
+      return () => this._optionalPersistenceFiber.dispose()
     }, 'sessionQuery.optionalPersistence')
   }
 
@@ -45,7 +47,7 @@ export class SessionCorpus {
     }
     for (const session of this._ctx.sessions.list()) {
       const durable = records.get(session.id)
-      if (durable !== undefined) assertCompatibleHeaders(session.header, durable.header)
+      if (durable !== undefined) assertSessionHeadersCompatible(session.header, durable.header)
       records.set(session.id, {
         header: structuredClone(session.header),
         live: true,
@@ -70,17 +72,19 @@ export class SessionCorpus {
     if (persistence === undefined) throw notFound(sessionId)
     const listed = (await listPersisted(persistence)).find(header => header.id === sessionId)
     if (listed === undefined) throw notFound(sessionId)
-    let loaded: Awaited<ReturnType<SessionPersistence['load']>>
+    let loaded: Awaited<ReturnType<SessionPersistence['inspect']>>
     try {
-      loaded = await persistence.load(sessionId)
+      loaded = await persistence.inspect(sessionId)
     } catch (error: unknown) {
       throw new SessionQueryError(
-        `failed to load session "${sessionId}": ${errorMessage(error)}`,
+        `failed to inspect session "${sessionId}": ${errorMessage(error)}`,
         'SESSION_QUERY_PERSISTENCE_FAILED',
         { cause: error },
       )
     }
-    assertCompatibleHeaders(loaded.meta, listed)
+    const attached = this._ctx.sessions.get(sessionId)
+    if (attached !== undefined) return snapshotLive(attached)
+    assertSessionHeadersCompatible(loaded.meta, listed)
     return {
       header: structuredClone(loaded.meta),
       events: loaded.events.map(event => structuredClone(event)),
@@ -104,22 +108,6 @@ function snapshotLive(session: Session): LogicalSession {
   return {
     header: structuredClone(session.header),
     events: session.events.map(event => structuredClone(event)),
-  }
-}
-
-function assertCompatibleHeaders(a: SessionHeader, b: SessionHeader): void {
-  if (
-    a.version !== b.version
-    || a.id !== b.id
-    || a.createdAt !== b.createdAt
-    || a.cwd !== b.cwd
-    || a.parentSession !== b.parentSession
-    || a.seedLength !== b.seedLength
-  ) {
-    throw new SessionQueryError(
-      `live and persisted headers conflict for session "${a.id}"`,
-      'SESSION_QUERY_SOURCE_CONFLICT',
-    )
   }
 }
 
