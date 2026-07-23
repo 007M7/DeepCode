@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import {
   errorResponse,
@@ -63,7 +63,7 @@ describe('acp bridge — turn outcomes', () => {
       storageDir,
       script: [toolCallResponse('c1', 'bash', { command: 'echo hi' }), textResponse('done')],
     })
-    harness.ctx.tools.register(defineTool({
+    harness.ctx.tools.register(defineContentToolFixture({
       name: 'bash',
       description: 'run a command',
       parameters: { command: { type: 'string' } },
@@ -204,7 +204,7 @@ describe('acp bridge — turn outcomes', () => {
       storageDir,
       script: [toolCallResponse('c1', 'kaboom', { x: 1 }), textResponse('done')],
     })
-    harness.ctx.tools.register(defineTool({
+    harness.ctx.tools.register(defineContentToolFixture({
       name: 'kaboom',
       description: 'explodes when presented',
       parameters: { x: { type: 'number' } },
@@ -227,7 +227,7 @@ describe('acp bridge — turn outcomes', () => {
       storageDir,
       script: [toolCallResponse('c1', 'bash', { command: 'boom' }), textResponse('ok')],
     })
-    harness.ctx.tools.register(defineTool({
+    harness.ctx.tools.register(defineContentToolFixture({
       name: 'bash',
       description: 'run a command',
       parameters: { command: { type: 'string' } },

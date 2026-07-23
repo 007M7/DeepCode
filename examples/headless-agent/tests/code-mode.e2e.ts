@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService from '@deepseek-ai/dsh-llm'
+import LlmService, { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -18,6 +19,9 @@ import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as WorkspaceContext from '@deepseek-ai/dsh-workspace-context'
+import TaskService from '@deepseek-ai/dsh-tasks'
+import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
+import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 
 /**
  * With-key Code Mode proof: a real model receives only `run_code`, composes two
@@ -72,6 +76,223 @@ async function workspaceCodeModeHarness(): Promise<Context> {
   await harness.plugin(WorkerCodeRuntime, {})
   return harness
 }
+
+let keylessCall = 0
+const testToolSignal = new AbortController().signal
+
+/** Execute one outer Code Mode call through the real registry and worker. */
+function runCode(harness: Context, code: string, signal: AbortSignal = testToolSignal): Promise<ToolExecutionResult> {
+  return harness.tools.execute({
+    callId: CallId(`keyless-code-${++keylessCall}`),
+    name: RUN_CODE_NAME,
+    arguments: { code },
+    signal,
+  })
+}
+
+/** Read the optional completion from a successful canonical `run_code` value. */
+function completion(result: ToolExecutionResult): unknown {
+  if (result.isError) {
+    throw new Error(result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
+  }
+  const value = result.value
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('invalid run_code result')
+  return value.result
+}
+
+/** Keyless real-worker harness for direct typed-binding acceptance tests. */
+async function typedCodeModeHarness(): Promise<Context> {
+  const harness = new Context()
+  await harness.plugin(SystemPrompt)
+  await harness.plugin(ToolRegistry, { mode: 'code' })
+  await harness.plugin(WorkerCodeRuntime, {})
+  return harness
+}
+
+/** Keyless real-worker harness with the task-owned bash lifecycle. */
+async function backgroundCodeModeHarness(cwd: string): Promise<Context> {
+  const harness = await typedCodeModeHarness()
+  await harness.plugin(TaskService)
+  await harness.plugin(ToolTasks, {})
+  await harness.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
+  await harness.plugin(ToolBash)
+  return harness
+}
+
+describe('Code Mode typed values: keyless real-worker contracts', () => {
+  it('crosses a large intermediate value intact and exposes only typed tool failure fields', async () => {
+    ctx = await typedCodeModeHarness()
+    ctx.tools.register(defineTool({
+      name: 'large_value',
+      description: 'Return a large canonical string.',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      execute: () => Promise.resolve('x'.repeat(100_000)),
+    }))
+    ctx.tools.register(defineTool({
+      name: 'always_fail',
+      description: 'Fail for ToolCallError coverage.',
+      parameters: {},
+      output: { schema: { type: 'null' }, render: () => [] },
+      execute: () => Promise.reject(new HarnessError('expected failure', 'EXPECTED_INTERNAL_CODE')),
+    }))
+
+    const value = completion(await runCode(ctx, `
+      const large = await tools.large_value({});
+      let failure;
+      try {
+        await tools.always_fail({});
+      } catch (error) {
+        failure = {
+          typed: error instanceof ToolCallError,
+          name: error.name,
+          toolName: error.toolName,
+          message: error.message,
+          exposesCode: 'code' in error,
+          exposesContent: 'content' in error,
+          exposesInfo: 'info' in error,
+        };
+      }
+      return { length: large.length, failure };
+    `))
+
+    expect(value).toEqual({
+      length: 100_000,
+      failure: {
+        typed: true,
+        name: 'ToolCallError',
+        toolName: 'always_fail',
+        message: 'expected failure',
+        exposesCode: false,
+        exposesContent: false,
+        exposesInfo: false,
+      },
+    })
+  })
+
+  it('returns a background task id, settles the outer run, and polls that id to completion', async () => {
+    workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-background-'))
+    ctx = await backgroundCodeModeHarness(workdir)
+
+    const taskId = completion(await runCode(ctx, `
+      const started = await tools.bash({
+        command: "sleep 0.2; printf 'background-complete\\n'",
+        description: 'Run completion marker in background',
+        run_in_background: true,
+      });
+      return started.taskId;
+    `))
+    expect(taskId).toBe('bash-1')
+
+    const polled = completion(await runCode(ctx, `
+      return await tools.task_output({ task_id: ${JSON.stringify(taskId)}, wait: true, timeout_ms: 5000 });
+    `))
+    if (typeof polled !== 'object' || polled === null || Array.isArray(polled)) throw new Error('invalid task_output completion')
+    const taskOutput = polled as Record<string, unknown>
+    expect(taskOutput.text).toContain('background-complete')
+    expect(taskOutput.task).toMatchObject({ id: taskId, kind: 'bash', status: 'completed' })
+  }, 15_000)
+
+  it('pre-abort spawns nothing; post-publication abort leaves task_kill as the cancellation owner', async () => {
+    workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-task-cancel-'))
+    ctx = await backgroundCodeModeHarness(workdir)
+
+    const pre = new AbortController()
+    pre.abort('pre-aborted')
+    const preResult = await runCode(ctx, `
+      return await tools.bash({ command: 'sleep 10', description: 'Must never start', run_in_background: true });
+    `, pre.signal)
+    expect(preResult.isError).toBe(true)
+    expect(ctx.tasks.list()).toEqual([])
+
+    const afterPublication = new AbortController()
+    const running = runCode(ctx, `
+      const started = await tools.bash({ command: 'sleep 10', description: 'Wait for explicit task kill', run_in_background: true });
+      console.log(started.taskId);
+      await new Promise(() => {});
+    `, afterPublication.signal)
+    for (let attempt = 0; attempt < 100 && ctx.tasks.list().length === 0; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    const task = ctx.tasks.list()[0]
+    expect(task).toMatchObject({ id: 'bash-1', status: 'running' })
+    afterPublication.abort('outer-call-cancelled')
+    expect((await running).isError).toBe(true)
+    expect(ctx.tasks.list()[0]).toMatchObject({ id: task!.id, status: 'running' })
+
+    const killed = completion(await runCode(ctx, `
+      return await tools.task_kill({ task_id: ${JSON.stringify(task!.id)}, reason: 'test owns cancellation' });
+    `))
+    expect(killed).toMatchObject({ outcome: 'cancellation-requested', task: { id: task!.id } })
+    const settled = completion(await runCode(ctx, `
+      return await tools.task_output({ task_id: ${JSON.stringify(task!.id)}, wait: true, timeout_ms: 5000 });
+    `))
+    expect(settled).toMatchObject({ task: { id: task!.id, status: 'killed' } })
+  }, 15_000)
+
+  it('keeps foreground bash coupled to the outer signal', async () => {
+    workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-foreground-cancel-'))
+    ctx = await backgroundCodeModeHarness(workdir)
+    const controller = new AbortController()
+    const startedAt = Date.now()
+    const pending = runCode(ctx, `
+      return await tools.bash({ command: 'sleep 10', description: 'Run cancellable foreground command' });
+    `, controller.signal)
+    setTimeout(() => { controller.abort('stop-foreground') }, 200)
+    const result = await pending
+    expect(result.isError).toBe(true)
+    expect(Date.now() - startedAt).toBeLessThan(5_000)
+    expect(ctx.tasks.list()).toEqual([])
+  }, 15_000)
+
+  it('uses cordis_mount DTO ids directly for active and pending mounts, then confirms removal', async () => {
+    ctx = await typedCodeModeHarness()
+    await ctx.plugin(ToolCordis)
+
+    const value = completion(await runCode(ctx, `
+      const active = await tools.cordis_mount({
+        code: "return { name: 'active-code-mode-plugin', apply(ctx) {} }",
+      });
+      const pending = await tools.cordis_mount({
+        code: "return { name: 'pending-code-mode-plugin', inject: ['missing-code-mode-service'], apply(ctx) {} }",
+      });
+      const before = await tools.cordis_inspect({ what: 'dynamic' });
+      const unmounted = await tools.cordis_unmount({ id: active.id });
+      const after = await tools.cordis_inspect({ what: 'dynamic' });
+      await tools.cordis_unmount({ id: pending.id });
+      return {
+        active,
+        pending,
+        unmounted,
+        beforeContainsId: before.includes(active.id),
+        afterContainsId: after.includes(active.id),
+      };
+    `))
+
+    expect(value).toEqual({
+      active: {
+        id: 'dyn-1',
+        pluginName: 'active-code-mode-plugin',
+        state: 'active',
+        provides: [],
+        waitingFor: [],
+      },
+      pending: {
+        id: 'dyn-2',
+        pluginName: 'pending-code-mode-plugin',
+        state: 'pending',
+        provides: [],
+        waitingFor: ['missing-code-mode-service'],
+      },
+      unmounted: { id: 'dyn-1', pluginName: 'active-code-mode-plugin' },
+      beforeContainsId: true,
+      afterContainsId: false,
+    })
+  })
+})
 
 function waitForIdle(harness: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {

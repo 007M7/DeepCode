@@ -1,0 +1,24 @@
+terminal 96x36 buffer=normal length=36 base=0 viewport=0
+lifecycle started=1 stopped=0 progress=inactive
+title "DSH snapshot"
+cursor hidden column=5 viewportRow=4 bufferRow=4
+viewport
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Snapshot agent ready."
+  style 1-21 fg=bright-black
+2| " deepseek-v4-flash  •  main-session"
+  style 1-34 dim
+3| "────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-95 dim
+4| " @tsc                                                                                           "
+  style 5-5 inverse
+5| "────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-95 dim
+6| " → File · terminal-special-case.t  src/terminal-special-case.ts                                 "
+  style 1-32 fg=bright-blue
+7| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                         0% context  tools:collapsed"
+  style 0-43 dim
+  style 69-95 dim
+8-35| <blank>

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -26,8 +26,8 @@ async function harness(config: Config = {}): Promise<Context> {
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(RepeatToolGuard, config)
-  ctx.tools.register(defineTool({ name: 'probe', description: 'p', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
-  ctx.tools.register(defineTool({ name: 'other', description: 'o', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+  ctx.tools.register(defineContentToolFixture({ name: 'probe', description: 'p', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+  ctx.tools.register(defineContentToolFixture({ name: 'other', description: 'o', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
   return ctx
 }
 
@@ -334,11 +334,11 @@ describe('fold onto the downstream decision', () => {
     expect(results[1]!.data.content).toEqual([{ type: 'text', text: 'nope' }])
   })
 
-  it('preserves a downstream accept content replacement while folding', async () => {
+  it('preserves a downstream canonical value replacement while folding', async () => {
     const ctx = await harness({ thresholds: [2] })
     ctx.on('tools/post-execute', async () => ({
       kind: 'accept' as const,
-      content: [{ type: 'text' as const, text: 'replaced' }],
+      value: [{ type: 'text' as const, text: 'replaced' }],
     }))
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'probe', { q: 1 }),

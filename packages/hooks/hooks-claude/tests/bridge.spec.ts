@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { Context, type Fiber } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -143,7 +143,7 @@ describe('hooks-claude bridge — PreToolUse', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'danger', {}), textResponse('done')])
     const ctx = await harness(dir, adapter)
     let ran = false
-    ctx.tools.register(defineTool({ name: 'danger', description: 'd', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'should not run' }] } }))
+    ctx.tools.register(defineContentToolFixture({ name: 'danger', description: 'd', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'should not run' }] } }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'use danger' }])
     await waitForIdle(ctx, agent)
@@ -166,7 +166,7 @@ describe('hooks-claude bridge — PreToolUse', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'safe', {}), textResponse('done')])
     const ctx = await harness(dir, adapter)
     let ran = false
-    ctx.tools.register(defineTool({ name: 'safe', description: 's', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ran ok' }] } }))
+    ctx.tools.register(defineContentToolFixture({ name: 'safe', description: 's', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ran ok' }] } }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'use safe' }])
     await waitForIdle(ctx, agent)
@@ -188,7 +188,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
 
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(dir, adapter)
-    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'raw output' }] } }))
+    ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'raw output' }] } }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
@@ -209,7 +209,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
 
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(dir, adapter)
-    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+    ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)
@@ -233,7 +233,7 @@ describe('hooks-claude bridge — PostToolUse', () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
     const ctx = await harness(dir, adapter)
     let ran = false
-    ctx.tools.register(defineTool({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'x' }] } }))
+    ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'x' }] } }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)

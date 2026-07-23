@@ -9,7 +9,6 @@ import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionInput
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 
 const testToolSignal = new AbortController().signal
@@ -39,7 +38,11 @@ function tool(name: string, reply = `ran:${name}`): ToolDefinition {
     name,
     description: `tool ${name}`,
     parameters: { type: 'object', properties: {} },
-    execute: (): Promise<ContentBlock[]> => Promise.resolve([{ type: 'text', text: reply }]),
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value as string }],
+    },
+    execute: (): Promise<string> => Promise.resolve(reply),
   }
 }
 
@@ -224,7 +227,7 @@ describe('scoped execution dispatch', () => {
       ...tool('t'),
       execute: () => {
         bodyCalls += 1
-        return Promise.resolve([{ type: 'text', text: 'ran:t' }])
+        return Promise.resolve('ran:t')
       },
     })
     const guard = (execution: Readonly<ToolExecution>): string => {
@@ -256,7 +259,7 @@ describe('scoped execution dispatch', () => {
       ...tool('t'),
       execute: () => {
         bodyCalls += 1
-        return Promise.resolve([])
+        return Promise.resolve('ran:t')
       },
     })
     ctx.tools.guard(() => undefined)
@@ -322,14 +325,14 @@ describe('scoped execution dispatch', () => {
       execute: (args) => {
         safeCalls += 1
         safeArguments = args
-        return Promise.resolve([{ type: 'text', text: 'safe' }])
+        return Promise.resolve('safe')
       },
     })
     ctx.tools.register({
       ...tool('danger'),
       execute: () => {
         dangerCalls += 1
-        return Promise.resolve([{ type: 'text', text: 'danger' }])
+        return Promise.resolve('danger')
       },
     })
     scope.ctx.tools.guard(exec => exec.name === 'danger' ? 'danger denied' : undefined)
@@ -382,7 +385,7 @@ describe('scoped execution dispatch', () => {
       ...tool('t'),
       execute: () => {
         bodyCalls += 1
-        return Promise.resolve([])
+        return Promise.resolve('ran:t')
       },
     })
     ctx.on('tools/pre-execute', (_exec, next) => {
@@ -444,7 +447,7 @@ describe('scoped execution dispatch', () => {
       ...tool('t'),
       execute: (_args, exec) => {
         observed.push(exec.parent)
-        return Promise.resolve([{ type: 'text', text: 'ran:t' }])
+        return Promise.resolve('ran:t')
       },
     })
     ctx.on('tools/pre-execute', (exec, next) => {
@@ -561,7 +564,7 @@ describe('scoped execution dispatch', () => {
       ...tool('t'),
       execute: () => {
         bodyCalls += 1
-        return Promise.resolve([])
+        return Promise.resolve('ran:t')
       },
     })
     ctx.on('tools/pre-execute', (_exec, next) => {
@@ -604,6 +607,7 @@ describe('scoped execution dispatch', () => {
     expect(result).toEqual({
       content: [{ type: 'text', text: 'ran:t' }],
       isError: false,
+      value: 'ran:t',
     })
   })
 
@@ -622,6 +626,7 @@ describe('scoped execution dispatch', () => {
       return {
         content: [{ type: 'text', text: 'outer failure' }],
         isError: true,
+        error: { message: 'outer failure' },
       }
     }, { prepend: true })
     scope.ctx.on('tools/result', (_exec, result) => {

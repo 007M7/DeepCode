@@ -34,7 +34,7 @@ describe('instances', () => {
     manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
     manager.handleMuxEnvelope({ rpcId: 're' as never, payload: { type: 'session/event', sessionId: S1, event: plainTurn(0, 0, 'x', 'y')[0] as never } })
     const session = manager.get(S1)
-    expect(session.getSnapshot().pending).toMatchObject([{ kind: 'approval', approvalId: 'ap1' }])
+    expect(session.getSnapshot().pending).toMatchObject([{ kind: 'approval', payload: { approvalId: 'ap1' } }])
     // Buffer cleared: a second instantiation of another id gets nothing.
     expect(manager.get(S2).getSnapshot().pending).toEqual([])
   })
@@ -48,7 +48,7 @@ describe('instances', () => {
     }
     const pending = manager.get(S1).getSnapshot().pending
     expect(pending).toHaveLength(32)
-    expect(pending.map(p => p.rpcId)).toEqual(Array.from({ length: 32 }, (_, i) => `q${i + 8}`)) // oldest 8 dropped
+    expect(pending.map(p => p.key)).toEqual(Array.from({ length: 32 }, (_, i) => `q:q${i + 8}`)) // oldest 8 dropped
     // Removed session: buffered frames must not replay on a future instantiation.
     manager.handleMuxEnvelope({ rpcId: 'qz' as never, payload: { type: 'question/requested', sessionId: S2, questions: [] } })
     manager.handleHostEnvelope({ rpcId: 'hz' as never, payload: { type: 'host/session-removed', sessionId: S2 } })

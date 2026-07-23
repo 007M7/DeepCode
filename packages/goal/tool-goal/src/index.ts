@@ -54,6 +54,62 @@ const GET_DESCRIPTION =
   + 'continuation rounds, round limit, blocker reason when present, and whether another continuation is armed. '
   + 'Call this before updating a goal.'
 
+/** Canonical goal-tool output, matching the existing compact Native JSON. */
+type GoalToolValue =
+  | { goal: null }
+  | {
+    goal: {
+      id: string
+      revision: number
+      objective: string
+      phase: GoalView['phase']
+      roundsStarted: number
+      maxGoalRounds: number
+      blockedReason?: { code: string; message: string }
+    }
+    activation: GoalView['activation']
+  }
+
+const GOAL_VALUE_SCHEMA = {
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        goal: { type: 'null', required: true },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        goal: {
+          type: 'object',
+          additionalProperties: false,
+          required: true,
+          properties: {
+            id: { type: 'string', required: true },
+            revision: { type: 'integer', required: true },
+            objective: { type: 'string', required: true },
+            phase: { type: 'string', required: true, enum: ['active', 'paused', 'blocked', 'complete'] },
+            roundsStarted: { type: 'integer', required: true },
+            maxGoalRounds: { type: 'integer', required: true },
+            blockedReason: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                code: { type: 'string', required: true },
+                message: { type: 'string', required: true },
+              },
+            },
+          },
+        },
+        activation: { type: 'string', required: true, enum: ['armed', 'disarmed'] },
+      },
+    },
+  ],
+} as const
+
 /** Render policy guidance with its deployment-selected blocked threshold. */
 function guidance(blockedAfter: number): string {
   return 'Use goal tools for one long-running completion objective in the current session. '
@@ -89,9 +145,9 @@ function goalRef(goalId: string, revision: number): GoalRef {
 }
 
 /** Stable compact model result; activation is an observation, not replay state. */
-function renderGoal(goal: GoalView | undefined): string {
-  if (goal === undefined) return JSON.stringify({ goal: null })
-  return JSON.stringify({
+function goalValue(goal: GoalView | undefined): GoalToolValue {
+  if (goal === undefined) return { goal: null }
+  return {
     goal: {
       id: goal.id,
       revision: goal.revision,
@@ -99,10 +155,18 @@ function renderGoal(goal: GoalView | undefined): string {
       phase: goal.phase,
       roundsStarted: goal.roundsStarted,
       maxGoalRounds: goal.maxGoalRounds,
-      ...goal.blockedReason === undefined ? {} : { blockedReason: goal.blockedReason },
+      ...goal.blockedReason === undefined ? {} : {
+        blockedReason: { code: goal.blockedReason.code, message: goal.blockedReason.message },
+      },
     },
     activation: goal.activation,
-  })
+  }
+}
+
+/** Reusable canonical output declaration for all three goal controls. */
+const GOAL_OUTPUT = {
+  schema: GOAL_VALUE_SCHEMA,
+  render: (_args: unknown, value: GoalToolValue) => [{ type: 'text' as const, text: JSON.stringify(value) }],
 }
 
 /** Generic, args-only pending presentation shared by the goal tools. */
@@ -144,12 +208,10 @@ export function apply(ctx: Context, config: Config): void {
     name: 'get_goal',
     description: GET_DESCRIPTION,
     parameters: {},
+    output: GOAL_OUTPUT,
     execute(_args, exec) {
       const execution = goalToolExecution(ctx, exec)
-      return Promise.resolve([{
-        type: 'text',
-        text: renderGoal(ctx.goals.get(execution.agent)),
-      }])
+      return Promise.resolve(goalValue(ctx.goals.get(execution.agent)))
     },
     presentCall: () => present('Read current goal', 'read'),
   }))
@@ -168,6 +230,7 @@ export function apply(ctx: Context, config: Config): void {
         description: 'Optional positive safe-integer limit on automatic continuation rounds.',
       },
     },
+    output: GOAL_OUTPUT,
     execute(args, exec) {
       const execution = goalToolExecution(ctx, exec)
       requireDirectHuman(ctx, execution)
@@ -176,7 +239,7 @@ export function apply(ctx: Context, config: Config): void {
         ...args.max_goal_rounds === undefined ? {} : { maxGoalRounds: args.max_goal_rounds },
       })
       observeMutation(terminalTurns, execution, false)
-      return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
+      return Promise.resolve(goalValue(goal))
     },
     presentCall: args => present('Create goal', 'other', args.objective),
   }))
@@ -203,6 +266,7 @@ export function apply(ctx: Context, config: Config): void {
         description: 'Concrete blocking condition; required only with action blocked.',
       },
     },
+    output: GOAL_OUTPUT,
     execute(args, exec) {
       const execution = goalToolExecution(ctx, exec)
       const ref = goalRef(args.goal_id, args.revision)
@@ -217,10 +281,7 @@ export function apply(ctx: Context, config: Config): void {
         }
         const goal = ctx.goals.edit(execution.agent, ref, replacements)
         observeMutation(terminalTurns, execution, false)
-        return Promise.resolve([{
-          type: 'text',
-          text: renderGoal(goal),
-        }])
+        return Promise.resolve(goalValue(goal))
       }
       if (args.action === 'pause' || args.action === 'resume') {
         requireDirectHuman(ctx, execution)
@@ -234,7 +295,7 @@ export function apply(ctx: Context, config: Config): void {
           ? ctx.goals.pause(execution.agent, ref)
           : ctx.goals.resume(execution.agent, ref)
         observeMutation(terminalTurns, execution, false)
-        return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
+        return Promise.resolve(goalValue(goal))
       }
       const authority = completionAuthority(ctx, execution)
       if (args.objective !== undefined || args.max_goal_rounds !== undefined) {
@@ -265,7 +326,7 @@ export function apply(ctx: Context, config: Config): void {
           message: args.blocked_reason as string,
         })
       observeMutation(terminalTurns, execution, authority.kind === 'goal-round')
-      return Promise.resolve([{ type: 'text', text: renderGoal(goal) }])
+      return Promise.resolve(goalValue(goal))
     },
     presentCall: args => present(
       `${args.action === 'blocked' ? 'Mark' : args.action.charAt(0).toUpperCase() + args.action.slice(1)} goal`,

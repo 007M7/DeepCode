@@ -13,6 +13,7 @@ import SubagentService, { type SubagentStartRequest } from '@deepseek-ai/dsh-sub
 import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as spawn from '../src/index.ts'
 import { STRUCTURED_OUTPUT_TOOL } from '@deepseek-ai/dsh-subagent-inprocess'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -393,10 +394,10 @@ describe('dsh-subagent-spawn', () => {
         toolCallResponse('c1', 'forbidden_tool', {}),
         textResponse('done'),
       ])
-      ctx.tools.register({
+      ctx.tools.register(defineContentToolFixture({
         name: 'forbidden_tool', description: 'global', parameters: {},
         execute: () => Promise.resolve([{ type: 'text', text: 'ran' }]),
-      })
+      }))
       const run = await start(ctx, 'spawn', {
         prompt: [{ type: 'text', text: 'do X' }],
         parent,
