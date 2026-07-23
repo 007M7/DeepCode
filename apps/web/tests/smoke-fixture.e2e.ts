@@ -149,25 +149,27 @@ describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', (
     const settledTrack = async (px: string): Promise<void> => {
       await expect.poll(firstTrack, { timeout: 2000 }).toBe(px)
     }
+    // The brand wordmark is decorative svg (aria-hidden) — presence tracks the wide chrome.
+    const brand = () => page.locator('[class*="brand"]').count()
     await page.getByRole('button', { name: 'Collapse sidebar' }).click()
     // Mid-collapse the wide chrome is still mounted, fading — not swapped out.
-    expect(await page.locator('text=HARNESS').count()).toBe(1)
+    expect(await brand()).toBe(1)
     await settledTrack('56px')
-    await expect.poll(() => page.locator('text=HARNESS').count(), { timeout: 2000 }).toBe(0)
-    for (const name of ['Expand sidebar', 'New session', 'New workspace', 'Search sessions', 'Settings']) {
+    await expect.poll(brand, { timeout: 2000 }).toBe(0)
+    for (const name of ['Open sidebar', 'New session', 'New workspace', 'Search sessions', 'Settings']) {
       await expect(page.getByRole('button', { name }).isVisible(), name).resolves.toBe(true)
     }
-    await page.getByRole('button', { name: 'Expand sidebar' }).click()
-    await settledTrack('300px')
+    await page.getByRole('button', { name: 'Open sidebar' }).click()
+    await settledTrack('280px')
     await expect(page.getByRole('button', { name: 'Collapse sidebar' }).isVisible()).resolves.toBe(true)
     // Rail search: collapse again, the search control expands and lands in the box.
     await page.getByRole('button', { name: 'Collapse sidebar' }).click()
     await settledTrack('56px')
     await page.getByRole('button', { name: 'Search sessions' }).click()
-    await settledTrack('300px')
-    const focused = await page.evaluate(() =>
-      (document.activeElement as HTMLInputElement | null)?.placeholder ?? '')
-    expect(focused).toContain('Search')
+    await settledTrack('280px')
+    // Focus is deferred past the slide (EXPAND_SLIDE_MS) — poll for it.
+    await expect.poll(() => page.evaluate(() =>
+      (document.activeElement as HTMLInputElement | null)?.placeholder ?? ''), { timeout: 2000 }).toContain('Search')
   })
 
   it('renders file tool rows and expands fixture reasoning from either click target', async () => {
