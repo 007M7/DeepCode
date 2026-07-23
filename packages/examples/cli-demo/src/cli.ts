@@ -14,7 +14,7 @@ import { boot, loadEnv, resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 const CLI_NAME = 'dsh-cli-demo'
 const DEFAULT_CONFIG_PATH = './cordis.yml'
 const OUTPUT_FORMATS = ['text', 'json', 'stream-json'] as const
-const USAGE = `Usage: ${CLI_NAME} [--config path] [--output-format text|json|stream-json] <task>\n`
+const USAGE = `Usage: ${CLI_NAME} [--config path] [--output-format text|json|stream-json] (-p <task> | <task>)\n`
 
 /** Supported CLI output encodings. */
 export type OutputFormat = typeof OUTPUT_FORMATS[number]
@@ -73,6 +73,7 @@ interface ParsedArguments {
     readonly config?: string
     readonly 'output-format'?: string
     readonly help?: boolean
+    readonly prompt?: string
   }
   readonly positionals: string[]
 }
@@ -129,6 +130,7 @@ export function parseCliArgs(args: readonly string[]): CliCommand {
         config: { type: 'string' },
         'output-format': { type: 'string' },
         help: { type: 'boolean' },
+        prompt: { type: 'string', short: 'p' },
       },
       allowPositionals: true,
       strict: true,
@@ -138,12 +140,16 @@ export function parseCliArgs(args: readonly string[]): CliCommand {
   }
 
   if (parsed.values.help === true) return { kind: 'help' }
-  if (parsed.positionals.length !== 1) {
-    throw new CliArgumentError(`expected exactly one positional task, received ${parsed.positionals.length}`)
+  const prompt = parsed.values.prompt
+  if (prompt !== undefined && parsed.positionals.length > 0) {
+    throw new CliArgumentError('-p/--prompt and a positional task are mutually exclusive')
   }
-  // Cardinality was checked above, so index zero exists.
+  if (prompt === undefined && parsed.positionals.length !== 1) {
+    throw new CliArgumentError(`expected exactly one positional task or -p, received ${parsed.positionals.length} positional(s)`)
+  }
+  // Cardinality was checked above, so the fallback index zero exists.
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  const task = parsed.positionals[0]!
+  const task = prompt ?? parsed.positionals[0]!
   if (task.trim().length === 0) throw new CliArgumentError('task must not be blank')
 
   const requestedFormat = parsed.values['output-format'] ?? 'text'

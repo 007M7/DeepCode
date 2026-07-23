@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { eventLine, logPath, scanLog, sessionDir, toHeaderLine, type JsonlCompression } from '../src/format.ts'
+import { logPath, scanLog, sessionDir, toHeaderLine, type JsonlCompression } from '../src/format.ts'
 import { compressZstdFrame, decompressZstdFrame, scanZstdFrames } from '../src/zstd.ts'
 import { runPersistenceContract, meta, oneTurnLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
@@ -217,7 +217,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
     const plaintext = await decodeCompleteFrames(buffer)
     expect(plaintext.toString()).toBe([
       JSON.stringify(toHeaderLine(header)),
-      ...oneTurnLog().map(eventLine),
+      ...oneTurnLog().map(e => JSON.stringify(e)),
       '',
     ].join('\n'))
     expect((await ctx.sessionPersistence.load(header.id)).events).toEqual(oneTurnLog())
@@ -288,7 +288,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
       { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
       { type: 'assistant/chunk', seq: 8, time: 9, data: { turn: 2, step: 1, chunk: { type: 'text-delta', index: 0, text: deterministicNoise(300_000) } } },
     ] as SessionEvent[]
-    const plaintext = openTurn.map(eventLine).join('\n') + '\n'
+    const plaintext = openTurn.map(e => JSON.stringify(e)).join('\n') + '\n'
     const partial = await tornFrame(plaintext, (decoded) => {
       const newlines = decoded.match(/\n/g)?.length ?? 0
       return newlines >= 2 && !decoded.endsWith('\n')
@@ -334,7 +334,7 @@ describe('SessionPersistenceJsonl: default Zstandard encoding', () => {
       { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
       { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
     ] as SessionEvent[]
-    const frame = await compressZstdFrame(secondTurn.map(eventLine).join('\n') + '\n')
+    const frame = await compressZstdFrame(secondTurn.map(e => JSON.stringify(e)).join('\n') + '\n')
     await appendFile(path, frame.subarray(0, -1))
 
     const loaded = await ctx.sessionPersistence.load(header.id)
@@ -456,7 +456,7 @@ describe('SessionPersistenceJsonl: encoding selection', () => {
     await mkdir(sessionDir(root, loadHeader.cwd), { recursive: true })
     await writeFile(logPath(root, loadHeader.cwd, loadHeader.id, 'none'), [
       JSON.stringify(toHeaderLine(loadHeader)),
-      ...oneTurnLog().map(eventLine),
+      ...oneTurnLog().map(e => JSON.stringify(e)),
       '',
     ].join('\n'))
     await expect(ctx.sessionPersistence.load(loadHeader.id)).rejects.toThrow(/uses \.jsonl/)
@@ -474,7 +474,7 @@ describe('SessionPersistenceJsonl: encoding selection', () => {
     await mkdir(sessionDir(root, header.cwd), { recursive: true })
     await writeFile(logPath(root, header.cwd, header.id, 'none'), [
       JSON.stringify(toHeaderLine(header)),
-      ...oneTurnLog().map(eventLine),
+      ...oneTurnLog().map(e => JSON.stringify(e)),
       '',
     ].join('\n'))
     await expect(ctx.sessionPersistence.append(header.id, oneTurnLog())).rejects.toThrow(/uses \.jsonl/)

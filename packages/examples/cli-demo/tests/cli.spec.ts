@@ -115,7 +115,11 @@ async function harness(script: readonly ScriptEntry[]): Promise<Harness> {
     name: 'echo',
     description: 'Echo text.',
     parameters: { text: { type: 'string', required: true } },
-    execute: async args => [{ type: 'text', text: `ECHO: ${(args as { text: string }).text}` }],
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value as string }],
+    },
+    execute: async args => `ECHO: ${(args as { text: string }).text}`,
   })
   const [agent] = ctx.agents.roots()
   if (agent === undefined) throw new Error('test main agent missing')
@@ -162,15 +166,19 @@ describe('parseCliArgs', () => {
       kind: 'run', configPath: 'custom.yml', outputFormat: 'stream-json', task: 'do it',
     })
     expect(parseCliArgs(['--', '-task'])).toMatchObject({ task: '-task' })
+    expect(parseCliArgs(['-p', 'flag task'])).toMatchObject({ task: 'flag task' })
+    expect(parseCliArgs(['--prompt', 'long-flag task'])).toMatchObject({ task: 'long-flag task' })
     expect(parseCliArgs(['--help', 'ignored'])).toEqual({ kind: 'help' })
   })
 
   it('rejects missing, blank, extra, invalid-format, and unsupported flags', () => {
     expect(() => parseCliArgs([])).toThrow('received 0')
     expect(() => parseCliArgs(['   '])).toThrow('must not be blank')
+    expect(() => parseCliArgs(['-p', '   '])).toThrow('must not be blank')
     expect(() => parseCliArgs(['one', 'two'])).toThrow('received 2')
+    expect(() => parseCliArgs(['-p', 'task', 'positional'])).toThrow('mutually exclusive')
     expect(() => parseCliArgs(['--output-format', 'xml', 'task'])).toThrow('unsupported output format')
-    expect(() => parseCliArgs(['-p', 'task'])).toThrow('Unknown option')
+    expect(() => parseCliArgs(['-x', 'task'])).toThrow('Unknown option')
   })
 })
 

@@ -17,27 +17,11 @@ declare module 'cordis' {
   }
 }
 
-/** One selectable answer offered to the user. */
-export interface AskUserQuestionOption {
-  /** User-facing label. */
-  label: string
-  /** Optional extra context rendered by capable UIs. */
-  description?: string
-}
+import type { AskUserQuestionAnswer, AskUserQuestionItem } from './types.ts'
 
-/** One question in an ask_user_question request. */
-export interface AskUserQuestionItem {
-  /** Stable model-provided question id, echoed in the answer. */
-  id: string
-  /** The question to display. */
-  question: string
-  /** Optional short heading/group label. */
-  header?: string
-  /** Optional choices the UI can render as a menu. */
-  options?: AskUserQuestionOption[]
-  /** Whether more than one option may be selected. Defaults to single-select. */
-  multiSelect?: boolean
-}
+export type {
+  AskUserQuestionAnswer, AskUserQuestionAnswerItem, AskUserQuestionItem, AskUserQuestionOption,
+} from './types.ts'
 
 /** Request for a human answer. */
 export interface AskUserQuestionRequest {
@@ -47,22 +31,6 @@ export interface AskUserQuestionRequest {
   agent?: Agent
   /** Abort signal for the owning tool/step. */
   signal?: AbortSignal
-}
-
-/** Answer to one question. */
-export interface AskUserQuestionAnswerItem {
-  /** The answered question id. */
-  id: string
-  /** Selected option labels. Empty when the answer is purely custom text. */
-  selected: string[]
-  /** Optional free-text "Other" answer. */
-  custom?: string
-}
-
-/** The human's answer. */
-export interface AskUserQuestionAnswer {
-  /** Structured answers keyed by question id. */
-  answers: AskUserQuestionAnswerItem[]
 }
 
 /** UI-side provider for user questions. */

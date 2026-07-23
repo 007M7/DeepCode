@@ -32,6 +32,8 @@ All keys are optional; the defaults are the shipped read caps.
 
 Field names are snake_case to match Claude Code and existing harness tool schemas.
 
+Canonical successes are `read` → `{ path, offset, lines: [{ number, text }], totalLines }`, `write` → `{ path, operation: 'create' | 'update', before: string | null, after }`, and `edit` → `{ path, before, after }`. Native renderers preserve the line-numbered read and mutation acknowledgements below. Write/edit derive replayable diff-card metadata from these values; the values themselves are execution-local and are not added to `tool/result`.
+
 ## The tool is the executor; policy is an event gate
 
 The tools do **not** inject a policy service or inspect any cache. Each tool resolves the path via `ctx.fs.resolve(path, { cwd, signal })` — passing the calling agent's session cwd (`exec.agent.session.header.cwd`) so a relative path resolves against the session's workspace, matching `dsh-tool-bash`, and forwarding tool cancellation through resolution (see [the per-session cwd Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-fs-per-session-cwd.md)) — then:

@@ -17,6 +17,7 @@ import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import { processOutcome } from '../src/background.ts'
 import { renderProcessRead, renderResult } from '../src/render.ts'
@@ -107,12 +108,12 @@ class RecordingSandboxExecutor extends BashExecutor {
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
       timeoutMs: request.timeoutMs ?? 1000,
       ...request.signal ? { signal: request.signal } : {},
-      sandboxMode: request.sandboxMode ?? 'read-only',
+      sandboxPolicy: request.sandboxPolicy ?? { mode: 'read-only', workspaceRoot: process.cwd() },
     }
   }
 
   run(spec: BashExecSpec): Promise<BashRunResult> {
-    this.modes.push(spec.sandboxMode)
+    this.modes.push(spec.sandboxPolicy?.mode)
     return Promise.resolve({
       exitCode: 0,
       signal: null,
@@ -121,18 +122,24 @@ class RecordingSandboxExecutor extends BashExecutor {
       timeoutMs: spec.timeoutMs,
       stdout: { text: 'ok', truncated: false },
       stderr: { text: '', truncated: false },
-      sandbox: { mode: spec.sandboxMode ?? 'read-only', denied: false },
+      sandbox: {
+        mode: spec.sandboxPolicy?.mode ?? 'read-only',
+        denied: false,
+        ...spec.command === 'without optional sandbox facts'
+          ? {}
+          : { enforcement: 'full' as const, runnerFailed: false },
+      },
     })
   }
 
   start(spec: BashExecSpec): BashProcess {
-    this.modes.push(spec.sandboxMode)
+    this.modes.push(spec.sandboxPolicy?.mode)
     return {
       status: 'completed',
       exitCode: 0,
       signal: null,
       done: Promise.resolve(),
-      sandbox: { mode: spec.sandboxMode ?? 'read-only', denied: false },
+      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
       readOutput: () => ({ delta: '', lossy: false }),
       kill: () => false,
     }
@@ -149,7 +156,7 @@ class CountingStartExecutor extends BashExecutor {
       workdir: request.workdir ?? '/x',
       timeoutMs: request.timeoutMs ?? 0,
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
-      sandboxMode: request.sandboxMode,
+      sandboxPolicy: request.sandboxPolicy,
     }
   }
 
@@ -175,6 +182,7 @@ async function setupSandboxed(withApproval = false) {
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(TaskService)
   await ctx.plugin(ToolTasks)
+  await ctx.plugin(SandboxPolicyService, {})
   await ctx.plugin(RecordingSandboxExecutor)
   if (withApproval) await ctx.plugin(ApprovalService)
   await ctx.plugin(ToolBash)
@@ -211,6 +219,16 @@ describe('bash tool', () => {
     const ctx = await setup()
     const result = await call(ctx, 'bash', { command: 'echo hello', description: 'test command' })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected bash success')
+    expect(result.value).toMatchObject({
+      kind: 'foreground',
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      aborted: false,
+      stdout: { text: 'hello\n', truncated: false },
+      stderr: { text: '', truncated: false },
+    })
     expect(text(result)).toBe('hello\n')
   })
 
@@ -294,7 +312,7 @@ describe('bash tool', () => {
   })
 
   // Type and required-key violations are rejected by the harness
-  // (defineTool validates against the SchemaSpec — the arg-validation Agent Note) before execute.
+  // (defineTool validates against the ParameterSchemaSpec — the arg-validation Agent Note) before execute.
   it.each([
     [{}, /missing required property "command"/],
     [{ command: 42, description: 'd' }, /"command" must be a string/],
@@ -310,7 +328,7 @@ describe('bash tool', () => {
     expect(text(result)).toMatch(pattern)
   })
 
-  // Value constraints the SchemaSpec can't express stay in the tool body.
+  // Value constraints the ParameterSchemaSpec can't express stay in the tool body.
   it.each([
     [{ command: '  ', description: 'd' }, /invalid command/],
     [{ command: 'x', description: '   ' }, /invalid description/],
@@ -406,6 +424,8 @@ describe('background execution through the task runtime', () => {
     const ctx = await setupWithTasks()
     const started = await call(ctx, 'bash', { command: 'echo bg-ok', description: 'test command', run_in_background: true })
     expect(started.isError).toBe(false)
+    if (started.isError) throw new Error('expected background bash success')
+    expect(started.value).toEqual({ kind: 'background', taskId: 'bash-1' })
     expect(text(started)).toBe('started background task bash-1')
 
     const read = await callUntilText(ctx, 'task_output', { task_id: 'bash-1' }, 'bg-ok')
@@ -477,7 +497,10 @@ describe('background execution through the task runtime', () => {
       signal: controller.signal,
     })
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(result.error).toEqual({
+      message: 'tool call aborted before dispatch',
+      info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    })
     expect(text(result)).toBe('Error: tool call aborted before dispatch')
     expect((ctx.bash as CountingStartExecutor).starts).toBe(0)
   })
@@ -531,6 +554,14 @@ describe('sandbox escalation through the generic task producer', () => {
     sandbox_permissions: 'workspace-write',
     justification: 'the command needs workspace writes',
   }
+
+  it('fails load when a confining executor has no shared sandbox-policy resolver', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(RecordingSandboxExecutor)
+    await expect(ctx.plugin(ToolBash)).rejects.toThrow('tool-bash: the mounted bash executor confines but ctx.sandboxPolicy is missing')
+  })
 
   it('advertises the sandbox fields and validates their pairing', async () => {
     const { ctx } = await setupSandboxed()
@@ -623,7 +654,10 @@ describe('sandbox escalation through the generic task producer', () => {
       signal: controller.signal,
     })
 
-    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED })
+    expect(result.error).toEqual({
+      message: 'tool call aborted',
+      info: { name: 'AbortError', code: TOOL_ABORTED },
+    })
     expect(text(result)).toBe('Error: tool call aborted')
     expect(start).not.toHaveBeenCalled()
   })
@@ -635,6 +669,22 @@ describe('sandbox escalation through the generic task producer', () => {
     ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
     await call(ctx, 'bash', { ...escalate, sandbox_permissions: 'danger-full-access' }, agent)
     expect(bash.modes).toEqual(['workspace-write', 'danger-full-access'])
+  })
+
+  it('omits sandbox facts the executor did not acquire from the canonical result', async () => {
+    const { ctx } = await setupSandboxed()
+    const result = await call(ctx, 'bash', {
+      command: 'without optional sandbox facts',
+      description: 'exercise optional sandbox facts',
+    })
+
+    if (result.isError) throw new Error('expected foreground bash success')
+    expect(result.value).toMatchObject({
+      kind: 'foreground',
+      sandbox: { mode: 'read-only', denied: false },
+    })
+    expect((result.value as { sandbox: object }).sandbox).not.toHaveProperty('enforcement')
+    expect((result.value as { sandbox: object }).sandbox).not.toHaveProperty('runnerFailed')
   })
 
   it('keeps the exhaustiveness backstop for a rogue approval implementation', async () => {
@@ -993,7 +1043,7 @@ describe('the model-facing bash tool builds its request from named args only (no
         ...request.stdin !== undefined ? { stdin: request.stdin } : {},
         ...request.env !== undefined ? { env: request.env } : {},
         ...request.dshEnv !== undefined ? { dshEnv: request.dshEnv } : {},
-        sandboxMode: request.sandboxMode,
+        sandboxPolicy: request.sandboxPolicy,
       }
     }
     run(): Promise<BashRunResult> {

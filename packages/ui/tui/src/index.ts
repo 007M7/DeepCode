@@ -13,6 +13,7 @@ import {
   Editor,
   Input,
   Key,
+  Loader,
   Markdown,
   Spacer,
   Text,
@@ -24,15 +25,18 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
   type Component,
+  type AutocompleteItem,
+  type AutocompleteProvider,
+  type AutocompleteSuggestions,
   type EditorTheme,
   type Focusable,
   type MarkdownTheme,
-  type OverlayHandle,
   type SelectListTheme,
+  type SlashCommand,
   type Terminal,
   type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
-import type { Context } from 'cordis'
+import { Service, type Context, type Fiber } from 'cordis'
 import z from 'schemastery'
 import {
   installAgentLlmTarget,
@@ -40,11 +44,12 @@ import {
   type AgentLlmTarget,
   type AgentLlmTargetRef,
   type AgentStatus,
+  type HookContext,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-commands'
-import { errorChain } from '@deepseek-ai/dsh-llm'
+import { assertNever, errorChain } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
   LlmModelInfo,
@@ -52,8 +57,25 @@ import type {
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
-import { SessionId, type Session, type SessionEvent, type TodoItem } from '@deepseek-ai/dsh-session'
+import {
+  displayPromptContent,
+  SessionId,
+  type JsonValue,
+  type Session,
+  type SessionEvent,
+  type SessionHeader,
+  type TodoItem,
+} from '@deepseek-ai/dsh-session'
+import {
+  formatSessionReferenceMention,
+  parseSessionReferenceText,
+  type SessionReferenceService,
+} from '@deepseek-ai/dsh-session-reference'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
+// Side-effect type import: declaration-merges the optional `sessionPersistence`
+// service onto `Context` so `ctx.get('sessionPersistence')` is typed.
+import type {} from '@deepseek-ai/dsh-session-persistence'
+import type { SkillDefinition, SkillResourceBase, SkillService } from '@deepseek-ai/dsh-skill'
 import type {
   FileDiff,
   TerminalCallView,
@@ -68,11 +90,84 @@ import {
   type AskUserQuestionItem,
   type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
+import {
+  TuiExtensionServiceImpl,
+  TuiOverlayManager,
+} from './overlay-manager.ts'
+import type {
+  TuiOverlayRequest,
+  TuiOverlaySession,
+  TuiTheme,
+} from './extension.ts'
+
+export type {
+  TuiComponent,
+  TuiFocusable,
+  TuiOverlayAnchor,
+  TuiOverlayCloseReason,
+  TuiOverlayHost,
+  TuiOverlayMargin,
+  TuiOverlayOptions,
+  TuiOverlayOutcome,
+  TuiOverlayRequest,
+  TuiOverlaySession,
+  TuiOverlayState,
+  TuiTheme,
+  TuiViewport,
+} from './extension.ts'
+
+declare module 'cordis' {
+  interface Context {
+    /** Terminal-only interaction service, available only while a TUI is mounted. */
+    tui: TuiExtensionService
+  }
+}
+
+/**
+ * Optional terminal-local interaction service provided by one mounted TUI.
+ *
+ * The concrete provider retains pi-tui, focus, and terminal lifecycle state.
+ * Plugins receive only effect-owned overlay sessions.
+ */
+export abstract class TuiExtensionService extends Service {
+  /** Exact agent driven by this terminal instance. */
+  abstract readonly agent: Agent
+
+  /**
+   * Queue an interactive overlay owned by the calling plugin fiber.
+   *
+   * The TUI displays one overlay at a time in FIFO order. Disposing the caller
+   * removes a queued overlay or closes an active one before plugin teardown
+   * settles. This live presentation is neither logged nor replayed.
+   *
+   * @param request - component factory, layout constraints, and cancellation.
+   * @returns the effect-owned overlay session.
+   * @throws when the TUI has begun shutting down.
+   */
+  abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
+}
+import {
+  activeAtToken,
+  DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES,
+  DEFAULT_FILE_SEARCH_MAX_ENTRIES,
+  DEFAULT_FILE_SEARCH_MAX_RESULTS,
+  formatFileMention,
+  WorkspaceFileSearch,
+} from './file-autocomplete.ts'
+
+export {
+  DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES,
+  DEFAULT_FILE_SEARCH_MAX_ENTRIES,
+  DEFAULT_FILE_SEARCH_MAX_RESULTS,
+} from './file-autocomplete.ts'
 
 export const name = 'ui-tui'
 export const inject = ['agents', 'commands', 'userInteraction', 'tools', 'llm', 'systemPrompt', 'tokenMeter']
 
-/** Presentation settings for the pi-tui terminal mode. */
+/** Model guidance for path-only file references selected through the TUI. */
+export const FILE_REFERENCE_PROMPT = 'Paths prefixed with @ are files explicitly referenced by the user. Use the read tool when their contents are needed; do not claim to have inspected a file before reading it.'
+
+/** Interaction and presentation settings for the pi-tui terminal mode. */
 export interface TuiConfig {
   /** Render model reasoning blocks. */
   showReasoning?: boolean
@@ -90,11 +185,24 @@ export interface TuiConfig {
   modelDialogWidth?: number
   /** Model-selector maximum height in terminal rows. */
   modelDialogMaxHeight?: number
+  /** Maximum fuzzy file candidates displayed for one `@` query. */
+  fileSearchMaxResults?: number
+  /** Maximum paths retained in one `@` workspace index. */
+  fileSearchMaxEntries?: number
+  /** Directory basenames excluded from `@` traversal and completion. */
+  fileSearchExcludedDirectories?: string[]
   /** Show the terminal's hardware cursor at the pi editor's IME marker. */
   showHardwareCursor?: boolean
   /** Apply the built-in ANSI color palette. */
   color?: boolean
-  /** Terminal window title while the UI is mounted. */
+  /**
+   * Paint the startup banner's product name in the DeepSeek brand gradient
+   * using 24-bit truecolor. Requires {@link TuiConfig.color}; falls back to the
+   * flat accent color when either is off. Unset auto-detects `COLORTERM` at the
+   * process boundary, so most deployments leave it unset.
+   */
+  truecolor?: boolean
+  /** Terminal window title while the UI is mounted; a logged session title prefixes it. */
   title?: string
 }
 
@@ -106,12 +214,16 @@ const questionDialogWidthSchema = z.number().step(1).min(20).default(200)
 const questionDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
 const modelDialogWidthSchema = z.number().step(1).min(20).default(72)
 const modelDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
+const fileSearchMaxResultsSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_RESULTS)
+const fileSearchMaxEntriesSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_ENTRIES)
+const fileSearchExcludedDirectoriesSchema = z.array(z.string()).default([...DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES])
 const showHardwareCursorSchema = z.boolean().default(false)
 const colorSchema = z.boolean().default(true)
+// No default: an unset value auto-detects truecolor from COLORTERM in `apply`.
+const truecolorSchema = z.boolean()
 const titleSchema = z.string().default('DeepSeek Harness')
 
-/** Schemastery schema for presentation settings embedded by app bundles. */
-export const TuiConfigSchema: z<TuiConfig> = z.object({
+const tuiConfigSchemaFields = {
   showReasoning: showReasoningSchema,
   maxToolOutputLines: maxToolOutputLinesSchema,
   maxQuestionOptions: maxQuestionOptionsSchema,
@@ -120,33 +232,53 @@ export const TuiConfigSchema: z<TuiConfig> = z.object({
   questionDialogMaxHeight: questionDialogMaxHeightSchema,
   modelDialogWidth: modelDialogWidthSchema,
   modelDialogMaxHeight: modelDialogMaxHeightSchema,
+  fileSearchMaxResults: fileSearchMaxResultsSchema,
+  fileSearchMaxEntries: fileSearchMaxEntriesSchema,
+  fileSearchExcludedDirectories: fileSearchExcludedDirectoriesSchema,
   showHardwareCursor: showHardwareCursorSchema,
   color: colorSchema,
+  truecolor: truecolorSchema,
   title: titleSchema,
-})
+}
+
+/** Schemastery schema for presentation settings embedded by app bundles. */
+export const TuiConfigSchema: z<TuiConfig> = z.object(tuiConfigSchemaFields)
 
 /** Serializable plugin configuration. */
 export interface Config extends TuiConfig {
-  /** Header subtitle. Defaults to `ready.`. */
+  /** Banner subtitle line. When absent, the banner has no subtitle and sweeps in on start. */
   welcome?: string
   /** Exact shared agent/session identity driven by this terminal. Defaults to `main`. */
   sessionId?: string
+  /**
+   * Shell command template shown for resuming this session: printed on exit and
+   * listed by `/resume`, with every `{session}` occurrence replaced by the live
+   * session id. Absent disables both surfaces. Deployments set it only when a
+   * persistence backend makes the session resumable (e.g.
+   * `RESUME_SESSION_ID={session} dsh`).
+   */
+  resumeCommand?: string
 }
 
 export const Config: z<Config> = z.object({
-  welcome: z.string().default('ready.'),
+  welcome: z.string(),
   sessionId: z.string().default('main'),
-  showReasoning: showReasoningSchema,
-  maxToolOutputLines: maxToolOutputLinesSchema,
-  maxQuestionOptions: maxQuestionOptionsSchema,
-  maxModelOptions: maxModelOptionsSchema,
-  questionDialogWidth: questionDialogWidthSchema,
-  questionDialogMaxHeight: questionDialogMaxHeightSchema,
-  modelDialogWidth: modelDialogWidthSchema,
-  modelDialogMaxHeight: modelDialogMaxHeightSchema,
-  showHardwareCursor: showHardwareCursorSchema,
-  color: colorSchema,
-  title: titleSchema,
+  resumeCommand: z.string(),
+  showReasoning: tuiConfigSchemaFields.showReasoning,
+  maxToolOutputLines: tuiConfigSchemaFields.maxToolOutputLines,
+  maxQuestionOptions: tuiConfigSchemaFields.maxQuestionOptions,
+  maxModelOptions: tuiConfigSchemaFields.maxModelOptions,
+  questionDialogWidth: tuiConfigSchemaFields.questionDialogWidth,
+  questionDialogMaxHeight: tuiConfigSchemaFields.questionDialogMaxHeight,
+  modelDialogWidth: tuiConfigSchemaFields.modelDialogWidth,
+  modelDialogMaxHeight: tuiConfigSchemaFields.modelDialogMaxHeight,
+  fileSearchMaxResults: tuiConfigSchemaFields.fileSearchMaxResults,
+  fileSearchMaxEntries: tuiConfigSchemaFields.fileSearchMaxEntries,
+  fileSearchExcludedDirectories: tuiConfigSchemaFields.fileSearchExcludedDirectories,
+  showHardwareCursor: tuiConfigSchemaFields.showHardwareCursor,
+  color: tuiConfigSchemaFields.color,
+  truecolor: tuiConfigSchemaFields.truecolor,
+  title: tuiConfigSchemaFields.title,
 })
 
 /** Fully defaulted TUI presentation settings. */
@@ -159,8 +291,12 @@ export interface ResolvedTuiConfig {
   questionDialogMaxHeight: number
   modelDialogWidth: number
   modelDialogMaxHeight: number
+  fileSearchMaxResults: number
+  fileSearchMaxEntries: number
+  fileSearchExcludedDirectories: string[]
   showHardwareCursor: boolean
   color: boolean
+  truecolor: boolean
   title: string
 }
 
@@ -196,8 +332,12 @@ export function resolveTuiConfig(config: TuiConfig | undefined): ResolvedTuiConf
     questionDialogMaxHeight: config?.questionDialogMaxHeight ?? 20,
     modelDialogWidth: config?.modelDialogWidth ?? 72,
     modelDialogMaxHeight: config?.modelDialogMaxHeight ?? 20,
+    fileSearchMaxResults: config?.fileSearchMaxResults ?? DEFAULT_FILE_SEARCH_MAX_RESULTS,
+    fileSearchMaxEntries: config?.fileSearchMaxEntries ?? DEFAULT_FILE_SEARCH_MAX_ENTRIES,
+    fileSearchExcludedDirectories: [...(config?.fileSearchExcludedDirectories ?? DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES)],
     showHardwareCursor: config?.showHardwareCursor ?? false,
     color: config?.color ?? true,
+    truecolor: config?.truecolor ?? false,
     title: config?.title ?? 'DeepSeek Harness',
   }
 }
@@ -237,6 +377,11 @@ function displayText(text: string): string {
     `\\x${control.charCodeAt(0).toString(16).padStart(2, '0')}`)
 }
 
+/** Escape external controls for terminal fields that must remain on one line. */
+function displayInlineText(text: string): string {
+  return displayText(text).replaceAll('\n', '\\x0a')
+}
+
 /**
  * Theme-agnostic palette built from the standard 16-color ANSI set plus SGR
  * attributes, which every terminal remaps to its active color scheme. Body
@@ -267,6 +412,60 @@ function createPalette(enabled: boolean, scheme: TerminalColorScheme = 'dark'): 
     strike: ansi('9', '29', enabled),
     selected: ansi('7', '27', enabled),
   }
+}
+
+/**
+ * DeepSeek brand gradient stops (indigo → light blue) taken from the
+ * deepseek.com logo, painted across the startup banner's product name on
+ * truecolor terminals. Fixed brand identity, deliberately outside the
+ * theme-adaptive {@link Palette}.
+ */
+const BRAND_GRADIENT = [
+  [77, 107, 254], // #4D6BFE
+  [57, 130, 255], // #3982FF
+  [36, 152, 255], // #2498FF
+] as const
+
+/**
+ * Sample {@link BRAND_GRADIENT} at fraction `t` via piecewise-linear
+ * interpolation across its stops.
+ *
+ * @param t - Position along the gradient; clamped to [0, 1].
+ * @returns The interpolated `[r, g, b]` channels, each rounded to 0–255.
+ */
+function brandColorAt(t: number): readonly [number, number, number] {
+  const span = Math.min(Math.max(t, 0), 1) * (BRAND_GRADIENT.length - 1)
+  const index = Math.min(Math.floor(span), BRAND_GRADIENT.length - 2)
+  const local = span - index
+  // `index` is clamped to a valid adjacent pair, so both lookups are in-bounds.
+  const from = BRAND_GRADIENT[index] as readonly [number, number, number]
+  const to = BRAND_GRADIENT[index + 1] as readonly [number, number, number]
+  return [
+    Math.round(from[0] + (to[0] - from[0]) * local),
+    Math.round(from[1] + (to[1] - from[1]) * local),
+    Math.round(from[2] + (to[2] - from[2]) * local),
+  ]
+}
+
+/**
+ * Paint `text` left-to-right in the DeepSeek brand gradient with per-character
+ * 24-bit foreground codes, resetting to the default foreground at the end.
+ * Foreground-only, so it stays legible on any terminal background; the caller
+ * gates it on truecolor support and wraps it in bold.
+ *
+ * @param text - Text to colorize; sampled once per character.
+ * @returns `text` wrapped in truecolor SGR foreground codes.
+ */
+function gradientText(text: string): string {
+  // The sole caller passes the ASCII product name, so UTF-16 unit iteration
+  // samples exactly one color per visible letter.
+  const last = Math.max(1, text.length - 1)
+  let painted = ''
+  for (let index = 0; index < text.length; index += 1) {
+    const [r, g, b] = brandColorAt(index / last)
+    painted += `\x1b[38;2;${r};${g};${b}m${text.charAt(index)}`
+  }
+  return `${painted}\x1b[39m`
 }
 
 function markdownTheme(palette: Palette): MarkdownTheme {
@@ -378,31 +577,124 @@ async function readModelChoices(
   return groups.flat()
 }
 
+/** Milliseconds between banner sweep-reveal frames (~60 fps). */
+const BANNER_REVEAL_INTERVAL_MS = 15
+
+/** Number of sweep frames the banner reveal spreads the terminal width over. */
+const BANNER_REVEAL_STEPS = 24
+
+/**
+ * Borderless startup banner: product title, an optional configured subtitle,
+ * and the model/session detail line. No box frame — each line renders as plain
+ * left-padded text (matching transcript notices) so it reads on any theme.
+ */
 class HeaderComponent implements Component {
+  /** Columns of the banner currently revealed; `undefined` renders it whole. */
+  private revealWidth: number | undefined
+
   constructor(
     private readonly agent: Agent,
-    private readonly subtitle: () => string,
+    private readonly subtitle: () => string | undefined,
     private readonly palette: Palette,
+    private readonly gradient: boolean,
     private readonly currentModel: () => string | undefined,
   ) {}
+
+  /** Clip the banner to `width` columns (the sweep reveal); `undefined` restores it. */
+  setRevealWidth(width: number | undefined): void {
+    this.revealWidth = width
+  }
 
   invalidate(): void {}
 
   render(width: number): string[] {
-    const usable = Math.max(1, width - 4)
-    const title = `${this.palette.bold(this.palette.accent('DEEPSEEK'))} ${this.palette.bold('HARNESS')}`
+    const usable = Math.max(1, width - 2)
+    const name = this.gradient
+      ? this.palette.bold(gradientText('DEEPSEEK'))
+      : this.palette.bold(this.palette.accent('DEEPSEEK'))
+    const title = `${name} ${this.palette.bold('HARNESS')}`
     const model = displayText(this.currentModel() ?? 'model unset')
     const detail = `${model}  •  ${displayText(this.agent.session.id)}`
-    const top = this.palette.accent(`╭${'─'.repeat(Math.max(0, width - 2))}╮`)
-    const bottom = this.palette.accent(`╰${'─'.repeat(Math.max(0, width - 2))}╯`)
-    const lines = [title, this.palette.muted(displayText(this.subtitle())), this.palette.dim(detail)]
+    const subtitle = this.subtitle()
+    const lines = [
+      title,
+      ...subtitle === undefined ? [] : [this.palette.muted(displayText(subtitle))],
+      this.palette.dim(detail),
+    ]
       .flatMap(line => wrapTextWithAnsi(line, usable))
-      .map((line) => {
-        const clipped = truncateToWidth(line, usable, '')
-        return `${this.palette.accent('│')} ${clipped}${' '.repeat(Math.max(0, usable - visibleWidth(clipped)))} ${this.palette.accent('│')}`
-      })
-    return [top, ...lines, bottom]
+      .map(line => ` ${truncateToWidth(line, usable, '')}`)
+    if (this.revealWidth === undefined) return lines
+    const revealed = this.revealWidth
+    return lines.map(line => truncateToWidth(line, revealed, ''))
   }
+}
+
+/** Milliseconds between elapsed-time refreshes of the running status line. */
+const STATUS_ELAPSED_INTERVAL_MS = 1000
+
+/** Steering/cancel affordance shown on every running status line. */
+const STATUS_HINT = 'Enter sends steering, Esc cancels'
+
+/**
+ * Fine-grained activity of a running turn, derived in the TUI from session
+ * lifecycle events for the status line. It is presentation-only, not a durable
+ * agent state: `waiting` spans a step from its `step/start` until the first
+ * reasoning or text chunk, `thinking`/`responding` track reasoning/text deltas,
+ * and `executing` covers tool calls until the next step begins.
+ */
+type TurnPhase = 'waiting' | 'thinking' | 'responding' | 'executing'
+
+/**
+ * Live controller for the running status line: its {@link Loader}, the derived
+ * {@link TurnPhase}, the elapsed-time baselines the label reads, and the timer
+ * that refreshes it. Present only while the turn runs; `undefined` when idle.
+ */
+interface RunningStatus {
+  loader: Loader
+  phase: TurnPhase
+  phaseStartedAt: number
+  stepStartedAt: number
+  timer: ReturnType<typeof setInterval>
+}
+
+/** Status-line label for each {@link TurnPhase}. */
+const TURN_PHASE_LABELS: Record<TurnPhase, string> = {
+  waiting: 'Waiting for the first token',
+  thinking: 'Thinking',
+  responding: 'Responding',
+  executing: 'Executing tools',
+}
+
+/**
+ * Format a non-negative elapsed span as a compact status duration: whole
+ * seconds under a minute (`8s`), else minutes and zero-padded seconds
+ * (`1m05s`).
+ * @param elapsedMs - Elapsed time in milliseconds; negatives clamp to zero.
+ * @returns The compact duration string.
+ */
+function formatStatusDuration(elapsedMs: number): string {
+  const total = Math.floor(Math.max(0, elapsedMs) / 1000)
+  if (total < 60) return `${total}s`
+  return `${Math.floor(total / 60)}m${(total % 60).toString().padStart(2, '0')}s`
+}
+
+/**
+ * Compose the running status-line text from the current phase, its timers, and
+ * the queued-steering badge. The waiting phase spans the whole step so it shows
+ * one duration; later phases show time in the phase plus the running step
+ * total, and a non-zero `queued` count surfaces as a badge before the hint.
+ * @param phase - The current turn phase.
+ * @param phaseMs - Elapsed time in the current phase, in milliseconds.
+ * @param stepMs - Elapsed time in the current step, in milliseconds.
+ * @param queued - Count of pending steering messages; zero hides the badge.
+ * @returns The status-line text, including the steering/cancel hint.
+ */
+function formatTurnStatus(phase: TurnPhase, phaseMs: number, stepMs: number, queued: number): string {
+  const timing = phase === 'waiting'
+    ? formatStatusDuration(stepMs)
+    : `${formatStatusDuration(phaseMs)} · total ${formatStatusDuration(stepMs)}`
+  const badge = queued > 0 ? `${queued} queued · ` : ''
+  return `${TURN_PHASE_LABELS[phase]} ${timing} — ${badge}${STATUS_HINT}`
 }
 
 /**
@@ -549,7 +841,7 @@ function diffLines(diff: FileDiff, palette: Palette): string[] {
 }
 
 class ToolCardComponent implements Component {
-  private result: { content: ContentBlock[]; isError: boolean; meta?: unknown } | undefined
+  private result: { content: ContentBlock[]; isError: boolean; meta?: JsonValue } | undefined
   private expanded = false
   private callView: ToolCallView
   private resultView: ToolResultView | undefined
@@ -709,9 +1001,16 @@ function formatCwd(cwd: string | undefined): string {
   return cwd
 }
 
+/**
+ * Running token totals for the footer, keyed per turn/step so replayed or
+ * re-emitted usage replaces rather than double-counts; `input` is uncached
+ * input, cache buckets are disjoint.
+ */
 interface SessionTokenTotals {
   input: number
   output: number
+  cacheRead: number
+  cacheWrite: number
   readonly byStep: Map<string, TokenUsage>
 }
 
@@ -721,10 +1020,14 @@ function recordTokenUsage(totals: SessionTokenTotals, turn: number, step: number
   if (previous !== undefined) {
     totals.input -= previous.inputTokens
     totals.output -= previous.outputTokens
+    totals.cacheRead -= previous.cacheReadTokens ?? 0
+    totals.cacheWrite -= previous.cacheWriteTokens ?? 0
   }
   totals.byStep.set(key, usage)
   totals.input += usage.inputTokens
   totals.output += usage.outputTokens
+  totals.cacheRead += usage.cacheReadTokens ?? 0
+  totals.cacheWrite += usage.cacheWriteTokens ?? 0
 }
 
 function recordEventUsage(totals: SessionTokenTotals, event: SessionEvent): void {
@@ -735,12 +1038,94 @@ function recordEventUsage(totals: SessionTokenTotals, event: SessionEvent): void
   }
 }
 
+/**
+ * Share of billed input (prompt) tokens served from the provider cache, as an
+ * integer percent, or `undefined` before any input is billed (avoids 0/0 and a
+ * meaningless rate on an empty session).
+ */
+function cacheHitRate(totals: SessionTokenTotals): number | undefined {
+  const billedInput = totals.input + totals.cacheRead + totals.cacheWrite
+  if (billedInput === 0) return undefined
+  return Math.round((totals.cacheRead / billedInput) * 100)
+}
+
 function sessionTokens(session: Session): SessionTokenTotals {
-  const totals: SessionTokenTotals = { input: 0, output: 0, byStep: new Map() }
+  const totals: SessionTokenTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, byStep: new Map() }
   for (const event of session.events) {
     recordEventUsage(totals, event)
   }
   return totals
+}
+
+function formatDiagnosticNumber(value: number): string {
+  return value.toLocaleString('en-US')
+}
+
+function formatDiagnosticTime(value: number): string {
+  return new Date(value).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/u, ' UTC')
+}
+
+function formatDiagnosticCount(value: number, singular: string): string {
+  return `${String(value)} ${singular}${value === 1 ? '' : 's'}`
+}
+
+function diagnosticMeter(percent: number, palette: Palette): string {
+  const width = 16
+  const filled = Math.round(Math.min(100, Math.max(0, percent)) / 100 * width)
+  return `${palette.dim('[')}${palette.accent('█'.repeat(filled))}${palette.dim(`${'░'.repeat(width - filled)}]`)}`
+}
+
+type StatusCardRow = readonly [label: string, value: string]
+
+/** Bordered, grouped field card for one point-in-time status snapshot. */
+class StatusCardComponent implements Component {
+  constructor(
+    private readonly groups: readonly (readonly StatusCardRow[])[],
+    private readonly palette: Palette,
+  ) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const labels = this.groups.flatMap(group => group.map(([label]) => `${label}:`))
+    const naturalLabelWidth = Math.max(...labels.map(label => label.length))
+    const naturalBodyWidth = Math.max(...this.groups.flatMap(group => group.map(([, value]) =>
+      1 + naturalLabelWidth + 2 + visibleWidth(value))))
+    const cardWidth = Math.min(
+      Math.max(8, width),
+      Math.max('Session status'.length + 5, naturalBodyWidth + 4),
+    )
+    const innerWidth = Math.max(1, cardWidth - 4)
+    const labelWidth = Math.min(
+      naturalLabelWidth,
+      Math.max(1, Math.floor(innerWidth / 3)),
+    )
+    const body: string[] = []
+    for (const [groupIndex, group] of this.groups.entries()) {
+      if (groupIndex > 0) body.push('')
+      for (const [label, value] of group) {
+        const plainLabel = truncateToWidth(`${label}:`, labelWidth, '')
+        const prefix = ` ${this.palette.muted(plainLabel.padEnd(labelWidth))}  `
+        const continuation = ' '.repeat(1 + labelWidth + 2)
+        const valueWidth = Math.max(1, innerWidth - visibleWidth(prefix))
+        const wrapped = wrapTextWithAnsi(value, valueWidth)
+        for (const [lineIndex, line] of wrapped.entries()) {
+          body.push(`${lineIndex === 0 ? prefix : continuation}${line}`)
+        }
+      }
+    }
+
+    const title = truncateToWidth('Session status', Math.max(1, cardWidth - 5), '')
+    const topTail = '─'.repeat(Math.max(0, cardWidth - visibleWidth(title) - 5))
+    const top = `${this.palette.dim('╭─ ')}${this.palette.bold(this.palette.accent(title))}${this.palette.dim(` ${topTail}╮`)}`
+    const lines = [top]
+    for (const line of body) {
+      const clipped = truncateToWidth(line, innerWidth, '')
+      lines.push(`${this.palette.dim('│')} ${clipped}${' '.repeat(Math.max(0, innerWidth - visibleWidth(clipped)))} ${this.palette.dim('│')}`)
+    }
+    lines.push(this.palette.dim(`╰${'─'.repeat(Math.max(0, cardWidth - 2))}╯`))
+    return lines
+  }
 }
 
 class FooterComponent implements Component {
@@ -748,47 +1133,31 @@ class FooterComponent implements Component {
     private readonly agent: Agent,
     private readonly palette: Palette,
     private readonly toolsExpanded: () => boolean,
-    private readonly showReasoning: () => boolean,
-    private readonly tokens: () => { input: number; output: number },
+    private readonly tokens: () => SessionTokenTotals,
     private readonly cwdFormatter: TuiRuntime['formatCwd'],
     private readonly currentModel: () => string | undefined,
     private readonly contextPercent: () => number | undefined,
-    private readonly runningSeconds: () => number,
   ) {}
 
   invalidate(): void {}
 
   render(width: number): string[] {
-    if (this.agent.status === 'running') {
-      const interrupt = this.palette.dim('esc interrupt')
-      const activityAvailable = Math.max(0, width - visibleWidth(interrupt) - 1)
-      const activity = truncateToWidth(this.palette.accent(`◒ Working · ${this.runningSeconds()}s`), activityAvailable, '')
-      const gap = ' '.repeat(Math.max(0, width - visibleWidth(activity) - visibleWidth(interrupt)))
-      return [`${activity}${gap}${interrupt}`]
-    }
-    const { input, output } = this.tokens()
-    const counters = `↑${formatTokens(input)} ↓${formatTokens(output)}`
+    const totals = this.tokens()
     const model = displayText(this.currentModel() ?? 'model unset')
-    const modelState = `${model}(reasoning:${this.showReasoning() ? 'on' : 'off'})`
-    const contextPercent = this.contextPercent()
-    const context = contextPercent === undefined ? 'context unknown' : `${contextPercent}% context`
-    const fullRight = `${context}  tools:${this.toolsExpanded() ? 'expanded' : 'compact'}  ${modelState}`
-    const compactRight = `${context}  ${modelState}`
+    const rate = cacheHitRate(totals)
+    const cache = rate === undefined ? '' : `  cache ${rate}%`
     const formattedCwd = displayText(
       this.cwdFormatter?.(this.agent.session.header.cwd) ?? formatCwd(this.agent.session.header.cwd),
     )
-    if (visibleWidth(counters) + visibleWidth(compactRight) + 1 > width) {
-      const compact = truncateToWidth(compactRight, width, '')
-      return [`${' '.repeat(Math.max(0, width - visibleWidth(compact)))}${this.palette.dim(compact)}`]
-    }
-    const rightAvailable = width - visibleWidth(counters) - 1
-    const right = visibleWidth(fullRight) <= rightAvailable ? fullRight : compactRight
-    const rightClipped = truncateToWidth(right, rightAvailable, '')
-    const cwdAvailable = Math.max(0, width - visibleWidth(counters) - visibleWidth(rightClipped) - 3)
-    const cwd = truncateToWidth(formattedCwd, cwdAvailable, '')
-    const left = [cwd, counters].filter(Boolean).join('  ')
-    const gap = ' '.repeat(Math.max(0, width - visibleWidth(left) - visibleWidth(rightClipped)))
-    return [`${this.palette.dim(left)}${gap}${this.palette.dim(rightClipped)}`]
+    const left = `${model}  ${formattedCwd}  ↑${formatTokens(totals.input)} ↓${formatTokens(totals.output)}${cache}`
+    const contextPercent = this.contextPercent()
+    const context = contextPercent === undefined ? '' : `${contextPercent}% context  `
+    const right = `${context}tools:${this.toolsExpanded() ? 'expanded' : 'collapsed'}`
+    const leftStyled = this.palette.dim(left)
+    const available = Math.max(0, width - visibleWidth(left) - 2)
+    const rightClipped = truncateToWidth(right, available, '')
+    const gap = ' '.repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(rightClipped)))
+    return [truncateToWidth(`${leftStyled}${gap}${this.palette.dim(rightClipped)}`, width, '')]
   }
 }
 
@@ -949,9 +1318,15 @@ class QuestionDialog implements Component, Focusable {
     const lines = [
       this.palette.muted(header),
       ...wrapTextWithAnsi(this.palette.text(displayText(this.question.question)), innerWidth),
-      '',
     ]
     const push = (line: string): void => { lines.push(line) }
+    // Supporting detail (e.g. the full plan under review) renders between the
+    // question and the answer surface, kept out of option labels.
+    if (this.question.detail !== undefined) {
+      push('')
+      for (const line of wrapTextWithAnsi(displayText(this.question.detail), innerWidth)) push(line)
+    }
+    push('')
     if (this.mode === 'custom') {
       for (const line of this.input.render(innerWidth)) push(line)
       push(this.palette.dim(this.options.length > 0 ? 'Enter submit • Esc options' : 'Enter submit • Esc cancel'))
@@ -1011,7 +1386,83 @@ interface PendingQuestion {
   resolve(answer: AskUserQuestionAnswer): void
   reject(error: unknown): void
   onAbort: () => void
-  overlay: OverlayHandle | undefined
+  overlay: TuiOverlaySession | undefined
+}
+
+/** Merge path-only file candidates and optional session snapshots with commands. */
+class ReferenceAutocompleteProvider implements AutocompleteProvider {
+  constructor(
+    private readonly base: CombinedAutocompleteProvider,
+    private readonly files: WorkspaceFileSearch,
+    private readonly sessions: SessionReferenceService | undefined,
+    private readonly agent: Agent,
+  ) {}
+
+  async getSuggestions(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    options: { signal: AbortSignal; force?: boolean },
+  ): Promise<AutocompleteSuggestions | null> {
+    const basePromise = this.base.getSuggestions(lines, cursorLine, cursorCol, options)
+    const currentLine = lines[cursorLine]
+    /* v8 ignore next -- Editor always supplies its current state line. */
+    if (currentLine === undefined) return basePromise
+    const token = activeAtToken(currentLine, cursorCol)
+    if (token === undefined) {
+      this.files.invalidate()
+      return basePromise
+    }
+    const filePromise = this.files.list(token.query, options.signal).catch(() => [])
+    const sessionPromise = this.sessions === undefined || token.quoted
+      ? Promise.resolve([])
+      : this.sessions.listCandidates(this.agent, token.query, undefined, options.signal).catch(() => [])
+    const [base, fileCandidates, sessionCandidates] = await Promise.all([
+      basePromise,
+      filePromise,
+      sessionPromise,
+    ])
+    if (options.signal.aborted) return base
+    const fileItems: AutocompleteItem[] = fileCandidates.flatMap((candidate) => {
+      const value = formatFileMention(candidate, token.quoted)
+      if (value === undefined) return []
+      const name = candidate.path.slice(candidate.path.lastIndexOf('/') + 1)
+      const directory = candidate.kind === 'directory'
+      return [{
+        value,
+        label: `${directory ? 'Folder' : 'File'} · ${displayInlineText(name)}${directory ? '/' : ''}`,
+        description: displayInlineText(candidate.path),
+      }]
+    })
+    const sessionItems: AutocompleteItem[] = sessionCandidates.map((candidate) => {
+      const mentionLabel = displayInlineText(candidate.label)
+      const sessionId = displayInlineText(candidate.sessionId)
+      const location = candidate.cwd === undefined ? '(no cwd)' : displayInlineText(candidate.cwd)
+      const description = `${candidate.label === candidate.sessionId ? '' : `${sessionId} · `}${location} · ${new Date(candidate.createdAt).toISOString()}`
+      return {
+        value: formatSessionReferenceMention({ sessionId: candidate.sessionId, label: mentionLabel }),
+        label: `Session · ${mentionLabel}`,
+        description,
+      }
+    })
+    const items = [...fileItems, ...sessionItems]
+    if (items.length === 0) return base
+    return { items: [...items, ...(base?.items ?? [])], prefix: token.prefix }
+  }
+
+  applyCompletion(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    item: AutocompleteItem,
+    prefix: string,
+  ): { lines: string[]; cursorLine: number; cursorCol: number } {
+    return this.base.applyCompletion(lines, cursorLine, cursorCol, item, prefix)
+  }
+
+  shouldTriggerFileCompletion(lines: string[], cursorLine: number, cursorCol: number): boolean {
+    return this.base.shouldTriggerFileCompletion(lines, cursorLine, cursorCol)
+  }
 }
 
 /** Lifecycle handle for a mounted interactive terminal channel. */
@@ -1020,8 +1471,91 @@ export interface TuiController {
   dispose(): Promise<void>
 }
 
+/** Prefix that marks an editor submission as a manual skill invocation. */
+const SKILL_COMMAND_PREFIX = '/skill:'
+
+/** Parsed `/skill:<name> [instructions]` submission; `name` is empty when the prefix carries no name. */
+interface ParsedSkillCommand {
+  /** Skill name typed after `/skill:`, up to the first space. */
+  name: string
+  /** Trimmed text after the name; empty when none was typed. */
+  instructions: string
+}
+
+/**
+ * Split a `/skill:<name> [instructions]` submission into its name and trailing instructions.
+ * @param text - trimmed submission that starts with {@link SKILL_COMMAND_PREFIX}.
+ * @returns the skill name and any trailing instructions.
+ */
+function parseSkillCommand(text: string): ParsedSkillCommand {
+  const rest = text.slice(SKILL_COMMAND_PREFIX.length)
+  const spaceIndex = rest.indexOf(' ')
+  if (spaceIndex === -1) return { name: rest, instructions: '' }
+  return { name: rest.slice(0, spaceIndex), instructions: rest.slice(spaceIndex + 1).trim() }
+}
+
+/** Model-visible line locating a manually invoked skill's relative resources, or `undefined` when the provider has no base. */
+function skillResourceReference(base: SkillResourceBase | undefined): string | undefined {
+  if (base === undefined) return undefined
+  switch (base.kind) {
+    case 'directory':
+      return `References in this skill are relative to ${base.path}.`
+    case 'url':
+      return `References in this skill are relative to ${base.url}.`
+    case 'opaque':
+      return base.description
+    default:
+      return assertNever(base, 'SkillResourceBase.kind')
+  }
+}
+
+/**
+ * Render a manually invoked skill into the model-visible user-message text. The
+ * `<skill>` block carries the body and, when the provider supplies one, its
+ * resource base; the trimmed `instructions` follow the block as the user's
+ * request for this turn. The name is registry-validated kebab-case
+ * ({@link SkillService} rejects any other) and the resource base is trusted
+ * same-process provider prose, so — unlike the model-facing `dsh-tool-skill`
+ * result, which escapes for a tool channel — this user turn is assembled raw.
+ * @param skill - the loaded skill definition.
+ * @param instructions - trimmed text typed after `/skill:<name>`; empty when absent.
+ * @returns the user-message text delivered to the agent.
+ */
+export function renderSkillInvocation(skill: SkillDefinition, instructions: string): string {
+  const lines = [`<skill name="${skill.name}">`]
+  const reference = skillResourceReference(skill.resourceBase)
+  if (reference !== undefined) lines.push(reference, '')
+  lines.push(skill.content, '</skill>')
+  const block = lines.join('\n')
+  return instructions === '' ? block : `${block}\n\n${instructions}`
+}
+
 function activeSurfaceSeqs(session: Session): Set<number> {
   return new Set(session.surface.nodes)
+}
+
+function sessionReferenceCard(meta: unknown): string[] | undefined {
+  if (typeof meta !== 'object' || meta === null) return undefined
+  const record = meta as Record<string, unknown>
+  if (record['kind'] !== 'session-reference' || !Array.isArray(record['references'])) return undefined
+  const references = record['references'] as unknown[]
+  const labels: string[] = []
+  for (const reference of references) {
+    if (typeof reference !== 'object' || reference === null) return undefined
+    const entry = reference as Record<string, unknown>
+    const sessionId = entry['sessionId']
+    const label = entry['label']
+    if (typeof sessionId !== 'string' || typeof label !== 'string') return undefined
+    labels.push(label === sessionId ? sessionId : `${label} (${sessionId})`)
+  }
+  return labels
+}
+
+function promptReferenceCards(event: Extract<SessionEvent, { type: 'user/message' | 'steering/message' }>): string[][] {
+  return event.data.envelope?.prefixContexts.flatMap((context) => {
+    const card = sessionReferenceCard(context.meta)
+    return card === undefined ? [] : [card]
+  }) ?? []
 }
 
 function activeToolCallIds(session: Session, active: ReadonlySet<number>): Set<string> {
@@ -1050,12 +1584,14 @@ export function createTuiChat(
   const sessionId = SessionId(config.sessionId ?? 'main')
   const agent = ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`ui-tui: session "${sessionId}" is not running`)
+  const persistence = ctx.get('sessionPersistence')
   const resolved = resolveTuiConfig(config)
   const palette = createPalette(resolved.color)
   const mdTheme = markdownTheme(palette)
   const ui = new TUI(runtime.terminal, resolved.showHardwareCursor)
   const chat = new Container()
   const todoContainer = new Container()
+  const statusContainer = new Container()
   const editor = new Editor(ui, {
     borderColor: palette.dim,
     selectList: selectTheme(palette),
@@ -1064,18 +1600,38 @@ export function createTuiChat(
   let showReasoning = resolved.showReasoning
   let toolsExpanded = false
   let streaming: StreamingAssistantComponent | undefined
-  let runningStartedAt: number | undefined
-  let statusTicker: ReturnType<typeof setInterval> | undefined
+  let runningStatus: RunningStatus | undefined
+  // Steering messages queued during the running turn (`agent/queued`) that the
+  // loop has not yet drained, shown as a badge on the status line. Each entry is
+  // the queued message's serialized source: a drain (`steering/message`) removes
+  // one MATCHING entry, so loop-authored steering — continuation reasons enter
+  // the inbox without an `agent/queued` event — cannot consume a pending user
+  // message's slot. Cleared on leaving `running`, which also absorbs a
+  // cancellation that discards the queue without logging drains; the status
+  // line exists only while running, so idle carries no badge to keep current.
+  const pendingSteering: string[] = []
   let disposed = false
   let shuttingDown: Promise<void> | undefined
+  // Optional: skills mount conditionally, so read the global service store
+  // rather than declaring an injection that would make the TUI require them.
+  const skills = ctx.get('skills')
+  const cwd = agent.session.header.cwd ?? process.cwd()
+  const fileSearch = new WorkspaceFileSearch(cwd, {
+    maxResults: resolved.fileSearchMaxResults,
+    maxEntries: resolved.fileSearchMaxEntries,
+    excludedDirectories: resolved.fileSearchExcludedDirectories,
+  })
+  const skillAbort = new AbortController()
   const tokens = sessionTokens(agent.session)
   const toolCards = new Map<string, ToolCardComponent>()
   const allToolCards = new Set<ToolCardComponent>()
   const liveErrors = new Set<string>()
   const questionQueue: PendingQuestion[] = []
   const commandControllers = new Set<AbortController>()
+  const referenceControllers = new Set<AbortController>()
   let activeQuestion: PendingQuestion | undefined
-  let modelOverlay: OverlayHandle | undefined
+  let modelOverlay: TuiOverlaySession | undefined
+  let tuiServiceFiber: Fiber | undefined
   const target: AgentLlmTargetRef = { current: initialTarget(agent), assembled: undefined }
   let contextWindow: number | undefined
   let contextResolution: Promise<
@@ -1085,24 +1641,30 @@ export function createTuiChat(
   let modelCommands = Promise.resolve()
   const now = (): number => runtime.now?.() ?? Date.now()
 
-  const welcome = config.welcome ?? 'ready.'
+  // A configured subtitle renders as a banner line; when absent, the banner has
+  // no subtitle. The banner itself sweeps in on start (see startBannerReveal).
   let sessionTitle = foldSessionTitle(agent.session.events)?.title
-  const header = new HeaderComponent(agent, () => sessionTitle ?? welcome, palette, () => target.current?.model)
+  const header = new HeaderComponent(
+    agent,
+    () => sessionTitle ?? config.welcome,
+    palette,
+    resolved.color && resolved.truecolor,
+    () => target.current?.model,
+  )
   const footer = new FooterComponent(
     agent,
     palette,
     () => toolsExpanded,
-    () => showReasoning,
     () => tokens,
     runtime.formatCwd,
     () => target.current?.model,
     () => contextWindow === undefined
       ? undefined
       : Math.min(100, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens / contextWindow * 100)),
-    () => runningStartedAt === undefined ? 0 : Math.max(0, Math.floor((now() - runningStartedAt) / 1_000)),
   )
   ui.addChild(header)
   ui.addChild(chat)
+  ui.addChild(statusContainer)
   todoContainer.addChild(todo)
   ui.addChild(todoContainer)
   ui.addChild(editor)
@@ -1126,6 +1688,41 @@ export function createTuiChat(
     chat.addChild(new Text(color(displayText(message)), 1, 0))
     requestRender()
   }
+
+  const extensionTheme: TuiTheme = Object.freeze({
+    text: (value: string) => palette.text(value),
+    muted: (value: string) => palette.muted(value),
+    dim: (value: string) => palette.dim(value),
+    accent: (value: string) => palette.accent(value),
+    success: (value: string) => palette.success(value),
+    warning: (value: string) => palette.warning(value),
+    error: (value: string) => palette.error(value),
+    bold: (value: string) => palette.bold(value),
+  })
+  const overlayManager = new TuiOverlayManager({
+    viewport: () => Object.freeze({
+      columns: runtime.terminal.columns,
+      rows: runtime.terminal.rows,
+    }),
+    theme: () => extensionTheme,
+    display: displayText,
+    show: (component, options) => ui.showOverlay(component, options === undefined
+      ? undefined
+      : {
+        ...options,
+        ...typeof options.margin === 'object'
+          ? { margin: { ...options.margin } }
+          : {},
+      }),
+    invalidate: requestRender,
+    reportError: (error) => {
+      const message = errorChain(error)
+      ctx.logger.warn(`ui-tui: overlay failed: ${message}`)
+      /* v8 ignore next -- shutdown removes overlays before the terminal stops */
+      if (disposed) return
+      appendNotice(`TUI overlay failed: ${message}`, 'error')
+    },
+  })
 
   const disposeTargetListeners = installAgentLlmTarget(agent.ctx, target)
 
@@ -1166,29 +1763,29 @@ export function createTuiChat(
       appendNotice(`Current model: ${current}\nNo models are advertised by registered providers.`, 'warning')
       return
     }
-    modelOverlay?.hide()
-    modelOverlay = undefined
-    const close = (): void => {
-      modelOverlay?.hide()
-      modelOverlay = undefined
-      requestRender()
-    }
-    const dialog = new ModelDialog(
-      choices,
-      target.current,
-      resolved.maxModelOptions,
-      palette,
-      (selected) => {
-        close()
-        selectModel(selected)
+    void modelOverlay?.close()
+    const session = overlayManager.open({
+      create: () => new ModelDialog(
+        choices,
+        target.current,
+        resolved.maxModelOptions,
+        palette,
+        (selected) => {
+          void session.close()
+          selectModel(selected)
+        },
+        () => { void session.close() },
+      ),
+      options: {
+        width: resolved.modelDialogWidth,
+        maxHeight: resolved.modelDialogMaxHeight,
+        anchor: 'center',
+        margin: 1,
       },
-      close,
-    )
-    modelOverlay = ui.showOverlay(dialog, {
-      width: resolved.modelDialogWidth,
-      maxHeight: resolved.modelDialogMaxHeight,
-      anchor: 'center',
-      margin: 1,
+    })
+    modelOverlay = session
+    void session.closed.then(() => {
+      if (modelOverlay === session) modelOverlay = undefined
     })
     requestRender()
   }
@@ -1238,22 +1835,93 @@ export function createTuiChat(
   }
 
   const clearStatus = (): void => {
-    if (statusTicker !== undefined) clearInterval(statusTicker)
-    statusTicker = undefined
-    runningStartedAt = undefined
+    if (runningStatus !== undefined) {
+      clearInterval(runningStatus.timer)
+      runningStatus.loader.stop()
+      runningStatus = undefined
+    }
+    statusContainer.clear()
     runtime.terminal.setProgress(false)
   }
 
+  // Refresh the status line's elapsed timers and queued badge from the
+  // controller's phase and the current steering count.
+  const renderStatus = (running: RunningStatus): void => {
+    const at = now()
+    running.loader.setMessage(
+      formatTurnStatus(running.phase, at - running.phaseStartedAt, at - running.stepStartedAt, pendingSteering.length),
+    )
+  }
+
+  // Move to a derived phase, resetting the phase timer on a genuine change and
+  // the step timer when a new step begins; ignored unless a turn is running.
+  const enterPhase = (phase: TurnPhase, resetStep: boolean): void => {
+    const running = runningStatus
+    if (running === undefined) return
+    const at = now()
+    if (resetStep) running.stepStartedAt = at
+    if (phase !== running.phase || resetStep) running.phaseStartedAt = at
+    running.phase = phase
+    renderStatus(running)
+  }
+
   const setStatus = (status: AgentStatus): void => {
+    // A running→running rebuild (a mid-turn palette swap re-derives the border)
+    // carries the derived phase and both elapsed baselines across; only a fresh
+    // idle→running turn starts at `waiting`.
+    const prior = runningStatus
     clearStatus()
     editor.borderColor = status === 'running' ? text => palette.accent(text) : text => palette.dim(text)
     if (status === 'running') {
-      runningStartedAt = now()
-      statusTicker = setInterval(requestRender, 1_000)
-      statusTicker.unref()
+      const at = now()
+      const phase = prior?.phase ?? 'waiting'
+      const phaseStartedAt = prior?.phaseStartedAt ?? at
+      const stepStartedAt = prior?.stepStartedAt ?? at
+      const message = formatTurnStatus(phase, at - phaseStartedAt, at - stepStartedAt, pendingSteering.length)
+      const loader = new Loader(ui, text => palette.accent(text), text => palette.muted(text), message)
+      statusContainer.addChild(loader)
+      const running: RunningStatus = {
+        loader,
+        phase,
+        phaseStartedAt,
+        stepStartedAt,
+        timer: setInterval(() => { renderStatus(running) }, STATUS_ELAPSED_INTERVAL_MS),
+      }
+      runningStatus = running
       runtime.terminal.setProgress(true)
     }
     requestRender()
+  }
+
+  // Refresh the running status line's queued-steering badge from the current
+  // count; a no-op when idle because the controller only exists while running.
+  const refreshStatus = (): void => {
+    if (runningStatus !== undefined) renderStatus(runningStatus)
+    requestRender()
+  }
+
+  // Derive the status-line phase from live session lifecycle events. The event
+  // map is merge-extensible, so unhandled types fall through the default.
+  const advanceTurnPhase = (event: SessionEvent): void => {
+    switch (event.type) {
+      case 'step/start':
+        enterPhase('waiting', true)
+        break
+      case 'assistant/chunk': {
+        const chunk = event.data.chunk
+        if (chunk.type === 'reasoning-delta' || (chunk.type === 'block-start' && chunk.blockType === 'reasoning')) {
+          enterPhase('thinking', false)
+        } else if (chunk.type === 'text-delta' || (chunk.type === 'block-start' && chunk.blockType === 'text')) {
+          enterPhase('responding', false)
+        }
+        break
+      }
+      case 'tool/call':
+        enterPhase('executing', false)
+        break
+      default:
+        break
+    }
   }
 
   const parsedTool = (event: Extract<SessionEvent, { type: 'tool/call' }>): ToolCardComponent => {
@@ -1282,23 +1950,37 @@ export function createTuiChat(
   const renderEvent = (event: SessionEvent, options: { addHistory: boolean; renderChunks: boolean }): void => {
     switch (event.type) {
       case 'user/message': {
-        const text = displayText(contentText(event.data.content).trim())
+        const text = displayText(contentText(displayPromptContent(event.data)).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme))
           if (options.addHistory) editor.addToHistory(text)
         }
+        for (const references of promptReferenceCards(event)) {
+          chat.addChild(new Spacer(1))
+          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
+        }
         break
       }
       case 'steering/message': {
-        const text = displayText(contentText(event.data.content).trim())
+        const text = displayText(contentText(displayPromptContent(event.data)).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme, 'Steering'))
         }
+        for (const references of promptReferenceCards(event)) {
+          chat.addChild(new Spacer(1))
+          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
+        }
         break
       }
       case 'context/message': {
+        const references = sessionReferenceCard(event.data.meta)
+        if (references !== undefined) {
+          chat.addChild(new Spacer(1))
+          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
+          break
+        }
         const text = displayText(contentText(event.data.content).trim())
         if (text) {
           const source = event.data.source.kind === 'plugin' ? event.data.source.plugin : event.data.source.kind
@@ -1406,7 +2088,7 @@ export function createTuiChat(
   }
 
   const rejectQuestion = (pending: PendingQuestion): void => {
-    pending.overlay?.hide()
+    void pending.overlay?.close()
     pending.overlay = undefined
     removeAbortListener(pending)
     pending.reject(new UserInteractionError(
@@ -1429,31 +2111,48 @@ export function createTuiChat(
         startNextQuestion()
         return
       }
-      const dialog = new QuestionDialog(
-        question,
-        pending.index + 1,
-        pending.request.questions.length,
-        pending.request.questions.length - pending.answers.length,
-        resolved.maxQuestionOptions,
-        palette,
-        (selection) => {
-          pending.overlay?.hide()
-          pending.overlay = undefined
-          pending.answers.push({ id: question.id, ...selection })
-          pending.index += 1
-          show()
+      const session = overlayManager.open({
+        ...pending.request.signal === undefined ? {} : { signal: pending.request.signal },
+        create: () => new QuestionDialog(
+          question,
+          pending.index + 1,
+          pending.request.questions.length,
+          pending.request.questions.length - pending.answers.length,
+          resolved.maxQuestionOptions,
+          palette,
+          (selection) => {
+            pending.overlay = undefined
+            void session.close()
+            pending.answers.push({ id: question.id, ...selection })
+            pending.index += 1
+            show()
+          },
+          () => {
+            activeQuestion = undefined
+            rejectQuestion(pending)
+            startNextQuestion()
+          },
+        ),
+        options: {
+          width: resolved.questionDialogWidth,
+          maxHeight: resolved.questionDialogMaxHeight,
+          anchor: 'bottom-left',
+          margin: { bottom: 1 },
         },
-        () => {
-          activeQuestion = undefined
-          rejectQuestion(pending)
-          startNextQuestion()
-        },
-      )
-      pending.overlay = ui.showOverlay(dialog, {
-        width: resolved.questionDialogWidth,
-        maxHeight: resolved.questionDialogMaxHeight,
-        anchor: 'bottom-left',
-        margin: { bottom: 1 },
+      })
+      pending.overlay = session
+      void session.closed.then((result) => {
+        if (pending.overlay !== session) return
+        pending.overlay = undefined
+        /* v8 ignore next 2 -- close, abort, and shutdown settle the owner before this callback */
+        if (result.reason !== 'error') return
+        activeQuestion = undefined
+        removeAbortListener(pending)
+        pending.reject(new UserInteractionError(
+          `ask_user_question TUI failed: ${errorChain(result.error)}`,
+          'ASK_ABORTED',
+        ))
+        startNextQuestion()
       })
       requestRender()
     }
@@ -1489,25 +2188,68 @@ export function createTuiChat(
     },
   })
 
+  /**
+   * Persisted sessions for this workspace, newest first. Empty when no
+   * persistence backend is mounted or a listing failure would otherwise block
+   * exit or crash `/resume`; the resume hint is best-effort convenience.
+   */
+  const listWorkspaceSessions = async (): Promise<SessionHeader[]> => {
+    if (persistence === undefined) return []
+    let all: readonly SessionHeader[]
+    try {
+      all = await persistence.list()
+    } catch {
+      // A listing failure must never block terminal exit or crash `/resume`.
+      return []
+    }
+    return all
+      .filter(header => header.cwd === agent.session.header.cwd)
+      .sort((a, b) => b.createdAt - a.createdAt)
+  }
+
+  /**
+   * The resume command for the current session — the configured template with
+   * every `{session}` filled — but only once the session is durably persisted,
+   * so a session abandoned before its first flush yields no hint (resuming that
+   * id would fail to load).
+   */
+  const currentResumeCommand = async (): Promise<string | undefined> => {
+    if (config.resumeCommand === undefined) return undefined
+    const sessions = await listWorkspaceSessions()
+    if (!sessions.some(header => header.id === agent.session.id)) return undefined
+    return config.resumeCommand.replaceAll('{session}', agent.session.id)
+  }
+
   const shutdown = (exitProcess: boolean): Promise<void> => {
     shuttingDown ??= (async () => {
       disposed = true
+      overlayManager.beginShutdown()
       contextResolution = undefined
       clearStatus()
-      modelOverlay?.hide()
-      modelOverlay = undefined
       for (const controller of commandControllers) controller.abort(new Error('TUI disposed'))
       commandControllers.clear()
+      for (const controller of referenceControllers) controller.abort(new Error('TUI disposed'))
+      referenceControllers.clear()
+      await tuiServiceFiber?.dispose()
+      tuiServiceFiber = undefined
       if (activeQuestion !== undefined) {
         const pending = activeQuestion
         activeQuestion = undefined
         rejectQuestion(pending)
       }
       for (const pending of questionQueue.splice(0)) rejectQuestion(pending)
+      await overlayManager.dispose()
+      modelOverlay = undefined
       disposeUserInteraction()
       await runtime.terminal.drainInput(100, 20)
       ui.stop()
-      if (exitProcess) runtime.exit(0)
+      if (exitProcess) {
+        const command = await currentResumeCommand()
+        if (command !== undefined) {
+          runtime.terminal.write(`${palette.muted('To resume this session:')} ${displayText(command)}\n`)
+        }
+        runtime.exit(0)
+      }
     })()
     return shuttingDown
   }
@@ -1528,6 +2270,7 @@ export function createTuiChat(
     currentScheme = scheme
     Object.assign(palette, createPalette(resolved.color, scheme))
     Object.assign(mdTheme, markdownTheme(palette))
+    // `setStatus` below re-derives `editor.borderColor` from the new palette.
     rebuildTranscript(false)
     setStatus(agent.status)
     requestRender()
@@ -1577,21 +2320,105 @@ export function createTuiChat(
       'Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit',
       '',
       ...commandLines,
+      '/skill:<name> [instructions] — load a skill into the conversation',
     ].map(line => palette.muted(line)).join('\n'), 1, 0))
     requestRender()
   }
 
+  const showStatus = (): void => {
+    const events = agent.session.events
+    const latestActivity = events.at(-1)?.time ?? agent.session.header.createdAt
+    const usedContext = Math.max(0, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens))
+    let context = `${formatDiagnosticNumber(usedContext)} used · capacity unknown`
+    if (contextWindow !== undefined) {
+      const contextPercent = Math.round(usedContext / contextWindow * 100)
+      context = `${diagnosticMeter(contextPercent, palette)} ${String(contextPercent)}% used (${formatDiagnosticNumber(usedContext)} / ${formatDiagnosticNumber(contextWindow)})`
+    }
+    const rate = cacheHitRate(tokens)
+    const turns = events.filter(event => event.type === 'turn/start').length
+    const steps = events.filter(event => event.type === 'step/start').length
+    const toolCalls = events.filter(event => event.type === 'tool/call').length
+    const model = target.current === undefined ? 'unset' : displayText(targetLabel(target.current))
+    const groups: readonly (readonly StatusCardRow[])[] = [
+      [
+        ['Session', displayText(agent.session.id)],
+        ['Title', displayText(sessionTitle ?? 'untitled')],
+        ['Directory', displayText(cwd)],
+        ['Model', `${model} ${palette.dim(`(reasoning ${showReasoning ? 'shown' : 'hidden'})`)}`],
+      ],
+      [
+        ['Agent', [
+          agent.status,
+          formatDiagnosticCount(events.length, 'event'),
+          formatDiagnosticCount(turns, 'turn'),
+          formatDiagnosticCount(steps, 'step'),
+          formatDiagnosticCount(toolCalls, 'tool call'),
+        ].join(' · ')],
+      ],
+      [
+        ['Tokens', `${formatDiagnosticNumber(tokens.input)} input + ${formatDiagnosticNumber(tokens.output)} output`],
+        ['KV cache', rate === undefined
+          ? `n/a (${formatDiagnosticNumber(tokens.cacheRead)} read + ${formatDiagnosticNumber(tokens.cacheWrite)} write)`
+          : `${diagnosticMeter(rate, palette)} ${String(rate)}% hit (${formatDiagnosticNumber(tokens.cacheRead)} read + ${formatDiagnosticNumber(tokens.cacheWrite)} write)`],
+        ['Context', context],
+      ],
+      [
+        ['Created', formatDiagnosticTime(agent.session.header.createdAt)],
+        ['Active', formatDiagnosticTime(latestActivity)],
+      ],
+    ]
+    const card = new StatusCardComponent(groups, palette)
+    chat.addChild(new Spacer(1))
+    chat.addChild(card)
+    requestRender()
+  }
+
+  // Skill listing is async while `createTuiChat` is synchronous, so the
+  // completions rebuild once the catalog resolves. Disabled-for-model skills
+  // are absent from `list()`, so they never appear as completions; a user can
+  // still invoke one by typing its exact name.
+  let skillCommands: SlashCommand[] = []
   const refreshCommandAutocomplete = (): void => {
-    editor.setAutocompleteProvider(new CombinedAutocompleteProvider(
-      ctx.commands.list(agent).map(command => ({
-        name: command.name,
-        description: command.description,
-      })),
+    const base = new CombinedAutocompleteProvider(
+      [
+        ...ctx.commands.list(agent).map(command => ({
+          name: command.name,
+          description: command.description,
+        })),
+        ...skillCommands,
+      ],
       agent.session.header.cwd ?? process.cwd(),
+    )
+    const sessionReferences = ctx.get('sessionReferences')
+    editor.setAutocompleteProvider(new ReferenceAutocompleteProvider(
+      base,
+      fileSearch,
+      sessionReferences,
+      agent,
     ))
   }
   const disposeCommandChanges = ctx.on('commands/change', refreshCommandAutocomplete)
   refreshCommandAutocomplete()
+
+  const loadSkillCommands = (service: SkillService): void => {
+    service.list({ cwd, signal: skillAbort.signal }).then(
+      (summaries) => {
+        if (disposed || summaries.length === 0) return
+        skillCommands = summaries.map(skill => ({
+          name: `skill:${skill.name}`,
+          description: skill.description,
+          argumentHint: '[instructions]',
+        }))
+        refreshCommandAutocomplete()
+        requestRender()
+      },
+      () => {
+        // Discovery failed or was aborted on dispose; keep the base slash
+        // commands so autocomplete still works without skill entries.
+      },
+    )
+  }
+  if (skills !== undefined) loadSkillCommands(skills)
 
   // The agent scope is minted by agent-loop and intentionally inherits only
   // that core plugin's dependencies. A child command producer declares its own
@@ -1617,15 +2444,6 @@ export function createTuiChat(
       handler: () => { chat.clear(); requestRender(); return { kind: 'success' } },
     })
     commandCtx.commands.register({
-      name: 'cancel',
-      description: 'Cancel the active turn',
-      handler: () => {
-        if (agent.status !== 'running') return { kind: 'error', text: 'The agent is already idle.' }
-        agent.cancel({ kind: 'user' })
-        return { kind: 'success', text: 'Cancellation requested.' }
-      },
-    })
-    commandCtx.commands.register({
       name: 'reasoning',
       description: 'Toggle reasoning blocks',
       handler: () => { toggleReasoning(); return { kind: 'success' } },
@@ -1641,9 +2459,34 @@ export function createTuiChat(
       handler: () => { ui.invalidate(); ui.requestRender(true); return { kind: 'success' } },
     })
     commandCtx.commands.register({
+      name: 'reload',
+      description: 'EXPERIMENTAL (dev): re-read loader config files and apply the diff (idle only)',
+      handler: () => { runReload(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'resume',
+      description: 'List this workspace\'s resumable sessions',
+      handler: () => { showResume(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'status',
+      description: 'Show detailed session diagnostics',
+      handler: () => { showStatus(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
       name: 'exit',
       description: 'Exit after the active turn reaches idle',
       handler: () => { requestExit(); return { kind: 'success' } },
+    })
+  })
+  const fileReferencePromptFiber = agent.ctx.inject(['systemPrompt'], (promptCtx) => {
+    promptCtx.systemPrompt.section({
+      name: 'ui:tui-file-reference',
+      order: 99,
+      // Tool visibility can change dynamically or by agent scope. Empty
+      // sections are omitted by renderPrompt, so guidance never names a tool
+      // that this agent cannot call.
+      text: () => agent.ctx.tools.get('read', agent) === undefined ? '' : FILE_REFERENCE_PROMPT,
     })
   })
 
@@ -1667,26 +2510,195 @@ export function createTuiChat(
     ).finally(() => { commandControllers.delete(controller) })
   }
 
-  editor.onSubmit = (value: string) => {
-    const text = value.trim()
-    if (text === '') return
-    editor.addToHistory(text)
-    editor.setText('')
-    if (value.startsWith('/')) {
-      runCommand(value)
-      return
-    }
+  const dispatchMessage = (content: ContentBlock[], contexts: HookContext[]): void => {
     if (agent.status === 'disposed') {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
     } else if (agent.status === 'running') {
-      agent.steer([{ type: 'text', text }])
+      agent.steer(content, { contexts })
     } else {
-      agent.send([{ type: 'text', text }])
+      agent.send(content, { contexts })
     }
   }
 
+  /** Deliver a user turn to the agent: steer while running, send while idle, or report a disposed agent. */
+  const deliver = (payload: string): void => {
+    dispatchMessage([{ type: 'text', text: payload }], [])
+  }
+
+  /** Load a manually invoked skill and deliver its rendered body as a user turn, reporting lookup outcomes as notices. */
+  const invokeSkill = (name: string, instructions: string): void => {
+    if (skills === undefined) {
+      appendNotice('Skills are not available in this session.', 'warning')
+      return
+    }
+    skills.get(name, { cwd, signal: skillAbort.signal }).then(
+      (skill) => {
+        if (disposed) return
+        if (skill === undefined) {
+          appendNotice(`Unknown skill: ${name}`, 'warning')
+          return
+        }
+        deliver(renderSkillInvocation(skill, instructions))
+      },
+      (error: unknown) => {
+        if (disposed) return
+        appendNotice(`Skill "${name}" failed to load: ${errorChain(error)}`, 'error')
+      },
+    )
+  }
+
+  // EXPERIMENTAL, dev-only: manually re-read every file-backed loader config
+  // tree and apply the diff to the running app — the same path the HMR
+  // watcher's config-change branch drives, minus the watcher. Useful when the
+  // watcher misses an edit (replace-by-rename saves) or HMR is not mounted.
+  // Module-source hot reload stays watcher-owned; this refreshes configs only.
+  let reloadInFlight = false
+  const runReload = (): void => {
+    // Idle-only: a reload can dispose and re-mount entries mid-flight; doing
+    // that under an active turn could tear tools or the adapter out from
+    // under in-flight calls. Idleness is advisory (a send can race in after
+    // the check), but it removes the common footgun.
+    if (agent.status !== 'idle') {
+      appendNotice(`/reload requires an idle agent (status: ${agent.status}).`, 'warning')
+      return
+    }
+    // Re-entrancy guard: concurrent refreshes over a genuinely changed file
+    // would race unmutexed tree updates (create/remove interleaving); one
+    // reload at a time keeps the update pass single-writer.
+    if (reloadInFlight) {
+      appendNotice('A config reload is already running.', 'warning')
+      return
+    }
+
+    // Optional-service lookup: the TUI must not depend on the Loader (tests
+    // and embedders run without one), so `loader` stays out of `inject` and
+    // is read through the non-throwing `ctx.get` accessor — a bare `ctx.loader`
+    // proxy read would throw `cannot get property without inject` in a fiber.
+    const loader = ctx.get('loader') as { entries(): Iterable<{ subtree?: { refresh?(): Promise<void> } }> } | undefined
+    if (loader === undefined) {
+      appendNotice('/reload needs the cordis Loader; this runtime has none.', 'warning')
+      return
+    }
+    const refreshes: Promise<void>[] = []
+    for (const entry of loader.entries()) {
+      if (entry.subtree?.refresh !== undefined) refreshes.push(entry.subtree.refresh())
+    }
+    reloadInFlight = true
+    appendNotice(`Reloading ${refreshes.length} config tree(s)… (experimental)`)
+    // refresh() never rejects (it warns and keeps the running tree), so the
+    // join can only fulfill; the catch arm guards a future contract change.
+    void Promise.all(refreshes).then(() => {
+      appendNotice('Config reload complete. Unchanged files were skipped; invalid files keep the running tree (see logs).')
+    }).catch((error: unknown) => {
+      appendNotice(`Config reload failed: ${errorChain(error)}`, 'error')
+    }).finally(() => {
+      reloadInFlight = false
+    })
+  }
+
+  /**
+   * List this workspace's resumable sessions, newest first, each with its
+   * resume command and a marker on the current one. Warns when resume is not
+   * configured or no persistence backend is mounted; notes when nothing is
+   * persisted yet. The listing is asynchronous (a persistence scan), so the
+   * transcript updates once it resolves.
+   */
+  const showResume = (): void => {
+    const template = config.resumeCommand
+    if (template === undefined) {
+      appendNotice('Resume is not configured for this app.', 'warning')
+      return
+    }
+    if (persistence === undefined) {
+      appendNotice('Resume is not available: no persistence backend is mounted.', 'warning')
+      return
+    }
+    void listWorkspaceSessions().then((sessions) => {
+      if (sessions.length === 0) {
+        appendNotice('No resumable sessions found for this workspace yet.', 'info')
+        return
+      }
+      chat.addChild(new Spacer(1))
+      chat.addChild(new Text(palette.bold(palette.accent('Resumable sessions')), 1, 0))
+      const lines = sessions.map((header) => {
+        const when = new Date(header.createdAt).toISOString().slice(0, 16).replace('T', ' ')
+        const marker = header.id === agent.session.id ? palette.success(' (current)') : ''
+        return `${palette.muted(when)}${marker}\n  ${displayText(template.replaceAll('{session}', header.id))}`
+      })
+      chat.addChild(new Text(lines.join('\n'), 1, 0))
+      requestRender()
+    })
+  }
+
+  editor.onSubmit = (value: string) => {
+    const text = value.trim()
+    if (text === '') return
+    const restoreSubmittedInput = (): void => {
+      if (editor.getText() === '') editor.setText(value)
+    }
+    // `/skill:<name>` carries a colon, which the command registry's name
+    // grammar rejects, so it is intercepted before generic command routing.
+    if (text.startsWith(SKILL_COMMAND_PREFIX)) {
+      editor.addToHistory(text)
+      editor.setText('')
+      const { name, instructions } = parseSkillCommand(text)
+      if (name === '') appendNotice('Usage: /skill:<name> [instructions]', 'warning')
+      else invokeSkill(name, instructions)
+      return
+    }
+    if (value.startsWith('/')) {
+      editor.addToHistory(text)
+      editor.setText('')
+      runCommand(value)
+      return
+    }
+    let parsed: ReturnType<typeof parseSessionReferenceText>
+    try {
+      parsed = parseSessionReferenceText(text)
+    } catch (error: unknown) {
+      restoreSubmittedInput()
+      appendNotice(`Invalid session reference: ${errorChain(error)}`, 'error')
+      return
+    }
+    if (parsed.references.length === 0) {
+      editor.addToHistory(text)
+      editor.setText('')
+      dispatchMessage([{ type: 'text', text: parsed.text }], [])
+      return
+    }
+    const sessionReferences = ctx.get('sessionReferences')
+    if (sessionReferences === undefined) {
+      restoreSubmittedInput()
+      appendNotice('Session reference capability unavailable.', 'error')
+      return
+    }
+    const controller = new AbortController()
+    referenceControllers.add(controller)
+    editor.disableSubmit = true
+    void sessionReferences.prepare(
+      agent,
+      [{ type: 'text', text: parsed.text }],
+      parsed.references,
+      controller.signal,
+    ).then((prepared) => {
+      if (disposed) return
+      editor.addToHistory(text)
+      if (editor.getText() === value) editor.setText('')
+      dispatchMessage(prepared.content, prepared.contexts)
+    }, (error: unknown) => {
+      if (!disposed && !controller.signal.aborted) {
+        restoreSubmittedInput()
+        appendNotice(`Session reference failed: ${errorChain(error)}`, 'error')
+      }
+    }).finally(() => {
+      referenceControllers.delete(controller)
+      editor.disableSubmit = false
+      requestRender()
+    })
+  }
+
   const removeInputListener = ui.addInputListener((data) => {
-    if (activeQuestion !== undefined || modelOverlay !== undefined) return undefined
+    if (overlayManager.hasActiveOverlay()) return undefined
     if (matchesKey(data, Key.ctrl('o'))) {
       toggleTools()
       return { consume: true }
@@ -1724,7 +2736,20 @@ export function createTuiChat(
 
   const disposeSessionEvents = ctx.on('session/event', (session, event) => {
     if (session !== agent.session) return
+    if (event.type === 'tool/result') fileSearch.invalidate()
     recordEventUsage(tokens, event)
+    advanceTurnPhase(event)
+    if (event.type === 'steering/message') {
+      // A queued steering message reached the model as it drained; drop its
+      // entry from the badge. Matching by source keeps loop-authored steering
+      // (e.g. continuation reasons), which logs here without a matching
+      // `agent/queued` increment, from consuming a pending user slot.
+      const drained = pendingSteering.indexOf(JSON.stringify(event.data.source))
+      if (drained >= 0) {
+        pendingSteering.splice(drained, 1)
+        refreshStatus()
+      }
+    }
     if ('surfaceOp' in event && typeof event.surfaceOp === 'object') {
       rebuildTranscript(false)
       return
@@ -1732,8 +2757,17 @@ export function createTuiChat(
     renderEvent(event, { addHistory: false, renderChunks: true })
     requestRender()
   })
+  const disposeQueued = ctx.on('agent/queued', (subject, _content, info) => {
+    if (subject !== agent || !info.steering) return
+    pendingSteering.push(JSON.stringify(info.source))
+    refreshStatus()
+  })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {
     if (subject !== agent) return
+    // Leaving 'running' ends the turn's status line; clear any badge so the
+    // next running turn starts from zero (and a cancellation, which discards
+    // the queue without logging drains, cannot strand a stale count).
+    if (status !== 'running') pendingSteering.length = 0
     setStatus(status)
   })
   const disposeError = ctx.on('agent/error', (subject, turn, step, error) => {
@@ -1750,14 +2784,46 @@ export function createTuiChat(
   })
 
   const detachListeners = (): void => {
+    skillAbort.abort()
+    fileSearch.dispose()
     removeInputListener()
     disposeCommandChanges()
+    stopBannerReveal()
     disposeSessionEvents()
+    disposeQueued()
     disposeStatus()
     disposeError()
     disposeAgent()
     disposeSchemeListener()
     disposeTargetListeners()
+  }
+
+  // Sweep reveal of the whole banner: the header wipes in left-to-right over
+  // ~BANNER_REVEAL_STEPS frames (started after `ui.start()` succeeds).
+  // Configured subtitles skip it so deployments (and snapshot fixtures) stay
+  // frame-deterministic.
+  let revealTimer: ReturnType<typeof setInterval> | undefined
+  const stopBannerReveal = (): void => {
+    if (revealTimer === undefined) return
+    clearInterval(revealTimer)
+    revealTimer = undefined
+    header.setRevealWidth(undefined)
+  }
+  const startBannerReveal = (): void => {
+    if (config.welcome !== undefined) return
+    const total = Math.max(1, runtime.terminal.columns)
+    const step = Math.max(1, Math.ceil(total / BANNER_REVEAL_STEPS))
+    let shown = 0
+    header.setRevealWidth(0)
+    revealTimer = setInterval(() => {
+      shown += step
+      if (shown >= total) {
+        stopBannerReveal()
+      } else {
+        header.setRevealWidth(shown)
+      }
+      requestRender()
+    }, BANNER_REVEAL_INTERVAL_MS)
   }
 
   rebuildTranscript(true)
@@ -1767,10 +2833,13 @@ export function createTuiChat(
   } catch (error: unknown) {
     disposed = true
     detachListeners()
-    void commandFiber.dispose().catch(
+    void Promise.all([
+      commandFiber.dispose(),
+      fileReferencePromptFiber.dispose(),
+    ]).catch(
       /* v8 ignore next 2 -- command registration cleanup is non-throwing; this guards a future disposer regression */
       (cleanupError: unknown) => {
-        ctx.logger.warn(`ui-tui: command cleanup after startup failure failed: ${errorChain(cleanupError)}`)
+        ctx.logger.warn(`ui-tui: scoped cleanup after startup failure failed: ${errorChain(cleanupError)}`)
       },
     )
     clearStatus()
@@ -1778,12 +2847,19 @@ export function createTuiChat(
     ui.stop()
     throw error
   }
+  tuiServiceFiber = ctx.inject([], (serviceCtx) => {
+    new TuiExtensionServiceImpl(serviceCtx, agent, overlayManager)
+  })
+  startBannerReveal()
 
   return {
     async dispose(): Promise<void> {
       detachListeners()
       await shutdown(false)
-      await commandFiber.dispose()
+      await Promise.all([
+        commandFiber.dispose(),
+        fileReferencePromptFiber.dispose(),
+      ])
     },
   }
 }
@@ -1833,9 +2909,12 @@ export function mountTui(ctx: Context, config: Config, runtime: TuiRuntime): voi
    and the tui-agent PTY smoke covers the real entry */
 export function apply(ctx: Context, config: Config): void {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error('ui-tui: both stdin and stdout must be TTYs; use @deepseek-ai/dsh-cli-demo for non-interactive runs')
+    throw new Error('ui-tui: both stdin and stdout must be TTYs; use the one-shot @deepseek-ai/dsh-cli-demo app for pipes')
   }
-  mountTui(ctx, config, {
+  // Truecolor is a terminal capability, so detect it here at the process
+  // boundary from COLORTERM; an explicit `truecolor` config value still wins.
+  const truecolor = config.truecolor ?? ['truecolor', '24bit'].includes(process.env.COLORTERM ?? '')
+  mountTui(ctx, Object.assign({}, config, { truecolor }), {
     terminal: new ProcessTerminal(),
     exit: code => process.exit(code),
   })

@@ -6,7 +6,7 @@ import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -166,7 +166,7 @@ describe('bounded transient retry policy', () => {
     ])
     ;({ ctx: context } = await harness(adapter))
     let toolExecutions = 0
-    context.tools.register(defineTool({
+    context.tools.register(defineContentToolFixture({
       name: 'danger',
       description: 'must not run for a failed provider attempt',
       parameters: {},

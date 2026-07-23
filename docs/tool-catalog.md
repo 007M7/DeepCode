@@ -17,16 +17,18 @@ This table connects model-visible tool names to the plugin package and service s
 | --- | --- | --- | --- | --- | --- |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userInteraction` | `tool/call`, `tool/result after a UI/provider answers the question` | - | ask_user_question pauses the tool call until the active UI provider returns a human answer. |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`, `ctx.codeRuntime (execution time)`, `ctx.systemPrompt` | `tool/call`, `one tool/code-dispatch per bridged sub-call`, `tool/result` | - | Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. |
+| `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`, `ctx.systemPrompt`, `ctx.userInteraction (execution time, opportunistic)` | `tool/call`, `plan/mode inactive on an approved review`, `tool/result` | - | exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-interaction seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary. |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`, `ctx.bash`, `ctx.tasks at call time for run_in_background` | `tool/call`, `tool/result` | - | The bash tool is the model-facing consumer of the bash executor seam. A `run_in_background` run registers with the generic `ctx.tasks` runtime and is collected/stopped through the `task_*` tools from `@deepseek-ai/dsh-tool-tasks`; the `enableRunInBackground` config (default true) removes the parameter entirely when disabled. |
 | `@deepseek-ai/dsh-tool-cordis` | `cordis_inspect`, `cordis_mount`, `cordis_unmount` | `ctx.tools` | `tool/call`, `tool/result`, `live plugin-tree mutations (mount/unmount)` | - | Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes. |
 | `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after successful file operations`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin. |
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.bash`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
+| `@deepseek-ai/dsh-tool-pty` | `terminal_close`, `terminal_list`, `terminal_open`, `terminal_read`, `terminal_send`, `terminal_signal` | `ctx.tools`, `ctx.pty`, `ctx.systemPrompt`, `ctx.tasks at call time for run_in_background` | `tool/call`, `tool/result` | - | The six terminal tools are opt-in and complement one-shot bash/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema. |
 | `@deepseek-ai/dsh-tool-goal` | `create_goal`, `get_goal`, `update_goal` | `ctx.tools`, `ctx.agents`, `ctx.goals`, `ctx.systemPrompt`, `a calling Agent in an authorized open turn` | `tool/call`, `context/message goal snapshot for mutations`, `tool/result` | - | create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds. |
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`, `ctx.lsp`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-local`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema. |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`, `ctx.workflows`, `ctx.subagents`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents every fresh round)` | `tool/call`, `tool/result`, `workflow and child session events during execution` | - | A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap. |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.skills` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-subagent` | `subagent` | `ctx.tools`, `ctx.subagents` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/tui-agent/cordis.yml` and `examples/acp-agent/cordis.yml`. |
-| `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`. |
+| `@deepseek-ai/dsh-tool-tasks` | `task_kill`, `task_list`, `task_output` | `ctx.tools`, `ctx.tasks`, `ctx.systemPrompt` | `tool/call`, `tool/result`, `context/message via agent.inject() for background completion notices` | - | The kind-agnostic background-task control surface: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`. |
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist or ACP plan. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflows`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
@@ -46,6 +48,7 @@ Ask the user a concise question when you need confirmation, a choice, or missing
       "description": "Questions to ask the user before continuing.",
       "items": {
         "type": "object",
+        "additionalProperties": true,
         "properties": {
           "id": {
             "type": "string",
@@ -64,6 +67,7 @@ Ask the user a concise question when you need confirmation, a choice, or missing
             "description": "Optional choices to show the user. If you recommend one, put it first and append \"(Recommended)\" to that label.",
             "items": {
               "type": "object",
+              "additionalProperties": true,
               "properties": {
                 "label": {
                   "type": "string",
@@ -125,6 +129,31 @@ Execute a TypeScript program against the available tools. Write the BODY of an a
 Source: [`packages/core/tools/src/code-mode.ts`](../packages/core/tools/src/code-mode.ts)
 
 Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry's only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.
+
+## `@deepseek-ai/dsh-plan-mode`
+
+### `exit_plan_mode`
+
+Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. Send the COMPLETE plan as markdown, starting with a # heading that names it. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "plan": {
+      "type": "string",
+      "description": "The complete plan, as markdown, starting with a # heading that names it."
+    }
+  },
+  "required": [
+    "plan"
+  ]
+}
+```
+
+Source: [`packages/plan/plan-mode/src/index.ts`](../packages/plan/plan-mode/src/index.ts)
+
+exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-interaction seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary.
 
 ## `@deepseek-ai/dsh-tool-bash`
 
@@ -202,7 +231,7 @@ Source: [`packages/cordis/tool-cordis/src/index.ts`](../packages/cordis/tool-cor
 
 ### `cordis_mount`
 
-Mount a NEW cordis plugin into the live runtime that is running THIS agent (self-modification). `code` runs as the body of an async JavaScript function in an isolated sandbox and MUST `return` a plugin. Two forms: FUNCTION form `return (ctx) => { … }` — declares no inject, so it can register tools, listen to events, and provide services, but reaching ANY service (e.g. ctx.bash) throws; use it only when you need no services. OBJECT form `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }` — declares dependencies, and cordis activates the plugin only after the services exist; PREFER this form. You may reach ONLY the services you list in inject: an undeclared service throws even if it exists, because an undeclared dependency would not be cleaned up if its provider is unmounted. BEFORE calling a service from your code, read cordis_inspect what:"api" — it lists method signatures AND the type shapes of their arguments/returns (do not guess a field's type; e.g. a bash run's stdout is an object, not a string). Inside `apply`, use the standard cordis API: `ctx.on(event, listener)` to observe events (see cordis_inspect what:"events"), or call `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, async execute(args) { … } }))` to give yourself a new tool — it becomes callable on your NEXT step. Tool parameters: each key IS a property — { type: 'string'|'number'|'boolean'|'object'|'array', required?: true, description?, enum?, items?, properties? }; a JSON-Schema-style { type: 'object', properties, required: […] } wrapper and type 'integer' are also accepted and normalized. A tool's `execute` MUST return an ARRAY of content blocks, e.g. `return [{ type: 'text', text: someString }]` — never a bare string. Mounts can COMPOSE: one plugin may `ctx.provide('name', value)` a service and another may declare `inject: ['name']` to consume it — the consumer stays pending until the provider exists and returns to pending when the provider is unmounted. Everything registered inside `apply` is cleaned up automatically on unmount. Sandbox globals: `console` (tagged `[cordis:<id>]`, writes through to the harness terminal), `harness.defineTool`, `harness.registerTool`, `btoa`, `atob`, `TextEncoder`, `TextDecoder`. Node APIs are DISABLED — do filesystem/network/timer work through the cordis services, never Node built-ins: `require`, `setTimeout`/`setInterval`, and `fetch` throw redirect errors; `process` and `Buffer` are undefined. Instead use inject: ['fs'] + ctx.fs for files, inject: ['web'] + ctx.web for HTTP, inject: ['bash'] + ctx.bash for processes, and inject: ['timer'] + ctx.setTimeout/ctx.setInterval for timing (fiber effects, auto-cleaned on unmount) — cordis_inspect what:"api" shows what THIS runtime provides. Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a trailing `next` callback which MUST be called — returning without `next()` VETOES the call; prefer plain notification events unless you intend to intercept. (2) Never await something that only resolves after the current turn (your code runs INSIDE a tool call of that turn — it would deadlock). (3) Your `ctx` is a restricted façade: you can register tools, observe events, provide/consume services, and use timers, but framework internals (ctx.root, ctx.fiber, ctx.extend, ctx.plugin, …) are withheld. It is not a security boundary though — the services you inject (e.g. ctx.bash) reach the real runtime.
+Mount a NEW cordis plugin into the live runtime that is running THIS agent (self-modification). `code` runs as the body of an async JavaScript function in an isolated sandbox and MUST `return` a plugin. Two forms: FUNCTION form `return (ctx) => { … }` — declares no inject, so it can register tools, listen to events, and provide services, but reaching ANY service (e.g. ctx.bash) throws; use it only when you need no services. OBJECT form `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }` — declares dependencies, and cordis activates the plugin only after the services exist; PREFER this form. You may reach ONLY the services you list in inject: an undeclared service throws even if it exists, because an undeclared dependency would not be cleaned up if its provider is unmounted. BEFORE calling a service from your code, read cordis_inspect what:"api" — it lists method signatures AND the type shapes of their arguments/returns (do not guess a field's type; e.g. a bash run's stdout is an object, not a string). Inside `apply`, use the standard cordis API: `ctx.on(event, listener)` to observe events (see cordis_inspect what:"events"), or call `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, output: { schema: { type: 'string' }, render(_args, value) { return [{ type: 'text', text: value }] } }, async execute(args) { return args.text } }))` to give yourself a new tool — it becomes callable on your NEXT step. Tool parameters: each key IS a property — { type: 'string'|'number'|'integer'|'boolean'|'null'|'object'|'array'|'json', required?: true, description?, enum?, const?, items?, properties? }; every direct DSL object declares additionalProperties: true|false, and oneOf: [schema, schema, ...] replaces type for an exact-one union. A raw JSON-Schema { type: 'object', properties, required?: […] } wrapper is also accepted with open-by-default objects. A tool's `execute` MUST return the lossless JSON value declared by `output.schema`; `output.render(args, value)` separately returns Native/model content blocks. Mounts can COMPOSE: one plugin may `ctx.provide('name', value)` a service and another may declare `inject: ['name']` to consume it — the consumer stays pending until the provider exists and returns to pending when the provider is unmounted. Everything registered inside `apply` is cleaned up automatically on unmount. Sandbox globals: `console` (tagged `[cordis:<id>]`, writes through to the harness terminal), `harness.defineTool`, `harness.registerTool`, `btoa`, `atob`, `TextEncoder`, `TextDecoder`. Node APIs are DISABLED — do filesystem/network/timer work through the cordis services, never Node built-ins: `require`, `setTimeout`/`setInterval`, and `fetch` throw redirect errors; `process` and `Buffer` are undefined. Instead use inject: ['fs'] + ctx.fs for files, inject: ['web'] + ctx.web for HTTP, inject: ['bash'] + ctx.bash for processes, and inject: ['timer'] + ctx.setTimeout/ctx.setInterval for timing (fiber effects, auto-cleaned on unmount) — cordis_inspect what:"api" shows what THIS runtime provides. Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a trailing `next` callback which MUST be called — returning without `next()` VETOES the call; prefer plain notification events unless you intend to intercept. (2) Never await something that only resolves after the current turn (your code runs INSIDE a tool call of that turn — it would deadlock). (3) Your `ctx` is a restricted façade: you can register tools, observe events, provide/consume services, and use timers, but framework internals (ctx.root, ctx.fiber, ctx.extend, ctx.plugin, …) are withheld. It is not a security boundary though — the services you inject (e.g. ctx.bash) reach the real runtime.
 
 ```json
 {
@@ -395,6 +424,169 @@ Search file contents with a ripgrep regular expression. Returns matching lines w
 Source: [`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
 
 glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.
+
+## `@deepseek-ai/dsh-tool-pty`
+
+### `terminal_close`
+
+Close one persistent terminal and wait until its captured owned process tree is gone.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "Terminal session id."
+    }
+  },
+  "required": [
+    "sessionId"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `terminal_list`
+
+List persistent terminal sessions owned by the current agent.
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `terminal_open`
+
+Create a persistent, owner-isolated terminal session from a registered backend type. Use this for shell or REPL state that must survive across tool calls.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "description": "Registered terminal backend type, usually \"shell\"."
+    },
+    "name": {
+      "type": "string",
+      "description": "Optional owner-local display name such as \"main\" or \"gdb\"."
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Initial working directory. Defaults to the deployment workspace root."
+    }
+  },
+  "required": [
+    "type"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `terminal_read`
+
+Read a bounded page of retained output from a persistent terminal without sending input.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "Terminal session id."
+    },
+    "offset": {
+      "type": "number",
+      "description": "Newest-relative line offset (default 0)."
+    },
+    "count": {
+      "type": "number",
+      "description": "Requested line count (default 500; backend caps apply)."
+    }
+  },
+  "required": [
+    "sessionId"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `terminal_send`
+
+Send text to a persistent terminal. By default Enter is submitted and the call waits for a prompt, stdin wait, output silence, timeout, or session exit. Background mode returns a task id for task_output/task_kill.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "Terminal session id returned by terminal_open or terminal_list."
+    },
+    "text": {
+      "type": "string",
+      "description": "UTF-8 text to write to the terminal."
+    },
+    "submit": {
+      "type": "boolean",
+      "description": "Submit Enter after text (default true). Set false for control characters or incomplete REPL input."
+    },
+    "run_in_background": {
+      "type": "boolean",
+      "description": "Return a task id immediately; collect with task_output or stop with task_kill."
+    }
+  },
+  "required": [
+    "sessionId",
+    "text"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+### `terminal_signal`
+
+Send an allowed signal to the current foreground process group of a persistent terminal.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "Terminal session id."
+    },
+    "signal": {
+      "type": "string",
+      "description": "Signal to deliver. Shell-targeted SIGKILL is rejected; use terminal_close.",
+      "enum": [
+        "SIGINT",
+        "SIGTERM",
+        "SIGKILL",
+        "SIGTSTP",
+        "SIGHUP"
+      ]
+    }
+  },
+  "required": [
+    "sessionId",
+    "signal"
+  ]
+}
+```
+
+Source: [`packages/pty/tool-pty/src/index.ts`](../packages/pty/tool-pty/src/index.ts)
+
+The six terminal tools are opt-in and complement one-shot bash/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema.
 
 ## `@deepseek-ai/dsh-tool-goal`
 
@@ -689,7 +881,7 @@ Read a background task. Stream tasks return only output since the previous read;
 
 Source: [`packages/tasks/tool-tasks/src/index.ts`](../packages/tasks/tool-tasks/src/index.ts)
 
-The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`.
+The kind-agnostic background-task control surface: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers' `ctx.tasks.start()`.
 
 ## `@deepseek-ai/dsh-tool-todo`
 
@@ -706,6 +898,7 @@ Record and update a structured task list for the current work. Send the ENTIRE l
       "description": "The COMPLETE task list, replacing any previous list.",
       "items": {
         "type": "object",
+        "additionalProperties": true,
         "properties": {
           "content": {
             "type": "string",
@@ -747,7 +940,7 @@ Run a JavaScript workflow script that orchestrates subagents at scale. Use this 
 The workflow's identity rides the `meta` parameter as JSON: required `name` (short kebab-case) and `description` strings, optional `whenToUse` string and `phases` array (`{title, detail?, provider?, model?}`). The `script` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO `export const meta` statement — meta is a parameter, not code), running with top-level await; end with `return <value>` — the value must be JSON-serializable and is this tool's result.
 
 Script-body hooks:
-- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const — no oneOf/pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.
+- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.
 - `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages.
 - `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.
 - `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.
@@ -767,6 +960,7 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
     "meta": {
       "type": "object",
       "description": "The workflow identity block (plain JSON — never code).",
+      "additionalProperties": true,
       "properties": {
         "name": {
           "type": "string",
@@ -785,6 +979,7 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
           "description": "Optional phase declarations matched by phase() calls.",
           "items": {
             "type": "object",
+            "additionalProperties": true,
             "properties": {
               "title": {
                 "type": "string",
@@ -816,7 +1011,8 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
     },
     "args": {
       "type": "object",
-      "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]})."
+      "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
+      "additionalProperties": true
     }
   },
   "required": [

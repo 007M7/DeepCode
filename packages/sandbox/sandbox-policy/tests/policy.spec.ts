@@ -4,7 +4,9 @@
  * override kit (fold + write path) both enforcing families read.
  */
 
-import { resolve } from 'node:path'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -14,6 +16,16 @@ async function mounted(config: { mode?: 'read-only' | 'workspace-write' | 'dange
   const ctx = new Context()
   await ctx.plugin(SandboxPolicyService, config)
   return ctx
+}
+
+function session(id: string, cwd?: string): Session {
+  const sessionId = SessionId(id)
+  return new Session(sessionId, undefined, {
+    version: 0,
+    id: sessionId,
+    createdAt: 0,
+    ...cwd === undefined ? {} : { cwd },
+  })
 }
 
 describe('SandboxPolicyService', () => {
@@ -27,6 +39,71 @@ describe('SandboxPolicyService', () => {
     const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/ws/../ws/./sub' })
     expect(ctx.sandboxPolicy.defaultMode).toBe('workspace-write')
     expect(ctx.sandboxPolicy.workspaceRoot).toBe(resolve('/ws/../ws/./sub'))
+  })
+
+  it('resolves the deployment policy for an agentless call', async () => {
+    const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/fallback' })
+    expect(ctx.sandboxPolicy.resolve()).toEqual({
+      mode: 'workspace-write',
+      workspaceRoot: resolve('/fallback'),
+    })
+  })
+
+  it('resolves each session mode and cwd together without changing the fallback', async () => {
+    const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/fallback' })
+    const first = session('sess-first', '/projects/first')
+    const second = session('sess-second', '/projects/second')
+    setSandboxMode(second, 'read-only')
+
+    expect(ctx.sandboxPolicy.resolve({ session: first })).toEqual({
+      mode: 'workspace-write',
+      workspaceRoot: resolve('/projects/first'),
+    })
+    expect(ctx.sandboxPolicy.resolve({ session: second })).toEqual({
+      mode: 'read-only',
+      workspaceRoot: resolve('/projects/second'),
+    })
+    expect(ctx.sandboxPolicy.resolve()).toEqual({
+      mode: 'workspace-write',
+      workspaceRoot: resolve('/fallback'),
+    })
+  })
+
+  it('resolves a symlink-sensitive session cwd with filesystem semantics', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-policy-cwd-'))
+    try {
+      const lexical = join(root, 'lexical')
+      const physical = join(root, 'physical')
+      const child = join(physical, 'child')
+      mkdirSync(lexical)
+      mkdirSync(child, { recursive: true })
+      const link = join(lexical, 'link')
+      symlinkSync(child, link, process.platform === 'win32' ? 'junction' : 'dir')
+      const cwd = `${link}${sep}..`
+      const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/fallback' })
+
+      expect(ctx.sandboxPolicy.resolve({ session: session('sess-symlink-parent', cwd) })).toEqual({
+        mode: 'workspace-write',
+        workspaceRoot: realpathSync.native(physical),
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('lets an approved mode outrank the session mode while retaining its root', async () => {
+    const ctx = await mounted({ workspaceRoot: '/fallback' })
+    const active = session('sess-approved', '/projects/approved')
+    setSandboxMode(active, 'read-only')
+    expect(ctx.sandboxPolicy.resolve({ session: active, mode: 'danger-full-access' })).toEqual({
+      mode: 'danger-full-access',
+      workspaceRoot: resolve('/projects/approved'),
+    })
+  })
+
+  it('uses the configured root when a session has no cwd', async () => {
+    const ctx = await mounted({ workspaceRoot: '/fallback' })
+    expect(ctx.sandboxPolicy.resolve({ session: session('sess-no-cwd') }).workspaceRoot).toBe(resolve('/fallback'))
   })
 
   it('rejects a mode outside the closed vocabulary at load', async () => {

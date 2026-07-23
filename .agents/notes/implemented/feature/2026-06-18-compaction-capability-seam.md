@@ -16,7 +16,7 @@ Two forces shape the design. First, compaction policy and reusable token measure
 
 Per the [capability-seams Agent Note](../architecture/2026-06-13-capability-seams.md), compaction ships as separate packages so the contract, the algorithm, and (later) the consumer surface evolve independently:
 
-1. **Interface** — `@deepseek-ai/dsh-compact`: an abstract `CompactService` owning the `ctx.compact` key, the `CompactionResult` vocabulary, and the `compact/*` session events. It declares `compactIfNeeded()` and `compactRegion()` as **abstract** — the contract states *what* compaction does, not *how*.
+1. **Interface** — `@deepseek-ai/dsh-compact`: an abstract `CompactService` owning the `ctx.compact` key, the `CompactionResult` vocabulary, the `compact/*` session events, and the canonical checkpoint message source. It declares `compactIfNeeded()` and `compactRegion()` as **abstract** — the contract states *what* compaction does, not *how*.
 2. **Implementation** — `@deepseek-ai/dsh-compact-basic`: a concrete `BasicCompactService` that consumes `ctx.tokenMeter` and owns the tail→head retention walk, summarization via `ctx.llm.stream()`, the surface replacement, the lock, post-step pressure, and canonical context-overflow recovery. `summarize()` is its sole subclass hook; pricing and replay stay with the meter.
 3. **Model-free companion** — `@deepseek-ai/dsh-compact-tool-result-prune`: a concrete optional service that rewrites oversized current `tool/result` nodes before the backend selects a summary range. It is not a second compaction implementation and does not implement `CompactService`.
 4. **Consumer** — deferred. A `/compact` tool and slash command will `inject: ['compact']` and call the contract; they are intentionally out of scope here so the seam settles first.
@@ -31,7 +31,7 @@ This is not a coupling smell — it is the contract's domain. The "only cordis" 
 
 An earlier draft put the full algorithm (the retention walk, token-summing, text extraction) as concrete methods on the interface. That recouples the contract to one strategy: a backend that wants a different retention policy or event sequence would have to fight inherited concrete code. Making both core methods abstract puts every *how* decision in the backend and keeps the interface a statement of *what*. Token measurement is not a compaction hook at all; the singleton service lets multiple consumers share one per-session replay fold.
 
-`compactIfNeeded(agent, trigger, signal)` takes an explicit `'pressure' | 'context-overflow'` trigger and cancellation. It reads only the latest durable routed request; no header means no work, while any routed provider/model target uses the singleton estimator. `compactRegion(start, end, agent, signal?)` uses `agent.session` as its single session identity and keeps an optional signal for manual callers. The default summarizer resolves its target from explicit config, the latest logged routed target, then agent options, and records the provider/model pair after any `llm/stream` routing. It replays the routed request's prefix and appends the compaction directive as a trailing user message so the provider's warm KV cache is reused — see the [summary prefix-cache Agent Note](../bug-fix/2026-07-21-compaction-summary-prefix-cache-reuse.md).
+`compactIfNeeded(agent, trigger, signal)` takes an explicit `'pressure' | 'context-overflow'` trigger and cancellation. It reads only the latest durable routed request; no header means no work, while any routed provider/model target uses the singleton estimator. `compactRegion(start, end, agent, signal?)` uses `agent.session` as its single session identity and keeps an optional signal for manual callers. The default summarizer resolves its target from explicit config, the latest logged routed target, then agent options, and records the provider/model pair after any `llm/stream` routing. It replays the routed request's prefix and appends the compaction directive as a trailing user message so the provider's warm KV cache is reused — see the [summary prefix-cache Agent Note](../bug-fix/2026-07-21-compaction-summary-prefix-cache-reuse.md). The call sets the provider-neutral `GenerateOptions.purpose` to `compaction`; adapters may map that purpose to model-hidden transport metadata, and the DeepSeek adapter sends `x-deepseek-harness-compact: 1`.
 
 ### Automatic pressure runs after successful durable step work
 
@@ -69,13 +69,14 @@ Auto-compaction always starts at the surface head, merging the prior checkpoint 
 
 ### Surface replacement: `compact/*` events are log-only; one `user/message` carries the summary
 
-Because `SurfaceEventType` is closed, the summary cannot ride on a `compact/*` event. The backend instead appends a **single `user/message`** with `surfaceOp: { op: 'replace', start, end }` whose `content` is the (framed) summary and whose `sourceEventSeqs` covers the shadowed entries *and* the bookkeeping events. The `compact/*` events are pure log records (lock + provenance). The surface mutation sits **inside** the lock — `compact/end` is the last event appended:
+Because `SurfaceEventType` is closed, the summary cannot ride on a `compact/*` event. The backend instead appends a **single `user/message`** with `source: COMPACT_CHECKPOINT_SOURCE` and `surfaceOp: { op: 'replace', start, end }` whose `content` is the (framed) summary and whose `sourceEventSeqs` covers the shadowed entries *and* the bookkeeping events. The interface exports that source and `isCompactCheckpointSource()` so consumers recognize a persisted or cloned checkpoint without depending on backend package identity. The `compact/*` events are pure log records (lock + provenance). The surface mutation sits **inside** the lock — `compact/end` is the last event appended:
 
 ```
 compact/start    → log-only. Acquires the lock.
 [summarize older range via the backend]
 compact/summary  → log-only. Provenance: raw summary, range, shadowed seqs, token count.
-user/message     → surfaceOp { op:'replace', start, end }. THE surface mutation (framed summary).
+user/message     → canonical checkpoint source + surfaceOp { op:'replace', start, end }.
+                   THE surface mutation (framed summary).
                    deriveMessages() renders it as a user-role message.
 compact/end      → log-only. Releases the lock (carries `error` on a recoverable failure).
 ```
@@ -84,7 +85,7 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 
 ### Checkpoint framing + incremental merge (backend-private)
 
-The basic backend wraps the summary as established checkpoint context and tags it for incremental merging on the next cycle. The raw summary remains on `compact/summary`. Framing is backend policy; the seam promises only that one replacement user message carries the possibly framed summary.
+The basic backend wraps the summary as established checkpoint context and tags it for incremental merging on the next cycle. The raw summary remains on `compact/summary`. Framing is backend policy; the seam promises that one replacement user message carries the possibly framed summary and uses the canonical checkpoint source.
 
 ### Blocking via a log-recorded lock, plus a crash/recoverable failure taxonomy
 
@@ -108,6 +109,7 @@ Two failure paths, both documented:
 
 - **The full algorithm as concrete interface methods** — rejected because it recouples the contract to one retention strategy. Both core methods are abstract; reusable measurement is a separate LLM-family service and `summarize()` is basic's sole hook.
 - **Compaction on `agent/request` or provisional `agent/pre-step` inputs** — rejected because neither proves the final durable request and both couple generic lifecycle to compaction-specific envelope data. Post-step replay plus canonical overflow recovery covers both successful and rejected calls.
+- **A `compact` boolean or untyped request metadata map** — rejected because multiple auxiliary call kinds would become mutually exclusive flags, while an open bag would discard compiler-checked vocabulary. One typed `purpose` discriminant extends with additional call kinds without adding another `GenerateOptions` field.
 - **A separate `compact/error` event** — rejected: `compact/end` keeps an `error?` field, mirroring `tool/result`'s self-contained error — one event tells success from failure without correlating a sibling.
 - **Teaching core turn-repair about `compact/*`** — rejected: the log-only orphan is inert, and a core module patched for every future `xxx/start … xxx/end` plugin pair is exactly the coupling the capability-seam architecture exists to avoid.
 
@@ -116,7 +118,7 @@ Two failure paths, both documented:
 - **Packages**: `packages/compact/compact` supplies the interface, `compact-basic` supplies the backend, and `compact-tool-result-prune` supplies optional deterministic rewriting. `packages/llm/token-meter` owns replay-aware measurement independently. The consumer tier is deferred.
 - **Automatic seams**: `agent/post-step` (`@mode serial`) handles successful-call pressure and `agent/request-error` (`@mode waterfall`) handles final request failures after the failed step closes. Generic `agent/pre-step` remains a four-argument checkpoint with no compaction-only prompt/prefix payload.
 - **`SessionEventMap`** gains `compact/start` / `compact/summary` / `compact/end` by declaration merging (merge-extensible); `SurfaceEventType` is **not** touched. These are session events, not cordis `Events`, so the event-taxonomy gate needs no entry.
-- **`dsh-compact`** owns `toolPairingBalancedBefore(session, seq)` and `toolPairingBalancedAfter(session, seq)`, the cached surface-edge checks that `compactRegion` and `compactIfNeeded` use to avoid splitting a tool-call/result pair. The cache validates current membership by seq and answers both edges from one per-cut balance sequence; stale or missing seqs and orphan results reject.
+- **`dsh-compact`** owns `COMPACT_CHECKPOINT_SOURCE`, `isCompactCheckpointSource(source)`, `toolPairingBalancedBefore(session, seq)`, and `toolPairingBalancedAfter(session, seq)`. The marker identifies replacement summaries across backend implementations. The cached surface-edge checks prevent `compactRegion` and `compactIfNeeded` from splitting a tool-call/result pair, validate current membership by seq, answer both edges from one per-cut balance sequence, and reject stale or missing seqs and orphan results.
 - **`dsh-session`** validates positional replacement, complete provenance, and content-only single-node `tool/result` rewrites through its one surface manager. Its invariant companion treats fresh appended tool results as executions that require an open step and pending call; validated replacements remain turn-enclosed rewrites.
 - **Wiring**: `examples/tui-agent/cordis.yml` loads zero-config `dsh-token-meter`, `dsh-compact-tool-result-prune`, then `dsh-compact-basic`; service-wide defaults make the composition usable without repeated numeric policy.
 

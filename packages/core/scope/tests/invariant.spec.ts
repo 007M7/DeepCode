@@ -42,7 +42,7 @@ describe('scoped-dispatch invariants', () => {
       'agent/created': [agent],
       'agent/disposed': [agent],
       'agent/status': [agent, 'idle'],
-      'agent/queued': [agent, [], { source: { kind: 'user' }, steering: false }],
+      'agent/queued': [agent, [], { source: { kind: 'user' }, contexts: [], steering: false }],
       'agent/cancel-requested': [agent, { kind: 'user' }],
       'agent/session-start': [agent, 'startup'],
       'agent/pre-step': [agent, 1, 1, signal],

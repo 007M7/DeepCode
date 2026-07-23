@@ -13,12 +13,15 @@
   config:
     root: ['.']
 
-# The DeepSeek adapter.
+# The DeepSeek adapter. Shipped default: full thinking at max effort on every
+# request (wire-only defaults; they never enter the request header).
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
+    thinking: enabled
+    reasoningEffort: max
 
 # Local bash executor for agent-spine-demo's tool-bash schema — gives the agent an
 # ordinary tool whose calls make the mounted listeners observably fire.
@@ -52,7 +55,7 @@
   name: '@deepseek-ai/dsh-tui-demo'
   config:
     provider: deepseek
-    model: deepseek-v4-flash
+    model: deepseek-v4-pro
     resumeSessionId: !!js process.env.RESUME_SESSION_ID
     persistenceRoot: './.sessions'
     workspaceContext:

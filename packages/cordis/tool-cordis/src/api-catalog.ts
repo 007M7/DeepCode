@@ -230,7 +230,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
-        jsDoc: '/**\n * Forcibly compact a range of surface nodes into a single summary node.\n * `start` and `end` name an inclusive span by surface position, not numeric seq\n * order; replacements can make visible seqs non-monotonic. Both edges must be\n * balanced so assistant tool calls remain paired with their results. A model-\n * backed implementation forwards cancellation and rejects active, missing,\n * reversed, or unbalanced ranges. The target session is `agent.session`.\n * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}\n * for the edge checks.\n *\n * @param start - first surface seq, inclusive.\n * @param end - last surface seq, inclusive.\n * @param agent - context whose session is mutated and whose routing options guide summarization.\n * @param signal - optional cancellation; model-backed implementations must forward it.\n * @throws when compaction is active or the range is missing, reversed, or unbalanced.\n * @returns the appended event seqs, summary, replaced range, and token accounting.\n */',
+        jsDoc: '/**\n * Forcibly compact a range of surface nodes into a single summary node.\n * `start` and `end` name an inclusive span by surface position, not numeric seq\n * order; replacements can make visible seqs non-monotonic. Both edges must be\n * balanced so assistant tool calls remain paired with their results. A model-\n * backed implementation forwards cancellation and rejects active, missing,\n * reversed, or unbalanced ranges. The target session is `agent.session`.\n * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.\n * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}\n * for the edge checks.\n *\n * @param start - first surface seq, inclusive.\n * @param end - last surface seq, inclusive.\n * @param agent - context whose session is mutated and whose routing options guide summarization.\n * @param signal - optional cancellation; model-backed implementations must forward it.\n * @throws when compaction is active or the range is missing, reversed, or unbalanced.\n * @returns the appended event seqs, summary, replaced range, and token accounting.\n */',
       },
     ],
   },
@@ -263,12 +263,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * List direct children of a directory in stable name order. Returns resolved\n * child targets plus cheap metadata only; never reads file contents.\n * @param target - the resolved directory target.\n * @param signal - aborts the listing.\n * @returns one entry per direct child, in stable name order.\n */',
       },
       {
-        signature: 'abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsWriteOutcome>',
-        jsDoc: '/**\n * Atomically create or replace UTF-8 text. `expected` guards intent and\n * staleness; omission allows unconditional overwrite.\n * @param target - the resolved target to write.\n * @param content - the full new file content.\n * @param expected - the write intent guarding the write; omit for unconditional.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxMode - the per-call sandbox mode this write runs under; a\n *   sandboxing backend fences the write by it, the bare backend ignores it.\n *   Omit to leave the backend its own default.\n * @returns the outcome, including the version the write produced.\n */',
+        signature: 'abstract writeText( target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsWriteOutcome>',
+        jsDoc: '/**\n * Atomically create or replace UTF-8 text. `expected` guards intent and\n * staleness; omission allows unconditional overwrite.\n * @param target - the resolved target to write.\n * @param content - the full new file content.\n * @param expected - the write intent guarding the write; omit for unconditional.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxPolicy - the per-call mode and workspace root this write\n *   runs under; a sandboxing backend fences the write by it, the bare backend\n *   ignores it. Omit to leave the backend its own default.\n * @returns the outcome, including the version the write produced.\n */',
       },
       {
-        signature: 'abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxMode?: SandboxMode, ): Promise<FsEditOutcome>',
-        jsDoc: '/**\n * Atomically edit literal text. When supplied, the version guard is checked\n * before matching so stale content reports `FS_STALE_VERSION`; omission edits\n * the current content without a freshness precondition.\n * @param target - the resolved target to edit.\n * @param edit - the literal search/replace request.\n * @param expected - the version guard; omit for an unconditional edit.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxMode - the per-call sandbox mode this edit runs under; a\n *   sandboxing backend fences the edit by it, the bare backend ignores it.\n *   Omit to leave the backend its own default.\n * @returns the outcome, including the version the edit produced.\n */',
+        signature: 'abstract editText( target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy, ): Promise<FsEditOutcome>',
+        jsDoc: '/**\n * Atomically edit literal text. When supplied, the version guard is checked\n * before matching so stale content reports `FS_STALE_VERSION`; omission edits\n * the current content without a freshness precondition.\n * @param target - the resolved target to edit.\n * @param edit - the literal search/replace request.\n * @param expected - the version guard; omit for an unconditional edit.\n * @param signal - aborts before the atomic rename takes effect.\n * @param sandboxPolicy - the per-call mode and workspace root this edit runs\n *   under; a sandboxing backend fences the edit by it, the bare backend\n *   ignores it. Omit to leave the backend its own default.\n * @returns the outcome, including the version the edit produced.\n */',
       },
     ],
   },
@@ -373,6 +373,58 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'planMode',
+    summary: '`ctx.planMode`: owns logged plan state, boundary application and narration, the `plan:policy` section, the `/plan` command, and the stable exit tool.',
+    methods: [
+      {
+        signature: 'get(agent: Agent): { active: boolean; pending?: boolean }',
+        jsDoc: '/**\n * Read the logged plan state and any selected state awaiting a boundary.\n *\n * @param agent The agent to read.\n * @returns Current logged state plus a pending selection, when present.\n */',
+      },
+      {
+        signature: 'set(agent: Agent, active: boolean): void',
+        jsDoc: '/**\n * Select whether plan mode should be active from the next turn boundary.\n * Repeated selection of the current or already-pending state is a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n */',
+      },
+    ],
+  },
+  {
+    key: 'pty',
+    summary: 'In-process registry for replaceable PTY backends and exact-Agent sessions.',
+    methods: [
+      {
+        signature: 'registerBackend(backend: PtyBackend): () => void',
+        jsDoc: '/**\n * Register one backend type for this effect scope.\n * @param backend - provider with a non-empty unique type.\n * @returns disposer that removes exactly this contribution.\n */',
+      },
+      {
+        signature: 'listBackends(): string[]',
+        jsDoc: '/**\n * List registered backend types in registration order.\n * @returns fresh backend type names.\n */',
+      },
+      {
+        signature: 'async spawn(owner: Agent, request: PtySpawnRequest, signal?: AbortSignal): Promise<PtySpawnResult>',
+        jsDoc: '/**\n * Create and publish one owner-scoped session after backend setup succeeds.\n * @param owner - exact registered Agent that owns access and cleanup.\n * @param request - backend type plus optional owner-local name and cwd.\n * @param signal - cancellation of unpublished setup.\n * @returns published identity, metadata, status, and MOTD.\n */',
+      },
+      {
+        signature: 'startSend(owner: Agent, id: PtySessionId, request: PtySendRequest): PtySendOperation',
+        jsDoc: '/**\n * Start one exclusive interactive send.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param request - explicit text, submit behavior, and cancellation.\n * @returns live operation handle for foreground await or task registration.\n */',
+      },
+      {
+        signature: 'read(owner: Agent, id: PtySessionId, request: PtyReadRequest = {}): PtyReadResult',
+        jsDoc: '/**\n * Read one bounded scrollback page from an owned session.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param request - optional newest-relative offset and line count.\n * @returns bounded retained text and pagination metadata.\n */',
+      },
+      {
+        signature: 'signal(owner: Agent, id: PtySessionId, signal: PtySignal): Promise<PtySignalResult>',
+        jsDoc: '/**\n * Deliver an allowed signal through an owned backend session.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param signal - allowed POSIX signal name.\n * @returns delivered foreground process-group identity.\n */',
+      },
+      {
+        signature: 'async kill(owner: Agent, id: PtySessionId, reason = \'model request\'): Promise<boolean>',
+        jsDoc: '/**\n * Close one owned session and remove it only after quiescent backend cleanup.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param reason - diagnostic cleanup reason.\n * @returns true for a newly closed session, false when the same close is already in flight.\n */',
+      },
+      {
+        signature: 'list(owner: Agent): PtySessionSnapshot[]',
+        jsDoc: '/**\n * List fresh snapshots for exactly one owner.\n * @param owner - exact owner whose sessions are visible.\n * @returns owner-visible snapshots in publication order.\n */',
+      },
+    ],
+  },
+  {
     key: 'sandbox',
     summary: 'Abstract process-sandbox service.',
     methods: [
@@ -385,7 +437,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'sandboxPolicy',
     summary: 'The sandbox-policy service (`ctx.sandboxPolicy`).',
-    methods: [],
+    methods: [
+      {
+        signature: 'resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy',
+        jsDoc: '/**\n * Resolve the complete policy for one capability call. An approved explicit\n * mode outranks the session\'s last `sandbox/mode` event, which outranks the\n * deployment default. A session cwd is its workspace-write boundary; the\n * configured root is the fallback for agentless calls and sessions without a\n * cwd.\n * @param request - optional session and approved mode override.\n * @returns the fully resolved per-call mode and absolute workspace root.\n */',
+      },
+    ],
   },
   {
     key: 'sessionPersistence',
@@ -430,6 +487,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * List lightweight raw-log event records for one logical session.\n * @param sessionId - live-preferred session id to read.\n * @returns event records in ascending seq order.\n */',
       },
       {
+        signature: 'async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot>',
+        jsDoc: '/**\n * Read one session\'s complete current model surface from one corpus observation.\n * @param sessionId - live-preferred session id to read.\n * @returns cloned header, current surface, and raw-log capture boundary.\n * @throws when source resolution fails or the session surface is invalid.\n */',
+      },
+      {
         signature: 'async traceSession(sessionId: SessionId): Promise<SessionLineageTrace>',
         jsDoc: '/**\n * Trace known ancestry and descendants from one corpus observation.\n * @param sessionId - logical session id to trace.\n * @returns a complete lineage or an explicit unresolved parent boundary.\n * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.\n */',
       },
@@ -440,6 +501,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>',
         jsDoc: '/**\n * Read one full event plus a bounded raw-log context window.\n * @param request - target session/seq and context sizes.\n * @returns cloned target and neighboring events.\n */',
+      },
+    ],
+  },
+  {
+    key: 'sessionReferences',
+    summary: 'Exact-read consumer that prepares immutable cross-session message context.',
+    methods: [
+      {
+        signature: 'async listCandidates( agent: Agent, query = \'\', limit = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>',
+        jsDoc: '/**\n * List reference candidates, ranked by working-directory affinity.\n * @param agent - target agent; self is excluded and its cwd drives ranking.\n * @param query - optional case-insensitive session-id/cwd substring.\n * @param limit - optional positive result cap.\n * @param signal - optional cancellation boundary for host autocomplete teardown.\n * @returns candidates labeled by latest title or, when absent, session id.\n */',
+      },
+      {
+        signature: 'async prepare( agent: Agent, content: ContentBlock[], references: SessionReferenceInput[], signal?: AbortSignal, ): Promise<PreparedReferencedMessage>',
+        jsDoc: '/**\n * Snapshot all references before enqueue and return one aggregated durable context.\n * @param agent - target agent; references to it are rejected.\n * @param content - already host-normalized readable message content.\n * @param references - structured source sessions in mention order.\n * @param signal - optional cancellation boundary for host request teardown.\n * @returns detached content and zero or one prepared contexts.\n */',
       },
     ],
   },
@@ -684,6 +759,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'tui',
+    summary: 'Optional terminal-local interaction service provided by one mounted TUI.',
+    methods: [
+      {
+        signature: 'abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession',
+        jsDoc: '/**\n * Queue an interactive overlay owned by the calling plugin fiber.\n *\n * The TUI displays one overlay at a time in FIFO order. Disposing the caller\n * removes a queued overlay or closes an active one before plugin teardown\n * settles. This live presentation is neither logged nor replayed.\n *\n * @param request - component factory, layout constraints, and cancellation.\n * @returns the effect-owned overlay session.\n * @throws when the TUI has begun shutting down.\n */',
+      },
+    ],
+  },
+  {
     key: 'userInteraction',
     summary: '`ctx.userInteraction`: one active UI provider plus an `ask()` surface.',
     methods: [
@@ -786,14 +871,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/prompt-submit',
     mode: 'waterfall',
     signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
-    jsDoc: '/**\n * Allow, rewrite, or block one claimed prompt before it becomes a user\n * message. Call `next()` for the unchanged default. The signal controls only\n * this turn; listeners may cooperate with it but must not retain it to\n * control another turn.\n * @param agent - the agent whose turn claimed the message.\n * @param content - the claimed message\'s blocks, as queued.\n * @param source - the message\'s resolved source.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    jsDoc: '/**\n * Allow, rewrite, or block one claimed prompt before it becomes a user\n * message. Call `next()` for the unchanged default. A listener wrapping a\n * downstream `allow` must preserve its `content` and `additionalContexts`\n * unless it intentionally replaces them. The signal controls only this turn;\n * listeners may cooperate with it but must not retain it to control another\n * turn. Steering messages do not dispatch this event; they join an open turn\n * at a steering checkpoint.\n * @param agent - the agent whose turn claimed the message.\n * @param content - the claimed message\'s blocks, as queued.\n * @param source - the message\'s resolved source.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Allow, rewrite, or block one claimed prompt before it becomes a user message.',
   },
   {
     name: 'agent/queued',
     mode: 'emit',
-    signature: '\'agent/queued\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; steering: boolean }): void',
-    jsDoc: '/**\n * Detached, frozen content entered the agent\'s inbox. Source defaults have\n * already been applied, so these are the exact values retained for the log.\n * @param agent - the agent whose inbox received the message.\n * @param content - the accepted content blocks retained by the inbox.\n * @param info - the accepted source plus whether it entered as steering.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/queued\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; contexts: HookContext[]; steering: boolean }): void',
+    jsDoc: '/**\n * Detached, frozen content entered the agent\'s inbox. Source defaults have\n * already been applied, so these are the exact values retained for the log.\n * @param agent - the agent whose inbox received the message.\n * @param content - the accepted content blocks retained by the inbox.\n * @param info - the accepted source, contexts, and whether it entered as steering.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'Detached, frozen content entered the agent\'s inbox.',
   },
   {
@@ -1098,7 +1183,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'AskUserQuestionItem',
-    declaration: 'export interface AskUserQuestionItem {\n    id: string;\n    question: string;\n    header?: string;\n    options?: AskUserQuestionOption[];\n    multiSelect?: boolean;\n}',
+    declaration: 'export interface AskUserQuestionItem {\n    id: string;\n    question: string;\n    detail?: string;\n    header?: string;\n    options?: AskUserQuestionOption[];\n    multiSelect?: boolean;\n}',
   },
   {
     name: 'AskUserQuestionOption',
@@ -1134,11 +1219,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'BashExecRequest',
-    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxMode?: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecRequest {\n    command: string;\n    workdir?: string | undefined;\n    timeoutMs?: number | undefined;\n    stdoutMaxBytes?: number | undefined;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy?: SandboxExecutionPolicy | undefined;\n}',
   },
   {
     name: 'BashExecSpec',
-    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    stdoutMaxBytes: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxMode: SandboxMode | undefined;\n}',
+    declaration: 'export interface BashExecSpec {\n    command: string;\n    workdir: string;\n    timeoutMs: number;\n    stdoutMaxBytes: number;\n    signal?: AbortSignal | undefined;\n    stdin?: string | undefined;\n    env?: Record<string, string> | undefined;\n    dshEnv?: DshEnvironment | undefined;\n    sandboxPolicy: SandboxExecutionPolicy | undefined;\n}',
   },
   {
     name: 'BashProcess',
@@ -1169,16 +1254,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type CallId = Branded<\'CallId\'>;',
   },
   {
+    name: 'CodeBindingErrorClass',
+    declaration: 'export interface CodeBindingErrorClass {\n    name: string;\n    memberNameProperty: string;\n}',
+  },
+  {
     name: 'CodeBindingFunction',
-    declaration: 'export type CodeBindingFunction = (args: unknown) => Promise<unknown>;',
+    declaration: 'export type CodeBindingFunction = (args: unknown) => Promise<CodeJsonValue>;',
   },
   {
     name: 'CodeBindingNamespace',
-    declaration: 'export interface CodeBindingNamespace {\n    global: string;\n    functions: Record<string, CodeBindingFunction>;\n}',
+    declaration: 'export interface CodeBindingNamespace {\n    global: string;\n    functions: Record<string, CodeBindingFunction>;\n    errorClass?: CodeBindingErrorClass;\n}',
+  },
+  {
+    name: 'CodeJsonValue',
+    declaration: 'export type CodeJsonValue = null | boolean | number | string | CodeJsonValue[] | {\n    [key: string]: CodeJsonValue;\n};',
   },
   {
     name: 'CodeRunFailure',
-    declaration: 'export interface CodeRunFailure {\n    kind: \'exception\' | \'timeout\' | \'abort\' | \'worker-exit\';\n    message: string;\n}',
+    declaration: 'export interface CodeRunFailure {\n    kind: \'exception\' | \'timeout\' | \'abort\' | \'worker-exit\' | \'invalid-output\' | \'output-limit\';\n    message: string;\n}',
   },
   {
     name: 'CodeRunRequest',
@@ -1186,7 +1279,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CodeRunResult',
-    declaration: 'export interface CodeRunResult {\n    value?: unknown;\n    logs: string[];\n    error?: CodeRunFailure;\n}',
+    declaration: 'export interface CodeRunResult {\n    value?: CodeJsonValue;\n    logs: string[];\n    error?: CodeRunFailure;\n}',
   },
   {
     name: 'CollectedOutput',
@@ -1334,7 +1427,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'GenerateOptions',
-    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n}',
+    declaration: 'export interface GenerateOptions {\n    provider: string;\n    model: string;\n    messages: Message[];\n    system?: string;\n    tools?: ToolSchema[];\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: \'compaction\';\n}',
   },
   {
     name: 'GenericCallView',
@@ -1374,11 +1467,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'HookContext',
-    declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n    meta?: JsonValue;\n}',
+    declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n    placement?: \'separate\' | \'prompt-prefix\';\n    meta?: JsonValue;\n}',
   },
   {
     name: 'InjectOptions',
-    declaration: 'export interface InjectOptions extends SendOptions {\n    meta?: JsonValue;\n}',
+    declaration: 'export interface InjectOptions extends Omit<SendOptions, \'contexts\'> {\n    meta?: JsonValue;\n}',
   },
   {
     name: 'InvariantFailure',
@@ -1387,6 +1480,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'InvariantInstaller',
     declaration: 'export interface InvariantInstaller {\n    (ctx: Context, fail: InvariantFailure): void | Promise<void>;\n    readonly inject?: Inject;\n}',
+  },
+  {
+    name: 'JsonSchemaNode',
+    declaration: 'export interface JsonSchemaNode {\n    type?: JsonSchemaType;\n    oneOf?: JsonSchemaNode[];\n    properties?: Record<string, JsonSchemaNode>;\n    required?: string[];\n    additionalProperties?: boolean;\n    items?: JsonSchemaNode;\n    enum?: JsonSchemaScalar[];\n    const?: JsonSchemaScalar;\n    description?: string;\n    title?: string;\n    default?: JsonValue;\n    examples?: JsonValue;\n}',
+  },
+  {
+    name: 'JsonSchemaScalar',
+    declaration: 'export type JsonSchemaScalar = string | number | boolean | null;',
+  },
+  {
+    name: 'JsonSchemaType',
+    declaration: 'export type JsonSchemaType = \'object\' | \'array\' | \'string\' | \'number\' | \'integer\' | \'boolean\' | \'null\';',
   },
   {
     name: 'JsonValue',
@@ -1425,12 +1530,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n}',
   },
   {
+    name: 'ObjectJsonSchema',
+    declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
+  },
+  {
     name: 'OutOfBandSessionEventMap',
     declaration: 'export interface OutOfBandSessionEventMap {\n}',
   },
   {
     name: 'OutOfBandSessionEventType',
     declaration: 'export type OutOfBandSessionEventType = Exclude<Extract<SessionEventType, keyof OutOfBandSessionEventMap>, SurfaceEventType>;',
+  },
+  {
+    name: 'PreparedReferencedMessage',
+    declaration: 'export interface PreparedReferencedMessage {\n    content: ContentBlock[];\n    contexts: HookContext[];\n}',
   },
   {
     name: 'PresetOption',
@@ -1443,6 +1556,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PromptAssembly',
     declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
+  },
+  {
+    name: 'PromptMessageData',
+    declaration: 'export interface PromptMessageData {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: PromptMessageEnvelope;\n}',
+  },
+  {
+    name: 'PromptMessageEnvelope',
+    declaration: 'export interface PromptMessageEnvelope {\n    displayContent: ContentBlock[];\n    prefixContexts: PromptPrefixContext[];\n}',
+  },
+  {
+    name: 'PromptPrefixContext',
+    declaration: 'export interface PromptPrefixContext {\n    source: MessageSource;\n    meta?: JsonValue;\n}',
   },
   {
     name: 'PromptSection',
@@ -1461,6 +1586,78 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PruneResult {\n    readonly pruned: readonly PrunedEntry[];\n    readonly charsRemoved: number;\n}',
   },
   {
+    name: 'PtyBackend',
+    declaration: 'export interface PtyBackend {\n    readonly type: string;\n    spawn(spec: PtyBackendSpawnSpec): Promise<PtyBackendSession>;\n}',
+  },
+  {
+    name: 'PtyBackendSession',
+    declaration: 'export interface PtyBackendSession {\n    readonly motd: string;\n    readonly pid?: number;\n    startSend(request: PtySendRequest): PtySendOperation;\n    read(request: PtyReadRequest): PtyReadResult;\n    signal(signal: PtySignal): Promise<PtySignalResult>;\n    status(): PtySessionStatus;\n    close(reason: string): Promise<void>;\n}',
+  },
+  {
+    name: 'PtyBackendSpawnSpec',
+    declaration: 'export interface PtyBackendSpawnSpec extends PtySpawnRequest {\n    sessionId: PtySessionIdValue;\n    owner: Agent;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'PtyReadRequest',
+    declaration: 'export interface PtyReadRequest {\n    offset?: number;\n    count?: number;\n}',
+  },
+  {
+    name: 'PtyReadResult',
+    declaration: 'export interface PtyReadResult {\n    text: string;\n    totalLines: number;\n    lineBegin: number;\n    lineEnd: number;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'PtySendOperation',
+    declaration: 'export interface PtySendOperation {\n    done: Promise<PtySendResult>;\n    readOutput(): PtySendRead;\n    cancel(): boolean;\n}',
+  },
+  {
+    name: 'PtySendRead',
+    declaration: 'export interface PtySendRead {\n    delta: string;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'PtySendRequest',
+    declaration: 'export interface PtySendRequest {\n    text: string;\n    submit: boolean;\n    signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'PtySendResult',
+    declaration: 'export interface PtySendResult {\n    viewport: string;\n    waitReason: PtyWaitReason;\n    sessionStatus: PtySessionStatus;\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'PtySessionId',
+    declaration: 'export type PtySessionId = PtySessionIdValue;',
+  },
+  {
+    name: 'PtySessionIdValue',
+    declaration: 'export type PtySessionIdValue = Branded<\'PtySessionId\'>;',
+  },
+  {
+    name: 'PtySessionSnapshot',
+    declaration: 'export interface PtySessionSnapshot {\n    sessionId: PtySessionIdValue;\n    name?: string;\n    type: string;\n    pid?: number;\n    status: PtySessionStatus;\n}',
+  },
+  {
+    name: 'PtySessionStatus',
+    declaration: 'export type PtySessionStatus = {\n    kind: \'running\';\n} | {\n    kind: \'exited\';\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n};',
+  },
+  {
+    name: 'PtySignal',
+    declaration: 'export type PtySignal = \'SIGINT\' | \'SIGTERM\' | \'SIGKILL\' | \'SIGTSTP\' | \'SIGHUP\';',
+  },
+  {
+    name: 'PtySignalResult',
+    declaration: 'export interface PtySignalResult {\n    delivered: true;\n    targetPgid: number;\n}',
+  },
+  {
+    name: 'PtySpawnRequest',
+    declaration: 'export interface PtySpawnRequest {\n    type: string;\n    name?: string;\n    cwd?: string;\n}',
+  },
+  {
+    name: 'PtySpawnResult',
+    declaration: 'export interface PtySpawnResult extends PtySessionSnapshot {\n    motd: string;\n}',
+  },
+  {
+    name: 'PtyWaitReason',
+    declaration: 'export type PtyWaitReason = \'stdin_read\' | \'inferred_idle\' | \'timeout\' | \'session_exit\';',
+  },
+  {
     name: 'ReasoningBlock',
     declaration: 'export interface ReasoningBlock {\n    type: \'reasoning\';\n    text: string;\n}',
   },
@@ -1473,12 +1670,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SandboxEnforcement = \'full\' | \'partial\';',
   },
   {
+    name: 'SandboxExecutionPolicy',
+    declaration: 'export interface SandboxExecutionPolicy {\n    mode: SandboxMode;\n    workspaceRoot: string;\n}',
+  },
+  {
     name: 'SandboxMode',
     declaration: 'export type SandboxMode = \'read-only\' | \'workspace-write\' | \'danger-full-access\';',
   },
   {
     name: 'SandboxPolicy',
-    declaration: 'export interface SandboxPolicy {\n    mode: ConfinedSandboxMode;\n    workspaceRoot: string;\n}',
+    declaration: 'export interface SandboxPolicy extends SandboxExecutionPolicy {\n    mode: ConfinedSandboxMode;\n}',
+  },
+  {
+    name: 'SandboxPolicyRequest',
+    declaration: 'export interface SandboxPolicyRequest {\n    session?: Session;\n    mode?: SandboxMode;\n}',
   },
   {
     name: 'SaveTextSpill',
@@ -1490,7 +1695,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SendOptions',
-    declaration: 'export interface SendOptions {\n    source?: MessageSource;\n}',
+    declaration: 'export interface SendOptions {\n    source?: MessageSource;\n    contexts?: HookContext[];\n}',
   },
   {
     name: 'SessionEvent',
@@ -1498,7 +1703,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': {\n        turn: number;\n        content: ContentBlock[];\n        source: MessageSource;\n    };\n    \'todo/write\': {\n         /* …truncated — full shape in source */',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: R /* …truncated — full shape in source */',
   },
   {
     name: 'SessionEventReadRequest',
@@ -1555,6 +1760,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionRecord',
     declaration: 'export interface SessionRecord {\n    header: SessionHeader;\n    live: boolean;\n    persisted: boolean;\n}',
+  },
+  {
+    name: 'SessionReferenceCandidate',
+    declaration: 'export interface SessionReferenceCandidate {\n    sessionId: SessionId;\n    label: string;\n    cwd?: string;\n    createdAt: number;\n}',
+  },
+  {
+    name: 'SessionReferenceInput',
+    declaration: 'export interface SessionReferenceInput {\n    sessionId: SessionId;\n    label?: string;\n}',
+  },
+  {
+    name: 'SessionSurfaceSnapshot',
+    declaration: 'export interface SessionSurfaceSnapshot {\n    session: SessionHeader;\n    capturedThroughSeq: number | null;\n    events: SurfaceEvent[];\n}',
   },
   {
     name: 'SessionTitleAutomaticMode',
@@ -1649,22 +1866,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: unknown;\n};',
   },
   {
-    name: 'StructuredOutputSchema',
-    declaration: 'export type StructuredOutputSchema = StructuredSchemaNode & {\n    type: \'object\';\n};',
-  },
-  {
-    name: 'StructuredScalar',
-    declaration: 'export type StructuredScalar = string | number | boolean | null;',
-  },
-  {
-    name: 'StructuredSchemaNode',
-    declaration: 'export interface StructuredSchemaNode {\n    type: StructuredSchemaType;\n    properties?: Record<string, StructuredSchemaNode>;\n    required?: string[];\n    additionalProperties?: boolean;\n    items?: StructuredSchemaNode;\n    enum?: StructuredScalar[];\n    const?: StructuredScalar;\n    description?: string;\n    title?: string;\n    default?: unknown;\n    examples?: unknown;\n}',
-  },
-  {
-    name: 'StructuredSchemaType',
-    declaration: 'export type StructuredSchemaType = \'object\' | \'array\' | \'string\' | \'number\' | \'integer\' | \'boolean\' | \'null\';',
-  },
-  {
     name: 'SubagentCapabilities',
     declaration: 'export interface SubagentCapabilities {\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
   },
@@ -1682,7 +1883,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentStartRequest',
-    declaration: 'export interface SubagentStartRequest {\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: StructuredOutputSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
+    declaration: 'export interface SubagentStartRequest {\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
   },
   {
     name: 'SubagentStopReason',
@@ -1691,6 +1892,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubagentStopReasonMap',
     declaration: 'export interface SubagentStopReasonMap {\n    completed: \'completed\';\n    aborted: \'aborted\';\n    error: \'error\';\n    \'max-tokens\': \'max-tokens\';\n    refusal: \'refusal\';\n}',
+  },
+  {
+    name: 'SurfaceEvent',
+    declaration: 'export type SurfaceEvent = SessionEvent<SurfaceEventType> & {\n    surfaceOp: SurfaceOp;\n};',
   },
   {
     name: 'SurfaceEventType',
@@ -1749,6 +1954,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TerminalResultView {\n    card: \'terminal\';\n    title?: string;\n    output?: string;\n    exitCode?: number;\n    signal?: string;\n}',
   },
   {
+    name: 'TodoItem',
+    declaration: 'export interface TodoItem {\n    content: string;\n    status: \'pending\' | \'in_progress\' | \'completed\';\n}',
+  },
+  {
     name: 'TokenMeasurement',
     declaration: 'export interface TokenMeasurement {\n    readonly logRevision: number;\n    readonly baseline: TokenMeasurementBaseline;\n    readonly surfaceDeltaTokens: number;\n    readonly totalTokens: number;\n    readonly surfaceTokens: number;\n    readonly nodes: readonly TokenSurfaceNode[];\n}',
   },
@@ -1778,19 +1987,19 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolErrorInfo',
     declaration: 'export interface ToolErrorInfo {\n    name: string;\n    code: string;\n}',
   },
   {
-    name: 'ToolExecuteReturn',
-    declaration: 'export type ToolExecuteReturn = ContentBlock[] | {\n    content: ContentBlock[];\n    meta?: unknown;\n};',
-  },
-  {
     name: 'ToolExecution',
     declaration: 'export interface ToolExecution extends ToolExecutionInput {\n    readonly token: ToolExecutionToken;\n}',
+  },
+  {
+    name: 'ToolExecutionFailure',
+    declaration: 'export interface ToolExecutionFailure {\n    readonly isError: true;\n    readonly error: ToolFailure;\n    readonly value?: never;\n    readonly content: ContentBlock[];\n    readonly meta?: JsonValue;\n    readonly additionalContexts?: HookContext[];\n}',
   },
   {
     name: 'ToolExecutionInput',
@@ -1802,15 +2011,27 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionResult',
-    declaration: 'export interface ToolExecutionResult {\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContexts?: HookContext[];\n    meta?: unknown;\n}',
+    declaration: 'export type ToolExecutionResult = ToolExecutionSuccess | ToolExecutionFailure;',
+  },
+  {
+    name: 'ToolExecutionSuccess',
+    declaration: 'export interface ToolExecutionSuccess {\n    readonly isError: false;\n    readonly value: JsonValue;\n    readonly content: ContentBlock[];\n    readonly error?: never;\n    readonly meta?: JsonValue;\n    readonly additionalContexts?: HookContext[];\n}',
   },
   {
     name: 'ToolExecutionToken',
     declaration: 'export type ToolExecutionToken = symbol & {\n    readonly [toolExecutionTokenBrand]: true;\n};',
   },
   {
+    name: 'ToolFailure',
+    declaration: 'export interface ToolFailure {\n    message: string;\n    info?: ToolErrorInfo;\n}',
+  },
+  {
     name: 'ToolGuard',
     declaration: 'export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined;',
+  },
+  {
+    name: 'ToolOutputDefinition',
+    declaration: 'export interface ToolOutputDefinition {\n    readonly schema: JsonSchemaNode;\n    render(args: unknown, value: JsonValue): ContentBlock[];\n    presentationMeta?(args: unknown, value: JsonValue): JsonValue;\n}',
   },
   {
     name: 'ToolProviderResult',
@@ -1822,7 +2043,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolResult',
-    declaration: 'export interface ToolResult {\n    content: ContentBlock[];\n    isError: boolean;\n    meta?: unknown;\n}',
+    declaration: 'export interface ToolResult {\n    content: ContentBlock[];\n    isError: boolean;\n    meta?: JsonValue;\n}',
   },
   {
     name: 'ToolResultBlock',
@@ -1839,6 +2060,58 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolSchema',
     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
+  },
+  {
+    name: 'TuiComponent',
+    declaration: 'export interface TuiComponent {\n    render(width: number): string[];\n    handleInput?(data: string): void;\n    wantsKeyRelease?: boolean;\n    invalidate(): void;\n}',
+  },
+  {
+    name: 'TuiFocusable',
+    declaration: 'export interface TuiFocusable {\n    focused: boolean;\n}',
+  },
+  {
+    name: 'TuiOverlayAnchor',
+    declaration: 'export type TuiOverlayAnchor = \'center\' | \'top-left\' | \'top-right\' | \'bottom-left\' | \'bottom-right\' | \'top-center\' | \'bottom-center\' | \'left-center\' | \'right-center\';',
+  },
+  {
+    name: 'TuiOverlayCloseReason',
+    declaration: 'export type TuiOverlayCloseReason = \'closed\' | \'aborted\' | \'owner-disposed\' | \'tui-disposed\' | \'error\';',
+  },
+  {
+    name: 'TuiOverlayHost',
+    declaration: 'export interface TuiOverlayHost {\n    readonly signal: AbortSignal;\n    readonly viewport: TuiViewport;\n    readonly theme: TuiTheme;\n    display(value: string): string;\n    invalidate(): void;\n    close(): void;\n}',
+  },
+  {
+    name: 'TuiOverlayMargin',
+    declaration: 'export interface TuiOverlayMargin {\n    readonly top?: number;\n    readonly right?: number;\n    readonly bottom?: number;\n    readonly left?: number;\n}',
+  },
+  {
+    name: 'TuiOverlayOptions',
+    declaration: 'export interface TuiOverlayOptions {\n    readonly width?: number | `${number}%`;\n    readonly minWidth?: number;\n    readonly maxHeight?: number | `${number}%`;\n    readonly anchor?: TuiOverlayAnchor;\n    readonly margin?: number | TuiOverlayMargin;\n}',
+  },
+  {
+    name: 'TuiOverlayOutcome',
+    declaration: 'export type TuiOverlayOutcome = {\n    readonly reason: Exclude<TuiOverlayCloseReason, \'error\'>;\n} | {\n    readonly reason: \'error\';\n    readonly error: unknown;\n};',
+  },
+  {
+    name: 'TuiOverlayRequest',
+    declaration: 'export interface TuiOverlayRequest {\n    readonly create: (host: TuiOverlayHost) => TuiComponent & Partial<TuiFocusable>;\n    readonly options?: TuiOverlayOptions;\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'TuiOverlaySession',
+    declaration: 'export interface TuiOverlaySession {\n    readonly state: TuiOverlayState;\n    readonly closed: Promise<TuiOverlayOutcome>;\n    close(): Promise<TuiOverlayOutcome>;\n}',
+  },
+  {
+    name: 'TuiOverlayState',
+    declaration: 'export type TuiOverlayState = \'queued\' | \'active\' | \'closed\';',
+  },
+  {
+    name: 'TuiTheme',
+    declaration: 'export interface TuiTheme {\n    readonly text: (value: string) => string;\n    readonly muted: (value: string) => string;\n    readonly dim: (value: string) => string;\n    readonly accent: (value: string) => string;\n    readonly success: (value: string) => string;\n    readonly warning: (value: string) => string;\n    readonly error: (value: string) => string;\n    readonly bold: (value: string) => string;\n}',
+  },
+  {
+    name: 'TuiViewport',
+    declaration: 'export interface TuiViewport {\n    readonly columns: number;\n    readonly rows: number;\n}',
   },
   {
     name: 'TurnEndReason',

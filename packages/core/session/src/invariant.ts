@@ -10,6 +10,7 @@ import { assertNever } from '@deepseek-ai/dsh-llm'
 import type { CallId } from '@deepseek-ai/dsh-llm'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { TOOL_NOT_STARTED } from './repair.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-session'
 
@@ -133,8 +134,8 @@ function validateEvent(
         break
       }
       requireOpenStep(trace, 'tool/result', event.data.turn, event.data.step, fail)
-      const syntheticInterrupted = event.data.isError && event.data.error?.code === 'interrupted'
-      if (!trace.pendingCalls.has(event.data.callId) && !syntheticInterrupted) {
+      const syntheticNotStarted = event.data.isError && event.data.error?.code === TOOL_NOT_STARTED
+      if (!trace.pendingCalls.has(event.data.callId) && !syntheticNotStarted) {
         fail(`tool/result for ${event.data.callId} with no prior tool/call in this step`)
       }
       pendingCalls = { kind: 'delete', callId: event.data.callId }

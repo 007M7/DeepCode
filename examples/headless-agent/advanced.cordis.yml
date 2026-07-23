@@ -8,7 +8,7 @@
         name: '@deepseek-ai/dsh-cli-demo'
         config:
           provider: deepseek
-          model: deepseek-v4-flash
+          model: deepseek-v4-pro
           persistenceRoot: './.sessions'
           persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
           workspaceContext:

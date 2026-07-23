@@ -2,6 +2,7 @@
   "steps": [
     { "op": "initialize" },
     { "op": "newSession" },
-    { "op": "promptAndCancel", "text": "Start a long task; this turn will be cancelled mid-stream." }
+    { "op": "promptAndCancel", "text": "Start a long task; this turn will be cancelled mid-stream." },
+    { "op": "waitForTurnEnd" }
   ]
 }

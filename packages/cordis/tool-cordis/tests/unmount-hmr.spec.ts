@@ -26,6 +26,8 @@ describe('cordis_unmount', () => {
 
     const result = await call(ctx, 'cordis_unmount', { id: 'dyn-1' })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected cordis_unmount success')
+    expect(result.value).toEqual({ id: 'dyn-1', pluginName: 'change-logger' })
     expect(text(result)).toContain('unmounted dyn-1')
 
     // Immediately after the awaited unmount, the listener must be gone — no

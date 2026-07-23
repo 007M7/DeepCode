@@ -9,6 +9,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from 'cordis'
+import { decodeStorageRecord } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { GenerateOptions, LlmModelContext, LlmModelInfo, LlmProviderInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter, LlmError, assertNever } from '@deepseek-ai/dsh-llm'
@@ -96,7 +97,9 @@ export interface SessionScript {
 /**
  * Parse a session `.jsonl` buffer into its event list. Line 0 is the session
  * header (a `{type:'session',…}` record), every subsequent non-empty line is a
- * {@link SessionEvent}. The header is skipped; malformed lines fail loud.
+ * {@link SessionEvent} or a packed chunk row (expanded back into its events, so
+ * a fixture recorded with `packChunks` on derives the same script). The header
+ * is skipped; malformed lines fail loud.
  * @param text - the raw `.jsonl` file contents.
  * @returns every event after the header, in log order.
  */
@@ -105,8 +108,7 @@ export function parseSessionLog(text: string): SessionEvent[] {
   const events: SessionEvent[] = []
   // The JSONL backend guarantees line 0 is the session header.
   for (let i = 1; i < lines.length; i++) {
-    const parsed: unknown = JSON.parse(lines[i] as string)
-    events.push(parsed as SessionEvent)
+    events.push(...decodeStorageRecord(JSON.parse(lines[i] as string)))
   }
   return events
 }

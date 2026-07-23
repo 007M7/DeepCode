@@ -8,7 +8,7 @@
  */
 
 import type { ChildProcessByStdio } from 'node:child_process'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import type { Readable, Writable } from 'node:stream'
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
 import { encodeMessage, MessageDecoder } from './framing.ts'
@@ -36,6 +36,132 @@ interface Pending {
   reject: (error: Error) => void
 }
 
+/**
+ * Write one JSON-RPC message to the child stdin.
+ * @param stdin - the spawned server stdin.
+ * @param message - the unencoded JSON-RPC message.
+ * @param done - callback that reports asynchronous stream settlement.
+ */
+export type ConnectionWriter = (
+  stdin: Writable,
+  message: unknown,
+  done: (error?: Error | null) => void,
+) => void
+
+/** Host operations used to signal a detached process tree. */
+export interface ProcessTreeOperations {
+  /** Signal a POSIX process group. */
+  readonly signal: (target: number, signal: NodeJS.Signals) => void
+  /** Signal the direct child when POSIX group signaling is unavailable. */
+  readonly killChild: (signal: NodeJS.Signals) => void
+  /** Terminate a Windows process tree by root pid. */
+  readonly taskkill: (pid: number) => void
+}
+
+/** Narrow taskkill runner result used by the Windows process-tree adapter. */
+export interface TaskkillResult {
+  /** Process exit status, or null when spawning failed. */
+  readonly status: number | null
+  /** Spawn failure, when the executable could not run. */
+  readonly error?: Error
+}
+
+/** Invoke a command synchronously for the Windows taskkill adapter. */
+export type TaskkillRunner = (
+  command: string,
+  args: string[],
+  options: { stdio: 'ignore' },
+) => TaskkillResult
+
+/** Invoke the host process-signal primitive for a POSIX process group. */
+export type ProcessSignalRunner = (target: number, signal: NodeJS.Signals) => boolean
+
+const processSignalRunner: ProcessSignalRunner = process.kill.bind(process)
+
+/** taskkill status for "process not found": the requested process tree is already absent. */
+const TASKKILL_TREE_NOT_FOUND_STATUS = 128
+
+const writeConnectionMessage: ConnectionWriter = (stdin, message, done) => {
+  stdin.write(encodeMessage(message), done)
+}
+
+/**
+ * Terminate one Windows process tree and wait for taskkill to finish.
+ * @param pid - root process id.
+ * @param run - command runner; tests inject results without requiring Windows.
+ */
+export function taskkillProcessTree(
+  pid: number,
+  run: TaskkillRunner = spawnSync,
+): void {
+  const result = run('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
+  if (result.error !== undefined) throw result.error
+  if (result.status === TASKKILL_TREE_NOT_FOUND_STATUS) return
+  if (result.status !== 0) throw new Error(`taskkill exited with status ${String(result.status)}`)
+}
+
+/**
+ * Signal one POSIX process group through an injectable host primitive.
+ * @param target - negative process-group id.
+ * @param signal - requested signal.
+ * @param run - host signal runner; tests inject it without touching real processes.
+ */
+export function signalProcessGroup(
+  target: number,
+  signal: NodeJS.Signals,
+  run: ProcessSignalRunner = processSignalRunner,
+): void {
+  run(target, signal)
+}
+
+/**
+ * Wait until a process-tree liveness probe reports exit.
+ * @param isAlive - process-tree liveness probe.
+ * @param signal - optional bound for the wait.
+ * @param yieldNow - event-loop yield primitive.
+ * @returns `true` when the tree exited, or `false` when the signal aborted first.
+ */
+export async function waitForTreeExit(
+  isAlive: () => boolean,
+  signal?: AbortSignal,
+  yieldNow: () => Promise<unknown> = yieldToEventLoop,
+): Promise<boolean> {
+  while (isAlive()) {
+    if (signal?.aborted) return false
+    await yieldNow()
+  }
+  return true
+}
+
+/**
+ * Signal a detached process tree with platform-correct semantics. POSIX falls back to the direct
+ * child; Windows requires taskkill to reach the full tree.
+ * @param platform - host platform.
+ * @param pid - detached root process id.
+ * @param signal - requested termination signal.
+ * @param operations - host operations.
+ */
+export function signalProcessTree(
+  platform: NodeJS.Platform,
+  pid: number,
+  signal: NodeJS.Signals,
+  operations: ProcessTreeOperations,
+): void {
+  if (platform === 'win32') {
+    operations.taskkill(pid)
+    return
+  }
+  try {
+    operations.signal(-pid, signal)
+  } catch {
+    try {
+      operations.killChild(signal)
+    } catch {
+      // The direct child already exited; teardown remains idempotent.
+    }
+  }
+}
+
 /** A live JSON-RPC endpoint bound to one child process. */
 export class LspConnection {
   private readonly child: ChildProcessByStdio<Writable, Readable, Readable>
@@ -50,14 +176,16 @@ export class LspConnection {
   /**
    * @param spec - how to launch the server and answer its config requests.
    * @param onServerRequest - answers a server→client request; rejects to send an error response.
+   * @param writer - message writer; tests inject callback failures without relying on OS pipe races.
    */
   constructor(
     private readonly spec: ConnectionSpec,
     private readonly onServerRequest: (method: string, params: unknown) => Promise<unknown>,
+    private readonly writer: ConnectionWriter = writeConnectionMessage,
   ) {
     this.decoder = new MessageDecoder(spec.maxMessageBytes)
-    // `detached` puts the server in its own process group so teardown can signal the WHOLE group
-    // (via `process.kill(-pid)`), reaching helper processes a language server spawns (e.g. tsserver).
+    // `detached` gives teardown a process-tree root: POSIX signals its negative process-group id,
+    // while Windows passes the root pid to taskkill /T so helpers such as tsserver cannot outlive it.
     this.child = spawn(spec.command, [...spec.args], {
       cwd: spec.cwd,
       env: spec.env,
@@ -92,6 +220,20 @@ export class LspConnection {
   /** The retained stderr tail, for diagnostics on a failed server. */
   get stderrTail(): string {
     return this.stderr.toString('utf8')
+  }
+
+  /** Whether the transport has failed even if the child close event has not arrived yet. */
+  get failed(): boolean {
+    return this.closeReason !== undefined
+  }
+
+  /**
+   * Test whether a caught error is this connection's retained fatal transport cause.
+   * @param error - error caught by the instance or provider.
+   * @returns `true` only when this connection produced that exact failure.
+   */
+  failedWith(error: unknown): boolean {
+    return this.closeReason === error
   }
 
   /**
@@ -147,50 +289,38 @@ export class LspConnection {
     return this.nextId
   }
 
-  /** Send SIGTERM to the server's process group (idempotent-safe; a dead group ignores it). */
+  /** Request termination of the server's process tree. */
   terminate(): void {
-    this.signalGroup('SIGTERM')
+    this.signalTree('SIGTERM')
   }
 
-  /** Send SIGKILL to the server's process group. */
+  /** Force termination of the server's process tree. */
   kill(): void {
-    this.signalGroup('SIGKILL')
+    this.signalTree('SIGKILL')
   }
 
   /**
-   * Wait until the owned process group has no members.
+   * Wait until the owned process tree has exited.
    * @param signal - optional bound for the wait.
-   * @returns `true` when the group exited, or `false` when the signal aborted first.
+   * @returns `true` when the tree exited, or `false` when the signal aborted first.
    */
-  async waitForProcessGroupExit(signal?: AbortSignal): Promise<boolean> {
-    while (this.processGroupAlive()) {
-      if (signal?.aborted) return false
-      await yieldToEventLoop()
-    }
-    return true
+  async waitForProcessTreeExit(signal?: AbortSignal): Promise<boolean> {
+    return await waitForTreeExit(this.processTreeAlive.bind(this), signal)
   }
 
-  /**
-   * Signal the whole process group (negative pid) so helper processes are reached; fall back to the
-   * direct child if the group send fails. Never throws — teardown races process exit.
-   */
-  private signalGroup(sig: NodeJS.Signals): void {
+  /** Signal the whole process tree. */
+  private signalTree(sig: NodeJS.Signals): void {
     const pid = this.child.pid
     if (pid === undefined) return
-    try {
-      process.kill(-pid, sig)
-    } catch {
-      // The group is gone (already exited) or could not be signalled; try the direct child.
-      try {
-        this.child.kill(sig)
-      } catch {
-        // Already dead; nothing to signal.
-      }
-    }
+    signalProcessTree(process.platform, pid, sig, {
+      signal: signalProcessGroup,
+      killChild: this.child.kill.bind(this.child),
+      taskkill: taskkillProcessTree,
+    })
   }
 
-  /** Whether the detached process group still has at least one member. */
-  private processGroupAlive(): boolean {
+  /** Whether the detached tree's root or POSIX process group is still alive. */
+  private processTreeAlive(): boolean {
     const pid = this.child.pid
     /* v8 ignore next -- only an asynchronous spawn failure omits pid; its close path owns cleanup. */
     if (pid === undefined) return false
@@ -218,7 +348,7 @@ export class LspConnection {
       // A framing/JSON failure corrupts the stream position irrecoverably: fail the instance and
       // SIGKILL the whole group so helper processes don't outlive the leader.
       this.fail(asError(error))
-      this.signalGroup('SIGKILL')
+      this.signalTree('SIGKILL')
       return
     }
     for (const message of messages) this.dispatch(message)
@@ -293,7 +423,7 @@ export class LspConnection {
         reject(error)
       }
       try {
-        this.child.stdin.write(encodeMessage(message), done)
+        this.writer(this.child.stdin, message, done)
       /* v8 ignore start -- Node stream write failures are callback-delivered; this guards a
          nonconforming Writable implementation throwing synchronously. */
       } catch (error) {

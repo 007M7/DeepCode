@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isJsonValue } from '@deepseek-ai/dsh-session'
+import { sandboxDefineTool } from '../src/guard.ts'
 import { syntaxErrorContext } from '../src/sandbox.ts'
-import { call, dummyTool, LISTENER_CODE, REVERSE_TOOL_CODE, setup, text } from './helpers.ts'
+import { call, CONTENT_OUTPUT_CODE, dummyTool, LISTENER_CODE, REVERSE_TOOL_CODE, setup, text } from './helpers.ts'
 
 /**
  * The `cordis_mount` success/failure family: real plugins land on a genuine
@@ -14,12 +15,48 @@ afterEach(() => {
 })
 
 describe('cordis_mount', () => {
+  it.each([
+    [42, 'options must be an object'],
+    [{ parameters: {} }, 'output must declare { schema, render, presentationMeta? }'],
+    [{ parameters: {}, output: { schema: { type: 'json' } }, execute: async (): Promise<null> => null }, 'output.render must be a function'],
+    [{ parameters: {}, output: { schema: { type: 'json' }, render: () => [] }, execute: true }, 'execute must be a function'],
+    [{
+      parameters: {},
+      output: { schema: { type: 'json' }, render: () => [], presentationMeta: true },
+      execute: async (): Promise<null> => null,
+    }, 'output.presentationMeta must be a function'],
+  ])('rejects an invalid dynamic tool declaration before registration: %j', (definition, message) => {
+    expect(() => sandboxDefineTool(definition)).toThrow(message)
+  })
+
+  it('bounds the preview of an invalid dynamic renderer return', () => {
+    const definition = sandboxDefineTool({
+      name: 'invalid-renderer',
+      description: 'invalid renderer',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: () => ['x'.repeat(500)],
+      },
+      execute: async () => 'ok',
+    })
+    expect(() => definition.output.render({}, 'ok')).toThrow(/output\.render returned \["x+…/)
+  })
+
   it('mounts a listener plugin that observes real events, tagged-logging through to the host console', async () => {
     const ctx = await setup()
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     const result = await call(ctx, 'cordis_mount', { code: LISTENER_CODE })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected cordis_mount success')
+    expect(result.value).toEqual({
+      id: 'dyn-1',
+      pluginName: 'change-logger',
+      state: 'active',
+      provides: [],
+      waitingFor: [],
+    })
     expect(text(result)).toContain('mounted dyn-1 (plugin "change-logger", state: active)')
 
     // Fire a REAL tools/change by registering a tool; the mounted listener logs.
@@ -44,6 +81,8 @@ describe('cordis_mount', () => {
     expect(ctx.tools.schemas().map(schema => schema.name)).toContain('reverse_text')
     const reversed = await call(ctx, 'reverse_text', { text: 'harness' })
     expect(reversed.isError).toBe(false)
+    if (reversed.isError) throw new Error('expected dynamic tool success')
+    expect(reversed.value).toBe('ssenrah')
     expect(text(reversed)).toBe('ssenrah')
   })
 
@@ -55,7 +94,7 @@ describe('cordis_mount', () => {
     expect(isJsonValue({ content: reversed.content, isError: reversed.isError })).toBe(true)
   })
 
-  it('threads the { content, meta } object return form through to the registry result', async () => {
+  it('projects presentation metadata from a dynamic canonical value', async () => {
     const ctx = await setup()
     await call(ctx, 'cordis_mount', {
       code: `
@@ -67,8 +106,13 @@ describe('cordis_mount', () => {
               name: 'meta_tool',
               description: 'attaches a private presentation payload',
               parameters: {},
+              output: {
+                schema: { type: 'string' },
+                render(_args, value) { return [{ type: 'text', text: value }] },
+                presentationMeta() { return { kind: 'demo' } },
+              },
               async execute() {
-                return { content: [{ type: 'text', text: 'ok' }], meta: { kind: 'demo' } }
+                return 'ok'
               },
             }))
           },
@@ -77,20 +121,20 @@ describe('cordis_mount', () => {
     })
     const result = await call(ctx, 'meta_tool', {})
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected dynamic tool success')
+    expect(result.value).toBe('ok')
     expect(text(result)).toBe('ok')
     expect(result.meta).toEqual({ kind: 'demo' })
   })
 
   it.each([
-    ['a bare string', 'return \'ok\'', '"ok"'],
-    ['an object whose content is a string', 'return { content: \'ok\' }', '{"content":"ok"}'],
-    ['an array of non-objects', 'return [\'ok\']', '["ok"]'],
-    ['blocks missing the type tag', 'return [{ text: \'hi\' }]', '[{"text":"hi"}]'],
-    ['object-form blocks missing the type tag', 'return { content: [{ text: \'hi\' }] }', '{"content":[{"text":"hi"}]}'],
-    ['undefined — a forgotten return', 'return undefined', 'undefined'],
-  ])('rejects an execute return of %s as that one call\'s teaching error', async (_label, returnStatement, preview) => {
-    // The registry spreads result.content, so { content: 'ok' } would become ['o','k']; reject
-    // it as this call's error before it corrupts the next request.
+    ['a bare string', 'return \'ok\'', 'returned invalid output: "value" must be an array'],
+    ['an object whose content is a string', 'return { content: \'ok\' }', 'returned invalid output: "value" must be an array'],
+    ['an array of non-objects', 'return [\'ok\']', 'output.render returned ["ok"]'],
+    ['blocks missing the type tag', 'return [{ text: \'hi\' }]', 'output.render returned [{"text":"hi"}]'],
+    ['object-form blocks missing the type tag', 'return { content: [{ text: \'hi\' }] }', 'returned invalid output: "value" must be an array'],
+    ['undefined — a forgotten return', 'return undefined', 'execute result must be lossless JSON data'],
+  ])('rejects an execute return of %s against its declared output', async (_label, returnStatement, diagnostic) => {
     const ctx = await setup()
     await call(ctx, 'cordis_mount', {
       code: `
@@ -102,6 +146,7 @@ describe('cordis_mount', () => {
               name: 'bad_return_tool',
               description: 'returns a wrong shape',
               parameters: {},
+              ${CONTENT_OUTPUT_CODE}
               async execute() { ${returnStatement} },
             }))
           },
@@ -112,12 +157,10 @@ describe('cordis_mount', () => {
     expect(result.isError).toBe(true)
     expect(result.content).toHaveLength(1)
     expect(result.content[0]!.type).toBe('text')
-    expect(text(result)).toContain(`execute returned ${preview}`)
-    expect(text(result)).toContain('must return an ARRAY of content blocks')
-    expect(text(result)).toContain('✓ return { content: [{ type: \'text\', text: someString }], meta: anyJsonValue }')
+    expect(text(result)).toContain(diagnostic)
   })
 
-  it('truncates a huge invalid execute return in the teaching error', async () => {
+  it('does not echo a huge schema-invalid canonical value in the diagnostic', async () => {
     const ctx = await setup()
     await call(ctx, 'cordis_mount', {
       code: `
@@ -129,6 +172,7 @@ describe('cordis_mount', () => {
               name: 'huge_return_tool',
               description: 'returns a huge wrong shape',
               parameters: {},
+              ${CONTENT_OUTPUT_CODE}
               async execute() { return 'x'.repeat(500) },
             }))
           },
@@ -137,7 +181,7 @@ describe('cordis_mount', () => {
     })
     const result = await call(ctx, 'huge_return_tool', {})
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('…')
+    expect(text(result)).toContain('returned invalid output')
     expect(text(result)).not.toContain('x'.repeat(200))
   })
 
@@ -156,14 +200,18 @@ describe('cordis_mount', () => {
               description: 'written in the JSON-Schema dialect',
               parameters: {
                 type: 'object',
+                title: 'Raw parameters',
+                default: { text: 'default' },
+                examples: [{ text: 'example' }],
                 properties: {
                   text: { type: 'string', description: 'the text' },
                   count: { type: 'integer', default: 1 },
                   mode: { type: 'string', enum: ['fast', 'slow'] },
-                  extra: { type: 'string', required: false },
+                  extra: { type: 'string' },
                 },
                 required: ['text'],
               },
+              ${CONTENT_OUTPUT_CODE}
               async execute(args) { return [{ type: 'text', text: args.text + ':' + (args.count ?? 0) }] },
             }))
           },
@@ -173,14 +221,19 @@ describe('cordis_mount', () => {
     expect(result.isError).toBe(false)
 
     // The registered schema is canonical JSON Schema derived from the DSL:
-    // the required array survived, integer became number, extra is optional.
+    // the required array survived, integer stayed integer, extra is optional.
     const schema = ctx.tools.schemas().find(s => s.name === 'json_schema_tool')!
     const parameters = schema.parameters as {
       properties: Record<string, { type: string; enum?: string[]; default?: unknown }>
       required?: string[]
     }
     expect(parameters.required).toEqual(['text'])
-    expect(parameters.properties.count!.type).toBe('number')
+    expect(parameters).toMatchObject({
+      title: 'Raw parameters',
+      default: { text: 'default' },
+      examples: [{ text: 'example' }],
+    })
+    expect(parameters.properties.count!.type).toBe('integer')
     expect(parameters.properties.count!.default).toBe(1)
     expect(parameters.properties.mode!.enum).toEqual(['fast', 'slow'])
     // Arg validation enforces the normalized spec: text required, extra not.
@@ -202,8 +255,12 @@ describe('cordis_mount', () => {
               name: 'nested_json_schema_tool',
               description: 'nested dialect',
               parameters: {
-                cfg: { type: 'object', properties: { label: { type: 'string' } }, required: ['label'] },
+                type: 'object',
+                properties: {
+                  cfg: { type: 'object', properties: { label: { type: 'string' } }, required: ['label'] },
+                },
               },
+              ${CONTENT_OUTPUT_CODE}
               async execute(args) { return [{ type: 'text', text: args.cfg.label }] },
             }))
           },
@@ -217,14 +274,198 @@ describe('cordis_mount', () => {
     expect(text(await call(ctx, 'nested_json_schema_tool', { cfg: { label: 'hi' } }))).toBe('hi')
   })
 
+  it('normalizes every unified DSL node and lossless annotation shape across the sandbox realm', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'unified-schema',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'unified_schema_tool',
+              description: 'all unified nodes',
+              parameters: {
+                any: {
+                  type: 'json',
+                  title: 'Any JSON',
+                  default: { nested: [1, 'x', null] },
+                  examples: [{ ok: true }],
+                },
+                choice: {
+                  oneOf: [{ type: 'string', const: 'x' }, { type: 'null' }],
+                  required: true,
+                },
+                flags: { type: 'array' },
+                closed: { type: 'object', additionalProperties: false },
+                count: { type: 'number', enum: [1, 2], const: 1 },
+              },
+              ${CONTENT_OUTPUT_CODE}
+              async execute(args) { return [{ type: 'text', text: String(args.choice) }] },
+            }))
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(false)
+    const schema = ctx.tools.schemas().find(s => s.name === 'unified_schema_tool')!
+    expect(schema.parameters).toMatchObject({
+      properties: {
+        any: { title: 'Any JSON', default: { nested: [1, 'x', null] }, examples: [{ ok: true }] },
+        choice: { oneOf: [{ type: 'string', const: 'x' }, { type: 'null' }] },
+        flags: { type: 'array' },
+        closed: { type: 'object', additionalProperties: false },
+        count: { type: 'number', enum: [1, 2], const: 1 },
+      },
+      required: ['choice'],
+    })
+  })
+
+  it('normalizes and snapshots deeply nested sandbox schemas and annotations stack-safely', async () => {
+    const ctx = await setup()
+    const depth = 5_000
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'deep-unified-schema',
+          inject: ['tools'],
+          apply(ctx) {
+            let choice = { type: 'string' }
+            let example = 'leaf'
+            for (let index = 0; index < ${depth}; index++) {
+              choice = { oneOf: [choice, { type: 'null' }] }
+              example = [example]
+            }
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'deep_unified_schema_tool',
+              description: 'deep unified nodes',
+              parameters: {
+                choice: { ...choice, required: true },
+                any: { type: 'json', default: example },
+              },
+              ${CONTENT_OUTPUT_CODE}
+              async execute() { return [] },
+            }))
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(false)
+
+    const parameters = ctx.tools.schemas().find(s => s.name === 'deep_unified_schema_tool')!.parameters as {
+      properties: Record<string, Record<string, unknown>>
+    }
+    let choice = parameters.properties.choice!
+    let choiceDepth = 0
+    while (Array.isArray(choice.oneOf)) {
+      choice = choice.oneOf[0] as Record<string, unknown>
+      choiceDepth++
+    }
+    let example: unknown = parameters.properties.any!.default
+    let exampleDepth = 0
+    while (Array.isArray(example)) {
+      example = example[0]
+      exampleDepth++
+    }
+    expect({ choiceDepth, choice, exampleDepth, example }).toEqual({
+      choiceDepth: depth,
+      choice: { type: 'string' },
+      exampleDepth: depth,
+      example: 'leaf',
+    })
+  })
+
+  it('normalizes unconstrained and closed nested nodes from a raw JSON Schema wrapper', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'raw-unified-schema',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'raw_unified_schema_tool',
+              description: 'raw unified nodes',
+              parameters: {
+                type: 'object',
+                additionalProperties: true,
+                properties: {
+                  any: { description: 'unconstrained' },
+                  cfg: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: { label: { type: 'string' } },
+                    required: ['label'],
+                  },
+                  choice: { oneOf: [{ type: 'boolean' }, { type: 'null' }] },
+                },
+              },
+              ${CONTENT_OUTPUT_CODE}
+              async execute() { return [] },
+            }))
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(false)
+    expect(ctx.tools.schemas().find(s => s.name === 'raw_unified_schema_tool')!.parameters).toMatchObject({
+      properties: {
+        any: {},
+        cfg: { additionalProperties: false, required: ['label'] },
+        choice: { oneOf: [{ type: 'boolean' }, { type: 'null' }] },
+      },
+    })
+  })
+
   it.each([
-    ['parameters: 42', 'must be a SchemaSpec object'],
-    ['parameters: { text: 42 }', 'parameters.text must be a SchemaSpec property object'],
-    ['parameters: { text: { type: \'str\' } }', 'parameters.text must declare a valid type: \'string\' | \'number\' | \'boolean\' | \'object\' | \'array\' (got "str")'],
-    ['parameters: { text: { type: \'string\', required: \'yes\' } }', 'parameters.text.required must be a boolean when present'],
-    ['parameters: { text: { type: \'string\', properties: {} } }', 'parameters.text.properties is only valid for type "object"'],
-    ['parameters: { text: { type: \'string\', items: { type: \'string\' } } }', 'parameters.text.items is only valid for type "array"'],
-  ])('rejects a malformed SchemaSpec (%s) with a teaching error', async (parameters, message) => {
+    ['parameters: 42', 'must be a ParameterSchemaSpec object'],
+    ['parameters: Object.defineProperty({}, \'text\', { value: { type: \'string\' } })', 'parameters must contain only own enumerable string keys'],
+    ['parameters: { text: 42 }', 'parameters.text must be a ParameterSchemaSpec property object'],
+    ['parameters: { text: Object.defineProperty({ type: \'string\' }, \'minimum\', { value: 1 }) }', 'parameters.text must contain only own enumerable string keys'],
+    ['parameters: { text: { type: \'string\', [Symbol(\'hidden\')]: true } }', 'parameters.text must contain only own enumerable string keys'],
+    ['parameters: { text: { type: \'str\' } }', 'parameters.text must declare a valid type: \'string\' | \'number\' | \'integer\' | \'boolean\' | \'null\' | \'object\' | \'array\' | \'json\' (got "str")'],
+    ['parameters: { text: { type: \'string\', required: \'yes\' } }', 'parameters.text.required must be true when present'],
+    ['parameters: { text: { type: \'string\', properties: {} } }', 'parameters.text.properties is not supported by the unified schema DSL'],
+    ['parameters: { text: { type: \'string\', items: { type: \'string\' } } }', 'parameters.text.items is not supported by the unified schema DSL'],
+    ['parameters: { text: { type: \'object\', properties: {} } }', 'parameters.text.additionalProperties must be explicitly true or false'],
+    ['parameters: { text: { type: \'object\', additionalProperties: \'no\' } }', 'parameters.text.additionalProperties must be explicitly true or false'],
+    ['parameters: { type: \'object\' }', 'parameters.properties must be an object of schemas'],
+    ['parameters: { type: \'object\', properties: {}, additionalProperties: false }', 'parameters.additionalProperties must be true or omitted'],
+    ['parameters: { type: \'object\', properties: {}, required: \'text\' }', 'parameters.required must be an array of declared property names'],
+    ['parameters: { type: \'object\', properties: {}, required: undefined }', 'parameters.required must be an array of declared property names'],
+    ['parameters: { type: \'object\', properties: {}, required: [42] }', 'parameters.required must be an array of declared property names'],
+    ['parameters: (() => { const required = []; required.length = 1; return { type: \'object\', properties: {}, required } })()', 'parameters.required must be an array of declared property names'],
+    ['parameters: (() => { const required = []; required.length = 1; required.extra = true; return { type: \'object\', properties: {}, required } })()', 'parameters.required must be an array of declared property names'],
+    ['parameters: (() => { class Names extends Array { *[Symbol.iterator]() {} }; const required = new Names(); required[0] = \'text\'; required.length = 1; return { type: \'object\', properties: { text: { type: \'string\' } }, required } })()', 'parameters.required must be an array of declared property names'],
+    ['parameters: { type: \'object\', properties: {}, required: [\'text\'] }', 'parameters.required names undeclared property "text"'],
+    ['parameters: { type: \'object\', properties: { text: { type: \'string\', required: true } } }', 'parameters.text.required belongs to the containing raw object schema'],
+    ['parameters: { type: \'object\', properties: { text: { oneOf: \'bad\' } } }', 'parameters.text.oneOf must contain at least two schemas'],
+    ['parameters: { type: \'object\', properties: { text: { type: \'json\' } } }', 'parameters.text must declare a valid type'],
+    ['parameters: { type: \'object\', properties: { cfg: { type: \'object\', additionalProperties: \'no\' } } }', 'parameters.cfg.additionalProperties must be a boolean'],
+    ['parameters: { type: \'object\', properties: { cfg: { type: \'object\', properties: 42 } } }', 'parameters.cfg.properties must be an object of schemas'],
+    ['parameters: { type: \'object\', properties: { cfg: { type: \'object\', required: [\'label\'] } } }', 'parameters.cfg.required names undeclared property "label"'],
+    ['parameters: { type: \'object\', properties: { cfg: { type: \'object\', required: undefined } } }', 'parameters.cfg.required must be an array of declared property names'],
+    ['parameters: { value: { oneOf: \'bad\' } }', 'parameters.value.oneOf must contain at least two schemas'],
+    ['parameters: { value: { oneOf: new (class Branches extends Array {})({ type: \'string\' }, { type: \'null\' }) } }', 'parameters.value.oneOf must contain at least two schemas'],
+    ['parameters: { value: { oneOf: Object.assign([{ type: \'string\' }, { type: \'null\' }], { extra: true }) } }', 'parameters.value.oneOf must contain at least two schemas'],
+    ['parameters: { value: { type: \'string\', enum: \'bad\' } }', 'enum must be a non-empty array'],
+    ['parameters: { value: { type: \'string\', enum: new (class Values extends Array {})(\'a\', \'b\') } }', 'parameters.value.enum must be a non-empty array'],
+    ['parameters: { value: { type: \'json\', default: -0 } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: Infinity } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: () => 1 } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: (() => { const v = {}; v.self = v; return v })() } }', 'parameters.value.default.self must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: Array(2) } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: Object.assign([1], { extra: true }) } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: (() => { const v = Array(1); v.extra = true; return v })() } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: Object.defineProperty({}, \'hidden\', { value: true }) } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: { [Symbol(\'hidden\')]: true } } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: new (class DefaultValue { constructor() { this.ok = true } })() } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: new (class DefaultList extends Array {})() } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: { value: { type: \'json\', default: new Date(0) } }', 'parameters.value.default must be lossless JSON data'],
+    ['parameters: (() => { const p = Object.create(null); const C = function C() {}; Object.defineProperty(C, \'name\', { value: \'Object\' }); C.prototype = p; Object.defineProperty(p, \'constructor\', { value: C }); return Object.create(p) })()', 'must be a ParameterSchemaSpec object'],
+    ['parameters: (() => { const p = Object.create(null); const C = function C() {}; Object.defineProperty(C, \'name\', { value: \'Object\' }); C.prototype = p; const r = Proxy.revocable(C, {}); Object.defineProperty(p, \'constructor\', { value: r.proxy }); r.revoke(); return Object.create(p) })()', 'must be a ParameterSchemaSpec object'],
+    ['parameters: Object.create(Object.create(null))', 'must be a ParameterSchemaSpec object'],
+  ])('rejects a malformed ParameterSchemaSpec (%s) with a teaching error', async (parameters, message) => {
     const ctx = await setup()
     const result = await call(ctx, 'cordis_mount', {
       code: `
@@ -236,6 +477,7 @@ describe('cordis_mount', () => {
               name: 'bad_schema_tool',
               description: 'bad',
               ${parameters},
+              ${CONTENT_OUTPUT_CODE}
               async execute() { return [] },
             }))
           },
@@ -246,7 +488,83 @@ describe('cordis_mount', () => {
     expect(text(result)).toContain(message)
   })
 
-  it('accepts a nested object/array SchemaSpec (the DSL recursion)', async () => {
+  it.each([
+    [
+      `
+        const parameters = {}
+        const item = { type: 'array' }
+        item.items = item
+        parameters.item = item
+      `,
+      'parameters.item.items is circular',
+    ],
+    [
+      `
+        const parameters = {}
+        const item = { type: 'object', additionalProperties: true, properties: parameters }
+        parameters.item = item
+      `,
+      'parameters.item.properties is circular',
+    ],
+  ])('rejects circular sandbox schemas without exhausting the call stack', async (declaration, message) => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'circular-schema',
+          inject: ['tools'],
+          apply(ctx) {
+            ${declaration}
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'circular_schema_tool',
+              description: 'circular',
+              parameters,
+              async execute() { return [] },
+            }))
+          },
+        }
+      `,
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain(message)
+  })
+
+  it('preserves literal __proto__ keys in sandbox schemas and annotations', async () => {
+    const ctx = await setup()
+    const result = await call(ctx, 'cordis_mount', {
+      code: `
+        return {
+          name: 'proto-schema',
+          inject: ['tools'],
+          apply(ctx) {
+            harness.registerTool(ctx, harness.defineTool({
+              name: 'proto_schema_tool',
+              description: 'literal JSON keys',
+              parameters: {
+                ['__proto__']: { type: 'string', required: true },
+                value: { type: 'json', default: { ['__proto__']: { safe: true } } },
+              },
+              ${CONTENT_OUTPUT_CODE}
+              async execute() { return [] },
+            }))
+          },
+        }
+      `,
+    })
+
+    expect(result.isError).toBe(false)
+    const parameters = ctx.tools.schemas().find(schema => schema.name === 'proto_schema_tool')!.parameters as {
+      properties: Record<string, { default?: unknown }>
+      required?: string[]
+    }
+    expect(Object.hasOwn(parameters.properties, '__proto__')).toBe(true)
+    expect(parameters.required).toContain('__proto__')
+    const defaultValue = parameters.properties.value!.default as Record<string, unknown>
+    expect(Object.hasOwn(defaultValue, '__proto__')).toBe(true)
+    expect(defaultValue.__proto__).toEqual({ safe: true })
+  })
+
+  it('accepts a nested object/array ParameterSchemaSpec (the DSL recursion)', async () => {
     const ctx = await setup()
     const result = await call(ctx, 'cordis_mount', {
       code: `
@@ -258,9 +576,10 @@ describe('cordis_mount', () => {
               name: 'nested_schema_tool',
               description: 'nested',
               parameters: {
-                item: { type: 'object', required: true, properties: { label: { type: 'string', required: true } } },
+                item: { type: 'object', additionalProperties: true, required: true, properties: { label: { type: 'string', required: true } } },
                 tags: { type: 'array', items: { type: 'string' } },
               },
+              ${CONTENT_OUTPUT_CODE}
               async execute(args) { return [{ type: 'text', text: args.item.label }] },
             }))
           },
@@ -284,6 +603,7 @@ describe('cordis_mount', () => {
               name: 'raw_dynamic_tool',
               description: 'raw',
               parameters: { type: 'object', properties: {} },
+              ${CONTENT_OUTPUT_CODE}
               async execute() { return [] },
             })
           },
@@ -337,6 +657,14 @@ describe('cordis_mount', () => {
       code: 'return { name: \'waiter\', inject: [\'no-such-service\'], apply(ctx) {} }',
     })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected pending cordis_mount success')
+    expect(result.value).toEqual({
+      id: 'dyn-1',
+      pluginName: 'waiter',
+      state: 'pending',
+      provides: [],
+      waitingFor: ['no-such-service'],
+    })
     expect(text(result)).toContain('state: pending')
     expect(text(result)).toContain('waiting for service(s): no-such-service')
     // Unmounting a pending mount works like any other.
@@ -397,6 +725,7 @@ describe('cordis_mount', () => {
               name: 'cordis_mount',
               description: 'dup',
               parameters: {},
+              ${CONTENT_OUTPUT_CODE}
               async execute() { return [] },
             }))
           },
@@ -543,6 +872,7 @@ describe('cordis_mount', () => {
               name: 'probe_instanceof',
               description: 'report instanceof checks across realms',
               parameters: { items: { type: 'array', required: true, items: { type: 'string' } } },
+              ${CONTENT_OUTPUT_CODE}
               async execute(args) {
                 const checks = {
                   hostArray: args.items instanceof Array,

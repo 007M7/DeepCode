@@ -160,6 +160,12 @@ describe('dsh-tool-ralph', () => {
       report: COMPLETE,
     })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected Ralph success')
+    expect(result.value).toEqual({
+      runId: 'ralph-1',
+      agentsStarted: 1,
+      result: { status: 'complete', roundsStarted: 1, report: COMPLETE },
+    })
     expect((result.content[0] as { text: string }).text)
       .toContain('Ralph worker reported completion after 1 round.')
     expect((result.content[0] as { text: string }).text).toContain('All required gates pass.')
@@ -271,7 +277,7 @@ describe('dsh-tool-ralph', () => {
     const already = new AbortController()
     already.abort()
     const skipped = await execute(ctx, { objective: 'Work.' }, { agent: parent, signal: already.signal })
-    expect(skipped.error?.code).toBe(TOOL_ABORTED_BEFORE_DISPATCH)
+    expect(skipped.error?.info?.code).toBe(TOOL_ABORTED_BEFORE_DISPATCH)
     expect(engine.requests).toHaveLength(1)
     expect(engine.cancels).toEqual(['parent step aborted'])
     expect(engine.disposed).toBe(1)
@@ -298,7 +304,7 @@ describe('dsh-tool-ralph', () => {
       expect((await execute(ctx, { objective: 'Work.', maxRounds }, { agent: parent })).isError).toBe(true)
     }
     const missing = await execute(ctx, {}, { agent: parent })
-    expect(missing.error?.code).toBe('INVALID_ARGS')
+    expect(missing.error?.info?.code).toBe('INVALID_ARGS')
     expect(engine.requests).toHaveLength(0)
   })
 
