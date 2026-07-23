@@ -5,7 +5,7 @@ Status: implemented
 [English](2026-06-20-remove-agent-boundary-mirror-events.md) | 中文
 
 <!-- 以修订、收窄后的形式落地：
-     移除了四个 turn/step 边界镜像；此处保留了 `agent/steering` 和
+     移除了四个轮次/步骤边界镜像；此处保留了 `agent/steering` 和
      `agent/stream-chunk`（它们不是持久边界镜像——参见
      “范围：移除什么、不移除什么”）。原始提案将 `agent/steering` 与其他项一并
      移除；把它排除在外，使本 Agent Note 的范围保持在边界上。后来每个保留事件
