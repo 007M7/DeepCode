@@ -323,7 +323,7 @@ Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/t
  *
  * The {@link sourceEventSeqs} and {@link surfaceOp} fields are conditional:
  * they only exist on {@link SurfaceEventType} variants (`user/message`,
- * `assistant/message`, `tool/result`, `context/message`, `steering/message`).
+ * `assistant/message`, `tool/result`, `steering/message`).
  * Non-surface events (boundary markers, chunks, usage, errors) never carry
  * surface metadata — the compiler enforces this at `Session.append()`
  * call sites.
@@ -351,7 +351,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-The fourteen event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `prompt/blocked`, `context/message`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, `steering/message`, `todo/write`, `request/header`), the `deriveMessages()` projection rules, the `TurnTrigger`/`TurnEndReason` reasons, and the turn-enclosure invariant are on **[session.md](session.md)**. How the log is made durable — the `SessionPersistence` seam, JSONL/SQLite backends, the `session/flush` checkpoint, crash recovery, and `SessionHeader` — is on **[persistence.md](persistence.md)**.
+The thirteen event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `prompt/blocked`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, `steering/message`, `todo/write`, `request/header`), the `deriveMessages()` projection rules, the `TurnTrigger`/`TurnEndReason` reasons, and the turn-enclosure invariant are on **[session.md](session.md)**. How the log is made durable — the `SessionPersistence` seam, JSONL/SQLite backends, the `session/flush` checkpoint, crash recovery, and `SessionHeader` — is on **[persistence.md](persistence.md)**.
 
 ## The agent handle
 
@@ -361,10 +361,35 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
 
 ```ts type-equiv
 /**
- * Message options. An omitted source attests direct human input as `{ kind: 'user' }`
- * and may authorize policy consumers, so non-human producers must label their content.
+ * Which inbox queue a {@link Agent.send} item joins:
+ * - `next-turn` — the item becomes its own turn, claimed at a turn boundary.
+ * - `next-step` — the item joins the active turn between steps as steering,
+ *   or, when no turn is active, is promoted per its `wakeup` flag.
+ */
+type SendTarget = 'next-turn' | 'next-step'
+```
+
+```ts type-equiv
+/**
+ * Options for the unified {@link Agent.send} primitive over the
+ * (`target` × `wakeup`) matrix. Named presets: {@link Agent.followup}
+ * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
+ * {@link Agent.inject} (`next-step`/no-wakeup).
+ *
+ * An omitted source attests direct human input as `{ kind: 'user' }` and may
+ * authorize policy consumers, so non-human producers must label their content.
  */
 interface SendOptions {
+  /** Queue the item joins; defaults to `next-turn`. */
+  target?: SendTarget
+  /**
+   * Whether this item makes the model run: wake a parked driver (`next-turn`)
+   * or force a continuation step (`next-step` while running). Defaults to
+   * `true`. A `false` `next-turn` item queues without waking; a `false`
+   * `next-step` item attaches durable context without forcing another step
+   * (the injection preset).
+   */
+  wakeup?: boolean
   source?: MessageSource
   /**
    * Model-facing contexts captured with this inbox item. A queued prompt exposes
@@ -372,16 +397,47 @@ interface SendOptions {
    * records them directly at its next checkpoint.
    */
   contexts?: HookContext[]
+  /** Opaque JSON state retained on the durable message but hidden from the model. */
+  meta?: JsonValue
 }
 ```
 
-`InjectOptions` accepts ordinary message attribution and durable model-hidden JSON metadata. Attached contexts belong only to queued or steering input, so synthetic injection cannot accept them:
+The fixed-preset aliases own `target` and `wakeup`, so they accept only the remaining fields:
 
 ```ts type-equiv
-/** Options specific to durable synthetic context injection. */
-interface InjectOptions extends Omit<SendOptions, 'contexts'> {
-  /** Opaque JSON state retained in the session event but hidden from the model. */
-  meta?: JsonValue
+/** Options accepted by the fixed-preset aliases, which own `target` and `wakeup`. */
+type AliasSendOptions = Omit<SendOptions, 'target' | 'wakeup'>
+```
+
+The `agent/inbox/*` live events carry the resolved facts of one FIFO item; injection bypasses the FIFOs and never appears on them:
+
+```ts type-equiv
+/**
+ * The resolved facts of one inbox FIFO item, carried by the `agent/inbox/*`
+ * live events. Source defaults are already applied, so these are the exact
+ * values the item was accepted with. `steering` is true for a `next-step`
+ * item drained between steps; a `next-turn` item is claimed at a turn boundary.
+ */
+interface InboxItemInfo {
+  content: ContentBlock[]
+  source: MessageSource
+  contexts: HookContext[]
+  /** Whether the item joined the steering FIFO (`next-step`) rather than the queued FIFO. */
+  steering: boolean
+  /** Whether the item is marked to wake the driver or force a continuation. */
+  wakeup: boolean
+}
+```
+
+```ts type-equiv
+/** Options for {@link Agent.cancel}. */
+interface CancelOptions {
+  /**
+   * Preserve queued and steering inbox items instead of discarding them. The
+   * active turn is still aborted, but un-started and pending work survives for a
+   * later turn and no `agent/inbox/discard` fires.
+   */
+  keepInbox?: boolean
 }
 ```
 
@@ -392,59 +448,103 @@ type AgentCancelCause =
   | { readonly kind: 'parent' }
 ```
 
+`Agent` is an abstract class: concrete drivers implement the abstract members, while `followup`/`steer`/`inject` are shared concrete delegates to the single abstract `send` over the (`target` × `wakeup`) matrix.
+
 ```ts type-equiv
-/** Public agent handle; its concrete implementation is internal to `@deepseek-ai/dsh-agent-loop`. */
-interface Agent {
+/**
+ * Public agent handle; its concrete implementation is internal to
+ * `@deepseek-ai/dsh-agent-loop`. An abstract class rather than an interface so
+ * the fixed-preset aliases ({@link Agent.followup}, {@link Agent.steer},
+ * {@link Agent.inject}) are shared concrete delegates over the single abstract
+ * {@link Agent.send} primitive; concrete drivers implement `send` once.
+ */
+abstract class Agent {
   /** The single identity shared with {@link session}. */
-  readonly id: SessionId
-  readonly options: AgentOptions
-  readonly session: Session
-  readonly status: AgentStatus
+  abstract readonly id: SessionId
+  /** The provider route and model this agent's requests use. */
+  abstract readonly options: AgentOptions
+  /** The live session this agent drives; its log is the durable source of truth. */
+  abstract readonly session: Session
+  /** The current lifecycle state, mirrored on every `agent/status` transition. */
+  abstract readonly status: AgentStatus
   /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
-  readonly ctx: Context
+  abstract readonly ctx: Context
 
   /**
-   * Queue one detached, frozen lossless-JSON item. If claimed, it is the sole
-   * ordinary message in its FIFO-ordered turn; the next claimed item waits for
-   * that turn's checkpoint.
+   * The unified delivery primitive over the (`target` × `wakeup`) matrix.
+   * Detaches, validates, and freezes one lossless-JSON item, then routes it:
+   *
+   * - `next-turn` (default) queues an item that becomes the sole ordinary
+   *   message of its own FIFO-ordered turn; `wakeup` (default `true`) wakes a
+   *   parked driver, while `wakeup:false` queues without waking.
+   * - `next-step` with `wakeup:true` submits steering into the active turn
+   *   (idle falls back to a woken `next-turn`).
+   * - `next-step` with `wakeup:false` injects durable model-facing context
+   *   without running the model: an open turn joins at the current log position
+   *   (deferred behind an executing tool batch until it settles), and an idle
+   *   inject records a one-shot turn with its own durability checkpoint.
+   *
    * Attached contexts share the same snapshot and ownership boundary. Invalid
-   * input throws synchronously before notification or enqueue.
+   * input throws synchronously before any notification, enqueue, or append.
+   * @param content - the model-facing content blocks to deliver.
+   * @param options - target queue, wakeup decision, source, contexts, and meta.
    */
-  send(content: ContentBlock[], options?: SendOptions): void
+  abstract send(content: ContentBlock[], options?: SendOptions): void
 
   /**
-   * Submit steering while the agent is `running`. An open turn records it at
-   * the next steering checkpoint before a request or continuation decision;
-   * policy may stop before another step. After turn close and its checkpoint,
-   * any remainder is queued for a later turn; terminal `agent/turn-stop`,
-   * cancellation, or disposal may discard it. Uses the same synchronous
-   * snapshot-and-validation boundary as {@link send}; when idle, delegates to it.
-   */
-  steer(content: ContentBlock[], options?: SendOptions): void
-
-  /**
-   * Append detached model-facing context without running the model. An open-turn
-   * injection joins at the current log position unless the current tool batch is
-   * executing; then it waits FIFO until that batch settles and drains before turn
-   * close even when interrupted. Idle injection uses a one-shot turn and durability
-   * checkpoint. Disposal awaits idle checkpoints; flush failures report through `agent/error`.
-   */
-  inject(content: ContentBlock[], options?: InjectOptions): void
-
-  /**
-   * Clear all queued and steering work, including items waiting to start, and
-   * abort the active turn. An effective call first emits
-   * `agent/cancel-requested` with the resolved typed cause. The first cause wins
-   * for the active turn, and `whenIdle()` resolves after cancellation reaches
-   * quiescence. Omission means `{ kind: 'user' }`. Idle cancellation is a no-op
-   * and does not arm later work. The active turn snapshots and freezes the cause.
+   * Clear queued and steering work — unless `keepInbox` — and abort the active
+   * turn. An effective call first emits `agent/cancel-requested` with the
+   * resolved typed cause. The first cause wins for the active turn, and
+   * `whenIdle()` resolves after cancellation reaches quiescence. Omitted cause
+   * means `{ kind: 'user' }`. Idle cancellation is a no-op and does not arm
+   * later work. The active turn snapshots and freezes the cause.
    * @param cause - the stable caller intent carried by the current turn signal.
+   * @param options - cancellation options; `keepInbox` preserves pending work.
    */
-  cancel(cause?: AgentCancelCause): void
+  abstract cancel(cause?: AgentCancelCause, options?: CancelOptions): void
 
   /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
-  whenIdle(): Promise<void>
+  abstract whenIdle(): Promise<void>
 
+  /**
+   * Queue an ordinary follow-up turn and wake the driver — the
+   * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
+   * ordinary message of its own turn.
+   * @param content - the prompt content blocks.
+   * @param options - source and attached contexts.
+   */
+  followup(content: ContentBlock[], options?: AliasSendOptions): void {
+    this.send(content, { ...options, target: 'next-turn', wakeup: true })
+  }
+
+  /**
+   * Submit steering into the running turn — the `next-step`/wakeup preset of
+   * {@link send}. An open turn records it at the next steering checkpoint before
+   * a request or continuation decision; policy may stop before another step.
+   * After turn close and its checkpoint, any remainder is queued for a later
+   * turn; terminal `agent/turn-stop`, cancellation, or disposal may discard it.
+   * Idle steering falls back to a woken follow-up turn.
+   * @param content - the steering content blocks.
+   * @param options - source and attached contexts.
+   */
+  steer(content: ContentBlock[], options?: AliasSendOptions): void {
+    this.send(content, { ...options, target: 'next-step', wakeup: true })
+  }
+
+  /**
+   * Append detached model-facing context without running the model — the
+   * `next-step`/no-wakeup preset of {@link send}. An open-turn injection joins
+   * at the current log position unless the current tool batch is executing;
+   * then it waits FIFO until that batch settles and drains before turn close
+   * even when interrupted. Idle injection uses a one-shot turn and durability
+   * checkpoint. Disposal awaits idle checkpoints; flush failures report through
+   * `agent/error`. An omitted source defaults to `{ kind: 'plugin', plugin: '' }`.
+   * @param content - the injected context content blocks.
+   * @param options - source and durable model-hidden meta.
+   */
+  inject(content: ContentBlock[], options?: AliasSendOptions): void {
+    this.send(content, { ...options, target: 'next-step', wakeup: false })
+  }
 }
 ```
 
@@ -460,7 +560,7 @@ The process-local initiator carried by `ctx.agents` is the exact `Agent` above, 
 
 ## Interception decisions
 
-Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. Prompt and post-tool decisions share one model-facing context shape, `HookContext`, which carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its `content` reaches the model verbatim as user-role input, while JSON `meta` persists plugin state without exposing it to the model. Absent or `separate` placement becomes `context/message`; `prompt-prefix` placement is available to prompt and steering inbox attachments and bakes the context before the effective request in the same message. Both decisions carry `additionalContexts[]` so every entry preserves its own provenance, metadata, and placement. Continuation reasons are steering messages instead and deliberately use the narrower content/source shape.
+Each `agent/*` interception waterfall returns a small, seam-specific typed union — the unified Decision idiom (the tool seams' `PreToolDecision`/`PostToolDecision` in [tools.md](tools.md) follow the same shape). A CC/Codex hook bridge maps its `permissionDecision`/`decision`/`continue`/`additionalContext` fields onto these; a native plugin returns them directly. Prompt and post-tool decisions share one model-facing context shape, `HookContext`, which carries a REQUIRED `source` (a missing source would default to `{kind:'user'}` and mislabel plugin context as a user prompt). Its `content` reaches the model verbatim as user-role input, while JSON `meta` persists plugin state without exposing it to the model. Absent or `separate` placement becomes an injected `user/message` (plugin/goal source); `prompt-prefix` placement is available to prompt and steering inbox attachments and bakes the context before the effective request in the same message. Both decisions carry `additionalContexts[]` so every entry preserves its own provenance, metadata, and placement. Continuation reasons are steering messages instead and deliberately use the narrower content/source shape.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
@@ -470,8 +570,8 @@ interface HookContext {
   content: ContentBlock[]
   source: MessageSource
   /**
-   * Model placement. Absent or `separate` records an independent
-   * `context/message`; `prompt-prefix` prepends this context and a stable
+   * Model placement. Absent or `separate` records an independent injected
+   * `user/message`; `prompt-prefix` prepends this context and a stable
    * request delimiter to the same user-role message as its attached prompt.
    */
   placement?: 'separate' | 'prompt-prefix'

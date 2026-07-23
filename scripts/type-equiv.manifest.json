@@ -68,17 +68,32 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "SendTarget",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "SendOptions",
       "source": "packages/core/agent/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "AgentCancelCause",
+      "symbol": "AliasSendOptions",
       "source": "packages/core/agent/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "InjectOptions",
+      "symbol": "InboxItemInfo",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "CancelOptions",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "AgentCancelCause",
       "source": "packages/core/agent/src/types.ts"
     },
     {

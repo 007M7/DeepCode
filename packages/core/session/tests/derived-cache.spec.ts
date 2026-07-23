@@ -38,7 +38,7 @@ describe('derived-message cache', () => {
     expect(beforeReplace).toHaveLength(2)
 
     const nodes = session.surface.nodes
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact' },
     }, { surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! }, sourceEventSeqs: [nodes[0]!, nodes[1]!] })
 

@@ -168,7 +168,7 @@ describe('bash tool through the agent loop', () => {
     expect(resultText(toolResult)).toContain('[exit code: 9]')
   })
 
-  it('background: start ack → completion notice as context/message → task_output collects it', async () => {
+  it('background: start ack → completion notice as user/message → task_output collects it', async () => {
     // The task id is deterministic (a fresh TaskService counts per kind from 1),
     // so the script can name `bash-1` without threading a generated id.
     const adapter = new MockAdapter([
@@ -188,10 +188,12 @@ describe('bash tool through the agent loop', () => {
     expect(resultText(firstResult)).toBe('started background task bash-1')
 
     // The task settles on its own; the tool-tasks notice listener injects a
-    // durable context/message into the owning agent's session (settlement may
-    // race turn end, so poll for it).
-    await pollUntil(() => events(agent).some(event => event.type === 'context/message'))
-    const notice = findEvent(events(agent), 'context/message')
+    // durable plugin-sourced user/message into the owning agent's session
+    // (settlement may race turn end, so poll for it).
+    const isNotice = (e: SessionEvent): e is SessionEvent<'user/message'> =>
+      e.type === 'user/message' && e.data.source.kind === 'plugin'
+    await pollUntil(() => events(agent).some(isNotice))
+    const notice = events(agent).find(isNotice)!
     expect(notice.data.content.some(
       block => block.type === 'text' && block.text.includes('background task bash-1 (bash: echo bg-ok) finished'),
     )).toBe(true)

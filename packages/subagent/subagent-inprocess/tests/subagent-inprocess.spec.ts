@@ -68,7 +68,7 @@ describe('startInProcessRun', () => {
         turn,
         trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
       })
-      session.append('context/message', {
+      session.append('user/message', {
         content: [{ type: 'text', text: 'late metadata' }],
         source: { kind: 'plugin', plugin: 'late-metadata' },
       }, { surfaceOp: 'append' })

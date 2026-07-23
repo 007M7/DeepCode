@@ -17,7 +17,7 @@ function fakeAgent(ctx: Context, rawId: string): Agent {
   const id = SessionId(rawId)
   const agent: Agent = {
     id, options: {}, session: new Session(id), status: 'idle', ctx: scope.ctx,
-    send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(agent)
   return agent

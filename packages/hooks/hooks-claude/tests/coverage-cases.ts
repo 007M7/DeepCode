@@ -138,9 +138,9 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
-      // The prompt proceeded unchanged; no context/message injected.
+      // The prompt proceeded unchanged; no injected context.
       expect(adapter.requests).toHaveLength(1)
-      expect(events(agent).some(e => e.type === 'context/message')).toBe(false)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user')).toBe(false)
     })
 
     it('a PreToolUse hook fires for a no-agent direct tool call (no session/turn to record into)', async () => {
@@ -441,7 +441,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       expect(result?.type === 'tool/result' && result.data.isError).toBe(true)
       expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text.includes('bad'))).toBe(true)
       // additionalContext also injected (the block + context arm).
-      expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('context too')))).toBe(true)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('context too')))).toBe(true)
     })
 
     it('a PreToolUse hook whose hookSpecificOutput names a DIFFERENT event does NOT deny the tool', async () => {
@@ -475,7 +475,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const handle = await ctx.agents.create({ sessionId: SessionId('s1'), meta: { cwd: workspace }, agentOptions: { provider: 'mock', model: 'mock' } })
       handle.agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, handle.agent)
-      expect(events(handle.agent).some(e => e.type === 'context/message'
+      expect(events(handle.agent).some(e => e.type === 'user/message'
       && e.data.content.some(b => b.type === 'text' && b.text.includes(`dir=${workspace}`)))).toBe(true)
       await handle.dispose()
     })
@@ -496,7 +496,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // the downstream block won: the model was never called, no user/message was
       // recorded, and the (sole, fully-blocked) prompt closed the turn `rejected`
       expect(adapter.requests).toHaveLength(0)
-      expect(events(agent).some(e => e.type === 'user/message')).toBe(false)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user')).toBe(false)
       const turnEnd = events(agent).findLast(e => e.type === 'turn/end')
       expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toMatchObject({ kind: 'rejected', reason: 'policy veto' })
     })
@@ -528,12 +528,12 @@ export function defineCoverageCases(group: CoverageGroup): void {
       // the original prompt was replaced by the downstream rewrite
       const userMsg = events(agent).find(e => e.type === 'user/message')
       expect(userMsg?.type === 'user/message' && userMsg.data.content.some(b => b.type === 'text' && b.text === 'rewritten-prompt')).toBe(true)
-      const contexts = events(agent).filter(event => event.type === 'context/message')
-      expect(contexts.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      const contexts = events(agent).filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
+      expect(contexts.map(event => event.type === 'user/message' && event.data.source)).toEqual([
         { kind: 'plugin', plugin: 'hooks-claude' },
         { kind: 'plugin', plugin: 'policy' },
       ])
-      expect(contexts[1]?.type === 'context/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
+      expect(contexts[1]?.type === 'user/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
     })
 
     it('folds the bridge PostToolUse context onto a downstream ACCEPT that replaces content', async () => {
@@ -551,7 +551,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       await waitForIdle(ctx, agent)
       const result = events(agent).find(e => e.type === 'tool/result')
       expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text === 'rewritten-result')).toBe(true)
-      expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
     })
 
     it('keeps bridge and downstream PostToolUse contexts as separate sourced events', async () => {
@@ -573,12 +573,12 @@ export function defineCoverageCases(group: CoverageGroup): void {
       agent.send([{ type: 'text', text: 'go' }])
       await waitForIdle(ctx, agent)
 
-      const contexts = events(agent).filter(event => event.type === 'context/message')
-      expect(contexts.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      const contexts = events(agent).filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
+      expect(contexts.map(event => event.type === 'user/message' && event.data.source)).toEqual([
         { kind: 'plugin', plugin: 'hooks-claude' },
         { kind: 'plugin', plugin: 'policy' },
       ])
-      expect(contexts[1]?.type === 'context/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
+      expect(contexts[1]?.type === 'user/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
     })
 
     it('folds the bridge PostToolUse context onto a downstream listener BLOCK', async () => {
@@ -599,7 +599,7 @@ export function defineCoverageCases(group: CoverageGroup): void {
       expect(result?.type === 'tool/result' && result.data.isError).toBe(true)
       expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text.includes('downstream-block'))).toBe(true)
       // the bridge's context still landed (folded onto the block)
-      expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
     })
 
   })

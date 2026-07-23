@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentStatus, InjectOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus, AliasSendOptions } from '@deepseek-ai/dsh-agent'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
 import { CallId } from '@deepseek-ai/dsh-llm'
@@ -32,10 +32,11 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     get status() { return status },
     ctx: new Context(),
     send() {},
+    followup() {},
     steer() {},
-    inject(content: ContentBlock[], options?: InjectOptions) {
-      const source = options?.source ?? { kind: 'user' }
-      session.append('context/message', {
+    inject(content: ContentBlock[], options?: AliasSendOptions) {
+      const source = options?.source ?? { kind: 'plugin', plugin: '' }
+      session.append('user/message', {
         content,
         source,
         ...options?.meta === undefined ? {} : { meta: options.meta },
@@ -225,7 +226,9 @@ describe('goal tool execution authority', () => {
   it('rejects stale agent objects and agents outside running status through the executor', async () => {
     const { ctx, root } = await harness()
     openTurn(root, { kind: 'user' })
-    const stale = { ...root.agent }
+    // A distinct agent object over root's exact session: same id, not the live
+    // registered instance, so the executor must reject it.
+    const stale = stubAgent('goal-tool-stale', root.agent.session).agent
     const staleResult = await execute(ctx, 'get_goal', {}, stale, stale)
     expect(staleResult.error?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
 

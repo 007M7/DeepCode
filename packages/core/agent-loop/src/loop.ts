@@ -10,7 +10,7 @@ import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, LlmFai
 import { isDeepStrictEqual } from 'node:util'
 import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorChain, llmFailureOf, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import { agentEvents, agentInterruptReasonOf, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
+import type { AgentEventDispatch, ContinuationDecision, HookContext, InboxItemInfo, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { PromptMessageData, Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
@@ -19,8 +19,13 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
-import type { Inbox } from './inbox.ts'
+import type { Inbox, InboxMessage } from './inbox.ts'
 import type { TurnCancellation } from './cancellation.ts'
+
+/** Build the `agent/inbox/dequeue` payload for one claimed inbox item. */
+function inboxInfo(message: InboxMessage, steering: boolean): InboxItemInfo {
+  return { content: message.content, source: message.source, contexts: message.contexts, steering, wakeup: message.wakeup }
+}
 
 /** Normalize thrown values while preserving an existing error code. */
 function toError(error: unknown): RequestError {
@@ -279,10 +284,11 @@ async function runTurn(
   const drainSteering = (): boolean => {
     const messages = handle.inbox.drainSteering()
     for (const message of messages) {
+      events.emit('agent/inbox/dequeue', inboxInfo(message, true))
       const prepared = preparePromptMessage(message.content, message.source, message.contexts)
       session.append('steering/message', { turn, ...prepared.data }, { surfaceOp: 'append' })
       for (const context of prepared.separateContexts) {
-        session.append('context/message', {
+        session.append('user/message', {
           content: context.content,
           source: context.source,
           ...context.meta === undefined ? {} : { meta: context.meta },
@@ -296,6 +302,7 @@ async function runTurn(
   const message = handle.inbox.dequeueQueued()
   /* v8 ignore next 3 -- invariant guard: runLoop only calls runTurn when hasQueued */
   if (!message) throw new Error('runTurn invariant violated: no queued message at turn start')
+  events.emit('agent/inbox/dequeue', inboxInfo(message, false))
   const trigger: TurnTrigger = { kind: 'message', source: message.source }
 
   let reason: TurnEndReason = { kind: 'completed' }
@@ -538,7 +545,7 @@ async function runTurn(
 
       // A continuation reason becomes next-step steering.
       if (decision.action === 'continue' && decision.reason) {
-        handle.inbox.steer({ content: decision.reason.content, source: decision.reason.source, contexts: [] })
+        handle.inbox.steer({ content: decision.reason.content, source: decision.reason.source, contexts: [], wakeup: true })
       }
       let shouldContinue = decision.action === 'continue'
 

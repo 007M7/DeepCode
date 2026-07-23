@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -43,9 +43,10 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     status: 'running',
     ctx: new Context(),
     send() {},
+    followup() {},
     steer() {},
     inject(content, options) {
-      session.append('context/message', {
+      session.append('user/message', {
         content,
         source: options?.source ?? { kind: 'user' },
       }, { surfaceOp: 'append' })
@@ -66,7 +67,7 @@ function openMessageTurn(session: Session, turn: number): void {
 function contextTexts(session: Session): string[] {
   const texts: string[] = []
   for (const event of session.events) {
-    if (event.type === 'context/message'
+    if (event.type === 'user/message'
       && event.data.source.kind === 'plugin'
       && event.data.source.plugin === 'time-context') {
       texts.push(event.data.content.find(block => block.type === 'text')?.text ?? '')
@@ -151,8 +152,8 @@ describe('durable step context', () => {
       + 'Elapsed since the preceding model-visible message: 1d 1h 1m 1s.',
     ])
     const event = session.events.at(-1)
-    expect(event?.type).toBe('context/message')
-    if (event?.type !== 'context/message') throw new Error('missing time context')
+    expect(event?.type).toBe('user/message')
+    if (event?.type !== 'user/message') throw new Error('missing time context')
     expect(event.data.source).toEqual({ kind: 'plugin', plugin: 'time-context' })
     expect(event.surfaceOp).toBe('append')
   })
@@ -230,10 +231,10 @@ describe('durable step context', () => {
     const original = new Session(SessionId('seed-source'))
     openMessageTurn(original, 1)
     await fire(ctx, sessionAgent(original), 1, 1)
-    const user = original.events.find(event => event.type === 'user/message')
-    const reading = original.events.find(event => event.type === 'context/message')
+    const user = original.events.find(event => event.type === 'user/message' && event.data.source.kind === 'user')
+    const reading = original.events.find(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
     if (user === undefined || reading === undefined) throw new Error('missing source surface events')
-    original.append('context/message', {
+    original.append('user/message', {
       content: [{ type: 'text', text: 'compacted history' }],
       source: { kind: 'plugin', plugin: 'compact-basic' },
     }, {
@@ -292,7 +293,7 @@ describe('durable step context', () => {
     openMessageTurn(session, 1)
     let ordinarySawContext = false
     ctx.on('agent/pre-step', (subject) => {
-      ordinarySawContext = subject.session.events.some(event => event.type === 'context/message')
+      ordinarySawContext = subject.session.events.some(event => event.type === 'user/message')
     })
 
     await fire(ctx, agent, 1, 1)
@@ -401,7 +402,8 @@ describe('real agent-loop request history', () => {
     await agent.whenIdle()
 
     expect(adapter.requests).toHaveLength(2)
-    const contexts = agent.session.events.filter(event => event.type === 'context/message')
+    const contexts = agent.session.events.filter(
+      (event): event is SessionEvent<'user/message'> => event.type === 'user/message' && event.data.source.kind === 'plugin')
     const starts = agent.session.events.filter(event => event.type === 'step/start')
     expect(contexts).toHaveLength(adapter.requests.length)
     expect(starts).toHaveLength(adapter.requests.length)

@@ -98,6 +98,25 @@ describe('Agent.cancel()', () => {
     expect(agent.session.events.some(e => e.type === 'turn/end')).toBe(true)
   })
 
+  it('cancel({ keepInbox: true }) preserves queued work and emits no discard', async () => {
+    const adapter = new MockAdapter([textResponse('reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    const discards: unknown[] = []
+    ctx.on('agent/inbox/discard', (subject, items) => { if (subject === agent) discards.push(items) })
+
+    // Queue a turn WITHOUT waking the driver, so it sits in the inbox.
+    agent.send([{ type: 'text', text: 'preserved' }], { target: 'next-turn', wakeup: false })
+    // keepInbox cancel: no active turn, work preserved, no discard event.
+    agent.cancel({ kind: 'user' }, { keepInbox: true })
+    expect(discards).toEqual([])
+
+    // The preserved item still runs once the driver is woken by a later send.
+    send(agent, 'wake it')
+    await waitForIdle(ctx, agent)
+    expect(userTexts(agent)).toEqual(['preserved', 'wake it'])
+  })
+
   it('pre-step cancel drops the about-to-start turn (no turn is opened)', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)

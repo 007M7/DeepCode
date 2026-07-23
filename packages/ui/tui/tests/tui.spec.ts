@@ -374,8 +374,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.session.append('user/message', { content: [{ type: 'text', text: '   ' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     result.session.append('steering/message', { turn: 2, content: [{ type: 'text', text: 'steering note' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     result.session.append('steering/message', { turn: 2, content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    result.session.append('context/message', { content: [{ type: 'text', text: 'user context' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    result.session.append('context/message', { content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    result.session.append('user/message', { content: [{ type: 'text', text: 'user context' }], source: { kind: 'plugin', plugin: 'ctx' } }, { surfaceOp: 'append' })
+    result.session.append('user/message', { content: [{ type: 'text', text: '' }], source: { kind: 'plugin', plugin: 'ctx' } }, { surfaceOp: 'append' })
     result.session.append('prompt/blocked', { content: [{ type: 'text', text: 'blocked' }], source: { kind: 'user' }, reason: 'test policy' })
     appendAssistant(result.session, [])
     result.session.append('step/end', { turn: 1, step: 1 })
@@ -552,16 +552,16 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).not.toContain('queued')
 
     const queueSteering = (text: string): void => {
-      result.ctx.emit('agent/queued', result.agent, [{ type: 'text', text }], { source: { kind: 'user' }, contexts: [], steering: true })
+      result.ctx.emit('agent/inbox/enqueue', result.agent, { content: [{ type: 'text', text }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
     }
     const drainSteering = (text: string): void => {
       result.session.append('steering/message', { turn: 1, content: [{ type: 'text', text }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     }
 
     // A steering queue for a different agent never touches this status line.
-    const other = { ...result.agent, id: SessionId('other') } as Agent
+    const other = { ...result.agent, id: SessionId('other') } as unknown as Agent
     result.terminal.output = ''
-    result.ctx.emit('agent/queued', other, [{ type: 'text', text: 'elsewhere' }], { source: { kind: 'user' }, contexts: [], steering: true })
+    result.ctx.emit('agent/inbox/enqueue', other, { content: [{ type: 'text', text: 'elsewhere' }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
@@ -574,7 +574,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     // A non-steering queue (an idle-style send) leaves the badge untouched.
     result.terminal.output = ''
-    result.ctx.emit('agent/queued', result.agent, [{ type: 'text', text: 'sent' }], { source: { kind: 'user' }, contexts: [], steering: false })
+    result.ctx.emit('agent/inbox/enqueue', result.agent, { content: [{ type: 'text', text: 'sent' }], source: { kind: 'user' }, contexts: [], steering: false, wakeup: true })
     drainSteering('first')
     await tick()
     expect(result.terminal.output).toContain('1 queued')
@@ -594,7 +594,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(result.terminal.output).toContain('1 queued')
 
-    // A loop-authored steering event (plugin source, no matching agent/queued)
+    // A loop-authored steering event (plugin source, no matching agent/inbox/enqueue)
     // cannot consume a pending user slot, even when it drains first.
     result.terminal.output = ''
     result.session.append('steering/message', {
@@ -627,7 +627,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const idle = await setup()
     // A steering queue arriving while idle has no status line to badge, so the
     // refresh is a no-op beyond requesting a render.
-    idle.ctx.emit('agent/queued', idle.agent, [{ type: 'text', text: 'early' }], { source: { kind: 'user' }, contexts: [], steering: true })
+    idle.ctx.emit('agent/inbox/enqueue', idle.agent, { content: [{ type: 'text', text: 'early' }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
     idle.session.append('tool/call', { turn: 1, step: 0, callId: 'pre' as never, name: 'bash', arguments: '{}' })
     await tick()
     expect(idle.terminal.output).not.toContain('Executing tools')
@@ -1221,7 +1221,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Referenced sessions · Steering source (steering-source)')
     expect(result.terminal.output).not.toContain('hidden non-reference prefix')
 
-    result.session.append('context/message', {
+    result.session.append('user/message', {
       content: [{ type: 'text', text: 'secret full snapshot payload' }],
       source: { kind: 'plugin', plugin: 'session-reference' },
       meta: {
@@ -1240,13 +1240,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
       [{ kind: 'session-reference', references: [{}] }, 'invalid-fields'],
     ]
     for (const [meta, text] of invalidCards) {
-      result.session.append('context/message', {
+      result.session.append('user/message', {
         content: [{ type: 'text', text }],
         source: { kind: 'plugin', plugin: 'session-reference' },
         meta,
       }, { surfaceOp: 'append' })
     }
-    result.session.append('context/message', {
+    result.session.append('user/message', {
       content: [{ type: 'text', text: 'same-label snapshot' }],
       source: { kind: 'plugin', plugin: 'session-reference' },
       meta: { kind: 'session-reference', references: [{ sessionId: 'same', label: 'same' }] },
@@ -1658,7 +1658,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     const events = await setup()
     const unrelatedSession = events.ctx.sessions.create(SessionId('unrelated-session'))
-    const unrelatedAgent = { ...events.agent, id: unrelatedSession.id, session: unrelatedSession }
+    const unrelatedAgent = { ...events.agent, id: unrelatedSession.id, session: unrelatedSession } as unknown as Agent
     unrelatedSession.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     unrelatedSession.append('todo/write', { todos: [{ content: 'hidden', status: 'pending' }] })
     agentEvents(events.ctx, unrelatedAgent).emit('agent/status', 'running')
@@ -2021,7 +2021,7 @@ describe('tool cards and surface replay', () => {
       turn: 1, step: 1, callId: 'old-call' as never, content: [{ type: 'text', text: 'old output' }], isError: false,
     }, { surfaceOp: 'append' })
     const start = result.session.surface.nodes[0] as number
-    result.session.append('context/message', {
+    result.session.append('user/message', {
       content: [{ type: 'text', text: 'summary replacement' }],
       source: { kind: 'plugin', plugin: 'compact' },
     }, {
@@ -2207,7 +2207,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     mountTui(ctx, { color: false }, { terminal, exit: vi.fn() })
@@ -2231,7 +2231,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
@@ -2265,14 +2265,14 @@ describe('terminal mounting', () => {
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
       id: otherSession.id, options: {}, session: otherSession, status: 'idle', ctx,
-      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
     await tick()
@@ -2302,7 +2302,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
     expect(terminal.started).toBe(0)
@@ -2344,7 +2344,7 @@ describe('terminal mounting', () => {
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'running', ctx,
-      send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }

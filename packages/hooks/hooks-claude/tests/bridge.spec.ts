@@ -125,8 +125,8 @@ describe('hooks-claude bridge — UserPromptSubmit', () => {
 
     // The injected context reached the model and is recorded with the plugin source.
     expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('remember: be brief')
-    const ctxMsg = events(agent).find(e => e.type === 'context/message')
-    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'hooks-claude' })
+    const ctxMsg = events(agent).find(e => e.type === 'user/message' && e.data.source.kind !== 'user')
+    expect(ctxMsg?.type === 'user/message' && ctxMsg.data.source).toEqual({ kind: 'plugin', plugin: 'hooks-claude' })
   })
 })
 
@@ -216,10 +216,10 @@ describe('hooks-claude bridge — PostToolUse', () => {
 
     const log = events(agent)
     const resultIdx = log.findIndex(e => e.type === 'tool/result')
-    const ctxIdx = log.findIndex(e => e.type === 'context/message')
+    const ctxIdx = log.findIndex(e => e.type === 'user/message' && e.data.source.kind !== 'user')
     expect(ctxIdx).toBeGreaterThan(resultIdx) // context appended AFTER the tool result
     const ctxMsg = log[ctxIdx]
-    expect(ctxMsg?.type === 'context/message' && ctxMsg.data.content.some(b => b.type === 'text' && b.text.includes('tool was slow'))).toBe(true)
+    expect(ctxMsg?.type === 'user/message' && ctxMsg.data.content.some(b => b.type === 'text' && b.text.includes('tool was slow'))).toBe(true)
   })
 
   it('a PreToolUse permissionDecision:ask degrades to ask (the tool is gated, not run)', async () => {
@@ -262,7 +262,7 @@ describe('hooks-claude bridge — SessionStart', () => {
     // session-start fires async (detached .then → agent.inject); wait for the
     // injected context/message to actually land before sending, rather than a
     // fixed sleep that flakes under load.
-    await waitFor(() => events(agent).some(e => e.type === 'context/message'
+    await waitFor(() => events(agent).some(e => e.type === 'user/message'
       && e.data.content.some(b => b.type === 'text' && b.text.includes('project uses tabs'))))
     agent.send([{ type: 'text', text: 'go' }])
     await waitForIdle(ctx, agent)

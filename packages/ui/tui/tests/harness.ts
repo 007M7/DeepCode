@@ -153,6 +153,10 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
       sent.push(content)
       sentOptions.push(options)
     },
+    followup(content, options) {
+      sent.push(content)
+      sentOptions.push(options)
+    },
     steer(content, options) {
       steered.push(content)
       steeredOptions.push(options)

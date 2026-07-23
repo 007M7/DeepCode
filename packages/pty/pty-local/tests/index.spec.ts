@@ -42,7 +42,7 @@ function agent(ctx: Context): Agent {
   const id = SessionId('agent')
   return {
     id, options: {}, session: new Session(id), status: 'idle', ctx,
-    send() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
 

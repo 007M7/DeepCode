@@ -3,7 +3,7 @@
 {"type":"hook/invoked","seq":1,"time":1783352160546,"data":{"turn":1,"point":"UserPromptSubmit","dialect":"claude","handlerId":"claude:UserPromptSubmit:1"}}
 {"type":"hook/result","seq":2,"time":1783352160564,"data":{"turn":1,"point":"UserPromptSubmit","handlerId":"claude:UserPromptSubmit:1","decision":"pass","exitCode":0,"durationMs":17.45639600000004}}
 {"type":"user/message","seq":3,"time":1783352160564,"data":{"content":[{"type":"text","text":"What is my favorite color? Reply with just the color and stop. Do not use any tools."}],"source":{"kind":"user"}},"surfaceOp":"append"}
-{"type":"context/message","seq":4,"time":1783352160564,"data":{"content":[{"type":"text","text":"The user has previously stated their favorite color is teal."}],"source":{"kind":"plugin","plugin":"hooks-claude"}},"surfaceOp":"append"}
+{"type":"user/message","seq":4,"time":1783352160564,"data":{"content":[{"type":"text","text":"The user has previously stated their favorite color is teal."}],"source":{"kind":"plugin","plugin":"hooks-claude"}},"surfaceOp":"append"}
 {"type":"session/title","seq":5,"time":1783352160564,"data":{"title":"What is my favorite color?","messageSeqs":[3],"source":{"kind":"fallback"}}}
 {"type":"step/start","seq":6,"time":1783352160565,"data":{"turn":1,"step":1}}
 {"type":"request/header","seq":7,"time":1783352160566,"data":{"header":{"config":{"provider":"deepseek","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}

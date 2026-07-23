@@ -107,7 +107,7 @@ function appendTraceEvents(session: Session): void {
     { surfaceOp: { op: 'replace', start: 3, end: 3 }, sourceEventSeqs: [3, 2] },
   )
   session.append(
-    'context/message',
+    'user/message',
     { content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } },
     { surfaceOp: 'append' },
   )
@@ -309,14 +309,14 @@ describe('session event tracing', () => {
     const live = ctx.sessions.create(durable.id, { meta: { createdAt: 1, cwd: '/same' } })
     live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     live.append(
-      'context/message',
+      'user/message',
       { content: [{ type: 'text', text: 'live' }], source: { kind: 'plugin', plugin: 'test' } },
       { surfaceOp: 'append' },
     )
     TracePersistence.listFailure = new Error('list unavailable')
     TracePersistence.loadFailure = new Error('load unavailable')
     await expect(ctx.sessionQuery.traceEvent({ sessionId: durable.id, seq: 1 }))
-      .resolves.toMatchObject({ target: { type: 'context/message' } })
+      .resolves.toMatchObject({ target: { type: 'user/message' } })
     expect([TracePersistence.listCalls, TracePersistence.loadCalls]).toEqual([1, 1])
 
     TracePersistence.reset([{ meta: durable, events: [appendEvent(0)] }])

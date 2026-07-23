@@ -306,10 +306,10 @@ export function apply(ctx: Context): void {
         requestDrive(state)
       }
     })
-    ctx.on('agent/queued', (agent, content, info) => {
+    ctx.on('agent/inbox/enqueue', (agent, info) => {
       const state = stateFor(agent)
       const attempt = state.attempt
-      if (attempt !== undefined && sameQueued(content, info.source, attempt)) return
+      if (attempt !== undefined && sameQueued(info.content, info.source, attempt)) return
       state.competingQueued = true
       if (attempt?.phase === 'queued') attempt.stale = true
     })

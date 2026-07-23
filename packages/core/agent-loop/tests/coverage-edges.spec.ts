@@ -47,7 +47,7 @@ describe('inbox acceptance', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     let queued = 0
-    ctx.on('agent/queued', () => { queued += 1 })
+    ctx.on('agent/inbox/enqueue', () => { queued += 1 })
 
     expect(() => {
       agent.send([{ type: 'text', text: 'first', bad: 1n } as never])

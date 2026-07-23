@@ -3,26 +3,28 @@ import { Context, Service, symbols } from 'cordis'
 import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
+  Agent,
   agentEvents,
   agentInterruptReasonOf,
 } from '@deepseek-ai/dsh-agent'
 
-import type { Agent, AgentCancelCause, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentCancelCause, AgentFactory, ContinuationStop, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 
-function stubAgent(rawId: string): Agent {
+function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   const id = SessionId(rawId)
-  return {
+  // Agent is an abstract class, so its alias methods live on the prototype and
+  // object spread would drop them; build the full literal and merge overrides.
+  return Object.assign(Object.create(Agent.prototype) as Agent, {
     id,
     options: {},
     session: new Session(id),
     status: 'idle',
     ctx: new Context(),
     send() {},
-    steer() {},
-    inject() {},
     cancel() {},
     whenIdle() { return Promise.resolve() },
-  }
+    ...overrides,
+  })
 }
 
 describe('AgentRegistry', () => {
@@ -56,7 +58,7 @@ describe('AgentRegistry', () => {
   it('rejects an agent whose registry and session identities differ', async () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
-    const agent = { ...stubAgent('agent-id'), session: new Session(SessionId('session-id')) }
+    const agent = stubAgent('agent-id', { session: new Session(SessionId('session-id')) })
 
     expect(() => ctx.agents.enter(agent, undefined))
       .toThrow('agent id "agent-id" does not match session id "session-id"')

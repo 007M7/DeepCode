@@ -140,11 +140,11 @@ const SCENARIOS: Scenario[] = [
   // Keyless, authored (like error-finish/cancel): deterministically forcing a
   // LIVE model to repeat one call three times is not a stable recording, so
   // the fixture scripts five identical todo_write calls and pins BOTH reminder
-  // tiers (gentle at 3, detailed at 5) as context/message in transcript and log.
+  // tiers (gentle at 3, detailed at 5) as injected user/message in transcript and log.
   { name: 'repeat-tool-guard', hasModelTurn: true, recorded: false },
   // Authored replay: a root AGENTS.md pins the session prefix, then a read in
   // nested/ discovers its narrower AGENTS.md as a raw, metadata-bearing
-  // context/message. Both AGENTS.md fixtures are symlinks to a sibling
+  // injected user/message. Both AGENTS.md fixtures are symlinks to a sibling
   // AGENTS.canonical.md, so this scenario also guards that discovery follows a
   // symlinked instruction file to its target's content. The scenario-specific
   // config keeps home/root discovery hermetic, and the resulting prefix needs
@@ -220,7 +220,7 @@ const SCENARIOS: Scenario[] = [
   // tool/code-dispatch events. Each overlay composes and pins its own header class.
   { name: 'code-mode-turn', hasModelTurn: true, recorded: true, pinsHeader: true, headerClass: 'code', configPath: CODE_MODE_CONFIG },
   // A nested fs dispatch inside run_code discovers workspace instructions. The
-  // context/message must follow the outer result while retaining workspace
+  // injected user/message must follow the outer result while retaining workspace
   // provenance, which proves Code Mode carries deferred tool context end to end.
   {
     name: 'code-mode-workspace-context',

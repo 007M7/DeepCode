@@ -35,10 +35,10 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => { const d = ctx.on('agent/status', (s, st) => { if (s === agent && st === 'idle') { d(); resolve() } }) })
 }
 
-/** Every `context/message` in the agent's log, flattened to joined text + source for terse assertions. */
+/** Every injected-context user message in the agent's log, flattened to joined text + source for terse assertions. */
 function reminders(agent: Agent): { text: string; source: unknown }[] {
   return [...agent.session.events]
-    .filter((e): e is SessionEvent<'context/message'> => e.type === 'context/message')
+    .filter((e): e is SessionEvent<'user/message'> => e.type === 'user/message' && e.data.source.kind !== 'user')
     .map(e => ({
       text: e.data.content.map(block => block.type === 'text' ? block.text : '').join('|'),
       source: e.data.source,

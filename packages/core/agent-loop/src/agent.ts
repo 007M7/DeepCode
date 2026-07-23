@@ -8,8 +8,8 @@
 
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { AgentCancelCause, AgentOptions, AgentStatus, HookContext, InjectOptions, SendOptions } from '@deepseek-ai/dsh-agent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { Agent } from '@deepseek-ai/dsh-agent'
+import type { AgentCancelCause, AgentOptions, AgentStatus, CancelOptions, HookContext, InboxItemInfo, SendOptions } from '@deepseek-ai/dsh-agent'
 import { deepFreeze, errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { snapshotJsonValue, type Session, type SessionId } from '@deepseek-ai/dsh-session'
@@ -100,7 +100,7 @@ export function bindReactLoopAgentContext(agent: ReactLoopAgent, ctx: Context): 
  * the loop driver. Everything observable happens through session events and
  * the agent/* event taxonomy — plugins never need this class.
  */
-export class ReactLoopAgent implements Agent {
+export class ReactLoopAgent extends Agent {
   /** Queued + steering FIFOs; native-private so callers cannot bypass the public driving verbs. */
   readonly #inbox = new Inbox()
 
@@ -161,6 +161,7 @@ export class ReactLoopAgent implements Agent {
     public readonly session: Session,
     maxParallelToolCalls: number,
   ) {
+    super()
     this.maxParallelToolCalls = maxParallelToolCalls
     const { promise, resolve } = Promise.withResolvers<void>()
     this.disposed = promise
@@ -190,23 +191,23 @@ export class ReactLoopAgent implements Agent {
     for (const resolve of waiters) resolve()
   }
 
-  private resolveSource(options?: SendOptions): MessageSource {
-    return options?.source ?? { kind: 'user' }
-  }
-
   /**
    * Accept one public message payload as a detached record. Lossless-JSON
    * materialization reads every nested field once; deep freeze prevents later
    * caller mutation before an inbox or deferred-injection queue drains it.
    */
-  private acceptMessage(content: ContentBlock[], options?: SendOptions): InboxMessage {
-    const source = this.resolveSource(options)
+  private acceptMessage(content: ContentBlock[], source: MessageSource, wakeup: boolean, options?: SendOptions): InboxMessage {
     const contexts = options?.contexts ?? []
-    const accepted = snapshotJsonValue({ content, source, contexts })
+    const accepted = snapshotJsonValue({ content, source, contexts, wakeup })
     if (accepted === undefined) {
       throw new TypeError('agent message content, source, and contexts must be losslessly JSON-serializable')
     }
     return deepFreeze(accepted)
+  }
+
+  /** Build the `agent/inbox/*` payload for one accepted item. */
+  private inboxInfo(message: InboxMessage, steering: boolean): InboxItemInfo {
+    return { content: message.content, source: message.source, contexts: message.contexts, steering, wakeup: message.wakeup }
   }
 
   /** Detach one context before it can outlive its caller in the active-batch FIFO. */
@@ -225,24 +226,26 @@ export class ReactLoopAgent implements Agent {
 
   send(content: ContentBlock[], options?: SendOptions): void {
     this.assertNotDisposed()
-    const accepted = this.acceptMessage(content, options)
-    this.#inbox.enqueue(accepted)
-    const info = { source: accepted.source, contexts: accepted.contexts, steering: false } as const
-    agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
+    const target = options?.target ?? 'next-turn'
+    const wakeup = options?.wakeup ?? true
+    // next-step/no-wakeup is injection: durable context without running the model.
+    if (target === 'next-step' && !wakeup) { this.injectContext(content, options); return }
+    // next-step/wakeup is steering into the running turn; idle falls back to a
+    // woken follow-up turn (there is no active turn to attach to).
+    const steering = target === 'next-step' && this._status === 'running'
+    const source = options?.source ?? { kind: 'user' }
+    const accepted = this.acceptMessage(content, source, wakeup, options)
+    if (steering) {
+      this.#inbox.steer(accepted)
+    } else {
+      this.#inbox.enqueue(accepted, wakeup)
+    }
+    agentEvents(this.loopCtx, this).emit('agent/inbox/enqueue', this.inboxInfo(accepted, steering))
   }
 
-  steer(content: ContentBlock[], options?: SendOptions): void {
-    this.assertNotDisposed()
-    if (this._status !== 'running') { this.send(content, options); return }
-    const accepted = this.acceptMessage(content, options)
-    this.#inbox.steer(accepted)
-    const info = { source: accepted.source, contexts: accepted.contexts, steering: true } as const
-    agentEvents(this.loopCtx, this).emit('agent/queued', accepted.content, info)
-  }
-
-  inject(content: ContentBlock[], options?: InjectOptions): void {
-    this.assertNotDisposed()
-    const source = this.resolveSource(options)
+  /** The `next-step`/no-wakeup injection path: durable context, no FIFO, no run. */
+  private injectContext(content: ContentBlock[], options?: SendOptions): void {
+    const source = options?.source ?? { kind: 'plugin', plugin: '' }
     const context = {
       content,
       source,
@@ -257,7 +260,7 @@ export class ReactLoopAgent implements Agent {
         this.deferredInjections.push(accepted)
         return
       }
-      this.session.append('context/message', accepted, { surfaceOp: 'append' })
+      this.session.append('user/message', accepted, { surfaceOp: 'append' })
       return
     }
     // No turn open: wrap the injection in a one-shot turn so every event stays
@@ -269,7 +272,7 @@ export class ReactLoopAgent implements Agent {
     // are contained by Session and cannot create a false append failure.
     try {
       this.session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-      this.session.append('context/message', context, { surfaceOp: 'append' })
+      this.session.append('user/message', context, { surfaceOp: 'append' })
     } finally {
       // Close the turn if turn/start made it into the log. A pre-commit veto
       // must escape rather than being mistaken for a committed turn/end.
@@ -301,7 +304,7 @@ export class ReactLoopAgent implements Agent {
   private drainDeferredInjections(): void {
     const pending = this.deferredInjections.splice(0)
     for (const accepted of pending) {
-      this.session.append('context/message', accepted, { surfaceOp: 'append' })
+      this.session.append('user/message', accepted, { surfaceOp: 'append' })
     }
   }
 
@@ -325,10 +328,14 @@ export class ReactLoopAgent implements Agent {
     }
   }
 
-  cancel(cause?: AgentCancelCause): void {
+  cancel(cause?: AgentCancelCause, options?: CancelOptions): void {
     const resolvedCause = cause ?? { kind: 'user' }
+    const keepInbox = options?.keepInbox ?? false
     const cancellation = this.turnCancellation
-    const preRun = cancellation === undefined && (this.#inbox.hasQueued || this.#inbox.hasSteering)
+    // keepInbox preserves pending work, so un-started items must not arm the
+    // pre-run cancel path that would otherwise drop the next queued turn.
+    const preRun = !keepInbox && cancellation === undefined
+      && (this.#inbox.hasQueued || this.#inbox.hasSteering)
     if (cancellation !== undefined || preRun) {
       if (preRun) this.preRunCancelled = true
       // Coordination consumers must update their own state before this call
@@ -336,9 +343,18 @@ export class ReactLoopAgent implements Agent {
       // contained by the fused dispatcher and cannot veto cancellation.
       agentEvents(this.loopCtx, this).emit('agent/cancel-requested', resolvedCause)
     }
-    // Clear work already present before abort observers run. A replacement
-    // synchronously enqueued by an observer belongs to the next turn.
-    this.#inbox.clear()
+    if (!keepInbox) {
+      // Snapshot before clearing so the discard notification carries the exact
+      // dropped items; a replacement synchronously enqueued by an
+      // `agent/cancel-requested` observer belongs to the next turn, not here.
+      const discarded = this.#inbox.pending()
+      // Clear work already present before abort observers run.
+      this.#inbox.clear()
+      if (discarded.length > 0) {
+        const items = discarded.map(({ message, steering }) => this.inboxInfo(message, steering))
+        agentEvents(this.loopCtx, this).emit('agent/inbox/discard', items)
+      }
+    }
     cancellation?.request(resolvedCause)
   }
 

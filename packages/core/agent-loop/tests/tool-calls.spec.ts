@@ -403,11 +403,11 @@ describe('tool-call scheduler: ordered middleware and additional contexts', () =
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
-    const contextTexts = log.filter(e => e.type === 'context/message')
-      .map(e => (e.data.content[0] as { text: string }).text)
+    const contextTexts = log.filter(e => e.type === 'user/message' && e.data.source.kind === 'plugin')
+      .map(e => ((e.data as { content: { text: string }[] }).content[0]!).text)
     expect(contextTexts).toEqual(['ctx-c1', 'ctx-c2'])
     const lastResult = log.findLastIndex(e => e.type === 'tool/result')
-    const firstContext = log.findIndex(e => e.type === 'context/message')
+    const firstContext = log.findIndex(e => e.type === 'user/message' && e.data.source.kind === 'plugin')
     expect(lastResult).toBeLessThan(firstContext)
   })
 
@@ -544,10 +544,11 @@ describe('tool-call scheduler: abort handling', () => {
         expect.objectContaining({ callId: CallId('c3'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } }),
         expect.objectContaining({ callId: CallId('c4'), isError: true, error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } }),
       ])
-    const settled = events(agent).filter(e => e.type === 'tool/result' || e.type === 'context/message')
+    const settled = events(agent).filter(e => e.type === 'tool/result'
+      || (e.type === 'user/message' && e.data.source.kind === 'plugin'))
     expect(settled.map(e => e.type))
-      .toEqual(['tool/result', 'tool/result', 'tool/result', 'tool/result', 'context/message', 'context/message'])
-    expect(settled.filter(e => e.type === 'context/message')
+      .toEqual(['tool/result', 'tool/result', 'tool/result', 'tool/result', 'user/message', 'user/message'])
+    expect(settled.filter(e => e.type === 'user/message')
       .map(e => (e.data.content[0] as { text: string }).text))
       .toEqual(['ctx-c1', 'ctx-c2'])
   })

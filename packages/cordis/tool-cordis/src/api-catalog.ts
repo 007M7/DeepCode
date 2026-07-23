@@ -844,6 +844,27 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A step or turn errored.',
   },
   {
+    name: 'agent/inbox/dequeue',
+    mode: 'emit',
+    signature: '\'agent/inbox/dequeue\'(this: Scoped<Agent>, agent: Agent, info: InboxItemInfo): void',
+    jsDoc: '/**\n * The driver claimed one item out of the inbox: a queued item at a turn\n * boundary, or steering drained between steps. Fires after the item leaves\n * its FIFO and before it becomes a durable message.\n * @param agent - the agent whose inbox item was claimed.\n * @param info - the claimed item\'s accepted content, source, contexts, steering, and wakeup facts.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'The driver claimed one item out of the inbox: a queued item at a turn boundary, or steering drained between steps.',
+  },
+  {
+    name: 'agent/inbox/discard',
+    mode: 'emit',
+    signature: '\'agent/inbox/discard\'(this: Scoped<Agent>, agent: Agent, items: InboxItemInfo[]): void',
+    jsDoc: '/**\n * `cancel()` (without `keepInbox`) dropped pending inbox items without\n * delivering them. Fires once per effective clearing call with every\n * discarded item, after `agent/cancel-requested` and before the abort.\n * @param agent - the agent whose inbox was cleared.\n * @param items - the discarded items in FIFO order (queued then steering); empty when nothing was pending.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: '`cancel()` (without `keepInbox`) dropped pending inbox items without delivering them.',
+  },
+  {
+    name: 'agent/inbox/enqueue',
+    mode: 'emit',
+    signature: '\'agent/inbox/enqueue\'(this: Scoped<Agent>, agent: Agent, info: InboxItemInfo): void',
+    jsDoc: '/**\n * A detached, frozen item entered the agent\'s inbox (queued or steering\n * FIFO). Source defaults are already applied, so `info` holds the exact\n * accepted values. This is the enqueue-time live signal; the durable record\n * is the eventual `user/message`/`steering/message`. Injection\n * (`next-step`/no-wakeup) bypasses the FIFOs and does not emit this.\n * @param agent - the agent whose inbox received the item.\n * @param info - the accepted content, source, contexts, steering, and wakeup facts.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'A detached, frozen item entered the agent\'s inbox (queued or steering FIFO).',
+  },
+  {
     name: 'agent/post-step',
     mode: 'serial',
     signature: '\'agent/post-step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void',
@@ -863,13 +884,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
     jsDoc: '/**\n * Allow, rewrite, or block one claimed prompt before it becomes a user\n * message. Call `next()` for the unchanged default. A listener wrapping a\n * downstream `allow` must preserve its `content` and `additionalContexts`\n * unless it intentionally replaces them. The signal controls only this turn;\n * listeners may cooperate with it but must not retain it to control another\n * turn. Steering messages do not dispatch this event; they join an open turn\n * at a steering checkpoint.\n * @param agent - the agent whose turn claimed the message.\n * @param content - the claimed message\'s blocks, as queued.\n * @param source - the message\'s resolved source.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
     summary: 'Allow, rewrite, or block one claimed prompt before it becomes a user message.',
-  },
-  {
-    name: 'agent/queued',
-    mode: 'emit',
-    signature: '\'agent/queued\'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], info: { source: MessageSource; contexts: HookContext[]; steering: boolean }): void',
-    jsDoc: '/**\n * Detached, frozen content entered the agent\'s inbox. Source defaults have\n * already been applied, so these are the exact values retained for the log.\n * @param agent - the agent whose inbox received the message.\n * @param content - the accepted content blocks retained by the inbox.\n * @param info - the accepted source, contexts, and whether it entered as steering.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
-    summary: 'Detached, frozen content entered the agent\'s inbox.',
   },
   {
     name: 'agent/request',
@@ -1128,14 +1142,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
 /** Shapes of every exported type the SERVICE_API signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
-    name: 'Agent',
-    declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly ctx: Context;\n    send(content: ContentBlock[], options?: SendOptions): void;\n    steer(content: ContentBlock[], options?: SendOptions): void;\n    inject(content: ContentBlock[], options?: InjectOptions): void;\n    cancel(cause?: AgentCancelCause): void;\n    whenIdle(): Promise<void>;\n}',
-  },
-  {
-    name: 'AgentCancelCause',
-    declaration: 'export type AgentCancelCause = {\n    readonly kind: \'user\';\n} | {\n    readonly kind: \'parent\';\n};',
-  },
-  {
     name: 'AgentFactory',
     declaration: 'export interface AgentFactory {\n    createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>;\n    resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
   },
@@ -1146,10 +1152,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AgentOptions',
     declaration: 'export interface AgentOptions {\n    provider?: string;\n    model?: string;\n}',
-  },
-  {
-    name: 'AgentStatus',
-    declaration: 'export type AgentStatus = \'idle\' | \'running\' | \'disposed\';',
   },
   {
     name: 'ApprovalOutcome',
@@ -1452,10 +1454,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface HookContext {\n    content: ContentBlock[];\n    source: MessageSource;\n    placement?: \'separate\' | \'prompt-prefix\';\n    meta?: JsonValue;\n}',
   },
   {
-    name: 'InjectOptions',
-    declaration: 'export interface InjectOptions extends Omit<SendOptions, \'contexts\'> {\n    meta?: JsonValue;\n}',
-  },
-  {
     name: 'InvariantFailure',
     declaration: 'export type InvariantFailure = (message: string) => never;',
   },
@@ -1525,7 +1523,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PromptMessageData',
-    declaration: 'export interface PromptMessageData {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: PromptMessageEnvelope;\n}',
+    declaration: 'export interface PromptMessageData {\n    content: ContentBlock[];\n    source: MessageSource;\n    envelope?: PromptMessageEnvelope;\n    meta?: JsonValue;\n}',
   },
   {
     name: 'PromptMessageEnvelope',
@@ -1628,6 +1626,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ReasoningBlock {\n    type: \'reasoning\';\n    text: string;\n}',
   },
   {
+    name: 'RequestHeaderReason',
+    declaration: 'export type RequestHeaderReason = \'initial\' | \'resume\' | \'change\';',
+  },
+  {
     name: 'ResumeAgentOptions',
     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: (agentCtx: Context) => Promise<void> | void;\n}',
   },
@@ -1660,16 +1662,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ScopeKey = object;',
   },
   {
-    name: 'SendOptions',
-    declaration: 'export interface SendOptions {\n    source?: MessageSource;\n    contexts?: HookContext[];\n}',
-  },
-  {
     name: 'SessionEvent',
     declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: number;\n        time: number;\n        data: SessionEventMap[K];\n    } & (K extends SurfaceEventType ? {\n        sourceEventSeqs?: number[];\n        surfaceOp?: SurfaceOp;\n    } : object);\n}[T];',
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: Req /* …truncated — full shape in source */',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n}',
   },
   {
     name: 'SessionEventReadRequest',
@@ -1881,7 +1879,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SurfaceEventType',
-    declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\' | \'context/message\' | \'steering/message\';',
+    declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\' | \'steering/message\';',
   },
   {
     name: 'SurfaceOp',

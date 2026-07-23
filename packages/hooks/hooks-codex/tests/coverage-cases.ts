@@ -136,12 +136,12 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       expect(req).toContain('from-bridge')
       expect(req).toContain('from-downstream')
       expect(req).toContain('rewritten-prompt')
-      const contexts = events(agent).filter(event => event.type === 'context/message')
-      expect(contexts.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      const contexts = events(agent).filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
+      expect(contexts.map(event => event.type === 'user/message' && event.data.source)).toEqual([
         { kind: 'plugin', plugin: 'hooks-codex' },
         { kind: 'plugin', plugin: 'policy' },
       ])
-      expect(contexts[1]?.type === 'context/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
+      expect(contexts[1]?.type === 'user/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
     })
   })
 
@@ -157,7 +157,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
       const result = events(agent).find(e => e.type === 'tool/result')
       expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text === 'rewritten-result')).toBe(true)
-      expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
     })
 
     it('keeps bridge and downstream PostToolUse contexts as separate sourced events', async () => {
@@ -177,12 +177,12 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
 
-      const contexts = events(agent).filter(event => event.type === 'context/message')
-      expect(contexts.map(event => event.type === 'context/message' && event.data.source)).toEqual([
+      const contexts = events(agent).filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
+      expect(contexts.map(event => event.type === 'user/message' && event.data.source)).toEqual([
         { kind: 'plugin', plugin: 'hooks-codex' },
         { kind: 'plugin', plugin: 'policy' },
       ])
-      expect(contexts[1]?.type === 'context/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
+      expect(contexts[1]?.type === 'user/message' && contexts[1].data.meta).toEqual({ owner: 'policy' })
     })
 
     it('folds the bridge PostToolUse context onto a downstream listener BLOCK', async () => {
@@ -197,7 +197,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const result = events(agent).find(e => e.type === 'tool/result')
       expect(result?.type === 'tool/result' && result.data.isError).toBe(true)
       expect(result?.type === 'tool/result' && result.data.content.some(b => b.type === 'text' && b.text.includes('downstream-block'))).toBe(true)
-      expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('bridge-note')))).toBe(true)
     })
 
     it('SessionStart additionalContext is injected for the first request', async () => {
@@ -206,7 +206,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      await waitFor(() => events(agent).some(e => e.type === 'context/message'
+      await waitFor(() => events(agent).some(e => e.type === 'user/message'
       && e.data.content.some(b => b.type === 'text' && b.text.includes('start-ctx'))))
       agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
       expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('start-ctx')
@@ -233,7 +233,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       ctx.tools.register(defineTool({ name: 'Bash', description: 'b', parameters: { command: { type: 'string' } }, async execute() { return [{ type: 'text', text: 'ok' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
-      expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('post-ctx')))).toBe(true)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('post-ctx')))).toBe(true)
     })
   })
 
@@ -345,7 +345,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       await waitFor(() => existsSync(marker)) // the clean no-output hook has finished
       agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
-      expect(events(agent).some(e => e.type === 'context/message')).toBe(false)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user')).toBe(false)
     })
 
     it('a throwing SessionStart inject is contained (logged)', async () => {
@@ -428,7 +428,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const r = events(agent).find(e => e.type === 'tool/result')
       expect(r?.type === 'tool/result' && r.data.isError).toBe(true)
       expect(r?.type === 'tool/result' && r.data.content.some(b => b.type === 'text' && b.text.includes('bad'))).toBe(true)
-      expect(events(agent).some(e => e.type === 'context/message' && e.data.content.some(b => b.type === 'text' && b.text.includes('ctx too')))).toBe(true)
+      expect(events(agent).some(e => e.type === 'user/message' && e.data.source.kind !== 'user' && e.data.content.some(b => b.type === 'text' && b.text.includes('ctx too')))).toBe(true)
     })
 
     it('commandOf reads a non-string command arg as an empty command', async () => {
@@ -521,7 +521,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       await waitFor(() => existsSync(marker)) // the exit-2 hook has finished
-      expect(events(agent).some(e => e.type === 'context/message'
+      expect(events(agent).some(e => e.type === 'user/message'
       && e.data.content.some(b => b.type === 'text' && b.text.includes('stale')))).toBe(false)
     })
 
@@ -545,7 +545,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      await waitFor(() => events(agent).some(e => e.type === 'context/message'
+      await waitFor(() => events(agent).some(e => e.type === 'user/message'
       && e.data.content.some(b => b.type === 'text' && b.text.includes('session preamble'))))
       agent.send([{ type: 'text', text: 'go' }]); await waitForIdle(ctx, agent)
       expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('session preamble')

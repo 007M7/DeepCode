@@ -38,6 +38,14 @@ function materializeNode(
 ): ConversationNode {
   switch (event.type) {
     case 'user/message':
+      // Injected context (plugin/goal source) folds to a context node, not a
+      // user message; only a direct human prompt is a user node.
+      if (event.data.source.kind !== 'user') {
+        return {
+          kind: 'context', seq: event.seq, content: event.data.content, source: event.data.source,
+          meta: event.data.meta,
+        }
+      }
       return { kind: 'user', seq: event.seq, content: event.data.content, source: event.data.source }
     case 'assistant/message':
       return {
@@ -46,11 +54,6 @@ function materializeNode(
       }
     case 'steering/message':
       return { kind: 'steering', seq: event.seq, turn: event.data.turn, content: event.data.content, source: event.data.source }
-    case 'context/message':
-      return {
-        kind: 'context', seq: event.seq, content: event.data.content, source: event.data.source,
-        meta: event.data.meta,
-      }
     case 'tool/result': {
       const call = callIndex.get(String(event.data.callId))
       return {
@@ -63,7 +66,7 @@ function materializeNode(
         resultView,
       }
     }
-    /* v8 ignore next 2 -- defensive arm: fold output only carries the five
+    /* v8 ignore next 2 -- defensive arm: fold output only carries the four
     surface-eligible types, and each has a case above; reachable only if core
     adds an eligible type. */
     default:

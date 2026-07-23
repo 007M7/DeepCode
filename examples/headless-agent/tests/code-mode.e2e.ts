@@ -151,7 +151,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
     const events: SessionEvent[] = [...handle.agent.session.events]
     const dispatch = events.find(event => event.type === 'tool/code-dispatch' && event.data.name === 'read')
     const outerResult = events.find(event => event.type === 'tool/result')
-    const workspaceContext = events.find(event => event.type === 'context/message'
+    const workspaceContext = events.find(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
       && typeof event.data.meta === 'object'
       && event.data.meta !== null
       && !Array.isArray(event.data.meta)

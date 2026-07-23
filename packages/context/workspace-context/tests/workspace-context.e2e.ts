@@ -107,15 +107,15 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workspace context e2e: real mode
     await waitForIdle(live.ctx, live.agent)
 
     const events = [...live.agent.session.events]
-    const update = events.find(event => event.type === 'context/message'
+    const update = events.find(event => event.type === 'user/message'
       && typeof event.data.meta === 'object'
       && event.data.meta !== null
       && !Array.isArray(event.data.meta)
       && event.data.meta.kind === 'workspace-instructions')
-    expect(update?.type === 'context/message' && update.data.meta).toMatchObject({
+    expect(update?.type === 'user/message' && update.data.meta).toMatchObject({
       changes: [{ action: 'replace', scope: candidateScopeKey('.', 'AGENTS.md'), path: 'AGENTS.md' }],
     })
-    const updateText = update?.type === 'context/message'
+    const updateText = update?.type === 'user/message'
       ? update.data.content.filter(block => block.type === 'text').map(block => block.text).join('')
       : ''
     expect(updateText).toContain('Updated instructions from: AGENTS.md')

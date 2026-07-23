@@ -28,6 +28,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     status: 'idle',
     ctx: scopeFiber.ctx,
     send() {},
+    followup() {},
     steer() {},
     inject() {},
     cancel() {},

@@ -20,7 +20,7 @@ flowchart TD
   owned["Tool-owned session events<br/><code>todo/write</code>, <code>fs/observed</code>, <code>hook/invoked</code>, <code>hook/result</code>, <code>tool/code-dispatch</code>"]
   post["<code>tools/post-execute</code> waterfall<br/>accept, block, replace, add context"]
   final["<code>tools/result</code> synchronous notification<br/>frozen authoritative outcome"]
-  context["Active-batch additionalContexts FIFO<br/>context/message after recorded tool results"]
+  context["Active-batch additionalContexts FIFO<br/>injected user/message after recorded tool results"]
   toolResult["Session event: <code>tool/result</code><br/>single model-facing outcome"]
   allResults["Tool batch settled<br/>recorded tool/result events complete"]
   presentResult["UI completed card<br/>presentResult(args, result)"]

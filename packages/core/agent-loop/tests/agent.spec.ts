@@ -139,7 +139,7 @@ describe('Agent', () => {
     agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     agent.inject([{ type: 'text', text: 'mid' }], { source: { kind: 'plugin', plugin: 'p' } })
     expect(agent.session.events.filter(e => e.type === 'turn/start')).toHaveLength(1)
-    expect(agent.session.events.at(-1)!.type).toBe('context/message')
+    expect(agent.session.events.at(-1)!.type).toBe('user/message')
 
     // Close the turn; now inject must wrap its own one-shot injection turn.
     agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
@@ -149,6 +149,16 @@ describe('Agent', () => {
     const last = starts[1]!
     expect(last.type === 'turn/start' && last.data.trigger.kind).toBe('injection')
     expect(agent.session.events.at(-1)!.type).toBe('turn/end') // turn-enclosed
+  })
+
+  it('inject() defaults its source to an empty plugin, never user', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+    agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    agent.inject([{ type: 'text', text: 'no explicit source' }])
+    const injected = agent.session.events.at(-1)!
+    expect(injected.type === 'user/message' && injected.data.source).toEqual({ kind: 'plugin', plugin: '' })
   })
 
   it('idle inject() contains a failing flush (logs, does not throw into the caller)', async () => {
@@ -202,7 +212,7 @@ describe('Agent', () => {
 
     expect(() => { agent.inject([{ type: 'text', text: 'notice' }], { source: { kind: 'plugin', plugin: 'p' } }) }).not.toThrow()
     const types = agent.session.events.map(e => e.type)
-    expect(types).toEqual(['turn/start', 'context/message', 'turn/end']) // balanced
+    expect(types).toEqual(['turn/start', 'user/message', 'turn/end']) // balanced
     await new Promise(r => setTimeout(r, 10))
     expect(flushes).toBe(1) // checkpoint fired despite the throwing turn/end listener
   })

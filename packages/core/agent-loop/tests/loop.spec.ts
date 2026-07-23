@@ -380,7 +380,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     agent.inject([{ type: 'text', text: 'file changed: a.ts' }], { source: { kind: 'plugin', plugin: 'watcher' } })
-    // The idle inject records a self-contained turn (turn/start → context/message
+    // The idle inject records a self-contained turn (turn/start → user/message
     // → turn/end) so the event stays turn-enclosed, but does NOT run the model.
     await new Promise(r => setTimeout(r, 20))
     expect(agent.status).toBe('idle')
@@ -416,8 +416,8 @@ describe('agent loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    const contextEvent = agent.session.events.find(event => event.type === 'context/message')
-    expect(contextEvent?.type === 'context/message' && contextEvent.data).toMatchObject({ meta })
+    const contextEvent = agent.session.events.find(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
+    expect(contextEvent?.type === 'user/message' && contextEvent.data).toMatchObject({ meta })
     const requestText = JSON.stringify(adapter.requests[0]!.messages)
     expect(requestText).toContain('Additional instructions from: pkg/AGENTS.md')
     expect(requestText).not.toContain('<context source=')
@@ -445,7 +445,7 @@ describe('agent loop', () => {
         })
         first.text = 'mutated after inject'
         agent.inject([{ type: 'text', text: 'second notice' }], { source: { kind: 'plugin', plugin: 'x' } })
-        visibleDuringTool = agent.session.events.some(e => e.type === 'context/message')
+        visibleDuringTool = agent.session.events.some(e => e.type === 'user/message' && e.data.source.kind === 'plugin')
         return [{ type: 'text', text: 'ok' }]
       },
     }))
@@ -462,13 +462,13 @@ describe('agent loop', () => {
     const ts0 = turnStarts[0]!
     expect(ts0.type === 'turn/start' && ts0.data.trigger.kind).toBe('message')
     const result = agent.session.events.find(e => e.type === 'tool/result')!
-    const contexts = agent.session.events.filter(e => e.type === 'context/message')
+    const contexts = agent.session.events.filter(e => e.type === 'user/message' && e.data.source.kind === 'plugin')
     expect(contexts).toHaveLength(2)
     expect(result.seq).toBeLessThan(contexts[0]!.seq)
-    expect(contexts[0]?.type === 'context/message' && contexts[0].data).toMatchObject({
+    expect(contexts[0]?.type === 'user/message' && contexts[0].data).toMatchObject({
       meta,
     })
-    expect(contexts.flatMap(event => event.type === 'context/message' ? event.data.content : []))
+    expect(contexts.flatMap(event => event.type === 'user/message' ? event.data.content : []))
       .toEqual([
         { type: 'text', text: 'mid-turn notice' },
         { type: 'text', text: 'second notice' },
@@ -512,7 +512,7 @@ describe('agent loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(agent.session.events.some(event => event.type === 'context/message')).toBe(false)
+    expect(agent.session.events.some(event => event.type === 'user/message' && event.data.source.kind === 'plugin')).toBe(false)
   })
 
   it('agent/turn-continuation can force-continue (/loop pattern) and force-stop', async () => {
@@ -621,7 +621,7 @@ describe('agent loop', () => {
     ctx.on('agent/pre-step', (subject) => {
       if (subject === agent && !injected) {
         injected = true
-        subject.session.append('context/message', {
+        subject.session.append('user/message', {
           content: [{ type: 'text', text: 'INJECTED-IN-PRE-STEP' }],
           source: { kind: 'plugin', plugin: 'test' },
         }, { surfaceOp: 'append' })
@@ -639,7 +639,7 @@ describe('agent loop', () => {
     // And the injected event sits BEFORE the first step/start in the log —
     // the seam fired outside the step.
     const events = agent.session.events
-    const injectedSeq = events.find(e => e.type === 'context/message')!.seq
+    const injectedSeq = events.find(e => e.type === 'user/message' && e.data.source.kind === 'plugin')!.seq
     const firstStepStartSeq = events.find(e => e.type === 'step/start')!.seq
     expect(injectedSeq).toBeLessThan(firstStepStartSeq)
   })
@@ -1017,13 +1017,13 @@ describe('agent loop', () => {
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('turn-end listener message')
   })
 
-  it('keeps a reentrant agent/queued send as the next independent turn', async () => {
+  it('keeps a reentrant agent/inbox/enqueue send as the next independent turn', async () => {
     const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let nested = false
-    ctx.on('agent/queued', (subject) => {
+    ctx.on('agent/inbox/enqueue', (subject) => {
       if (subject !== agent || nested) return
       nested = true
       send(agent, 'queued listener message')

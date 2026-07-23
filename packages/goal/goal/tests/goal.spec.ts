@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentStatus, InjectOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus, AliasSendOptions } from '@deepseek-ai/dsh-agent'
 import { HarnessError, type ContentBlock, type MessageSource } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import GoalService, {
@@ -15,7 +15,7 @@ import type { GoalChangeMeta, GoalRef, GoalSnapshotChangeMeta } from '@deepseek-
 
 interface DeferredInjection {
   content: ContentBlock[]
-  options: InjectOptions | undefined
+  options: AliasSendOptions | undefined
 }
 
 interface StubAgent {
@@ -33,8 +33,8 @@ function nextTurn(session: Session): number {
 }
 
 /** Mirror the public Agent.inject idle/open-turn contract for domain tests. */
-function appendInjection(session: Session, content: ContentBlock[], options?: InjectOptions): void {
-  const source: MessageSource = options?.source ?? { kind: 'user' }
+function appendInjection(session: Session, content: ContentBlock[], options?: AliasSendOptions): void {
+  const source: MessageSource = options?.source ?? { kind: 'plugin', plugin: '' }
   const context = {
     content,
     source,
@@ -43,12 +43,12 @@ function appendInjection(session: Session, content: ContentBlock[], options?: In
   const last = session.events.at(-1)
   const open = last !== undefined && last.type !== 'turn/end'
   if (open) {
-    session.append('context/message', context, { surfaceOp: 'append' })
+    session.append('user/message', context, { surfaceOp: 'append' })
     return
   }
   const turn = nextTurn(session)
   session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-  session.append('context/message', context, { surfaceOp: 'append' })
+  session.append('user/message', context, { surfaceOp: 'append' })
   session.append('turn/end', { turn, reason: { kind: 'completed' } })
 }
 
@@ -65,6 +65,7 @@ function stubAgentForSession(session: Session): StubAgent {
     ctx: new Context(),
     get status() { return status },
     send() {},
+    followup() {},
     steer() {},
     inject(content, options) {
       if (shouldDefer) deferred.push({ content, options })
@@ -131,10 +132,10 @@ describe('GoalService creation and replay', () => {
     })
     expect(goal.id).toMatch(/^goal-/)
     expect(seen).toEqual(['create'])
-    expect(session.events.map(event => event.type)).toEqual(['turn/start', 'context/message', 'turn/end'])
+    expect(session.events.map(event => event.type)).toEqual(['turn/start', 'user/message', 'turn/end'])
     const context = session.events[1]
-    expect(context?.type).toBe('context/message')
-    if (context?.type !== 'context/message') throw new Error('expected goal context')
+    expect(context?.type).toBe('user/message')
+    if (context?.type !== 'user/message') throw new Error('expected goal context')
     expect(context.data.source).toEqual({ kind: 'goal', goalId: goal.id, revision: 1, round: 0 })
     const change = decodeGoalChange(context.data.meta)
     if (change === undefined) throw new Error('expected decoded goal change')
@@ -266,7 +267,9 @@ describe('GoalService creation and replay', () => {
 
   it('requires the exact live registry instance for reads and mutations', async () => {
     const { ctx, agent } = await harness()
-    const impostor = { ...agent, session: new Session(agent.id) }
+    // A same-id agent backed by a different session object — the live-instance
+    // check must reject it even though the ids match.
+    const impostor = stubAgentForSession(new Session(agent.id)).agent
     expect(() => ctx.goals.get(impostor)).toThrow(expect.objectContaining({ code: 'GOAL_AGENT_NOT_LIVE' }))
     expect(() => ctx.goals.create(impostor, { objective: 'no' })).toThrow(expect.objectContaining({
       code: 'GOAL_AGENT_NOT_LIVE',
@@ -407,8 +410,8 @@ describe('GoalService mutations', () => {
     vi.setSystemTime(80)
     ctx.goals.clear(agent, goal)
     const clear = session.events
-      .filter(event => event.type === 'context/message')
-      .map(event => decodeGoalChange(event.data.meta))
+      .filter(event => event.type === 'user/message' && event.data.source.kind === 'goal')
+      .map(event => event.type === 'user/message' ? decodeGoalChange(event.data.meta) : undefined)
       .at(-1)
     expect(clear).toMatchObject({ operation: 'clear', clearedAt: 100 })
     expect(() => foldGoal(session.events)).not.toThrow()
@@ -454,7 +457,7 @@ describe('GoalService mutations', () => {
     ctx.agents.register(stub.agent)
     let observed: ReturnType<GoalService['get']>
     ctx.on('session/event', (session, event) => {
-      if (session === stub.session && event.type === 'context/message') observed = ctx.goals.get(stub.agent)
+      if (session === stub.session && event.type === 'user/message' && event.data.source.kind === 'goal') observed = ctx.goals.get(stub.agent)
     })
 
     const created = ctx.goals.create(stub.agent, { objective: 'publish once' })
@@ -517,7 +520,7 @@ describe('GoalService mutations', () => {
     const source = { kind: 'goal', goalId: change.goal.id, revision: 1, round: 0 } as const
     const turn = nextTurn(session)
     session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-    session.append('context/message', {
+    session.append('user/message', {
       content: renderGoalChange(change), source, meta: change as never,
     }, { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
@@ -594,7 +597,7 @@ describe('goal replay validation', () => {
     }
     const turn = nextTurn(session)
     session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-    session.append('context/message', {
+    session.append('user/message', {
       content: overrides.content ?? renderGoalChange(change),
       source,
       meta: change as never,
@@ -791,7 +794,7 @@ describe('goal replay validation', () => {
     const source = { kind: 'goal', goalId: GoalId('goal-missing-meta'), revision: 1, round: 0 } as const
     const turn = nextTurn(session)
     session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-    session.append('context/message', {
+    session.append('user/message', {
       content: [{ type: 'text', text: 'missing' }], source,
     }, { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
@@ -853,7 +856,7 @@ describe('goal replay validation', () => {
     const source = { kind: 'goal', goalId: change.goal.id, revision: 2, round: 0 } as const
     const turn = nextTurn(session)
     session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
-    session.append('context/message', {
+    session.append('user/message', {
       content: renderGoalChange(clear), source, meta: clear as never,
     }, { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })

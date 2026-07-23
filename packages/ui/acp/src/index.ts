@@ -1333,8 +1333,8 @@ function validateMcpServers(params: { mcpServers?: unknown[] }): void {
  * generic fallback (title = tool name, raw args as input) when no registry is
  * available (e.g. pure translator tests).
  *
- * Other event types (turn/step boundaries, context/message, …) produce
- * no client update.
+ * Other event types (turn/step boundaries, injected-context user messages, …)
+ * produce no client update.
  * @param sessionId - the ACP session id stamped on every emitted notification.
  * @param event - the harness session event to translate.
  * @param notify - sink for each produced `session/update` notification; called
@@ -1374,6 +1374,9 @@ export function streamSessionEventUpdate(
     }
     case 'user/message': {
       if (!includeUserMessages) return
+      // Only a direct human prompt replays as a user message; injected context
+      // (plugin/goal source) is not the user's turn and produces no update.
+      if (event.data.source.kind !== 'user') return
       // Replay the user's prompt so a loaded session shows both sides of each
       // turn. Live prompt turns suppress this path to avoid duplicating what
       // the client just sent.
@@ -1420,7 +1423,7 @@ export function streamSessionEventUpdate(
       notify({ sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } } })
       return
     }
-    // non-error turn/step boundaries, context/message, steering,
+    // non-error turn/step boundaries, injected-context user messages, steering,
     // assistant/message — no direct ACP client update.
     default:
       return

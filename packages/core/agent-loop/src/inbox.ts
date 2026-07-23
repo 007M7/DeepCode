@@ -1,7 +1,7 @@
 /**
  * Per-agent message inbox: queued and steering FIFOs. Purely an in-memory
- * mechanism of the loop driver — the public surface is `Agent.send()` and
- * `Agent.steer()`.
+ * mechanism of the loop driver — the public surface is `Agent.send()` and its
+ * fixed-preset aliases.
  *
  * @module dsh-agent-loop/inbox
  */
@@ -14,12 +14,14 @@ export interface InboxMessage {
   content: ContentBlock[]
   source: MessageSource
   contexts: HookContext[]
+  /** Whether the item is marked to wake the driver or force a continuation. */
+  wakeup: boolean
 }
 
 /**
  * Per-agent inbox: a queued FIFO (dequeued once per turn start) and a steering FIFO
  * (drained between steps of a running turn). Purely an in-memory mechanism of
- * the loop — the public surface is `Agent.send()` / `Agent.steer()`.
+ * the loop — the public surface is `Agent.send()` and its aliases.
  */
 export class Inbox {
   private queuedMessages: InboxMessage[] = []
@@ -37,18 +39,21 @@ export class Inbox {
   }
 
   /**
-   * Add a message to the queued FIFO and wake a parked {@link waitForQueued}.
+   * Add a message to the queued FIFO, waking a parked {@link waitForQueued}
+   * unless the item opted out. A non-waking item still runs once any woken
+   * item or later wakeup drives the parked loop.
    * @param message - the message to queue for the next turn start.
+   * @param wake - whether to wake a parked idle wait (default true).
    */
-  enqueue(message: InboxMessage): void {
+  enqueue(message: InboxMessage, wake = true): void {
     this.queuedMessages.push(message)
-    this.wakeup?.()
+    if (wake) this.wakeup?.()
   }
 
   /**
    * Add a message to the steering FIFO. Deliberately no wakeup: steering is
    * drained between steps of a running turn, never by the idle wait —
-   * `Agent.steer()` on an idle agent falls back to `send()` instead.
+   * `Agent.steer()` on an idle agent falls back to a woken follow-up instead.
    * @param message - the message to inject between steps of the running turn.
    */
   steer(message: InboxMessage): void {
@@ -69,6 +74,18 @@ export class Inbox {
    */
   drainSteering(): InboxMessage[] {
     return this.steeringMessages.splice(0)
+  }
+
+  /**
+   * Snapshot the pending items (queued then steering, FIFO order) without
+   * removing them — the discard notification's payload source.
+   * @returns the pending items paired with whether each is steering.
+   */
+  pending(): { message: InboxMessage; steering: boolean }[] {
+    return [
+      ...this.queuedMessages.map(message => ({ message, steering: false })),
+      ...this.steeringMessages.map(message => ({ message, steering: true })),
+    ]
   }
 
   /**

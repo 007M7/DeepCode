@@ -92,7 +92,7 @@ describe('plan mode through the agent loop', () => {
     const result = findEvent(log, 'tool/result')
     expect(result.data.isError).toBe(false)
     expect(foldPlanMode(log)).toBe(true)
-    expect(log.some(event => event.type === 'context/message')).toBe(false)
+    expect(log.some(event => event.type === 'user/message' && event.data.source.kind === 'plugin')).toBe(false)
   })
 
   it('a user flip between turns lands at the boundary: one notice and a changed header with stable tool schemas', async () => {
@@ -115,9 +115,9 @@ describe('plan mode through the agent loop', () => {
 
     const log = agent.session.events
     expect(foldPlanMode(log)).toBe(true)
-    const notices = log.filter(event => event.type === 'context/message')
+    const notices = log.filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
     expect(notices).toHaveLength(1)
-    expect(findEvent(log, 'context/message').data.content).toEqual([
+    expect(notices[0]?.type === 'user/message' && notices[0].data.content).toEqual([
       { type: 'text', text: 'The user switched this session to plan mode.' },
     ])
     // The changed request is logged as a complete snapshot.
@@ -163,7 +163,8 @@ describe('plan mode through the agent loop', () => {
     expect(firstEnd?.seq).toBeLessThan(planMode.seq)
     expect(planMode.seq).toBeLessThan(retryStart?.seq ?? 0)
     expect(findEvent(log, 'request/header', 'last').data.header.system).toContain(PLAN_CONFIG.section)
-    expect(findEvent(log, 'context/message').data.content).toEqual([
+    const notice = log.find(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
+    expect(notice?.type === 'user/message' && notice.data.content).toEqual([
       { type: 'text', text: 'The user switched this session to plan mode.' },
     ])
   })
