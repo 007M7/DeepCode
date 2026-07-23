@@ -1,6 +1,6 @@
 /**
  * Shared tsdown preset for UI plugin client bundles. Emits a closure-factory
- * artifact: the bundle calls window.DSHClientProxy.loadPlugin({id, factory})
+ * artifact: the bundle calls window.__ModuleLoader__.load({id, factory})
  * and resolves externals through the injected require (loader module table —
  * cordis DI entities, no globals, no import map). CSS Modules are compiled by
  * lightningcss inside the bundle: importing `x.module.css` yields the
@@ -11,6 +11,7 @@ import { readFile } from 'node:fs/promises'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
 import type { UserConfig } from 'tsdown'
 import { transform } from 'lightningcss'
+import { PLATFORM_MODULES } from './web/src/platform.ts'
 
 /**
  * Virtual-id wrapper keeping module CSS away from tsdown's own css pipeline
@@ -28,22 +29,20 @@ const CSS_VIRTUAL_SUFFIX = '.mjs'
  */
 export const INLINE_SAFE = /^@deepseek-ai\/dsh-(host-apiproxy|session|llm|tools|brand)(\/|$)/
 
-/** Externals resolved from the loader module table (keep in sync with the shell's seeding list). */
-export const CLIENT_EXTERNALS = [
-  'react',
-  'react-dom',
-  'react/jsx-runtime',
-  'cordis',
-  '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-web-react',
-  '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-connection/client',
-  '@deepseek-ai/dsh-client-runtime/client',
-  '@deepseek-ai/dsh-client-ui-layout/client',
-  '@deepseek-ai/dsh-client-ui-conversation/client',
-  '@deepseek-ai/dsh-client-ui-theme/client',
-  '@deepseek-ai/dsh-client-i18n/client',
-]
+/**
+ * Documented TEMPORARY exemption, not a platform module (hence not in
+ * platform.ts): the snapshot-store engine (createSnapshotStore/defineStore/
+ * shallowEqual) lives in runtime pending its promotion-time rehoming, and
+ * five importers (i18n, ui-layout, ui-conversation ×3) ride this single
+ * exemption. At runtime the lazy CJS table answers the require natively:
+ * runtime is an immediately-tier row, its factory is registered before any
+ * dependent bundle materializes. TODO(webload/store-rehome): remove with the
+ * store-engine relocation follow-up.
+ */
+const RUNTIME_STORE_EXEMPTION = '@deepseek-ai/dsh-client-runtime/client'
+
+/** Externals resolved from the loader module table: the platform seed entries plus the documented runtime exemption. */
+export const CLIENT_EXTERNALS: readonly string[] = [...PLATFORM_MODULES, RUNTIME_STORE_EXEMPTION]
 
 /**
  * Build the tsdown config for one UI plugin package: the node-half lib build
@@ -51,8 +50,8 @@ export const CLIENT_EXTERNALS = [
  * the root workspace shape, so the lib half must be restated here — dropping
  * it leaves the package without lib/index.js and the host Loader cannot
  * import its node half.
- * @param id - plugin id (package name), stamped into the loadPlugin handoff
- * and onto the injected style tags.
+ * @param id - plugin id (package name), stamped into the __ModuleLoader__.load
+ * handoff and onto the injected style tags.
  * @param libEntry - node-half entries, spelled at the call site so the
  * package-invariants gate can see `lib/types/invariant.js` in each package's
  * own tsdown.config.ts (a preset-side glob hides it from the mechanical check).
@@ -79,7 +78,7 @@ export function clientBundle(id: string, libEntry: readonly string[]): UserConfi
     // Types ship from lib/types (tsc); dts here would wrap the banner/footer into .d.cts and break parsing.
     dts: false,
     clean: false,
-    external: CLIENT_EXTERNALS,
+    external: [...CLIENT_EXTERNALS],
     // Browser bundles inline node-idiom deps (zustand/immer read
     // process.env.NODE_ENV; zustand's esm build also probes
     // import.meta.env.MODE, which a CJS output cannot carry — rolldown flags
@@ -102,24 +101,20 @@ export function clientBundle(id: string, libEntry: readonly string[]): UserConfi
     // opinion for table entries (external above wins), bundle everything else.
     noExternal: (id: string) => (CLIENT_EXTERNALS.includes(id) ? undefined : true),
     plugins: [{
-      // Bundle purity gate: a bare-name import of a module-table package would
-      // slip past CLIENT_EXTERNALS (which lists the /client form) and INLINE a
-      // second copy of that package — duplicate runtime identity (a second
-      // scope Symbol was tonight's white-screen root cause). Resolve-time is
-      // the earliest, most precise interception: rewrite bare table names to
-      // their /client form (the loader registers both specifiers), and reject
-      // any other @deepseek-ai/* leak that is not an inline-safe wire layer.
+      // Bundle purity gate (build-time mirror of the module-edge rules):
+      // platform seed entries stay external, inline-safe wire layers inline,
+      // and every other @deepseek-ai value import is a build error — a
+      // cross-plugin value import either inlines a duplicate runtime instance
+      // or requires a specifier the frozen module table cannot answer.
+      // Cross-plugin collaboration goes through cordis services instead.
       name: 'dsh-client-bundle-purity',
       resolveId(source: string) {
         if (!source.startsWith('@deepseek-ai/')) return null
-        if (CLIENT_EXTERNALS.includes(source)) return null // external wins
-        if (CLIENT_EXTERNALS.includes(`${source}/client`)) {
-          return { id: `${source}/client`, external: true }
-        }
+        if (CLIENT_EXTERNALS.includes(source)) return null // platform module: external wins
         if (INLINE_SAFE.test(source)) return null // wire/type layer: inline is the point
         throw new Error(
-          `client bundle purity: "${source}" is not in CLIENT_EXTERNALS and not an inline-safe wire layer — `
-          + 'import the /client form, add it to the module table, or it inlines a duplicate runtime instance',
+          `client bundle purity: "${source}" is not a platform module (CLIENT_EXTERNALS) and not an inline-safe wire layer — `
+          + 'cross-plugin value imports are forbidden; collaborate through cordis services (type-only imports are erased and never reach this gate)',
         )
       },
     }, {
@@ -158,7 +153,7 @@ export function clientBundle(id: string, libEntry: readonly string[]): UserConfi
     }],
     outputOptions: {
       entryFileNames: 'client.js',
-      banner: `window.DSHClientProxy.loadPlugin({ id: ${JSON.stringify(id)}, factory: (require) => {`,
+      banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,
       footer: `return module.exports; } });`,
       intro: 'var module = { exports: {} }; var exports = module.exports;',
     },

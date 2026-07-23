@@ -67,6 +67,7 @@ async function bench(opts?: { sessions?: boolean }) {
     create: createMock,
     open: openMock,
     scope: (id: SessionId) => (id === sid('new-1') ? mint(id) : scopes.get(id)),
+    scopeOf,
   } as unknown as SessionsService
   if (opts?.sessions !== false) ctx.provide('sessions', sessionsFake)
   // Class-plugin mount — the same form apply.ts uses in production.
