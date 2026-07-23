@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
-import SessionQueryService, {
+import {
   buildSessionEventRecords,
   buildSessionEventSearchDocuments,
   compileSessionTextFilter,
@@ -12,15 +12,9 @@ import SessionQueryService, {
   filterSessionResults,
   materializeSessionEventResultFilters,
   materializeSessionResultFilters,
-  SessionSearchService,
-  type SessionEventSearchHit,
-  type SessionEventSearchRequest,
   type SessionQueryErrorCode,
-  type SessionSearchExecContext,
-  type SessionSearchHit,
-  type SessionSearchPage,
-  type SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
+import { TestSessionQueryService } from './test-service.ts'
 
 const id = SessionId('session')
 
@@ -203,10 +197,10 @@ describe('session-query document and filter helpers', () => {
       .toThrow(expectCode('SESSION_QUERY_INVALID_FILTER'))
   })
 
-  it('exposes the scan path on the concrete exact-read service', async () => {
+  it('exposes the scan path on the combined query service', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionQueryService)
+    await ctx.plugin(TestSessionQueryService)
     const session = ctx.sessions.create(id)
     session.append('user/message', { content: [{ type: 'text', text: 'Alpha\n beta' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
     session.append('user/message', { content: [{ type: 'text', text: 'other' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -215,21 +209,12 @@ describe('session-query document and filter helpers', () => {
   })
 })
 
-class TestSearchService extends SessionSearchService {
-  searchSessions(_request: SessionSearchRequest, _exec?: SessionSearchExecContext): Promise<SessionSearchPage<SessionSearchHit>> {
-    return Promise.resolve({ items: [] })
-  }
-
-  searchEvents(_request: SessionEventSearchRequest, _exec?: SessionSearchExecContext): Promise<SessionSearchPage<SessionEventSearchHit>> {
-    return Promise.resolve({ items: [] })
-  }
-}
-
-it('registers the abstract search seam under its independent ctx key', async () => {
+it('registers exact and abstract search behavior under one ctx key', async () => {
   const ctx = new Context()
-  const fiber = await ctx.plugin(TestSearchService)
-  await expect(ctx.sessionSearch.searchSessions({ query: 'AI' })).resolves.toEqual({ items: [] })
-  await expect(ctx.sessionSearch.searchEvents({ sessionId: id, query: 'AI' })).resolves.toEqual({ items: [] })
+  await ctx.plugin(SessionStore)
+  const fiber = await ctx.plugin(TestSessionQueryService)
+  await expect(ctx.sessionQuery.searchSessions({ query: 'AI' })).resolves.toEqual({ items: [] })
+  await expect(ctx.sessionQuery.searchEvents({ sessionId: id, query: 'AI' })).resolves.toEqual({ items: [] })
   await fiber.dispose()
-  expect(ctx.sessionSearch).toBeUndefined()
+  expect(ctx.sessionQuery).toBeUndefined()
 })

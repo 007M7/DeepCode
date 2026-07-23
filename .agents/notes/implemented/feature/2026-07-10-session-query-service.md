@@ -10,7 +10,7 @@ Full-text search is related but materially larger. Putting provider coordination
 
 ## Decision
 
-`@deepseek-ai/dsh-session-query` owns `ctx.sessionQuery`, a small trusted exact-inspection service over one logical corpus. It exposes `listSessions()`, provider-independent `filterSessions(filters)`, `listEvents(sessionId)`, `filterEvents(sessionId, filters)`, bounded `readEvent(request)`, `traceSession(sessionId)`, and `traceEvent(request)`. The package also declares the separate abstract `ctx.sessionSearch` contract and shared semantic extraction used by the [SQLite search decision](2026-07-10-sqlite-session-query-provider.md), but `ctx.sessionQuery` does not coordinate providers or synchronize a derived index. The separate [tracing decision](2026-07-13-session-query-tracing.md) owns lineage and event-relationship semantics.
+`@deepseek-ai/dsh-session-query` owns the single abstract `ctx.sessionQuery` service over one logical corpus. It concretely implements `listSessions()`, provider-independent `filterSessions(filters)`, `listEvents(sessionId)`, `filterEvents(sessionId, filters)`, bounded `readEvent(request)`, `traceSession(sessionId)`, and `traceEvent(request)`, while concrete backends implement its two full-text methods. The [unified service decision](../architecture/2026-07-23-unified-session-query-service.md) owns that topology, the [SQLite search decision](2026-07-10-sqlite-session-query-provider.md) owns search behavior, and the [tracing decision](2026-07-13-session-query-tracing.md) owns lineage and event-relationship semantics.
 
 The service observes the optional `ctx.sessionPersistence` binding dynamically but retains no persisted cache or invalidation listener. Each cross-corpus list asks the active backend for authoritative metadata, then overlays a fresh live-store list. Matching ids become one `SessionRecord`: the live header wins and `live`/`persisted` independently report source availability. Immutable header disagreement is `SESSION_QUERY_SOURCE_CONFLICT`.
 
@@ -35,6 +35,6 @@ The service is context-wide trusted infrastructure, not an authorization layer. 
 
 ## Consequences
 
-Exact reads have one source-resolution state variable: the currently mounted persistence service. There are no provider queues, fingerprints, extractor registries, observation generations, or derived index updates in `ctx.sessionQuery`. Exact reads, semantic scans, and event traces remain usable in live-only deployments and deterministic when persistence is present.
+The inherited exact-read implementation has one source-resolution state variable: the currently mounted persistence service. It has no provider queues, fingerprints, extractor registries, observation generations, or derived index updates; a concrete backend owns its full-text state separately. Exact reads, semantic scans, and event traces remain usable in live-only deployments and deterministic when persistence is present.
 
-Cross-corpus listing, lineage tracing, and persisted event operations perform backend I/O on each call. That is deliberate: correctness comes from current authoritative state, while scale-oriented full-text search uses the separately owned SQLite derived index.
+Cross-corpus listing, lineage tracing, and persisted event operations perform backend I/O on each call. That is deliberate: correctness comes from current authoritative state, while scale-oriented full-text methods use the concrete backend's SQLite derived index.

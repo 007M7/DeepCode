@@ -97,7 +97,7 @@ interface SessionEventSearchDocument extends SessionEventRecord {
 
 ## Full-text search pages
 
-The independent `ctx.sessionSearch` seam has two scopes. `searchSessions()` groups the corpus by strongest matching event; `searchEvents()` searches one session. Requests bind an opaque cursor to the normalized query, metadata filters, and limit. The event text scan is intentionally absent from provider metadata filters.
+The combined `ctx.sessionQuery` seam has two full-text scopes. `searchSessions()` groups the corpus by strongest matching event; `searchEvents()` searches one session. Requests bind an opaque cursor to the normalized query, metadata filters, and limit. The event text scan is intentionally absent from provider metadata filters.
 
 ```ts type-equiv
 /** Provider-owned opaque continuation token returned by session search. */

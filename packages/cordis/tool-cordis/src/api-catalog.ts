@@ -476,8 +476,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'sessionQuery',
-    summary: 'Live-preferred logical-corpus read, filtering, and relationship-tracing service.',
+    summary: 'Unified live-preferred session query service.',
     methods: [
+      {
+        signature: 'abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>',
+        jsDoc: '/**\n * Search the live-preferred logical corpus and group by session.\n * @param request - query text, metadata filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns session hits ranked by their strongest matching event.\n */',
+      },
+      {
+        signature: 'abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>',
+        jsDoc: '/**\n * Search events within one live-preferred logical session.\n * @param request - target session, query text, filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns matching event hits in deterministic relevance order.\n */',
+      },
       {
         signature: 'listSessions(): Promise<SessionRecord[]>',
         jsDoc: '/**\n * List the complete logical corpus using live-preferred records.\n * @returns deterministic newest-first cloned session records.\n */',
@@ -569,20 +577,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session',
         jsDoc: '/**\n * Create a live child session from a turn-enclosed prefix of a live source.\n * `boundary` is an inclusive source event seq; omitted means the source\'s\n * current last event. A non-empty selected slice must end at `turn/end`.\n *\n * @param source - Live source session object or id.\n * @param boundary - Inclusive source event seq to fork through; omitted means\n *   the source\'s current last event, and omitted on an empty source forks an\n *   empty child.\n * @param childSessionId - Optional child session id; omitted delegates to\n *   `SessionStore`\'s id policy.\n * @returns The created live child session.\n */',
-      },
-    ],
-  },
-  {
-    key: 'sessionSearch',
-    summary: 'Abstract full-text search service implemented by one concrete backend.',
-    methods: [
-      {
-        signature: 'abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>',
-        jsDoc: '/**\n * Search the live-preferred logical corpus and group by session.\n * @param request - query text, metadata filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns session hits ranked by their strongest matching event.\n */',
-      },
-      {
-        signature: 'abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>',
-        jsDoc: '/**\n * Search events within one live-preferred logical session.\n * @param request - target session, query text, filters, page size, and cursor.\n * @param exec - optional cancellation control.\n * @returns matching event hits in deterministic relevance order.\n */',
       },
     ],
   },

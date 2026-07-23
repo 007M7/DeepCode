@@ -1,5 +1,5 @@
 /**
- * Keyless real-Loader-path smoke for the SQLite session-search service.
+ * Keyless real-Loader-path smoke for the combined SQLite session-query service.
  *
  * @module @deepseek-ai/dsh-session-query-sqlite/tests/load-path
  */
@@ -10,7 +10,7 @@ import Loader from '@cordisjs/plugin-loader'
 import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite from '@deepseek-ai/dsh-session-persistence-sqlite'
-import SessionSearchSqlite, * as searchModule from '@deepseek-ai/dsh-session-query-sqlite'
+import SessionQuerySqlite, * as queryModule from '@deepseek-ai/dsh-session-query-sqlite'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -38,9 +38,9 @@ describe('dsh-session-query-sqlite real Loader path', () => {
     const persistence = await ctx.plugin(SessionPersistenceSqlite, { path: persistencePath })
 
     const loader = Object.create(Loader.prototype) as Loader
-    const unwrapped = loader.unwrapExports(searchModule) as Parameters<Context['plugin']>[0]
-    expect(unwrapped).toBe(SessionSearchSqlite)
-    const search = await ctx.plugin(unwrapped, { path: searchPath })
+    const unwrapped = loader.unwrapExports(queryModule) as Parameters<Context['plugin']>[0]
+    expect(unwrapped).toBe(SessionQuerySqlite)
+    const query = await ctx.plugin(unwrapped, { path: searchPath })
 
     const id = SessionId('loader-path')
     await ctx.sessionPersistence.create({ version: SESSION_FORMAT_VERSION, id, createdAt: 10 })
@@ -52,9 +52,11 @@ describe('dsh-session-query-sqlite real Loader path', () => {
       surfaceOp: 'append',
     }])
 
-    await expect(ctx.sessionSearch.searchSessions({ query: 'Loader needle' }))
+    await expect(ctx.sessionQuery.searchSessions({ query: 'Loader needle' }))
       .resolves.toMatchObject({ items: [{ header: { id }, persisted: true, live: false }] })
-    await search.dispose()
+    await expect(ctx.sessionQuery.listSessions())
+      .resolves.toMatchObject([{ header: { id }, persisted: true, live: false }])
+    await query.dispose()
     await persistence.dispose()
   })
 })

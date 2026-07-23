@@ -1,5 +1,5 @@
 /**
- * SQLite FTS5 search over the live-preferred logical session corpus.
+ * Concrete session-query service with SQLite FTS5 over the live-preferred corpus.
  *
  * @module @deepseek-ai/dsh-session-query-sqlite
  */
@@ -14,14 +14,15 @@ import type {
   SessionPersistenceRevision,
   SessionPersistenceSnapshot,
 } from '@deepseek-ai/dsh-session-persistence'
-import {
+import SessionQueryService, {
+  SESSION_QUERY_READ_WINDOW_MAX,
   SessionQueryError,
   SessionSearchCursor,
-  SessionSearchService,
   assertSessionHeadersCompatible,
   buildSessionEventSearchDocuments,
 } from '@deepseek-ai/dsh-session-query'
 import type {
+  Config as SessionQueryConfig,
   SessionEventSearchDocument,
   SessionEventSearchHit,
   SessionEventSearchRequest,
@@ -69,8 +70,8 @@ export const SESSION_QUERY_SQLITE_SNIPPET_CHARS = 240
 // One transient source change gets a retry; repeated churn fails rather than monopolizing the queue.
 const STABLE_OBSERVATION_ATTEMPTS = 2
 
-/** SQLite session-search configuration. */
-export interface Config {
+/** Combined session-query configuration backed by SQLite full-text search. */
+export interface Config extends SessionQueryConfig {
   /**
    * Dedicated derived-index path; `:memory:` is supported for tests. Missing
    * directories and database files are created owner-only on POSIX filesystems;
@@ -93,6 +94,7 @@ interface ResolvedConfig {
   defaultLimit: number
   maxLimit: number
   snippetChars: number
+  readWindowMax: number
 }
 
 interface ObservedSession {
@@ -158,9 +160,9 @@ interface CursorPayload {
   offset: number
 }
 
-/** Concrete SQLite owner of `ctx.sessionSearch`. */
-export class SessionSearchSqlite extends SessionSearchService {
-  static inject = ['sessions']
+/** Concrete SQLite owner of the combined `ctx.sessionQuery` service. */
+export class SessionQuerySqlite extends SessionQueryService {
+  static override inject = ['sessions']
 
   static Config: z<Config> = z.object({
     path: z.string().required(),
@@ -168,6 +170,7 @@ export class SessionSearchSqlite extends SessionSearchService {
     defaultLimit: z.number().step(1).min(1).max(SQLITE_MAX_PAGE_LIMIT).default(SESSION_QUERY_SQLITE_DEFAULT_LIMIT),
     maxLimit: z.number().step(1).min(1).max(SQLITE_MAX_PAGE_LIMIT).default(SESSION_QUERY_SQLITE_MAX_LIMIT),
     snippetChars: z.number().step(1).min(1).default(SESSION_QUERY_SQLITE_SNIPPET_CHARS),
+    readWindowMax: z.number().step(1).min(0).default(SESSION_QUERY_READ_WINDOW_MAX),
   })
 
   /** Validated and defaulted backend configuration. */
@@ -187,7 +190,7 @@ export class SessionSearchSqlite extends SessionSearchService {
   private readonly _optionalPersistenceFiber: Fiber
 
   constructor(ctx: Context, config: Config) {
-    super(ctx)
+    super(ctx, config)
     this.config = resolveConfig(config)
     this._ready = this._open()
     // Attach a rejection observer immediately; callers still receive the same
@@ -201,12 +204,12 @@ export class SessionSearchSqlite extends SessionSearchService {
         /* v8 ignore next -- a stale optional-service disposer cannot clear a replacement */
         if (this._persistenceBinding !== binding) return
         this._persistenceBinding = { identity: Symbol() }
-      }, 'sessionSearchSqlite.persistenceBinding')
+      }, 'sessionQuerySqlite.persistenceBinding')
     })
     ctx.effect(() => {
       return () => this._optionalPersistenceFiber.dispose()
-    }, 'sessionSearchSqlite.optionalPersistence')
-    ctx.effect(() => async () => this.close(), 'sessionSearchSqlite.close')
+    }, 'sessionQuerySqlite.optionalPersistence')
+    ctx.effect(() => async () => this.close(), 'sessionQuerySqlite.close')
   }
 
   override async searchSessions(
@@ -882,6 +885,7 @@ function resolveConfig(config: Config): ResolvedConfig {
     defaultLimit: config.defaultLimit ?? SESSION_QUERY_SQLITE_DEFAULT_LIMIT,
     maxLimit: config.maxLimit ?? SESSION_QUERY_SQLITE_MAX_LIMIT,
     snippetChars: config.snippetChars ?? SESSION_QUERY_SQLITE_SNIPPET_CHARS,
+    readWindowMax: config.readWindowMax ?? SESSION_QUERY_READ_WINDOW_MAX,
   }
   if (typeof resolved.path !== 'string' || resolved.path.trim().length === 0) {
     throw invalidConfig('path must not be blank')
@@ -963,4 +967,4 @@ function isRuntimeArray(value: unknown): boolean {
   return Array.isArray(value)
 }
 
-export default SessionSearchSqlite
+export default SessionQuerySqlite

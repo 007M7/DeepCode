@@ -135,18 +135,11 @@ const SERVICE_ROLES: ServiceRole[] = [
   {
     key: 'sessionQuery',
     pkg: 'session-query',
-    title: 'Exact session-history reads and traces',
-    mode: 'seam',
-    consumers: ['session-reference'],
-    note: 'Resolves live and optional persisted logs into one logical corpus for exact reads, semantic scans, and relationship traces.',
-  },
-  {
-    key: 'sessionSearch',
-    pkg: 'session-query',
-    title: 'Full-text session search',
+    title: 'Session reads, traces, filters, and search',
     mode: 'seam',
     implementations: ['session-query-sqlite'],
-    note: 'The concrete backend owns source reconciliation, ranking, snippets, and cursor generations as one lifecycle.',
+    consumers: ['session-reference'],
+    note: 'The interface supplies exact reads, filters, and traces; its concrete backend adds full-text reconciliation, ranking, snippets, and cursor generations on the same service.',
   },
   {
     key: 'sessionReferences',

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-session-query",
-  "description": "Live-preferred exact session-history retrieval and tracing service (ctx.sessionQuery)",
+  "description": "Combined session query service contract with concrete reads, traces, and filters",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -39,9 +39,6 @@
     "@deepseek-ai/dsh-session-persistence": {
       "optional": true
     }
-  },
-  "dependencies": {
-    "schemastery": "^3.18.0"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-brand": "workspace:^",

@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-session-query-sqlite
 
-SQLite FTS5 implementation of `ctx.sessionSearch`. The service searches the live-preferred logical session corpus and groups cross-session results by their strongest event.
+Concrete `ctx.sessionQuery` backend. `SessionQuerySqlite` inherits exact reads, traces, and provider-independent filters from the interface package and implements its two full-text methods with SQLite FTS5. Search uses the live-preferred logical session corpus and groups cross-session results by their strongest event.
 
 ## Search contract
 
@@ -27,6 +27,7 @@ The database is disposable but reset is guarded: a recognized incompatible searc
 | `defaultLimit` | `20` | Page size when a request omits `limit`; at most `Number.MAX_SAFE_INTEGER - 1`. |
 | `maxLimit` | `100` | Largest accepted request page size; at most `Number.MAX_SAFE_INTEGER - 1`. |
 | `snippetChars` | `240` | Maximum snippet length in Unicode code points. |
+| `readWindowMax` | `50` | Maximum `before` or `after` raw-event count for inherited `readEvent()`. |
 
 ## Tokenizer and limits
 

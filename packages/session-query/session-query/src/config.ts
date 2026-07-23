@@ -1,11 +1,11 @@
-/** Public configuration and typed failures for session-query and search. */
+/** Public configuration and typed failures for the combined session-query service. */
 
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
 /** Default maximum `before`/`after` raw-event window. */
 export const SESSION_QUERY_READ_WINDOW_MAX = 50
 
-/** Configuration for exact session-query reads and traces. */
+/** Backend-independent configuration inherited by every session-query implementation. */
 export interface Config {
   /** Maximum accepted raw read context on either side. Defaults to 50. */
   readWindowMax?: number

@@ -8,6 +8,7 @@ import SessionQueryService, {
   type SessionQueryErrorCode,
 } from '@deepseek-ai/dsh-session-query'
 import { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
+import { TestSessionQueryService } from './test-service.ts'
 
 function header(id: string, createdAt = 1, extra: Partial<SessionHeader> = {}): SessionHeader {
   return { version: SESSION_FORMAT_VERSION, id: SessionId(id), createdAt, ...extra }
@@ -75,10 +76,10 @@ class TestPersistence extends SessionPersistence {
   }
 }
 
-async function liveContext(config: ConstructorParameters<typeof SessionQueryService>[1] = {}): Promise<Context> {
+async function liveContext(config: ConstructorParameters<typeof TestSessionQueryService>[1] = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionQueryService, config)
+  await ctx.plugin(TestSessionQueryService, config)
   return ctx
 }
 
@@ -413,18 +414,18 @@ describe('session-query exact reads', () => {
 
     const direct = new Context()
     await direct.plugin(SessionStore)
-    expect(new SessionQueryService(direct)).toBeInstanceOf(SessionQueryService)
+    expect(new TestSessionQueryService(direct)).toBeInstanceOf(SessionQueryService)
     const invalid = new Context()
     await invalid.plugin(SessionStore)
-    expect(() => new SessionQueryService(invalid, { readWindowMax: -1 }))
+    expect(() => new TestSessionQueryService(invalid, { readWindowMax: -1 }))
       .toThrow(expectCode('SESSION_QUERY_INVALID_CONFIG'))
   })
 
   it('leaves the optional persistence dependency optional', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const fiber = await ctx.plugin(SessionQueryService)
-    expect(ctx.sessionQuery).toBeInstanceOf(SessionQueryService)
+    const fiber = await ctx.plugin(TestSessionQueryService)
+    expect(ctx.sessionQuery).toBeInstanceOf(TestSessionQueryService)
     await fiber.dispose()
     expect(ctx.sessionQuery).toBeUndefined()
   })
@@ -433,7 +434,7 @@ describe('session-query exact reads', () => {
     TestPersistence.reset()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
-    const query = await ctx.plugin(SessionQueryService)
+    const query = await ctx.plugin(TestSessionQueryService)
     const persistence = await ctx.plugin(TestPersistence)
     const optional = (ctx.sessionQuery as unknown as {
       _corpus: { _optionalPersistenceFiber: Fiber }

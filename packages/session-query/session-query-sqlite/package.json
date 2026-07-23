@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-session-query-sqlite",
-  "description": "SQLite FTS5 implementation of ctx.sessionSearch",
+  "description": "Concrete ctx.sessionQuery backend with SQLite FTS5 search",
   "version": "0.0.1",
   "private": true,
   "type": "module",

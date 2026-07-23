@@ -1,11 +1,10 @@
 /**
- * Exact session-history reads and traces over live and optionally persisted logs.
+ * Combined session-history reads, traces, filters, and full-text search seam.
  *
  * @module @deepseek-ai/dsh-session-query
  */
 
 import { Context, Service } from 'cordis'
-import z from 'schemastery'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleSnapshot } from '@deepseek-ai/dsh-session-title'
@@ -61,19 +60,32 @@ export { assertSessionHeadersCompatible } from './sources.ts'
 declare module 'cordis' {
   interface Context {
     sessionQuery: SessionQueryService
-    sessionSearch: SessionSearchService
   }
 }
 
 /**
- * Abstract full-text search service implemented by one concrete backend.
+ * Unified live-preferred session query service.
  *
- * The implementation owns source observation, reconciliation, cursor
- * generations, ranking, and query execution as one lifecycle.
+ * Exact reads, filters, and traces are backend-independent concrete behavior.
+ * A backend implements full-text observation, reconciliation, ranking, cursor
+ * generations, and query execution on the same `ctx.sessionQuery` service.
  */
-export abstract class SessionSearchService extends Service {
-  constructor(ctx: Context) {
-    super(ctx, 'sessionSearch')
+export abstract class SessionQueryService extends Service {
+  static inject = ['sessions']
+
+  private readonly _readWindowMax: number
+  private readonly _corpus: SessionCorpus
+
+  constructor(ctx: Context, config: Config = {}) {
+    super(ctx, 'sessionQuery')
+    this._readWindowMax = config.readWindowMax ?? SESSION_QUERY_READ_WINDOW_MAX
+    if (!Number.isInteger(this._readWindowMax) || this._readWindowMax < 0) {
+      throw new SessionQueryError(
+        'session-query: readWindowMax must be a non-negative integer',
+        'SESSION_QUERY_INVALID_CONFIG',
+      )
+    }
+    this._corpus = new SessionCorpus(ctx)
   }
 
   /**
@@ -97,29 +109,6 @@ export abstract class SessionSearchService extends Service {
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
   ): Promise<SessionSearchPage<SessionEventSearchHit>>
-}
-
-/** Live-preferred logical-corpus read, filtering, and relationship-tracing service. */
-export class SessionQueryService extends Service {
-  static inject = ['sessions']
-  static Config: z<Config> = z.object({
-    readWindowMax: z.number().step(1).min(0).default(SESSION_QUERY_READ_WINDOW_MAX),
-  })
-
-  private readonly _readWindowMax: number
-  private readonly _corpus: SessionCorpus
-
-  constructor(ctx: Context, config: Config = {}) {
-    super(ctx, 'sessionQuery')
-    this._readWindowMax = config.readWindowMax ?? SESSION_QUERY_READ_WINDOW_MAX
-    if (!Number.isInteger(this._readWindowMax) || this._readWindowMax < 0) {
-      throw new SessionQueryError(
-        'session-query: readWindowMax must be a non-negative integer',
-        'SESSION_QUERY_INVALID_CONFIG',
-      )
-    }
-    this._corpus = new SessionCorpus(ctx)
-  }
 
   /**
    * List the complete logical corpus using live-preferred records.
