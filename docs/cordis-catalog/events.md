@@ -773,7 +773,7 @@ A tool was registered or unregistered, or a scoped restriction changed (the avai
 'tools/change'(): void
 ```
 
-Source: [`packages/core/tools/src/index.ts:123`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:143`](../../packages/core/tools/src/index.ts)
 
 ### `tools/execute` — waterfall
 
@@ -795,7 +795,7 @@ Around-dispatch waterfall for timeout, retry, or metrics. `next()` returns a nor
 
 Types: [Scoped](../core-data-structures/scope.md) · [ToolDispatchExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:93`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:113`](../../packages/core/tools/src/index.ts)
 
 ### `tools/post-execute` — waterfall
 
@@ -818,7 +818,7 @@ Accept, replace, enrich, or block a normalized dispatch result. `next()` accepts
 
 Types: [PostToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:105`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:125`](../../packages/core/tools/src/index.ts)
 
 ### `tools/pre-execute` — waterfall
 
@@ -839,7 +839,7 @@ Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approv
 
 Types: [PreToolDecision](../core-data-structures/tools.md) · [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:82`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:102`](../../packages/core/tools/src/index.ts)
 
 ### `tools/result` — emit
 
@@ -858,7 +858,7 @@ Observe the frozen, lossless-JSON final outcome. Listener failures are contained
 
 Types: [Scoped](../core-data-structures/scope.md) · [ToolExecution](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolRegistry](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:113`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:133`](../../packages/core/tools/src/index.ts)
 
 ## `workflow/*`
 

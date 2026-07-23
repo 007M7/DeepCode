@@ -6,11 +6,11 @@ import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
-import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineTool } from '@deepseek-ai/dsh-tools'
-import type { Config, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { CodeRunFailedError, RUN_CODE_NAME, TOOL_ABORTED_BEFORE_DISPATCH, defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
+import type { Config, JsonSchemaNode, PostToolDecision, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEventMap } from '@deepseek-ai/dsh-session'
+import type { JsonValue, SessionEventMap } from '@deepseek-ai/dsh-session'
 
 const testToolSignal = new AbortController().signal
 
@@ -74,9 +74,13 @@ function registerEcho(ctx: Context, name = 'echo'): unknown[] {
     name,
     description: `Echo tool ${name}.`,
     parameters: { value: { type: 'string', required: true } },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
     execute(args) {
       calls.push(args)
-      return Promise.resolve([{ type: 'text' as const, text: `${name}:${args.value}` }])
+      return Promise.resolve(`${name}:${args.value}`)
     },
   }))
   return calls
@@ -122,8 +126,32 @@ describe('mode-aware wire contribution', () => {
     expect(assembly.tools.map(tool => tool.name)).toEqual([RUN_CODE_NAME])
     const sdk = assembly.sections.find(section => section.name === 'tools:sdk')
     expect(sdk?.text).toContain('declare const tools: {')
-    expect(sdk?.text).toContain('echo(args:')
-    expect(sdk?.text).not.toContain('run_code(args:')
+    expect(sdk?.text).toContain('echo: {')
+    expect(sdk?.text).not.toContain('run_code:')
+  })
+
+  it('projects deeply nested output schemas into the Code Mode SDK without structured-clone recursion', async () => {
+    const { ctx, systemPrompt } = await setup({ mode: 'code' })
+    let output: JsonSchemaNode = { type: 'string' }
+    for (let depth = 0; depth < 5_000; depth++) {
+      output = { oneOf: [output, { type: 'null' }] }
+    }
+    ctx.tools.register({
+      name: 'deep_output',
+      description: 'Return a deeply nested output union.',
+      parameters: { type: 'object', properties: {} },
+      output: {
+        schema: output,
+        render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : 'null' }],
+      },
+      execute() { return Promise.resolve('ok') },
+    })
+
+    const assembly = await systemPrompt.assemble()
+    const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
+
+    expect(sdk).toContain('deep_output: Record<string, JsonValue>;')
+    expect(sdk).toContain('deep_output: string | null')
   })
 
   it.each(['code', 'both'] as const)('treats expert assembly output as authoritative in mode %s', async (mode) => {
@@ -175,8 +203,8 @@ describe('mode-aware wire contribution', () => {
       ? [RUN_CODE_NAME]
       : ['echo', RUN_CODE_NAME])
     const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
-    expect(sdk).toContain('echo(args:')
-    expect(sdk).not.toContain('hidden(args:')
+    expect(sdk).toContain('echo: {')
+    expect(sdk).not.toContain('hidden:')
 
     runtime.behavior = request => Promise.resolve({
       logs: [],
@@ -205,8 +233,8 @@ describe('mode-aware wire contribution', () => {
       ? [RUN_CODE_NAME]
       : ['kept', RUN_CODE_NAME])
     const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
-    expect(sdk).not.toContain('denied(args:')
-    expect(sdk).toContain('kept(args:')
+    expect(sdk).not.toContain('denied:')
+    expect(sdk).toContain('kept: {')
 
     runtime.behavior = request => Promise.resolve({
       logs: [],
@@ -220,7 +248,7 @@ describe('mode-aware wire contribution', () => {
   it.each(['code', 'both'] as const)('reserves run_code against scoped shadows and explicit restrictions in mode %s', async (mode) => {
     const { ctx, systemPrompt } = await setup({ mode })
     const { scope, agent } = await mintAgentScope(ctx)
-    const impostor = defineTool({
+    const impostor = defineContentToolFixture({
       name: RUN_CODE_NAME,
       description: 'Scoped impostor.',
       parameters: {},
@@ -232,7 +260,7 @@ describe('mode-aware wire contribution', () => {
     expect(() => scope.ctx.tools.restrict({ allow: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
     expect(() => scope.ctx.tools.restrict({ deny: [RUN_CODE_NAME] })).toThrow(/cannot name reserved Code Mode presentation transport/)
     scope.ctx.systemPrompt.section({ name: 'scoped-note', order: 149, text: 'safe note' })
-    scope.ctx.tools.register(defineTool({
+    scope.ctx.tools.register(defineContentToolFixture({
       name: 'scoped_safe',
       description: 'Safe scoped tool.',
       parameters: {},
@@ -244,7 +272,7 @@ describe('mode-aware wire contribution', () => {
     expect(transports).toHaveLength(1)
     expect(transports[0]?.description).toContain('Execute a TypeScript program')
     expect(assembly.sections.find(section => section.name === 'scoped-note')?.text).toBe('safe note')
-    expect(assembly.sections.find(section => section.name === 'tools:sdk')?.text).toContain('scoped_safe(args:')
+    expect(assembly.sections.find(section => section.name === 'tools:sdk')?.text).toContain('scoped_safe:')
     expect(ctx.tools.get(RUN_CODE_NAME, agent)).toBe(ctx.tools.get(RUN_CODE_NAME))
     const result = await runCode(ctx, 'return 1', { agent })
     expect(result.content).toEqual([{ type: 'text', text: '(run_code completed with no output)' }])
@@ -268,6 +296,10 @@ describe('mode-aware wire contribution', () => {
     const { ctx, runtime } = await setup({ mode: 'both' })
     registerEcho(ctx)
     runtime.behavior = (request) => {
+      expect(request.bindings[0]!.errorClass).toEqual({
+        name: 'ToolCallError',
+        memberNameProperty: 'toolName',
+      })
       const functions = request.bindings[0]!.functions
       return Promise.resolve({
         logs: [],
@@ -331,10 +363,13 @@ describe('the run_code dispatch bridge', () => {
       const tools = request.bindings[0]!.functions
       const first = await tools.echo!({ value: 'one' })
       const second = await tools.echo!({ value: 'two' })
-      return { logs: [`saw ${String(first)}`], value: second }
+      if (typeof first !== 'string' || typeof second !== 'string') throw new Error('echo returned a non-string')
+      return { logs: [`saw ${first}`], value: second }
     }
     const result = await runCode(ctx, 'const …: string = …', { agent })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected run_code success')
+    expect(result.value).toEqual({ logs: ['saw echo:one'], result: 'echo:two' })
     expect(result.content).toEqual([{ type: 'text', text: 'saw echo:one\necho:two' }])
     expect(calls).toEqual([{ value: 'one' }, { value: 'two' }])
     const dispatches = events.filter(event => event.type === 'tool/code-dispatch')
@@ -342,7 +377,7 @@ describe('the run_code dispatch bridge', () => {
       { parentCallId: 'call-1', subCallId: 'call-1:code:1', name: 'echo', arguments: { value: 'one' }, isError: false, resultSummary: 'echo:one' },
       { parentCallId: 'call-1', subCallId: 'call-1:code:2', name: 'echo', arguments: { value: 'two' }, isError: false, resultSummary: 'echo:two' },
     ])
-    expect(result.meta).toEqual({ logs: ['saw echo:one'] })
+    expect(result.meta).toBeUndefined()
   })
 
   it('exposes only an opaque parent token to nested result observers', async () => {
@@ -380,6 +415,10 @@ describe('the run_code dispatch bridge', () => {
       name: 'probe',
       description: 'Records execution overlap.',
       parameters: { id: { type: 'string', required: true } },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
       async execute(args) {
         active++
         expect(active, 'probe executions overlapped').toBe(1)
@@ -387,12 +426,13 @@ describe('the run_code dispatch bridge', () => {
         await new Promise(resolve => setTimeout(resolve, 20))
         intervals.push(['exit', args.id])
         active--
-        return [{ type: 'text' as const, text: args.id }]
+        return args.id
       },
     }))
     runtime.behavior = async (request) => {
       const tools = request.bindings[0]!.functions
       const values = await Promise.all([tools.probe!({ id: 'a' }), tools.probe!({ id: 'b' }), tools.probe!({ id: 'c' })])
+      if (!values.every(value => typeof value === 'string')) throw new Error('probe returned a non-string')
       return { logs: [], value: values.join(',') }
     }
     const result = await runCode(ctx, 'program')
@@ -407,7 +447,7 @@ describe('the run_code dispatch bridge', () => {
 
   it('rejects the program-side call when the tool errors, with the tool error text', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'fail',
       description: 'Always fails.',
       parameters: {},
@@ -422,7 +462,7 @@ describe('the run_code dispatch bridge', () => {
       }
     }
     const result = await runCode(ctx, 'program')
-    expect(result.content[0]).toEqual({ type: 'text', text: 'caught: Error: deliberate failure' })
+    expect(result.content[0]).toEqual({ type: 'text', text: 'caught: deliberate failure' })
   })
 
   it('a tools/pre-execute deny reaches the program as a binding rejection', async () => {
@@ -445,7 +485,7 @@ describe('the run_code dispatch bridge', () => {
     expect((result.content[0] as { text: string }).text).toContain('not on my watch')
   })
 
-  it('rejects a binding argument that does not survive JSON normalization, dispatching nothing', async () => {
+  it('rejects a binding argument that is not lossless JSON, dispatching nothing', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const calls = registerEcho(ctx)
     const { agent, events } = fakeAgent()
@@ -458,25 +498,24 @@ describe('the run_code dispatch bridge', () => {
       }
     }
     const result = await runCode(ctx, 'program', { agent })
-    expect((result.content[0] as { text: string }).text).toContain('JSON-serializable')
+    expect((result.content[0] as { text: string }).text).toContain('lossless JSON')
     expect(calls).toEqual([])
     expect(events.filter(event => event.type === 'tool/code-dispatch')).toEqual([])
   })
 
-  it('dispatches the JSON-normalized value: what the tool sees is what the event logs', async () => {
+  it('dispatches and logs independent snapshots of the same lossless JSON value', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const calls = registerEcho(ctx)
     const { agent, events } = fakeAgent()
     runtime.behavior = async (request) => {
-      // A Date survives structured clone but is not JSON; the bridge
-      // normalizes it to its JSON form (an ISO string) BEFORE dispatch.
-      await request.bindings[0]!.functions.echo!({ value: 'x', when: new Date(0) }).catch(() => undefined)
+      const args = Object.assign(Object.create(null) as Record<string, unknown>, { value: 'x', nested: ['same'] })
+      await request.bindings[0]!.functions.echo!(args)
       return { logs: [] }
     }
     await runCode(ctx, 'program', { agent })
-    expect(calls).toEqual([{ value: 'x', when: '1970-01-01T00:00:00.000Z' }])
+    expect(calls).toEqual([{ value: 'x', nested: ['same'] }])
     const dispatch = events.find(event => event.type === 'tool/code-dispatch')?.data as SessionEventMap['tool/code-dispatch']
-    expect(dispatch.arguments).toEqual({ value: 'x', when: '1970-01-01T00:00:00.000Z' })
+    expect(dispatch.arguments).toEqual({ value: 'x', nested: ['same'] })
   })
 
   it('defers sub-call additionalContexts onto the outer run_code result', async () => {
@@ -551,7 +590,7 @@ describe('the run_code dispatch bridge', () => {
     })
     const result = await runCode(ctx, 'program')
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'CodeRunFailedError', code: 'CODE_RUN_FAILED' })
+    expect(result.error).toMatchObject({ info: { name: 'CodeRunFailedError', code: 'CODE_RUN_FAILED' } })
     const text = (result.content[0] as { text: string }).text
     expect(text).toContain('code run failed (timeout)')
     expect(text).toContain('compute budget exhausted')
@@ -568,7 +607,7 @@ describe('the run_code dispatch bridge', () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const seen: string[] = []
     let sawAbort = false
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'slow',
       description: 'Slow tool observing its signal.',
       parameters: { id: { type: 'string', required: true } },
@@ -604,7 +643,7 @@ describe('the run_code dispatch bridge', () => {
     let sawAbort = false
     let started!: () => void
     const inFlight = new Promise<void>((resolve) => { started = resolve })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'slow',
       description: 'Slow tool observing its signal.',
       parameters: { id: { type: 'string', required: true } },
@@ -654,7 +693,7 @@ describe('the run_code dispatch bridge', () => {
     expect((result.content[0] as { text: string }).text).toContain('requires a code runtime')
   })
 
-  it('presents the PROGRAM as the execute-card title on both call and result (the one slot execute cards always show)', async () => {
+  it('presents the program as the execute-card title', async () => {
     const { ctx } = await setup({ mode: 'code' })
     const tool = ctx.tools.get(RUN_CODE_NAME)!
     // The program IS the title, mirroring how command tools title their cards
@@ -667,24 +706,59 @@ describe('the run_code dispatch bridge', () => {
       kind: 'execute',
       rawInput: 'return 1',
     })
-    const view = tool.presentResult?.({ code: 'return 1' }, {
-      content: [{ type: 'text', text: 'model-facing' }],
-      isError: false,
-      meta: { logs: ['printed'] },
+  })
+
+  it.each([
+    ['logs only', { logs: ['printed'] }, 'printed'],
+    ['result only', { logs: [], value: 'returned' }, 'returned'],
+    ['logs plus result', { logs: ['printed'], value: 'returned' }, 'printed\nreturned'],
+    ['no output', { logs: [] }, '(run_code completed with no output)'],
+  ] as [string, CodeRunResult, string][])('keeps %s in durable content without a result presenter', async (_name, output, text) => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    runtime.behavior = () => Promise.resolve(output)
+
+    const result = await runCode(ctx, 'return 1')
+    const tool = ctx.tools.get(RUN_CODE_NAME)!
+
+    expect(result.content).toEqual([{ type: 'text', text }])
+    // Surfaces keep the pending program title and render this durable content
+    // through their generic fallback. Omitting a result view also prevents the
+    // host frame from carrying the same raw content a second time.
+    expect('presentResult' in tool).toBe(false)
+  })
+
+  it('keeps a post-policy spill preview in durable content without a result presenter', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const preview = 'HEAD\n\n(Omitted 100 bytes. Full formatted result stored at: /tmp/run-code.txt.)\n\nTAIL'
+    runtime.behavior = () => Promise.resolve({ logs: ['printed'], value: 'returned' })
+    ctx.on('tools/post-execute', (exec, _result, next): Promise<PostToolDecision> => {
+      if (exec.name !== RUN_CODE_NAME) return next()
+      return Promise.resolve({ kind: 'accept', content: [{ type: 'text', text: preview }] })
     })
-    // The result omits the title — an update replaces only provided fields,
-    // so the pending card's program title persists through completion.
-    expect(view).toEqual({
-      card: 'generic',
-      content: [{ type: 'text', text: 'printed' }],
+
+    const result = await runCode(ctx, 'return 1')
+    const tool = ctx.tools.get(RUN_CODE_NAME)!
+
+    expect(result.content).toEqual([{ type: 'text', text: preview }])
+    expect('presentResult' in tool).toBe(false)
+  })
+
+  it('keeps canonical failure content durable without a result presenter', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    runtime.behavior = () => Promise.resolve({
+      logs: ['captured before failure'],
+      error: { kind: 'output-limit', message: 'outer output exceeded 8 bytes' },
     })
-    // No captured output → no content either; everything pending persists.
-    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { logs: [] } }))
-      .toEqual({ card: 'generic' })
-    // Replay with an unrecognizable meta falls back to the generic rendering.
-    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { logs: [{ text: 'legacy' }], dispatches: 1 } })).toBeUndefined()
-    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false, meta: { other: true } })).toBeUndefined()
-    expect(tool.presentResult?.({ code: 'x' }, { content: [], isError: false })).toBeUndefined()
+
+    const result = await runCode(ctx, 'return 1')
+    const tool = ctx.tools.get(RUN_CODE_NAME)!
+
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{
+      type: 'text',
+      text: 'Error: code run failed (output-limit): outer output exceeded 8 bytes\nCaptured output:\ncaptured before failure',
+    }])
+    expect('presentResult' in tool).toBe(false)
   })
 
   it('renders non-text sub-result blocks as placeholders and truncates long event summaries', async () => {
@@ -695,11 +769,15 @@ describe('the run_code dispatch bridge', () => {
       name: 'mixed',
       description: 'Returns mixed content.',
       parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: () => [
+          { type: 'text', text: long },
+          { type: 'reasoning', text: 'hidden' },
+        ],
+      },
       execute() {
-        return Promise.resolve([
-          { type: 'text' as const, text: long },
-          { type: 'reasoning' as const, text: 'hidden' },
-        ])
+        return Promise.resolve('mixed-value')
       },
     }))
     runtime.behavior = async (request) => {
@@ -708,7 +786,7 @@ describe('the run_code dispatch bridge', () => {
     }
     const result = await runCode(ctx, 'program', { agent })
     expect(result.isError).toBe(false)
-    expect((result.content[0] as { text: string }).text).toBe(`${long}\n[reasoning content]`)
+    expect((result.content[0] as { text: string }).text).toBe('mixed-value')
     const dispatch = events.find(event => event.type === 'tool/code-dispatch')?.data as SessionEventMap['tool/code-dispatch']
     expect(dispatch.resultSummary.length).toBe(201)
     expect(dispatch.resultSummary.endsWith('…')).toBe(true)
@@ -720,9 +798,13 @@ describe('the run_code dispatch bridge', () => {
       name: 'workspace_path',
       description: 'Return a path beneath the session workspace.',
       parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
       execute(_args, exec) {
         const cwd = exec.agent?.session.header.cwd ?? ''
-        return Promise.resolve([{ type: 'text' as const, text: `<path>${cwd}/nested/task.txt</path>\n${'x'.repeat(240)}` }])
+        return Promise.resolve(`<path>${cwd}/nested/task.txt</path>\n${'x'.repeat(240)}`)
       },
     }))
     runtime.behavior = async request => ({
@@ -760,7 +842,7 @@ describe('the run_code dispatch bridge', () => {
     expect((root.events[0]!.data as SessionEventMap['tool/code-dispatch']).resultSummary).toBe('echo:/workspace/value')
   })
 
-  it('rejects undefined, JSON-throwing, and JSON-unrepresentable binding arguments BEFORE dispatch', async () => {
+  it('rejects undefined, getter-throwing, exotic, and unrepresentable binding arguments before dispatch', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const calls = registerEcho(ctx)
     const { agent, events } = fakeAgent()
@@ -773,8 +855,9 @@ describe('the run_code dispatch bridge', () => {
           // Root undefined must reject up front: the event log rejects it as
           // data, and nothing may execute unlogged.
           await catchMessage(echo(undefined)),
-          // A toJSON that throws a NON-Error propagates out of JSON.stringify.
-          await catchMessage(echo({ toJSON() { throw 'raw-throw' } })),
+          await catchMessage(echo(Object.defineProperty({}, 'bad', { enumerable: true, get() { throw 'raw-throw' } }))),
+          await catchMessage(echo(Object.defineProperty({}, 'bad', { enumerable: true, get() { throw new Error('error-throw') } }))),
+          await catchMessage(echo(new Date(0))),
           // A bare function is a value JSON cannot represent at all.
           await catchMessage(echo(() => 1)),
         ].join(' | '),
@@ -783,18 +866,70 @@ describe('the run_code dispatch bridge', () => {
     const result = await runCode(ctx, 'program', { agent })
     const text = (result.content[0] as { text: string }).text
     expect(text).toContain('call the tool with an arguments object')
-    expect(text).toContain('JSON-serializable: raw-throw')
-    expect(text).toContain('a value JSON cannot represent')
-    // None of the three dispatched, none logged.
+    expect(text).toContain('lossless JSON: raw-throw')
+    expect(text).toContain('lossless JSON: error-throw')
+    expect(text.match(/tool arguments must be lossless JSON/g)).toHaveLength(5)
+    // None dispatched or logged.
     expect(calls).toEqual([])
     expect(events.filter(event => event.type === 'tool/code-dispatch')).toEqual([])
+  })
+
+  it('dispatches and durably logs binding arguments deeper than the structured-clone call stack', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    const depth = 5_000
+    let observedDepth = 0
+    let observedLeaf: JsonValue | undefined
+    ctx.tools.register(defineTool({
+      name: 'deep_args',
+      description: 'Measure a deeply nested JSON argument.',
+      parameters: { nested: { type: 'json', required: true } },
+      output: {
+        schema: { type: 'integer' },
+        render: (_args, value) => [{ type: 'text', text: String(value) }],
+      },
+      execute(args) {
+        let cursor = args.nested
+        while (Array.isArray(cursor)) {
+          if (cursor.length !== 1) throw new Error('expected one item per nesting layer')
+          observedDepth++
+          cursor = cursor[0]!
+        }
+        observedLeaf = cursor
+        return Promise.resolve(observedDepth)
+      },
+    }))
+    const session = new Session(SessionId('deep-code-arguments'))
+    const agent = { session } as Agent
+    runtime.behavior = async (request) => {
+      let nested: JsonValue = 'leaf'
+      for (let index = 0; index < depth; index++) nested = [nested]
+      const value = await request.bindings[0]!.functions.deep_args!({ nested })
+      return { logs: [], value }
+    }
+
+    const result = await runCode(ctx, 'return tools.deep_args(...)', { agent })
+
+    expect(result.isError).toBe(false)
+    expect(result.isError ? undefined : result.value).toEqual({ logs: [], result: depth })
+    expect({ observedDepth, observedLeaf }).toEqual({ observedDepth: depth, observedLeaf: 'leaf' })
+    const dispatch = session.events.find(event => event.type === 'tool/code-dispatch')
+    if (dispatch === undefined) throw new Error('expected a durable tool/code-dispatch event')
+    const logged = dispatch.data.arguments as { nested: JsonValue }
+    let loggedDepth = 0
+    let loggedCursor = logged.nested
+    while (Array.isArray(loggedCursor)) {
+      if (loggedCursor.length !== 1) throw new Error('expected one logged item per nesting layer')
+      loggedDepth++
+      loggedCursor = loggedCursor[0]!
+    }
+    expect({ loggedDepth, loggedCursor }).toEqual({ loggedDepth: depth, loggedCursor: 'leaf' })
   })
 
   it('gives the tool and durable log the same immutable argument value', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const { agent, events } = fakeAgent()
     let mutationSucceeded: boolean | undefined
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'mutator',
       description: 'Attempts to mutate its args object.',
       parameters: { list: { type: 'array', required: true } },
@@ -820,7 +955,11 @@ describe('the run_code dispatch bridge', () => {
       name: '__proto__',
       description: 'A prototype-colliding tool name.',
       parameters: {},
-      execute() { return Promise.resolve([{ type: 'text' as const, text: 'proto-tool-ok' }]) },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      execute() { return Promise.resolve('proto-tool-ok') },
     }))
     runtime.behavior = async (request) => {
       const functions = request.bindings[0]!.functions
@@ -833,11 +972,48 @@ describe('the run_code dispatch bridge', () => {
     expect(result.content[0]).toEqual({ type: 'text', text: 'proto-tool-ok' })
   })
 
-  it('renders a non-string completion value inspect-style', async () => {
+  it('renders every non-string JSON root as pretty JSON while preserving strings raw', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
-    runtime.behavior = () => Promise.resolve({ logs: [], value: { n: 42 } })
-    const result = await runCode(ctx, 'program')
-    expect((result.content[0] as { text: string }).text).toBe('{ n: 42 }')
+    runtime.behavior = () => Promise.resolve({ logs: [], value: { n: 42, ok: true } })
+    expect((await runCode(ctx, 'object')).content[0]).toEqual({ type: 'text', text: '{\n  "n": 42,\n  "ok": true\n}' })
+    runtime.behavior = () => Promise.resolve({ logs: [], value: {} })
+    expect((await runCode(ctx, 'empty object')).content[0]).toEqual({ type: 'text', text: '{}' })
+    const nested = { outer: [{ inner: true }] }
+    runtime.behavior = () => Promise.resolve({ logs: [], value: nested })
+    expect((await runCode(ctx, 'nested')).content[0]).toEqual({ type: 'text', text: JSON.stringify(nested, null, 2) })
+    runtime.behavior = () => Promise.resolve({ logs: [], value: ['x', 2] })
+    expect((await runCode(ctx, 'array')).content[0]).toEqual({ type: 'text', text: '[\n  "x",\n  2\n]' })
+    runtime.behavior = () => Promise.resolve({ logs: [], value: [] })
+    expect((await runCode(ctx, 'empty array')).content[0]).toEqual({ type: 'text', text: '[]' })
+    runtime.behavior = () => Promise.resolve({ logs: [], value: null })
+    expect((await runCode(ctx, 'null')).content[0]).toEqual({ type: 'text', text: 'null' })
+    runtime.behavior = () => Promise.resolve({ logs: [], value: 'raw' })
+    expect((await runCode(ctx, 'string')).content[0]).toEqual({ type: 'text', text: 'raw' })
+    runtime.behavior = () => Promise.resolve({ logs: [] })
+    const absent = await runCode(ctx, 'undefined')
+    expect(absent.content[0]).toEqual({ type: 'text', text: '(run_code completed with no output)' })
+    expect(absent.isError ? undefined : absent.value).toEqual({ logs: [] })
+  })
+
+  it('renders deeply nested JSON without recursive traversal or quadratic indentation', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    let value: JsonValue = {
+      emptyArray: [],
+      emptyObject: {},
+      pair: ['leaf', 2],
+      record: { first: true, second: null },
+    }
+    for (let depth = 0; depth < 5_000; depth++) value = [value]
+    runtime.behavior = () => Promise.resolve({ logs: [], value })
+
+    const result = await runCode(ctx, 'deep result')
+
+    expect(result.isError).toBe(false)
+    const text = (result.content[0] as { type: 'text'; text: string }).text
+    expect(text.startsWith('[\n  [\n    [')).toBe(true)
+    expect(text).toContain('"leaf"')
+    expect(text.endsWith(']')).toBe(true)
+    expect(text.length).toBeLessThan(11_000)
   })
 
   it('short-circuits a pre-aborted outer signal before the code runtime', async () => {
@@ -855,7 +1031,10 @@ describe('the run_code dispatch bridge', () => {
     expect(result).toEqual({
       content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
       isError: true,
-      error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+      error: {
+        message: 'tool call aborted before dispatch',
+        info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+      },
     })
     expect(runtime.lastRequest).toBeUndefined()
     expect(calls).toEqual([])
@@ -873,7 +1052,10 @@ describe('the run_code dispatch bridge', () => {
     }
     const result = await runCode(ctx, 'program', { signal: controller.signal })
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'AbortError', code: 'ABORTED' })
+    expect(result.error).toEqual({
+      message: 'tool call aborted',
+      info: { name: 'AbortError', code: 'ABORTED' },
+    })
     expect((result.content[0] as { text: string }).text).toBe('Error: tool call aborted')
     expect(calls).toEqual([])
   })

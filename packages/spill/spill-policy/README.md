@@ -13,7 +13,7 @@ This plugin registers **no service** and owns no storage or preview mechanics: p
 ## Behavior
 
 1. Let the tool run (delegates via `next()`, so it bounds whatever a downstream hook accepted).
-2. Skip `read` (avoids a `read → spill → read again` loop) and any non-`accept` decision (a `block`'s corrective feedback passes through).
+2. Skip nested executions (`exec.parent` is present), accepted value replacements (the registry must revalidate and rerender them), `read` (avoids a `read → spill → read again` loop), and any non-`accept` decision (a `block`'s corrective feedback passes through).
 3. Flatten the accepted content only when it is **plain text** (all `text` blocks); a result with any non-text block is left untouched.
 4. If its UTF-8 size is `≤ maxInlineBytes`, leave it unchanged.
 5. Otherwise save the full text and replace the result with a preview + this notice, sized so the whole replacement (preview + blank line + notice) stays within `maxInlineBytes` — the notice's byte cost is reserved out of the budget, so the preview shrinks to fit and the model-facing result never exceeds the cap:
@@ -26,11 +26,11 @@ This plugin registers **no service** and owns no storage or preview mechanics: p
 
    When the notice alone fills the budget (a tiny cap or a long locator) the preview is empty and only the notice is returned. If even that notice-only replacement would exceed `maxInlineBytes`, the policy keeps the inline result — it never emits a replacement over the cap (and a within-cap replacement is always smaller than the original, so this also means spilling never adds bytes).
 
-**Best-effort:** no session owner, no `ctx.spillStore` backend, or a `saveText` rejection ⇒ the policy logs a warning and returns the original result. A spill failure never turns a successful call into an `isError` or hides the inline result.
+**Best-effort:** no session owner, no `ctx.spillStore` backend, or a `saveText` rejection ⇒ the policy logs a warning and returns the original result. A spill failure never turns a successful call into an `isError` or hides the inline result. A successful replacement changes only `content`; the canonical programmatic value is preserved.
 
 ## Scope
 
-The policy sees only the FINAL formatted tool result — not a tool's internal resource. If a provider already truncated (e.g. `web-fetch-local.maxBodyChars`), the spill artifact holds the full formatted result the tool returned, not the full original source. Provider/resource caps stay mandatory and separate. Tool-owned early spill (bash streams, subagent rollouts) is future work — see the [tool output spill Agent Note](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md).
+The policy sees only the FINAL formatted surface result—not a tool's internal resource or canonical value. If a provider already truncated (e.g. `web-fetch-local.maxBodyChars`), the spill artifact holds the full formatted result the tool returned, not the full original source. Provider/resource caps stay mandatory and separate. `glob`/`grep` own item-level surface spill because their complete acquired values still exist before rendering; bash streams own acquisition-time spill. The generic policy prepends its waterfall listener, then delegates, so ordinary tool-owned asynchronous projections complete before generic byte bounding regardless of plugin load order. See the [tool output spill Agent Note](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md).
 
 ## Model Experience
 
@@ -38,7 +38,7 @@ The policy sees only the FINAL formatted tool result — not a tool's internal r
 
 #### What the model sees
 
-Results at or below `maxInlineBytes`, `read` results, blocked decisions, and results containing non-text blocks are unchanged. An oversized plain-text result becomes a bounded head/tail preview followed by `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`; storage or ownership failures leave the original result visible.
+Results at or below `maxInlineBytes`, nested results, `read` results, blocked decisions, and results containing non-text blocks are unchanged. An oversized plain-text surface result becomes a bounded head/tail preview followed by `(Omitted <bytes> bytes. Full formatted result stored at: <locator>. <retrievalHint>)`; storage or ownership failures leave the original result visible.
 
 #### Token effect
 
