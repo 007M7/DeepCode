@@ -3,9 +3,12 @@
  * one-line summary and expanded-body text from the frozen call slice. No
  * inline output ever — full results live in the details panel.
  */
-import type { ToolCallBlock } from './toolview.ts'
+// The block union's defining home is runtime (fold-product types); this
+// contract only forwards it (type-definition authority stays with the layer
+// that produces the values).
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 
-export type { ToolCallBlock } from './toolview.ts'
+export type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** The frozen slice the chat view hands to toolview components as `block`
  *  (both members are cache-stable references off ConversationSnapshot). */
