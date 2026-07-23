@@ -11,7 +11,7 @@ import LlmService, {
 import type { GenerateOptions, LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { PostToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -133,7 +133,7 @@ describe('agent post-step and request-error lifecycle', () => {
     ]
     const adapter = new FailureScriptAdapter([twoCalls, textResponse('done')])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'work',
       description: 'do work',
       parameters: {},
@@ -222,7 +222,7 @@ describe('agent post-step and request-error lifecycle', () => {
       textResponse('must not continue'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'work',
       description: 'do work',
       parameters: {},
@@ -535,7 +535,7 @@ describe('agent post-step and request-error lifecycle', () => {
       contextError('later overflow'),
     ])
     const resetCtx = await harness(reset)
-    resetCtx.tools.register(defineTool({
+    resetCtx.tools.register(defineContentToolFixture({
       name: 'work',
       description: 'continue',
       parameters: {},

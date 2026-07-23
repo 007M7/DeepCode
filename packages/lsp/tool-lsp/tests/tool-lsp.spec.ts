@@ -126,6 +126,29 @@ describe('tool-lsp execution', () => {
     const { ctx } = await mount(stubProvider(() => okLocations))
     const result = await call(ctx, { operation: 'findReferences', file_path: 'a.ts', line: 1, character: 1 }, workspaceRoot)
     expect(result.content[0]).toEqual({ type: 'text', text: 'a.ts:1:1' })
+    expect(result).toMatchObject({ isError: false, value: okLocations })
+  })
+
+  it('keeps all acquired locations in the canonical value when presentation is capped', async () => {
+    const cappedWorkspaceRoot = resolve('/virtual/capped-workspace')
+    const locations = [
+      { uri: pathToFileURL(join(cappedWorkspaceRoot, 'a.ts')).href, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } },
+      { uri: pathToFileURL(join(cappedWorkspaceRoot, 'b.ts')).href, range: { start: { line: 1, character: 2 }, end: { line: 1, character: 3 } } },
+    ]
+    const { ctx } = await mount(stubProvider(() => ({
+      kind: 'locations',
+      locations,
+      resolvedWorkspaceRoot: cappedWorkspaceRoot,
+    })), { maxLocations: 1 })
+    const result = await call(ctx, { operation: 'findReferences', file_path: 'a.ts', line: 1, character: 1 }, cappedWorkspaceRoot)
+    expect(result.content[0]).toEqual({
+      type: 'text',
+      text: 'a.ts:1:1\n… 1 more location omitted (limit 1).',
+    })
+    expect(result).toMatchObject({
+      isError: false,
+      value: { kind: 'locations', locations, resolvedWorkspaceRoot: cappedWorkspaceRoot },
+    })
   })
 
   it('relativizes against the provider resolvedWorkspaceRoot, not the session cwd', async () => {
@@ -146,27 +169,42 @@ describe('tool-lsp execution', () => {
     const { ctx } = await mount(stubProvider(() => ({ kind: 'hover', hover: { contents: 'number' } })))
     const result = await call(ctx, { operation: 'hover', file_path: 'a.ts', line: 1, character: 1 }, workspaceRoot)
     expect(result.content[0]).toEqual({ type: 'text', text: 'number' })
+    expect(result).toMatchObject({ isError: false, value: { kind: 'hover', hover: { contents: 'number' } } })
+  })
+
+  it('preserves an optional hover range in the canonical value', async () => {
+    const range = { start: { line: 2, character: 3 }, end: { line: 2, character: 7 } }
+    const { ctx } = await mount(stubProvider(() => ({ kind: 'hover', hover: { contents: 'number', range } })))
+    const result = await call(ctx, { operation: 'hover', file_path: 'a.ts', line: 3, character: 4 }, '/ws')
+    expect(result).toMatchObject({ isError: false, value: { kind: 'hover', hover: { contents: 'number', range } } })
+  })
+
+  it('preserves a null hover result as an explicit value', async () => {
+    const { ctx } = await mount(stubProvider(() => ({ kind: 'hover', hover: null })))
+    const result = await call(ctx, { operation: 'hover', file_path: 'a.ts', line: 1, character: 1 }, '/ws')
+    expect(result.content[0]).toEqual({ type: 'text', text: 'No hover information.' })
+    expect(result).toMatchObject({ isError: false, value: { kind: 'hover', hover: null } })
   })
 
   it('fails LSP_WORKSPACE_REQUIRED without a session cwd', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations))
     const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, null)
     expect(result.isError).toBe(true)
-    expect(result.error?.code).toBe('LSP_WORKSPACE_REQUIRED')
+    expect(result.error?.info?.code).toBe('LSP_WORKSPACE_REQUIRED')
   })
 
   it('surfaces a structured LSP_UNAVAILABLE when no provider handles the file', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations, { '.py': 'python' }))
     const result = await call(ctx, { operation: 'goToDefinition', file_path: 'a.ts', line: 1, character: 1 }, workspaceRoot)
     expect(result.isError).toBe(true)
-    expect(result.error?.code).toBe('LSP_UNAVAILABLE')
+    expect(result.error?.info?.code).toBe('LSP_UNAVAILABLE')
   })
 
   it('returns a structured INVALID_ARGS on a bad operation', async () => {
     const { ctx } = await mount(stubProvider(() => okLocations))
     const result = await call(ctx, { operation: 'rename', file_path: 'a.ts', line: 1, character: 1 }, workspaceRoot)
     expect(result.isError).toBe(true)
-    expect(result.error?.code).toBe('INVALID_ARGS')
+    expect(result.error?.info?.code).toBe('INVALID_ARGS')
   })
 
   it('forwards exec.signal to the seam query', async () => {

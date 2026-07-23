@@ -8,8 +8,10 @@ import { Context, Service } from 'cordis'
 import type { CodeRunRequest, CodeRunResult } from './types.ts'
 
 export type {
+  CodeBindingErrorClass,
   CodeBindingFunction,
   CodeBindingNamespace,
+  CodeJsonValue,
   CodeRunFailure,
   CodeRunRequest,
   CodeRunResult,
@@ -24,8 +26,9 @@ declare module 'cordis' {
 /**
  * Registers one `ctx.codeRuntime` implementation. Program, budget, abort, and substrate
  * failures resolve in {@link CodeRunResult}; only seam misuse rejects. Implementations bridge
- * structured-cloneable bindings while treating programs as hostile peers, isolate runs from
- * one another, and terminate and await in-flight runs during disposal.
+ * structured-cloneable bindings, materialize each declared namespace rejection
+ * class, treat programs as hostile peers, isolate runs from one another, and
+ * terminate and await in-flight runs during disposal.
  */
 export abstract class CodeRuntime extends Service {
   /**

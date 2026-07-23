@@ -60,6 +60,7 @@ import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   displayPromptContent,
   SessionId,
+  type JsonValue,
   type Session,
   type SessionEvent,
   type SessionHeader,
@@ -800,7 +801,7 @@ function diffLines(diff: FileDiff, palette: Palette): string[] {
 }
 
 class ToolCardComponent implements Component {
-  private result: { content: ContentBlock[]; isError: boolean; meta?: unknown } | undefined
+  private result: { content: ContentBlock[]; isError: boolean; meta?: JsonValue } | undefined
   private expanded = false
   private callView: ToolCallView
   private resultView: ToolResultView | undefined

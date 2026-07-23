@@ -8,11 +8,10 @@
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { computeHunkDiffs, diffsFromMeta, type FsDiffMeta } from './diff.ts'
+import { computeHunkDiffs, diffsFromMeta } from './diff.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
 import type { FsSandboxSurface } from './sandbox.ts'
 
@@ -33,7 +32,7 @@ export function parseWriteArgs(args: { file_path: string; content: string }): { 
  * @param outcome - the write outcome; its `operation` selects the Created/Updated wording.
  * @returns the model-facing confirmation envelope (no file content is echoed back).
  */
-export function formatWriteOutput(displayPath: string, outcome: FsWriteOutcome): string {
+export function formatWriteOutput(displayPath: string, outcome: Pick<FsWriteOutcome, 'operation'>): string {
   const verb = outcome.operation === 'create' ? 'Created' : 'Updated'
   return `<path>${displayPath}</path>
 <type>file</type>
@@ -74,7 +73,32 @@ export function applyWriteTool(ctx: Context, sandbox: FsSandboxSurface): void {
       content: { type: 'string', required: true, description: 'Full UTF-8 text content to write.' },
       ...sandbox.escalationModes.length > 0 ? sandbox.schemaFields() : {},
     },
-    async execute(args: WriteToolArgs, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          path: { type: 'string', required: true },
+          operation: { type: 'string', required: true, enum: ['create', 'update'] },
+          before: {
+            required: true,
+            oneOf: [
+              { type: 'string' },
+              { type: 'null' },
+            ],
+          },
+          after: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: formatWriteOutput(value.path, value) }],
+      presentationMeta: (args, value) => ({
+        diffs: value.before === null
+          ? []
+          : computeHunkDiffs(args.file_path, value.before, value.after)
+            .map(({ path, oldText, newText }) => ({ path, oldText, newText })),
+      }),
+    },
+    async execute(args: WriteToolArgs, exec) {
       const input = parseWriteArgs(args)
       // Resolve the per-call sandbox policy (approved mode > session override
       // > backend default, plus the session cwd root) BEFORE anything executes;
@@ -94,12 +118,11 @@ export function applyWriteTool(ctx: Context, sandbox: FsSandboxSurface): void {
       }
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
-      // Overwrites carry applied hunks. Creates have no prior text, so result presentation uses
-      // the args-derived whole-file diff instead.
-      const diffs = outcome.before !== null ? computeHunkDiffs(input.filePath, outcome.before, outcome.after) : []
       return {
-        content: [{ type: 'text', text: formatWriteOutput(target.displayPath, outcome) }],
-        ...diffs.length > 0 ? { meta: { diffs } } : {},
+        path: target.displayPath,
+        operation: outcome.operation,
+        before: outcome.before,
+        after: outcome.after,
       }
     },
     // Pure display: a diff card (an editor renders write as a new-file / full- replace diff).
