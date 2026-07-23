@@ -148,14 +148,14 @@ describe('createFixtureApi', () => {
     expect(types.at(-1)).toBe('turn/end') // steer did not restart the turn
   })
 
-  it('mux open replays the baseline: subscribed for running sessions + the resident approval with a stable rpcId', async () => {
+  it('mux open replays subscribed sessions and resident interactions with stable rpcIds', async () => {
     const api = createFixtureApi()
     const openOnce = async (): Promise<RpcRequest<MuxFrame>[]> => {
       const abort = new AbortController()
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 2) abort.abort()
+        if (envelopes.length >= 3) abort.abort()
       }
       return envelopes
     }
@@ -165,6 +165,8 @@ describe('createFixtureApi', () => {
     expect((first[0]?.payload as { lastSeq: number }).lastSeq).toBeGreaterThan(0)
     expect(first[1]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
     expect(second[1]?.rpcId).toBe(first[1]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[2]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[2]?.rpcId).toBe(first[2]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {
@@ -217,9 +219,38 @@ describe('createFixtureApi', () => {
     }
   })
 
-  it('respond is a typed stub: always not-pending', async () => {
+  it('respond resolves the resident question once and rejects duplicate or unrelated ids', async () => {
     const api = createFixtureApi()
     expect(await api.respond({ type: 'client-response', rpcId: RpcId('x'), result: { ok: true, value: {} } })).toEqual({ accepted: false, reason: 'not-pending' })
+    const abort = new AbortController()
+    let question: RpcRequest<MuxFrame> | undefined
+    for await (const envelope of api.events.mux(req({}), abort.signal)) {
+      if (envelope.payload.type !== 'question/requested') continue
+      question = envelope
+      abort.abort()
+    }
+    if (question === undefined) throw new Error('fixture question missing')
+    const response = { type: 'client-response' as const, rpcId: question.rpcId, result: { ok: true as const, value: {} } }
+    expect(await api.respond(response)).toEqual({ accepted: true })
+    expect(await api.respond(response)).toEqual({ accepted: false, reason: 'not-pending' })
+
+    const replayAbort = new AbortController()
+    const replayed = await collect(api.events.mux(req({}), replayAbort.signal), replayAbort, frames => frames.length === 2)
+    expect(replayed.every(frame => frame.type !== 'question/requested')).toBe(true)
+
+    const cancelledApi = createFixtureApi()
+    const cancelAbort = new AbortController()
+    let cancelQuestion: RpcRequest<MuxFrame> | undefined
+    for await (const envelope of cancelledApi.events.mux(req({}), cancelAbort.signal)) {
+      if (envelope.payload.type !== 'question/requested') continue
+      cancelQuestion = envelope
+      cancelAbort.abort()
+    }
+    if (cancelQuestion === undefined) throw new Error('fixture cancellation question missing')
+    expect(await cancelledApi.respond({
+      type: 'client-response', rpcId: cancelQuestion.rpcId,
+      result: { ok: false, error: { code: 'cancelled', message: 'skip', details: {} } },
+    })).toEqual({ accepted: true })
   })
 
   it('describe answers the fixture identity', async () => {

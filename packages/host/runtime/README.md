@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-host-runtime
 
-Host runtime assembly for `dsh`: `bootHost` composes the core plugin spine (LLM service + DeepSeek adapter, sessions with JSONL persistence, system prompt, tools, agents, agent loop, workspace instructions, local bash), `createApiProxy` implements the [`dsh-host-apiproxy`](../apiproxy/README.md) contract over that composition, and `startHost` is the one-step shell seam returning `{ api, handler, defaults, ctx, dispose }`.
+Host runtime assembly for `dsh`: `bootHost` composes the core plugin spine (LLM service + DeepSeek adapter, sessions with JSONL persistence, system prompt, tools, agents, agent loop, workspace instructions, local bash, and the provider-neutral user-interaction service), `createApiProxy` implements the [`dsh-host-apiproxy`](../apiproxy/README.md) contract over that composition, and `startHost` is the one-step shell seam returning `{ api, handler, defaults, ctx, dispose }`.
 
 Which plugins mount and with what defaults is decided only here — shells must not `ctx.plugin` to alter the assembly. `RunningHost.ctx` is a formal seam with exactly two sanctioned uses: mounting protocol front-door plugins (e.g. a future `dsh acp`) and headless session-event subscription; consuming clients must not bypass `api` through it.
 
@@ -15,7 +15,7 @@ Which plugins mount and with what defaults is decided only here — shells must 
 
 ## ApiProxy implementation notes
 
-Unary methods take the narrow `RpcRequest<P>` and echo `request.rpcId`; a prompt's rpcId rides `MessageSource` into the `user/message` event so clients can promote optimistic echoes. `history`/`prompt` on a cold session implicitly resume it, deduplicating concurrent calls through an in-flight table; `history` paginates backwards on message boundaries (never mid-message). The mux stream replays a `session/subscribed` baseline per attached session on open; the host stream carries session lifecycle, running flips, and `agent/error` as the only outlet for live failures with no turn position.
+Unary methods take the narrow `RpcRequest<P>` and echo `request.rpcId`; a prompt's rpcId rides `MessageSource` into the `user/message` event so clients can promote optimistic echoes. `history`/`prompt` on a cold session implicitly resume it, deduplicating concurrent calls through an in-flight table; `history` paginates backwards on message boundaries (never mid-message). The mux stream replays a `session/subscribed` baseline per attached session and every still-pending question with its original rpcId. Question responses, including blank per-item answers, are validated against the owning session and exact request before an atomic first-wins claim; answer, whole-request cancellation, owner abort, and provider disposal broadcast `question/resolved`. The host stream carries session lifecycle, running flips, and `agent/error` as the only outlet for live failures with no turn position.
 
 ## Model Experience
 
@@ -27,6 +27,6 @@ No direct invalidation; the mounted model-facing plugins own their request-prefi
 
 ## Known Limitations and Deferred Work
 
-- **`respond` is a stub** — it always returns `not-pending`; the approval/question pending registry (stable-rpcId mint on accept, baseline replay on stream reopen, wire answerer) is the next host-side step.
+- **Question waits are process-memory state** — browser reconnects recover them, but a host process restart aborts the owning tool call instead of restoring the wait from persistence.
 - **`host.describe.version` is a placeholder** — it does not yet report the `apps/cli` package version.
 - **The assembly is fixed** — per-deployment plugin selection (user profile, log sinks, alternative persistence) has a documented home here but no configuration surface yet.

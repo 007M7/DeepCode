@@ -14,5 +14,7 @@
             name: '../acp-agent/pty-snapshot-backend.mjs'
           - id: tool-pty
             name: '@deepseek-ai/dsh-tool-pty'
+            config:
+              maxResultBytes: 64
           - id: llm-replay
             name: '@deepseek-ai/dsh-llm-replay'

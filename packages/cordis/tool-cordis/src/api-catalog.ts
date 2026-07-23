@@ -403,6 +403,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Create and publish one owner-scoped session after backend setup succeeds.\n * @param owner - exact registered Agent that owns access and cleanup.\n * @param request - backend type plus optional owner-local name and cwd.\n * @param signal - cancellation of unpublished setup.\n * @returns published identity, metadata, status, and MOTD.\n */',
       },
       {
+        signature: 'hasOwnerActivity(owner: Agent): boolean',
+        jsDoc: '/**\n * Test whether an exact owner has a published session or unpublished spawn.\n * @param owner - exact live owner to inspect.\n * @returns true across the entire spawn-to-close interval, with no publication gap.\n */',
+      },
+      {
         signature: 'startSend(owner: Agent, id: PtySessionId, request: PtySendRequest): PtySendOperation',
         jsDoc: '/**\n * Start one exclusive interactive send.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param request - explicit text, submit behavior, and cancellation.\n * @returns live operation handle for foreground await or task registration.\n */',
       },
@@ -730,7 +734,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     methods: [
       {
         signature: 'register(definition: ToolDefinition): () => void',
-        jsDoc: '/**\n * Register globally or in the calling agent scope. Scoped tools shadow\n * globals; duplicates within one layer and the reserved `run_code` name fail.\n * @param definition - the tool schema, execution, and optional presentation functions.\n * @returns the exact disposer that unregisters the tool.\n */',
+        jsDoc: '/**\n * Register globally or in the calling agent scope. Scoped tools shadow\n * globals; duplicates within one layer and the reserved `run_code` name fail.\n * @param definition - tool schema, execution, and optional finalization/presentation callbacks.\n * @returns the exact disposer that unregisters the tool.\n */',
       },
       {
         signature: 'restrict(filter: ToolRestriction): () => void',
@@ -754,7 +758,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>',
-        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy, and final\n * notification. Tool and listener failures resolve as materialized error\n * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is\n * the same lossless, frozen snapshot final observers receive. Cancellation\n * arriving after entry and before final result materialization skips a\n * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a\n * successful started outcome with `ABORTED`; already-started work is still\n * drained and may retain a tool-owned structured error.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
+        jsDoc: '/**\n * Execute through pre-policy, guards, around-dispatch, post-policy,\n * definition-owned content finalization, and final notification. Tool and\n * listener failures resolve as materialized error results; an invisible tool\n * reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen\n * snapshot final observers receive. Cancellation\n * arriving after entry and before final result materialization skips a\n * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a\n * successful started outcome with `ABORTED`; already-started work is still\n * drained and may retain a tool-owned structured error.\n * @param exec - the typed same-process call input. The registry assigns its\n *   correlation token before policy begins.\n * @returns the materialized final result.\n */',
       },
     ],
   },
@@ -1935,11 +1939,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TaskSnapshot',
-    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: TaskKind;\n    label: string;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
+    declaration: 'export interface TaskSnapshot {\n    id: TaskId;\n    kind: TaskKind;\n    label: string;\n    outputLimitBytes?: number;\n    ownerSession?: SessionId;\n    status: TaskStatus;\n    detail?: string;\n    startedAt: number;\n    finishedAt?: number;\n    reported: boolean;\n}',
   },
   {
     name: 'TaskStart',
-    declaration: 'export interface TaskStart {\n    kind: TaskKind;\n    label: string;\n    owner?: Agent;\n    run(): TaskHooks;\n}',
+    declaration: 'export interface TaskStart {\n    kind: TaskKind;\n    label: string;\n    outputLimitBytes?: number;\n    owner?: Agent;\n    run(): TaskHooks;\n}',
   },
   {
     name: 'TaskStatus',
@@ -1987,7 +1991,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolErrorInfo',
