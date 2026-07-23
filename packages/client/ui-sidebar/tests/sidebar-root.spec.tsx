@@ -205,6 +205,14 @@ describe('SidebarRoot', () => {
     }
   })
 
+  it('expanded search focuses without toggling the sidebar', () => {
+    const { onToggleSidebar } = mount(...projectData())
+    const input = screen.getByPlaceholderText('Search name, keywords...')
+    act(() => { fireEvent.click(screen.getByLabelText('Search sessions')) })
+    expect(document.activeElement).toBe(input)
+    expect(onToggleSidebar).not.toHaveBeenCalled()
+  })
+
   it('the search query survives a collapse/expand round trip', () => {
     vi.useFakeTimers()
     try {
