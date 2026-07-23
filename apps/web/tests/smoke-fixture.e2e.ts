@@ -198,7 +198,7 @@ describe('web boot chain success pass (keyless, seven real bundles, ?fixture)', 
 
   it('keeps Markdown semantic while a fixture reply streams and finalizes', async () => {
     onTestFailed(() => saveFailureShot(page, 'smoke-markdown-stream'))
-    await page.getByRole('button', { name: 'New Session', exact: true }).click()
+    await page.getByRole('button', { name: 'New session', exact: true }).click()
     const input = page.locator('textarea[placeholder]')
     await input.waitFor({ timeout: 15_000 })
     await input.fill('render markdown')
