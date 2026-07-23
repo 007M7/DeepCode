@@ -177,6 +177,13 @@ export class SessionManager {
       this.notifier.markDirty()
       return
     }
+    if (frame.type === 'session/subscribed') {
+      const current = this.titleSnapshots.get(frame.sessionId)
+      if (current !== undefined && current.eventSeq > frame.lastSeq) {
+        this.titleSnapshots.delete(frame.sessionId)
+        this.notifier.markDirty()
+      }
+    }
     const session = this.sessions.get(frame.sessionId)
     if (session === undefined) {
       // Approval/question frames never hit history: buffer for replay on instantiation;
