@@ -124,7 +124,7 @@ harness 已有一个具体的 `bash` 能力 seam（`dsh-bash` / `dsh-bash-local`
 
 ## 测试
 
-测试遵循包边界，而不仅是用户可见的工具：`dsh-fs` 中的服务 seam；`dsh-fs-local` 中通过 `ctx.fs` 接口测试的真实文件系统行为（解析、符号链接、流式传输、二进制/UTF-8 拒绝、无条件和版本守护的写入、字面编辑语义、行尾保留、结构化 `FsError` 错误码）；`dsh-tool-fs` 中基于真实本地提供方的消费方接口（只 mock 模型/时钟，从不 mock 协作者）；以及通过 `ctx.tools.execute()` 在有和没有 `dsh-fs-policy` 的情况下进行集成测试，通过从磁盘回读文件来验证世界状态，而非信任返回的 `ContentBlock[]`。观测状态/owner 推导策略在 `dsh-fs-policy` 中测试，不在此处。
+测试遵循包边界，而不仅是用户可见的工具：`dsh-fs` 中的服务 seam；`dsh-fs-local` 中通过 `ctx.fs` 接口测试的真实文件系统行为（解析、符号链接、流式传输、二进制/UTF-8 拒绝、无条件和版本守护的写入、字面编辑语义、行尾保留、结构化 `FsError` 错误码）；`dsh-tool-fs` 中基于真实本地提供方的消费方接口（只 mock 模型/时钟，从不 mock 协作者）；以及通过 `ctx.tools.execute()` 在有和没有 `dsh-fs-policy` 的情况下进行集成测试，通过从磁盘回读文件来验证世界状态，既不信任规范值，也不信任渲染内容。观测状态/owner 推导策略在 `dsh-fs-policy` 中测试，不在此处。
 
 本仓库曾踩过的防御性模式类别被直接固定：
 

@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-在 dsh-tools 中实现一个小型自定义 DSL：`SchemaSpec`（逐属性规格，带 `required: true` 布尔值）；类型层面的 `InferArgs<S>` 将规格映射为参数类型（required 键为必选，其余通过 `?` 标记为真正可选）；运行时的 `schemaSpecToJsonSchema()` 转换器；以及将三者串联的 `defineTool()`。`ToolRegistry.register()` 仍然接受原始 JSON Schema 的 `ToolDefinition`——MCP 来源的工具正是以此方式注册。
+该决策已由[统一 JSON 值 schema DSL](2026-07-20-unified-json-value-schema-dsl.md)取代；新设计保留小型编写接口，同时让参数与类型化值共享一套词汇。`ParameterSchemaSpec` 保留逐属性的 `required: true`；`InferArgs<S>` 将必需键映射为非可选属性；`parameterSchemaSpecToJsonSchema()` 编译隐式开放的对象根；`defineTool()` 则将类型推导、编译与校验串联起来。原始 JSON Schema 的 `ToolDefinition` 仍是 `ToolRegistry.register()` 接受的输入，供 MCP 和其他外部工具使用。
 
 ## 曾考虑的替代方案
 
@@ -19,5 +19,5 @@ Status: implemented
 ## 后果
 
 - 第一方工具作者获得零类型断言的类型化参数；类型体操的成本留在核心包内部（符合 AGENTS.md 的类型安全策略）。
-- DSL 有意保持小巧（string/number/boolean/object/array、enum、default、嵌套 properties/items）。相对完整 JSON Schema 的缺口（union、format、constraint）在真实工具提出需求之前暂不补齐。
+- 当前节点、字面量约束、联合类型、JSON 值边界与对象开放性规则均由上述统一说明定义。
 - `InferArgs` 映射在类型层面有回归测试，源于早期一个可选性 bug。

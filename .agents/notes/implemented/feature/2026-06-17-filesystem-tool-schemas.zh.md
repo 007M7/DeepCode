@@ -70,7 +70,7 @@ schema 不将 `expected_hash`、`expected_version` 或 `create_only` 作为面�
 
 ## 结果形状
 
-首次实现通过现有的 `ToolDefinition.execute()` 契约返回 `ContentBlock[]`。`ctx.fs` 返回结构化的文件系统结果并负责文件状态的记录/刷新；`tool-fs` 将这些结果格式化为模型投影。
+首次实现曾将 `ContentBlock[]` 格式化逻辑放在 `execute` 中。[规范工具输出契约](../architecture/2026-07-20-canonical-tool-output-contract.md)如今将 `ctx.fs` 的结果事实保留为工具经校验的值，并通过 `output.render` 派生相同的模型文本；文件状态的记录/刷新仍归 `ctx.fs` 所有。
 
 默认原生投影：
 

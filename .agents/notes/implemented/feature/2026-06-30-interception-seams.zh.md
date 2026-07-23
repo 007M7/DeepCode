@@ -26,11 +26,11 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 
 - **`tools/pre-execute`** 是可扩展的 waterfall 门禁。其 `PreToolDecision` 允许、拒绝或询问。拒绝跳过 `tools/execute` 与核心调度。询问通过可选的审批 seam 解析：只有 `allowed-once` 继续通过 guards 和调度；拒绝、取消、通道不可用、审批服务缺失或无 agent 调用均规范化为拒绝。每种结果仍会到达后策略与最终观测者。
 - **`ctx.tools.guard()`** 在整个 pre-execute waterfall 之后安装同步的、作用域感知的策略。guard 可以拒绝或弃权，永远不能强制允许，因此监听器顺序无法复活一个被最终不变式禁止的操作。
-- **`tools/execute`** 是用于超时、重试和指标插件的环绕调度 waterfall。包装层通过 `next()` 委托给核心调度，在此之前可以替换并恢复必需的 `exec.signal`，但不能移除它；包装层接收已规范化的抛出或未知工具结果，返回自己的有效结果则短路调度。
-- **`tools/post-execute`** 是检查/变换 waterfall。其 `PostToolDecision` 接受、以反馈阻止、可选地替换内容，或附加 `additionalContexts`。返回的 decision 是受支持的变换通道；waterfall 结束后，注册表会在最终观测前一次性实体化完整结果。
+- **`tools/execute`** 是用于超时、重试和指标插件的环绕调度 waterfall。包装层通过 `next()` 委托给核心调度，在此之前可以替换并恢复必需的 `exec.signal`，但不能移除它；包装层接收抛出异常或未知工具产生的、已完成规范化的规范成功／失败结果。包装层自行产生的成功结果会短路调度，并通过已解析的输出声明重新规范化。
+- **`tools/post-execute`** 是检查/变换 waterfall。其 `PostToolDecision` 接受、以反馈阻止、替换呈现内容或规范值，或附加 `additionalContexts`。替换值会重新校验并重新计算呈现；替换内容会保留程序化值，且不构成保密边界。返回的 decision 是受支持的变换通道；waterfall 结束后，注册表会在最终观测前一次性实体化完整结果。
 - **`tools/result`** 是在所有变换、无损 JSON 实体化和外层错误边界之后的同步封闭通知。它接收相同的冻结执行身份和权威结果的不可变快照；观测者的失败按监听器隔离，无法改变或拒绝 `ToolRegistry.execute()` 返回的结果。
 
-核心调度与工具体位于规范化边界内部，因此工具、监听器、格式错误的结果、非 JSON 结果和身份形状错误均解析为 JSON 安全的 `isError` 结果，而非逃逸出轮次。post-execute 监听器因此可以检查一个抛出异常的工具，最终观测者看到的正是调用方收到的、会话日志可以持久化的内容。
+核心调度与工具体位于规范化边界内部，因此工具、监听器、无效规范值、渲染器／投影器、非 JSON 呈现和身份形状错误均解析为 JSON 安全的 `isError` 结果，而非逃逸出轮次。post-execute 监听器因此可以检查一个抛出异常的工具，最终观测者会同时看到执行期间的规范值，以及会话日志能够持久化的确切呈现字段。[规范工具输出契约](../architecture/2026-07-20-canonical-tool-output-contract.md)定义值／投影与持久性规则。
 
 **`TurnEndReason.rejected`**（`dsh-session`）：取得所有权的 prompt 被 `prompt-submit` 阻止的零步骤轮次。
 

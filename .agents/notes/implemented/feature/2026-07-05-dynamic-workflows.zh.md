@@ -46,7 +46,7 @@ harness 可以将一个任务委派给一个子 agent（`dsh-tool-subagent`）�
 
 输出 schema 使一次 schema 有效的已提交捕获成为子 agent 成功完成的必要条件。作用域运行时呈现捕获工具和指令，仅提交成功的最终结果（包括 SDK 调用时外层 `run_code` 的结果），在捕获变为 pending 后拒绝后续副作用，并在提交后不再进行模型步骤即停止子 agent。校验失败仍是可重试的工具错误；没有已提交捕获的正常完成以错误结算。
 
-`StructuredOutputSchema` 是 `dsh-tools` 中可强制执行的原始 JSON-Schema 子集（单字符串 `type`、`properties`/`required`/`additionalProperties`、`items`、标量 `enum`/`const`），不支持的关键字会大声失败，因为该协议数据会逐字成为捕获工具的 parameters。组装、提交、守卫和终止停止的正确性算法归[agent 作用域运行时设计 Agent Note](../architecture/2026-07-12-agent-scope-runtime-design.md#structured-output-commits-only-authoritative-outcomes)所有。
+`ObjectJsonSchema` 是 `dsh-tools` 统一且可强制执行的原始 JSON Schema 子集所提供的对象根消费方视图；不支持的关键字会大声失败，因为该协议数据会逐字成为捕获工具的 parameters。[统一 JSON 值 schema Agent Note](../architecture/2026-07-20-unified-json-value-schema-dsl.md)定义词汇与校验语义，[agent 作用域运行时设计 Agent Note](../architecture/2026-07-12-agent-scope-runtime-design.md#structured-output-commits-only-authoritative-outcomes)则定义组装、提交、守卫和终止停止算法。
 
 ## 测试
 
@@ -70,7 +70,7 @@ worker 侧逻辑通过进程内 `MessageChannel` 运行，使 V8 覆盖率能够
 - **后台执行作为默认**（CC 的形态）：延迟。前台同步与 `dsh-tool-subagent` 的当前形态一致，后台语义应在 bash/subagent/workflow 之间统一设计一次，而非逐工具设计。
 - **工作流层为 `agent({schema})` 做 JSON 解析**：在一个消费方重复 seam 关注点，而 seam 的能力标志仍不诚实地为 `false`。
 - **Meta 嵌入脚本中作为 `export const meta = {...}`**（CC 的确切格式）：保持脚本自包含且 CC 脚本可直接使用，但获取 meta 需要在宿主上执行模型编写的文本。即使一个空的限时 vm 上下文也无法约束脚本控制的 getter（当宿主读取结果对象时）。JSON 参数消除了扫描器、执行和宿主自旋漏洞；代价是 CC 脚本的 meta 头必须移入参数（正文保持可直接使用）。
-- **`SchemaSpec` 作为 outputSchema 类型**：面向作者的 DSL 无法表达以数据形式到达的内容，也无法在不丢失转换精度的情况下对其进行校验。
+- **`ValueSchemaSpec` 作为 `outputSchema` 协议类型**：面向作者的形式如今具有等价词汇，但工作流提供的是来自其他 realm 的原始 JSON Schema 数据；将这类运行时数据假装成可信的作者声明，会跳过原始 schema 断言边界。
 - **schema 对象库（zod 或本仓库的 schemastery）用于结构化输出子集**：schema 是协议数据——纯 JSON，跨越 `agent({schema})` 中的 vm realm 边界并逐字落入强制工具的 parameters——正是活 schema 对象无法存在的位置；在运行时消费原始 JSON Schema 需要在其上加一个第三方转换器（zod core 只输出 JSON Schema，不能反向），且会在 schemastery 的配置角色旁边放置第二种 schema 语言。
 - **ajv 用于值校验**：它校验完整 JSON Schema，因此子集门控——模块的真正要点，因为每个被接受的关键字都必须是 harness 强制执行的——无论如何仍需手写；它通过 `new Function` 编译校验器；且它将成为 dsh-tools 的第一个运行时依赖，仅为替换约 70 行的值遍历器，而路径限定的、报告每一处违规的错误报告无论如何都是自定义的。
 - **提供方 JSON 模式代替捕获工具**：它保证有效 JSON，不保证 schema 一致性，且它与工具调用的交互不明确。捕获工具保留了轮次内的校验重试。提供方侧的严格工具 schema 后续可以在不改变本设计的情况下收窄接受的子集。

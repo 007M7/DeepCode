@@ -21,7 +21,7 @@ Status: implemented
 确定其余案例的规则是：***你编写、持有或接收的类型是核心；为其提供类型推导、渲染或持久化的机制是子页面细节。*** 逐一验证如下：
 
 - 一个数据结构是**核心**的，如果它流经 agent loop 主干——无论加载了哪些插件，循环在每个轮次都会持有、派生、流式输出或记录它（`Message`、`StreamChunk`、`SessionEvent`、`Agent` 句柄）——**或者**它是插件作者面对某条流水线时编写的唯一标志性类型（`ToolDefinition`）。
-- `ToolDefinition` 是核心（它是每个工具作者编写的东西），**即使循环从不持有它**——对于这一个标志性类型，撰写重要性压过了严格的"流经主干"规则。但它的类型推导机制——`SchemaSpec`/`InferArgs` DSL——是子页面细节（你编写的是 `ToolDefinition`；为其提供类型推导的机制你并不直接接触）。这就是主干与 seam 分界线的精确表述。
+- `ToolDefinition` 是核心（它是每个工具作者编写的东西），**即使循环从不持有它**——对于这一个标志性类型，撰写重要性压过了严格的"流经主干"规则。但它的类型推导机制——`ValueSchemaSpec`、`ParameterSchemaSpec`、`InferValue` 与 `InferArgs`——是子页面细节。这就是主干与 seam 分界线的精确表述。
 - `ToolSchema` 是核心（它是流经每个步骤的模型请求 `GenerateOptions` 的一个字段），即使它在概念上属于工具流水线——当*流经主干*与*概念归属*冲突时，前者胜出。
 - 工具展示词汇（`ToolCallView`/`ToolResultView` 等）、`SessionPersistence` 持久性 seam 以及 bash 词汇是子页面。
 

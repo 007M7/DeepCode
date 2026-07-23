@@ -11,7 +11,7 @@ Status: rejected — 延后的能力词汇（`outputSchema`/`structured`、`tool
 - **`outputSchema`/`structured` 与 `toolFilter`**（`SubagentCapabilities`、`SubagentStartRequest`、`SubagentResult`，位于 `packages/subagent/subagent/src/types.ts`）：在作出决策时，每个真实提供方都声明 `outputSchema: false, toolFilter: false`（`packages/subagent/subagent-spawn/src/index.ts`、`packages/subagent/subagent-fork/src/index.ts`、`packages/subagent/subagent-acp/src/index.ts`）；唯一的生产环境 `ctx.subagents.start` 调用方（`packages/subagent/tool-subagent/src/index.ts`）构造 `{ prompt, parent, signal?, agentOptions? }`，结构上无法设置这两个字段；`structured` 仅出现在脚本化测试 fixture（测试前置数据）中。服务的能力检查包含两行 assert，其唯一执行者是拒绝测试。
 - **`SubagentRun.sendMessage` / `SubagentRun.resume`**（同一文件）：没有任何提供方实现——包括 mock 也没有；spawn spec 断言的正是它们的*缺失*。
 
-`dsh-subagent` 依赖 `dsh-tools` 的唯一原因是 `outputSchema` 的 `SchemaSpec` 类型。三个后续 subagent 工作流（per-session 快照回放、fork seed 边界、ACP（Agent Client Protocol） 后端）都围绕这块接口面落地，却没有增长出哪怕一个消费方。
+在作出决策时，`dsh-subagent` 依赖 `dsh-tools` 的唯一原因是 `outputSchema` 的 schema 类型（现为 `ObjectJsonSchema`）。三个后续 subagent 工作流（per-session 快照回放、fork seed 边界、ACP（Agent Client Protocol） 后端）都围绕这块接口面落地，却没有增长出哪怕一个消费方。
 
 ## 提案
 

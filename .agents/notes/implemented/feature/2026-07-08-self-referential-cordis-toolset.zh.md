@@ -32,9 +32,9 @@ vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节�
 
 沙箱全局变量刻意精简：一个带标签的直写 `console`（在宿主 stdout/stderr 上输出 `[cordis:<id>] …`，这样在挂载调用之后很久才触发的监听器输出仍能落到用户可见的地方）、`harness.defineTool` / `harness.registerTool` 注册对、新 vm 上下文缺少的编码原语（`btoa`/`atob` 作为基于 `Buffer` 的宿主闭包——这是一个经过审批的例外，`Buffer` 本身从不暴露——加上 `TextEncoder`/`TextDecoder`），以及对被扣留的 Node API 的可调用陷阱（`require`、`setTimeout`/`setInterval`/`setImmediate`/`clearTimeout`/`clearInterval`、`fetch`），这些陷阱会抛出一条重定向消息指明 cordis 替代方案。只有函数形态的全局变量才设陷阱；`process` 和 `Buffer` 保持 `undefined`，这样 `typeof` 特性探测保持惰性而不会引爆一个抛异常的访问器。
 
-挂载代码通过三道控制跨越 vm 边界。双 realm `instanceof` 同时识别宿主和 vm 对象。`harness.defineTool` 将结果规范化为宿主 realm 的 JSON，并在记录日志前校验 `ToolExecuteReturn` 形状。挂载的插件接收的是一个白名单上下文门面，而非原始或透传的 `Context`；框架管道和以 context 为值的返回会被拒绝。服务读取需要声明 `inject`，保留 Cordis 的激活与卸载语义。`ctx.tools.get` 仅暴露 schema 视图，因此挂载代码无法绕过 `ToolRegistry.execute` 直接调用定义。
+挂载代码通过三道控制跨越 vm 边界。双 realm `instanceof` 同时识别宿主和 vm 对象。`harness.defineTool` 在宿主 realm 中重建输出 schema／投影器，将工具体返回值快照为宿主自有的 JSON，并让注册表在观测前强制执行[规范工具输出契约](../architecture/2026-07-20-canonical-tool-output-contract.md)。挂载的插件接收的是一个白名单上下文门面，而非原始或透传的 `Context`；框架管道和以 context 为值的返回会被拒绝。服务读取需要声明 `inject`，保留 Cordis 的激活与卸载语义。`ctx.tools.get` 仅暴露 schema 视图，因此挂载代码无法绕过 `ToolRegistry.execute` 直接调用定义。
 
-边界将无歧义的 JSON-Schema 形式规范化为 `SchemaSpec`，包括对象包装器、`integer` 和可选字段。无效词汇会报错并给出可接受的替代方案。解析错误、TypeScript 错误、缺少 return、Node API 误用和重复工具名等错误信息包含相关源码行或纠正性契约，不叙述实现内部细节。
+边界将无歧义的 JSON-Schema 形式规范化为 `ParameterSchemaSpec`，同时保留 `integer`、原始对象开放性和 required 数组。直接使用 DSL 的对象节点必须声明 `additionalProperties`；无效词汇会报错并给出可接受的替代方案。解析错误、TypeScript 错误、缺少 return、Node API 误用和重复工具名等错误信息包含相关源码行或纠正性契约，不叙述实现内部细节。
 
 ### 动态分组与挂载生命周期
 
@@ -62,7 +62,7 @@ vm 隔离了意外的全局污染，上下文门面隐藏了框架内部细节�
 
 | 维度 | 结构化逐能力工具 | 单一 `cordis_mount` |
 |---|---|---|
-| Schema 正确性 | `parameters` 仍然是模型编写的 JSON 对象，需要 SchemaSpec 校验，只是提前了一步 | 同样的校验在沙箱边界运行，同样的指导性错误信息 |
+| Schema 正确性 | `parameters` 仍然是模型编写的 JSON，需要统一 schema 校验，只是提前了一步 | 同样的校验在沙箱边界运行，同样的指导性错误信息 |
 | 代码字段 | `execute` 函数体仍然是 vm 中模型编写的 JS；realm 和服务调用的正确性问题不变 | 一个沙箱、一条规范化路径、一处受保护的注册 |
 | 能力覆盖面 | 仅限工具；监听器、服务、`inject` 关系各需另一个结构化工具——接口面无限增长 | 一套词汇（cordis 插件）覆盖当前和未来的所有效果 |
 | 跨挂载组合 | 在工具注册载荷中无法表达 | 原生 `provide`/`inject`，普通的 cordis 语义 |

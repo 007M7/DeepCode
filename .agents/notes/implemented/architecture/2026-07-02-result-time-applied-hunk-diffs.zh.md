@@ -16,24 +16,20 @@ Status: implemented
 
 添加一个**持久化的、工具私有的展示通道**，使工具的 `execute` 能附加一个结果时刻的渲染载荷并在回放中存活，并用它来携带 applied-hunk diff。
 
-### 1. 工具结果上的 `meta` 通道（core）
+### 1. 规范工具输出上的可回放展示投影（core）
 
-`ToolDefinition.execute` 现在可以返回其面向模型的 `ContentBlock[]`（不变，常见情况）或 `{ content: ContentBlock[]; meta?: unknown }`：
+原始实现允许 `execute` 返回 `{ content, meta }`。[规范工具输出契约](2026-07-20-canonical-tool-output-contract.md)取代了这种编写形态：每个工具如今返回一个由 schema 声明的 JSON 值，`output.render(args, value)` 从中派生面向模型的内容块，可选的 `output.presentationMeta(args, value)` 则派生可回放的 UI 数据。
 
-```ts ignore-check
-type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta?: unknown }
-```
+`presentationMeta` 是工具自有的 `JsonValue`，core 会持久化它，但不解释其中的字段。`Session.append` 将它与事件的其余部分一并校验，回放再把存储的载荷传回 `presentResult`；因此展示无需 I/O 或重新计算即可复现。规范值本身只存在于执行期间，不会加入会话格式。
 
-`meta` 是工具自有的 `unknown`，core 持久化但不解释。`Session.append` 拒绝非 JSON 值，回放时将存储的载荷回传给 `presentResult`；因此展示无需 I/O 或重新计算即可复现。运行时校验避免了向 tools core 添加共享的 serializable-value 依赖。
-
-这是通用形态（「工具附加持久化的结果展示」），而非 fs 特有的——任何工具都可以使用。
+这仍是通用形态（「工具投影持久化的结果展示」），而非 fs 特有；任何工具都可以使用。
 
 ### 2. 工具计算 hunk；后端返回 before/after（fs）
 
 按照 [capability-seam 拆分](2026-06-13-capability-seams.md)，存储后端只返回**存储事实**，面向模型的工具拥有**展示**：
 
 - `dsh-fs` 将 `FsEditOutcome` 扩展为包含 `{ before: string; after: string }`，将 `FsWriteOutcome` 扩展为包含 `{ before: string | null; after: string }`（`before: null` 表示创建，或已存在但不可 diff 的二进制/非 UTF-8 文件）。本地后端在写入时已持有两份文本；它以原始 LF 规范化文本返回，**不让任何 diff/UI 概念进入 seam**。
-- `dsh-tool-fs` 将上下文 hunk 存入 `meta: { diffs: FileDiff[] }`。成功的变更始终以 diff 卡片完成，因为 ACP 结果内容会替换待定卡片：创建或无变化的覆写回退到由参数推导的整文件 diff，而编辑使用 applied hunk。失败的变更不携带 diff 元数据，正常渲染其错误信息。
+- `dsh-tool-fs` 返回规范的变更前／后事实，并将上下文 hunk 投影为 `meta: { diffs: FileDiff[] }`。成功的变更始终以 diff 卡片完成，因为 ACP 结果内容会替换待定卡片：创建或无变化的覆写回退到由参数推导的整文件 diff，而编辑使用 applied hunk。失败的变更不携带 diff 元数据，正常渲染其错误信息。
 
 ### 3. Bridge 渲染 `diff` 结果卡片
 
@@ -45,7 +41,7 @@ type ToolExecuteReturn = ContentBlock[] | { content: ContentBlock[]; meta?: unkn
 
 ## 后果
 
-`tool/result` 事件现在可以携带工具私有的 `meta` 载荷——属于磁盘格式词汇的一部分，由 `Session.append` 在运行时限制为 JSON——任何工具都可以附加持久化的结果展示而无需再改 core。diff 卡片在会话重载和快照回放时免费复现：它从日志中读回，从不重新计算。代价：覆写操作在内存中同时持有旧文本和新文本以计算仅用于 UI 的 hunk（`TODO(overwrite-diff-bound)`），且 `dsh-tool-fs` 引入了一个小型、知名的运行时依赖。
+`tool/result` 事件携带工具私有的 `meta` 载荷；它属于磁盘格式词汇的一部分，由 `Session.append` 在运行时限制为 JSON。任何工具都可以投影持久化的结果展示，无需再改 core。diff 卡片在会话重载和快照回放时免费复现：它从日志中读回，从不重新计算。代价：覆写操作在内存中同时持有旧文本和新文本以计算仅用于 UI 的 hunk（`TODO(overwrite-diff-bound)`），且 `dsh-tool-fs` 引入了一个小型、知名的运行时依赖。
 
 ## 非目标
 
