@@ -27,19 +27,31 @@ env:
 
 jobs:
 
-  # One enterprise runner pays setup once, then executes the complete
-  # unsharded primary Node inventory with repository-level concurrency.
+  # Two enterprise runners split the two longest primary Node paths. The
+  # static lane produces the built tree before artifact validation, while the
+  # independent coverage and snapshot paths overlap on the other runner.
   node-24:
     if: github.event_name == 'pull_request'
-    runs-on: dsh-enterprise-ubuntu-24-04-32core-test
-    name: node 24 / complete
+    runs-on: ${{ matrix.runner }}
+    name: ${{ matrix.name }}
     env:
-      DSH_COVERAGE_MAX_WORKERS: '16'
+      DSH_COVERAGE_MAX_WORKERS: '8'
       DSH_ESLINT_CACHE: '1'
-      DSH_ESLINT_CONCURRENCY: '16'
-      DSH_GATE_CONCURRENCY: '10'
-      DSH_PUBLINT_CONCURRENCY: '16'
+      DSH_ESLINT_CONCURRENCY: '8'
+      DSH_GATE_CONCURRENCY: '8'
+      DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
+      DSH_PUBLINT_CONCURRENCY: '8'
       DSH_SNAPSHOT_MAX_CONCURRENCY: '8'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: static-artifacts
+            name: node 24 / static and artifacts
+            runner: dsh-enterprise-ubuntu-latest-32core-test
+          - lane: coverage-snapshots
+            name: node 24 / coverage and snapshots
+            runner: dsh-enterprise-ubuntu-24-04-32core-test
     steps:
       - uses: actions/checkout@v6
         with:
@@ -55,6 +67,7 @@ jobs:
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
       - uses: actions/cache/restore@v4
+        if: matrix.lane == 'static-artifacts'
         with:
           path: .cache/eslint
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.base.client.json', 'tsconfig.host.json', 'tsconfig.client.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
@@ -79,8 +92,42 @@ jobs:
           if (( install_status != 0 )); then exit "$install_status"; fi
           exit "$sandbox_status"
 
-      - name: Run complete unsharded primary Node CI concurrently
-        run: pnpm run check:ci
+      - name: Run static, lint, and Node 24 compatibility gates concurrently
+        if: matrix.lane == 'static-artifacts'
+        run: |
+          static_status=0
+          lint_status=0
+          compat_status=0
+          pnpm run check:ci:static &
+          static_pid=$!
+          pnpm run check:ci:lint &
+          lint_pid=$!
+          pnpm run check:node-compat &
+          compat_pid=$!
+          wait "$static_pid" || static_status=$?
+          wait "$lint_pid" || lint_status=$?
+          wait "$compat_pid" || compat_status=$?
+          if (( static_status != 0 )); then exit "$static_status"; fi
+          if (( lint_status != 0 )); then exit "$lint_status"; fi
+          exit "$compat_status"
+
+      - name: Validate built artifacts
+        if: matrix.lane == 'static-artifacts'
+        run: pnpm run check:ci:artifacts
+
+      - name: Run coverage and build-backed snapshots concurrently
+        if: matrix.lane == 'coverage-snapshots'
+        run: |
+          coverage_status=0
+          snapshot_status=0
+          pnpm run check:ci:coverage &
+          coverage_pid=$!
+          pnpm run check:ci:snapshot &
+          snapshot_pid=$!
+          wait "$coverage_pid" || coverage_status=$?
+          wait "$snapshot_pid" || snapshot_status=$?
+          if (( coverage_status != 0 )); then exit "$coverage_status"; fi
+          exit "$snapshot_status"
 
 
   node-compat:
