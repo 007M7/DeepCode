@@ -113,6 +113,16 @@ describe('TodoRow', () => {
     expect(openDetails).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    { label: 'null root', argsRaw: 'null' },
+    { label: 'non-object root', argsRaw: '42' },
+    { label: 'null items', argsRaw: '{"todos":[null]}' },
+  ])('falls back to the generic summary on valid JSON with an invalid shape ($label)', ({ argsRaw }) => {
+    render(<TodoRow {...rowProps(resultNode(argsRaw))} />)
+    // No throw, and the generic others summary carries the raw args verbatim.
+    expect(screen.getByText(`todo_write · ${argsRaw}`)).toBeTruthy()
+  })
+
   it('window-truncated result (call head lost) falls back to the callId summary', () => {
     render(<TodoRow {...rowProps(resultNode('', { call: null }))} />)
     expect(screen.getByText('todo_write · c1')).toBeTruthy()
