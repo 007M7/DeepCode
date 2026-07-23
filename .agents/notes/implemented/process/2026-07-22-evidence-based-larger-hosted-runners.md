@@ -18,7 +18,7 @@ The required primary path depends on those enterprise pools. Standard GitHub-hos
 
 The former gate-level and coarse primary shard jobs are absent from the workflow. Their static, lint, coverage, snapshot, and scenario shard selectors are also absent from the repository, so an unused diagnostic path cannot preserve a second CI architecture.
 
-Linux primary work uses two independent 32-core jobs. Coverage runs alone with its own worker bound. The other job starts the static scheduler alone; once it reports a successful build, lint, Node 24 runtime compatibility, build-backed snapshots, and all artifact consumers start against that completed tree. Generated NodeNext consumer directories are excluded from ESLint discovery because the artifact check removes them while these processes overlap. The pnpm store and ESLint cache are restored without putting cache uploads on the pull-request critical path. Performance reports use each job's `startedAt` to `completedAt` interval; runner queue delay is capacity evidence, not repository execution time.
+Linux primary work uses three independent 32-core jobs. Coverage runs alone with its own worker bound, and the static scheduler runs alone so its result has no post-build consumer tail. After static gates finish, that job publishes its emitted `apps/*/lib`, `packages/*/*/lib`, and `vendor/*/lib` tree as a run-scoped artifact. The third job restores that exact tree, then starts lint, Node 24 runtime compatibility, build-backed snapshots, and all artifact consumers without repeating the build. Generated NodeNext consumer directories are excluded from ESLint discovery because the artifact check removes them while these processes overlap. The pnpm store and ESLint cache are restored without putting cache uploads on the pull-request critical path. Performance reports use each job's `startedAt` to `completedAt` interval; runner queue delay is capacity evidence, not repository execution time.
 
 Windows shares one 32-core setup across the blocking build and production site plus observational built-artifact contracts. Linux owns the duplicate lint, coverage, and snapshot inventories because running those observational copies on Windows extends the paid critical path without adding a blocking platform claim.
 
@@ -58,6 +58,8 @@ Complete serial Linux, macOS, and Windows references run only when `master` move
 
 **Keep build behind typecheck.** This orders independent compiler invocations and turns snapshot replay into a three-stage critical chain. Build output has its own success dependency, so only snapshot and publication consumers wait for it.
 
+**Keep static gates and post-build consumers on one runner.** Reusing one workspace avoids a setup wave and artifact transfer, but build-duration variance delays every consumer and leaves their lint and snapshot tails after the static result. A run-scoped built tree preserves one exact build while independent jobs keep both complete paths within the observed target.
+
 **Keep the complete required path on standard GitHub-hosted capacity.** This avoids repository-external runner configuration, but exact-head standard-runner runs remain materially slower and can spend longer queued behind shared capacity. Standard-hosted compatibility and serial references preserve portable evidence without making that slower topology the ordinary primary path.
 
 **Keep required and observational Windows checks in separate jobs.** The split preserves status semantics at the workflow level but pays setup twice. `run-gates` preserves the same required versus non-blocking distinction inside one process.
@@ -68,7 +70,7 @@ Complete serial Linux, macOS, and Windows references run only when `master` move
 
 The required topology pays one setup wave per 32-core lane and retains no shard selectors. Every ordinary pull request consumes paid enterprise Linux and Windows minutes; manual benchmarks add other sizes only when remeasurement is useful.
 
-GitHub rounds each larger-runner execution up to a whole minute, so complete-job measurement exposes both billed time and workflow complexity. Splitting Linux repeats setup once, but isolates coverage from build, lint, and snapshot contention; consolidating Windows avoids repeating its slower setup.
+GitHub rounds each larger-runner execution up to a whole minute, so complete-job measurement exposes both billed time and workflow complexity. Splitting Linux repeats setup twice and transfers one built tree, but isolates coverage, static gates, and post-build consumers from each other's critical paths without repeating the build; consolidating Windows avoids repeating its slower setup.
 
 Performance targets are observations, not cancellation deadlines or correctness requirements. Manual all-size and serial suites remain available when image, dependency, scheduler, or pricing changes need remeasurement.
 
