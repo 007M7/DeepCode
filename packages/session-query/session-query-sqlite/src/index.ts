@@ -71,7 +71,11 @@ const STABLE_OBSERVATION_ATTEMPTS = 2
 
 /** SQLite session-search configuration. */
 export interface Config {
-  /** Dedicated derived-index path; `:memory:` is supported for tests. */
+  /**
+   * Dedicated derived-index path; `:memory:` is supported for tests. Missing
+   * directories and database files are created owner-only on POSIX filesystems;
+   * existing modes are preserved.
+   */
   path: string
   /** SQLite journal mode. Defaults to `wal`. */
   journalMode?: JournalMode

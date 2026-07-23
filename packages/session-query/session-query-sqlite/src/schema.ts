@@ -1,7 +1,7 @@
 /** SQLite schema for the disposable session full-text read model. */
 
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
 /** Current derived-index schema version. Incompatible versions reset in place. */
@@ -14,14 +14,30 @@ export const SESSION_QUERY_SQLITE_APPLICATION_ID = 0x44534851
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 /**
+ * Exclusively create a missing database file with owner-only permissions.
+ * Existing files retain their modes, and errors other than `EEXIST` propagate.
+ */
+async function createDatabaseFile(path: string): Promise<void> {
+  try {
+    const handle = await open(path, 'wx', 0o600)
+    await handle.close()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
+}
+
+/**
  * Open, validate, and initialize persistent and connection-local schemas.
- * @param path - dedicated derived-index path or `:memory:`.
+ * @param path - dedicated derived-index path or `:memory:`; missing filesystem paths are created owner-only.
  * @param journalMode - validated SQLite journal mode.
  * @returns initialized database handle owned by the search service.
  */
 export async function openSearchDatabase(path: string, journalMode: JournalMode): Promise<DatabaseSync> {
   const actual = path === ':memory:' ? path : resolve(path)
-  if (actual !== ':memory:') await mkdir(dirname(actual), { recursive: true, mode: 0o700 })
+  if (actual !== ':memory:') {
+    await mkdir(dirname(actual), { recursive: true, mode: 0o700 })
+    await createDatabaseFile(actual)
+  }
   const db = new DatabaseSync(actual)
   try {
     const { application_id: applicationId } = db.prepare('PRAGMA application_id').get() as { application_id: number }

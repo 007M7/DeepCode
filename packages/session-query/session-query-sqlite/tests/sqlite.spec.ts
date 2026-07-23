@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from 'cordis'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId as SessionIdType } from '@deepseek-ai/dsh-session'
 import SessionPersistence, { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
@@ -924,6 +924,57 @@ describe('SQLite reconciliation and source lifecycle', () => {
 })
 
 describe('SQLite schema, cancellation, and real persistence integration', () => {
+  it('creates a new database and WAL sidecars owner-only without changing its parent mode', async () => {
+    if (process.platform === 'win32') return
+    const path = await temporaryPath()
+    const directory = dirname(path)
+    await chmod(directory, 0o755)
+
+    const ctx = await liveContext({ path })
+    await ctx.sessionSearch.searchSessions({ query: 'needle' })
+
+    expect((await stat(directory)).mode & 0o777).toBe(0o755)
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-wal`)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-shm`)).mode & 0o777).toBe(0o600)
+    await (ctx.sessionSearch as SessionSearchSqlite).close()
+  })
+
+  it('creates a persistent rollback journal owner-only', async () => {
+    if (process.platform === 'win32') return
+    const path = await temporaryPath()
+    const ctx = await liveContext({ path, journalMode: 'persist' })
+    await ctx.sessionSearch.searchSessions({ query: 'needle' })
+
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect((await stat(`${path}-journal`)).mode & 0o777).toBe(0o600)
+    await (ctx.sessionSearch as SessionSearchSqlite).close()
+  })
+
+  it('preserves the mode of an existing database file', async () => {
+    if (process.platform === 'win32') return
+    const path = await temporaryPath()
+    await writeFile(path, '', { mode: 0o644 })
+    await chmod(path, 0o644)
+
+    const ctx = await liveContext({ path, journalMode: 'delete' })
+    await ctx.sessionSearch.searchSessions({ query: 'needle' })
+
+    expect((await stat(path)).mode & 0o777).toBe(0o644)
+    await (ctx.sessionSearch as SessionSearchSqlite).close()
+  })
+
+  it('surfaces filesystem failures while pre-creating the database', async () => {
+    const path = `${await temporaryPath()}\0`
+    const ctx = await liveContext({ path })
+
+    await expect(ctx.sessionSearch.searchSessions({ query: 'needle' })).rejects.toMatchObject({
+      code: 'SESSION_QUERY_INDEX_FAILED',
+      cause: { code: 'ERR_INVALID_ARG_VALUE' },
+    })
+    await (ctx.sessionSearch as SessionSearchSqlite).close()
+  })
+
   it('resets a recognized incompatible derived schema but refuses a foreign database', async () => {
     const stalePath = await temporaryPath('stale.db')
     const stale = new DatabaseSync(stalePath)

@@ -16,13 +16,13 @@ The service requires `ctx.sessions` and observes optional `ctx.sessionPersistenc
 
 Persisted FTS rows live in a dedicated derived database. Connection-local TEMP tables hold live rows, which shadow the durable base for the same session and reveal it when the live owner disappears. Unmounting persistence hides durable rows without discarding the cache; remounting reconciles it. Closing or reopening the database drops every live overlay while retaining persisted rows.
 
-The database is disposable but reset is guarded: a recognized incompatible search schema rebuilds in place, while an unrelated or canonical database is refused before mutating journal mode. Never point `path` at the session-persistence database. Exactly one service in one process owns a derived-index path; external writers or a second process are unsupported because generations and TEMP shadow state are connection-owned.
+The database is disposable but reset is guarded: a recognized incompatible search schema rebuilds in place, while an unrelated or canonical database is refused before mutating journal mode. Never point `path` at the session-persistence database. On filesystems with POSIX modes, missing directories and databases are created owner-only (`0700` and `0600` before the process umask), and SQLite sidecars inherit the database mode; existing modes are preserved. Exactly one service in one process owns a derived-index path; external writers or a second process are unsupported because generations and TEMP shadow state are connection-owned.
 
 ## Configuration
 
 | Key | Default | Contract |
 |---|---:|---|
-| `path` | required | Dedicated derived-index SQLite path; `:memory:` is supported. |
+| `path` | required | Dedicated derived-index SQLite path; `:memory:` is supported. Missing filesystem paths are created owner-only on POSIX filesystems. |
 | `journalMode` | `wal` | `wal`, `delete`, `truncate`, or `persist`. |
 | `defaultLimit` | `20` | Page size when a request omits `limit`; at most `Number.MAX_SAFE_INTEGER - 1`. |
 | `maxLimit` | `100` | Largest accepted request page size; at most `Number.MAX_SAFE_INTEGER - 1`. |
