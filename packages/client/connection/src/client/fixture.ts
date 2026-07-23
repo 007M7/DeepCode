@@ -24,6 +24,28 @@ function text(t: string): ContentBlock[] {
   return [{ type: 'text', text: t }]
 }
 
+const MARKDOWN_FIXTURE = [
+  '# Markdown fixture',
+  '',
+  'Assistant output renders **strong text**, *emphasis*, and `inline code`.',
+  '',
+  '- first item',
+  '  - nested item',
+  '',
+  '| Surface | State |',
+  '| --- | --- |',
+  '| history | rendered |',
+  '| streaming | stable |',
+  '',
+  '[DeepSeek](https://www.deepseek.com)',
+  '',
+  '```ts',
+  'const markdown = true',
+  '```',
+].join('\n')
+
+const USER_MARKDOWN_LITERAL = '用户字面量：# 不渲染 `code` [link](https://example.com)'
+
 function sid(id: string): SessionId {
   return id as SessionId
 }
@@ -40,7 +62,13 @@ function buildAlphaLog(): SessionEvent[] {
   }
   for (let turn = 0; turn < 60; turn++) {
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-    push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`), source: { kind: 'user' } } })
+    push({
+      type: 'user/message', surfaceOp: 'append',
+      data: {
+        content: text(turn === 59 ? USER_MARKDOWN_LITERAL : `问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`),
+        source: { kind: 'user' },
+      },
+    })
     if (turn % 9 === 4) {
       push({ type: 'context/message', surfaceOp: 'append', data: { content: text(`[fixture] 上下文注入（turn ${turn}）`), source: { kind: 'plugin', plugin: 'fixture' } } })
     }
@@ -49,7 +77,7 @@ function buildAlphaLog(): SessionEvent[] {
     const withReasoning = turn % 3 === 1
     const blocks: ContentBlock[] = []
     if (withReasoning) blocks.push({ type: 'reasoning', text: `思考过程 ${turn}：这是一段可折叠的 reasoning 内容。` })
-    blocks.push({ type: 'text', text: `回答 ${turn}：这是 fixture 生成的历史回复正文。` })
+    blocks.push({ type: 'text', text: turn === 59 ? MARKDOWN_FIXTURE : `回答 ${turn}：这是 fixture 生成的历史回复正文。` })
     if (withTool) {
       const callId = `fx-call-${turn}`
       blocks.push({ type: 'tool-call', id: callId, name: 'echo', arguments: `{"text":"turn ${turn}"}` } as ContentBlock)
@@ -343,8 +371,8 @@ export function createFixtureApi(): ApiProxy {
     const step = 0
     append(id, { type: 'step/start', data: { turn, step } })
     append(id, { type: 'assistant/chunk', data: { turn, step, chunk: { type: 'block-start', index: 0, blockType: 'text' } } })
-    /* v8 ignore next -- the ?? arm needs a null match, but replyText is never empty (prompt always prefixes 回声). */
-    const pieces = replyText.match(/.{1,6}/gu) ?? [replyText]
+    /* v8 ignore next -- the ?? arm needs a null match, but every fixture reply is non-empty. */
+    const pieces = replyText.match(/[\s\S]{1,6}/gu) ?? [replyText]
     let i = 0
     const finish = (aborted: boolean): void => {
       replays.delete(id)
@@ -410,7 +438,13 @@ export function createFixtureApi(): ApiProxy {
         setRunning(id, true)
         append(id, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
         append(id, { type: 'user/message', surfaceOp: 'append', data: { content, source: { kind: 'user' } } })
-        startReply(id, turn, `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`)
+        startReply(
+          id,
+          turn,
+          userText === 'render markdown'
+            ? MARKDOWN_FIXTURE
+            : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
+        )
         return ok(request, { accepted: true as const })
       },
       cancel: (request) => {
