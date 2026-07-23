@@ -245,7 +245,6 @@ describe('PersistenceCoordinator retirement', () => {
     const backendFiber = await ctx.plugin(Object.assign((inner: Context) => {
       coordinator = new PersistenceCoordinator(inner, backend)
     }, { inject: ['sessions'] }))
-    const loadGate = Promise.withResolvers<boolean>()
 
     try {
       const id = SessionId('retiring-lazy-owner')
@@ -254,52 +253,42 @@ describe('PersistenceCoordinator retirement', () => {
         first = inner.sessions.create(id)
       }, { inject: ['sessions'] }))
       await ctx.sessions.flush(first)
-
-      const baselineLoads = backend.loadAttempts
-      backend.beforeLoadStored = async () => { await loadGate.promise }
-      const blockingLoad = coordinator.load(id)
-      await vi.waitFor(() => { expect(backend.loadAttempts).toBe(baselineLoads + 1) })
       await firstFiber.dispose()
+      const internals = coordinator as unknown as CoordinatorInternals
+      await vi.waitFor(() => { expect(internals.states.has(id)).toBe(false) })
 
       let reuse!: Session
       await ctx.plugin(Object.assign((inner: Context) => {
         reuse = inner.sessions.create(id)
       }, { inject: ['sessions'] }))
 
-      loadGate.resolve(true)
-      await expect(blockingLoad).rejects.toThrow(/not found/)
       await expect(ctx.sessions.flush(reuse)).resolves.toBeUndefined()
     } finally {
-      loadGate.resolve(true)
       await backendFiber.dispose()
       await ctx.fiber.dispose()
     }
   })
 
-  it('a retiring owner with buffered events still rejects same-id reuse', async () => {
+  it('a replacement queued before retirement cleanup still collides with the live owner', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const backend = new ControlledBackend()
-    let coordinator!: PersistenceCoordinator<never>
     const backendFiber = await ctx.plugin(Object.assign((inner: Context) => {
-      coordinator = new PersistenceCoordinator(inner, backend)
+      new PersistenceCoordinator(inner, backend)
     }, { inject: ['sessions'] }))
-    const loadGate = Promise.withResolvers<boolean>()
+    const appendGate = Promise.withResolvers<boolean>()
 
     try {
-      const id = SessionId('retiring-buffered-owner')
+      const id = SessionId('retiring-live-owner')
       let first!: Session
       const firstFiber = await ctx.plugin(Object.assign((inner: Context) => {
         first = inner.sessions.create(id)
       }, { inject: ['sessions'] }))
       await ctx.sessions.flush(first)
+      backend.beforeAppend = async () => { await appendGate.promise }
       first.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
       first.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-
-      const baselineLoads = backend.loadAttempts
-      backend.beforeLoadStored = async () => { await loadGate.promise }
-      const blockingLoad = coordinator.load(id)
-      await vi.waitFor(() => { expect(backend.loadAttempts).toBe(baselineLoads + 1) })
+      await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
       await firstFiber.dispose()
 
       let reuse!: Session
@@ -308,14 +297,56 @@ describe('PersistenceCoordinator retirement', () => {
       }, { inject: ['sessions'] }))
       const reuseFlush = ctx.sessions.flush(reuse)
 
-      loadGate.resolve(true)
-      await expect(blockingLoad).rejects.toThrow(/not found/)
+      appendGate.resolve(true)
+      await expect(reuseFlush).rejects.toThrow(/bound to a different live session/)
+      expect(backend.store.get(id)?.events.map(event => event.seq)).toEqual([0, 1])
+    } finally {
+      appendGate.resolve(true)
+      await backendFiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('a racing cold load survives retirement cleanup and rejects same-id reuse', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    let coordinator!: PersistenceCoordinator<never>
+    const backendFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+    const appendGate = Promise.withResolvers<boolean>()
+
+    try {
+      const id = SessionId('retiring-buffered-owner')
+      let first!: Session
+      const firstFiber = await ctx.plugin(Object.assign((inner: Context) => {
+        first = inner.sessions.create(id)
+      }, { inject: ['sessions'] }))
+      await ctx.sessions.flush(first)
+      backend.beforeAppend = async () => { await appendGate.promise }
+      first.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      first.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+      await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
+      await firstFiber.dispose()
+      const coldLoad = coordinator.load(id)
+
+      let reuse!: Session
+      await ctx.plugin(Object.assign((inner: Context) => {
+        reuse = inner.sessions.create(id)
+      }, { inject: ['sessions'] }))
+      const reuseFlush = ctx.sessions.flush(reuse)
+
+      appendGate.resolve(true)
+      await expect(coldLoad).resolves.toMatchObject({
+        events: [{ seq: 0 }, { seq: 1 }],
+      })
       await expect(reuseFlush).rejects.toThrow(/id collision/)
       await vi.waitFor(() => {
         expect(backend.store.get(id)?.events.map(event => event.seq)).toEqual([0, 1])
       })
     } finally {
-      loadGate.resolve(true)
+      appendGate.resolve(true)
       await backendFiber.dispose()
       await ctx.fiber.dispose()
     }

@@ -88,6 +88,51 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('rejects crash-repair load while a live session owns the persisted prefix', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      let session!: Session
+      const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
+        session = inner.sessions.create(SessionId('live-load'), { meta: { cwd: WORK } })
+      }, { inject: ['sessions'] }))
+      try {
+        session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+        await ctx.sessions.flush(session)
+
+        await expect(ctx.sessionPersistence.load(session.id))
+          .rejects.toThrow(`cannot load session "${session.id}" while its live turn is open`)
+
+        send(session, oneTurnLog().slice(1))
+        await ctx.sessions.flush(session)
+        await sessionFiber.dispose()
+
+        await vi.waitFor(async () => {
+          const loaded = await ctx.sessionPersistence.load(session.id)
+          expect(loaded.events.map(event => event.type)).toEqual(oneTurnLog().map(event => event.type))
+          expect(loaded.events.at(-1)).toMatchObject({
+            type: 'turn/end',
+            data: { reason: { kind: 'completed' } },
+          })
+        })
+      } finally {
+        await sessionFiber.dispose()
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('does not load an unmaterialized empty live session', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const session = ctx.sessions.create(SessionId('empty-live'), { meta: { cwd: WORK } })
+        await expect(ctx.sessionPersistence.load(session.id)).rejects.toThrow(/not found/)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('round-trips the seed boundary (seedLength) through persistence', async () => {
       // A forked child records how many leading events were inherited via the seed; the
       // boundary must survive a reload (so a resume/replay can tell the inherited prefix from

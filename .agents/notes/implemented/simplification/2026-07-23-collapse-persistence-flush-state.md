@@ -16,6 +16,8 @@ Each live `Session` has one controller containing `pending`, `init`, and the opt
 
 Initialization now enters the existing per-id operation chain once and calls the unserialized core operations while it owns that turn. The chain remains separate from the live controller because detached public `create`/`append`/`load` calls can race without a `Session` object and still require identity-level serialization.
 
+Crash repair is cold-only. For a live identity, `load(id)` snapshots the authoritative in-memory header and events before awaiting their flush; it returns that durable snapshot when balanced and rejects an open turn without reading or repairing storage. A cold identity follows the stored-prefix repair path. HMR adoption remains separate through `loadLive` and truncates torn storage without closing the authoritative live turn.
+
 The live-controller map is also the retirement registry. Successful retirement drains and removes its controller; failed retirement leaves it in the map. Backend teardown stops event admission, flushes every controller still present, awaits remaining per-id operations, and closes the backend. No separate retirement set is needed to rediscover unfinished work.
 
 ## Alternatives considered
@@ -26,11 +28,15 @@ The live-controller map is also the retirement registry. Successful retirement d
 
 **Latch the first eager error permanently.** This makes every later flush deterministic, but prevents the existing teardown retry from recovering a transient storage failure. Retaining the batch without latching the error preserves both observability and retry.
 
+**Reject every live load.** This is safe but removes established balanced live snapshots used by persistence consumers and tests. Snapshot-before-flush gives the call a stable linearization point: successful flush proves exactly that snapshot is durable, while the live path never invokes crash repair.
+
 ## Verification
 
 - A focused coordinator test gates the first append, admits another event during that write, and observes an automatic second durable batch without calling `session/flush`.
 - The shared coordinator contract still covers live adoption, collisions, crash repair, and session/backend disposal over the in-memory, JSONL, and SQLite backends.
 - Failure and teardown tests keep rejected batches pending, retry them before close, and prove an in-flight controller delays backend close.
+- The shared backend contract persists an open live turn, proves `load` rejects without writing synthetic closers, completes and retires the owner, then reloads the exact completed turn.
+- An AgentLoop regression races `resume()` against a live open turn and proves the original agent can still durably complete it without an injected `interrupted` boundary.
 
 ## Consequences
 

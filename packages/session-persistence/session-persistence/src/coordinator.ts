@@ -256,6 +256,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * @returns the header plus the event log, ending on a balanced `turn/end`.
    */
   load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const live = this.ctx.sessions.get(id)
+    if (live !== undefined) return this.loadLiveSnapshot(live)
     return this.serialize(id, () => this.loadCore(id))
   }
 
@@ -277,6 +279,18 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     // Keep coordinator metadata detached from the returned record.
     this.states.set(id, { meta: { ...meta }, cursor: balanced.length, materialized: true })
     return { meta, events: balanced }
+  }
+
+  /** Return a durable balanced live snapshot without applying cold crash repair. */
+  private async loadLiveSnapshot(session: Session): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const meta = structuredClone(session.header)
+    const events = session.events.map(event => structuredClone(event))
+    await this.flush(session)
+    if (events.length === 0) throw new Error(`session "${session.id}" not found`)
+    if (interruptedTurnClosers(events).length > 0) {
+      throw new Error(`cannot load session "${session.id}" while its live turn is open; use the live Session or wait for the turn to close`)
+    }
+    return { meta, events }
   }
 
   // Listing is a direct backend read and needs no coordinator state.
