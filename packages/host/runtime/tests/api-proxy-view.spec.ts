@@ -1,8 +1,9 @@
 /**
  * Tool-card view computation over the mux live path: three standard card types
- * arrive on the frame, a presenterless tool ships no view field, and a throwing
- * presenter soft-falls to no view (the event still ships). Result pairing works
- * both through the live open-call table and the backscan fallback after
+ * arrive on the frame, a presenterless tool ships no view field, a call-only
+ * presenter keeps raw result content out of the view payload, and a throwing
+ * presenter soft-falls to no view (the event still ships). Result pairing
+ * works both through the live open-call table and the backscan fallback after
  * turn/end cleared it.
  */
 
@@ -12,7 +13,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -24,13 +25,13 @@ import { createApiProxy } from '../src/api-proxy.ts'
 const reply = (text: string): Promise<ContentBlock[]> => Promise.resolve([{ type: 'text', text }])
 
 function tool(name: string, presenters: Pick<ToolDefinition, 'presentCall' | 'presentResult'>): ToolDefinition {
-  return {
+  return defineContentToolFixture({
     name,
     description: `tool ${name}`,
-    parameters: { type: 'object', properties: {} },
+    parameters: {},
     execute: () => reply(`ran:${name}`),
     ...presenters,
-  }
+  })
 }
 
 async function harness(): Promise<{ ctx: Context }> {
@@ -49,6 +50,9 @@ async function harness(): Promise<{ ctx: Context }> {
   }))
   ctx.tools.register(tool('diffy', {
     presentCall: () => ({ card: 'diff', title: 'Write f.txt', diffs: [{ path: 'f.txt', oldText: null, newText: 'x' }] }),
+  }))
+  ctx.tools.register(tool('call-only', {
+    presentCall: () => ({ card: 'generic', title: 'program', kind: 'execute', rawInput: 'return value' }),
   }))
   ctx.tools.register(tool('plain', {}))
   ctx.tools.register(tool('boom', {
@@ -73,13 +77,16 @@ describe('mux live view computation', () => {
     const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp' })
     const abort = new AbortController()
     const stream = api.events.mux({ rpcId: RpcId('t-mux'), payload: {} }, abort.signal)
-    const collected = collect(stream, 7, abort)
+    const collected = collect(stream, 9, abort)
+    const rawResult = `RAW_RESULT:${'x'.repeat(64 * 1024)}`
 
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-gen'), name: 'gen', arguments: '{}' })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-term'), name: 'term', arguments: '{"cmd":"echo hi"}' })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-diff'), name: 'diffy', arguments: '{}' })
+    session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-call-only'), name: 'call-only', arguments: '{}' })
+    session.append('tool/result', { turn: 1, step: 1, callId: CallId('c-call-only'), content: [{ type: 'text', text: rawResult }], isError: false }, { surfaceOp: 'append' })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-plain'), name: 'plain', arguments: '{}' })
     session.append('tool/call', { turn: 1, step: 1, callId: CallId('c-boom'), name: 'boom', arguments: '{}' })
     session.append('tool/result', { turn: 1, step: 1, callId: CallId('c-gen'), content: [{ type: 'text', text: 'ok' }], isError: false }, { surfaceOp: 'append' })
@@ -93,6 +100,15 @@ describe('mux live view computation', () => {
     expect(byCall.get('tool/call:c-gen')?.view).toEqual({ for: 'call', view: { card: 'generic', title: 'gen call' } })
     expect(byCall.get('tool/call:c-term')?.view).toEqual({ for: 'call', view: { card: 'terminal', title: 'echo hi' } })
     expect(byCall.get('tool/call:c-diff')?.view?.view.card).toBe('diff')
+    expect(byCall.get('tool/call:c-call-only')?.view).toEqual({
+      for: 'call',
+      view: { card: 'generic', title: 'program', kind: 'execute', rawInput: 'return value' },
+    })
+    const callOnlyResult = byCall.get('tool/result:c-call-only')
+    expect('view' in (callOnlyResult ?? {})).toBe(false)
+    const serializedResult = JSON.stringify(callOnlyResult)
+    expect(serializedResult.indexOf(rawResult)).toBeGreaterThanOrEqual(0)
+    expect(serializedResult.indexOf(rawResult)).toBe(serializedResult.lastIndexOf(rawResult))
     // No presenter → the frame carries no view property at all.
     expect('view' in (byCall.get('tool/call:c-plain') ?? {})).toBe(false)
     // Throwing presenter → soft-fall: event ships, no view.

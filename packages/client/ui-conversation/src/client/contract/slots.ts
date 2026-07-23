@@ -1,31 +1,101 @@
 /**
- * Slot-ring contract for the conversation package: the composed props shapes
- * its registrants mount into the layout-owned slots (conversation / details /
- * conversation.empty). Terminal slot design (§3): full component props are the
- * automatic shares — PropsRuntime<K> (framework standard kit) & PropsStore<H>
+ * Slot-ring contract for the conversation package: the 'conversation.view'
+ * slot this package declares (the view ring — one list entry per conversation
+ * view tab), the chat view's per-tool row hole ('conversation.chat.toolview',
+ * keyed on the wire tool name), and the composed props shapes its registrants
+ * mount into the layout-owned slots (conversation / details /
+ * conversation.empty) plus its own slots. Terminal slot design (§3): full
+ * component props are the automatic shares — PropsRuntime<K> (framework
+ * standard kit) & PropsRenderSlots<S> (declared children) & PropsStore<H>
  * (declared store's read/write faces) & the injected business face declared
- * here. No renderSlot share: none of the three registrations declares
- * children, so the zero-renderSlot inference applies.
+ * here.
  */
-import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionId, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createChatStore } from '../stores.ts'
-import type { SelectionTarget, ViewEntry } from './views.ts'
+import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
-/** The shared chat store handle type (apply constructs one; conversation and details both declare it). */
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    /**
+     * The conversation view ring: one list entry per view tab (chat here;
+     * trajectory/waterfall from ui-trajectory), rendered one-at-a-time by
+     * ConversationRoot via `only: <active id>`. Declared by this package's
+     * 'conversation' entry (declaring is claiming). Session scope: views read
+     * the conversation snapshot through the standard kit.
+     */
+    'conversation.view': { kind: 'list'; scope: 'session'; owner: ConvViewOwnerProps }
+    /**
+     * The chat view's per-tool row hole: keyed dispatch on the wire tool name
+     * (the key space is runtime-open — SlotMap declares slots, never keys).
+     * Declared by the chat view entry (declaring is claiming); the render
+     * site dispatches via `entryKey: toolName` with GenericToolCard as the
+     * `fallback` for unregistered tools.
+     */
+    'conversation.chat.toolview': { kind: 'keyed'; scope: 'session'; owner: ToolRowOwnerProps }
+  }
+}
+
+/**
+ * View-slot owner share: deliberately empty — ConversationRoot supplies
+ * nothing at its renderSlot site (sessionId and the snapshot hook arrive as
+ * framework-standard props; tool rows go through each view's own declared
+ * toolview hole). Kept as the named owner seat so a future cross-view
+ * payload has a home.
+ */
+export interface ConvViewOwnerProps {}
+
+/**
+ * Owner share of a per-view toolview slot: the call material the rendering
+ * view supplies per row. Uniform across views — the trajectory/waterfall
+ * toolview slots (same kind/scope/owner, names fixed by the slot-naming
+ * discipline) land with their own row render sites; today only the chat slot
+ * is declared (RendersCheck rejects a declaration nobody renders).
+ */
+export interface ToolRowOwnerProps {
+  /** Tool call identity (details linkage; stable across running → settled). */
+  callId: CallId
+  /** Wire tool name (also the keyed dispatch key at the render site). */
+  toolName: string
+  /** Frozen call slice: the running call or the settled result node. */
+  block: ToolCallBlock
+  /** Open the details panel for this call (session-level facility, supplied by the view). */
+  openDetails(): void
+}
+
+/**
+ * Full props of a registered tool-row component: the slot's runtime share
+ * (owner payload + session standard kit + global seat). Registrants type
+ * their component `FC<ToolRowProps & I>` with `I` inferred from their inject
+ * factory. Declared against the chat slot; the three per-view toolview slots
+ * share one declaration shape, so this alias serves them all.
+ */
+export type ToolRowProps = PropsRuntime<'conversation.chat.toolview'>
+
+/**
+ * Base props of a conversation view entry: the framework standard kit for the
+ * session-scope 'conversation.view' slot (useSession narrowed to the
+ * conversation snapshot by the runtime merge, sessionId, useSessions).
+ * Entries declaring the shared store or an inject face compose their shares
+ * on top (the chat entry's {@link ChatViewSlotProps}); store-less pure
+ * readers (ui-trajectory) take this base alone.
+ */
+export type ConvViewProps = PropsRuntime<'conversation.view'>
+
+/** The shared chat store handle type (apply constructs one; the conversation, details, and chat-view registrations all declare it). */
 export type ChatStore = ReturnType<typeof createChatStore>
 
 /**
  * Injected share of the conversation slot: plain data and callbacks only
  * (design §5 — hooks are framework-made). The store lines that used to ride
- * here live in the declared {@link ChatStore} now; ancestry derives from the
- * standard useSessions hook in-component; view rendering moved into the
- * component, which holds every share a view needs.
+ * here live in the declared {@link ChatStore}; ancestry derives from the
+ * standard useSessions hook in-component; views render through the declared
+ * 'conversation.view' child slot, with this face projecting the tab strip.
  */
 export interface ConversationInjected {
-  /** View registry read face (uSES triple from the conversation service). */
+  /** View tab read face (uSES triple over the 'conversation.view' slot ledger). */
   views: {
-    list(): readonly ViewEntry[]
+    list(): readonly ViewTab[]
     subscribe(fn: () => void): () => void
     version(): number
   }
@@ -33,17 +103,29 @@ export interface ConversationInjected {
   send(text: string, mode: 'queue' | 'steer'): void
   /** Cancel the in-flight turn (failure surfaces via snapshot.promptError). */
   stop(): void
-  /** Selection write + details panel opening in one gesture (store action + layout orchestration). */
-  openDetails(target: SelectionTarget): void
-  /** Pull one older history page. */
-  loadOlder(): void
   /** Navigate to another session (breadcrumb ancestors). */
   open(id: SessionId): void
 }
 
-/** Full conversation-slot component props: runtime share & store share & injected share. */
+/** Full conversation-slot component props: runtime share & view-slot render share & store share & injected share. */
 export type ConversationSlotProps =
-  PropsRuntime<'conversation'> & PropsStore<ChatStore> & ConversationInjected
+  PropsRuntime<'conversation'> & PropsRenderSlots<'conversation.view'> & PropsStore<ChatStore> & ConversationInjected
+
+/**
+ * Injected share of the chat view entry: the two callbacks whose targets live
+ * outside the view (layout orchestration; the session object layer).
+ */
+export interface ChatViewInjected {
+  /** Selection write + details panel opening in one gesture (store action + layout orchestration). */
+  openDetails(target: SelectionTarget): void
+  /** Pull one older history page. */
+  loadOlder(): void
+}
+
+/** Full chat-view component props: runtime share & the declared toolview hole's render share & store share & injected share. */
+export type ChatViewSlotProps =
+  PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.toolview'>
+  & PropsStore<ChatStore> & ChatViewInjected
 
 /**
  * Injected share of the details slot: the panel is otherwise a pure reader of

@@ -2,9 +2,10 @@
 /**
  * ConversationService orchestration half after the store-seat slimming:
  * scope-addressed send/cancel (result folding, root throw), the startSession
- * chain (create → sessions.open → scoped send), views ordering, and the
- * service-unavailable loud failures. Selection/draft state left this service
- * for the declared chat store (chat-store.spec.ts / selection-survival.spec.ts).
+ * chain (create → sessions.open → scoped send), and the service-unavailable
+ * loud failures. Selection/draft state left this service for the declared
+ * chat store (chat-store.spec.ts / selection-survival.spec.ts); the view
+ * registry left for the 'conversation.view' slot (views-type-chain.spec.tsx).
  */
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
@@ -68,7 +69,8 @@ async function bench(opts?: { sessions?: boolean }) {
     scope: (id: SessionId) => (id === sid('new-1') ? mint(id) : scopes.get(id)),
   } as unknown as SessionsService
   if (opts?.sessions !== false) ctx.provide('sessions', sessionsFake)
-  const fiber = ctx.plugin((pluginCtx) => { void new ConversationService(pluginCtx) })
+  // Class-plugin mount — the same form apply.ts uses in production.
+  const fiber = ctx.plugin(ConversationService)
   await fiber.await()
   const svc = ctx.get('conversation') as ConversationService
   const scopedSvc = (id: SessionId) => mint(id).get('conversation') as ConversationService
@@ -147,19 +149,5 @@ describe('service-unavailable loud failures', () => {
     ;(b.sessionsFake.scope as unknown) = () => foreignScope
     await expect(b.svc.startSession({ text: 't', mode: 'queue' }))
       .rejects.toThrow(/conversation service unavailable through the new scope/)
-  })
-})
-
-describe('views ordering', () => {
-  it('orders by explicit order with undefined treated as zero (both comparator arms)', async () => {
-    const b = await bench()
-    const entry = (id: string, order?: number) => ({
-      id, label: id, component: () => null,
-      ...(order !== undefined ? { order } : {}),
-    })
-    b.svc.registerView(entry('z-late', 5) as never)
-    b.svc.registerView(entry('default-zero') as never)
-    b.svc.registerView(entry('first', -1) as never)
-    expect(b.svc.views().map(v => v.id)).toEqual(['first', 'default-zero', 'z-late'])
   })
 })

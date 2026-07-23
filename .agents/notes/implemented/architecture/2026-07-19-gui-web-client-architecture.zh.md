@@ -49,9 +49,9 @@ slot 体系有自己的 RFC——[slot 体系标准](2026-07-22-slot-type-chain-
 
 ## 服务与 scope 寻址
 
-服务是插件对其他插件的唯一 API 面（UI 组件与注入面都不是 API；无人调用的插件不挂服务——ui-trajectory 即最小插件样板：无 ctx 服务，只 merge 视图表）。名册：`ctx.connection`（api client + 流句柄）、`ctx.slots`（注册表包装层，发 `slots/changed`，渲染入口，渲染器安装缝）、`ctx.sessions`（列表 store、当前会话状态、scope 树）、`ctx.loader`、`ctx.theme`、`ctx.i18n`、`ctx.layout`（跨插件视图导航）、`ctx.conversation`（send/cancel/views/startSession）、`ctx.toolviews`（具名按工具渲染注册表，带按会话 scope 过滤）。过去住在服务 store 里的观看态（面板宽、选中、草稿）现按 [slot 体系标准](2026-07-22-slot-type-chain-implementation.md) 住 entry 声明的 store。
+服务是插件对其他插件的唯一 API 面（UI 组件与注入面都不是 API；无人调用的插件不挂服务——ui-trajectory 即最小插件样板：无 ctx 服务，只做视图坑注册）。名册：`ctx.connection`（api client + 流句柄）、`ctx.slots`（注册表包装层，发 `slots/changed`，渲染入口，渲染器安装缝）、`ctx.sessions`（列表 store、当前会话状态、scope 树）、`ctx.loader`、`ctx.theme`、`ctx.i18n`、`ctx.layout`（跨插件视图导航）、`ctx.conversation`（send/cancel/startSession）。过去住在服务 store 里的观看态（面板宽、选中、草稿）现按 [slot 体系标准](2026-07-22-slot-type-chain-implementation.md) 住 entry 声明的 store。
 
-SlotMap 之外还有两条同 declare-merge 惯例的类型化注册环：**视图环**（`ConversationViewMap`——entry 可声明 `chromeProps`/`extraProps` 扩展形状；`ConvViewPropsOf<Id>`/`ChromePropsOf<Id>` 组合基座+扩展，无声明的视图免费得基座，ui-trajectory 的两个 entry 带真 per-view props）与**工具环**（tool 名保持开放集——无全局键表；类型强化在 entry 内部：`ToolViewProps.block` 是 runtime 定义的真 `ToolCallBlock` union，register 同 slots 一样推断注册方注入份额）。
+slot 之外不存在第二种注册模型——原视图环与工具环都已溶解进来。会话视图即 ui-conversation 声明的 `'conversation.view'` list 坑的 entry，tab 元数据随注册 options（`id`/`order`/`label`）走，per-view chrome 住视图组件自身。工具行是各视图自己声明的 keyed 子槽——今天是 `'conversation.chat.toolview'`（keyed/session），由 chat 条目的 `children` 表声明；key 空间运行时开放（SlotMap 声明槽、从不声明 key），这正是工具环「tool 名开放集」的原需求。渲染点逐行以 `entryKey: toolName` 分发、以 `GenericToolCard` 作调用点 `fallback`；owner 载荷是统一的 `ToolRowOwnerProps`（`callId`/`toolName`/`block`/`openDetails`），`ToolRowProps` 把它与 session 标配 kit 预组合供注册方组件取用。注册方就是普通插件、零专用设施：`ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row)`，以 `inject: ['slots', 'conversation']` 作加载序缝（conversation 服务在场即保证槽已声明）。会话维差异化在组件内完成——`useSessions` 读 `parentId`——不走注册表谓词；交互草稿等行内状态走普通 store 席位。trajectory/waterfall 得同形槽（槽名按槽名纪律 `<域>.<条目>.<孔位>` 已定死，共用一张 owner 类型），随各自的行渲染点落地——RendersCheck 拒绝无人渲染的声明，两槽无法提前声明。
 
 **scope 寻址**与 host 侧 agent scope 惯例同构：服务是 root 单例，方法不收 sessionId——它们读调用方 ctx 上的 scope 标（`scopeOf(ctx)`）。在会话 scope 内，`ctx.conversation.send('hi', 'queue')` 自动打到该会话；跨会话调用换 ctx 定向（`ctx.sessions.scope(id)!.conversation.send(...)`）；从 root ctx 直接调 scoped 方法即 throw。client 会话 scope 的铸造方式与 host agent scope 相同（no-op 插件 fiber + scope 键 extend），首次观看时惰性建，只有会话被移除且无人观看才拆——仅 host 会话死亡不拆 scope（冻结为只读视窗）。
 
@@ -103,16 +103,16 @@ src/client/
   service.ts   cross-domain orchestration (imports contract only)
   skeleton/    domain: shell components (ConversationRoot/InputBar/EmptyState/DetailsPanel)
   chat/        domain: the chat view
-  toolviews/   domain: the tool-row registry and samples
+  toolviews/   domain: sample tool-row registrants (third-party posture)
   apply.ts     the ONLY file allowed to import across domains (assembly point)
   index.ts     thin re-export shell (contract + apply + components)
 ```
 
-域实现文件永不 import 兄弟域——共享面一律走 `contract/`（如 chat 经 `ToolViewResolver` 读面接口消费工具注册表，不碰注册表类）。`scripts/verify-client-domain-graph.ts` 把守分层（contract=0、域=1、apply/index=2；import 只准指向 ≤ 自己的层级；兄弟域边即失败）。将来拆包=每个域目录升格为包+机械改写 import 路径。
+域实现文件永不 import 兄弟域——共享面一律走 `contract/`（如 toolviews 样例从契约取 `ToolRowProps`，永不碰 chat 内部）。`scripts/verify-client-domain-graph.ts` 把守分层（contract=0、域=1、apply/index=2；import 只准指向 ≤ 自己的层级；兄弟域边即失败）。将来拆包=每个域目录升格为包+机械改写 import 路径。
 
 ## 怎么开发
 
-- **新 UI 功能** = 新插件包：package.json 声明 `dshClient`（+ `inject` 拓扑），浏览器半边写在 `src/client/`（apply 挂服务/建 store、注册 slot 与 toolview），无 host 逻辑时 node 半边保持空 apply，用共享预设构建。把插件加进 host 配置；清单与装载随之自动跟上。
+- **新 UI 功能** = 新插件包：package.json 声明 `dshClient`（+ `inject` 拓扑），浏览器半边写在 `src/client/`（apply 挂服务/建 store、注册 slot），无 host 逻辑时 node 半边保持空 apply，用共享预设构建。把插件加进 host 配置；清单与装载随之自动跟上。
 - **新 slot**：见 [slot 体系标准 RFC](2026-07-22-slot-type-chain-implementation.md)——契约合并进 `SlotMap`，在父 entry 的 `children` 里声明，经自动注入的 `renderSlot` prop 渲染。永不全局导出组件。
 - **消费新帧类型**：带 sessionId → Session 分发 switch 加一个分支；host 级 → Manager 路由表；UI 需要时给 `ConversationSnapshot` 加字段并守住引用纪律。
 - **状态住哪**：业务数据（事件、流式、待答）→ 永远对象层；父知道的 → renderSlot 现场的 owner props；单组件私有（滚动、搜索词、展开集）→ 组件状态；跨 entry 共享或跨重挂载存活（选中、草稿、面板宽）→ entry 声明的 store（[slot 体系标准](2026-07-22-slot-type-chain-implementation.md)）。
@@ -129,5 +129,5 @@ token 流不再震荡渲染树：帧风暴对未订阅会话只花一个脏位�
 | 静态链接的单 SPA bundle | 插件必须由 host 在运行时按配置组合；单体把每个 UI 功能重新耦回一次构建 |
 | window 全局变量 / import map 供共享依赖 | DI require 表让共享显式、大声失败、可替换；全局变量静默泄漏身份与版本 |
 | 业务数据进 zustand 切片 | 事件窗口/累积器是行为状态机，不是扁平切片；对象层保住快照粒度与合批的可控性 |
-| 工具行走字符串键的全局组件注册表 | 工具视图被多个视图共同消费且要按会话差异化——带 scope 过滤的具名服务（`ctx.toolviews`）才是诚实形态 |
+| 工具行走字符串键的全局组件注册表 | per-view keyed 子槽 + 组件内会话分支以唯一注册模型承载同一需求；平行 registry 不复活（[toolview 溶解](2026-07-23-toolview-dissolution.md)） |
 | P-I 就做渐进/Suspense 启动 | 一次成型严格更简单；loader 的按插件状态面已保留，渐进点亮日后可落地而无需重构 |
