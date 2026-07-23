@@ -2485,7 +2485,7 @@ export function createTuiChat(
       // Tool visibility can change dynamically or by agent scope. Empty
       // sections are omitted by renderPrompt, so guidance never names a tool
       // that this agent cannot call.
-      text: () => agent.ctx.tools.get('read') === undefined ? '' : FILE_REFERENCE_PROMPT,
+      text: () => agent.ctx.tools.get('read', agent) === undefined ? '' : FILE_REFERENCE_PROMPT,
     })
   })
 

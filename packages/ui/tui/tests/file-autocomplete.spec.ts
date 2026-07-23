@@ -105,6 +105,24 @@ describe('WorkspaceFileSearch', () => {
     ])
     expect(await files.list('~/.dsh-file-autocomplete-missing/', signal)).toEqual([])
     expect(await files.list('../', signal)).toEqual([])
+    expect(await files.list('README.md/', signal)).toEqual([])
+  })
+
+  it('does not traverse directory symlinks during direct completion', async () => {
+    const root = await workspace()
+    const outside = await mkdtemp(join(tmpdir(), 'dsh-file-autocomplete-outside-'))
+    roots.push(outside)
+    await writeFile(join(outside, 'outside-secret.txt'), 'secret')
+    await symlink(
+      outside,
+      join(root, 'escape'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    )
+    const files = search(root)
+    const signal = new AbortController().signal
+
+    expect(await files.list('escape/', signal)).toEqual([])
+    expect(await files.list('escape/outside', signal)).toEqual([])
   })
 
   it('ranks basename and subsequence fuzzy matches across the bounded workspace index', async () => {

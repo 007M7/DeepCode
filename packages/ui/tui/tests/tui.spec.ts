@@ -1153,22 +1153,34 @@ describe('pi-tui chat lifecycle and transcript', () => {
   })
 
   it('shows file-reference guidance only while read is visible to the agent', async () => {
-    const tools: Record<string, ToolDefinition> = {}
-    const result = await setup({ tools })
+    const read: ToolDefinition = {
+      name: 'read',
+      description: 'Read a file.',
+      parameters: {},
+      execute: () => Promise.resolve([]),
+    }
+    let visibility: 'none' | 'global' | 'agent' = 'none'
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', {
+          get(name: string, scope?: Agent) {
+            if (name !== 'read' || visibility === 'none') return undefined
+            return (scope === undefined) === (visibility === 'global') ? read : undefined
+          },
+        } as never)
+      },
+    })
     const fileReferenceText = async (): Promise<string | undefined> => {
       const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
       return assembly.sections.find(section => section.name === 'ui:tui-file-reference')?.text
     }
     try {
       expect(await fileReferenceText()).toBe('')
-      tools.read = {
-        name: 'read',
-        description: 'Read a file.',
-        parameters: {},
-        execute: () => Promise.resolve([]),
-      }
+      visibility = 'global'
+      expect(await fileReferenceText()).toBe('')
+      visibility = 'agent'
       expect(await fileReferenceText()).toBe(FILE_REFERENCE_PROMPT)
-      delete tools.read
+      visibility = 'none'
       expect(await fileReferenceText()).toBe('')
     } finally {
       await dispose(result)

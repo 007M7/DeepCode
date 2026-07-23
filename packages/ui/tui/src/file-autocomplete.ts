@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-tui/file-autocomplete
  */
 
-import { readdir } from 'node:fs/promises'
+import { lstat, readdir } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 /** Default maximum file and directory candidates rendered for one query. */
@@ -205,7 +205,7 @@ export class WorkspaceFileSearch {
     signal: AbortSignal,
   ): Promise<FileSearchCandidate[]> {
     if (displayDirectory.split('/').some(segment => this.excludedDirectories.has(segment))) return []
-    const absolute = resolveDisplayDirectory(this.root, displayDirectory)
+    const absolute = await resolveDisplayDirectory(this.root, displayDirectory, signal)
     if (absolute === undefined) return []
     const entries = await readDirectory(absolute, signal)
     const candidates: FileSearchCandidate[] = []
@@ -222,13 +222,30 @@ export class WorkspaceFileSearch {
   }
 }
 
-function resolveDisplayDirectory(root: string, displayDirectory: string): string | undefined {
+async function resolveDisplayDirectory(
+  root: string,
+  displayDirectory: string,
+  signal: AbortSignal,
+): Promise<string | undefined> {
   const resolvedRoot = resolve(root)
   const absolute = resolve(resolvedRoot, displayDirectory === '' ? '.' : displayDirectory)
   const fromRoot = relative(resolvedRoot, absolute)
   if (fromRoot === '..' || fromRoot.startsWith(`..${sep}`)) return undefined
   /* v8 ignore next -- only Windows can produce a cross-volume absolute relative path */
   if (isAbsolute(fromRoot)) return undefined
+  let current = resolvedRoot
+  for (const segment of fromRoot.split(sep).filter(Boolean)) {
+    signal.throwIfAborted()
+    current = join(current, segment)
+    try {
+      const status = await lstat(current)
+      signal.throwIfAborted()
+      if (status.isSymbolicLink() || !status.isDirectory()) return undefined
+    } catch (_error: unknown) {
+      signal.throwIfAborted()
+      return undefined
+    }
+  }
   return absolute
 }
 
