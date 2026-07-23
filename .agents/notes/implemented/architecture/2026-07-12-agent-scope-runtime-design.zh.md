@@ -330,7 +330,7 @@ TypeScript 无法管控 JavaScript 强制转换、直接 Cordis dispatch、进�
 
 ### 生成的产物使公开契约保持对齐
 
-事件目录、服务目录、生产者/消费者矩阵、配置目录、模块图、工具目录、type-equiv 块和作用域事件解析器映射都是从源码生成或受新鲜度门禁约束的。[TypeScript 语义门禁 Agent Note](../process/2026-07-14-typescript-program-backed-semantic-gates.md)拥有 Program 构造、语义事件发现和解析器生成规则。
+事件目录、服务目录、生产者/消费方矩阵、配置目录、模块图、工具目录、type-equiv 块和作用域事件解析器映射都是从源码生成或受新鲜度门禁约束的。[TypeScript 语义门禁 Agent Note](../process/2026-07-14-typescript-program-backed-semantic-gates.md)拥有 Program 构造、语义事件发现和解析器生成规则。
 
 行为测试固定了作用域路由和 dispose、最终入口碰撞清理、发布回滚、有序静默、持久化前/后提交行为、跨展示和执行的活跃工具过滤、协作式 prompt 组装、原生和 Code Mode 中的结构化输出提交、异步 subagent 启动和信号取消、worker 终端仲裁、ACP 结算和进程拆除。
 

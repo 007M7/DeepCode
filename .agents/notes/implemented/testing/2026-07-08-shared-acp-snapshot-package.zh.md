@@ -8,7 +8,7 @@ Status: implemented
 
 ACP（Agent Client Protocol）快照层（[快照 Agent Note（agent 决策记录）](2026-06-19-acp-snapshot-tests.md)）由位于一个示例测试目录内的三个模块构建：`snapshot-harness.ts`（启动真实 bin 子进程，通过 ACP JSON-RPC 驱动它，采集持久化日志）、`snapshot-normalize.ts`（纯预期输出规范化器），以及 `acp.snapshot.ts` 中约 150 行的场景主体与 fixture（测试前置数据）守卫（记录/重放模式、stdout 预期输出与日志比较、固定请求头一致性守卫、孤立项/必需文件/单一固定项元测试）。
 
-第二个希望获得快照覆盖的 ACP 示例——直接消费者是 sandbox/approval 组合——只能复制这些模块，恰好分叉了绝不能漂移的逻辑：记录写回、请求头清理、子 session 采集顺序。spawn/client 胶水也在 `acp.e2e.ts`、`hooks.e2e.ts` 和 harness 中重复三份。文件位置决定了测试严格度：逐文件 100% 覆盖率门禁只测量 `packages/*/*/src`，因此这些机制完全未被测量——正是同一种缺口，曾推动 `dsh-llm-replay` 从 `examples/` 移入 [packages/support](../../../../packages/support/README.md)。此外，harness 的 ACP client 硬编码 `requestPermission → cancelled`，因此 approval 往返——sandbox 组合的主打行为——完全无法在快照层表达。
+第二个希望获得快照覆盖的 ACP 示例——直接消费方是 sandbox/approval 组合——只能复制这些模块，恰好分叉了绝不能漂移的逻辑：记录写回、请求头清理、子 session 采集顺序。spawn/client 胶水也在 `acp.e2e.ts`、`hooks.e2e.ts` 和 harness 中重复三份。文件位置决定了测试严格度：逐文件 100% 覆盖率门禁只测量 `packages/*/*/src`，因此这些机制完全未被测量——正是同一种缺口，曾推动 `dsh-llm-replay` 从 `examples/` 移入 [packages/support](../../../../packages/support/README.md)。此外，harness 的 ACP client 硬编码 `requestPermission → cancelled`，因此 approval 往返——sandbox 组合的主打行为——完全无法在快照层表达。
 
 ## 决策
 
@@ -28,7 +28,7 @@ ACP（Agent Client Protocol）快照层（[快照 Agent Note（agent 决策记�
 - **在 `examples/` 下建共享模块目录**：代码仍在覆盖率门禁之外，且需要跨示例边界的相对导入，违反包名导入约定；`examples/` 的叶子节点按设计应保持轻薄。
 - **`dsh-acp-demo` 的 `/testing` 子路径导出**：将测试基础设施耦合到产品包的对外服务接口与依赖集中；`packages/support/` 的存在正是为了真实但兼容性承诺较低的开发/测试包，`dsh-llm-replay` 是先例，本包与之配套。
 - **导出原始测试体函数而非套件工厂**：每个示例将重新拥有 `describe`/`it` 骨架（每套件约 80 行注册样板），却无灵活性收益；工厂使消费方只需一张场景表加一次调用，而导出的纯辅助函数在工厂设计内保留了可单元测试性。
-- **使用可注入 ACP `Client` factory 代替声明式 `permissionAnswers`**——灵活性最大，但会把 SDK client 构造泄漏给每个消费者，并恰好在正在统一的层重新引入逐示例漂移；声明式队列让 `input.json` 保持为唯一脚本表面，并与预期输出规范化兼容。
+- **使用可注入 ACP `Client` factory 代替声明式 `permissionAnswers`**——灵活性最大，但会把 SDK client 构造泄漏给每个消费方，并恰好在正在统一的层重新引入逐示例漂移；声明式队列让 `input.json` 保持为唯一脚本表面，并与预期输出规范化兼容。
 - **泛化到 ACP 之外（传输无关的快照 harness）**：不存在第二种传输方式；harness 端到端都是 ACP 形态（SDK 客户端、JSON-RPC 帧、`session/update` 等待器），推测性的抽象将是一个超前于任何消费方的 seam 拆分。
 
 ## 测试

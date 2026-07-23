@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-`packages/<group>/<pkg>/package.json` 下的每份包清单都有一个同级 README，其中包含规范的 `## Known Limitations and Deferred Work` 章节。其项目符号记录由该包拥有的持久消费者缺口和不明显的维护者约束；普通清理仍留在源码 TODO 或所属 Agent Note（agent 决策记录）中。[`verify-package-readme-limitations` 门禁](../../../../scripts/verify-package-readme-limitations.ts)从清单推导包集合，拒绝缺失 README，并要求恰好一个规范 h2 且至少包含一个顶层项目符号。“Limitations”“Deferred”“What is NOT here”或“Non-goals”等近似标题都会失败。
+`packages/<group>/<pkg>/package.json` 下的每份包清单都有一个同级 README，其中包含规范的 `## Known Limitations and Deferred Work` 章节。其项目符号记录由该包拥有的持久消费方缺口和不明显的维护者约束；普通清理仍留在源码 TODO 或所属 Agent Note（agent 决策记录）中。[`verify-package-readme-limitations` 门禁](../../../../scripts/verify-package-readme-limitations.ts)从清单推导包集合，拒绝缺失 README，并要求恰好一个规范 h2 且至少包含一个顶层项目符号。“Limitations”“Deferred”“What is NOT here”或“Non-goals”等近似标题都会失败。
 
 如果一个包确实没有需要声明的限制事项，则将其列入 `NO_LIMITATIONS` 并省略该章节。新增限制事项时须移除该条目；重命名或移除条目会失败，因为每个条目都必须对应一个被扫描的包。
 

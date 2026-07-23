@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-一个实时 agent（智能体）/session 对需要使用同一 identity 完成注册表路由、事件溯源和持久化。让 factory 接受相互独立的 `agentId` 和 `sessionId` 输入，会允许任何生产路径都无法使用的配对，同时迫使每个消费者为同一生命周期在两个名称之间选择或转换。
+一个实时 agent（智能体）/session 对需要使用同一 identity 完成注册表路由、事件溯源和持久化。让 factory 接受相互独立的 `agentId` 和 `sessionId` 输入，会允许任何生产路径都无法使用的配对，同时迫使每个消费方为同一生命周期在两个名称之间选择或转换。
 
 ACP（Agent Client Protocol）对两种 identity 使用相同值。Stdio 和 hook 也在 session 事件流上工作，并且直接需要对应的实时 agent；没有生产路径会把一个实时 agent 对象重新附着到多个 session，或通过多个 agent id 驱动一个 session。
 
@@ -20,7 +20,7 @@ agent 的注册表 id 等于其 session id。`CreateAgentOptions` 接受一个 `
 
 配置驱动路径保留 `agents[].id` 作为稳定配置标签，而非实时路由 identity。普通的全新启动会铸造组合 id `${label}-session-${randomUUID()}`，使持久重启不会冲突。耦合应用可以预先铸造并传入精确的 `sessionId`：首次使用时创建它，而当持久化服务已经存在时，AgentLoop 重新挂载会在同一 identity 下恢复已物化历史。`resumeSessionId` 则要求已有的持久化 identity。两个精确 id 输入互斥。Stdio 使用“恢复或创建”形式，使配置创建的 agent 和 UI 在循环重载之间共享一个不透明 identity，而不是根据前缀猜测。日志可以使用稳定标签，而所有实时与持久查找都使用同一个 `SessionId`。
 
-`agent/created` 和 `agent/disposed` 保留。它们是成对的发布生命周期事件，而非 identity 别名；以后若发现没有消费者并要移除，必须先重新搜索，再提出独立提案。
+`agent/created` 和 `agent/disposed` 保留。它们是成对的发布生命周期事件，而非 identity 别名；以后若发现没有消费方并要移除，必须先重新搜索，再提出独立提案。
 
 ## 曾考虑的替代方案
 

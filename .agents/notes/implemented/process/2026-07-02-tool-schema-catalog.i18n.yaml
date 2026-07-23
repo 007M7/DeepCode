@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-02-tool-schema-catalog.md: c8cc69df428f6eee0f66ed976865afe2a0702448
-2026-07-02-tool-schema-catalog.zh.md: 7caa9e8747d8fd09806342035d185e664f7be7b7
+2026-07-02-tool-schema-catalog.zh.md: 9fb92e7413fc60df894a53bc077336ba29825bc5

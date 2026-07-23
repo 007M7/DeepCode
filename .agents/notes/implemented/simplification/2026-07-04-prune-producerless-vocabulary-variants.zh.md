@@ -22,7 +22,7 @@ Status: implemented
 
 ### 为什么不保留它们？
 
-[内容块词汇 Agent Note](../architecture/2026-06-11-content-block-vocabulary.md)曾把“cache hint……有了归属”列为设计后果，预留槽位也确实能表明意图。但空槽位是每个实现和消费者都必须考虑的契约表面（我的 adapter 是否必须遵守 `cache`？我的 renderer 是否必须路由 `agent` 来源？），而相邻 map 自身的 JSDoc 已经拒绝“无 emitter 先预留”——`refusal` 和 `max_turn_requests` 被点名为*首次有内容发出它们时*再添加的变体，而不是提前声明。让已经声明但无用的变体遵守同一标准，才能使词汇真正有意义：只要它位于 map 中，就必须有内容生产它。
+[内容块词汇 Agent Note](../architecture/2026-06-11-content-block-vocabulary.md)曾把“cache hint……有了归属”列为设计后果，预留槽位也确实能表明意图。但空槽位是每个实现和消费方都必须考虑的契约表面（我的 adapter 是否必须遵守 `cache`？我的 renderer 是否必须路由 `agent` 来源？），而相邻 map 自身的 JSDoc 已经拒绝“无 emitter 先预留”——`refusal` 和 `max_turn_requests` 被点名为*首次有内容发出它们时*再添加的变体，而不是提前声明。让已经声明但无用的变体遵守同一标准，才能使词汇真正有意义：只要它位于 map 中，就必须有内容生产它。
 
 ## 验证
 

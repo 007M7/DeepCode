@@ -50,7 +50,7 @@ Status: implemented
 
 主干与 seam 规则在采纳前经过了 `BashExecRequest`、工具 schema 与定义、schema DSL、展示类型以及 session/persistence 拆分的逐一测试。
 
-`verify-type-equiv` 必须扫描完整的 Markdown 范围，而不仅是清单点名的文档。否则，未列入清单的 `type-equiv` 块就会逃过所宣称的一一检查。因此，门禁会将此类块报告为孤儿。本 Agent Note 将这条失败关闭扫描规则与主干/接缝、逐字匹配决策一并记录；生成式 Cordis 目录在[其 Agent Note](2026-06-20-generated-cordis-catalog.md) 中有对称的设计记录。
+`verify-type-equiv` 必须扫描完整的 Markdown 范围，而不仅是清单点名的文档。否则，未列入清单的 `type-equiv` 块就会逃过所宣称的一一检查。因此，门禁会将此类块报告为孤儿。本 Agent Note 将这条失败关闭扫描规则，连同主干与 seam 的分界决策及逐字匹配决策一并记录；生成式 Cordis 目录在[其 Agent Note](2026-06-20-generated-cordis-catalog.md) 中有对称的设计记录。
 
 ## 后果
 

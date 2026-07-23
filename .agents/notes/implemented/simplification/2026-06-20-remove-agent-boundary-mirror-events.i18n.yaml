@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-remove-agent-boundary-mirror-events.md: 8c5bb74f2347fe0269cbb9c6504137de761ab919
-2026-06-20-remove-agent-boundary-mirror-events.zh.md: 37d9d1798bb00d66c0dfd5211ed1932522ce228a
+2026-06-20-remove-agent-boundary-mirror-events.zh.md: 8e659adb810fd2668de57a123cd53432f137b08a

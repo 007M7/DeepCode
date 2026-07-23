@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-core-data-structures-catalog.md: a2f5e0e7b06e34cb361e4944bbfa3692355a2cbe
-2026-06-20-core-data-structures-catalog.zh.md: 5bd3b141df786066407264692d1f13e5c0643c01
+2026-06-20-core-data-structures-catalog.zh.md: f886ee18dd64c4a7cf972b3b141e2c20eaa0c7b1

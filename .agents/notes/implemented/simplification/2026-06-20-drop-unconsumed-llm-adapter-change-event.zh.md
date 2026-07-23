@@ -8,7 +8,7 @@ Status: implemented
 
 `LlmService.registerAdapter()` 在注册和 dispose（资源释放）时发出 `llm/adapter-change` 事件（[packages/llm/llm/src/index.ts](../../../../packages/llm/llm/src/index.ts)）。在 `packages/*/src` 和 `examples/*/src` 中搜索 `llm/adapter-change`，只能找到声明、emit 站点、文档和测试；没有任何生产环境的监听器订阅它。
 
-这与 `tools/change` 和 `system-prompt/change` 不同。如今这两个事件同样没有消费者，但它们有望成为未来实时工具/prompt UI 的注册表变更信号。LLM（大语言模型）adapter 注册更像是启动时的实现细节：adapter 不是用户可见的选项面板，真正的模型调用拦截接缝是 `llm/stream`。保留一个没有监听器的 adapter 变更事件，只是在更小范围内重复[删除无用 summary](2026-06-19-drop-mutable-session-summary.md) 的模式。
+这与 `tools/change` 和 `system-prompt/change` 不同。如今这两个事件同样没有消费方，但它们有望成为未来实时工具/prompt UI 的注册表变更信号。LLM（大语言模型）adapter 注册更像是启动时的实现细节：adapter 不是用户可见的选项面板，真正的模型调用拦截 seam 是 `llm/stream`。保留一个没有监听器的 adapter 变更事件，只是在更小范围内重复[删除无用 summary](2026-06-19-drop-mutable-session-summary.md) 的模式。
 
 这个事件并非零成本。`registerAdapter()` 在发出 `llm/adapter-change` 之前先 yield 回滚 disposer，这样抛出异常的监听器会回退变更而非泄漏适配器条目；包内还有针对该监听器抛出路径的测试。这种防御性排序保护的是一个只有测试才能触发的失败模式。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 ### 为什么不移除所有注册表变更事件？
 
-由注册表通告变更的微内核是一种一致的约定。当 UI 能够实时刷新可用工具或 prompt 章节时，`tools/change` 和 `system-prompt/change` 可能会有用。本 Agent Note（agent 决策记录）在存在合理用户侧消费者的位置保留该约定，只删除当前及可能的未来消费者都不明确的 adapter 变更事件。
+由注册表通告变更的微内核是一种一致的约定。当 UI 能够实时刷新可用工具或 prompt 章节时，`tools/change` 和 `system-prompt/change` 可能会有用。本 Agent Note（agent 决策记录）在存在合理用户侧消费方的位置保留该约定，只删除当前及可能的未来消费方都不明确的 adapter 变更事件。
 
 如果将来需要 LLM 适配器浏览器或动态模型选择器用到此信号，届时再连同消费方一起重新引入，并提供比「something changed」更清晰的 payload。
 

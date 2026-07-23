@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-[文件系统能力接缝](../architecture/2026-06-17-filesystem-capability-seam.md)中的文件系统能力目前让一个抽象 `FileSystem` 服务同时负责两项不同工作：
+[文件系统能力 seam](../architecture/2026-06-17-filesystem-capability-seam.md)中的文件系统能力目前让一个抽象 `FileSystem` 服务同时负责两项不同工作：
 
 1. **提供方操作**——解析目标、stat/版本元数据、文本读取/流式读取、原子写入，以及受保护的字面编辑。
 2. **面向 agent（智能体）的策略**——行窗口、字面编辑语义，以及读后写/编辑的观测状态。
@@ -99,7 +99,7 @@ type FsWriteIntent =
 
 ## 取代
 
-本 Agent Note 推翻[文件系统能力接缝](../architecture/2026-06-17-filesystem-capability-seam.md)中的两项决策，并收窄第三项：
+本 Agent Note 推翻[文件系统能力 seam](../architecture/2026-06-17-filesystem-capability-seam.md)中的两项决策，并收窄第三项：
 
 - 读后写/编辑策略从 `ctx.fs` 移出，进入 `dsh-fs-policy` 插件（通过 `fs/*` 事件门控）。
 - 文本读取不再返回后端编号的行记录或 `full`/`partial` 视图；授权基于版本新鲜度，因此窗口化读取在文件未变时即可授权编辑。
@@ -113,7 +113,7 @@ type FsWriteIntent =
 
 ## 后续扩展
 
-后来，[为文件系统接缝添加直接目录列表](../architecture/2026-07-03-filesystem-directory-listing-seam.md)进一步扩展了该接缝。该后续工作单独跟踪，使本 Agent Note 的验收标准继续描述最初落地的 fsspec 风格改造。
+后来，[为文件系统 seam 添加直接目录列表](../architecture/2026-07-03-filesystem-directory-listing-seam.md)进一步扩展了该 seam。该后续工作单独跟踪，使本 Agent Note 的验收标准继续描述最初落地的 fsspec 风格改造。
 
 ## 曾考虑的替代方案
 

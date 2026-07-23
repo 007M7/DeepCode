@@ -10,7 +10,7 @@ Status: implemented
 
 `agent/steering` 以相同的 payload 重复了紧接其前的持久事件 `steering/message`。`agent/queued` 仍保留为纯瞬态信号，因为它在持久化之前触发，覆盖了可能在进入日志前被取消的工作。
 
-Steering 承载真实生产流量——hook bridge 的轮次延续决策通过 `inbox.steer()` 注入其理由，最终成为由 hook 矩阵预期输出固定的持久 `steering/message` 事件——而这些消费者无一例外都观察持久事件。没有任何内容观察镜像。
+Steering 承载真实生产流量——hook bridge 的轮次延续决策通过 `inbox.steer()` 注入其理由，最终成为由 hook 矩阵预期输出固定的持久 `steering/message` 事件——而这些消费方无一例外都观察持久事件。没有任何内容观察镜像。
 
 ## 决策
 
@@ -22,7 +22,7 @@ Steering 承载真实生产流量——hook bridge 的轮次延续决策通过 `
 
 ### 为什么不保留？
 
-“它是控制信号，不是边界”——但该分类的实际区分是镜像/仅实时，而非控制/边界，并且该事件确实是镜像。希望在入队时收到通知的消费者可以使用 `agent/queued`（及其 steering 标记）；希望在排空时收到通知的消费者，本质上是在要求获知 `steering/message` 被追加的时刻，而 `session/event` 会交付相同 payload 并附带持久性。遭拒绝的[退役轮次中途 steering Agent Note](../../rejected/simplification/2026-06-20-retire-mid-turn-steering.md)所捍卫的是 steering *功能*——`steer()`、持久事件、强制延续——本次移除不会触及其中任何一项。
+“它是控制信号，不是边界”——但该分类的实际区分是镜像/仅实时，而非控制/边界，并且该事件确实是镜像。希望在入队时收到通知的消费方可以使用 `agent/queued`（及其 steering 标记）；希望在排空时收到通知的消费方，本质上是在要求获知 `steering/message` 被追加的时刻，而 `session/event` 会交付相同 payload 并附带持久性。遭拒绝的[退役轮次中途 steering Agent Note](../../rejected/simplification/2026-06-20-retire-mid-turn-steering.md)所捍卫的是 steering *功能*——`steer()`、持久事件、强制延续——本次移除不会触及其中任何一项。
 
 ## 验证
 

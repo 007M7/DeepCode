@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-hook bridge——[`dsh-hooks-claude`](../../../../packages/hooks/hooks-claude)（7 个 Claude Code hook 点）和 [`dsh-hooks-codex`](../../../../packages/hooks/hooks-codex)（5 个 Codex 点）——把外部 hook 命令映射到 harness 拦截接缝。它们有深入的单元与覆盖率规格覆盖（每个决策分支、每种 payload dialect，针对 mock 接缝驱动），外加一个受密钥门控的 e2e（`hooks.e2e.ts`，实时 `PreToolUse` 阻止）。但完整 transcript（文本记录）快照层——会启动真实 `acp-agent` 子进程、无需密钥重放已记录 session，并将规范化 ACP（Agent Client Protocol）stdout + 重新持久化日志与已提交预期输出进行 diff 的那张网——只覆盖了一个 hook：Claude `UserPromptSubmit` 阻止（`hook-cc-promptsubmit-block`）。
+hook bridge——[`dsh-hooks-claude`](../../../../packages/hooks/hooks-claude)（7 个 Claude Code hook 点）和 [`dsh-hooks-codex`](../../../../packages/hooks/hooks-codex)（5 个 Codex 点）——把外部 hook 命令映射到 harness 拦截 seam。它们有深入的单元与覆盖率规格覆盖（每个决策分支、每种 payload dialect，针对 mock seam 驱动），外加一个受密钥门控的 e2e（`hooks.e2e.ts`，实时 `PreToolUse` 阻止）。但完整 transcript（文本记录）快照层——会启动真实 `acp-agent` 子进程、无需密钥重放已记录 session，并将规范化 ACP（Agent Client Protocol）stdout + 重新持久化日志与已提交预期输出进行 diff 的那张网——只覆盖了一个 hook：Claude `UserPromptSubmit` 阻止（`hook-cc-promptsubmit-block`）。
 
 这正是 mock 单元测试在结构上无法替代的层级：它验证的是真实 bridge 将真实 hook 进程的结果翻译到真实 seam 决策，再到真实 agent loop（智能体循环）的反应，渲染结果与编辑器看到的完全一致。一个 bridge 翻译或 loop 结构的回归，即使让所有单元测试保持绿色，也会在除那一个 hook 点之外的所有点上逃逸；而对于 Codex bridge，ACP 示例甚至没有加载它，因此没有任何 Codex hook 能端到端触发。
 
@@ -37,16 +37,16 @@ hook bridge——[`dsh-hooks-claude`](../../../../packages/hooks/hooks-claude)�
 
 在构建矩阵过程中发现，记录于此是因为这些遗漏是决策而非疏忽：
 
-- **`SessionStart` 和 `SubagentStart`** 通过脱离且尽力而为的 `void runPoint(...).then(agent.inject())` 注入上下文，没有轮次绑定。由此产生的 `context/message` 会与它应先于的工作（首次模型请求 / 子项的第一个轮次）竞速，并落在不确定的日志位置。记录的预期输出甚至无法在自己的重放中复现——对两者执行 10 次重放稳定性检查，结果均为 10/10 次失败。它们继续留在 bridge 的单元覆盖率中，那里会直接驱动接缝而不存在时序竞速。（如果注入未来改为绑定轮次且具备确定性——`TODO(session-start-gating)` 所指方向——它们就能接受快照测试。）
+- **`SessionStart` 和 `SubagentStart`** 通过脱离且尽力而为的 `void runPoint(...).then(agent.inject())` 注入上下文，没有轮次绑定。由此产生的 `context/message` 会与它应先于的工作（首次模型请求 / 子项的第一个轮次）竞速，并落在不确定的日志位置。记录的预期输出甚至无法在自己的重放中复现——对两者执行 10 次重放稳定性检查，结果均为 10/10 次失败。它们继续留在 bridge 的单元覆盖率中，那里会直接驱动 seam 而不存在时序竞速。（如果注入未来改为绑定轮次且具备确定性——`TODO(session-start-gating)` 所指方向——它们就能接受快照测试。）
 - **`SubagentStop`** 只观察：其 `subagent/end` handler 不传递轮次（因此没有 `hook/*` 日志事件），也不执行注入。它不会向 transcript 写入任何内容，因此预期输出会与无 hook 运行逐字节相同，永远无法证明失败——一道咬不住问题的守卫。它继续由单元覆盖率负责（`bridge.spec.ts` 已断言仅观察调用）。
 
 因此，该矩阵覆盖了所有具有确定性、可观测 transcript 足迹的 hook 点，涵盖两种方言。
 
 ## 后果
 
-- 现在，两种 dialect 中每个具有可观察 transcript 的 bridge 接缝映射，都在真实应用的完整 transcript 层受到守护——包括此前完全没有端到端覆盖的 Codex bridge。记录的预期输出捕获模型对遭拒绝/遭阻止/强制继续轮次的真实反应，而手工编写的 transcript 只能猜测这种反应。
+- 现在，两种 dialect 中每个具有可观察 transcript 的 bridge seam 映射，都在真实应用的完整 transcript 层受到守护——包括此前完全没有端到端覆盖的 Codex bridge。记录的预期输出捕获模型对遭拒绝/遭阻止/强制继续轮次的真实反应，而手工编写的 transcript 只能猜测这种反应。
 - `UserPromptSubmit` 阻止场景无需密钥即可编写（没有模型轮次）；其余场景从已记录 fixture（测试前置数据）无需密钥重放。`pnpm run test:snapshot:record` 从实时 API 重新生成记录式 fixture，并像所有记录场景一样在缺少密钥时自行跳过。
-- 证明会变红的准则仍成立：篡改 hook 配置输出（例如改变拒绝理由）会让相应场景在重放时变红——hook 进程在重放期间真实运行（只有模型被重放），因此预期输出守护的是实际 hook→接缝→循环路径，而非其 mock。
+- 证明会变红的准则仍成立：篡改 hook 配置输出（例如改变拒绝理由）会让相应场景在重放时变红——hook 进程在重放期间真实运行（只有模型被重放），因此预期输出守护的是实际 hook→seam→循环路径，而非其 mock。
 - `acp-agent` 演示现在加载了一个通常会无操作的 Codex bridge（典型项目中没有 `codex-hooks.json`），这正是预期的柔性失败行为，而非代价。
 
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->

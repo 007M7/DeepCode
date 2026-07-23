@@ -4,11 +4,11 @@ Status: implemented
 
 [English](2026-06-20-prune-dead-seam-methods.md) | 中文
 
-> **实现说明：** 仅移除了 `SessionPersistence.has()` 和 `.delete()`。`BashExecutor.get()` 和 `.list()` 仍然保留，因为删除它们的单行查找表面会要求消费者增加显著更多的完成跟踪机制。其 id 品牌化由[品牌化 id Agent Note（agent 决策记录）](../architecture/2026-06-20-branded-ids.md)负责。
+> **实现说明：** 仅移除了 `SessionPersistence.has()` 和 `.delete()`。`BashExecutor.get()` 和 `.list()` 仍然保留，因为删除它们的单行查找表面会要求消费方增加显著更多的完成跟踪机制。其 id 品牌化由[品牌化 id Agent Note（agent 决策记录）](../architecture/2026-06-20-branded-ids.md)负责。
 
 ## 问题
 
-能力接缝（[接口 / 实现 / 消费者](../architecture/2026-06-13-capability-seams.md)）承载了没有消费者调用的抽象方法。接缝的存在是为了让实现和消费者独立演进——但没有消费者以之编程的方法不是接缝，而是每个实现仍必须实现和测试的推测性表面。
+能力 seam（[接口 / 实现 / 消费方](../architecture/2026-06-13-capability-seams.md)）承载了没有消费方调用的抽象方法。seam 的存在是为了让实现和消费方独立演进——但没有消费方以之编程的方法不是 seam，而是每个实现仍必须实现和测试的推测性表面。
 
 ### `SessionPersistence.has()` 与 `.delete()`
 
@@ -20,8 +20,8 @@ Status: implemented
 
 没有消费方使用的方法被移除——从抽象 seam、实现，以及仅为覆盖它们而存在的契约/spec 测试套件中移除：
 
-- `SessionPersistence.has()` / `.delete()` 已移除：抽象声明、协调器的 `has`/`delete`/`deleteCore`，以及 `PersistenceBackend.deleteStored` hook 均消失（jsonl 和 sqlite 都只是为了满足该 hook 才实现 `deleteStored`，这些实现也一并移除）。后端属于[双后端](../architecture/2026-06-14-session-persistence.md)设计，其他方面不在范围内；删除它们为没有消费者的 hook 所做的实现，是删除 hook 的一部分，而非重新设计后端。
-- 所有文档和源码注释引用都已更新为保留下来的四方法、仅含 `list()` 的契约——不仅包括字面上的 `has(`/`delete(`/`deleteStored` 拼写，还包括 `{@link has}`/`{@link delete}` JSDoc 链接和“六个公共方法”的计数——涉及接缝和后端 README、[docs/architecture.md](../../../../docs/architecture.md)、[session persistence](../architecture/2026-06-14-session-persistence.md) 与[写入协调器](../architecture/2026-06-18-shared-persistence-write-coordinator.md) Agent Note，以及协调器/后端 JSDoc。
+- `SessionPersistence.has()` / `.delete()` 已移除：抽象声明、协调器的 `has`/`delete`/`deleteCore`，以及 `PersistenceBackend.deleteStored` hook 均消失（jsonl 和 sqlite 都只是为了满足该 hook 才实现 `deleteStored`，这些实现也一并移除）。后端属于[双后端](../architecture/2026-06-14-session-persistence.md)设计，其他方面不在范围内；删除它们为没有消费方的 hook 所做的实现，是删除 hook 的一部分，而非重新设计后端。
+- 所有文档和源码注释引用都已更新为保留下来的四方法、仅含 `list()` 的契约——不仅包括字面上的 `has(`/`delete(`/`deleteStored` 拼写，还包括 `{@link has}`/`{@link delete}` JSDoc 链接和“六个公共方法”的计数——涉及 seam 和后端 README、[docs/architecture.md](../../../../docs/architecture.md)、[session persistence](../architecture/2026-06-14-session-persistence.md) 与[写入协调器](../architecture/2026-06-18-shared-persistence-write-coordinator.md) Agent Note，以及协调器/后端 JSDoc。
 
 ## 曾考虑的替代方案
 

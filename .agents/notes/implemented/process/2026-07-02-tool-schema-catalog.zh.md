@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-目录通过**启动每个工具插件并读取其已注册 schema** 来生成，而不是解析源码。`scripts/gen-tool-catalog.ts` 在全新的 Cordis `Context` 上挂载每个已发布工具包（带有 `SystemPrompt`、`ToolRegistry` 以及插件 `apply` 所读取的注入接缝），调用 `ctx.tools.schemas()`——也就是发送给模型的确切 `ToolSchema[]`——随后释放上下文，并为每个包渲染一个 `## <package>` 章节，每个工具附带一个 ` ```json ` `parameters` 块。它与 `gen-cordis-catalog` / `gen-module-graph` 的 CLI 形状一致：默认 `--write` 重新生成；提交副本陈旧时 `--check` 失败；输出具有确定性（按清单排序，工具按名称排序）。`verify-tool-catalog`（即 `--check`）在 `doc-sync` 内运行，因此相关文档变更和 CI 会执行同一项新鲜度检查。
+目录通过**启动每个工具插件并读取其已注册 schema** 来生成，而不是解析源码。`scripts/gen-tool-catalog.ts` 在全新的 Cordis `Context` 上挂载每个已发布工具包（带有 `SystemPrompt`、`ToolRegistry` 以及插件 `apply` 所读取的注入 seam），调用 `ctx.tools.schemas()`——也就是发送给模型的确切 `ToolSchema[]`——随后释放上下文，并为每个包渲染一个 `## <package>` 章节，每个工具附带一个 ` ```json ` `parameters` 块。它与 `gen-cordis-catalog` / `gen-module-graph` 的 CLI 形状一致：默认 `--write` 重新生成；提交副本陈旧时 `--check` 失败；输出具有确定性（按清单排序，工具按名称排序）。`verify-tool-catalog`（即 `--check`）在 `doc-sync` 内运行，因此相关文档变更和 CI 会执行同一项新鲜度检查。
 
 ### 为何启动而非解析（核心要点）
 

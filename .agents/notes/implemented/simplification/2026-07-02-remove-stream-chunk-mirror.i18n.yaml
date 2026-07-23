@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-02-remove-stream-chunk-mirror.md: 5dd816940a4b2c2b63980e01f1bd4e0aac53a3e2
-2026-07-02-remove-stream-chunk-mirror.zh.md: a474238f19d58e261afba30227e5b1eaa25fcf7a
+2026-07-02-remove-stream-chunk-mirror.zh.md: 7d0559ec18b52fe37340eea9e772ab92bc8871ed

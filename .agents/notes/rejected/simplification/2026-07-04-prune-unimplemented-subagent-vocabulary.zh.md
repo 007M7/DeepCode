@@ -1,6 +1,6 @@
 # Agent Note: 裁剪未实现的 subagent seam 词汇
 
-Status: rejected — 延后的能力词汇（`outputSchema`/`structured`、`toolFilter`、`sendMessage`/`resume`）是有意保留的接口面：该接缝按设计先于实现声明完整的预期契约，使提供方与消费方沿稳定形状演进，而非针对每项能力重新协商。下方的消费方证据分析记录了决策时的状态。
+Status: rejected — 延后的能力词汇（`outputSchema`/`structured`、`toolFilter`、`sendMessage`/`resume`）是有意保留的接口面：该 seam 按设计先于实现声明完整的预期契约，使提供方与消费方沿稳定形状演进，而非针对每项能力重新协商。下方的消费方证据分析记录了决策时的状态。
 
 [English](2026-07-04-prune-unimplemented-subagent-vocabulary.md) | 中文
 

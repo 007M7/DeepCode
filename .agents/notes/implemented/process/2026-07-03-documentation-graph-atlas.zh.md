@@ -10,7 +10,7 @@ Status: implemented
 
 这些参考文档是准确的，但大多是目录式的。维护者仍需自行综合关系：哪些包构成一个能力 seam、哪个应用组装了具体的主干、哪些事件是持久的而哪些是实时的、钩子或策略插件在哪里可以拦截工作、以及哪个面向模型的工具依赖哪个服务。SDK 用户从另一个角度面临同样的问题：「我想要某种行为，应该安装或加载哪个包？应该扩展哪个事件/服务/工具？」
 
-钩子子系统使事件的生产者/消费者拓扑与拦截点变得更加重要；文件系统 seam 使能力 seam、策略否决、工具呈现与 SDK 组装路径变得更加重要。如果关系图的范围仅限于一个小的 bash/todo/subagent 表面，它们会立即陈旧。
+钩子子系统使事件的生产者/消费方拓扑与拦截点变得更加重要；文件系统 seam 使能力 seam、策略否决、工具呈现与 SDK 组装路径变得更加重要。如果关系图的范围仅限于一个小的 bash/todo/subagent 表面，它们会立即陈旧。
 
 ## 决策
 
@@ -34,12 +34,12 @@ Status: implemented
 |---|---|---|
 | [模块依赖图](../../../../docs/module-graph.md) | 生成式 | `packages/*/*/package.json` 的 peer dependency 与包分组路径 |
 | [工具 schema 目录与包映射](../../../../docs/tool-catalog.md) | 生成式 | 启动后采集的工具 schema，以及工具包服务/效应元数据 |
-| [能力接缝与核心服务](../../../../docs/capability-seams.md) | 混合生成式 | Cordis 服务声明，以及 `gen-doc-graphs.ts` 中的角色清单 |
+| [能力 seam 与核心服务](../../../../docs/capability-seams.md) | 混合生成式 | Cordis 服务声明，以及 `gen-doc-graphs.ts` 中的角色清单 |
 | [tui-agent 应用组合](../../../../examples/tui-agent/composition.md) | 混合生成式 | `examples/tui-agent/cordis.yml` 插件列表，以及人工维护的应用/bundle 展开 |
 | [headless-agent 应用组合](../../../../examples/headless-agent/composition.md) | 混合生成式 | `examples/headless-agent/cordis.yml` 插件列表，以及人工维护的应用/bundle 展开 |
 | [cordis-agent 应用组合](../../../../examples/cordis-agent/composition.md) | 混合生成式 | `examples/cordis-agent/cordis.yml` 插件列表，以及人工维护的应用/bundle 展开 |
 | [acp-agent 应用组合](../../../../examples/acp-agent/composition.md) | 混合生成式 | `examples/acp-agent/cordis.yml` 插件列表加人工策划的应用/bundle 展开 |
-| [事件生产者/消费者矩阵](../../../../docs/event-producer-consumer.md) | 混合生成式 | Cordis 事件声明、经 AST 扫描的 `ctx.on/emit/parallel/serial/waterfall` 位置，以及显式动态分派覆盖 |
+| [事件生产者/消费方矩阵](../../../../docs/event-producer-consumer.md) | 混合生成式 | Cordis 事件声明、经 AST 扫描的 `ctx.on/emit/parallel/serial/waterfall` 位置，以及显式动态分派覆盖 |
 | [agent 轮次与步骤生命周期](../../../../docs/agent-lifecycle.md) | 人工维护 | architecture.md 循环生命周期、Cordis 目录链接，以及 session 事件语义 |
 | [工具执行管线](../../../../docs/tool-execution-pipeline.md) | 人工维护 | 工具管线语义与 `tools/execute` waterfall（瀑布式事件）|
 | [ACP（Agent Client Protocol）快照回放](../../../../packages/ui/acp/snapshot-replay.md) | 人工策划 | 快照 harness 行为 |
@@ -55,12 +55,12 @@ Status: implemented
 - 模块图读取每个包的 `peerDependencies`，并按 `packages/<group>/<pkg>` 路径对包进行分组。
 - 工具目录通过启动收集已发布的工具，并从同一份 manifest 渲染包/服务/副作用映射（其完整性守卫已在检查该 manifest）。
 - 能力 seam 图导入 Cordis 服务收集器，断言每个发现的 harness `ctx.<key>` 都已在 `SERVICE_ROLES` 中分类，且每个已分类的 key 仍然存在。
-- 事件生产者/消费者矩阵标记为 hybrid，因为 subagent 生命周期事件有意使用 `ctx.events.dispatch` 实现逐监听器隔离；这些动态边是显式覆盖而非无声遗漏。
+- 事件生产者/消费方矩阵标记为 hybrid，因为 subagent 生命周期事件有意使用 `ctx.events.dispatch` 实现逐监听器隔离；这些动态边是显式覆盖而非无声遗漏。
 - `verify-mermaid` 使用 Mermaid 自身的解析器解析仓库中每个 ` ```mermaid ` 围栏，因此语法错误在本地和 CI 的 `doc-sync` 阶段即被捕获，而非在 GitHub 渲染时才显示为损坏的图表。
 
 ## 曾考虑的替代方案
 
-已提交的图表使用 Mermaid，因为 GitHub 在 Markdown 中原生渲染它且不引入新的文档构建依赖；密集的多对多数据（如事件生产者/消费者关系）改用 Markdown 表格。**PlantUML、托管图表服务和生成的 SVG** 曾被考虑，但在 Mermaid 成为瓶颈之前有意不采用。
+已提交的图表使用 Mermaid，因为 GitHub 在 Markdown 中原生渲染它且不引入新的文档构建依赖；密集的多对多数据（如事件生产者/消费方关系）改用 Markdown 表格。**PlantUML、托管图表服务和生成的 SVG** 曾被考虑，但在 Mermaid 成为瓶颈之前有意不采用。
 
 ## 后果
 

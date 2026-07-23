@@ -14,7 +14,7 @@ readline UI 曾是一个完整的包（`packages/support/` 下的 `@deepseek-ai/
 
 ## 决策
 
-当时，该辅助函数移入 `@deepseek-ai/dsh-stdio`，成为终端通道插件。`createStdioChat`、其 `StdioRuntime` 测试接缝和单元测试随之一同迁移，使 EOF 处理、渲染、释放以及管道/TTY 行为继续受逐文件覆盖率门禁约束，而不会劫持进程全局量。该模块保留应用挂载所消费的具名 `name`/`inject`/`Config`/`apply` 导出形状；当时的 Echo 和 REPL Loader 冒烟证明组合树，插件形状套件则固定显式 `unwrapExports` 行为。上方取代本文的移除记录负责当前包和示例状态。
+当时，该辅助函数移入 `@deepseek-ai/dsh-stdio`，成为终端通道插件。`createStdioChat`、其 `StdioRuntime` 测试 seam 和单元测试随之一同迁移，使 EOF 处理、渲染、释放以及管道/TTY 行为继续受逐文件覆盖率门禁约束，而不会劫持进程全局量。该模块保留应用挂载所消费的具名 `name`/`inject`/`Config`/`apply` 导出形状；当时的 Echo 和 REPL Loader 冒烟证明组合树，插件形状套件则固定显式 `unwrapExports` 行为。上方取代本文的移除记录负责当前包和示例状态。
 
 早期的支持辅助包已移除：其清单、tsconfig 引用、模块图行和 README 行均已消失，其余文档改为描述包内模块。
 
