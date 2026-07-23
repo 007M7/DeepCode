@@ -10,7 +10,6 @@ import SessionPersistence, { SessionPersistenceRevision } from '@deepseek-ai/dsh
 import type { SessionPersistenceSnapshot } from '@deepseek-ai/dsh-session-persistence'
 import SessionPersistenceSqlite from '@deepseek-ai/dsh-session-persistence-sqlite'
 import SessionQuerySqlite, {
-  SESSION_QUERY_SQLITE_APPLICATION_ID,
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
 } from '@deepseek-ai/dsh-session-query-sqlite'
 import {
@@ -584,6 +583,63 @@ describe('SQLite reconciliation and source lifecycle', () => {
       .rejects.toThrow(expectCode('SESSION_QUERY_SESSION_NOT_FOUND'))
   })
 
+  it('does not load a persisted log while the same session is live', async () => {
+    const shared = header('checkpointed-live', 10)
+    TestPersistence.reset([{ meta: shared, events: messageEvents('persisted needle') }])
+    const ctx = await liveContext()
+    const live = ctx.sessions.prepare(shared.id, {
+      seed: messageEvents('live needle'),
+      meta: { createdAt: shared.createdAt },
+    })
+    const detach = ctx.sessions.enter(live)
+    ctx.sessions.announce(live)
+    const persistence = await ctx.plugin(TestPersistence)
+
+    await expect(ctx.sessionQuery.searchSessions({
+      query: 'live',
+      sessionFilters: [{ kind: 'availability', values: ['persisted'] }],
+    })).resolves.toMatchObject({
+      items: [{ header: shared, live: true, persisted: true }],
+    })
+    expect(TestPersistence.loads.get(shared.id)).toBeUndefined()
+
+    detach()
+    await expect(ctx.sessionQuery.searchSessions({ query: 'persisted' }))
+      .resolves.toMatchObject({ items: [{ header: shared, live: false, persisted: true }] })
+    expect(TestPersistence.loads.get(shared.id)).toBe(1)
+    await persistence.dispose()
+  })
+
+  it('retries when a live owner attaches during persistence observation', async () => {
+    TestPersistence.reset()
+    const ctx = await liveContext()
+    await ctx.plugin(TestPersistence)
+    TestPersistence.snapshotEffect = () => {
+      TestPersistence.snapshotEffect = undefined
+      ctx.sessions.create(SessionId('attached'), { seed: messageEvents('attached needle') })
+    }
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'attached' }))
+      .resolves.toMatchObject({ items: [{ header: { id: SessionId('attached') } }] })
+  })
+
+  it('retries when one live owner replaces another during persistence observation', async () => {
+    TestPersistence.reset()
+    const ctx = await liveContext()
+    const first = ctx.sessions.prepare(SessionId('first'), { seed: messageEvents('first needle') })
+    const detachFirst = ctx.sessions.enter(first)
+    ctx.sessions.announce(first)
+    await ctx.plugin(TestPersistence)
+    TestPersistence.snapshotEffect = () => {
+      TestPersistence.snapshotEffect = undefined
+      detachFirst()
+      ctx.sessions.create(SessionId('second'), { seed: messageEvents('second needle') })
+    }
+
+    await expect(ctx.sessionQuery.searchSessions({ query: 'second' }))
+      .resolves.toMatchObject({ items: [{ header: { id: SessionId('second') } }] })
+  })
+
   it('uses the reconciled persistence binding through the query boundary', async () => {
     const durable = header('post-reconcile-unmount')
     TestPersistence.reset([{ meta: durable, events: [
@@ -976,12 +1032,12 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     expect(ctx.sessionQuery).toBeUndefined()
   })
 
-  it('resets a recognized incompatible derived schema but refuses a foreign database', async () => {
+  it('resets a recognized incompatible schema but refuses unknown or foreign tables', async () => {
     const stalePath = await temporaryPath('stale.db')
+    const staleOwner = await liveContext({ path: stalePath })
+    await (staleOwner.sessionQuery as SessionQuerySqlite).close()
     const stale = new DatabaseSync(stalePath)
-    stale.exec(`PRAGMA application_id = ${SESSION_QUERY_SQLITE_APPLICATION_ID}`)
     stale.exec('PRAGMA user_version = 999')
-    stale.exec('CREATE TABLE stale(value TEXT)')
     stale.close()
     const staleCtx = await liveContext({ path: stalePath })
     staleCtx.sessions.create(SessionId('live'), { seed: messageEvents('needle') })
@@ -990,8 +1046,25 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const rebuilt = new DatabaseSync(stalePath)
     expect((rebuilt.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
       .toBe(SESSION_QUERY_SQLITE_SCHEMA_VERSION)
-    expect(rebuilt.prepare("SELECT name FROM sqlite_master WHERE name = 'stale'").get()).toBeUndefined()
     rebuilt.close()
+
+    const augmentedPath = await temporaryPath('augmented.db')
+    const augmentedOwner = await liveContext({ path: augmentedPath })
+    await (augmentedOwner.sessionQuery as SessionQuerySqlite).close()
+    const augmented = new DatabaseSync(augmentedPath)
+    augmented.exec('CREATE TABLE unrelated(value TEXT)')
+    augmented.exec("INSERT INTO unrelated VALUES ('safe')")
+    augmented.exec('PRAGMA user_version = 999')
+    augmented.close()
+    const augmentedCtx = new Context()
+    await augmentedCtx.plugin(SessionStore)
+    await expect(augmentedCtx.plugin(SessionQuerySqlite, { path: augmentedPath }))
+      .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
+    expect(augmentedCtx.sessionQuery).toBeUndefined()
+    const stillAugmented = new DatabaseSync(augmentedPath)
+    expect(stillAugmented.prepare('SELECT value FROM unrelated').get()).toEqual({ value: 'safe' })
+    expect(stillAugmented.prepare('PRAGMA user_version').get()).toEqual({ user_version: 999 })
+    stillAugmented.close()
 
     const foreignPath = await temporaryPath('foreign.db')
     const foreign = new DatabaseSync(foreignPath)

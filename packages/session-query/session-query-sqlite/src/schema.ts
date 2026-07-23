@@ -13,6 +13,17 @@ export const SESSION_QUERY_SQLITE_APPLICATION_ID = 0x44534851
 /** Supported SQLite journal modes. */
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
+const DERIVED_USER_TABLES = new Set([
+  'search_state',
+  'persisted_sessions',
+  'persisted_docs',
+  'persisted_docs_data',
+  'persisted_docs_idx',
+  'persisted_docs_content',
+  'persisted_docs_docsize',
+  'persisted_docs_config',
+])
+
 /**
  * Exclusively create a missing database file with owner-only permissions.
  * Existing files retain their modes, and errors other than `EEXIST` propagate.
@@ -50,7 +61,7 @@ export async function openSearchDatabase(path: string, journalMode: JournalMode)
       throw new Error(`session-search database at "${actual}" is not an empty or recognized derived index`)
     }
     if (applicationId === SESSION_QUERY_SQLITE_APPLICATION_ID && version !== SESSION_QUERY_SQLITE_SCHEMA_VERSION) {
-      resetDerivedSchema(db)
+      resetDerivedSchema(db, actual, userTables)
     }
     // Apply mutating pragmas only after refusing foreign or canonical files.
     // journalMode is a validated closed union, not caller-controlled SQL.
@@ -71,8 +82,14 @@ function listUserTables(db: DatabaseSync): string[] {
   return rows.map(row => row.name)
 }
 
-function resetDerivedSchema(db: DatabaseSync): void {
-  for (const name of listUserTables(db)) {
+function resetDerivedSchema(db: DatabaseSync, path: string, userTables: readonly string[]): void {
+  const unknownTables = userTables.filter(name => !DERIVED_USER_TABLES.has(name))
+  if (unknownTables.length > 0) {
+    throw new Error(
+      `session-search database at "${path}" has unrecognized user tables: ${unknownTables.join(', ')}`,
+    )
+  }
+  for (const name of userTables) {
     db.exec(`DROP TABLE IF EXISTS ${quoteIdentifier(name)}`)
   }
   db.exec('PRAGMA user_version = 0')
@@ -126,6 +143,7 @@ function ensureTemporarySchema(db: DatabaseSync): void {
       seed_length    INTEGER,
       delegation_depth INTEGER,
       fingerprint    TEXT NOT NULL,
+      persisted      INTEGER NOT NULL CHECK (persisted IN (0, 1)),
       generation     INTEGER NOT NULL
     ) STRICT
   `)

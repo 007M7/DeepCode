@@ -129,6 +129,7 @@ interface IndexedPersistedRow {
 interface IndexedLiveRow {
   id: string
   fingerprint: string
+  persisted: number
   generation: number
 }
 
@@ -338,7 +339,7 @@ export class SessionQuerySqlite extends SessionQueryService {
       'SELECT id, revision, generation FROM persisted_sessions',
     ).all() as unknown as IndexedPersistedRow[]
     const liveRows = db.prepare(
-      'SELECT id, fingerprint, generation FROM temp.live_sessions',
+      'SELECT id, fingerprint, persisted, generation FROM temp.live_sessions',
     ).all() as unknown as IndexedLiveRow[]
     const persistedById = new Map(persistedRows.map(row => [row.id as SessionId, row]))
     const liveById = new Map(liveRows.map(row => [row.id as SessionId, row]))
@@ -350,7 +351,11 @@ export class SessionQuerySqlite extends SessionQueryService {
     const persistentDeletes = observation.persistenceBinding.service === undefined
       ? []
       : persistedRows.filter(row => !observation.persisted.has(row.id as SessionId))
-    const liveChanges = [...observation.live.values()].filter(entry => liveById.get(entry.header.id)?.fingerprint !== entry.fingerprint)
+    const liveChanges = [...observation.live.values()].filter((entry) => {
+      const indexed = liveById.get(entry.header.id)
+      const persisted = observation.persisted.has(entry.header.id) ? 1 : 0
+      return indexed?.fingerprint !== entry.fingerprint || indexed.persisted !== persisted
+    })
     const liveDeletes = liveRows.filter(row => !observation.live.has(row.id as SessionId))
     const pointerChanged = this._lastPersistenceIdentity !== undefined
       && this._lastPersistenceIdentity !== observation.persistenceBinding.identity
@@ -364,7 +369,11 @@ export class SessionQuerySqlite extends SessionQueryService {
     if (persistentChanges.length > 0 || persistentDeletes.length > 0) nextMainGeneration += 1
     const liveReplacements = liveChanges.map((entry) => {
       nextLocalGeneration = Math.max(nextLocalGeneration, nextMainGeneration) + 1
-      return { entry, generation: nextLocalGeneration }
+      return {
+        entry,
+        generation: nextLocalGeneration,
+        persisted: observation.persisted.has(entry.header.id),
+      }
     })
 
     if (hasWrites) {
@@ -382,8 +391,8 @@ export class SessionQuerySqlite extends SessionQueryService {
           db.prepare('UPDATE search_state SET global_generation = ? WHERE singleton = 1').run(nextMainGeneration)
         }
         for (const row of liveDeletes) this._deleteSession('live', row.id as SessionId)
-        for (const { entry, generation } of liveReplacements) {
-          this._replaceLiveSession(entry, generation)
+        for (const { entry, generation, persisted } of liveReplacements) {
+          this._replaceLiveSession(entry, generation, persisted)
         }
         db.exec('COMMIT')
       } catch (error: unknown) {
@@ -419,6 +428,7 @@ export class SessionQuerySqlite extends SessionQueryService {
       assertNotAborted(signal)
       const persistenceBinding = this._persistenceBinding
       const persistence = persistenceBinding.service
+      const initiallyLive = new Set(this.ctx.sessions.list().map(session => session.id))
       let persisted = new Map<SessionId, ObservedPersistedSession>()
       if (persistence !== undefined) {
         try {
@@ -428,6 +438,10 @@ export class SessionQuerySqlite extends SessionQueryService {
           persisted = materializePersistenceSnapshots(before)
           for (const entry of persisted.values()) {
             if (canReuseIndexed && indexed.get(entry.header.id)?.revision === entry.revision) continue
+            // `load()` may durably repair an interrupted tail. Never invoke it
+            // for a session currently owned by the live store: a checkpointed
+            // open turn is active, not crash-interrupted.
+            if (initiallyLive.has(entry.header.id) || this.ctx.sessions.get(entry.header.id) !== undefined) continue
             const loaded = await waitWithAbort(persistence.load(entry.header.id), signal)
             assertSessionHeadersCompatible(entry.header, loaded.meta)
             entry.loaded = observeSession(loaded.meta, loaded.events)
@@ -459,9 +473,8 @@ export class SessionQuerySqlite extends SessionQueryService {
         if (durable !== undefined) assertSessionHeadersCompatible(observed.header, durable.header)
         live.set(session.id, observed)
       }
-      if (this._persistenceBinding === persistenceBinding) {
-        return { persistenceBinding, persisted, live }
-      }
+      if (!sameSessionIds(initiallyLive, live)) continue
+      return { persistenceBinding, persisted, live }
     }
     throw new SessionQueryError(
       'session-search persistence observation did not stabilize after one retry',
@@ -527,13 +540,13 @@ export class SessionQuerySqlite extends SessionQueryService {
     }
   }
 
-  private _replaceLiveSession(entry: ObservedSession, generation: number): void {
+  private _replaceLiveSession(entry: ObservedSession, generation: number, persisted: boolean): void {
     this._deleteSession('live', entry.header.id)
     const db = this._requireDb()
     db.prepare(`
       INSERT INTO temp.live_sessions
-        (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, fingerprint, generation)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, fingerprint, persisted, generation)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       entry.header.id,
       entry.header.version,
@@ -543,6 +556,7 @@ export class SessionQuerySqlite extends SessionQueryService {
       entry.header.seedLength ?? null,
       entry.header.delegationDepth ?? null,
       entry.fingerprint,
+      persisted ? 1 : 0,
       generation,
     )
     const insert = db.prepare(`
@@ -709,9 +723,7 @@ function selectedDocumentsSql(): { sql: string } {
         ls.seed_length AS seed_length,
         ls.delegation_depth AS delegation_depth,
         1 AS live,
-        CASE WHEN ? = 1 AND EXISTS (
-          SELECT 1 FROM persisted_sessions AS ps WHERE ps.id = ld.session_id
-        ) THEN 1 ELSE 0 END AS persisted,
+        CASE WHEN ? = 1 THEN ls.persisted ELSE 0 END AS persisted,
         CAST(ld.seq AS INTEGER) AS seq,
         ld.type AS type,
         CAST(ld.time AS INTEGER) AS time,
@@ -795,6 +807,17 @@ function samePersistenceSnapshots(
       || first.revision !== second.revision
       || !sameHeader(first.header, second.header)
     ) return false
+  }
+  return true
+}
+
+function sameSessionIds(
+  before: ReadonlySet<SessionId>,
+  after: ReadonlyMap<SessionId, ObservedSession>,
+): boolean {
+  if (before.size !== after.size) return false
+  for (const id of before) {
+    if (!after.has(id)) return false
   }
   return true
 }
