@@ -1,7 +1,12 @@
 # Test-only composition: session-telemetry-otel through the real Loader/app
 # path, exporting to the mock OTLP collector the driver starts (url via env).
+# The redact-rule entry models a deployment mounting its own scrub rule on the
+# telemetry/redact waterfall — the seam itself ships no rules.
 - id: cli-mock-llm
   name: './cli-mock-llm.ts'
+
+- id: telemetry-redact-rule
+  name: './telemetry-redact-rule.ts'
 
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'

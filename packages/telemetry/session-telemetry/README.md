@@ -12,7 +12,7 @@ The coordinator registers, all through the composing fiber's effects: `session/c
 
 ## The redact waterfall
 
-Every record passes the `telemetry/redact` waterfall between projection and `emit()` — nothing reaches a backend unredacted. The innermost `next()` applies the built-in conservative rule set (`applyDefaultRedaction`: credential shapes — API keys, GitHub/Slack tokens, AWS/Google keys, JWTs, PEM blocks, URL userinfo — replaced with `[REDACTED]` in body strings and string attribute values). Listeners stack stricter rules by transforming `next()`'s return value; returning without `next()` replaces the default rule set, and a throwing listener withholds that one record fail-closed inside the coordinator's containment. The built-in pattern list is a security invariant, deliberately not configurable from cordis.yml. Redaction applies to the exported copy only; the canonical session log is never rewritten.
+Every record passes the `telemetry/redact` waterfall between projection and `emit()` — the seam's scrubbing extension point. The seam ships NO rules of its own: the innermost `next()` passes the record through unchanged, so with no listener mounted records reach the backend exactly as captured, and exported data is precisely as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath, and a throwing listener withholds that one record fail-closed inside the coordinator's containment. Redaction applies to the exported copy only; the canonical session log is never rewritten.
 
 ## The handoff cursor
 
@@ -37,4 +37,4 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **Best-effort delivery** — the cursor marks handed-off, not delivered; a session torn down inside a reload window cannot be re-adopted; whatever sits in a backend queue at crash time is lost. A durable outbox (spool, per-sink cursors, at-least-once) is deferred until a deployment states a crash-loss requirement — see [the revival Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md).
-- **Redaction is shape-based** — the default rules catch known credential shapes, not every secret; a deployment with stricter needs stacks `telemetry/redact` listeners, and exported data is only as clean as the mounted rules.
+- **No built-in redaction rules** — with no `telemetry/redact` listener mounted, records leave the process exactly as captured, including any credentials embedded in file contents or command output; a deployment exporting to a shared collector owns its rule set.

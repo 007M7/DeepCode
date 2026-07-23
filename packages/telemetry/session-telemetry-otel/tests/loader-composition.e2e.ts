@@ -3,8 +3,8 @@
  * a subprocess (per testing policy, through the same app/boot path a
  * deployment uses), run one mocked-model turn with a real bash round trip,
  * and assert against what the mock OTLP collector actually received on the
- * wire: ledger mirroring, default redaction, ops markers, and the untouched
- * canonical log.
+ * wire: ledger mirroring, the deployment-mounted redact rule applied to the
+ * exported copy, ops markers, and the untouched canonical log.
  */
 
 import { readFile, readdir } from 'node:fs/promises'
@@ -12,7 +12,6 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
-import { REDACTION_PLACEHOLDER } from '@deepseek-ai/dsh-session-telemetry'
 
 const driver = fileURLToPath(new URL(
   '../../../../examples/headless-agent/tests/fixtures/telemetry-otel-driver.ts',
@@ -25,6 +24,7 @@ const configPath = fileURLToPath(new URL(
 const repoTsconfig = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
 const FIXTURE_SECRET = 'sk-e2efixture1234567890'
+const FIXTURE_PLACEHOLDER = '[E2E-REDACTED]'
 
 interface OtlpLogRecord {
   attributes?: { key: string; value: Record<string, unknown> }[]
@@ -84,15 +84,16 @@ describe('session-telemetry-otel through a real headless cordis.yml', () => {
     }
     expect(records.some(({ scope }) => scope.endsWith('/ops'))).toBe(true)
 
-    // Default redaction on the wire: the fixture credential never leaves the
-    // process, its surrounding prose does, and the placeholder marks the spot.
+    // The deployment-mounted rule on the wire: the fixture credential never
+    // leaves the process, its surrounding prose does, and the placeholder
+    // marks the spot — the seam itself ships no rules.
     const wire = JSON.stringify(captures)
     expect(wire).not.toContain(FIXTURE_SECRET)
-    expect(wire).toContain(REDACTION_PLACEHOLDER)
+    expect(wire).toContain(FIXTURE_PLACEHOLDER)
     expect(wire).toContain('prove telemetry with key')
 
     // The canonical session log is never rewritten.
     expect(logContent).toContain(FIXTURE_SECRET)
-    expect(logContent).not.toContain(REDACTION_PLACEHOLDER)
+    expect(logContent).not.toContain(FIXTURE_PLACEHOLDER)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 })

@@ -10,10 +10,10 @@ Status: implemented
 
 ## Decision
 
-`packages/telemetry/` 以 SDK 立场复活这两个经过评审的包——harness 提供能力，部署方配置上报去向，且任何数据未经脱敏不得跨越 seam：
+`packages/telemetry/` 以 SDK 立场复活这两个经过评审的包——harness 提供能力，部署方配置上报去向并对导出内容负责：
 
 - **`@deepseek-ai/dsh-session-telemetry`** —— seam 本体。`TelemetryBackend`（`emit`/`flush?`/`shutdown`）、服务注册形态的 `Telemetry`、以及拥有捕获侧的 `TelemetryCoordinator`：带游标回读的收养、逐 append 的 firehose（投影 → `structuredClone` → 脱敏 → `emit`，零 I/O）、固定的每 (turn, step) 首 chunk 投影、`agent/error` 转发、以及 dispose 时的 `shutdown` 记录。
-- **`telemetry/redact` waterfall** —— 相对分支版本的增量。每条记录抵达任何 backend 前必经此处；最内层 `next()` 应用保守的内置规则集（凭据形状：API key、GitHub/Slack token、AWS/Google key、JWT、PEM 块、URL userinfo），部署方以监听器堆叠更严规则，抛异常的规则将该记录 fail-closed 扣下。模式列表是安全不变量，刻意不可配置。脱敏只作用于导出副本；canonical log 永不改写。
+- **`telemetry/redact` waterfall** —— 相对分支版本的增量。每条记录抵达任何 backend 前必经此处；seam 自身不带任何规则——最内层 `next()` 原样透传，部署方以监听器挂载自己的规则（通过变换 `next()` 的返回值堆叠），抛异常的规则将该记录 fail-closed 扣下。脱敏只作用于导出副本；canonical log 永不改写。
 - **`@deepseek-ai/dsh-session-telemetry-otel`** —— 参考 backend：OTel JS SDK 日志管线（`LoggerProvider` → `BatchLogRecordProcessor` → OTLP/HTTP exporter），经 `exporter`/`processor` passthrough 原样配置。`exporter.url` 必填且加载时校验；未挂载或未配置时，任何数据都不会离开进程。
 
 边界公理保持不变：harness 的职责止于 `emit()`。批处理、重试、排队与丢失策略属于 reporting SDK，经 passthrough 配置——投递是尽力而为（崩溃时至多一次），README 对此如实陈述。
@@ -22,12 +22,12 @@ Status: implemented
 
 **实现 runtime-telemetry RFC 的 outbox（落盘 spool、每 sink 游标、at-least-once、persistence seam 的 `readCommitted` 方法）。** 推迟而非否决：SDK 立场使投递语义归属 reporting SDK，OTel SDK 自身的批处理管线是诚实的默认。outbox 是纯增量层（`emit()` 契约不动）；待某个部署提出遥测必须满足的崩溃丢失要求时再复活。
 
-**不带内置脱敏直接导出，交给接收端 collector processor。** 否决——这正是法务否掉的方案。接收端脱敏是先把秘密发出去再擦除；seam 必须在字节离开进程前擦除，且 waterfall 使脱敏点可审计、可堆叠。
+**不设进程内脱敏点，交给接收端 collector processor。** 否决——接收端脱敏是先把秘密发出去再擦除。waterfall 在字节离开进程前提供一个可审计、可堆叠的擦除点；分支版本（PR #222 交付的形态）完全没有脱敏点，如今每条记录都必经其一。
 
-**默认规则的模式列表做成可配置。** 否决：随部署变化的调优项应进 config，但安全不变量不应——削弱底线应当需要改代码而非改 YAML。更严格的规则以 `telemetry/redact` 监听器堆叠。
+**在 waterfall 最内层 `next()` 内置一套保守规则集。** 否决：作为 SDK 我们无法预知某个部署里什么模式算秘密，内置列表只覆盖已知形状却会带来"脱敏已开启"的虚假信心，且误报会替从未要求过的消费者破坏导出 body。seam 拥有机制，部署方拥有策略——最内层 `next()` 原样透传，规则以监听器挂载。
 
 **映射到 OTel span（GenAI 语义约定）而非日志。** 本次复活否决：分支实现的日志映射已经过评审、形态可交付；span 模型对可 fork、可中断的会话有损，留给将来真正有 span 查询需求的消费者。
 
 ## Consequences
 
-部署方在 `cordis.yml` 加一个带 OTLP endpoint 的条目即可把会话流接入任何 OTel 兼容体系；删除条目即退出，无残留状态。即使部署方未配置任何规则，凭据形状的子串也绝不离开进程，代价是捕获路径上每条记录一次同步擦除（对 lossless-JSON body 做字符串正则——受事件大小约束，无 I/O）。导出的 body 在占位符落点处可能与 canonical log 字节不同，接收端不得把遥测当作字节精确副本；日志仍是唯一事实源。崩溃持久性在上述 outbox 决定重启前明确不在范围内。
+部署方在 `cordis.yml` 加一个带 OTLP endpoint 的条目即可把会话流接入任何 OTel 兼容体系；删除条目即退出，无残留状态。未挂载规则的部署导出的记录与捕获时完全一致——包括文件内容与命令输出中内嵌的任何凭据——因此跨信任边界的部署必须挂载 `telemetry/redact` 监听器，两个 README 对此如实陈述。挂载规则后，导出的 body 可能与 canonical log 字节不同，接收端不得把遥测当作字节精确副本；日志仍是唯一事实源。崩溃持久性在上述 outbox 决定重启前明确不在范围内。

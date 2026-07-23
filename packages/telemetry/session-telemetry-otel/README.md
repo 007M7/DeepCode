@@ -19,7 +19,7 @@ The OpenTelemetry backend for [the telemetry seam](../session-telemetry/) — th
 
 ## What leaves the machine
 
-Records carry the seam's REDACTED copy of `event.data` — user and assistant message content, tool arguments and results (command output, file contents), the full system prompt and tool schemas (`request/header`), todo text, compaction summaries, hook `stderrSummary`, and the session `cwd` (a local path) — after the seam's `telemetry/redact` waterfall has scrubbed credential-shaped substrings (see [the seam README](../session-telemetry/README.md#the-redact-waterfall)). Provider credentials never appear regardless: adapter API keys are constructor parameters, not session events, so they are structurally absent from the log and therefore from telemetry. A deployment with stricter requirements stacks `telemetry/redact` listeners or opts out structurally.
+Records carry the complete `event.data` as the seam's `telemetry/redact` waterfall returns it — user and assistant message content, tool arguments and results (command output, file contents), the full system prompt and tool schemas (`request/header`), todo text, compaction summaries, hook `stderrSummary`, and the session `cwd` (a local path). The seam ships no redaction rules: with no `telemetry/redact` listener mounted, that is the raw captured copy, so a deployment exporting beyond a trusted boundary mounts its own rules (see [the seam README](../session-telemetry/README.md#the-redact-waterfall)). Provider credentials never appear regardless: adapter API keys are constructor parameters, not session events, so they are structurally absent from the log and therefore from telemetry.
 
 ## Field mapping
 

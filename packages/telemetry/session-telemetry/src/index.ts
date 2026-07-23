@@ -22,16 +22,17 @@ declare module 'cordis' {
 
   interface Events {
     /**
-     * Redact one outbound record before it reaches the backend. The innermost
-     * `next()` applies the seam's conservative default rule set
-     * (credential-shape scrubbing); listeners stack stricter rules by
-     * transforming its return value, and returning without `next()` replaces
-     * the default — the exported record is then only as clean as the
-     * replacing rule. Dispatched synchronously on the capture hot path inside
-     * the coordinator's containment: a throwing listener withholds that one
-     * record (fail-closed) and never reaches the agent loop. Redaction
-     * applies to the exported copy only; the canonical session log is never
-     * rewritten.
+     * Redact one outbound record before it reaches the backend — the seam's
+     * scrubbing extension point. The seam ships NO rules of its own: the
+     * innermost `next()` passes the record through unchanged, and with no
+     * listener mounted records reach the backend as captured, so exported
+     * data is exactly as clean as the rules a deployment mounts. Listeners
+     * stack by transforming `next()`'s return value; returning without
+     * `next()` replaces everything beneath. Dispatched synchronously on the
+     * capture hot path inside the coordinator's containment: a throwing
+     * listener withholds that one record (fail-closed) and never reaches the
+     * agent loop. Redaction applies to the exported copy only; the canonical
+     * session log is never rewritten.
      * @param record - the candidate record, already the coordinator's own deep
      *   copy; listeners return a (possibly new) record and must not mutate it.
      * @mode waterfall
@@ -142,4 +143,3 @@ export abstract class Telemetry extends Service implements TelemetryBackend {
 }
 
 export { TelemetryCoordinator } from './coordinator.ts'
-export { applyDefaultRedaction, REDACTION_PLACEHOLDER } from './redact.ts'
