@@ -10,12 +10,12 @@
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { FC } from 'react'
-import { hookOf } from './hook.ts'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
+import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SelectionTarget, ViewEntry } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SelectionTarget, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ConversationRootProps } from '../src/client/skeleton/ConversationRoot.tsx'
 // Export discipline: packages/client/AGENTS.md.
 import { createChatStore } from '../src/client/stores.ts'
 import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
@@ -42,7 +42,7 @@ function fakeSession(init: Partial<FakeSnapshot> = {}) {
   const store = createSnapshotStore<FakeSnapshot>({
     nodes: [], runningCalls: [], running: false, removed: false, promptError: null, ...init,
   })
-  return { store, useSession: hookOf(store) as unknown as UseSession<ConversationSnapshot> }
+  return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
 }
 
 /** Sessions-list stub: the standard useSessions hook over a snapshot store. */
@@ -56,8 +56,11 @@ function fakeSessions(rows: { id: string; title: string; cwd?: string; parentId?
     }])),
     current: undefined,
   } as SessionListState)
-  return { store, useSessions: hookOf(store) }
+  return { store, useSessions: bindSnapshotSelector(store) }
 }
+
+/** SessionProvider seat stub (render-prop pass-through; ConversationRoot never invokes it). */
+const SessionProviderStub: ConversationRootProps['SessionProvider'] = ({ children }) => <>{children(sid('s1'))}</>
 
 describe('EmptyState', () => {
   it('derives cwd options from the sessions list, submits startSession, failure surfaces locally', async () => {
@@ -96,49 +99,48 @@ describe('EmptyState', () => {
 })
 
 describe('ConversationRoot', () => {
-  function bench(views: ViewEntry[], activeView?: string) {
+  function bench(tabs: ViewTab[], activeView?: string) {
     const { useSession } = fakeSession({ nodes: [{ kind: 'user' }, { kind: 'user' }] })
     const { useSessions } = fakeSessions([
       { id: 'root', title: 'proj' },
       { id: 's1', title: 'child', parentId: 'root' },
     ])
     const chat = createChatStore().create()
-    if (activeView !== undefined) chat.actions.setView(activeView as never)
+    if (activeView !== undefined) chat.actions.setView(activeView)
     const send = vi.fn()
     const stop = vi.fn()
-    const openDetails = vi.fn()
-    const loadOlder = vi.fn()
     const open = vi.fn()
+    // The renderSlot share as the outlet would bake it: renders a marker for
+    // the ring key carrying the active-id filter (a Mock cannot satisfy the
+    // generic method type directly — cast once at the prop seam).
+    const renderSlot = vi.fn((key: string, _owner: object, opts?: { only?: string }) => (
+      <div data-testid={`view-${opts?.only ?? '(all)'}`} data-slot={key} />
+    ))
     const ui = render(
       <ConversationRoot
         sessionId={sid('s1')}
         useSession={useSession}
         useSessions={useSessions}
-        useStore={hookOf(chat)}
+        useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
+        renderSlot={renderSlot as unknown as ConversationRootProps['renderSlot']}
+        SessionProvider={SessionProviderStub}
         views={{
-          list: () => views,
+          list: () => tabs,
           subscribe: () => () => {},
           version: () => 1,
         }}
         send={send}
         stop={stop}
-        openDetails={openDetails}
-        loadOlder={loadOlder}
         open={open}
       />)
-    return { ui, chat, send, stop, open }
+    return { ui, chat, send, stop, open, renderSlot }
   }
 
-  /** View bodies record their mount via testid (renderView is in-component now). */
-  const view = (id: string, label: string): ViewEntry =>
-    ({
-      id, label,
-      component: (() => <div data-testid={`view-${id}`} />) as unknown as FC<never>,
-    }) as unknown as ViewEntry
+  const tab = (id: string, label: string): ViewTab => ({ id, label })
 
   it('renders breadcrumb chain (useSessions-derived), meta turns, and the default chat view', () => {
-    const { open } = bench([view('chat', 'Chat'), view('trajectory', 'Trajectory')])
+    const { open } = bench([tab('chat', 'Chat'), tab('trajectory', 'Trajectory')])
     expect(screen.getByText('proj')).toBeTruthy()
     expect(screen.getByText('child')).toBeTruthy()
     expect(screen.getByText(/2 turns/)).toBeTruthy()
@@ -150,33 +152,25 @@ describe('ConversationRoot', () => {
   })
 
   it('switches views through the store view field and falls back on unknown ids', () => {
-    const { chat } = bench([view('chat', 'Chat'), view('trajectory', 'Trajectory')])
+    const { chat } = bench([tab('chat', 'Chat'), tab('trajectory', 'Trajectory')])
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
     expect(chat.store.getSnapshot().view).toBe('trajectory')
     expect(screen.getByTestId('view-trajectory')).toBeTruthy()
     cleanup()
     // A stale persisted id (its view plugin unloaded) falls to the first view.
-    bench([view('chat', 'Chat'), view('trajectory', 'Trajectory')], 'ghost-view')
+    bench([tab('chat', 'Chat'), tab('trajectory', 'Trajectory')], 'ghost-view')
     expect(screen.getByTestId('view-chat')).toBeTruthy()
   })
 
-  it('mounts chrome header/footer around the view body', () => {
-    const entry = {
-      id: 'chat', label: 'Chat',
-      component: () => <div data-testid="body" />,
-      chrome: {
-        header: () => <div data-testid="hd" />,
-        footer: () => <div data-testid="ft" />,
-      },
-    } as unknown as ViewEntry
-    bench([entry])
-    expect(screen.getByTestId('hd')).toBeTruthy()
-    expect(screen.getByTestId('body')).toBeTruthy()
-    expect(screen.getByTestId('ft')).toBeTruthy()
+  it('renders the active view through the declared ring slot with the only filter', () => {
+    const { renderSlot } = bench([tab('chat', 'Chat')])
+    // No owner share: views take everything from the standard kit (contract).
+    expect(renderSlot).toHaveBeenCalledWith('conversation.view', {}, { only: 'chat' })
+    expect(screen.getByTestId('view-chat').getAttribute('data-slot')).toBe('conversation.view')
   })
 
   it('hides the tab strip with a single view; composer writes the store draft and sends it', () => {
-    const { chat, send } = bench([view('chat', 'Chat')])
+    const { chat, send } = bench([tab('chat', 'Chat')])
     expect(screen.queryByRole('tablist')).toBeNull()
     const box = screen.getByPlaceholderText(/输入消息/)
     fireEvent.change(box, { target: { value: 'hi' } })
@@ -199,7 +193,7 @@ describe('DetailsPanel', () => {
         sessionId={sid('s1')}
         useSession={useSession}
         useSessions={useSessions}
-        useStore={hookOf(chat)}
+        useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={closeDetails}
       />)

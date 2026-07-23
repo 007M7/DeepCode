@@ -4,12 +4,11 @@ import { cleanup, fireEvent, render } from '@testing-library/react'
 
 afterEach(cleanup)
 import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import { classifyTool, toolRowModel } from '../src/client/contract/tool-call-model.ts'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { ToolRow } from '../src/client/chat/ToolRow.tsx'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
-import type { ToolViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { ToolRowOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 const running = (over?: Partial<RunningToolCall>): RunningToolCall => ({
   callId: 'c1', name: 'bash', argsRaw: '{"command":"ls -la","description":"List files"}',
@@ -139,11 +138,8 @@ describe('ThinkRow', () => {
 })
 
 describe('GenericToolCard', () => {
-  const props = (toolName: string, block: RunningToolCall | ToolResultNode): ToolViewProps => ({
-    callId: 'c1', toolName, block,
-    useSession: (() => { throw new Error('unused') }) as unknown as UseSession,
-    actions: { openDetails: vi.fn() },
-    t: (k) => k,
+  const props = (toolName: string, block: RunningToolCall | ToolResultNode): ToolRowOwnerProps => ({
+    callId: 'c1', toolName, block, openDetails: vi.fn(),
   })
 
   it('renders the classified variant row from the frozen slice', () => {
@@ -188,10 +184,10 @@ describe('GenericToolCard', () => {
     expect(view.container.querySelector('svg')).not.toBeNull()
   })
 
-  it('row click reaches actions.openDetails', () => {
+  it('row click reaches openDetails', () => {
     const p = props('bash', result())
     const view = render(<GenericToolCard {...p} />)
     fireEvent.click(view.getByText('List files'))
-    expect(p.actions.openDetails).toHaveBeenCalledTimes(1)
+    expect(p.openDetails).toHaveBeenCalledTimes(1)
   })
 })
