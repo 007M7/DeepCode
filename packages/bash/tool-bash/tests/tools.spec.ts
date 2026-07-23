@@ -122,7 +122,13 @@ class RecordingSandboxExecutor extends BashExecutor {
       timeoutMs: spec.timeoutMs,
       stdout: { text: 'ok', truncated: false },
       stderr: { text: '', truncated: false },
-      sandbox: { mode: spec.sandboxPolicy?.mode ?? 'read-only', denied: false },
+      sandbox: {
+        mode: spec.sandboxPolicy?.mode ?? 'read-only',
+        denied: false,
+        ...spec.command === 'without optional sandbox facts'
+          ? {}
+          : { enforcement: 'full' as const, runnerFailed: false },
+      },
     })
   }
 
@@ -213,6 +219,16 @@ describe('bash tool', () => {
     const ctx = await setup()
     const result = await call(ctx, 'bash', { command: 'echo hello', description: 'test command' })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected bash success')
+    expect(result.value).toMatchObject({
+      kind: 'foreground',
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      aborted: false,
+      stdout: { text: 'hello\n', truncated: false },
+      stderr: { text: '', truncated: false },
+    })
     expect(text(result)).toBe('hello\n')
   })
 
@@ -296,7 +312,7 @@ describe('bash tool', () => {
   })
 
   // Type and required-key violations are rejected by the harness
-  // (defineTool validates against the SchemaSpec — the arg-validation Agent Note) before execute.
+  // (defineTool validates against the ParameterSchemaSpec — the arg-validation Agent Note) before execute.
   it.each([
     [{}, /missing required property "command"/],
     [{ command: 42, description: 'd' }, /"command" must be a string/],
@@ -312,7 +328,7 @@ describe('bash tool', () => {
     expect(text(result)).toMatch(pattern)
   })
 
-  // Value constraints the SchemaSpec can't express stay in the tool body.
+  // Value constraints the ParameterSchemaSpec can't express stay in the tool body.
   it.each([
     [{ command: '  ', description: 'd' }, /invalid command/],
     [{ command: 'x', description: '   ' }, /invalid description/],
@@ -408,6 +424,8 @@ describe('background execution through the task runtime', () => {
     const ctx = await setupWithTasks()
     const started = await call(ctx, 'bash', { command: 'echo bg-ok', description: 'test command', run_in_background: true })
     expect(started.isError).toBe(false)
+    if (started.isError) throw new Error('expected background bash success')
+    expect(started.value).toEqual({ kind: 'background', taskId: 'bash-1' })
     expect(text(started)).toBe('started background task bash-1')
 
     const read = await callUntilText(ctx, 'task_output', { task_id: 'bash-1' }, 'bg-ok')
@@ -479,7 +497,10 @@ describe('background execution through the task runtime', () => {
       signal: controller.signal,
     })
     expect(result.isError).toBe(true)
-    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(result.error).toEqual({
+      message: 'tool call aborted before dispatch',
+      info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+    })
     expect(text(result)).toBe('Error: tool call aborted before dispatch')
     expect((ctx.bash as CountingStartExecutor).starts).toBe(0)
   })
@@ -633,7 +654,10 @@ describe('sandbox escalation through the generic task producer', () => {
       signal: controller.signal,
     })
 
-    expect(result.error).toEqual({ name: 'AbortError', code: TOOL_ABORTED })
+    expect(result.error).toEqual({
+      message: 'tool call aborted',
+      info: { name: 'AbortError', code: TOOL_ABORTED },
+    })
     expect(text(result)).toBe('Error: tool call aborted')
     expect(start).not.toHaveBeenCalled()
   })
@@ -645,6 +669,22 @@ describe('sandbox escalation through the generic task producer', () => {
     ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
     await call(ctx, 'bash', { ...escalate, sandbox_permissions: 'danger-full-access' }, agent)
     expect(bash.modes).toEqual(['workspace-write', 'danger-full-access'])
+  })
+
+  it('omits sandbox facts the executor did not acquire from the canonical result', async () => {
+    const { ctx } = await setupSandboxed()
+    const result = await call(ctx, 'bash', {
+      command: 'without optional sandbox facts',
+      description: 'exercise optional sandbox facts',
+    })
+
+    if (result.isError) throw new Error('expected foreground bash success')
+    expect(result.value).toMatchObject({
+      kind: 'foreground',
+      sandbox: { mode: 'read-only', denied: false },
+    })
+    expect((result.value as { sandbox: object }).sandbox).not.toHaveProperty('enforcement')
+    expect((result.value as { sandbox: object }).sandbox).not.toHaveProperty('runnerFailed')
   })
 
   it('keeps the exhaustiveness backstop for a rogue approval implementation', async () => {

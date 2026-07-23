@@ -6,21 +6,36 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 ## `ToolDefinition` — a registered tool
 
-A `ToolSchema` (the model-facing fields) plus the `execute` function, host-only scheduler metadata, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `execute`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` must never leak into a model request.
+A `ToolSchema` (the model-facing fields) plus a mandatory canonical output declaration, the `execute` function, host-only scheduler metadata, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `output`/`execute`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` must never leak into a model request.
+
+```ts type-equiv
+/** Tool-owned canonical output contract used after the body returns a JSON value. */
+interface ToolOutputDefinition {
+  /** Raw supported JSON Schema enforced against every successful canonical value. */
+  readonly schema: JsonSchemaNode
+  /** Pure projection from validated arguments and value to Native/model content. */
+  render(args: unknown, value: JsonValue): ContentBlock[]
+  /** Pure replayable presentation projection, computed only for surface calls. */
+  presentationMeta?(args: unknown, value: JsonValue): JsonValue
+}
+```
 
 ```ts type-equiv
 /** A registered tool: its schema plus the execution function. */
 interface ToolDefinition extends ToolSchema {
+  /** Mandatory canonical output declaration. */
+  readonly output: ToolOutputDefinition
   /**
-   * Run one accepted call. Async work must observe or forward `exec.signal` and
-   * settle only after its owned work reaches quiescence. The registry preserves
-   * caller cancellation through around-dispatch signal replacement and does
-   * not abandon this promise, but it cannot hard-kill same-process code.
+   * Run one accepted call and return only its canonical lossless-JSON value.
+   * Async work must observe or forward `exec.signal` and settle only after its
+   * owned work reaches quiescence. The registry preserves caller cancellation
+   * through around-dispatch signal replacement and does not abandon this
+   * promise, but it cannot hard-kill same-process code.
    * @param args - losslessly snapshotted, frozen model arguments.
    * @param exec - execution identity, cancellation signal, and context deferral.
-   * @returns model-facing content plus optional private presentation metadata.
+   * @returns the canonical value declared by `output.schema`.
    */
-  execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>
+  execute(args: unknown, exec: ToolRunContext): Promise<unknown>
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
@@ -55,7 +70,7 @@ interface ToolDefinition extends ToolSchema {
   presentCall?(args: unknown): ToolCallView | undefined
   /**
    * Optional: how to present the COMPLETED state, given the same `args` and the
-   * `result` (`execute`'s content + whether it errored). Returns a
+   * durable result projection (`content`, failure state, and optional `meta`). Returns a
    * {@link ToolResultView}, or `undefined` (or omit the method) to keep the
    * pending title and render the raw result content. Pure and side-effect-free
    * for the same replay reason.
@@ -64,69 +79,62 @@ interface ToolDefinition extends ToolSchema {
 }
 ```
 
-`execute` receives `args: unknown` — a raw `ToolDefinition` validates its own input. First-party tools don't write that by hand; they use `defineTool`, which validates and narrows for them.
+`execute` receives `args: unknown` — a raw `ToolDefinition` validates its own input. First-party tools don't write that by hand; they use `defineTool`, which validates and narrows the arguments, infers the body return from `output.schema`, and types both output projectors.
 
-## The typed schema DSL
+## The unified JSON-value schema DSL
 
-Plugin authors write per-property specs with a boolean `required: true`, and a type-level helper maps the spec to the `execute` argument type — zero casts. The DSL is *machinery that types* `ToolDefinition`; it is intentionally a sub-page detail, not core.
+Plugin authors use one vocabulary for typed parameters and typed output values. `ValueSchemaSpec` supports `string`, `number`, `integer`, `boolean`, `null`, `array`, `object`, author-only `json`, and exact-one `oneOf`; scalar `enum` and `const` values must match their node type. An explicit object node always declares `additionalProperties: true | false`. Parameter definitions remain an implicit open object property map, with `required: true` attached to each required property.
 
 Source: [`packages/core/tools/src/schema.ts`](../../packages/core/tools/src/schema.ts)
 
 ```ts type-equiv
-/** One schema-spec property entry. */
-interface SchemaProp {
-  type: SchemaType
-  /** Per-property required flag (NOT the JSON Schema top-level required array). */
-  required?: true
-  /** Human-readable description, surfaced in the JSON Schema as well. */
-  description?: string
-  /** Enum of allowed values (strings only). */
-  enum?: string[]
-  /**
-   * Model-visible JSON Schema default annotation. Validation does not apply it;
-   * dynamic tool mounts may supply it even though first-party definitions do not.
-   */
-  default?: unknown
-  /** Nested properties for type: 'object'. */
-  properties?: SchemaSpec
-  /** Items schema for type: 'array'. */
-  items?: SchemaProp
+/** One author-facing schema for any lossless JSON value root. */
+type ValueSchemaSpec =
+  | StringValueSchemaSpec
+  | NumberValueSchemaSpec
+  | IntegerValueSchemaSpec
+  | BooleanValueSchemaSpec
+  | NullValueSchemaSpec
+  | ArrayValueSchemaSpec
+  | ObjectValueSchemaSpec
+  | JsonValueSchemaSpec
+  | OneOfValueSchemaSpec
+```
+
+```ts type-equiv
+/** One implicit parameter-root property, optionally required. */
+type ParameterPropertySpec = ValueSchemaSpec & { required?: true }
+```
+
+```ts type-equiv
+/**
+ * Tool parameter schema. The map itself is an implicit open object root;
+ * requiredness remains a per-property `required: true` annotation.
+ */
+type ParameterSchemaSpec = {
+  [key: string]: ParameterPropertySpec
+  [key: symbol]: never
 }
 ```
 
-```ts type-equiv
-/**
- * The author-facing parameter schema: a shallow map of property name to
- * {@link SchemaProp}. Required-ness is a per-property boolean (`required:
- * true`), not a separate array.
- */
-type SchemaSpec = Record<string, SchemaProp>
-```
-
-`SchemaType` is the primitive union `'string' | 'number' | 'boolean' | 'object' | 'array'`. `InferArgs<S>` maps a `SchemaSpec` to the TS argument type — `required: true` props become required keys, everything else genuinely optional:
+`{ type: 'json' }` infers `JsonValue` and compiles to an annotation-only unconstrained raw schema. Output roots can be objects, arrays, scalars, or null. `InferValue<S>` honors literal constraints and object openness through 16 container levels, then falls back to `JsonValue` instead of exhausting TypeScript's type-instantiation stack. `InferArgs<P>` turns per-property requiredness into required and optional string keys:
 
 ```ts type-equiv
 /**
- * Infer the TS argument type for a complete {@link SchemaSpec}.
- *
- * Properties marked `required: true` are required keys; all others are
- * genuinely optional keys (`?`), so callers may omit them entirely.
- *
- * Example:
- * ```ts
- * type Args = InferArgs<{ path: { type: 'string'; required: true }; limit: { type: 'number' } }>
- * // → { path: string; limit?: number }
- * ```
+ * Infer the TypeScript value accepted by an author-facing value schema. Exact
+ * inference is bounded to 16 container levels, then falls back to `JsonValue`.
  */
-type InferArgs<S extends SchemaSpec> = Simplify<
-  & { [K in RequiredKeys<S>]: InferPropValue<S[K]> }
-  & { [K in Exclude<keyof S, RequiredKeys<S>>]?: InferPropValue<S[K]> }
->
+type InferValue<S> = InferValueAt<S, []>
 ```
 
-`defineTool({ name, description, parameters, execute, … })` ties it together: `parameters` is a `SchemaSpec`, `execute(args, exec)` gets `args: InferArgs<typeof parameters>`, and the helper converts the spec to JSON Schema (`schemaSpecToJsonSchema`) for the wire and validates model-generated args (`validateArgs`) before the typed body runs. A mismatch throws `ToolArgsError` (`code: 'INVALID_ARGS'`), which the registry turns into an `isError` result so the model can self-correct. Why a custom DSL and not schemastery: tool parameters need JSON Schema (the LLM wire format), not validation/transformation — the lightweight DSL gives the best authoring DX with the smallest surface.
+```ts type-equiv
+/** Infer the TypeScript argument object for an implicit parameter schema. */
+type InferArgs<S> = InferProperties<S, []>
+```
 
-Registration is a trusted same-process contract. The registry borrows the typed definition as readonly input and validates only semantic requirements such as a positive finite `timeoutMs`; `schemas()` materializes the explicit model-facing projection at the model boundary so execution and presentation share one resolved definition without leaking callbacks onto the wire.
+`defineTool({ name, description, parameters, output, execute, … })` ties parameter inference to `parameterSchemaSpecToJsonSchema()` and `validateArgs()`, and ties `execute`/`render`/`presentationMeta` to `InferValue<OutputSchema>`. Schema records contain only own enumerable string keys, and schema arrays are dense intrinsic arrays, so inference, compilation, and validation observe the same declaration. Inference stays exact through 16 container levels and then widens to `JsonValue`; runtime validation keeps walking the complete schema. `valueSchemaSpecToJsonSchema()` compiles output declarations through the same enforced raw subset. A parameter mismatch throws `ToolArgsError` (`INVALID_ARGS`); an invalid body or post-policy value throws `ToolOutputError` (`INVALID_TOOL_OUTPUT`). Both use the normal tool-error path. Raw JSON Schema remains open by default; unsupported keywords reject instead of being accepted without enforcement.
+
+Registration is a trusted same-process contract. The registry borrows the typed definition as readonly input, requires `output`, validates its raw schema, and checks semantic requirements such as a positive finite `timeoutMs`; `schemas()` materializes the explicit model-facing projection at the model boundary so execution and presentation share one resolved definition without leaking callbacks onto the wire.
 
 ## `ToolRestriction` — one scope's live global filter
 
@@ -252,34 +260,48 @@ type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
 ```
 
 ```ts type-equiv
-/** The outcome of one tool call. */
-interface ToolExecutionResult {
-  content: ContentBlock[]
-  isError: boolean
-  /**
-   * Set when the call failed with a {@link HarnessError}: machine-routable
-   * `{ name, code }` for retry/sandbox plugins and replay. The model-facing
-   * text in `content` is always present; this is extra structure for code.
-   */
-  error?: ToolErrorInfo
-  /**
-   * Model-facing context for the next request, separate from this tool result. The loop
-   * accepts it into the active-batch FIFO, then appends after recorded results even if interrupted.
-   */
-  additionalContexts?: HookContext[]
-  /**
-   * The tool-private presentation payload from a successful `execute` (the object
-   * return form). Threaded onto the `tool/result` session event and back into
-   * {@link ToolResult} for `presentResult`. Opaque (`unknown`); absent when the
-   * tool attached none or the call failed.
-   */
-  meta?: unknown
+/** Canonical failure detail; internal routing information remains optional. */
+interface ToolFailure {
+  /** Human-readable failure message without the Native `Error: ` envelope. */
+  message: string
+  /** Internal error class/code used by policy and durable diagnostics. */
+  info?: ToolErrorInfo
 }
 ```
 
-The result carries only the outcome. Call identity remains on the immutable `ToolExecution` that accompanies it through every hook and on the durable `tool/call` / `tool/result` session events, so wrappers cannot create a second, disagreeing identity.
+```ts type-equiv
+/** Successful canonical tool execution, including its Native/model projection. */
+interface ToolExecutionSuccess {
+  readonly isError: false
+  /** Execution-local canonical value; deliberately omitted from durable events. */
+  readonly value: JsonValue
+  readonly content: ContentBlock[]
+  readonly error?: never
+  readonly meta?: JsonValue
+  readonly additionalContexts?: HookContext[]
+}
+```
 
-The registry materializes and freezes the final accepted result immediately before `tools/result`. Its content, structured error, additional context, and presentation metadata must round-trip losslessly through JSON; an invalid outcome becomes a JSON-safe `isError` result, so the observed live outcome is safe for the later durable `tool/result` append.
+```ts type-equiv
+/** Failed canonical tool execution; failures never carry a successful value. */
+interface ToolExecutionFailure {
+  readonly isError: true
+  readonly error: ToolFailure
+  readonly value?: never
+  readonly content: ContentBlock[]
+  readonly meta?: JsonValue
+  readonly additionalContexts?: HookContext[]
+}
+```
+
+```ts type-equiv
+/** The discriminated, execution-local outcome of one tool call. */
+type ToolExecutionResult = ToolExecutionSuccess | ToolExecutionFailure
+```
+
+The result carries only the outcome. Call identity remains on the immutable `ToolExecution` that accompanies it through every hook and on the durable `tool/call` / `tool/result` session events, so wrappers cannot create a second, disagreeing identity. The canonical `value` is execution-local: the loop persists only `content`, `error`, and `meta`, while `tool/code-dispatch` stores a bounded summary. Replay reproduces presentation but cannot reconstruct intermediate values.
+
+On success the registry snapshots and validates the body value, freezes it, and invokes the pure renderer plus the optional direct-surface metadata projector. It separately materializes the durable presentation fields immediately before `tools/result`; an invalid value, renderer/projector failure, or non-JSON presentation becomes a JSON-safe `isError`. The final live observer therefore sees the exact execution-local value beside fields safe for the later durable append.
 
 Each interception waterfall returns a typed **Decision** (the idiom shared with the `agent/*` seams). `tools/pre-execute` listeners receive `(exec, next)` and return a `PreToolDecision`; `tools/execute` wrappers return a `ToolExecutionResult`; `tools/post-execute` listeners receive `(exec, result, next)` and return a `PostToolDecision`:
 
@@ -298,67 +320,70 @@ type PreToolDecision =
 
 ```ts type-equiv
 /**
- * Post-dispatch decision: accept or replace content, attach context for the next
- * request, or block by turning corrective feedback into an error result.
+ * Post-dispatch decision: accept, replace one projection, attach context for the
+ * next request, or block by turning corrective feedback into an error result.
  */
 type PostToolDecision =
-  | { kind: 'accept'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: HookContext[] }
+  | { kind: 'accept'; value: JsonValue; content?: never; additionalContexts?: HookContext[] }
   | { kind: 'block'; feedback: ContentBlock[]; additionalContexts?: HookContext[] }
 ```
 
 Call `next()` for the default or return a decision to short-circuit. Pre-policy may deny or ask; only `allowed-once` proceeds, while a non-grant, missing approval channel or service, or agent-less request becomes a denial. Guards may still impose a final denial. Arguments cannot be rewritten because history, audit, UI, and execution must agree.
 
-Post-policy may replace content; a block becomes an `isError` result containing its corrective feedback. `tools/result` receives the frozen execution and result after normalization; observers cannot transform them, and observer failures are contained. Unknown and throwing tools both become structured errors (`ToolNotFoundError` maps to `UNKNOWN_TOOL`), so the call fails without ending the turn.
+Post-policy may replace either content or value, never both. Content replacement preserves the canonical value and existing metadata; value replacement is revalidated and recomputes content/metadata; a block removes the value and becomes an `isError` containing corrective feedback. Content replacement is presentation policy, not confidentiality policy: a listener that must hide the programmatic value blocks or replaces it. `tools/result` receives the frozen execution and result after normalization; observers cannot transform them, and observer failures are contained. Unknown and throwing tools both become structured errors (`ToolNotFoundError` maps to `UNKNOWN_TOOL`), so the call fails without ending the turn.
 
-## The structured-output schema subset
+## The enforced raw JSON Schema subset
 
-The vocabulary a caller uses to demand a machine-readable result from a subagent (`SubagentStartRequest.outputSchema`, [subagent.md](subagent.md#the-start-request)) or a workflow `agent()` call. It is deliberately NOT full JSON Schema: the schema travels verbatim to the model as a forced tool's `parameters`, and the produced value is validated client-side by `validateStructuredValue` — so every accepted keyword must be one the validator actually enforces, and `assertSupportedOutputSchema` rejects anything else loud (`OutputSchemaError`, listing every violation). Both walkers reason over own enumerable properties only (JSON carries nothing else) and reject non-plain objects (`Date`, `Map`) that would serialize lossily.
+Raw schemas from subagents, workflows, MCP, and dynamic registrations use the wire-level counterpart of the author DSL. `assertSupportedJsonSchema()` accepts any JSON root, `validateJsonSchemaValue()` enforces it, and `JsonSchemaError` reports every unsupported or malformed schema path. The empty annotation-only node means unconstrained lossless JSON. `oneOf` requires at least two branches and a value must match exactly one. Consumers that still require an object root call `assertObjectJsonSchema()` and carry `ObjectJsonSchema`; this is how subagent/workflow caller-defined structured output remains object-rooted without restricting the shared vocabulary.
 
 ```ts type-equiv
-/** The scalar values `enum`/`const` may carry (finite numbers only). */
-type StructuredScalar = string | number | boolean | null
+/** Scalar JSON values supported by `enum` and `const`. */
+type JsonSchemaScalar = string | number | boolean | null
 ```
 
 ```ts type-equiv
-/** The `type` keywords the subset accepts. */
-type StructuredSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null'
+/** Single-type keywords accepted by the enforced subset. */
+type JsonSchemaType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null'
 ```
 
 ```ts type-equiv
 /**
- * One node of the structured-output schema subset. Recursive via `properties`
- * and `items`; see the module doc for the exact keyword semantics.
+ * One raw JSON Schema node in the enforced subset. The optional fields express
+ * the external wire shape; {@link assertSupportedJsonSchema} rejects invalid
+ * combinations before a caller treats the node as trusted.
  */
-interface StructuredSchemaNode {
-  type: StructuredSchemaType
+interface JsonSchemaNode {
+  /** Omit with no constraints for any JSON value, or use `oneOf`. */
+  type?: JsonSchemaType
+  /** Exactly one branch must validate; at least two branches are required. */
+  oneOf?: JsonSchemaNode[]
   /** Nested property schemas (`type: 'object'` only). */
-  properties?: Record<string, StructuredSchemaNode>
+  properties?: Record<string, JsonSchemaNode>
   /** Required property names; each must appear in `properties`. */
   required?: string[]
-  /** `false` rejects undeclared keys; absent/`true` allows them (JSON Schema default). */
+  /** `false` rejects undeclared keys; absent/`true` follows JSON Schema's open default. */
   additionalProperties?: boolean
-  /** Item schema (`type: 'array'` only); absent ⇒ any JSON items. */
-  items?: StructuredSchemaNode
-  /** Allowed values (scalar types only). */
-  enum?: StructuredScalar[]
-  /** The single allowed value (scalar types only). */
-  const?: StructuredScalar
+  /** Item schema (`type: 'array'` only); absent accepts any JSON item. */
+  items?: JsonSchemaNode
+  /** Allowed values for a scalar node. */
+  enum?: JsonSchemaScalar[]
+  /** The single allowed value for a scalar node. */
+  const?: JsonSchemaScalar
   /** Annotation, ignored for validation. */
   description?: string
   /** Annotation, ignored for validation. */
   title?: string
-  /** Annotation, ignored for validation (must still be JSON data). */
-  default?: unknown
-  /** Annotation, ignored for validation (must still be JSON data). */
-  examples?: unknown
+  /** Annotation, ignored for validation but required to be lossless JSON. */
+  default?: JsonValue
+  /** Annotation, ignored for validation but required to be lossless JSON. */
+  examples?: JsonValue
 }
 ```
 
-A schema is an object-rooted node (`enum`/`const` are scalar-only; `description`/`title`/`default`/`examples` are annotations, allowed and ignored but still required to be JSON data — they ride the wire):
-
 ```ts type-equiv
-/** A structured-output schema: an OBJECT-rooted {@link StructuredSchemaNode}. */
-type StructuredOutputSchema = StructuredSchemaNode & { type: 'object' }
+/** A consumer-constrained object-rooted schema. */
+type ObjectJsonSchema = JsonSchemaNode & { type: 'object' }
 ```
 
 ## Tool-presentation UI vocabulary

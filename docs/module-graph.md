@@ -229,8 +229,6 @@ flowchart TD
   pkg_host_webserver --> pkg_invariants
   pkg_llm --> pkg_brand
   pkg_llm --> pkg_invariants
-  pkg_code_runtime_worker --> pkg_code_runtime
-  pkg_code_runtime_worker --> pkg_invariants
   pkg_helper --> pkg_brand
   pkg_helper --> pkg_invariants
   pkg_telemetry --> pkg_brand
@@ -302,6 +300,9 @@ flowchart TD
   pkg_app_boot --> pkg_invariants
   pkg_app_boot --> pkg_paths
   pkg_app_boot --> pkg_system_prompt
+  pkg_code_runtime_worker --> pkg_code_runtime
+  pkg_code_runtime_worker --> pkg_invariants
+  pkg_code_runtime_worker --> pkg_session
   pkg_lsp_local --> pkg_brand
   pkg_lsp_local --> pkg_invariants
   pkg_lsp_local --> pkg_llm
@@ -776,7 +777,6 @@ flowchart TD
 | [`host-runtime`](../packages/host/runtime) | `host` | [`invariants`](../packages/support/invariants) |
 | [`host-webserver`](../packages/host/webserver) | `host` | [`invariants`](../packages/support/invariants) |
 | [`llm`](../packages/llm/llm) | `llm` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
-| [`code-runtime-worker`](../packages/code-runtime/code-runtime-worker) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime), [`invariants`](../packages/support/invariants) |
 | [`helper`](../packages/sdk/helper) | `sdk` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
 | [`telemetry`](../packages/sdk/telemetry) | `sdk` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths) |
 | [`llm-deepseek`](../packages/llm/llm-deepseek) | `llm` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout) |
@@ -801,6 +801,7 @@ flowchart TD
 | [`session-title`](../packages/session-title/session-title) | `session-title` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`llm-replay`](../packages/support/llm-replay) | `support` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`app-boot`](../packages/ui/app-boot) | `ui` | [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`system-prompt`](../packages/core/system-prompt) |
+| [`code-runtime-worker`](../packages/code-runtime/code-runtime-worker) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`lsp-local`](../packages/lsp/lsp-local) | `lsp` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`timeout`](../packages/util/timeout) |
 | [`sandbox-local`](../packages/sandbox/sandbox-local) | `sandbox` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
 | [`sandbox-policy`](../packages/sandbox/sandbox-policy) | `sandbox` | [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session) |

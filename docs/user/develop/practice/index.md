@@ -132,9 +132,13 @@ export function apply(ctx: Context) {
     parameters: {
       input: { type: 'string', required: true },
     },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
     async execute(args) {
       const result = await ctx.myCap.execute({ input: args.input })
-      return [{ type: 'text', text: result.output }]
+      return result.output
     },
   }))
 }

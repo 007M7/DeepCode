@@ -5,7 +5,7 @@ import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as timeContext from '@deepseek-ai/dsh-time-context'
@@ -386,7 +386,7 @@ describe('real agent-loop request history', () => {
   it('persists one ordered context per request, accumulates readings, and leaves system headers unchanged', async () => {
     const adapter = new ScriptedAdapter([toolCallResponse(), textResponse('done')])
     const ctx = await loopHarness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'tick',
       description: 'advance fake time',
       parameters: {},

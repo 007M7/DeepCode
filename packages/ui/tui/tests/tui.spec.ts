@@ -31,6 +31,11 @@ import {
   type TuiHarnessOptions,
 } from './harness.ts'
 
+const UNUSED_TOOL_OUTPUT: ToolDefinition['output'] = {
+  schema: { type: 'null' },
+  render: () => [],
+}
+
 class FakeTerminal implements Terminal {
   columns = 88
   rows = 32
@@ -1857,17 +1862,17 @@ describe('renderSkillInvocation', () => {
 describe('tool cards and surface replay', () => {
   const tools: Record<string, ToolDefinition> = {
     bash: {
-      name: 'bash', description: '', parameters: {}, execute: async () => [],
+      name: 'bash', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'terminal', title: 'printf hello', description: 'Run command', cwd: '/tmp' }),
       presentResult: () => ({ card: 'terminal', output: 'hello\nworld\nthird', exitCode: 0 }),
     },
     signal: {
-      name: 'signal', description: '', parameters: {}, execute: async () => [],
+      name: 'signal', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'terminal', title: 'sleep 10' }),
       presentResult: () => ({ card: 'terminal', signal: 'SIGTERM' }),
     },
     edit: {
-      name: 'edit', description: '', parameters: {}, execute: async () => [],
+      name: 'edit', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({
         card: 'diff',
         title: 'Edit files',
@@ -1879,35 +1884,35 @@ describe('tool cards and surface replay', () => {
       presentResult: () => ({ card: 'diff', diffs: [{ path: 'a.txt', oldText: null, newText: 'created' }] }),
     },
     generic: {
-      name: 'generic', description: '', parameters: {}, execute: async () => [],
+      name: 'generic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Inspect value', rawInput: { alpha: 1 } }),
       presentResult: () => ({ card: 'generic', title: 'Inspected', content: [{ type: 'text', text: 'result text' }] }),
     },
     throwing: {
-      name: 'throwing', description: '', parameters: {}, execute: async () => [],
+      name: 'throwing', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => { throw new Error('call presenter boom') },
       presentResult: () => { throw new Error('result presenter boom') },
     },
     rawTerminal: {
-      name: 'rawTerminal', description: '', parameters: {}, execute: async () => [],
+      name: 'rawTerminal', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'terminal', title: 'raw command' }),
     },
     undefinedViews: {
-      name: 'undefinedViews', description: '', parameters: {}, execute: async () => [],
+      name: 'undefinedViews', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => undefined,
       presentResult: () => undefined,
     },
     empty: {
-      name: 'empty', description: '', parameters: {}, execute: async () => [],
+      name: 'empty', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Empty card' }),
     },
     terminalResult: {
-      name: 'terminalResult', description: '', parameters: {}, execute: async () => [],
+      name: 'terminalResult', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Becomes terminal' }),
       presentResult: () => ({ card: 'terminal', output: 'converted terminal' }),
     },
     symbolic: {
-      name: 'symbolic', description: '', parameters: {}, execute: async () => [],
+      name: 'symbolic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Symbol input', rawInput: Symbol('input') }),
     },
   }
