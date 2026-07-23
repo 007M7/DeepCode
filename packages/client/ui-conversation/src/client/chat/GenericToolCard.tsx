@@ -4,7 +4,7 @@
 
 import type { ReactNode } from 'react'
 import {
-  IconApiOutline14, IconBrowseOutline16, IconSearchOutline16, IconThinkOutline14,
+  IconApiOutline14, IconBrowseOutline16, IconEditOutline16, IconSearchOutline16, IconThinkOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolViewProps } from '../contract/toolview.ts'
 import { toolRowModel, type ToolCallBlock, type ToolRowVariant } from '../contract/tool-call-model.ts'
@@ -17,6 +17,8 @@ const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
   search: <IconSearchOutline16 />,
   read: <IconBrowseOutline16 />,
   bash: <IconApiOutline14 size={16} />,
+  write: <IconEditOutline16 />,
+  edit: <IconEditOutline16 />,
   others: <IconSparkle16 />,
 }
 

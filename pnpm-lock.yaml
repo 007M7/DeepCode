@@ -2077,6 +2077,9 @@ importers:
       '@deepseek-ai/dsh-workflow-workerthread':
         specifier: workspace:^
         version: link:../../workflow/workflow-workerthread
+      '@deepseek-ai/dsh-workspace-context':
+        specifier: workspace:^
+        version: link:../../context/workspace-context
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^

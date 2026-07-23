@@ -1,39 +1,64 @@
-/* Sidebar column (figma 133:7629): vertical stack, gap 8, padding 16/6,
-   sidebar fill + 1px right border painted by the layout column. Header block
-   (logo + New Session) and list area (section header + search + cells) carry
-   their own inner gaps per the style spec (1.2 / 1.3). */
+/* Sidebar column (figma 133:7629): vertical stack, padding 16/6, sidebar
+   fill + 1px right border painted by the layout column. Collapse morphs in
+   place: the four control rows persist into the 56px rail (one icon each,
+   x-converged by the shrinking column), geometry rides the deepsuite curve
+   while wide-only content cross-fades 200ms; explicit margins own the
+   vertical rhythm in both states so every gap can transition. */
 
 .root {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   height: 100%;
   padding: 6px 16px;
   box-sizing: border-box;
   background: var(--dsw-specific-sidebar-fill);
   color: var(--dsw-alias-label-primary);
   font-size: 14px;
+  transition: padding var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
-/* Header block (figma 133:7630): logo row + New Session, gap 16, padBottom 12. */
-.headerBlock {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding-bottom: 12px;
+.root.collapsed {
+  padding-top: 14px;
 }
 
-/* Logo row: 60px, brand mark left, collapse button right.
-   figma pad is (l,t,r,b)=(4,8,4,8) — horizontal 4, vertical 8. */
+/* Wide-only content: fades ahead of the geometry (200ms vs 300ms) and
+   unmounts once the collapse settles; remounts fade back in. */
+.wide {
+  animation: wide-in 200ms var(--ds-ease-in-out);
+  transition: opacity 200ms var(--ds-ease-in-out);
+}
+
+.collapsed .wide {
+  opacity: 0;
+}
+
+@keyframes wide-in {
+  from { opacity: 0; }
+}
+
+/* Logo row (figma pad (4,8,4,8)): brand left, panel toggle right-anchored —
+   the toggle is the rail's expand control and slides in with the right edge. */
 .logoRow {
   flex: none;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   height: 60px;
   padding: 8px 4px;
+  margin-bottom: 16px;
   box-sizing: border-box;
+  overflow: hidden;
+  transition:
+    height var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    padding var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    margin var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.collapsed .logoRow {
+  height: 24px;
+  padding: 0;
+  margin-bottom: 8px;
 }
 
 /* Brand group (figma I133:7632): fish + wordmark ride the text ink
@@ -79,13 +104,22 @@
   background: transparent;
   cursor: pointer;
   color: var(--dsw-alias-label-secondary);
+  transition:
+    width var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    height var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
 .iconButton:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* New Session: 38px capsule (figma 133:7634). */
+.collapsed .iconButton {
+  width: 24px;
+  height: 24px;
+}
+
+/* New Session: 38px capsule (figma 133:7634) morphing into the rail's plain
+   icon control — border and fill fade with the label. */
 .newSession {
   flex: none;
   display: flex;
@@ -94,6 +128,7 @@
   gap: 6px;
   height: 38px;
   padding: 8px 16px;
+  margin-bottom: 20px; /* former headerBlock padBottom 12 + root gap 8 */
   box-sizing: border-box;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 24px;
@@ -103,65 +138,84 @@
   font-weight: 510;
   line-height: 22px;
   cursor: pointer;
+  overflow: hidden;
+  transition:
+    height var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    padding var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    margin var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    gap var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    background-color 200ms var(--ds-ease-in-out);
 }
 
 .newSession:hover {
   background: var(--dsw-alias-button-floating-hover);
 }
 
-/* List area (figma 133:7640): section header + search + cells, gap 4.
-   Relative for the bottom fade overlay. */
-.listArea {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.collapsed .newSession {
+  height: 24px;
+  padding: 0;
+  margin-bottom: 8px;
+  gap: 0;
+  border-color: transparent;
+  background: transparent;
 }
 
-/* Bottom fade (figma 133:7666): 72px overlay pinned to the visible bottom,
-   transparent -> sidebar fill so it tracks the theme. */
-.fade {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 72px;
-  background: linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill));
-  pointer-events: none;
+.collapsed .newSession:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
-/* Batch separator (figma 133:7661): 20px spacer after an expanded project's
-   session run, before the next project row. */
-.batchGap {
-  flex: none;
-  height: 20px;
+.newSessionLabel {
+  max-width: 200px;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: max-width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
-/* Section header: 36px, "WorkSpace" label + group-by / new-workspace buttons. */
+.collapsed .newSessionLabel {
+  max-width: 0;
+}
+
+/* Section header: 36px, "WorkSpace" label + group-by / new-workspace buttons;
+   the right-anchored new-workspace button is the row's rail survivor. */
 .sectionHeader {
   flex: none;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
   height: 36px;
   padding-left: 12px;
+  margin-bottom: 4px;
   box-sizing: border-box;
   border-radius: 12px;
+  overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
+  transition:
+    height var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    padding var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    margin var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.collapsed .sectionHeader {
+  height: 24px;
+  padding-left: 0;
+  margin-bottom: 8px;
 }
 
 .sectionLabel {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
   line-height: 20px;
 }
 
-/* Search input: 38px capsule (figma 133:7649). Upstream binds a dedicated
-   design-system variable (light #F1F3F5 / dark #1B1B1C) matching no shipped
-   alias — a component token pinned to the static scale mirrors it (ruled
-   compliant: indirect via custom property, upstream-variable equivalent). */
+/* Search input: 38px capsule (figma 133:7649) morphing into the rail's
+   search control. Upstream binds a dedicated design-system variable (light
+   #F1F3F5 / dark #1B1B1C) matching no shipped alias — a component token
+   pinned to the static scale mirrors it (ruled compliant: indirect via
+   custom property, upstream-variable equivalent). */
 .search {
   --dsh-search-input-fill: var(--dsw-static-neutral-bluish-75);
   flex: none;
@@ -169,17 +223,62 @@
   align-items: center;
   gap: 8px;
   height: 38px;
-  margin-bottom: 8px; /* + 4px area gap = 12px to the first cell (spec padB12) */
+  margin-bottom: 12px; /* former listArea gap 4 + own 8 (spec padB12 to the first cell) */
   padding: 0 14px;
   box-sizing: border-box;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 24px;
   background: var(--dsh-search-input-fill);
   color: var(--dsw-alias-label-caption);
+  overflow: hidden;
+  transition:
+    height var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    padding var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    margin var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    gap var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    background-color 200ms var(--ds-ease-in-out);
 }
 
 :global(body[data-ds-dark-theme]) .search {
   --dsh-search-input-fill: var(--dsw-static-neutral-bluish-900);
+}
+
+.collapsed .search {
+  height: 24px;
+  padding: 0;
+  margin-bottom: 8px;
+  gap: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+/* The capsule's leading icon, upgraded to the rail's search control. While
+   expanded it is decorative: pointer-events off so clicks reach the label
+   (native input focus); collapsed it becomes the hit target. */
+.searchButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  pointer-events: none;
+  color: inherit;
+}
+
+.collapsed .searchButton {
+  pointer-events: auto;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.collapsed .searchButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .searchInput {
@@ -212,6 +311,44 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* Tree seat: always mounted so the foot never moves; the tree content inside
+   is wide-only and clips while the column squeezes. */
+.listArea {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Relative for the bottom fade overlay. */
+.treeBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Bottom fade (figma 133:7666): 72px overlay pinned to the visible bottom,
+   transparent -> sidebar fill so it tracks the theme. */
+.fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 72px;
+  background: linear-gradient(to bottom, transparent, var(--dsw-specific-sidebar-fill));
+  pointer-events: none;
+}
+
+/* Batch separator (figma 133:7661): 20px spacer after an expanded project's
+   session run, before the next project row. */
+.batchGap {
+  flex: none;
+  height: 20px;
+}
+
 /* Tree list: the only scrolling region. */
 .list {
   flex: 1;
@@ -229,20 +366,57 @@
   font-size: 13px;
 }
 
-/* Foot: settings entry (figma 133:7668). */
+/* Foot: settings entry (figma 133:7668). Left padding lands the 14px glyph
+   on the rail's icon axis when collapsed. */
 .foot {
   flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
   height: 29px;
-  margin: 10px 0;
+  margin: 18px 0 10px; /* former root gap 8 + own 10 above; root padBottom 6 below */
   padding: 0 2px 0 6px;
   border-radius: 12px;
   cursor: pointer;
+  overflow: hidden;
   color: var(--dsw-alias-label-primary);
+  transition:
+    padding var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    gap var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
 .foot:hover {
   background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.collapsed .foot {
+  gap: 0;
+  padding: 0 0 0 5px;
+}
+
+.footLabel {
+  max-width: 120px;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: max-width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+.collapsed .footLabel {
+  max-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root,
+  .wide,
+  .logoRow,
+  .iconButton,
+  .newSession,
+  .newSessionLabel,
+  .sectionHeader,
+  .search,
+  .foot,
+  .footLabel {
+    transition: none;
+    animation: none;
+  }
 }

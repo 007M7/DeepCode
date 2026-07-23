@@ -32,6 +32,7 @@ function ThinkRow({ text, running }: { text: string; running: boolean }) {
       summary={firstLine(text)}
       body={text}
       state={running ? 'running' : 'ok'}
+      expandOnRowClick
     />
   )
 }
