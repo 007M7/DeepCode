@@ -18,7 +18,7 @@ Separately, `context/message` and `user/message` had converged: the surface proj
 
 **Goal replay disambiguates by round, not type.** A goal state change is a round-zero goal-sourced `user/message` carrying `goal/change` metadata; a positive round is an admitted continuation prompt. `decodeGoalEvent` now takes a `user/message` and still fails loud on goal metadata under a non-goal source or a goal source lacking metadata.
 
-**Three inbox events replace agent/queued.** `agent/inbox/enqueue` (an item entered a FIFO; carries `target`/`wakeup` on `InboxItemInfo`), `agent/inbox/dequeue` (the driver claimed one), and `agent/inbox/discard` (`cancel()` dropped pending items). Injection never touches a FIFO and emits none of these. The `dsh-agent` invariant companion asserts FIFO conservation: a per-agent outstanding count that dequeue and discard can never drive negative.
+**Three inbox events replace agent/queued.** `agent/inbox/enqueue` (an item entered a FIFO; carries `target`/`wakeup` on `InboxItemInfo`), `agent/inbox/dequeue` (the driver claimed one), and `agent/inbox/discard` (`cancel()` dropped pending items). Injection never touches a FIFO and emits none of these. Every FIFO entry publishes an enqueue, including the loop-authored continuation-reason steer (`agent/turn-continuation` returning `{ action: 'continue', reason }`), so the ledger stays balanced with its later dequeue or discard. The `dsh-agent` invariant companion asserts FIFO conservation: a per-agent outstanding count that dequeue and discard can never drive negative.
 
 **cancel gains keepInbox.** `cancel(cause?, { keepInbox? })`; when true it aborts the active turn but preserves queued and steering items (no discard event, and un-started work is not dropped).
 

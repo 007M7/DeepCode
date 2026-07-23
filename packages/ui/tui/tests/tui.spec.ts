@@ -594,8 +594,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(result.terminal.output).toContain('1 queued')
 
-    // A loop-authored steering event (plugin source, no matching agent/inbox/enqueue)
-    // cannot consume a pending user slot, even when it drains first.
+    // A steering/message whose source matches no pending badge entry (here a
+    // plugin source with no tracked enqueue) pops nothing, so it cannot consume
+    // a pending user slot even when it drains first.
     result.terminal.output = ''
     result.session.append('steering/message', {
       turn: 1,

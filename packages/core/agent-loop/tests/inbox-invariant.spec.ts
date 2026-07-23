@@ -1,0 +1,89 @@
+/**
+ * Regression: the dsh-agent FIFO-conservation invariant must stay balanced on
+ * the loop-authored continuation-reason steering path. A continue-with-reason
+ * decision enters the steering FIFO and later drains (or is discarded by
+ * cancel); both must be matched by an enqueue event so the invariant's
+ * outstanding count never goes negative.
+ * @module dsh-agent-loop/tests/inbox-invariant
+ */
+
+import { describe, expect, it, vi } from 'vitest'
+import { Context } from 'cordis'
+import LlmService from '@deepseek-ai/dsh-llm'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
+import InvariantService from '@deepseek-ai/dsh-invariants'
+import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { MockAdapter, textResponse } from './mock-adapter.ts'
+
+async function harness(adapter: MockAdapter) {
+  const ctx = new Context()
+  await ctx.plugin(LlmService)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(InvariantService)
+  await ctx.plugin(AgentInvariant)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  ctx.llm.registerAdapter(['mock'], adapter)
+  return ctx
+}
+
+function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
+  return new Promise((resolve) => {
+    const dispose = ctx.on('agent/status', (subject, status) => {
+      if (subject === agent && status === 'idle') { dispose(); resolve() }
+    })
+  })
+}
+
+describe('inbox FIFO-conservation invariant', () => {
+  it('stays balanced when a continuation reason enters and drains the steering FIFO', async () => {
+    const adapter = new MockAdapter([textResponse('step 1'), textResponse('step 2')])
+    const ctx = await harness(adapter)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    let forced = false
+    ctx.on('agent/turn-continuation', async (_agent, _turn, _default, _signal, next) => {
+      if (forced) return next()
+      forced = true
+      return { action: 'continue' as const, reason: { content: [{ type: 'text', text: 'keep going' }], source: { kind: 'plugin', plugin: 'loop' } } }
+    })
+
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests).toHaveLength(2)
+    // The continuation reason drained as a steering/message on the second step.
+    expect(agent.session.events.some(e => e.type === 'steering/message')).toBe(true)
+    // No invariant violation was logged.
+    expect(warn.mock.calls.flat().some(arg => String(arg).includes('agent/inbox'))).toBe(false)
+    expect(warn.mock.calls.flat().some(arg => String(arg).includes('INVARIANT'))).toBe(false)
+  })
+
+  it('stays balanced when cancel discards a pending continuation reason', async () => {
+    const adapter = new MockAdapter([textResponse('only step')])
+    const ctx = await harness(adapter)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    // Force a continuation reason, then cancel from the same checkpoint so the
+    // reason sits in the steering FIFO when the inbox is discarded.
+    ctx.on('agent/turn-continuation', async (subject, _turn, _default, _signal, next) => {
+      if (subject !== agent) return next()
+      queueMicrotask(() => { agent.cancel({ kind: 'user' }) })
+      return { action: 'continue' as const, reason: { content: [{ type: 'text', text: 'keep going' }], source: { kind: 'plugin', plugin: 'loop' } } }
+    })
+
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+
+    expect(warn.mock.calls.flat().some(arg => String(arg).includes('agent/inbox'))).toBe(false)
+    expect(warn.mock.calls.flat().some(arg => String(arg).includes('INVARIANT'))).toBe(false)
+  })
+})

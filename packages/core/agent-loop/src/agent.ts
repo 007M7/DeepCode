@@ -9,12 +9,12 @@
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import { Agent } from '@deepseek-ai/dsh-agent'
-import type { AgentCancelCause, AgentOptions, AgentStatus, CancelOptions, HookContext, InboxItemInfo, SendOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentCancelCause, AgentOptions, AgentStatus, CancelOptions, HookContext, SendOptions } from '@deepseek-ai/dsh-agent'
 import { deepFreeze, errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { snapshotJsonValue, type Session, type SessionId } from '@deepseek-ai/dsh-session'
 import { DISPOSED_INTERRUPT_REASON, TurnCancellation } from './cancellation.ts'
-import { Inbox, type InboxMessage } from './inbox.ts'
+import { Inbox, inboxInfo, type InboxMessage } from './inbox.ts'
 import { isTurnOpen, lastTurnNumber, runLoop } from './loop.ts'
 
 /** Sessions already claimed by a concrete driver construction. */
@@ -205,11 +205,6 @@ export class ReactLoopAgent extends Agent {
     return deepFreeze(accepted)
   }
 
-  /** Build the `agent/inbox/*` payload for one accepted item. */
-  private inboxInfo(message: InboxMessage, steering: boolean): InboxItemInfo {
-    return { content: message.content, source: message.source, contexts: message.contexts, steering, wakeup: message.wakeup }
-  }
-
   /** Detach one context before it can outlive its caller in the active-batch FIFO. */
   private acceptContext(context: HookContext): HookContext {
     const accepted = snapshotJsonValue(context)
@@ -240,7 +235,7 @@ export class ReactLoopAgent extends Agent {
     } else {
       this.#inbox.enqueue(accepted, wakeup)
     }
-    agentEvents(this.loopCtx, this).emit('agent/inbox/enqueue', this.inboxInfo(accepted, steering))
+    agentEvents(this.loopCtx, this).emit('agent/inbox/enqueue', inboxInfo(accepted, steering))
   }
 
   /** The `next-step`/no-wakeup injection path: durable context, no FIFO, no run. */
@@ -351,7 +346,7 @@ export class ReactLoopAgent extends Agent {
       // Clear work already present before abort observers run.
       this.#inbox.clear()
       if (discarded.length > 0) {
-        const items = discarded.map(({ message, steering }) => this.inboxInfo(message, steering))
+        const items = discarded.map(({ message, steering }) => inboxInfo(message, steering))
         agentEvents(this.loopCtx, this).emit('agent/inbox/discard', items)
       }
     }

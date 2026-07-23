@@ -10,7 +10,7 @@ import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, LlmFai
 import { isDeepStrictEqual } from 'node:util'
 import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorChain, llmFailureOf, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import { agentEvents, agentInterruptReasonOf, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { AgentEventDispatch, ContinuationDecision, HookContext, InboxItemInfo, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
+import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { PromptMessageData, Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
 import { createTransmissionLog, recordRequestHeader } from './request-log.ts'
@@ -19,13 +19,8 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
-import type { Inbox, InboxMessage } from './inbox.ts'
+import { inboxInfo, type Inbox, type InboxMessage } from './inbox.ts'
 import type { TurnCancellation } from './cancellation.ts'
-
-/** Build the `agent/inbox/dequeue` payload for one claimed inbox item. */
-function inboxInfo(message: InboxMessage, steering: boolean): InboxItemInfo {
-  return { content: message.content, source: message.source, contexts: message.contexts, steering, wakeup: message.wakeup }
-}
 
 /** Normalize thrown values while preserving an existing error code. */
 function toError(error: unknown): RequestError {
@@ -543,9 +538,13 @@ async function runTurn(
         break
       }
 
-      // A continuation reason becomes next-step steering.
+      // A continuation reason becomes next-step steering. Publish the same
+      // enqueue event a public steer would, so the inbox ledger stays balanced
+      // (every FIFO entry has a matching enqueue before its dequeue/discard).
       if (decision.action === 'continue' && decision.reason) {
-        handle.inbox.steer({ content: decision.reason.content, source: decision.reason.source, contexts: [], wakeup: true })
+        const item: InboxMessage = { content: decision.reason.content, source: decision.reason.source, contexts: [], wakeup: true }
+        handle.inbox.steer(item)
+        events.emit('agent/inbox/enqueue', inboxInfo(item, true))
       }
       let shouldContinue = decision.action === 'continue'
 

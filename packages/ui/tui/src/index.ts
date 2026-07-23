@@ -1487,14 +1487,15 @@ export function createTuiChat(
   let toolsExpanded = false
   let streaming: StreamingAssistantComponent | undefined
   let runningStatus: RunningStatus | undefined
-  // Steering messages queued during the running turn (`agent/inbox/enqueue`)
-  // that the loop has not yet drained, shown as a badge on the status line. Each
-  // entry is the queued message's serialized source: a drain (`steering/message`)
-  // removes one MATCHING entry, so loop-authored steering — continuation reasons
-  // enter the inbox without an `agent/inbox/enqueue` event — cannot consume a
-  // pending user message's slot. Cleared on leaving `running`, which also absorbs a
-  // cancellation that discards the queue without logging drains; the status
-  // line exists only while running, so idle carries no badge to keep current.
+  // Steering messages queued during the running turn (`agent/inbox/enqueue`
+  // with `info.steering`) that the loop has not yet drained, shown as a badge on
+  // the status line. Each entry is the queued message's serialized source: a
+  // drain (`steering/message`) removes one MATCHING entry, so a loop-authored
+  // continuation reason (which enqueues and drains under its own source) pushes
+  // and pops its own slot and cannot consume a pending user message's slot.
+  // Cleared on leaving `running`, which also absorbs a cancellation that
+  // discards the queue without logging drains; the status line exists only
+  // while running, so idle carries no badge to keep current.
   const pendingSteering: string[] = []
   let disposed = false
   let shuttingDown: Promise<void> | undefined
@@ -2558,9 +2559,9 @@ export function createTuiChat(
     advanceTurnPhase(event)
     if (event.type === 'steering/message') {
       // A queued steering message reached the model as it drained; drop its
-      // entry from the badge. Matching by source keeps loop-authored steering
-      // (e.g. continuation reasons), which logs here without a matching
-      // `agent/inbox/enqueue` increment, from consuming a pending user slot.
+      // entry from the badge. Matching by source keeps a loop-authored
+      // continuation reason popping its own enqueued slot rather than a pending
+      // user message's slot.
       const drained = pendingSteering.indexOf(JSON.stringify(event.data.source))
       if (drained >= 0) {
         pendingSteering.splice(drained, 1)
