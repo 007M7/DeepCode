@@ -198,6 +198,8 @@ const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   LocaleDict: 'service-local dictionary shape is owned by packages/client/i18n/src/index.ts',
   ThemeTokens: 'service-local token dictionary is owned by packages/client/ui-theme/src/index.ts',
   Translate: 'service-local bound translator is owned by packages/client/i18n/src/index.ts',
+  TuiOverlayRequest: 'service-local extension contract is owned by packages/ui/tui/README.md',
+  TuiOverlaySession: 'service-local extension contract is owned by packages/ui/tui/README.md',
   InvariantRegistration: 'service-local lifecycle handle is owned by packages/support/invariants/README.md',
   PresetOption: 'deployment menu metadata is owned by packages/ui/permission/README.md',
   PresetSpec: 'deployment preset composition is owned by packages/ui/permission/README.md',
