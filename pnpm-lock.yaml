@@ -555,9 +555,6 @@ importers:
 
   packages/client/ui-conversation:
     dependencies:
-      '@deepseek-ai/dsh-client-i18n':
-        specifier: workspace:^
-        version: link:../i18n
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
         version: link:../runtime

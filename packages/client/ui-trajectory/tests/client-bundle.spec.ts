@@ -3,14 +3,14 @@
  * Real tsdown artifact shape: lib/client.js hands off through
  * window.DSHClientProxy.loadPlugin, resolves externals through the injected
  * require, returns the export surface (apply + inject), and a mounted apply
- * registers both views into a real ConversationService. Skips when dist/ is
+ * registers both view tabs into a real SlotsService ring. Skips when dist/ is
  * not built (`pnpm --filter @deepseek-ai/dsh-client-ui-trajectory bundle`).
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 
 const PLUGIN_ID = '@deepseek-ai/dsh-client-ui-trajectory'
 
@@ -59,18 +59,23 @@ describe('tsdown client artifact', () => {
     const { handoff, surface } = await loadArtifact()
     expect(handoff.id).toBe(PLUGIN_ID)
     expect(surface.apply).toBeTypeOf('function')
-    expect(surface.inject).toEqual(['conversation'])
+    expect(surface.inject).toEqual(['slots'])
   })
 
-  it.skipIf(code === undefined)('mounted as an object plugin, apply registers both views on the real service', async () => {
+  it.skipIf(code === undefined)('mounted as an object plugin, apply registers both view tabs on the real ring', async () => {
     const { surface } = await loadArtifact()
     const ctx = new Context()
-    const svc = new ConversationService(ctx)
+    const slots = new SlotsService(ctx)
+    // The conversation entry's role: the ring must be declared before riders land.
+    slots.register({
+      name: 'root',
+      children: { 'conversation.view': { kind: 'list', scope: 'session' } },
+    }, (_p: { renderSlot?: unknown }) => null)
     const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })
     await fiber.await()
-    expect(svc.views().map(v => v.id)).toEqual(['trajectory', 'waterfall'])
+    expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory', 'waterfall'])
     await fiber.dispose()
-    expect(svc.views()).toHaveLength(0)
+    expect(slots.entries('conversation.view')).toHaveLength(0)
   })
 
   it.skipIf(code === undefined)('injects plugin-tagged module CSS during factory execution', async () => {
