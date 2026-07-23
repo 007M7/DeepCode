@@ -12,6 +12,7 @@ import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
 import type { SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { TaskOutcome } from '@deepseek-ai/dsh-tasks'
@@ -45,8 +46,7 @@ export interface Config {
   /**
    * Tool filter applied to every child. Filtered tools disappear from its
    * prompt and reject execution. Requires the provider's `toolFilter`
-   * capability; unknown names fail startup. Children otherwise see this tool,
-   * so deny it or set `maxDepth` to bound recursion.
+   * capability; unknown names fail startup.
    */
   toolFilter?: {
     /** Global tool names the child keeps; everything else is removed. */
@@ -55,10 +55,15 @@ export interface Config {
     deny?: string[]
   }
   /**
-   * Maximum child depth. Requires the provider's `depthLimit` capability and a
-   * non-negative safe integer. Omission is unbounded.
+   * Maximum child depth: a non-negative safe integer (default `3`; `0` forbids
+   * delegation entirely), or `'provider-managed'` to send no cap. A numeric cap
+   * requires the provider's `depthLimit` capability (mount fails loud
+   * otherwise). The provider checks the calling agent's current depth at every
+   * start; the tool remains model-visible so runtime policy owns rejection.
+   * `'provider-managed'` is for an out-of-process provider (ACP) whose
+   * recursion budget belongs to the child harness's own deployment.
    */
-  maxDepth?: number
+  maxDepth?: number | 'provider-managed'
 }
 
 export const Config: z<Config> = z.object({
@@ -67,15 +72,16 @@ export const Config: z<Config> = z.object({
   enableRunInBackground: z.boolean().default(true),
   // Prevent Schemastery from materializing omitted agentOptions as `{}`.
   agentOptions: z.object({
+    provider: z.string(),
     model: z.string(),
-  }).default(undefined as unknown as { model: string }),
+  }).default(undefined as unknown as { provider: string; model: string }),
   persona: z.string(),
   // Preserve omission; Schemastery's `{ allow: [] }` default would deny every tool.
   toolFilter: z.object({
     allow: z.array(z.string()).default(undefined as unknown as string[]),
     deny: z.array(z.string()).default(undefined as unknown as string[]),
   }).default(undefined as unknown as { allow: string[]; deny: string[] }),
-  maxDepth: z.natural().max(Number.MAX_SAFE_INTEGER),
+  maxDepth: z.union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed' as const)]).default(3),
 })
 
 /**
@@ -87,6 +93,16 @@ function outputText(blocks: ContentBlock[]): string {
   return blocks
     .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
     .map(b => b.text)
+    .join('')
+}
+
+/** Render text blocks from the canonical JSON block array without trusting arbitrary values. */
+function outputValueText(values: JsonValue[]): string {
+  return values
+    .filter((value): value is { type: 'text'; text: string } =>
+      typeof value === 'object' && value !== null && !Array.isArray(value)
+      && value.type === 'text' && typeof value.text === 'string')
+    .map(value => value.text)
     .join('')
 }
 
@@ -160,13 +176,13 @@ export async function settleRun(run: SubagentRun): Promise<TaskOutcome> {
  * A fresh child needs a standalone prompt; a forked child already sees the
  * conversation's completed turns — telling the model to restate everything
  * (or, worse, that the child "does not see this conversation") would be false
- * for a fork. Exported for tests.
+ * for a fork.
  * @param inheritsConversation - whether the child's conversation is seeded
  *   with the parent's completed turns; this says nothing about tool, service,
  *   scope, or authority inheritance.
  * @returns the tool `description` and the `prompt` parameter description.
  */
-export function providerWording(inheritsConversation: boolean): { description: string; promptDescription: string } {
+function providerWording(inheritsConversation: boolean): { description: string; promptDescription: string } {
   if (inheritsConversation) {
     return {
       description:
@@ -194,6 +210,7 @@ export function providerWording(inheritsConversation: boolean): { description: s
 }
 
 function startRequest(config: Config, prompt: string, parent: Agent, signal: AbortSignal): SubagentStartRequest {
+  const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined
   return {
     prompt: [{ type: 'text', text: prompt }],
     parent,
@@ -201,7 +218,7 @@ function startRequest(config: Config, prompt: string, parent: Agent, signal: Abo
     ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
     ...config.persona !== undefined ? { persona: config.persona } : {},
     ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
-    ...config.maxDepth !== undefined ? { maxDepth: config.maxDepth } : {},
+    ...maxDepth !== undefined ? { maxDepth } : {},
   }
 }
 
@@ -217,8 +234,9 @@ async function settleStart(start: Promise<SubagentRun>, signal: AbortSignal): Pr
 }
 
 export function apply(ctx: Context, config: Config): void {
-  // Direct apply() bypasses Schemastery's numeric constraints.
-  assertSubagentMaxDepth(config.maxDepth)
+  // Direct apply() bypasses Schemastery's numeric constraints. A direct-apply
+  // omission stays capless (the schema default only runs through the loader).
+  if (config.maxDepth !== 'provider-managed') assertSubagentMaxDepth(config.maxDepth)
   // Reject an empty explicit filter at load instead of failing every delegation.
   if (config.toolFilter !== undefined && config.toolFilter.allow === undefined && config.toolFilter.deny === undefined) {
     throw new Error('tool-subagent: `toolFilter` is configured but names neither `allow` nor `deny` — remove the key or fill the filter')
@@ -227,6 +245,15 @@ export function apply(ctx: Context, config: Config): void {
   // can change provider availability while this fiber remains active.
   let disposeTool: (() => void) | undefined
   const mount = (provider: SubagentProvider): void => {
+    // A numeric cap the provider cannot enforce is a misconfiguration — fail at
+    // mount (the earliest point the provider's capabilities are known), not on
+    // the first delegation.
+    if (typeof config.maxDepth === 'number' && !provider.capabilities.depthLimit) {
+      throw new Error(
+        `tool-subagent: provider "${provider.name}" cannot enforce maxDepth (no depthLimit capability) — `
+        + 'set maxDepth: \'provider-managed\' to leave the recursion budget to the provider',
+      )
+    }
     const wording = providerWording(provider.inheritsParentContext)
     const backgroundEnabled = config.enableRunInBackground !== false
     disposeTool = ctx.tools.register(defineTool({
@@ -252,7 +279,36 @@ export function apply(ctx: Context, config: Config): void {
           },
         } : {},
       },
-      async execute(args, exec): Promise<ContentBlock[]> {
+      output: {
+        schema: {
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                kind: { type: 'string', required: true, const: 'background' },
+                taskId: { type: 'string', required: true },
+              },
+            },
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                kind: { type: 'string', required: true, const: 'foreground' },
+                runId: { type: 'string', required: true },
+                output: { type: 'array', required: true, items: { type: 'json' } },
+              },
+            },
+          ],
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: value.kind === 'background'
+            ? `started background subagent task ${value.taskId}`
+            : outputValueText(value.output),
+        }],
+      },
+      async execute(args, exec) {
         const parent = exec.agent
         if (!parent) {
           // Non-agent callers provide no parent for delegation ownership.
@@ -269,9 +325,6 @@ export function apply(ctx: Context, config: Config): void {
           if (tasks === undefined) {
             throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
           }
-          // Reject cancellation before spawning; after return, the task-owned
-          // signal covers both pending startup and the ready child.
-          if (exec.signal?.aborted) throw new Error('subagent delegation aborted')
           // Task preflight finishes before the starter can spawn a child.
           const id = tasks.start({
             kind: 'subagent',
@@ -292,14 +345,14 @@ export function apply(ctx: Context, config: Config): void {
               }
             },
           })
-          return [{ type: 'text', text: `started background subagent task ${id}` }]
+          return { kind: 'background' as const, taskId: id }
         }
 
         const request = startRequest(
           config,
           args.prompt,
           parent,
-          exec.signal ?? new AbortController().signal,
+          exec.signal,
         )
 
         const run: SubagentRun = await ctx.subagents.start(config.provider, request)
@@ -311,7 +364,13 @@ export function apply(ctx: Context, config: Config): void {
             // The registry converts this throw to isError; partial output is not success.
             throw new Error(error)
           }
-          return [{ type: 'text', text: outputText(result.output) }]
+          return {
+            kind: 'foreground' as const,
+            runId: run.id,
+            // Content blocks already cross durable JSON boundaries elsewhere;
+            // the registry performs the authoritative lossless snapshot here.
+            output: result.output as unknown as JsonValue[],
+          }
         } finally {
           // Dispose before returning so no child session outlives the call.
           await run.dispose()

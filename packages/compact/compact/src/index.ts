@@ -3,22 +3,37 @@
  * compact and replace a history range with one summary node by subclassing
  * {@link CompactService}. This interface necessarily depends on session and LLM
  * vocabulary; the rationale is in the
- * [compaction RFC](../../../../docs/rfc/implemented/feature/2026-06-18-compaction-capability-seam.md).
+ * [compaction Agent Note](../../../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md).
  * @module @deepseek-ai/dsh-compact
  */
 
 import { Context, Service } from 'cordis'
-import type { Message } from '@deepseek-ai/dsh-llm'
+import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { CompactionResult } from './types.ts'
 
 export type { CompactionResult } from './types.ts'
-export { renderContentBlocks, renderTranscript } from './render.ts'
+export { toolPairingBalancedAfter, toolPairingBalancedBefore } from './tool-pairing.ts'
+
+/** Canonical source for the replacement user message produced by every compaction backend. */
+export const COMPACT_CHECKPOINT_SOURCE = Object.freeze({ kind: 'plugin', plugin: 'compact' } as const)
+
+/**
+ * Test whether a persisted message source identifies a compaction checkpoint.
+ * @param source - source restored from a surface user message.
+ * @returns whether the source carries the backend-independent checkpoint marker.
+ */
+export function isCompactCheckpointSource(source: MessageSource): boolean {
+  return source.kind === 'plugin' && source.plugin === COMPACT_CHECKPOINT_SOURCE.plugin
+}
+
+/** Why automatic policy is asking a backend to consider compaction. */
+export type CompactionTrigger = 'pressure' | 'context-overflow'
 
 /** Minimal agent context compaction needs without depending on the agent package. */
 export interface CompactAgentContext {
   session: Session
-  options: { model?: string }
+  options: { provider?: string; model?: string }
 }
 
 declare module 'cordis' {
@@ -28,10 +43,13 @@ declare module 'cordis' {
 }
 
 /**
- * Abstract compaction service. Implementations own token estimation, retention,
- * and summarization, but a successful run must replace the selected surface span
- * with one summary node and prevent concurrent compaction of the same session.
- * Load one implementation per context as `ctx.compact`.
+ * Abstract compaction service. Implementations own trigger policy, retention,
+ * and summarization, and may consume a separate measurement service. A
+ * successful run replaces the selected surface span with one summary node and
+ * prevents concurrent compaction of the same session. The replacement user
+ * message uses {@link COMPACT_CHECKPOINT_SOURCE} so consumers recognize it
+ * independently of the backend. Load one implementation per context as
+ * `ctx.compact`.
  */
 export abstract class CompactService extends Service {
   constructor(ctx: Context) {
@@ -39,24 +57,20 @@ export abstract class CompactService extends Service {
   }
 
   /**
-   * Check token pressure and compact if the conversation is too large.
-   * Estimate the next request, including its session prefix, derived history,
-   * and system prompt. Above threshold, compact a head-anchored range ending at
-   * a balanced tool boundary and reconsolidate any prior automatic checkpoint.
-   * Return `null` when no compaction is needed or an open tail leaves no safe
-   * cutoff. A single oversized retained unit or prefix cannot be repaired here.
+   * Consider automatic compaction for one explicit trigger. Pressure policy
+   * uses the latest durable routed request, while context-overflow policy may
+   * force a useful balanced reduction even below the normal threshold. Return
+   * `null` when no safe range can be compacted. A single oversized retained
+   * unit or request envelope cannot be repaired through surface compaction.
    *
-   * @param agent - agent context owning the session surface and model options.
-   * @param fullSystemPrompt - assembled system prompt, counted toward the estimate.
-   * @param sessionPrefix - the instance's composed session prefix, counted toward the
-   *   estimate.
+   * @param agent - agent context owning the session surface and routing options.
+   * @param trigger - normal pressure or provider-confirmed context overflow.
    * @param signal - cancellation signal; model-backed implementations must forward it.
    * @returns the compaction result, or `null` if no compaction was needed.
    */
   abstract compactIfNeeded(
     agent: CompactAgentContext,
-    fullSystemPrompt: string,
-    sessionPrefix: readonly Message[],
+    trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null>
 
@@ -66,18 +80,19 @@ export abstract class CompactService extends Service {
    * order; replacements can make visible seqs non-monotonic. Both edges must be
    * balanced so assistant tool calls remain paired with their results. A model-
    * backed implementation forwards cancellation and rejects active, missing,
-   * reversed, or unbalanced ranges.
+   * reversed, or unbalanced ranges. The target session is `agent.session`.
+   * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.
+   * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}
+   * for the edge checks.
    *
-   * @param session - session to mutate.
    * @param start - first surface seq, inclusive.
    * @param end - last surface seq, inclusive.
-   * @param agent - summarizer context.
+   * @param agent - context whose session is mutated and whose routing options guide summarization.
    * @param signal - optional cancellation; model-backed implementations must forward it.
    * @throws when compaction is active or the range is missing, reversed, or unbalanced.
-   * @returns the replaced range and summary.
+   * @returns the appended event seqs, summary, replaced range, and token accounting.
    */
   abstract compactRegion(
-    session: Session,
     start: number,
     end: number,
     agent: CompactAgentContext,

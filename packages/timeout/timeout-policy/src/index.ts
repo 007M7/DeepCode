@@ -33,10 +33,11 @@ export const inject = ['tools']
  * @returns the `isError` {@link ToolExecutionResult} with a `TOOL_TIMEOUT` error.
  */
 function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
+  const message = `tool call timed out after ${timeoutMs}ms`
   return {
-    content: [{ type: 'text', text: `Error: tool call timed out after ${timeoutMs}ms` }],
+    content: [{ type: 'text', text: `Error: ${message}` }],
     isError: true,
-    error: { name: 'ToolTimeoutError', code: TOOL_TIMEOUT },
+    error: { message, info: { name: 'ToolTimeoutError', code: TOOL_TIMEOUT } },
   }
 }
 
@@ -54,8 +55,7 @@ export function apply(ctx: Context): void {
     using d = deadline(exec.signal, timeoutMs, TOOL_TIMEOUT)
     // Swap the derived deadline onto exec for dispatch, then restore the
     // caller's own signal so post-execute listeners never see this plugin's
-    // (possibly already-aborted) timeout signal. `undefined` is not assignable to
-    // the optional `signal` under exactOptionalPropertyTypes, so branch on it.
+    // (possibly already-aborted) timeout signal.
     const upstream = exec.signal
     exec.signal = d.signal
     try {
@@ -69,8 +69,7 @@ export function apply(ctx: Context): void {
       }
       return result
     } finally {
-      if (upstream === undefined) delete exec.signal
-      else exec.signal = upstream
+      exec.signal = upstream
     }
   })
 }

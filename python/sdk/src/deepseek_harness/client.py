@@ -115,10 +115,12 @@ class HarnessClient:
         self,
         *,
         cwd: str,
+        provider: str,
         model: str,
     ) -> InitializeResponse:
         payload: JsonObject = {
             "cwd": str(Path(cwd).resolve()),
+            "provider": provider,
             "model": model,
         }
         try:

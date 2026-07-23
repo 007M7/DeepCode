@@ -12,12 +12,14 @@ import { AddressInfo } from 'node:net'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import WebService from '@deepseek-ai/dsh-web'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import * as TimeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
+
+const testToolSignal = new AbortController().signal
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => void
 
@@ -54,16 +56,15 @@ afterEach(async () => {
 })
 
 let counter = 0
-type ToolResult = { isError: boolean; content: { type: string; text?: string }[]; error?: { code: string } }
-function call(name: string, args: unknown): Promise<ToolResult> {
-  return ctx.tools.execute({ callId: CallId(`call-${++counter}`), name, arguments: args })
+function call(name: string, args: unknown): Promise<ToolExecutionResult> {
+  return ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++counter}`), name, arguments: args })
 }
 
 describe('web_fetch integration over the real backend', () => {
   it('fetches an html page and renders it to markdown', async () => {
     const out = await call('web_fetch', { url: base })
     expect(out.isError).toBe(false)
-    const text = out.content.map(b => b.text).join('')
+    const text = out.content.map(b => b.type === 'text' ? b.text : '').join('')
     expect(text).toContain(`Fetched ${base}`)
     expect(text).toContain('# Hello')
     expect(text).toContain('World')
@@ -73,20 +74,20 @@ describe('web_fetch integration over the real backend', () => {
     handler = (_req, res) => { res.writeHead(404, { 'content-type': 'text/plain' }); res.end('missing') }
     const out = await call('web_fetch', { url: base })
     expect(out.isError).toBe(false)
-    expect(out.content.map(b => b.text).join('')).toContain('HTTP 404')
+    expect(out.content.map(b => b.type === 'text' ? b.text : '').join('')).toContain('HTTP 404')
   })
 
   it('surfaces WEB_INVALID_URL as a structured tool error', async () => {
     const out = await call('web_fetch', { url: 'ftp://example.com' })
     expect(out.isError).toBe(true)
-    expect(out.error?.code).toBe('WEB_INVALID_URL')
+    expect(out.error?.info?.code).toBe('WEB_INVALID_URL')
   })
 
   it('surfaces a blocked cross-origin redirect as WEB_REDIRECT_BLOCKED', async () => {
     handler = (_req, res) => { res.writeHead(302, { location: 'https://example.com/' }); res.end() }
     const out = await call('web_fetch', { url: base })
     expect(out.isError).toBe(true)
-    expect(out.error?.code).toBe('WEB_REDIRECT_BLOCKED')
+    expect(out.error?.info?.code).toBe('WEB_REDIRECT_BLOCKED')
   })
 })
 
@@ -98,7 +99,7 @@ describe('web_search integration over the real Exa provider', () => {
     )))
     const out = await call('web_search', { query: 'deepseek' })
     expect(out.isError).toBe(false)
-    expect(out.content.map(b => b.text).join('')).toContain('[Result](https://result.test)')
+    expect(out.content.map(b => b.type === 'text' ? b.text : '').join('')).toContain('[Result](https://result.test)')
   })
 })
 
@@ -147,11 +148,11 @@ describe('tool-call timeout returns TOOL_TIMEOUT (deadline wins over a slow fetc
   })
 
   it('returns a structured TOOL_TIMEOUT (not the provider WEB_FETCH_TIMEOUT) when the tool-call budget wins', async () => {
-    const out = await tctx.tools.execute({ callId: CallId('slow-1'), name: 'web_fetch', arguments: { url: slowBase } })
+    const out = await tctx.tools.execute({ signal: testToolSignal, callId: CallId('slow-1'), name: 'web_fetch', arguments: { url: slowBase } })
     expect(out.isError).toBe(true)
     // The outer tool-call deadline won: TOOL_TIMEOUT, owned by dsh-timeout-policy,
     // NOT the provider's own WEB_FETCH_TIMEOUT (its 30s backstop never fired).
-    expect(out.error?.code).toBe('TOOL_TIMEOUT')
+    expect(out.error?.info?.code).toBe('TOOL_TIMEOUT')
     const text = out.content.map(b => (b.type === 'text' ? b.text : '')).join('')
     expect(text).toContain('timed out after 50ms')
   })

@@ -18,7 +18,7 @@
       "path": "../../sandbox/sandbox"
     },
     {
-      "path": "../../core/session"
+      "path": "../../support/invariants"
     }
   ]
 }

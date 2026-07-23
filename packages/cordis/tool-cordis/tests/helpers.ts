@@ -6,6 +6,8 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as tool from '../src/index.ts'
 
+const testToolSignal = new AbortController().signal
+
 /**
  * Shared spec helpers: a real `SystemPrompt` + `ToolRegistry` + timer +
  * tool-cordis tree (only the model is absent — the code strings below stand in
@@ -27,7 +29,7 @@ let callCounter = 0
 
 /** Execute a registered tool through the real registry pipeline. */
 export function call(ctx: Context, name: string, args: unknown): Promise<ToolExecutionResult> {
-  return ctx.tools.execute({ callId: CallId(`call-${++callCounter}`), name, arguments: args })
+  return ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++callCounter}`), name, arguments: args })
 }
 
 /** Concatenated text blocks of one tool result. */
@@ -45,6 +47,13 @@ export const LISTENER_CODE = `
   }
 `
 
+/** Explicit content-array output declaration for dynamic-tool behavior fixtures. */
+export const CONTENT_OUTPUT_CODE = `
+              output: {
+                schema: { type: 'array', items: { type: 'json' } },
+                render(_args, value) { return value },
+              },`
+
 /** Mount code for a self-made tool: registers `reverse_text` via the sandbox's harness helpers. */
 export const REVERSE_TOOL_CODE = `
   return {
@@ -55,8 +64,14 @@ export const REVERSE_TOOL_CODE = `
         name: 'reverse_text',
         description: 'Reverse a string.',
         parameters: { text: { type: 'string', required: true } },
+        output: {
+          schema: { type: 'string' },
+          render(_args, value) {
+            return [{ type: 'text', text: value }]
+          },
+        },
         async execute(args) {
-          return [{ type: 'text', text: args.text.split('').reverse().join('') }]
+          return args.text.split('').reverse().join('')
         },
       }))
     },
@@ -83,8 +98,14 @@ export const CONSUMER_CODE = `
         name: 'greet',
         description: 'Greet someone via the greeter service.',
         parameters: { name: { type: 'string', required: true } },
+        output: {
+          schema: { type: 'string' },
+          render(_args, value) {
+            return [{ type: 'text', text: value }]
+          },
+        },
         async execute(args) {
-          return [{ type: 'text', text: ctx.greeter.greet(args.name) }]
+          return ctx.greeter.greet(args.name)
         },
       }))
     },
@@ -97,8 +118,9 @@ export function dummyTool(name: string): ToolDefinition {
     name,
     description: 'test trigger',
     parameters: { type: 'object' as const, properties: {} },
-    async execute(): Promise<[]> {
-      return []
+    output: { schema: { type: 'null' }, render: () => [] },
+    async execute(): Promise<null> {
+      return null
     },
   }
 }

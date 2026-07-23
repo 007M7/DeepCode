@@ -7,6 +7,8 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 
+const testToolSignal = new AbortController().signal
+
 interface OptionSchemaShape {
   properties: {
     questions: {
@@ -75,6 +77,7 @@ describe('ask_user_question tool', () => {
     })
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ask-1'),
       name: 'ask_user_question',
       arguments: {
@@ -110,6 +113,7 @@ describe('ask_user_question tool', () => {
     })
 
     await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ask-recommended'),
       name: 'ask_user_question',
       arguments: {
@@ -144,6 +148,7 @@ describe('ask_user_question tool', () => {
     })
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ask-multi'),
       name: 'ask_user_question',
       arguments: {
@@ -159,6 +164,14 @@ describe('ask_user_question tool', () => {
       },
     })
 
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected ask_user_question success')
+    expect(result.value).toEqual({
+      answers: [
+        { id: 'targets', selected: ['tests', 'docs'] },
+        { id: 'notes', selected: [], custom: 'ship today' },
+      ],
+    })
     expect(result.content).toEqual([{
       type: 'text',
       text: '{"answers":[{"id":"targets","selected":["tests","docs"]},{"id":"notes","selected":[],"custom":"ship today"}]}',
@@ -198,6 +211,7 @@ describe('ask_user_question tool', () => {
     const agent = { id: 'main' } as unknown as Agent
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ask-3'),
       name: 'ask_user_question',
       arguments: { questions: [{ id: 'continue', header: 'Confirm', question: 'Continue?' }] },
@@ -212,6 +226,7 @@ describe('ask_user_question tool', () => {
     const ctx = await setup()
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ask-no-provider'),
       name: 'ask_user_question',
       arguments: { questions: [{ id: 'continue', question: 'Continue?' }] },
@@ -219,7 +234,7 @@ describe('ask_user_question tool', () => {
 
     expect(result).toMatchObject({
       isError: true,
-      error: { name: 'UserInteractionError', code: 'NO_PROVIDER' },
+      error: { info: { name: 'UserInteractionError', code: 'NO_PROVIDER' } },
     })
   })
 
@@ -227,6 +242,7 @@ describe('ask_user_question tool', () => {
     const ctx = await setup()
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('ask-empty'),
       name: 'ask_user_question',
       arguments: { questions: [] },
@@ -234,7 +250,7 @@ describe('ask_user_question tool', () => {
 
     expect(result).toMatchObject({
       isError: true,
-      error: { name: 'UserInteractionError', code: 'EMPTY_QUESTIONS' },
+      error: { info: { name: 'UserInteractionError', code: 'EMPTY_QUESTIONS' } },
     })
   })
 

@@ -15,11 +15,19 @@ export interface AssembledResult {
   finish: FinishReason
 }
 
-export async function assemble(ctx: Context, options: GenerateOptions): Promise<AssembledResult> {
+export async function assemble(ctx: Context, options: Omit<GenerateOptions, 'provider'> & { provider?: string }): Promise<AssembledResult> {
   const assembler = new BlockAssembler()
-  for await (const chunk of ctx.llm.stream(options)) assembler.push(chunk)
+  const request = { provider: 'deepseek', ...options }
+  for await (const chunk of ctx.llm.stream(request)) assembler.push(chunk)
   return {
-    message: assembler.message(),
+    message: {
+      ...assembler.message(),
+      provenance: {
+        provider: request.provider,
+        model: request.model,
+        ...assembler.replayState === undefined ? {} : { replayState: assembler.replayState },
+      },
+    },
     ...assembler.usage !== undefined ? { usage: assembler.usage } : {},
     finish: assembler.finish,
   }

@@ -2,14 +2,14 @@
 
 English | [中文](development.zh.md)
 
-This onboarding guide helps project contributors get started with the local environment, daily workflow, and CI flow; see the RFCs for design rationale and technical trade-offs.
+This onboarding guide helps project contributors get started with the local environment, daily workflow, and CI flow; see the Agent Notes for design rationale and technical trade-offs.
 
 ## Prerequisites
 
-- Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor RFC](rfc/implemented/process/2026-07-06-node-engine-floor.md).
+- Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md).
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
 - Git.
-- Optional: a DeepSeek API key for the REPL/ACP agent demos and real-API e2e tests.
+- Optional: a DeepSeek API key for the TUI/Headless/ACP agent demos and real-API e2e tests.
 
 ## First-time setup
 
@@ -33,15 +33,34 @@ Run typecheck once after a fresh clone:
 pnpm run typecheck
 ```
 
-That first typecheck runs the package/vendor build graph and the root no-emit `tsconfig.json` graph for examples, tests, and scripts. The root graph uses the same source `paths` map but relies on project references so vendored code is checked under its own tsconfig settings.
+That first typecheck runs the whole-repo `tsc -b` graph: it emits every package/vendor `lib/types` and checks examples, tests, and scripts through the two no-emit aggregates described below.
 
-If you are preparing to push from a fresh clone or worktree, also build once:
+## TypeScript project layout
+
+The repository's TypeScript configuration has exactly three roles; every tsconfig file plays one of them.
+
+| File | Role | Forms a program? |
+|---|---|---|
+| `tsconfig.json` | Solution root: `extends` base, `files: []`, references to the two aggregates. The whole-repo `tsc -b tsconfig.json` graph, the tsserver discovery entry, and — through the inherited `paths` — the resolution config for tsx running `examples/` and `scripts/` (their nearest tsconfig is this file). | No |
+| `tsconfig.host.json` | Host aggregate: host-side packages (via references), examples, tests, scripts, website. Excludes `packages/client`. | Yes |
+| `tsconfig.client.json` | Client aggregate: `packages/client/*` packages and their tests, `apps/web`. | Yes |
+| `tsconfig.base.json` | Shared compilerOptions and the source `paths` map. Also the resolution facade the vitest configs point vite-tsconfig-paths at: it has no `include`, so its `paths` apply to every importer. | No |
+| `tsconfig.base.client.json` | Browser compiler shape (`jsx`, DOM libs, `types: []`) extended by the client aggregate and every `packages/client/*` package. | No |
+
+Host and client stay two aggregate programs because both sides declaration-merge the cordis `Context` interface under the same keys with different services; one program seeing both merges reports a collision. The collision exists only inside a `ts.Program` — module resolution never triggers it — which is why the solution may reference both aggregates and one paths facade may span both sides. Two disciplines follow:
+
+- `tsconfig.base.json` never gains `include` or `files`: they would leak into every extending package project and narrow the facade's match-all scope.
+- A script that builds a repo-wide `ts.Program` seeds `tsconfig.host.json` or `tsconfig.client.json` explicitly — never the root solution, because flattening both aggregates into one program collides the `Context` merges. Program-backed generators and gates (`scripts/ts-project.ts` consumers, doc-typecheck standalone mode) are host-only by decision; the client side gains program-backed tooling only with a concrete need.
+
+Static analysis and tests resolve workspace imports through the base `paths` map to `src` and must pass on a clean tree; gates that consume built `lib/` output declare that dependency explicitly. Decision record: [solution-root note](../.agents/notes/implemented/process/2026-07-22-tsconfig-solution-root-two-aggregates.md); the tsc-first emit pipeline is the [ts-build-config note](../.agents/notes/implemented/process/2026-06-17-ts-build-config.md).
+
+If a relevant local check consumes built package output, build once first:
 
 ```sh
 pnpm run build
 ```
 
-`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs.
+`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs; ordinary commits and pushes do not require that build unless their selected checks consume it.
 
 ## Environment variables
 
@@ -56,14 +75,16 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 ## Git hooks
 
-lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
+lefthook is configured in `lefthook.yml` as a fast local checkpoint:
 
-- `pre-commit` runs staged-file ESLint fixes, `pnpm run typecheck`, and the vendor manifest guard.
-- `pre-push` runs `pnpm run check:pre-push`, whose scheduler runs runtime-closure verification, unit tests, duplication detection, snapshot tests, build, module-graph freshness, and the member gates of `pnpm run hygiene` and `pnpm run doc-sync` concurrently.
+- `pre-commit` runs staged-file ESLint fixes, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
+- `pre-push` runs only the incremental repository typecheck (`tsc -b` over the root solution, covering both the host and client aggregates).
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
-These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs echo-agent and built-bin smoke tests and exercises the compatibility matrix on Node 22.19, 24, and 26.
+The hooks intentionally do not run tests, snapshots, documentation checks, builds, or hygiene. Contributors run the [checks relevant to the changed behavior](../AGENTS.md#run-relevant-checks-locally) once; CI owns exhaustive coverage, built-artifact smokes, and the Node 22.19, 24, and 26 compatibility matrix.
+
+Contributors can opt into the comprehensive local gate set with `pnpm run check:all`. The command is independent of both Git hooks and is not an agent instruction.
 
 ## CI gates
 
@@ -77,7 +98,8 @@ Use these from the repo root:
 pnpm run test           # unit tests
 pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run typecheck      # build package/vendor outputs, then typecheck examples, tests, and scripts
+pnpm run check:all      # comprehensive opt-in gate set; not wired to Git hooks
+pnpm run typecheck      # tsc -b over the root solution: emits package/vendor lib/types, checks both aggregates
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
@@ -86,12 +108,11 @@ pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale
 pnpm run verify-export-jsdoc    # fail if a module-level package export lacks complete JSDoc
 pnpm run gen-doc-graphs     # regenerate generated relationship docs from source and curated graph definitions
 pnpm run verify-doc-graphs  # fail if generated relationship docs are stale
-pnpm run gen-rfc-index          # regenerate the docs/rfc/README.md index tables from the RFC tree
 pnpm run verify-md-wrap  # fail on hard-wrapped prose paragraphs in docs/README markdown
 pnpm run verify-mermaid  # fail if a ```mermaid diagram has invalid Mermaid syntax
 pnpm run verify-type-equiv  # fail if a ```ts type-equiv doc block drifts from its source type
 pnpm run verify-doc-budgets  # fail if a budgeted standing doc exceeds its word ceiling
-pnpm run doc-sync       # all Markdown/doc gates; see the doc-sync script in package.json for the full list
+pnpm run doc-sync       # all Markdown/doc gates, scheduled concurrently; the doc-sync leaf list in scripts/run-gates.ts is the full list
 pnpm run gen-module-graph     # regenerate docs/module-graph.md from package peerDeps
 pnpm run verify-module-graph  # fail if docs/module-graph.md is stale
 pnpm run build          # emit lib/types intermediates, then bundle lib/index.* runtime files
@@ -103,16 +124,22 @@ When changing package public behavior, update the relevant README or JSDoc in th
 
 ## Demos
 
-The echo demo does not need API credentials:
+The one-shot Headless coding agent needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
-pnpm run demo:echo
+pnpm run demo:headless "summarize this workspace"
 ```
 
-The REPL agent demo uses the real DeepSeek adapter and needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
+The full-screen interactive coding agent needs `DEEPSEEK_API_KEY` in the environment or repo-root `.env`:
 
 ```sh
-pnpm run demo:repl
+pnpm run demo:tui
+```
+
+The self-referential cordis-agent demo can inspect and modify its live plugin runtime and needs the same credentials:
+
+```sh
+pnpm run demo:cordis
 ```
 
 The ACP server agent demo exposes the agent over JSON-RPC stdio and also needs `DEEPSEEK_API_KEY`:
@@ -133,13 +160,13 @@ Pick the tag that matches the urgency so anyone scanning the code can tell a rel
 
 ## Documenting types verbatim (`ts type-equiv`)
 
-The [core data structures](core-data-structures/core.md) docs paste real type definitions so a reader sees the exact shape. To keep a paste from drifting when source changes, fence it as ` ```ts type-equiv ` (instead of ` ```ts `) and register it in `scripts/type-equiv.manifest.json` with the source file and symbol it mirrors:
+The [core data structures](core-data-structures/core.md) docs paste source-equivalent declarations together with their original JSDoc so a reader sees the exact shape and source contract. To keep a paste from drifting when source changes, fence it as ` ```ts type-equiv ` (instead of ` ```ts `) and register it in `scripts/type-equiv.manifest.json` with the source file and symbol it mirrors:
 
 ```json
 { "doc": "docs/core-data-structures/session.md", "symbol": "SessionEvent", "source": "packages/core/session/src/types.ts" }
 ```
 
-`pnpm run verify-type-equiv` (part of `doc-sync`) then extracts that symbol's declaration from source via the TypeScript parser and asserts the block matches it (whitespace- and comment-insensitive, so a doc block may show a clean definition and the prose can carry the semantics). It also enforces a 1:1 correspondence: every `ts type-equiv` block has exactly one manifest entry and vice-versa, so a block can't go silently unchecked and a stale entry can't linger. `doc-typecheck` skips `ts type-equiv` blocks (they aren't standalone-compilable) and excludes them from its opt-out ratio. When you change a documented type, the gate fails until you update the paste; when you add or remove a block, update the manifest in the same change.
+`pnpm run verify-type-equiv` (part of `doc-sync`) then extracts that symbol's declaration and attached JSDoc from source via the TypeScript parser and asserts the block matches both. For a class whose implementation bodies do not belong in the catalog, use ` ```ts public-api ` and set `"projection": "public-api"`; the checked projection retains the public fields, constructor, accessors, methods, and original class/member JSDoc while omitting bodies and private or protected members. Comparison ignores whitespace and non-JSDoc comments but requires every original JSDoc comment, including member documentation, so readers see the source contract beside the exact shape. The gate also enforces a 1:1 correspondence by document, symbol, and projection, so a block can't go silently unchecked and a stale entry can't linger. `doc-typecheck` skips both fence kinds (they aren't standalone-compilable) and excludes them from its opt-out ratio. When you change a documented declaration or its JSDoc, the gate fails until you update the paste; when you add or remove a block, update the manifest in the same change.
 
 ## Architecture context
 

@@ -8,6 +8,17 @@
 import { Context, Service } from 'cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
+export {
+  ESCALATION_TARGETS,
+  WIDER_MODES,
+  approveEscalation,
+  escalationHintMarker,
+  sandboxDenialMarker,
+  validateEscalationArgs,
+} from './escalation.ts'
+export type { EscalationApproval, EscalationApprover, EscalationOutcome, EscalationRequest } from './escalation.ts'
+export { canonicalPath, writableRoots } from './roots.ts'
+
 /**
  * File-effect policy for confined processes. `read-only` permits only required
  * sinks such as `/dev/null`; `workspace-write` also permits the workspace and a
@@ -18,6 +29,18 @@ export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 
 /** A confining (non-`danger-full-access`) mode — the modes a {@link SandboxPolicy} can carry. */
 export type ConfinedSandboxMode = Exclude<SandboxMode, 'danger-full-access'>
+
+/**
+ * The complete file-effect policy resolved for one capability call. The root
+ * is carried even under modes that do not consume it so callers can resolve
+ * policy once before choosing the enforcement path.
+ */
+export interface SandboxExecutionPolicy {
+  /** The file-effect mode this execution runs under. */
+  mode: SandboxMode
+  /** Absolute root directory `workspace-write` may write under. */
+  workspaceRoot: string
+}
 
 /**
  * Enforcement completeness for this host. `partial` means an active backend or
@@ -31,15 +54,12 @@ export type SandboxEnforcement = 'full' | 'partial'
  * fixed on the provider: two consumers may confine under different policies
  * at the same instant (bash under `read-only` while a confined child agent
  * needs its state directory writable), and an approved escalated retry is a
- * new call with a wider policy. Defaulting/resolution is the consumer's
- * explicit step (its config owns the fallback chain); the provider treats
- * the policy as fully specified.
+ * new call with a wider policy. Defaulting/resolution is an explicit step at
+ * the consumer boundary; the provider treats the policy as fully specified.
  */
-export interface SandboxPolicy {
+export interface SandboxPolicy extends SandboxExecutionPolicy {
   /** The file-effect mode this execution runs under. */
   mode: ConfinedSandboxMode
-  /** Absolute root directory `workspace-write` may write under. */
-  workspaceRoot: string
 }
 
 /**
@@ -109,6 +129,7 @@ declare module 'cordis' {
  * skipped for a sole candidate, whose own refusal remains the fail-closed end.
  */
 export abstract class SandboxProvider extends Service {
+  /* v8 ignore next -- Windows has no sandbox backend to instantiate this service. */
   constructor(ctx: Context) {
     super(ctx, 'sandbox')
   }

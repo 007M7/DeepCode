@@ -5,10 +5,13 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import type { TaskHooks, TaskOutcome, TaskSnapshot, TaskStart } from '@deepseek-ai/dsh-tasks'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { statusLine } from '@deepseek-ai/dsh-tool-tasks'
+
+const testToolSignal = new AbortController().signal
 
 const agentRegistryDisposers = new WeakMap<Agent, () => void>()
 
@@ -23,17 +26,17 @@ async function setup(config: ToolTasks.Config = {}) {
 }
 
 /**
- * A fake agent whose session token is `sessionId`, registered in `ctx.agents`.
- * The agent id is deliberately different so session authorization and exact
- * lifecycle ownership cannot be confused in tests.
+ * A fake agent with the shared agent/session identity, registered in
+ * `ctx.agents` with a dedicated lifecycle scope.
  */
 function fakeAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void = () => {}): Agent {
   const scopeFiber = ctx.plugin(() => {})
+  const id = SessionId(sessionId)
   const agent = {
-    id: `agent-${sessionId}`,
+    id,
     ctx: scopeFiber.ctx,
     inject,
-    session: { header: { version: 0, id: sessionId, createdAt: 0 } },
+    session: { id, header: { version: 0, id, createdAt: 0 } },
   } as unknown as Agent
   agentRegistryDisposers.set(agent, ctx.agents.register(agent))
   return agent
@@ -61,7 +64,7 @@ function producer(overrides: Partial<Omit<TaskStart, 'run'> & TaskHooks> = {}) {
 
 let callCounter = 0
 function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
-  return ctx.tools.execute({ callId: CallId(`call-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
+  return ctx.tools.execute({ signal: testToolSignal, callId: CallId(`call-${++callCounter}`), name, arguments: args, ...agent ? { agent } : {} })
 }
 
 function text(result: { content: { type: string; text?: string }[] }): string {
@@ -113,7 +116,16 @@ describe('task_output', () => {
     ctx.tasks.start(producer({ readOutput: () => chunks.shift() ?? '' }).spec)
 
     // A body already ending in a newline gets no doubled separator.
-    expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' }))).toBe('line one\n[status: running]')
+    const first = await call(ctx, 'task_output', { task_id: 'bash-1' })
+    if (first.isError) throw new Error('expected task_output success')
+    const firstValue = first.value as { text: string; task: Record<string, unknown> }
+    expect(firstValue).toMatchObject({
+      text: 'line one\n',
+      task: { id: 'bash-1', kind: 'bash', label: 'sleep 60', status: 'running' },
+    })
+    expect(firstValue.task).not.toHaveProperty('ownerSession')
+    expect(firstValue.task).not.toHaveProperty('reported')
+    expect(text(first)).toBe('line one\n[status: running]')
     expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' }))).toBe('(no new output)\n[status: running]')
   })
 
@@ -170,7 +182,17 @@ describe('task_list', () => {
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     await tick()
 
-    expect(text(await call(ctx, 'task_list', {}, alice))).toBe([
+    const listed = await call(ctx, 'task_list', {}, alice)
+    if (listed.isError) throw new Error('expected task_list success')
+    const listedValue = listed.value as Array<Record<string, unknown>>
+    expect(listedValue).toHaveLength(3)
+    expect(listedValue[0]).toMatchObject({ id: 'bash-1', kind: 'bash', label: 'pnpm test', status: 'running' })
+    expect(listedValue[2]).toMatchObject({ id: 'bash-2', kind: 'bash', label: 'build', status: 'completed', detail: 'exit code: 0' })
+    for (const task of listedValue) {
+      expect(task).not.toHaveProperty('ownerSession')
+      expect(task).not.toHaveProperty('reported')
+    }
+    expect(text(listed)).toBe([
       'bash-1 [bash] running — pnpm test',
       'subagent-1 [subagent] running — open research',
       'bash-2 [bash] completed — build',
@@ -188,6 +210,14 @@ describe('task_kill', () => {
     ctx.tasks.start(p.spec)
 
     const result = await call(ctx, 'task_kill', { task_id: 'bash-1', reason: 'superseded' })
+    if (result.isError) throw new Error('expected task_kill success')
+    const killValue = result.value as { outcome: string; task: Record<string, unknown> }
+    expect(killValue).toMatchObject({
+      outcome: 'cancellation-requested',
+      task: { id: 'bash-1', kind: 'bash', label: 'sleep 60', status: 'stopping' },
+    })
+    expect(killValue.task).not.toHaveProperty('ownerSession')
+    expect(killValue.task).not.toHaveProperty('reported')
     expect(text(result)).toBe('requested cancellation of task bash-1')
     expect(p.cancels).toEqual(['superseded'])
   })
@@ -200,8 +230,13 @@ describe('task_kill', () => {
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     await tick()
 
-    expect(text(await call(ctx, 'task_kill', { task_id: 'bash-1' })))
-      .toBe('task bash-1 had already finished [status: completed, exit code: 0]')
+    const killed = await call(ctx, 'task_kill', { task_id: 'bash-1' })
+    if (killed.isError) throw new Error('expected task_kill success')
+    expect(killed.value).toMatchObject({
+      outcome: 'already-finished',
+      task: { id: 'bash-1', kind: 'bash', label: 'sleep 60', status: 'completed', detail: 'exit code: 0' },
+    })
+    expect(text(killed)).toBe('task bash-1 had already finished [status: completed, exit code: 0]')
     // The kill described the task via a non-consuming snapshot: the delta is intact.
     expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' }))).toBe('unread tail\n[status: completed, exit code: 0]')
   })
@@ -276,7 +311,7 @@ describe('completion notices', () => {
     await tick()
 
     // Disposed owner: inject throws the disposed message — contained.
-    const inject = vi.fn(() => { throw new Error('agent "agent-sess-1" is disposed') })
+    const inject = vi.fn(() => { throw new Error('agent "sess-1" is disposed') })
     const owner = fakeAgent(ctx, 'sess-1', inject)
     const p = producer({ owner })
     ctx.tasks.start(p.spec)
@@ -287,7 +322,7 @@ describe('completion notices', () => {
 
   it('does not route an old owner completion notice to a same-session replacement', async () => {
     const { ctx } = await setup()
-    const oldInject = vi.fn(() => { throw new Error('agent "agent-shared" is disposed') })
+    const oldInject = vi.fn(() => { throw new Error('agent "shared" is disposed') })
     const oldOwner = fakeAgent(ctx, 'shared', oldInject)
     const p = producer({ owner: oldOwner })
     ctx.tasks.start(p.spec)

@@ -6,9 +6,12 @@ import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
 import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionInput, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
-import type { Agent, AgentId } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+
+const testToolSignal = new AbortController().signal
 
 /** Mount the registry (with its systemPrompt dependency) on a fresh context. */
 async function mount(): Promise<Context> {
@@ -20,7 +23,7 @@ async function mount(): Promise<Context> {
 
 /** Mint a scope whose key doubles as a minimal Agent-like object. */
 async function mintAgentScope(ctx: Context, name: string): Promise<{ scope: Scope; key: Agent }> {
-  const key = { id: name as AgentId } as Agent
+  const key = { id: name as SessionId } as Agent
   let scope!: Scope
   // The scoped context resolves services through the MINTING plugin's
   // dependency chain — the minter must inject what scope holders will reach
@@ -35,12 +38,17 @@ function tool(name: string, reply = `ran:${name}`): ToolDefinition {
     name,
     description: `tool ${name}`,
     parameters: { type: 'object', properties: {} },
-    execute: (): Promise<ContentBlock[]> => Promise.resolve([{ type: 'text', text: reply }]),
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value as string }],
+    },
+    execute: (): Promise<string> => Promise.resolve(reply),
   }
 }
 
 async function run(ctx: Context, name: string, agent?: Agent): Promise<string> {
   const result = await ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId('c1'),
     name,
     arguments: {},
@@ -62,7 +70,7 @@ describe('scoped tool registration', () => {
   it('files a scoped tool in its layer: visible/executable for that scope only', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')
-    const other = { id: 'other' as AgentId } as Agent
+    const other = { id: 'other' as SessionId } as Agent
     ctx.tools.register(tool('shared'))
     scope.ctx.tools.register(tool('mine'))
 
@@ -195,7 +203,7 @@ describe('scoped execution dispatch', () => {
   it('an agent.ctx pre-execute listener gates only its own agent (and never subject-less calls)', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')
-    const other = { id: 'other' as AgentId } as Agent
+    const other = { id: 'other' as SessionId } as Agent
     ctx.tools.register(tool('t'))
 
     const seen: (string | undefined)[] = []
@@ -213,13 +221,13 @@ describe('scoped execution dispatch', () => {
   it('applies scoped guards after pre-execute and unwinds duplicate registrations independently', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')
-    const other = { id: 'other' as AgentId } as Agent
+    const other = { id: 'other' as SessionId } as Agent
     let bodyCalls = 0
     ctx.tools.register({
       ...tool('t'),
       execute: () => {
         bodyCalls += 1
-        return Promise.resolve([{ type: 'text', text: 'ran:t' }])
+        return Promise.resolve('ran:t')
       },
     })
     const guard = (execution: Readonly<ToolExecution>): string => {
@@ -251,7 +259,7 @@ describe('scoped execution dispatch', () => {
       ...tool('t'),
       execute: () => {
         bodyCalls += 1
-        return Promise.resolve([])
+        return Promise.resolve('ran:t')
       },
     })
     ctx.tools.guard(() => undefined)
@@ -259,6 +267,49 @@ describe('scoped execution dispatch', () => {
 
     expect(await run(ctx, 't')).toBe('Error: global denial')
     expect(bodyCalls).toBe(0)
+  })
+
+  it('live-iterates a guard registered by an earlier guard', async () => {
+    const ctx = await mount()
+    const calls: string[] = []
+    let added = false
+    ctx.tools.register(tool('t'))
+    ctx.tools.guard(() => {
+      calls.push('first')
+      if (!added) {
+        added = true
+        ctx.tools.guard(() => {
+          calls.push('late')
+          return 'late denial'
+        })
+      }
+      return undefined
+    })
+
+    expect(await run(ctx, 't')).toBe('Error: late denial')
+    expect(calls).toEqual(['first', 'late'])
+  })
+
+  it('defers a scoped guard that replaces the last guard in its generation', async () => {
+    const ctx = await mount()
+    const { scope, key } = await mintAgentScope(ctx, 'a')
+    const calls: string[] = []
+    ctx.tools.register(tool('t'))
+    scope.ctx.tools.register(tool('scope_sibling'))
+    const lift = scope.ctx.tools.guard(() => {
+      calls.push('first')
+      lift()
+      scope.ctx.tools.guard(() => {
+        calls.push('replacement')
+        return 'replacement denial'
+      })
+      return undefined
+    })
+
+    expect(await run(ctx, 't', key)).toBe('ran:t')
+    expect(calls).toEqual(['first'])
+    expect(await run(ctx, 't', key)).toBe('Error: replacement denial')
+    expect(calls).toEqual(['first', 'replacement'])
   })
 
   it('shares one token and materialized argument value across the pipeline', async () => {
@@ -274,14 +325,14 @@ describe('scoped execution dispatch', () => {
       execute: (args) => {
         safeCalls += 1
         safeArguments = args
-        return Promise.resolve([{ type: 'text', text: 'safe' }])
+        return Promise.resolve('safe')
       },
     })
     ctx.tools.register({
       ...tool('danger'),
       execute: () => {
         dangerCalls += 1
-        return Promise.resolve([{ type: 'text', text: 'danger' }])
+        return Promise.resolve('danger')
       },
     })
     scope.ctx.tools.guard(exec => exec.name === 'danger' ? 'danger denied' : undefined)
@@ -303,6 +354,7 @@ describe('scoped execution dispatch', () => {
     expect(await run(ctx, 'danger', key)).toBe('Error: danger denied')
     const callerArguments = { source: true }
     const safeResult = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('safe-call'),
       name: 'safe',
       arguments: callerArguments,
@@ -333,7 +385,7 @@ describe('scoped execution dispatch', () => {
       ...tool('t'),
       execute: () => {
         bodyCalls += 1
-        return Promise.resolve([])
+        return Promise.resolve('ran:t')
       },
     })
     ctx.on('tools/pre-execute', (_exec, next) => {
@@ -346,7 +398,7 @@ describe('scoped execution dispatch', () => {
       if (exec.name === 'parent') parent = exec.token
       return next()
     })
-    await ctx.tools.execute({ callId: CallId('parent'), name: 'parent', arguments: {} })
+    await ctx.tools.execute({ signal: testToolSignal, callId: CallId('parent'), name: 'parent', arguments: {} })
     stopCapture()
     policyCalls = 0
     const signal = new AbortController().signal
@@ -370,6 +422,7 @@ describe('scoped execution dispatch', () => {
       signal,
     })
     const subjectlessResult = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('non-cloneable-subjectless'),
       name: 't',
       arguments: { invalid: () => undefined },
@@ -394,7 +447,7 @@ describe('scoped execution dispatch', () => {
       ...tool('t'),
       execute: (_args, exec) => {
         observed.push(exec.parent)
-        return Promise.resolve([{ type: 'text', text: 'ran:t' }])
+        return Promise.resolve('ran:t')
       },
     })
     ctx.on('tools/pre-execute', (exec, next) => {
@@ -412,6 +465,7 @@ describe('scoped execution dispatch', () => {
       callId: CallId('stateful-parent'),
       name: 't',
       arguments: {},
+      signal: testToolSignal,
       get parent(): ToolExecutionToken | undefined {
         parentReads += 1
         return parentReads === 1 ? undefined : forged
@@ -428,7 +482,7 @@ describe('scoped execution dispatch', () => {
   it('uses one input snapshot for the normalized error shell', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'accepted')
-    const driftAgent = { id: 'drift' as AgentId } as Agent
+    const driftAgent = { id: 'drift' as SessionId } as Agent
     ctx.tools.register(tool('parent'))
     ctx.tools.register(tool('t'))
     let parent!: ToolExecutionToken
@@ -436,7 +490,7 @@ describe('scoped execution dispatch', () => {
       if (exec.name === 'parent') parent = exec.token
       return next()
     })
-    await ctx.tools.execute({ callId: CallId('parent'), name: 'parent', arguments: {} })
+    await ctx.tools.execute({ signal: testToolSignal, callId: CallId('parent'), name: 'parent', arguments: {} })
     stopCapture()
     const acceptedSignal = new AbortController().signal
     const driftSignal = new AbortController().signal
@@ -483,6 +537,7 @@ describe('scoped execution dispatch', () => {
     const input = {
       callId: CallId('throwing-arguments'),
       name: 't',
+      signal: testToolSignal,
       get arguments(): unknown {
         argumentReads += 1
         throw new Error('getter exploded')
@@ -509,7 +564,7 @@ describe('scoped execution dispatch', () => {
       ...tool('t'),
       execute: () => {
         bodyCalls += 1
-        return Promise.resolve([])
+        return Promise.resolve('ran:t')
       },
     })
     ctx.on('tools/pre-execute', (_exec, next) => {
@@ -523,6 +578,7 @@ describe('scoped execution dispatch', () => {
     })
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('bad-arguments'), name: 't', arguments: argumentsValue,
     })
 
@@ -543,6 +599,7 @@ describe('scoped execution dispatch', () => {
     })
 
     const result = await ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId('unstable-arguments'), name: 't', arguments: argumentsValue,
     })
 
@@ -550,6 +607,7 @@ describe('scoped execution dispatch', () => {
     expect(result).toEqual({
       content: [{ type: 'text', text: 'ran:t' }],
       isError: false,
+      value: 'ran:t',
     })
   })
 
@@ -568,6 +626,7 @@ describe('scoped execution dispatch', () => {
       return {
         content: [{ type: 'text', text: 'outer failure' }],
         isError: true,
+        error: { message: 'outer failure' },
       }
     }, { prepend: true })
     scope.ctx.on('tools/result', (_exec, result) => {
@@ -580,13 +639,18 @@ describe('scoped execution dispatch', () => {
     ctx.on('tools/result', () => {
       throw { toString: () => { throw new Error('coercion trap') } }
     })
+    ctx.on('tools/result', () => Promise.reject(new Error('async observer failure')) as never)
     ctx.on('tools/result', (_exec, result) => { seen.push(result.isError) })
 
-    const result = await ctx.tools.execute({ callId: CallId('final'), name: 't', arguments: {}, agent: key })
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('final'), name: 't', arguments: {}, agent: key })
+    await Promise.resolve()
     expect(result).toMatchObject({ isError: true, content: [{ type: 'text', text: 'outer failure' }] })
     expect(seen).toEqual([true, true])
     expect(dispatchModes).toEqual(['emit'])
-    expect(warn).toHaveBeenCalledOnce()
-    expect(String(warn.mock.calls[0]?.[0])).toContain('<unprintable thrown value>')
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(warn.mock.calls.map(call => String(call[0]))).toEqual(expect.arrayContaining([
+      expect.stringContaining('<unprintable thrown value>'),
+      expect.stringContaining('async observer failure'),
+    ]))
   })
 })

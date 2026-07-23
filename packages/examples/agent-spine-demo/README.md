@@ -12,14 +12,25 @@ Read this package for the whole plugin tree and its composition order.
 @cordisjs/plugin-timer            timer service (writes nothing to stdout)
 @deepseek-ai/dsh-llm              abstract LLM service + content-block vocabulary
 @deepseek-ai/dsh-session          event-sourced session log + store
+@deepseek-ai/dsh-session-title    log-backed title service + deterministic fallback
 @deepseek-ai/dsh-system-prompt    prompt-section + tool-schema assembly
 @deepseek-ai/dsh-tools            registry + guarded pre/around/post/final-result pipeline
 @deepseek-ai/dsh-skill            skill provider registry
 @deepseek-ai/dsh-skill-local      local filesystem skill provider
-@deepseek-ai/dsh-agent            agent registry + agent/* event vocabulary
+@deepseek-ai/dsh-agent            agent registry + initiator scope + agent/* events
+@deepseek-ai/dsh-goal             optional persisted same-session goal domain
+@deepseek-ai/dsh-tool-goal        optional model-facing goal controls
+@deepseek-ai/dsh-goal-session     optional same-session goal-round driver
+@deepseek-ai/dsh-llm-retry        bounded transient request retry policy
 @deepseek-ai/dsh-tasks            generic background-task registry
-@deepseek-ai/dsh-invariants       dev-mode event-contract assertions
+@deepseek-ai/dsh-invariants       configurable invariant registry service
+@deepseek-ai/dsh-session/invariant
+@deepseek-ai/dsh-agent/invariant
+@deepseek-ai/dsh-scope/invariant
+@deepseek-ai/dsh-agent-loop/invariant
+                                  package-owned relational checks
 @deepseek-ai/dsh-tool-bash        the model-facing bash schema
+@deepseek-ai/dsh-workspace-context  AGENTS.md/CLAUDE.md workspace context loader
 @deepseek-ai/dsh-tool-skill       session-prefix skill catalog + model-facing loader schema
 @deepseek-ai/dsh-tool-tasks       task_output/task_list/task_kill schemas + completion notices
 @deepseek-ai/dsh-agent-loop       THE concrete loop (gets the forwarded `agents`)
@@ -31,32 +42,40 @@ Read this package for the whole plugin tree and its composition order.
 The spine is everything COMMON to every front door. The swappable and front-door-coupled pieces stay out, picked by whatever loads the bundle:
 
 - **the LLM adapter** — the bundle ships the abstract `llm` service; the leaf registers a concrete adapter on `ctx.llm` (`llm-deepseek`, `llm-pi-ai`, `llm-replay`).
+- **model-backed session-title providers** — the bundle mounts the fallback service with overridable example limits (5 words, 40 fallback bytes, 80 accepted-title bytes); a leaf may opt into exactly one first-message or all-messages LLM provider.
 - **the bash executor** — the bundle ships `tool-bash` (the consumer schema); the leaf provides `ctx.bash` (`bash-local` or a sandboxed impl).
 - **non-local skill providers** — the bundle ships the skill registry, the local filesystem provider, and the `skill` tool; deployments can add other providers such as embedded or remote catalogs as siblings.
-- **presentation + per-app infra** — the stdio UI / ACP bridge, a console logger, `hmr`. These form the coupled "front-door cluster" that the app packages ([`dsh-stdio-demo`](../../examples/stdio-demo/README.md), [`dsh-acp-demo`](../../examples/acp-demo/README.md)) bake in. `timer` is in the spine (common to both, stdout-silent); a console logger is NOT (it writes to stdout, which the ACP bridge reserves for JSON-RPC).
+- **presentation + per-app infra** — the terminal TUI or ACP front door and `hmr`. These form the coupled front-door cluster that the app packages ([`dsh-tui-demo`](../tui-demo/README.md), [`dsh-acp-demo`](../acp-demo/README.md)) bake in. `timer` is in the spine because it is common and stdout-silent; front doors own stdout and remain outside.
 
-This is the [interface/implementation/consumer seam](../../../docs/rfc/implemented/architecture/2026-06-13-capability-seams.md) raised to the composition level: the bundle owns the shared spine, the leaf owns the backends, the app package owns the front door.
+This is the [interface/implementation/consumer seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) raised to the composition level: the bundle owns the shared spine, the leaf owns the backends, the app package owns the front door.
 
 ## Config
 
 ```ts
 import type { Config } from '@deepseek-ai/dsh-agent-spine-demo'
-// { agents?, persona?, toolOrder?, tools?, skills?, toolBash?, toolTasks? }
-// The schema intersects the owner schemas,
-// so validation and defaulting can never drift from the owners.
+// { agents?, maxParallelToolCalls?, persona?, toolOrder?, tools?, dshHome?, sessionTitle?, skills?, workspaceContext, toolBash?, toolTasks?, goals?, invariants?, llmRetry? }
+// workspaceContext requires { maxBytes } or false; the other owner schemas supply defaults.
 ```
 
-The bundle FORWARDS each field to the child that owns it: `agents` to `agent-loop` (default `[]`), so each app supplies its own pre-created agents — a stdio app pre-creates a `main`; the ACP app pre-creates none (it creates agents on demand at `session/new`) — `persona` and `toolOrder` to `dsh-system-prompt`; `tools` to the tool registry for its presentation mode; `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer; and `toolBash`/`toolTasks` to the two model-facing tool plugins the bundle owns. `toolBash.enableRunInBackground` controls only the bash producer, while `toolTasks` controls generic `task_output` wait bounds; independently loaded producers keep their own config. Forwarding is exactly why the owners can live in the shared spine even though the apps disagree on what to configure.
+The bundle FORWARDS each field to the child that owns it: `agents` and `maxParallelToolCalls` to `agent-loop` (`agents` defaults to `[]`; the cap defaults there), so each app supplies its own pre-created agents — TUI and headless apps pre-create `main`, while the ACP app creates agents on demand at `session/new`; `llmRetry` to the bounded retry policy; `persona` and `toolOrder` to `dsh-system-prompt`; `tools` to the tool registry for its presentation mode; `sessionTitle` to the fallback title service; `skills.registry`, `skills.local`, and `skills.tool` to the skill registry, local provider, and model-facing consumer; the required `workspaceContext` choice to `dsh-workspace-context` (`{ maxBytes }` enables loading and `false` disables it); `invariants` to the invariant service; and `toolBash`/`toolTasks` to the two model-facing tool plugins the bundle owns. Omitted `sessionTitle` uses the explicit example policy of 5 words, 40 fallback bytes, and 80 accepted-title bytes. A `goals` object opts into the persisted domain, model tools, and same-session driver while forwarding `goals.domain` and `goals.tool` to their owners; omission or `false` leaves the stack absent so headless callers retain one-turn settlement. Set `skills.enabled: false` to omit both the local provider and model-facing skill tool, and set `toolTasks: false` to retain the task service for foreground producers without exposing `task_output` / `task_list` / `task_kill`. It resolves `dshHome` once through [`@deepseek-ai/dsh-paths`](../../util/paths/README.md) and forwards that absolute value to tool-bash's managed environment and enabled local skill discovery. An absent top-level `dshHome` adopts `skills.local.dshHome`; supplying both with different resolved paths fails loudly. `toolBash.enableRunInBackground` controls only the bash producer; independently loaded producers keep their own config. Workspace instructions register before the skill catalog so their session-prefix message renders first. App packages use `pickSpineConfig()` to copy only these bundle-owned fields.
+
+For example, `{ invariants: { enabled: true, package_allowlist: ['^@deepseek-ai/dsh-'], package_blocklist: ['agent-loop$'] } }` keeps the package-owned companions mounted but suppresses the blocked owner. Blocklist matches override allowlist matches; see [`dsh-invariants`](../../support/invariants/README.md) for regex and lifecycle rules.
 
 ## Why a code bundle, not a shared YAML include
 
 A YAML include can deduplicate config but cannot own a bin or provide front-door defaults. App packages make stdout-safe ACP wiring the default, though a leaf can still add an unsafe logger. Bundle children register services in the root isolate-keyed store, so injected leaf siblings see them without load-order coupling.
 
+The bounded retry policy may repeat a transiently failed request in a new numbered step. Retry status and failed partial chunks stay outside model history, each provider attempt can still incur billing, front doors derive usage across every logged step, and the reconstructed request preserves the prior prefix for provider cache reuse.
+
 ## Model Experience
 
-Indirectly, through `dsh-system-prompt`, `dsh-tool-skill`, `dsh-tool-bash`, and `dsh-tools`, which this bundle mounts without adding model-bound wrapper content.
+Indirectly, through `dsh-system-prompt`, `dsh-tool-skill`, `dsh-tool-bash`, `dsh-tools`, and `dsh-llm-retry`, plus `dsh-tool-goal` and goal-round prompts when `goals` is enabled. The bundle adds no model-bound wrapper content of its own.
+
+#### KV Cache effect
+
+No direct invalidation; the named consumer owns any request-prefix changes.
 
 ## Known Limitations and Deferred Work
 
-- **The spine set is fixed in code** — `apply()` mounts every child unconditionally (including `tool-bash`); no config excludes or replaces one, so swapping the loop or dropping a spine member means composing a different bundle.
-- **`dsh-invariants` mounts unconditionally** — this bundle has no toggle, so every composition using it pays the dev-mode relational assertions; Session's always-on validation and freezing are separate.
+- **Most of the spine set is fixed in code** — `apply()` always mounts the core services and `tool-bash`; config can omit bundled goals, skills, and task-control tools, but swapping the loop or dropping another spine member means composing a different bundle.
+- **The invariant seam and companions remain fixed members** — `invariants.enabled: false` or package filters suppress checks but do not remove the service or companion registrations; Session's always-on validation and freezing are separate.

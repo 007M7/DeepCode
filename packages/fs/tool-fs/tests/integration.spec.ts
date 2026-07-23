@@ -12,10 +12,12 @@ import { join } from 'node:path'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+
+const testToolSignal = new AbortController().signal
 
 let dir: string
 let ctx: Context
@@ -26,6 +28,7 @@ const session = { header: {} }
 let callCounter = 0
 function call(name: string, args: unknown) {
   return ctx.tools.execute({
+    signal: testToolSignal,
     callId: CallId(`call-${++callCounter}`),
     name,
     arguments: args,
@@ -67,7 +70,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       await writeFile(join(dir, 'a.txt'), 'original')
       const result = await call('write', { file_path: 'a.txt', content: 'clobber' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_NOT_OBSERVED' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
       expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('original')
     })
 
@@ -85,7 +88,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       await writeFile(join(dir, 'a.txt'), 'changed-externally') // out-of-band change
       const result = await call('write', { file_path: 'a.txt', content: 'replaced' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
     })
   })
 
@@ -102,7 +105,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       await writeFile(join(dir, 'bin'), Buffer.from([0x00, 0x01, 0x02]))
       const result = await call('read', { file_path: 'bin' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_NOT_TEXT' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_NOT_TEXT' } })
     })
 
     it('paginates a multi-line file with offset/limit', async () => {
@@ -127,7 +130,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       await writeFile(join(dir, 'a.txt'), 'hello world')
       const result = await call('edit', { file_path: 'a.txt', old_string: 'world', new_string: 'there' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_NOT_OBSERVED' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
       expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello world')
     })
 
@@ -151,7 +154,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       await writeFile(join(dir, 'a.txt'), 'goodbye') // out-of-band change removes 'world'
       const result = await call('edit', { file_path: 'a.txt', old_string: 'world', new_string: 'there' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
     })
 
     it('rejects an ambiguous match without replace_all', async () => {
@@ -159,7 +162,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       await call('read', { file_path: 'a.txt' })
       const result = await call('edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_AMBIGUOUS_EDIT' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_AMBIGUOUS_EDIT' } })
       expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('a a a')
     })
 
@@ -187,7 +190,7 @@ describe('default deployment (with dsh-fs-policy)', () => {
       // The model-facing edit still rejects: the read did not emit fs/observed.
       const result = await call('edit', { file_path: 'a.txt', old_string: 'world', new_string: 'there' })
       expect(result.isError).toBe(true)
-      expect(result.error).toMatchObject({ code: 'FS_NOT_OBSERVED' })
+      expect(result.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
     })
   })
 
@@ -260,14 +263,14 @@ describe('bare provider (no dsh-fs-policy)', () => {
   it('edit of a MISSING target reports FS_STALE_VERSION even on the unguarded path', async () => {
     const result = await call('edit', { file_path: 'missing.txt', old_string: 'a', new_string: 'b' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(result.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
   })
 
   it('edit still enforces literal-match codes (FS_EDIT_NOT_FOUND), unrelated to freshness', async () => {
     await writeFile(join(dir, 'a.txt'), 'hello world')
     const result = await call('edit', { file_path: 'a.txt', old_string: 'absent', new_string: 'x' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ code: 'FS_EDIT_NOT_FOUND' })
+    expect(result.error).toMatchObject({ info: { code: 'FS_EDIT_NOT_FOUND' } })
   })
 
   it('neither write nor edit stats in the tool on the bare path', async () => {
@@ -299,6 +302,7 @@ describe('per-session cwd', () => {
 
   const callIn = (sessionObj: object, name: string, args: unknown) =>
     ctx.tools.execute({
+      signal: testToolSignal,
       callId: CallId(`call-${++callCounter}`),
       name,
       arguments: args,
@@ -344,26 +348,25 @@ describe('signal, concurrency, and the fs/observed contract', () => {
   const callSig = (signal: AbortSignal, name: string, args: unknown) =>
     ctx.tools.execute({ callId: CallId(`c-${++callCounter}`), name, arguments: args, agent: { session } as never, signal })
   const callOwned = (name: string, args: unknown) =>
-    ctx.tools.execute({ callId: CallId(`c-${++callCounter}`), name, arguments: args, agent: { session } as never })
+    ctx.tools.execute({ signal: testToolSignal, callId: CallId(`c-${++callCounter}`), name, arguments: args, agent: { session } as never })
 
-  it('a pre-aborted signal makes read/write/edit return isError FS_ABORTED', async () => {
+  it('a pre-aborted registry call skips read/write/edit with ABORTED_BEFORE_DISPATCH', async () => {
     await writeFile(join(dir, 'a.txt'), 'hello')
     const read = await callSig(AbortSignal.abort(), 'read', { file_path: 'a.txt' })
     expect(read.isError).toBe(true)
-    expect(read.error).toMatchObject({ code: 'FS_ABORTED' })
+    expect(read.error).toMatchObject({ info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } })
 
     const write = await callSig(AbortSignal.abort(), 'write', { file_path: 'new.txt', content: 'x' })
     expect(write.isError).toBe(true)
-    expect(write.error).toMatchObject({ code: 'FS_ABORTED' })
+    expect(write.error).toMatchObject({ info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } })
     await expect(readFile(join(dir, 'new.txt'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
 
     // Read first (un-aborted, SAME session owner) so the edit clears the
-    // observation gate; then the aborted edit fails on the signal, not on
-    // FS_NOT_OBSERVED.
+    // observation gate; then the registry skips the aborted edit before its body.
     expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
     const edit = await callSig(AbortSignal.abort(), 'edit', { file_path: 'a.txt', old_string: 'hello', new_string: 'bye' })
     expect(edit.isError).toBe(true)
-    expect(edit.error).toMatchObject({ code: 'FS_ABORTED' })
+    expect(edit.error).toMatchObject({ info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } })
     expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('hello') // unchanged
   })
 
@@ -378,10 +381,37 @@ describe('signal, concurrency, and the fs/observed contract', () => {
     ])
     const errors = [one, two].filter(r => r.isError)
     expect(errors).toHaveLength(1)
-    expect(errors[0]?.error).toMatchObject({ code: 'FS_STALE_VERSION' })
+    expect(errors[0]?.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
     // The world is consistent: exactly one edit landed.
     const onDisk = await readFile(join(dir, 'a.txt'), 'utf8')
     expect(onDisk === 'ONE value here' || onDisk === 'base TWO here').toBe(true)
+  })
+
+  it('a stale observed version from an older read fails closed at edit CAS', async () => {
+    await writeFile(join(dir, 'a.txt'), 'older content\n')
+    const target = await ctx.fs.resolve('a.txt')
+    const firstInfo = await ctx.fs.stat(target)
+    if (!firstInfo) throw new Error('expected first stat')
+
+    expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
+
+    await writeFile(join(dir, 'a.txt'), 'newer current content\n')
+    const secondInfo = await ctx.fs.stat(target)
+    if (!secondInfo) throw new Error('expected second stat')
+    expect(secondInfo.version).not.toBe(firstInfo.version)
+    expect((await callOwned('read', { file_path: 'a.txt' })).isError).toBe(false)
+
+    // Reproduce an older concurrent read winning the observation race.
+    ctx.emit('fs/observed', target, firstInfo.version, { agent: { session } })
+
+    const edit = await callOwned('edit', {
+      file_path: 'a.txt',
+      old_string: 'newer',
+      new_string: 'edited',
+    })
+    expect(edit.isError).toBe(true)
+    expect(edit.error).toMatchObject({ info: { code: 'FS_STALE_VERSION' } })
+    expect(await readFile(join(dir, 'a.txt'), 'utf8')).toBe('newer current content\n')
   })
 
   it('a throwing fs/observed listener surfaces as isError, but the mutation already hit disk', async () => {

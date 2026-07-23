@@ -8,6 +8,12 @@
 import type { CallId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from './types.ts'
 
+/** Recovery code for an assistant tool request that never reached a recorded call start. */
+export const TOOL_NOT_STARTED = 'TOOL_NOT_STARTED'
+
+/** Recovery code for a recorded tool call whose completed outcome was not durably recorded. */
+export const TOOL_OUTCOME_UNKNOWN = 'TOOL_OUTCOME_UNKNOWN'
+
 /**
  * Return deterministic synthetic events that close an open tail turn. Unmatched
  * calls receive error results first, followed by an open `step/end` and an
@@ -82,6 +88,7 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
   // Close calls before their step: providers reject dangling assistant calls,
   // and Map insertion order preserves their transcript order.
   for (const [callId, { step, callSeq }] of pendingCalls) {
+    const started = callSeq !== undefined
     closers.push({
       type: 'tool/result',
       seq: seq++,
@@ -90,12 +97,19 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
         turn: openTurn,
         step,
         callId,
-        content: [{ type: 'text', text: 'Tool call interrupted by a crash; no result was recorded.' }],
+        content: [{
+          type: 'text',
+          text: started
+            ? 'The tool call was interrupted after it was recorded, but no result was durably recorded. Its outcome is unknown. Decide whether to retry from the tool semantics: retry only if the operation is read-only or idempotent; if it may have side effects, first verify external state or ask the user. Do not retry blindly.'
+            : 'The tool call was interrupted before the Harness recorded it as started. Retry it if it is still needed.',
+        }],
         isError: true,
-        error: { name: 'InterruptedError', code: 'interrupted' },
+        error: started
+          ? { name: 'ToolOutcomeUnknownError', code: TOOL_OUTCOME_UNKNOWN }
+          : { name: 'ToolNotStartedError', code: TOOL_NOT_STARTED },
       },
       surfaceOp: 'append',
-      ...callSeq !== undefined ? { sourceEventSeqs: [callSeq] } : {},
+      ...started ? { sourceEventSeqs: [callSeq] } : {},
     })
   }
 

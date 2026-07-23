@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import { serializeMessages, serializeRequest } from '@deepseek-ai/dsh-llm-deepseek'
+import { serializeMessages, serializeRequest } from '../src/serialize.ts'
 
 function request(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
-  return { model: 'deepseek-v4-flash', messages: [], ...overrides }
+  return { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [], ...overrides }
 }
 
 describe('serializeMessages', () => {
@@ -187,12 +187,22 @@ describe('serializeRequest', () => {
   })
 })
 
-describe('assistant empty and tool-call content shapes', () => {
-  it('serializes a content-less, tool-call-less assistant message as null content', () => {
-    // Aborted/empty assistant turns: no text, no calls → null (the wire
-    // accepts it; "" is reserved for tool-call turns per the samples).
+describe('review fixes: assistant content shapes', () => {
+  it('serializes a content-less, tool-call-less assistant message as "" content, never null', () => {
+    // Aborted/empty assistant turns: no text, no calls → "". The earlier
+    // null shape was live-falsified: the API 400s a null-content assistant
+    // message without tool_calls ("content or tool_calls must be set").
     const wire = serializeMessages([{ role: 'assistant', content: [] }])
-    expect(wire).toEqual([{ role: 'assistant', content: null }])
+    expect(wire).toEqual([{ role: 'assistant', content: '' }])
+  })
+
+  it('serializes a reasoning-ONLY assistant message as "" content with the reasoning dropped', () => {
+    // The model can answer entirely in the reasoning channel (a v4-flash
+    // greeting did, live). The passback rule keeps reasoning_content off
+    // plain turns, and content must still be SET — a null here poisoned the
+    // session log and bricked every later turn of that session.
+    const wire = serializeMessages([{ role: 'assistant', content: [{ type: 'reasoning', text: '你好！有什么我可以帮你的吗？' }] }])
+    expect(wire).toEqual([{ role: 'assistant', content: '' }])
   })
 
   it('serializes tool-call turns with empty string content, not null', () => {

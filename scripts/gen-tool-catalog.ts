@@ -3,23 +3,28 @@
  * plugin. Runtime registration is the source of truth for computed schemas;
  * the manifest is checked against every on-disk `tool-*` package. `--check`
  * verifies the committed artifact. Rationale and ownership live in
- * `docs/rfc/implemented/process/2026-07-02-tool-schema-catalog.md`.
+ * `.agents/notes/implemented/process/2026-07-02-tool-schema-catalog.md`.
  */
 
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import GoalService from '@deepseek-ai/dsh-goal'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
+import { BashExecutor } from '@deepseek-ai/dsh-bash'
+import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import PlanModeService from '@deepseek-ai/dsh-plan-mode'
 import WebService from '@deepseek-ai/dsh-web'
 import * as WebSearchExa from '@deepseek-ai/dsh-web-search-exa'
 import * as WebFetchLocal from '@deepseek-ai/dsh-web-fetch-local'
 import SubagentService from '@deepseek-ai/dsh-subagent'
-import * as SubagentMock from '@deepseek-ai/dsh-subagent-mock'
+import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import TaskService from '@deepseek-ai/dsh-tasks'
@@ -27,16 +32,77 @@ import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+import PtyService from '@deepseek-ai/dsh-pty'
+import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
+import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
+import Lsp from '@deepseek-ai/dsh-lsp'
+import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
+import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 
 const root = resolve(import.meta.dirname, '..')
 const OUT = 'docs/tool-catalog.md'
+const CATALOG_RG_PROBE_COMMAND = 'command -v rg >/dev/null 2>&1'
+
+/**
+ * Minimal bash service for harvesting `dsh-tool-fs-search` schemas. The search
+ * plugin now probes `rg` at registration time, but the generated catalog must
+ * remain independent of the host PATH and never execute a real search.
+ */
+class CatalogSearchBashExecutor extends BashExecutor {
+  override resolve(request: BashExecRequest): BashExecSpec {
+    return {
+      command: request.command,
+      workdir: request.workdir ?? root,
+      timeoutMs: request.timeoutMs ?? 60_000,
+      stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
+      signal: request.signal,
+      sandboxPolicy: request.sandboxPolicy,
+    }
+  }
+
+  override run(spec: BashExecSpec): Promise<BashRunResult> {
+    if (spec.command !== CATALOG_RG_PROBE_COMMAND) {
+      throw new Error(`gen-tool-catalog: unexpected search bash command during schema harvest: ${spec.command}`)
+    }
+    return Promise.resolve({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      aborted: false,
+      timeoutMs: spec.timeoutMs,
+      stdout: { text: '', truncated: false },
+      stderr: { text: '', truncated: false },
+    })
+  }
+
+  override start(): BashProcess {
+    throw new Error('gen-tool-catalog: search schema harvest must not start background processes')
+  }
+}
+
+/**
+ * Register the descriptor needed to mount schema-producing consumers. Declares
+ * the full capability set of the shipped in-process providers so consumers
+ * mount under their shipped defaults (tool-subagent's default numeric maxDepth
+ * requires `depthLimit`).
+ */
+function registerCatalogSubagentProvider(ctx: Context, name: string): void {
+  const provider: SubagentProvider = {
+    name,
+    capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
+    inheritsParentContext: false,
+    start: () => Promise.reject(new Error('tool-catalog provider cannot start a child')),
+  }
+  ctx.subagents.registerProvider(provider)
+}
 
 /**
  * Tool package plus its hand-maintained boot recipe. The caller mounts the
@@ -107,7 +173,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     toolsConfig: { mode: 'code' },
     async mount() {},
     note:
-      'Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode RFC). Under `code` it is the registry\'s only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.',
+      'Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: code` / `mode: both` (see the Code Mode Agent Note). Under `code` it is the registry\'s only wire contribution; the other visible capabilities are declared in a generated TypeScript SDK section, and a program calls them through serialized bindings that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-plan-mode',
+    dir: 'plan-mode',
+    source: 'packages/plan/plan-mode/src/index.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt', 'ctx.userInteraction (execution time, opportunistic)'],
+    writes: ['tool/call', 'plan/mode inactive on an approved review', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(PlanModeService, { section: 'Tool catalog schema harvest.' })
+    },
+    note:
+      'exit_plan_mode stays in the model-facing schema while planning is inactive so transitions add no tool-catalog churn on top of the plan-policy change. Its execute path rejects calls outside plan mode; in plan mode it presents the plan over the user-interaction seam (approve / keep planning with feedback), and approval logs plan mode inactive at the step boundary.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-bash',
@@ -132,7 +210,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolCordis)
     },
     note:
-      'Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see docs/rfc/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; the request-header ToolsDelta logs those tool-set changes.',
+      'Ships in examples/cordis-agent only (a deliberate opt-in — mounted code gets the real ctx, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins the model mounts may register ADDITIONAL model-visible tools at runtime; a full changed request header logs those tool-set changes.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs',
@@ -148,6 +226,80 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. The tool schemas above are identical with or without the policy plugin.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-fs-search',
+    dir: 'tool-fs-search',
+    source: 'packages/fs/tool-fs-search/src/index.ts',
+    requires: ['ctx.tools', 'ctx.bash', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The tools inject `bash` (search executes fixed `rg` commands through
+      // the executor seam, not ctx.fs). Use a catalog-only executor so the
+      // registration-time `rg` probe stays deterministic and the generator
+      // never depends on the host PATH. `ctx.spillStore` is optional (read via
+      // ctx.get) and does not affect the schemas, so no spill backend is mounted.
+      await ctx.plugin(CatalogSearchBashExecutor)
+      await ctx.plugin(ToolFsSearch)
+    },
+    note:
+      'glob and grep are conditional bash-backed discovery tools: they register only when ctx.bash can find `rg`, then run fixed ripgrep commands through ctx.bash as ordinary foreground calls (never background tasks). Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-pty',
+    dir: 'tool-pty',
+    source: 'packages/pty/tool-pty/src/index.ts',
+    requires: ['ctx.tools', 'ctx.pty', 'ctx.systemPrompt', 'ctx.tasks at call time for run_in_background'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(PtyService)
+      await ctx.plugin(ToolPty)
+    },
+    note:
+      'The six terminal tools are opt-in and complement one-shot bash/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.tasks`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-goal',
+    dir: 'tool-goal',
+    source: 'packages/goal/tool-goal/src/index.ts',
+    requires: ['ctx.tools', 'ctx.agents', 'ctx.goals', 'ctx.systemPrompt', 'a calling Agent in an authorized open turn'],
+    writes: ['tool/call', 'context/message goal snapshot for mutations', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(GoalService)
+      await ctx.plugin(ToolGoal)
+    },
+    note:
+      'create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-lsp',
+    dir: 'tool-lsp',
+    source: 'packages/lsp/tool-lsp/src/index.ts',
+    requires: ['ctx.tools', 'ctx.lsp', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The tool registers from the seam alone; the schema does not depend on any provider.
+      await ctx.plugin(Lsp)
+      await ctx.plugin(ToolLsp)
+    },
+    note:
+      'The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-local`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-ralph',
+    dir: 'tool-ralph',
+    source: 'packages/workflow/tool-ralph/src/index.ts',
+    requires: ['ctx.tools', 'ctx.workflows', 'ctx.subagents', 'ctx.systemPrompt', 'a calling Agent (exec.agent parents every fresh round)'],
+    writes: ['tool/call', 'tool/result', 'workflow and child session events during execution'],
+    async mount(ctx) {
+      await ctx.plugin(SubagentService)
+      registerCatalogSubagentProvider(ctx, 'mock')
+      await ctx.plugin(VmWorkflowEngine, { provider: 'mock' })
+      await ctx.plugin(ToolRalph, { subagentProvider: 'mock' })
+    },
+    note:
+      'A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-skill',
@@ -173,12 +325,11 @@ const TOOL_PACKAGES: ToolPackage[] = [
     shippedNames: ['subagent', 'subagent_fork'],
     async mount(ctx) {
       await ctx.plugin(SubagentService)
-      // Register a scripted provider under the name the tool delegates to.
-      await ctx.plugin(SubagentMock, { name: 'mock' })
+      registerCatalogSubagentProvider(ctx, 'mock')
       await ctx.plugin(ToolSubagent, { provider: 'mock' })
     },
     note:
-      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/coding-agent/cordis.yml` and `examples/acp-agent/cordis.yml`.',
+      'The registered tool name is the load-time `toolName` config (default `subagent`); the schema above is that default. The shipped example agents load this package once per subagent backend, so the model additionally sees `subagent_fork` (bound to the fork backend) with an identical schema — see `examples/tui-agent/cordis.yml` and `examples/acp-agent/cordis.yml`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-tasks',
@@ -191,7 +342,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(ToolTasks)
     },
     note:
-      'The kind-agnostic background-task control surface: a background bash command and a background subagent are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers\' `ctx.tasks.start()`.',
+      'The kind-agnostic background-task control surface: background bash commands, PTY sends, and subagents are read, listed, and killed through the same three tools. Loading the plugin attaches the control surface that arms producers\' `ctx.tasks.start()`.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-todo',
@@ -216,7 +367,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       // subagent provider to satisfy it. The schema does not depend on which
       // provider backs the engine.
       await ctx.plugin(SubagentService)
-      await ctx.plugin(SubagentMock, { name: 'mock' })
+      registerCatalogSubagentProvider(ctx, 'mock')
       await ctx.plugin(VmWorkflowEngine, { provider: 'mock' })
       await ctx.plugin(ToolWorkflow)
     },
@@ -339,7 +490,7 @@ export function render(catalog: ToolCatalog): string {
     '',
     'Every model-facing tool a shipped plugin contributes to `ctx.tools`: the `name`, `description`, and JSON-Schema `parameters` the model receives via the system-prompt assembly. It complements the cordis [events](cordis-catalog/events.md) & [services](cordis-catalog/services.md) catalogs (the wiring a plugin listens to and calls) and [core-data-structures/](core-data-structures/core.md) (the types those signatures move) — this page is the *tools* the agent is offered.',
     '',
-    'This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator\'s boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog RFC](rfc/implemented/process/2026-07-02-tool-schema-catalog.md).',
+    'This file is GENERATED and verified fresh by `pnpm run verify-tool-catalog` (part of `doc-sync`) — do not edit it by hand. Unlike the cordis catalog (a pure source-AST pass), this generator BOOTS each tool plugin on a real context and reads `ctx.tools.schemas()`, because a tool schema is not statically knowable (runtime-spread enums, concatenated descriptions, config-driven names, raw-JSON-Schema MCP tools). A completeness guard globs `packages/*/tool-*` and fails if any package is missing from the generator\'s boot manifest, so a new tool cannot be silently undocumented. See [the tool-schema-catalog Agent Note](../.agents/notes/implemented/process/2026-07-02-tool-schema-catalog.md).',
     '',
     'Scope: shipped product tools under `packages/*/tool-*`, each booted with its DEFAULT config. The registered tool NAME can be a load-time config (e.g. `tool-subagent`\'s `toolName`), so a deployment may surface a package under a different or additional name — a per-package note records those shipped aliases where they exist. The `examples/` demo tools (e.g. `echo`) are excluded, matching the cordis catalog\'s packages-only scope.',
     '',

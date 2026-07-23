@@ -56,8 +56,9 @@ Every MCP tool has two names: the raw MCP name (sent on the wire in `tools/call`
 
 - On connect: `listTools()` → registers each tool via `ctx.tools.register()` under its public name.
 - Listens for `notifications/tools/list_changed` → re-syncs; a failed re-sync keeps the previous generation registered.
-- Tool execute: `client.callTool({ name: rawName, arguments }, { signal })` with timeout + abort support — the public name is never sent to the server.
-- Image content in results is discarded with a placeholder (the harness has no image block type).
+- Tool execute: `client.callTool({ name: rawName, arguments }, { signal })` with timeout + abort support—the public name is never sent to the server.
+- Canonical success is `{ content: JsonValue[], structuredContent? }`; complete JSON MCP blocks survive for programmatic callers. A supported advertised `outputSchema` validates `structuredContent`; unsupported schema vocabulary falls back to unconstrained `JsonValue`.
+- Native/model rendering keeps the existing text projection: text blocks join with newlines while image, audio, resource, and unsupported blocks become placeholders.
 - On disconnect/crash: all tools are unregistered; no auto-reconnect.
 
 ## Services consumed
@@ -70,19 +71,36 @@ Every MCP tool has two names: the raw MCP name (sent on the wire in `tools/call`
 
 ### Discovered MCP tools
 
-**What the model sees**: After initial discovery succeeds, each advertised MCP tool appears as a native tool named `mcp__<serverName>__<rawName>` (or its deterministic normalized form), with the server-provided description and input schema. A successful re-sync replaces the generation; plugin disposal removes it.
+#### What the model sees
 
-**Token effect**: Data-dependent schema cost is paid on every request while the tools are registered. Re-sync replaces rather than accumulates schemas, and the server-qualified name adds tokens to every tool definition and call.
+After initial discovery succeeds, each advertised MCP tool appears as a native tool named `mcp__<serverName>__<rawName>` (or its deterministic normalized form), with the server-provided description and input schema. A successful re-sync replaces the generation; plugin disposal removes it.
+
+#### Token effect
+
+Data-dependent schema cost is paid on every request while the tools are registered. Re-sync replaces rather than accumulates schemas, and the server-qualified name adds tokens to every tool definition and call.
+
+#### KV Cache effect
+
+Prefix-stable while the discovered tool set and schemas are unchanged. A re-sync that adds, removes, renames, or changes a tool replaces definitions and may invalidate reuse from the first changed schema token.
 
 ### Tool-call history and results
 
-**What the model sees**: The public tool name and JSON arguments remain in assistant history. Text result blocks are joined with newlines into one retained text result; image, audio, resource, and unsupported blocks become short placeholders, and MCP `isError` results follow the registry's model-visible error path.
+#### What the model sees
 
-**Token effect**: Arguments and mapped text are retained until compaction. Binary and resource payloads are discarded rather than added to context.
+The public tool name and JSON arguments remain in assistant history. Text result blocks are joined with newlines into one retained Native text result; image, audio, resource, and unsupported blocks become short placeholders there. Their full JSON blocks and optional structured content remain in the execution-local canonical value, and MCP `isError` rejects the call through the registry's error path.
+
+#### Token effect
+
+Arguments and mapped text are retained until compaction. Binary and resource payloads are discarded rather than added to context.
+
+#### KV Cache effect
+
+Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
 
 ## Known Limitations and Deferred Work
 
 - **Initial discovery is asynchronous** — plugin load does not wait for connection and `listTools()`, so a turn started immediately after boot or HMR can assemble before the MCP tools are registered.
 - **Tools are the only bridged MCP capability** — Resources and Prompts have no harness consumption surface and are deferred.
 - **Crash recovery is manual** — transport closure unregisters the server's tools, but reconnect requires an HMR reload or harness restart.
-- **Non-text results are lossy** — image, audio, and resource payloads are replaced with placeholders, and a structured-only result has no model-visible structured representation.
+- **Native non-text rendering is lossy** — image, audio, and resource payloads become placeholders in model context even though the execution-local canonical value preserves their JSON blocks. Richer Native multimedia projection is deferred.
+- **Unsupported MCP output schemas are not enforced** — `structuredContent` falls back to `JsonValue` when the advertised schema uses vocabulary outside the harness subset.

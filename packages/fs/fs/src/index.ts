@@ -7,11 +7,13 @@
  */
 
 import { Context, Service } from 'cordis'
+import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {
   FsDirEntry,
   FsEditOutcome,
   FsEditRequest,
   FsInfo,
+  FsPathInfo,
   FsTarget,
   FsVersion,
   FsWriteIntent,
@@ -29,6 +31,7 @@ export type {
   FsDirEntry,
   FsErrorCode,
   FsInfo,
+  FsPathInfo,
   FsTarget,
   FsWriteIntent,
   FsWriteOutcome,
@@ -81,15 +84,32 @@ export abstract class FileSystem extends Service {
   }
 
   /**
+  /**
+   * The sandbox mode this backend enforces on mutations BY DEFAULT, or
+   * `undefined` when it does not confine at all — the capability fact the tool
+   * layer reads to advertise the escalation fields honestly (mirrors
+   * `BashExecutor.sandboxMode`). The base class and the bare local backend
+   * report `undefined`; a sandboxing backend (`@deepseek-ai/dsh-fs-sandbox`)
+   * overrides it with the deployment default. A session override may make the
+   * effective mode narrower or wider, so strict escalation widening is checked
+   * per call rather than encoded in this default-relative fact.
+   * @returns the configured default mode of a sandboxing backend; `undefined`
+   *   for a backend that never confines.
+   */
+  get sandboxMode(): SandboxMode | undefined {
+    return undefined
+  }
+
+  /**
    * Resolve a model/plugin-supplied path into a stable {@link FsTarget}. May perform I/O (a
    * remote/sandboxed backend may need a round-trip to map a path to a stable identity), hence
    * async even though the local backend only normalizes + realpaths.
    *
    * @param path - the path to resolve; relative paths resolve against `opts.cwd`.
-   * @param opts - `cwd` overrides the backend's default base for relative paths.
+   * @param opts - optional cwd override and cancellation signal.
    * @returns the stable target; the same file yields the same `targetKey`.
    */
-  abstract resolve(path: string, opts?: { cwd?: string }): Promise<FsTarget>
+  abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>
 
   /**
    * Return target metadata, or `undefined` when the target does not exist.
@@ -98,6 +118,22 @@ export abstract class FileSystem extends Service {
    * @returns metadata only, never content; undefined for an absent target.
    */
   abstract stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined>
+
+  /**
+   * Return path metadata without following the final path component when it is a
+   * symbolic link. This is intentionally path-shaped, not target-shaped:
+   * {@link resolve} follows symlinks to produce the stable identity used by
+   * normal reads/writes, while `lstat` lets a consumer reject the path itself
+   * before that follow happens.
+   *
+   * `opts.cwd` follows {@link resolve}'s cwd rules. `undefined` means the path is
+   * absent.
+   * @param path - the path to inspect; relative paths resolve against `opts.cwd`.
+   * @param opts - `cwd` overrides the backend's default base for relative paths.
+   * @param signal - aborts the metadata round-trip.
+   * @returns metadata only, never content; undefined for an absent path.
+   */
+  abstract lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined>
 
   /**
    * Read the whole regular text file as a single decoded string.
@@ -134,9 +170,18 @@ export abstract class FileSystem extends Service {
    * @param content - the full new file content.
    * @param expected - the write intent guarding the write; omit for unconditional.
    * @param signal - aborts before the atomic rename takes effect.
+   * @param sandboxPolicy - the per-call mode and workspace root this write
+   *   runs under; a sandboxing backend fences the write by it, the bare backend
+   *   ignores it. Omit to leave the backend its own default.
    * @returns the outcome, including the version the write produced.
    */
-  abstract writeText(target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal): Promise<FsWriteOutcome>
+  abstract writeText(
+    target: FsTarget,
+    content: string,
+    expected?: FsWriteIntent,
+    signal?: AbortSignal,
+    sandboxPolicy?: SandboxExecutionPolicy,
+  ): Promise<FsWriteOutcome>
 
   /**
    * Atomically edit literal text. When supplied, the version guard is checked
@@ -146,9 +191,18 @@ export abstract class FileSystem extends Service {
    * @param edit - the literal search/replace request.
    * @param expected - the version guard; omit for an unconditional edit.
    * @param signal - aborts before the atomic rename takes effect.
+   * @param sandboxPolicy - the per-call mode and workspace root this edit runs
+   *   under; a sandboxing backend fences the edit by it, the bare backend
+   *   ignores it. Omit to leave the backend its own default.
    * @returns the outcome, including the version the edit produced.
    */
-  abstract editText(target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion }, signal?: AbortSignal): Promise<FsEditOutcome>
+  abstract editText(
+    target: FsTarget,
+    edit: FsEditRequest,
+    expected?: { version: FsVersion },
+    signal?: AbortSignal,
+    sandboxPolicy?: SandboxExecutionPolicy,
+  ): Promise<FsEditOutcome>
 }
 
 export default FileSystem

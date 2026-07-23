@@ -5,22 +5,31 @@
  * @module @deepseek-ai/dsh-tools/src/code-mode
  */
 
-import { inspect } from 'node:util'
+import { parse } from 'node:path'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { CodeBindingFunction, CodeRunResult, CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
-import type {} from '@deepseek-ai/dsh-session'
+import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { defineTool } from './schema.ts'
 import type { ToolDefinition, ToolRegistry } from './index.ts'
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     /**
-     * One bridged sub-dispatch from a `run_code` program: the parent `run_code` call id, the
-     * deterministic sub-call id (`<parent>:code:<n>`), the tool `name` with its
-     * JSON-normalized `arguments` — the exact value dispatched, normalized before dispatch, so
-     * this append can never fail on payload shape — whether the sub-call errored, and a
-     * bounded `resultSummary` of its model-facing text.
+     * One bridged sub-dispatch from a `run_code` program: the parent
+     * `run_code` call id, the deterministic sub-call id
+     * (`<parent>:code:<n>`), the tool `name` with its JSON-normalized
+     * `arguments` — the exact value dispatched, normalized BEFORE dispatch,
+     * so this append can never fail on payload shape — whether the sub-call
+     * errored, and a bounded `resultSummary` of its model-facing text. Before
+     * bounding, occurrences of a non-root session workspace path are
+     * normalized to `.` so host-specific absolute path lengths cannot change
+     * the summary.
+     * Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter
+     * model context; persistence and UIs get every call. Appended inside the
+     * parent `run_code`'s execution (the bridge drains its queue before
+     * returning), so the turn-enclosure invariant holds by construction.
      */
     'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; resultSummary: string }
   }
@@ -53,10 +62,7 @@ export class CodeRunFailedError extends HarnessError {
  */
 const SUMMARY_MAX_CHARS = 200
 
-/** Bounded inspect for rendering a program's completion value into the model-facing text. */
-const INSPECT_OPTIONS = { depth: 4, maxArrayLength: 100, maxStringLength: 10_000 } as const
-
-/** Join a result's text blocks; a non-text block becomes a placeholder (an MVP limitation, stated in the SDK instructions). */
+/** Join Native content for the bounded durable sub-dispatch summary; non-text blocks become diagnostic placeholders. */
 function textOf(content: ContentBlock[]): string {
   return content
     .map((block) => {
@@ -70,53 +76,129 @@ function textOf(content: ContentBlock[]): string {
     .join('\n')
 }
 
-/** Bound a sub-call's model-facing text for the log event's `resultSummary`. */
-function summarize(text: string): string {
-  return text.length > SUMMARY_MAX_CHARS ? `${text.slice(0, SUMMARY_MAX_CHARS)}…` : text
+/** Normalize workspace paths, then bound a sub-call's model-facing text for its durable log summary. */
+function summarize(text: string, cwd: string | undefined): string {
+  const stableText = cwd === undefined || cwd === parse(cwd).root
+    ? text
+    : text.replaceAll(cwd, '.')
+  return stableText.length > SUMMARY_MAX_CHARS ? `${stableText.slice(0, SUMMARY_MAX_CHARS)}…` : stableText
 }
 
 /**
- * JSON-normalize one binding call's argument into TWO independent parses of the same canonical
- * text: `dispatched` goes to the tool, `logged` to the `tool/code-dispatch` event — identical
- * by construction (the runtime's structured-clone boundary is wider than JSON; the session log
- * accepts only JSON), and separate objects, so a tool mutating its args can neither desync the
- * log from what was dispatched nor re-poison the append.
+ * Snapshot one binding call's argument as lossless JSON, then snapshot that
+ * detached value again so dispatch and logging stay independent without
+ * reintroducing structured-clone's platform-specific nesting limit.
  */
 function jsonNormalizeArgs(value: unknown): { dispatched: unknown; logged: unknown } {
-  if (value === undefined) {
-    throw new Error('tool arguments must be JSON-serializable (call the tool with an arguments object, e.g. `{}`)')
-  }
-  let text: string | undefined
+  let snapshot: JsonValue | undefined
   try {
-    text = JSON.stringify(value)
+    snapshot = snapshotJsonValue(value) as JsonValue | undefined
   } catch (error: unknown) {
-    throw new Error(`tool arguments must be JSON-serializable: ${error instanceof Error ? error.message : String(error)}`)
+    throw new Error(`tool arguments must be lossless JSON: ${error instanceof Error ? error.message : String(error)}`)
   }
-  // JSON.stringify's lib type claims `string`, but a bare function or symbol
-  // root really yields `undefined` at runtime — the guard is live.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  if (text === undefined) throw new Error('tool arguments must be JSON-serializable (got a value JSON cannot represent)')
-  return { dispatched: JSON.parse(text) as unknown, logged: JSON.parse(text) as unknown }
+  if (snapshot === undefined) {
+    throw new Error('tool arguments must be lossless JSON (call the tool with an arguments object, e.g. `{}`)')
+  }
+  const logged = snapshotJsonValue(snapshot)
+  /* v8 ignore next -- snapshot is already a detached lossless JSON value. */
+  if (logged === undefined) {
+    throw new Error('tool arguments could not be detached for durable logging')
+  }
+  return { dispatched: snapshot, logged }
 }
 
-/** Render the program's completion value for the model-facing result text (`''` when the program returned nothing). */
-function renderValue(value: unknown): string {
-  if (value === undefined) return ''
-  return typeof value === 'string' ? value : inspect(value, INSPECT_OPTIONS)
+/** Two-space JSON presentation, matching the existing shallow `run_code` text contract. */
+const JSON_INDENT = '  '
+
+/**
+ * ECMAScript caps `JSON.stringify`'s `space` string at ten characters. The
+ * renderer also caps TOTAL indentation there, compacting deeper subtrees, so
+ * formatted output remains linear in the canonical JSON size.
+ */
+const MAX_JSON_INDENT_CHARS = 10
+
+/** A pending fragment in the iterative JSON presentation traversal. */
+type JsonRenderTask =
+  | { kind: 'text'; text: string }
+  | { kind: 'value'; value: JsonValue; depth: number; compact: boolean }
+
+/** Render one non-string JSON root without recursive traversal or unbounded indentation growth. */
+function renderJsonValue(value: Exclude<JsonValue, string>): string {
+  const chunks: string[] = []
+  const tasks: JsonRenderTask[] = [{ kind: 'value', value, depth: 0, compact: false }]
+  for (let task = tasks.pop(); task !== undefined; task = tasks.pop()) {
+    if (task.kind === 'text') {
+      chunks.push(task.text)
+      continue
+    }
+
+    const current = task.value
+    if (current === null || typeof current === 'boolean' || typeof current === 'number') {
+      chunks.push(String(current))
+      continue
+    }
+    if (typeof current === 'string') {
+      chunks.push(JSON.stringify(current))
+      continue
+    }
+
+    const compact = task.compact || (task.depth + 1) * JSON_INDENT.length > MAX_JSON_INDENT_CHARS
+    const childDepth = task.depth + 1
+    if (Array.isArray(current)) {
+      chunks.push('[')
+      if (current.length === 0) {
+        chunks.push(']')
+        continue
+      }
+      tasks.push({ kind: 'text', text: compact ? ']' : `\n${JSON_INDENT.repeat(task.depth)}]` })
+      for (let index = current.length - 1; index >= 0; index--) {
+        const item = current[index]
+        /* v8 ignore next -- canonical JsonValue arrays are dense. */
+        if (item === undefined) throw new Error('cannot render a sparse JSON array')
+        tasks.push({ kind: 'value', value: item, depth: childDepth, compact })
+        tasks.push({
+          kind: 'text',
+          text: compact
+            ? index === 0 ? '' : ','
+            : `${index === 0 ? '\n' : ',\n'}${JSON_INDENT.repeat(childDepth)}`,
+        })
+      }
+      continue
+    }
+
+    const keys = Object.keys(current)
+    chunks.push('{')
+    if (keys.length === 0) {
+      chunks.push('}')
+      continue
+    }
+    tasks.push({ kind: 'text', text: compact ? '}' : `\n${JSON_INDENT.repeat(task.depth)}}` })
+    for (let index = keys.length - 1; index >= 0; index--) {
+      const key = keys[index]
+      /* v8 ignore next -- the loop is bounded by the captured key count. */
+      if (key === undefined) throw new Error('cannot render a missing JSON object key')
+      const item = current[key]
+      /* v8 ignore next -- canonical JsonValue records contain no undefined properties. */
+      if (item === undefined) throw new Error('cannot render an undefined JSON object property')
+      tasks.push({ kind: 'value', value: item, depth: childDepth, compact })
+      tasks.push({
+        kind: 'text',
+        text: compact
+          ? `${index === 0 ? '' : ','}${JSON.stringify(key)}:`
+          : `${index === 0 ? '\n' : ',\n'}${JSON_INDENT.repeat(childDepth)}${JSON.stringify(key)}: `,
+      })
+    }
+  }
+  return chunks.join('')
 }
 
-/** The run_code result's `meta` payload (JSON-serializable; `presentResult` narrows it back). */
-interface RunCodeMeta {
-  logs: CodeRunResult['logs']
+/** Render one present program completion value for the model-facing result text. */
+function renderValue(value: JsonValue): string {
+  return typeof value === 'string' ? value : renderJsonValue(value)
 }
 
-/** Soft-narrow a result `meta` back to {@link RunCodeMeta} (replay may carry older shapes; presentation must not throw). */
-function asRunCodeMeta(meta: unknown): RunCodeMeta | undefined {
-  if (typeof meta !== 'object' || meta === null) return undefined
-  const m = meta as Record<string, unknown>
-  if (!Array.isArray(m.logs) || !m.logs.every(log => typeof log === 'string')) return undefined
-  return m as unknown as RunCodeMeta
-}
+/** Canonical value returned by the outer Code Mode transport. */
+type RunCodeOutput = { logs: string[]; result?: JsonValue }
 
 /**
  * Build the `run_code` {@link ToolDefinition}: one required `code` parameter,
@@ -140,7 +222,22 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
     parameters: {
       code: { type: 'string', required: true, description: 'The program: the body of an async TypeScript function.' },
     },
-    async execute(args, exec) {
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          logs: { type: 'array', required: true, items: { type: 'string' } },
+          result: { type: 'json' },
+        },
+      },
+      render: (_args, value) => {
+        const rendered = value.result === undefined ? '' : renderValue(value.result)
+        const parts = [value.logs.join('\n'), rendered].filter(part => part.length > 0)
+        return [{ type: 'text', text: parts.length > 0 ? parts.join('\n') : '(run_code completed with no output)' }]
+      },
+    },
+    async execute(args, exec): Promise<RunCodeOutput> {
       const runtime = requireRuntime()
 
       // The run-scoped abort: follows the outer signal in, and fires when the
@@ -148,9 +245,8 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       // (its executor kills on this signal) instead of orphaned, and
       // queued-unstarted dispatches are abandoned.
       const runController = new AbortController()
-      const onOuterAbort = (): void => { runController.abort(exec.signal?.reason) }
-      if (exec.signal?.aborted) onOuterAbort()
-      exec.signal?.addEventListener('abort', onOuterAbort, { once: true })
+      const onOuterAbort = (): void => { runController.abort(exec.signal.reason) }
+      exec.signal.addEventListener('abort', onOuterAbort, { once: true })
 
       let dispatches = 0
       // The per-run serialization queue: every binding call chains onto the tail, so even
@@ -173,7 +269,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       // would be narrowed away by control flow analysis.
       const runOver = (): boolean => runController.signal.aborted
 
-      const binding = (name: string): CodeBindingFunction => async (rawArgs: unknown): Promise<unknown> => {
+      const binding = (name: string): CodeBindingFunction => async (rawArgs: unknown): Promise<JsonValue> => {
         if (runOver()) {
           throw new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} not dispatched`)
         }
@@ -189,10 +285,10 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             parent: exec.token,
             signal: runController.signal,
           })
+          for (const context of result.additionalContexts ?? []) {
+            exec.deferContext(context)
+          }
           const text = textOf(result.content)
-          // Sub-call `additionalContext` is deliberately DROPPED here: the loop's buffering
-          // (append after the step's tool/results) has no safe analogue from inside a running
-          // run_code — injecting now would break tool-call/result adjacency.
           exec.agent?.session.append('tool/code-dispatch', {
             parentCallId: exec.callId,
             subCallId,
@@ -202,9 +298,11 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             // this record from what it actually received.
             arguments: normalized.logged,
             isError: result.isError,
-            resultSummary: summarize(text),
+            resultSummary: summarize(text, exec.agent.session.header.cwd),
           })
-          return { text, isError: result.isError }
+          return result.isError
+            ? { isError: true as const, message: result.error.message }
+            : { isError: false as const, value: result.value }
         })
         // A budget expiry or outer cancel that lands while this call was in
         // flight already aborted the dispatch; stop the program now rather
@@ -212,11 +310,11 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         if (runOver()) {
           throw new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} result discarded`)
         }
-        // A failed tool call REJECTS — real code signals failure by throwing,
-        // so try/catch and Promise.all short-circuiting behave as models
-        // expect (the error text is the tool's model-facing result text).
-        if (outcome.isError) throw new Error(outcome.text)
-        return outcome.text
+        // The worker turns a binding rejection into ToolCallError and adds
+        // only the binding name. Native content and internal error metadata
+        // stay outside the program-facing failure contract.
+        if (outcome.isError) throw new Error(outcome.message)
+        return outcome.value
       }
 
       // Null-prototype + defineProperty, mirroring the worker-side namespace
@@ -239,7 +337,11 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
         try {
           result = await runtime.run({
             program: args.code,
-            bindings: [{ global: 'tools', functions }],
+            bindings: [{
+              global: 'tools',
+              functions,
+              errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' },
+            }],
             signal: runController.signal,
           })
         } finally {
@@ -253,15 +355,12 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
           const logsText = result.logs.length > 0 ? `\nCaptured output:\n${result.logs.join('\n')}` : ''
           throw new CodeRunFailedError(`code run failed (${result.error.kind}): ${result.error.message}${logsText}`)
         }
-        const rendered = renderValue(result.value)
-        const parts = [result.logs.join('\n'), rendered].filter(part => part.length > 0)
-        const meta: RunCodeMeta = { logs: result.logs }
         return {
-          content: [{ type: 'text', text: parts.length > 0 ? parts.join('\n') : '(run_code completed with no output)' }],
-          meta,
+          logs: result.logs,
+          ...result.value !== undefined ? { result: result.value } : {},
         }
       } finally {
-        exec.signal?.removeEventListener('abort', onOuterAbort)
+        exec.signal.removeEventListener('abort', onOuterAbort)
       }
     },
     // ACP execute cards use the program as their visible title.
@@ -271,17 +370,8 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       kind: 'execute',
       rawInput: args.code,
     }),
-    // Title omitted on the result: an update replaces only the fields it
-    // carries, so the pending card's program title persists through
-    // completion; the captured output rides as body content.
-    presentResult: (_args, result) => {
-      const meta = asRunCodeMeta(result.meta)
-      if (!meta) return undefined
-      const output = meta.logs.join('\n')
-      return {
-        card: 'generic',
-        ...output.length > 0 ? { content: [{ type: 'text' as const, text: output }] } : {},
-      }
-    },
+    // Deliberately no presentResult: the generic surface fallback keeps this
+    // title and reads durable result content without duplicating a large raw
+    // result into the host view payload.
   })
 }

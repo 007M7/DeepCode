@@ -35,21 +35,13 @@ export interface PersistenceBackend<TornMarker = unknown> {
   readonly name: string
 
   /**
-   * Read a stored prefix by id, scanning ANY storage scope (for JSONL: every
-   * cwd bucket). Returns `undefined` if no stored artifact exists. Used by
-   * resume/load, and — via `!== undefined` — by the create-collision probe.
-   * The returned `tornMarker` is present iff there is a torn tail to truncate.
+   * Read a stored prefix by id, scanning every backend storage scope. Returns
+   * `undefined` if no stored artifact exists. Returned metadata must identify
+   * `id` before repair or state publication. Used by resume/load, live adoption,
+   * and — via `!== undefined` — the create-collision probe. The returned
+   * `tornMarker` is present iff there is a torn tail to truncate.
    */
   loadStored(id: SessionId): Promise<StoredPrefix<TornMarker> | undefined>
-
-  /**
-   * Read a stored prefix SCOPED to `cwd`. Deliberately distinct from
-   * {@link loadStored}: HMR live-adoption must only adopt a persisted log at the
-   * SAME cwd as the live session (a same-id log at a different cwd is a
-   * collision, not a resume) — conflating the two reintroduces a cross-cwd
-   * adoption bug. For a globally-unique-id backend (SQLite) `cwd` is ignored.
-   */
-  loadLive(id: SessionId, cwd: string | undefined): Promise<StoredPrefix<TornMarker> | undefined>
 
   /**
    * Durably append a CONTIGUOUS batch, lazily materializing the session first
@@ -118,6 +110,25 @@ function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly Sessio
     })
 }
 
+/** Reject events from an obsolete v0 vocabulary that this build cannot replay. */
+function assertSupportedEvents(events: readonly SessionEvent[], id: SessionId): void {
+  const legacyType: string = 'request/header-delta'
+  const legacy = events.find(event => event.type === legacyType)
+  if (legacy !== undefined) {
+    throw new Error(`session "${id}" contains unsupported legacy request/header-delta event at seq ${legacy.seq}`)
+  }
+  const legacyModeType: string = 'mode/set'
+  const legacyMode = events.find(event => event.type === legacyModeType)
+  if (legacyMode !== undefined) {
+    throw new Error(`session "${id}" contains unsupported legacy mode/set event at seq ${legacyMode.seq}`)
+  }
+  const fallback = events.find(event => event.type === 'request/header'
+    && (event.data as { reason?: string }).reason === 'fallback')
+  if (fallback !== undefined) {
+    throw new Error(`session "${id}" contains unsupported legacy request/header reason "fallback" at seq ${fallback.seq}`)
+  }
+}
+
 /**
  * Owns the backend-agnostic session write-path orchestration. A backend
  * constructs one (`new PersistenceCoordinator(ctx, this)`), implements
@@ -126,7 +137,8 @@ function seedCoversPrefix(seed: readonly SessionEvent[], prefix: readonly Sessio
  *
  * All per-id operations are serialized (a per-id promise chain) so concurrent
  * flushes / a flush racing a load never interleave storage writes. The
- * constructor installs the write-path listeners and the dispose effect.
+ * constructor installs the write-path listeners, per-session retirement, and
+ * the backend dispose effect.
  *
  * @typeParam TornMarker - the backend's opaque torn-tail repair token.
  */
@@ -146,6 +158,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * observation boundary; callers do not inspect this bookkeeping directly.
    */
   private inits = new Map<Session, Promise<void>>()
+  /** Final drains started by fire-and-forget session disposal notifications. */
+  private retirements = new Set<Promise<void>>()
 
   constructor(private ctx: Context, private backend: PersistenceBackend<TornMarker>) {
     this.installWritePath()
@@ -204,6 +218,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   private async appendCore(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+    // Every append route converges here: the public service, live write-behind
+    // drains, and HMR seed/suffix adoption. Keep vocabulary rejection at that
+    // shared boundary so a stale JavaScript plugin cannot persist an event that
+    // this same backend will refuse to load.
+    assertSupportedEvents(events, id)
     if (events.length === 0) return
     let state = this.states.get(id)
     if (state === undefined) state = await this.adopt(id) // calls loadCore, not load
@@ -237,7 +256,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const stored = await this.backend.loadStored(id)
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     const { meta, events, tornMarker } = stored
+    this.assertStoredId(id, meta)
     this.assertVersion(meta)
+    assertSupportedEvents(events, id)
 
     // Preserve complete interrupted events and synthesize only missing closers.
     const closers = interruptedTurnClosers(events)
@@ -267,7 +288,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const next = prior.then(op, op)
     // Keep the chain alive but swallow this op's rejection for the NEXT waiter
     // (the caller still sees the real rejection via `next`).
-    this.chains.set(id, next.then(() => undefined, () => undefined))
+    const tail = next.then(() => undefined, () => undefined)
+    this.chains.set(id, tail)
+    // Settled tails carry no serialization value. Delete only the exact tail
+    // installed above: a later operation may already have replaced it.
+    void tail.then(() => {
+      if (this.chains.get(id) === tail) this.chains.delete(id)
+    })
     return next
   }
 
@@ -288,32 +315,24 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
   }
 
+  /** Reject backend metadata that is not bound to the requested session id. */
+  private assertStoredId(id: SessionId, meta: SessionHeader): void {
+    if (meta.id !== id) {
+      throw new Error(`stored session identity mismatch: requested "${id}", header contains "${meta.id}"`)
+    }
+  }
+
   // --- write path (session/event → flush drain) ---
 
   private installWritePath(): void {
     const ctx = this.ctx
 
-    // Capture the header on creation; persist a fork's seed once. Record the init
-    // promise so flush/dispose can await it (onCreated is async).
-    ctx.on('session/created', (session) => { void this.initFor(session) })
-
-    // Session emits an owned frozen event. Keep a persistence-owned copy anyway
-    // so the write-behind queue owns exactly the record it will flush rather than
-    // retaining a product-layer record by identity. Serializability is guaranteed
-    // at the source, so structuredClone is safe.
-    ctx.on('session/event', (session, event) => {
-      let buffer = this.buffers.get(session)
-      if (!buffer) this.buffers.set(session, buffer = [])
-      buffer.push(structuredClone(event))
-    })
-
-    // Drain to the backend at the durability checkpoint.
-    ctx.on('session/flush', session => this.flush(session))
-
-    // Dispose must reach quiescence: await every init + final drain BEFORE
-    // returning, then close the backend's own resources (AFTER the drain), so no
-    // write lands after teardown and a close failure never MASKS a drain error.
+    // Register the disposer BEFORE the listeners. Cordis tears effects down in
+    // reverse registration order, so event admission closes before this final
+    // drain reaches quiescence and closes the backend.
     ctx.effect(() => async () => {
+      await this.awaitRetirements()
+
       let disposeError: unknown
       try {
         const errors = [
@@ -341,9 +360,61 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       }
     }, `${this.backend.name} write path`)
 
+    // Capture the header on creation; persist a fork's seed once. Record the init
+    // promise so flush/dispose can await it (onCreated is async).
+    ctx.on('session/created', (session) => { void this.initFor(session) })
+
+    // Session emits an owned frozen event. Keep a persistence-owned copy anyway
+    // so the write-behind queue owns exactly the record it will flush rather than
+    // retaining a product-layer record by identity. Serializability is guaranteed
+    // at the source, so structuredClone is safe.
+    ctx.on('session/event', (session, event) => {
+      let buffer = this.buffers.get(session)
+      if (!buffer) this.buffers.set(session, buffer = [])
+      buffer.push(structuredClone(event))
+    })
+
+    // Drain to the backend at the durability checkpoint.
+    ctx.on('session/flush', session => this.flush(session))
+
+    // Session disposal is observe-only, so the coordinator observes the
+    // detached task itself and backend teardown awaits quiescence.
+    ctx.on('session/disposed', (session) => { this.retire(session) })
+
     // HMR: a hot reload does not replay session/created, so seed existing live
     // sessions (mirrors dsh-invariants).
     for (const session of ctx.sessions.list()) void this.initFor(session)
+  }
+
+  /** Start, observe, and track one disposed session's final drain. */
+  private retire(session: Session): void {
+    const task = this.retireCore(session)
+    this.retirements.add(task)
+    const settled = (): void => { this.retirements.delete(task) }
+    void task.then(settled, (error: unknown) => {
+      settled()
+      this.ctx.logger.warn(`${this.backend.name}: session "${session.id}" retirement failed: ${String(error)}`)
+    })
+  }
+
+  /** Drain and release state owned by one exact disposed Session lifecycle. */
+  private async retireCore(session: Session): Promise<void> {
+    await this.inits.get(session)
+
+    const id = session.header.id
+    await this.serialize(id, async () => {
+      await this.drain(session)
+      this.buffers.delete(session)
+      this.inits.delete(session)
+      if (this.states.get(id)?.owner === session) this.states.delete(id)
+    })
+  }
+
+  /** Await every retirement admitted before listener teardown. */
+  private async awaitRetirements(): Promise<void> {
+    while (this.retirements.size > 0) {
+      await Promise.allSettled([...this.retirements])
+    }
   }
 
   /** Start (once) the async init for a session and remember its promise. */
@@ -373,6 +444,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const stored = await this.backend.loadStored(id)
     /* v8 ignore next -- a cursor > 0 means the session was materialized, so it exists */
     if (stored === undefined) return false
+    this.assertStoredId(id, stored.meta)
     return seedCoversPrefix(seed, stored.events.slice(0, cursor))
   }
 
@@ -382,9 +454,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * Cases, by whether this backend tracks the id and whether an artifact exists:
    *   1. Already tracked → no-op (or claim ownerless state if the seed matches,
    *      or reclaim a truly-abandoned id, else reject as a collision).
-   *   2. Not tracked, an artifact EXISTS at this cwd and is a seq-aligned PREFIX
-   *      of the live events → ADOPT it (HMR/reload), persisting any live suffix.
-   *   3. Not tracked, an artifact EXISTS but is NOT a prefix → REJECT (collision).
+   *   2. Not tracked, an artifact EXISTS at the same cwd and is a seq-aligned
+   *      PREFIX of the live events → ADOPT it, persisting any live suffix.
+   *   3. Not tracked, an artifact EXISTS at another cwd or is NOT a prefix →
+   *      REJECT (collision).
    *   4. Not tracked and NO artifact → a genuinely new session: register meta
    *      (lazy) and persist its seed once.
    */
@@ -398,14 +471,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       if (tracked.owner === undefined) {
         // Ownerless state from the public create()/load() API. The FIRST live
         // session claims it — but ONLY if BOTH the cwd scope and the seed match.
-        // The cwd guard mirrors case-2's cwd-scoped loadLive(): a same-id
-        // ownerless artifact at a DIFFERENT cwd is a collision, not a claim
-        // (claiming it would append the live cwd's events under the stored
-        // header's cwd, the exact cross-cwd corruption the loadLive scope
-        // prevents). The seed guard then ensures the live events reproduce the
-        // persisted prefix (else a fresh, unrelated session reusing the id would
-        // have its seq 0..cursor-1 events filtered as already-written and
-        // grafted on).
+        // A same-id ownerless artifact at a different cwd is a collision, not a
+        // claim: accepting it would append this live session's events through
+        // the stored header's cwd. The seed guard then ensures the live events
+        // reproduce the persisted prefix; otherwise a fresh session reusing the
+        // id could have its leading events filtered as already written.
         if (tracked.meta.cwd !== session.header.cwd) {
           throw new Error(`session "${id}" is already persisted at a different cwd (persisted: ${String(tracked.meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
         }
@@ -429,11 +499,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       }
     }
 
-    // case 2/3: an artifact at THIS cwd is adopted as a live prefix (or rejected
-    // as a collision inside adoptLivePrefix). cwd-scoped (loadLive), never
-    // any-scope: a same-id artifact at a different cwd is a collision, not a
-    // resume.
-    const live = await this.backend.loadLive(id, session.header.cwd)
+    // case 2/3: resolve the id once across storage, then let adoption reject a
+    // cwd mismatch before repair or state publication.
+    const live = await this.backend.loadStored(id)
     if (live !== undefined) {
       // Do NOT route through loadCore(): that crash-repairs open turns as
       // interrupted, which is wrong for HMR while the live Session is still the
@@ -462,7 +530,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    */
   private async adoptLivePrefix(session: Session, seed: readonly SessionEvent[], stored: StoredPrefix<TornMarker>): Promise<void> {
     const { meta, events, tornMarker } = stored
+    this.assertStoredId(session.header.id, meta)
+    if (meta.cwd !== session.header.cwd) {
+      throw new Error(`session "${session.header.id}" is already persisted at a different cwd (persisted: ${String(meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
+    }
     this.assertVersion(meta)
+    assertSupportedEvents(events, session.header.id)
     if (!seedCoversPrefix(seed, events)) {
       throw new Error(`session "${session.header.id}" already has a persisted log on disk that does not match this live session (id collision)`)
     }

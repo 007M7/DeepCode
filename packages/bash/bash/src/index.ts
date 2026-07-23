@@ -9,7 +9,7 @@ import { Context, Service } from 'cordis'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from './types.ts'
 
-export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
+export { DSH_ENV_PREFIX } from './types.ts'
 export type {
   BashExecRequest,
   BashExecSpec,
@@ -19,6 +19,8 @@ export type {
   BashRunResult,
   BashSandboxInfo,
   CollectedOutput,
+  DshEnvironment,
+  DshEnvironmentKey,
 } from './types.ts'
 
 declare module 'cordis' {

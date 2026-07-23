@@ -2,7 +2,7 @@
 
 English | [中文](adding-a-vendored-package.zh.md)
 
-When the harness needs another upstream Cordis package (e.g. `@cordisjs/plugin-http`), it is **vendored** as pinned source under `vendor/`, not added as an npm dependency — see [the vendoring decision](../rfc/implemented/process/2026-06-11-vendor-cordis-as-source.md) for why. [vendor/README.md](../../vendor/README.md) covers *updating* an already-vendored package; this guide is the file-by-file checklist for adding a **new** one. (Verified against the existing vendored set; if it drifts, fix it here.)
+When the harness needs another upstream Cordis package (e.g. `@cordisjs/plugin-http`), it is **vendored** as pinned source under `vendor/`, not added as an npm dependency — see [the vendoring decision](../../.agents/notes/implemented/process/2026-06-11-vendor-cordis-as-source.md) for why. [vendor/README.md](../../vendor/README.md) covers *updating* an already-vendored package; this guide is the file-by-file checklist for adding a **new** one. (Verified against the existing vendored set; if it drifts, fix it here.)
 
 ## 1. Copy the source in
 
@@ -38,8 +38,7 @@ Local relative imports/exports in vendored TypeScript source use explicit `.ts` 
 | File | Change |
 |---|---|
 | `tsconfig.base.json` | add `"<npm-name>": ["./vendor/<dir>/src"]` to `paths` |
-| `tsconfig.json` | add `{ "path": "./vendor/<dir>" }` to `references` |
-| `tsconfig.build.json` | add `{ "path": "./vendor/<dir>" }` to `references` (before the `packages/*` entries) |
+| `tsconfig.host.json` | add `{ "path": "./vendor/<dir>" }` to `references` (before the `packages/*` entries; vendored code enters the graph through the host aggregate only) |
 | `vendor/README.md` | add a manifest table row (dir, npm name, version, upstream repo, commit SHA) and log any local modifications |
 | `scripts/publint-all.ts` | only if the vendored package is itself published from here (vendored deps normally are not — skip) |
 
@@ -57,4 +56,4 @@ pnpm run typecheck
 pnpm run build && pnpm run test && pnpm run constraints
 ```
 
-The source `paths` map is shared by build and root typecheck configs. The important isolation boundary is the project-reference graph: vendored source must be referenced through its own `vendor/<dir>/tsconfig.json`, not pulled into a root strict program.
+The source `paths` map lives once in `tsconfig.base.json` and serves every graph. The important isolation boundary is the project-reference graph: vendored source must be referenced through its own `vendor/<dir>/tsconfig.json`, not pulled into an aggregate's strict program ([layout](../development.md#typescript-project-layout)).

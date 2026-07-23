@@ -1,0 +1,36 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../host/apiproxy"
+    },
+    {
+      "path": "../../ui/user-approval"
+    },
+    {
+      "path": "../../ui/user-interaction"
+    },
+    {
+      "path": "../../support/invariants"
+    }
+  ],
+  "exclude": [
+    "**/*.legacy.*"
+  ]
+}

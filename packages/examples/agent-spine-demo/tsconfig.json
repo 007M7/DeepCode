@@ -24,6 +24,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session-title/session-title"
+    },
+    {
       "path": "../../core/system-prompt"
     },
     {
@@ -42,10 +45,28 @@
       "path": "../../core/agent"
     },
     {
+      "path": "../../goal/goal"
+    },
+    {
+      "path": "../../goal/tool-goal"
+    },
+    {
+      "path": "../../goal/goal-session"
+    },
+    {
+      "path": "../../context/workspace-context"
+    },
+    {
       "path": "../../core/agent-loop"
     },
     {
+      "path": "../../llm/llm-retry"
+    },
+    {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../util/paths"
     },
     {
       "path": "../../bash/tool-bash"
