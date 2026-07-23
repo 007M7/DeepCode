@@ -29,6 +29,10 @@ const defaultExecuteBundle = (code: string, url: string): void => {
   // sourceURL comment keeps devtools stack frames attributed to the bundle.
   el.textContent = `${code}\n//# sourceURL=${url}`
   document.head.appendChild(el)
+  // Execution is synchronous for inline scripts: the factory is registered by
+  // now, so the node (and its source text) has no further job. Removing it
+  // keeps repeated HMR rebuilds from accumulating dead script nodes.
+  el.remove()
 }
 
 const urlOf = (row: WebBootEntry): string => {
@@ -84,6 +88,10 @@ export class ClientModuleLoaderImpl implements ClientModuleLoader {
   // Execution URL of the bundle currently being executed (bound into the
   // factory registration so diagnostics can name the source).
   private executingUrl = ''
+  // Graph id of the row currently being executed ('' outside arrive):
+  // the load sink cross-checks the handoff id against it so a mis-stamped
+  // bundle cannot register under another entry's identity.
+  private executingId = ''
 
   private readonly fetchBundle: (url: string) => Promise<string>
   private readonly executeBundle: (code: string, url: string) => void
@@ -109,6 +117,12 @@ export class ClientModuleLoaderImpl implements ClientModuleLoader {
         // Registration is keyed by the handoff id; a duplicate means a bundle
         // executed twice without an invalidate — always a bug, always loud.
         if (this.factories.has(handoff.id)) throw new Error(`client-modules: duplicate factory registration for "${handoff.id}" (bundle executed twice without invalidate?)`)
+        // A fetched row's bundle must register the id its row names — a
+        // mis-stamped bundle registering under another entry's identity
+        // would let that entry silently materialize foreign exports.
+        if (this.executingId !== '' && handoff.id !== this.executingId) {
+          throw new Error(`client-modules: bundle ${this.executingUrl} registered "${handoff.id}" while arriving for "${this.executingId}" (mis-stamped bundle id)`)
+        }
         this.factories.set(handoff.id, { factory: handoff.factory, url: this.executingUrl })
       },
     }
@@ -124,10 +138,12 @@ export class ClientModuleLoaderImpl implements ClientModuleLoader {
       const url = urlOf(row)
       const code = await this.fetchBundle(url)
       this.executingUrl = url
+      this.executingId = id
       try {
         this.executeBundle(code, url)
       } finally {
         this.executingUrl = ''
+        this.executingId = ''
       }
       if (!this.factories.has(id)) {
         throw new Error(`client-modules: bundle ${url} executed without registering "${id}" via __ModuleLoader__.load`)

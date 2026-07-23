@@ -293,8 +293,9 @@ describe('default transport seams', () => {
     ;(document as unknown as Record<string, unknown>).__realmBridge = win.__ModuleLoader__
     const surface = await loader.import('dee', '', {})
     expect((surface as { marker: string }).marker).toBe('via-script')
-    const script = [...document.querySelectorAll('script')].at(-1)
-    expect(script?.textContent).toContain('//# sourceURL=/plugins/dee/client.js?rev=0')
+    // The script node is removed right after its synchronous execution —
+    // repeated HMR rebuilds must not accumulate dead script nodes.
+    expect([...document.querySelectorAll('script')]).toEqual([])
   })
 
   it('a non-ok bundle response is loud with the status', async () => {

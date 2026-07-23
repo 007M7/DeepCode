@@ -59,7 +59,7 @@ describe('tsdown client artifact', () => {
     const { handoff, surface } = await loadArtifact()
     expect(handoff.id).toBe(PLUGIN_ID)
     expect(surface.apply).toBeTypeOf('function')
-    expect(surface.inject).toEqual(['slots'])
+    expect(surface.inject).toEqual(['slots', 'conversation'])
   })
 
   it.skipIf(code === undefined)('mounted as an object plugin, apply registers both view tabs on the real ring', async () => {
@@ -71,6 +71,10 @@ describe('tsdown client artifact', () => {
       name: 'root',
       children: { 'conversation.view': { kind: 'list', scope: 'session' } },
     }, (_p: { renderSlot?: unknown }) => null)
+    // The plugin injects 'conversation' as an ordering edge (the declaring
+    // plugin provides it after declaring the ring); the bench declares the
+    // ring itself, so a stub satisfies the wait.
+    ctx.provide('conversation', {})
     const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })
     await fiber.await()
     expect(slots.entries('conversation.view').map(e => e.options.id)).toEqual(['trajectory', 'waterfall'])

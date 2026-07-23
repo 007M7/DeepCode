@@ -247,7 +247,15 @@ export function createHostWebPluginRegistry(deps: WebPluginRegistryDeps): HostWe
           return
         }
         if (rev === undefined || rev === before) return
-        for (const notify of rebuildListeners) notify(id, rev)
+        for (const notify of rebuildListeners) {
+          // A throwing subscriber must not escape the fs.watchFile callback
+          // (that would skip later subscribers and can kill the process).
+          try {
+            notify(id, rev)
+          } catch (error) {
+            deps.onError(error instanceof Error ? error : new Error(String(error)))
+          }
+        }
       }
       watchFile(record.clientPath, { interval: watchInterval, persistent: false }, listener)
       watched.set(id, { path: record.clientPath, listener })
