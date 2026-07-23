@@ -1,12 +1,12 @@
 /**
- * View-ring contract: the typed conversation view table and the props
- * surfaces handed to registered views. Shared face between the skeleton
- * domain (ConversationRoot renders views) and the chat domain (registers the
- * chat view); domain implementation files import this, never each other.
+ * View-ring contract: the typed conversation view table, the chat store state
+ * shared through it, and the props surfaces handed to registered views.
+ * Shared face between the skeleton domain (ConversationRoot renders views)
+ * and the chat domain (registers the chat view); domain implementation files
+ * import this, never each other.
  */
 import type { FC } from 'react'
-import type { ScopedSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SnapshotSelectorHook, UseSession } from '@deepseek-ai/dsh-client-web-react'
+import type { SnapshotSelectorHook, UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 
 /**
@@ -57,12 +57,33 @@ export interface ChromeProps { sessionId: SessionId; useSession: UseSession }
 /** Selection target for the details linkage channel (toolcall is the step special case). */
 export interface SelectionTarget { turnSeq: number; stepSeq?: number; callId?: CallId; toolName?: string }
 
-/** Props handed to registered conversation views. */
+/**
+ * Chat store state (slot terminal design §4): the per-session store shared by
+ * the conversation and details registrations. `createChatStore` implements
+ * this shape; views read it through {@link ConvViewProps}'s pass-through hook.
+ * `view` may carry a stale persisted id after a view plugin unloads — the
+ * registry is the runtime validator (unknown ids fall back to the first view).
+ */
+export interface ChatStoreState {
+  /** Details-linkage channel (conversation writes, details reads). */
+  selection: SelectionTarget | null
+  /** Composer draft (persisted; survives session switches and reloads). */
+  draft: string
+  /** Active conversation view id; null falls back to the first registered view. */
+  view: ViewId | null
+}
+
+/**
+ * Props handed to registered conversation views. `useSession` and `useStore`
+ * are the framework hooks ConversationRoot received as a slot registrant,
+ * passed through unchanged (hook transfer is plain props passing; no
+ * business-made subscription exists on this path). No renderSlot share: the
+ * view ring delegates no sub-slots.
+ */
 export interface ConvViewProps {
   sessionId: SessionId
   useSession: UseSession
-  useSelection: SnapshotSelectorHook<SelectionTarget | null>
+  /** Chat store read face (selection is the only slice views consume today). */
+  useStore: SnapshotSelectorHook<ChatStoreState>
   actions: { openDetails(t: SelectionTarget): void; loadOlder(): void }
-  /** Chat has no delegated sub-slots in P-I (toolviews go through the named registry). */
-  slots: ScopedSlots<never>
 }

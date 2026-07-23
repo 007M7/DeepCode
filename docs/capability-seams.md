@@ -61,6 +61,7 @@ flowchart LR
   svc_planMode["ctx.planMode<br/>Plan collaboration state"]
   pkg_commands["commands"]
   svc_commands["ctx.commands<br/>Human command registry"]
+  svc_tui["ctx.tui<br/>Mounted-terminal interaction service"]
   pkg_skill["skill"]
   svc_skills["ctx.skills<br/>Skill provider registry"]
   pkg_skill_local["skill-local"]
@@ -172,6 +173,7 @@ flowchart LR
   pkg_token_meter --> svc_tokenMeter
   pkg_tool_bash --> svc_bashEnv
   pkg_tools --> svc_tools
+  pkg_tui --> svc_tui
   pkg_tui --> svc_userInteraction
   pkg_user_interaction --> svc_userInteraction
   pkg_web --> svc_web
@@ -277,6 +279,7 @@ flowchart LR
 | `ctx.userInteraction` | `seam` | [`user-interaction`](../packages/ui/user-interaction) | [`tui`](../packages/ui/tui), [`acp`](../packages/ui/acp) | [`tool-ask-user`](../packages/ui/tool-ask-user), [`tui`](../packages/ui/tui), [`acp`](../packages/ui/acp) | - | UI front doors provide the active human-answer provider; tool-ask-user pauses a tool call on the provider-neutral ask() promise. |
 | `ctx.planMode` | `core` | [`plan-mode`](../packages/plan/plan-mode) | - | [`acp`](../packages/ui/acp) | - | Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions. |
 | `ctx.commands` | `core` | [`commands`](../packages/ui/commands) | - | [`tui`](../packages/ui/tui), [`acp`](../packages/ui/acp) | - | Plugins register direct human commands; TUI and ACP consume the same effective per-agent catalog without sending invocations to the model. |
+| `ctx.tui` | `bundle` | [`tui`](../packages/ui/tui) | - | - | - | One TUI front door provides a FIFO overlay host; injected plugins receive caller-fiber ownership without access to pi-tui or terminal lifecycle state. |
 | `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-local`](../packages/skill/skill-local) | [`tool-skill`](../packages/skill/tool-skill) | - | Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies. |
 | `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/ui/acp), [`cli-demo`](../packages/examples/cli-demo), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`tui-demo`](../packages/examples/tui-demo) | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |

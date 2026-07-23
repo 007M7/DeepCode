@@ -36,7 +36,12 @@ export async function runWeb(argv: string[]): Promise<void> {
   }
 
   // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught by design).
-  const host = await startHost({ boot: { persistenceRoot: './.sessions' } })
+  const host = await startHost({
+    boot: {
+      persistenceRoot: './.sessions',
+      workspaceContext: { maxBytes: 65_536 },
+    },
+  })
 
   // Web UI plugin chain: in-memory Loader tree over the eight UI packages,
   // then the registry that feeds __DSH_BOOT__ and /plugins/<id>/client.js.

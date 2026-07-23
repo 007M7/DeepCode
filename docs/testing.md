@@ -29,6 +29,10 @@ An e2e assertion re-runs the command or re-reads the file externally; a keyword 
 - A guard only guards if the regression actually fails it. For a plugin without `inject` (bundle/composition plugins), a Loader smoke stays green under a broken export shape — add an explicit `expect('default' in mod).toBe(false)` plus an `unwrapExports` round-trip assertion, and prove it: introduce the regression, watch red, revert.
 - "Real entry path" means the published artifact: a package `bin` runs built `lib/bin.js` under plain `node`, exposing failures tsx masks (settle races, module resolution, swallowed load failures). The same applies to non-index runtime entries (the worker-thread sibling `lib/worker.cjs`) and singleton modules shared across bundles (`packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts`). Keep the built-artifact smokes green (`packages/ui/*/tests/built-bin.e2e.ts`, `packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts`), and assert a genuinely-missing config exits non-zero.
 
+## Test resolution: source plane only
+
+- Every vitest config points vite-tsconfig-paths at `tsconfig.base.json`; bare workspace imports resolve to `src` ([layout](development.md#typescript-project-layout)), never through package `exports` to built `lib/` — stale artifacts there load a second copy of module singletons. Built artifacts are consumed only explicitly: `lib`-mode subprocesses and the built smokes below.
+
 ## Test subprocess launch modes
 
 - CI and build-having test lanes run every example or Cordis-config subprocess from built `lib/` through the shared dual-mode launcher. Do not hand-write `--import tsx` for these subprocesses.

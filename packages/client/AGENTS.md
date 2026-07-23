@@ -1,42 +1,51 @@
 # AGENTS.md — Web client stack
 
-Rules for `packages/client/*` (the browser side of the dsh web GUI) plus its build entry `apps/web`. They supplement the repo-wide [conventions](../../AGENTS.md#conventions) and the [package rules](../README.md); read the two architecture notes linked below before structural changes.
+Rules for `packages/client/*` (the browser side of the dsh web GUI) plus its build entry `apps/web`. They supplement the repo-wide [conventions](../../AGENTS.md#conventions) and the [package rules](../README.md). Before touching slots, component props, stores, or plugin structure, read the [slot system standard](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) (the definitive composition model) and the [web client architecture note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) (loading chain, object layer, services).
 
 Packages here are named with the directory prefix: `@deepseek-ai/dsh-client-<name>`.
 
+## Slot and props discipline
+
+The [slot system standard](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) owns the full design; these are the rules you must not violate when writing or reviewing client code:
+
+1. **One API**: a plugin composes UI only through `ctx.slots.register({ name, children?, store?, inject? }, Component)`. There is no separate slot-definition call, no whitelist face object, no face-minting helper. The shell alone renders `'root'`.
+2. **children = declaration + authorization**: the slots your component renders are exactly the keys of your register call's `children` object (spec values: `kind`/`scope`). Rendering a slot you didn't declare, or declaring one someone else declared, fails at load — do not work around it; the conflict is the design speaking.
+3. **Component props are the four shares, all derived**: `PropsRuntime<K>` (SlotMap: owner params + `useSession`/`sessionId` on session scope + `useSessions`) & `PropsRenderSlots<S>` (children keys) & `PropsStore<H>` (store factory) & the inject face. Never hand-write a member a share already derives; never re-type a share locally.
+4. **Hooks are framework-made only**: `useSession`, `useSessions`, `useStore`, `renderSlot` are the four seats. Business code never creates a hook or selector as a prop value — pass plain data and callbacks. (Component-internal behavioral hooks that subscribe to nothing external are fine.)
+5. **Live data has exactly three channels**: parent knows it → owner props at the renderSlot site; only the component knows it → local state; shared across entries or survives remounts → a store declared at register. Derived data is a pure function over framework-hook data (`useMemo`), never its own subscription.
+6. **Stores: read `props.useStore`, write `props.actions.*`** — the declared actions are the complete mutation surface. Write the store as an exported `createXXXStore()` factory (module-level handles are forbidden — de-facto singletons); share by passing one handle to several registers inside `apply`. Production code never calls the factory or `.create()` outside `apply`; tests do (that is the sanctioned zero-machinery path).
+7. **inject returns plain data and callbacks** from the apply closure's own ctx — no hooks, no ReactNode producers, no whole-service objects. Its capability boundary is the plugin's declared `inject` topology; there is no wider ctx to reach for.
+
+## Export discipline (client plugin packages)
+
+The `/client` surface of a UI plugin package is a contract face, not a convenience barrel. Three rules, enforced package-wide (do not restate them as per-file comments):
+
+1. **A UI plugin exports no values beyond what cordis loading needs** — `apply` / `inject` (and `Config` where present), plus store factories consumed type-only by components (`ReturnType<typeof createXXXStore>`). Types are the extra allowance: contract types (owner shares, injected shapes, view/toolview entry types) export freely. Implementation components, pure helpers, constants, and store handles stay internal. Adding any new value export requires user sign-off, not a matching consumer.
+2. **Same-package tests import internals directly** — relative `../src/client/xxx.ts` from package tests, or the `./src/*` subpath where a spec lives outside the package. Never widen the public surface to make a test compile.
+3. **Cross-package imports of another plugin's symbols are in principle forbidden.** The sanctioned routes are the slot system (register/renderSlot, the view and toolview registries) and ctx services. If neither fits, stop and escalate — do not add an export to unblock yourself.
+
+## ctx discipline (components never see ctx)
+
+`ctx` belongs to the apply world only: the plugin body and the inject factories closed over it. Components — every `.tsx` under a feature domain — receive all data and callbacks **through the four props shares**; they never call a hook that reaches ctx, never import a service class to poke it, never read a React context (business components see zero contexts — `BindingContext` and its kin are renderer-internal). If a component needs something new, the answer is a prop threaded from its share's source (owner site, store declaration, or inject face), not a hook.
+
 ## Layering red lines
 
-The stack is three layers with one-way knowledge, settled in the [web client architecture note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md):
+The stack has one-way knowledge, settled in the [web client architecture note](../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md):
 
-1. **Data object layer** (`web-runtime`, React-free): `ConnectionController` → `SessionManager` → `Session` own all business state (event windows, streaming accumulation, reconnect machine). Zero React imports — grep-assertable.
-2. **Hooks layer** (`web-ui/src/hooks`, pure data): subscribes to object snapshots via `useSyncExternalStore`, exposes plain-data handles. No JSX, no DOM.
-3. **Presentation components** (`web-ui`, pure props): consumables, expected to be rewritten wholesale. Business logic must not leak into them; they receive data and callbacks through props only.
+1. **Data object layer** (`runtime`, React-free): `ConnectionController` → `SessionManager` → `Session` own all business state (event windows, streaming accumulation, reconnect machine), and the snapshot-store engine (zustand/immer, `defineStore`, `shallowEqual`) lives here too — store products are bare observable sources with no hook members. Zero React imports — grep-assertable.
+2. **Render machinery** (`web-react`, shell-only glue): the whole ctx↔React boundary — slot renderer/outlets, `SessionProvider`, the uSES bridge. Every hook is composed here at the binding site from bare sources; business plugin packages carry no web-react dependency at all.
+3. **Presentation components** (plugin packages' `src/client/`, pure props): consumables, expected to be rewritten wholesale. Business logic must not leak into them; everything arrives through the four props shares.
 
 Non-negotiables across the layers:
 
-- **No business objects in the store.** zustand carries cross-view presentation state only (`rpcLog`, `ui`, `connection` slices). Sessions, frames, and connections live in the object layer. View-local facts (selection, expansion) stay in component state, not the store.
+- **Business data lives in the object layer, never a store.** Entry-declared stores carry shared viewing/interaction state (selection, drafts, panel widths); sessions, frames, and connections stay in the object layer.
 - **rpcId is strictly bidirectional**: the initiator mints, the responder echoes; business signatures see only `RpcRequest<P>`, minting stays in the carrier layer ([layering and RPC protocol note](../../.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)).
-- **Notifier dual-channel discipline**: `notifyNow` only as the direct echo of a user gesture; frame-driven updates always go through `markDirty` (microtask-batched). See `web-runtime/src/session/notifier.ts`.
+- **Notifier dual-channel discipline**: `notifyNow` only as the direct echo of a user gesture; frame-driven updates always go through `markDirty` (microtask-batched). See `runtime/src/client/sessions/notifier.ts`.
 - **The web layer is pure presentation.** Nothing that is "how to draw" (tool-card views, queue states) enters the session log; the host computes such data per frame or pushes it live, and replay recomputes it — falling back to the generic form when it can't. A new *model-visible* input still requires a session event (repo-wide rule).
 
-## Directory regime (`web-ui/src`)
+## Directory regime (plugin packages)
 
-> Shell restructure in progress: the tree is converging to this layout (today's `components/{conversation,sessions,panels}` migrate into it); the regime below is the target every new feature follows now.
-
-Two-level feature directories, one contributor per directory — physical conflict avoidance:
-
-```
-web-ui/src/
-  shell/                  # AppShell + the three slot registries + builtins
-  leftmenu/<bar>/         # one directory per left-nav bar (sessions, rpclog, …)
-  sessiontabs/<tab>/      # one directory per session tab (conversation, gantt, …)
-  components/             # shared leaves (MessageText, JsonBlock, …)
-  hooks/ utils/ style/    # cross-cutting; not feature-owned
-```
-
-- `leftmenu/<a>` must not import `leftmenu/<b>` or `sessiontabs/*` (and vice versa). Anything two features need sinks into `components/`.
-- Bars, tabs, and detail blocks register through the `shell/` registries (module-level map, `register*()` returns the disposer — same shape as `toolCardRegistry`). v1 registration is static in `shell/builtins.ts`; plugin-driven registration later calls the same functions.
-- **Claiming a placeholder slot**: pick a `placeholder: true` tab (or add a bar) in `shell/builtins.ts`, create your feature directory, and replace the placeholder component with your container. Don't build features outside this regime.
+One UI feature = one plugin package (`src/client/` browser half). A multi-domain package splits by future package boundaries — ui-conversation is the exemplar: `contract/` (the only shared face), domain directories that never import a sibling domain, and `apply.ts` as the single cross-domain assembly point; `scripts/verify-client-domain-graph.ts` enforces the levels. Registration goes through the slot/view/toolview registries in `apply` — never module-level side effects.
 
 ## Styling
 
@@ -63,9 +72,9 @@ If `test:gui` is red on code you did not touch, neither silently fix nor ignore 
 
 ## New component checklist
 
-1. Claim the slot (see the directory regime above): one feature, one directory.
-2. Build the container in your feature directory; keep leaves pure-props. Wire data through the hooks layer, not by importing business objects into components.
-3. Copy a neighbouring jsdom spec into `web-ui/tests/`, keep it behavior-shaped: start from the happy path and the edge states, then widen until the component's branches are covered — the coverage gate applies; only the assertion style stays behavior-level.
+1. Compose through register: merge the slot contract into `SlotMap`, declare the slot in its parent entry's `children`, register your component — see the [slot system standard](../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md). No other composition route exists.
+2. Type the props as the four shares (`PropsRuntime` & `PropsRenderSlots` & `PropsStore` & inject face) — derive, don't hand-write. Shared/surviving state goes in a `createXXXStore()` factory declared at register; component-private state stays local.
+3. Component tests feed props directly (`createXXXStore().create()` for the store share; plain stubs for framework hooks) — behavior-shaped assertions, no render machinery.
 4. Tokens only in CSS; Chinese product copy; English comments.
 5. `pnpm run test:gui` green (plus `test:web` if you touched the build surface).
-6. Non-trivial change? It needs an Agent Note in the same PR (repo-wide rule) — the three GUI notes above are the precedents to extend.
+6. Non-trivial change? It needs an Agent Note in the same PR (repo-wide rule) — the GUI notes above are the precedents to extend.

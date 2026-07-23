@@ -9,8 +9,8 @@ import { cleanup, render } from '@testing-library/react'
 import { act } from '@testing-library/react'
 import type { SessionId, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { RpcId } from '@deepseek-ai/dsh-client-connection/client'
-import { bindSnapshotSelector, createSessionProvider } from '@deepseek-ai/dsh-client-web-react'
-import type { SessionBinding as ReactSessionBinding, UseSession } from '@deepseek-ai/dsh-client-web-react'
+import { hookOf } from './hook.ts'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ToolViewProps, Translate } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { MessageItem } from '../src/client/chat/MessageItem.tsx'
@@ -85,41 +85,40 @@ describe('small branch tails', () => {
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
-      <StatsLine sessionId={SID} useSession={bindSnapshotSelector(source) as unknown as UseSession} />,
+      <StatsLine sessionId={SID} useSession={hookOf(source) as unknown as UseSession} />,
     )
     expect(view.getByText('10 tokens · 1 turns · 1 steps')).toBeTruthy()
   })
 })
 
 describe('ToolViewOutlet dispatch', () => {
-  it('caches the inject factory per (registration x binding) and merges its props', () => {
+  it('caches the inject factory per (registration x session) and merges its props', () => {
     const registry = new ToolViewRegistry()
-    const inject = vi.fn(() => ({ extra: 'injected' }))
+    const inject = vi.fn((sessionId: SessionId) => ({ extra: `injected:${sessionId}` }))
     registry.register('bash',
       (p: ToolViewProps & { extra: string }) => <div data-testid="row">{p.extra}</div>,
       { inject })
-    // InjectedRow reads the session binding from context: mount through the
-    // real SessionProvider so the (factory x binding) cache path executes.
-    const binding: ReactSessionBinding = {
-      sessionId: SID,
-      session: { useSelector: (() => { throw new Error('unused') }) as never },
-      ctx: {},
-    }
-    const Provider = createSessionProvider({
-      useCurrent: () => SID,
-      resolveBinding: () => binding,
-      renderBody: () => (
-        <ToolViewOutlet registry={registry} sessionId={SID} toolName="bash" viewProps={viewProps()} />
-      ),
-    })
-    const view = render(<Provider />)
-    expect(view.getByTestId('row').textContent).toBe('injected')
+    // Pure props machinery: the outlet feeds its own sessionId to the
+    // factory — no provider/context needed (terminal channel form).
+    const view = render(
+      <ToolViewOutlet registry={registry} sessionId={SID} toolName="bash" viewProps={viewProps()} />,
+    )
+    expect(view.getByTestId('row').textContent).toBe(`injected:${SID}`)
     expect(inject).toHaveBeenCalledTimes(1)
-    // Remount against the SAME binding: cache hit, factory not re-run.
+    // Remount under the SAME session: cache hit, factory not re-run.
     view.unmount()
-    const second = render(<Provider />)
-    expect(second.getByTestId('row').textContent).toBe('injected')
+    const second = render(
+      <ToolViewOutlet registry={registry} sessionId={SID} toolName="bash" viewProps={viewProps()} />,
+    )
+    expect(second.getByTestId('row').textContent).toBe(`injected:${SID}`)
     expect(inject).toHaveBeenCalledTimes(1)
+    // A different session is a distinct cache key: factory runs once more.
+    second.unmount()
+    const other = render(
+      <ToolViewOutlet registry={registry} sessionId={'s2' as SessionId} toolName="bash" viewProps={viewProps()} />,
+    )
+    expect(other.getByTestId('row').textContent).toBe('injected:s2')
+    expect(inject).toHaveBeenCalledTimes(2)
   })
 
   it('a crashing custom row falls back to GenericToolCard and retries on re-registration', () => {

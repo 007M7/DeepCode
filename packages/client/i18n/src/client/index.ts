@@ -5,8 +5,13 @@
  * Contract: api-contracts v3 section 8.
  */
 import type { Context } from 'cordis'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-web-react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
+// The snapshot-store engine lives in runtime (store relocation): framework
+// data stores like this locale cell use it directly. The store carries no
+// hook — a React consumer binds a selector hook via web-react's
+// bindSnapshotSelector at its own seam (none exists today; the current
+// consumers are translate() reads and test-side subscribe/set).
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { en } from '../locales/en.ts'
 import { zh } from '../locales/zh.ts'
 
