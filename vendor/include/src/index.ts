@@ -77,7 +77,15 @@ export class Include extends EntryTree {
 
     ctx.on('internal/update', (config, _, next) => {
       if (config.path !== this.config.path) return next()
-      this.root.update(this.data!)
+      // Veto the fiber restart (children update in place), but persist the new
+      // config ourselves — `Fiber.update` only assigns `this.config` behind
+      // `next()`, and a stale `this.config.patches` would make the next
+      // `refresh()` re-apply the old overlay.
+      this.config = config
+      this.root.update(this.applyPatches(this.data!, config.patches)).catch((error) => {
+        this.ctx.logger.warn('config update at %C failed', this.filename)
+        this.ctx.logger.warn(error)
+      })
     })
   }
 
@@ -93,22 +101,37 @@ export class Include extends EntryTree {
   private async read(forced = false) {
     const content = await readFile(this.filename, 'utf8')
     if (!forced && this.content === content) return false
-    this.content = content
+    let data: any
     if (this.type === 'application/yaml') {
-      this.data = yaml.load(this.content, { schema }) as any
+      data = yaml.load(content, { schema })
     } else if (this.type === 'application/json') {
-      this.data = JSON.parse(this.content) as any
+      data = JSON.parse(content)
     } else {
       const module = await import(/* @vite-ignore */ this.filename)
-      this.data = module.default || module
+      data = module.default || module
     }
+    // An empty or truncated file (common mid-edit: editors and `sed -i` write
+    // through temp states) parses to `undefined`, not an error; reject every
+    // non-array shape here so callers see one "invalid file" signal. Content
+    // and data commit only on success, so an edit that is later reverted to
+    // the exact last good content correctly reads as "unchanged".
+    if (!Array.isArray(data)) {
+      throw new TypeError(`config file must be a top-level array of entries: ${this.filename}`)
+    }
+    this.content = content
+    this.data = data
     await this.checkAccess()
     return true
   }
 
-  private applyPatches(data: EntryOptions[]): EntryOptions[] {
-    const { patches } = this.config
-    if (!patches?.length) return data
+  private applyPatches(data: EntryOptions[], patches = this.config.patches): EntryOptions[] {
+    // Always detach from the cached parse: patching shared entry objects would
+    // bake earlier patch values into `this.data`, so repeated application
+    // (config hot-reloads) could never revert a removed or changed patch. The
+    // supported extensions guarantee JSON-safe plain data, so `structuredClone`
+    // cannot throw here.
+    if (!patches?.length) return [...data]
+    data = structuredClone(data)
 
     const entryMap = new Map<string, EntryOptions>()
     const buildMap = (entries: EntryOptions[]) => {
@@ -174,7 +197,11 @@ export class Include extends EntryTree {
   async* [Service.init]() {
     try {
       await this.read()
-    } catch {
+    } catch (error) {
+      // Only a missing file falls back to `initial` (or the not-found error):
+      // an existing-but-invalid file must fail loud with its real parse error,
+      // never be mislabelled as absent or silently overwritten.
+      if ((error as NodeJS.ErrnoException | null)?.code !== 'ENOENT') throw error
       if (this.config.initial) {
         this.writeFile(this.config.initial as any)
         await this.read()
@@ -184,18 +211,26 @@ export class Include extends EntryTree {
     }
 
     yield () => this.stop()
-    const data = this.applyPatches([...this.data!])
-    await this.root.update(data)
+    await this.root.update(this.applyPatches(this.data!))
   }
 
   stop() {
     this.root.stop()
   }
 
-  /** Re-read the file and refresh child entries when content changed. */
+  /**
+   * Re-read the file and refresh child entries when content changed. An
+   * unreadable or unparsable file logs a warning and keeps the last good
+   * tree: a hot-reload of a live app must never take the process down.
+   */
   async refresh() {
-    if (!await this.read()) return
-    this.root.update(this.data!)
+    try {
+      if (!await this.read()) return
+      await this.root.update(this.applyPatches(this.data!))
+    } catch (error) {
+      this.ctx.logger.warn('config reload at %C failed; keeping the running tree', this.filename)
+      this.ctx.logger.warn(error)
+    }
   }
 
   private async _writeFile(config: EntryOptions[]) {
