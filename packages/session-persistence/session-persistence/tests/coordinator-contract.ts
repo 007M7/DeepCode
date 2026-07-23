@@ -88,6 +88,84 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('rejects crash-repair load while a live session owns the persisted prefix', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      let session!: Session
+      const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
+        session = inner.sessions.create(SessionId('live-load'), { meta: { cwd: WORK } })
+      }, { inject: ['sessions'] }))
+      try {
+        session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+        await ctx.sessions.flush(session)
+
+        await expect(ctx.sessionPersistence.load(session.id))
+          .rejects.toThrow(`cannot load session "${session.id}" while its live turn is open`)
+
+        send(session, oneTurnLog().slice(1))
+        await ctx.sessions.flush(session)
+        await sessionFiber.dispose()
+
+        await vi.waitFor(async () => {
+          const loaded = await ctx.sessionPersistence.load(session.id)
+          expect(loaded.events.map(event => event.type)).toEqual(oneTurnLog().map(event => event.type))
+          expect(loaded.events.at(-1)).toMatchObject({
+            type: 'turn/end',
+            data: { reason: { kind: 'completed' } },
+          })
+        })
+      } finally {
+        await sessionFiber.dispose()
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('rechecks live ownership after a cold load enters the per-id chain', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const id = SessionId('queued-load-live-race')
+        const header = meta(id, WORK)
+        const start: SessionEvent = {
+          type: 'turn/start',
+          seq: 0,
+          time: 1,
+          data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        }
+        await ctx.sessionPersistence.create(header)
+        await ctx.sessionPersistence.append(id, [start])
+
+        const loading = ctx.sessionPersistence.load(id)
+        const live = ctx.sessions.create(id, { seed: [start], meta: header })
+        await expect(loading).rejects.toThrow(/live turn is open/)
+
+        live.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+        await ctx.sessions.flush(live)
+        const loaded = await ctx.sessionPersistence.load(id)
+        expect(loaded.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+        expect(loaded.events.at(-1)).toMatchObject({
+          type: 'turn/end',
+          data: { reason: { kind: 'completed' } },
+        })
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('does not load an unmaterialized empty live session', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const session = ctx.sessions.create(SessionId('empty-live'), { meta: { cwd: WORK } })
+        await expect(ctx.sessionPersistence.load(session.id)).rejects.toThrow(/not found/)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('round-trips the seed boundary (seedLength) through persistence', async () => {
       // A forked child records how many leading events were inherited via the seed; the
       // boundary must survive a reload (so a resume/replay can tell the inherited prefix from
@@ -95,9 +173,13 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
-        const session = ctx.sessions.create(SessionId('forked-child'), { meta: { cwd: WORK, seedLength: 3 } })
+        let session!: Session
+        const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
+          session = inner.sessions.create(SessionId('forked-child'), { meta: { cwd: WORK, seedLength: 3 } })
+        }, { inject: ['sessions'] }))
         send(session, oneTurnLog())
         await ctx.sessions.flush(session)
+        await sessionFiber.dispose()
 
         const loaded = await ctx.sessionPersistence.load(SessionId('forked-child'))
         expect(loaded.meta.seedLength).toBe(3)
@@ -114,11 +196,15 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
-        const session = ctx.sessions.create(SessionId('delegated-child'), {
-          meta: { cwd: WORK, parentSession: SessionId('root'), delegationDepth: 2 },
-        })
+        let session!: Session
+        const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
+          session = inner.sessions.create(SessionId('delegated-child'), {
+            meta: { cwd: WORK, parentSession: SessionId('root'), delegationDepth: 2 },
+          })
+        }, { inject: ['sessions'] }))
         send(session, oneTurnLog())
         await ctx.parallel('session/flush', session)
+        await sessionFiber.dispose()
 
         const loaded = await ctx.sessionPersistence.load(SessionId('delegated-child'))
         expect(loaded.meta.delegationDepth).toBe(2)
@@ -526,20 +612,31 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const { ctx, fiber } = await freshCtx(fix)
       try {
         // Materialize and load (ownerless, cursor = 6).
-        await ctx.sessionPersistence.create(meta('claim', WORK))
+        const storedMeta = meta('claim', WORK)
+        await ctx.sessionPersistence.create(storedMeta)
         await ctx.sessionPersistence.append(SessionId('claim'), oneTurnLog())
-        const { events } = await ctx.sessionPersistence.load(SessionId('claim'))
+        const { events, meta: durableMeta } = await ctx.sessionPersistence.load(SessionId('claim'))
 
         // A live session SEEDED with the loaded log PLUS a new turn claims the
         // ownerless state and persists only the suffix.
-        const cont = ctx.sessions.create(SessionId('claim'), { seed: [
-          ...events,
-          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
-          { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
-        ], meta: { cwd: WORK } })
+        let cont!: Session
+        const contFiber = await ctx.plugin(Object.assign((inner: Context) => {
+          cont = inner.sessions.create(SessionId('claim'), { seed: [
+            ...events,
+            { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+            { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
+          ], meta: { cwd: WORK, createdAt: 2000 } })
+        }, { inject: ['sessions'] }))
         await ctx.sessions.flush(cont)
         const loaded = await ctx.sessionPersistence.load(SessionId('claim'))
         expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+        expect(loaded.meta).toEqual(durableMeta)
+        expect(loaded.meta.createdAt).toBe(1000)
+
+        await contFiber.dispose()
+        await vi.waitFor(async () => {
+          expect((await ctx.sessionPersistence.load(SessionId('claim'))).meta).toEqual(durableMeta)
+        })
       } finally {
         await fiber.dispose()
         await fix.cleanup()

@@ -6,11 +6,13 @@ The seam is a textbook [capability seam](../../.agents/notes/implemented/archite
 
 ## The flush checkpoint
 
-`session/event` is a *synchronous* notification; persistence plugins buffer it (write-behind) until `session/flush`. The loop awaits an ordinary turn's checkpoint before claiming the next queue item; synchronous idle `inject()` schedules its checkpoint without blocking `send()`, and disposal still drains it. A successful flush durably commits the closed turn as one unit; a rejecting flush is reported through `agent/error` and the logger — never as a session event past the closed turn — while the backend keeps its buffered events for the next flush.
+`session/event` is a *synchronous* notification; persistence plugins copy the event into a per-session controller and start an eager write without blocking the producer. Concurrent events share the current batch, and events admitted during that write trigger a follow-up batch. `session/flush` waits until no current or pending batch remains, so the loop still uses it as the ordering and error-observation checkpoint before claiming the next ordinary turn. A rejected eager write retains its events; an explicit flush retries them and reports failure through `agent/error` and the logger, never as a session event past the closed turn. Disposal performs the same final drain.
 
 ## Crash recovery preserves an interrupted turn
 
 A backend that reloads a log crashed mid-turn finds an open `turn/start` with no `turn/end`. It does **not** truncate — a single turn can be huge in a long-horizon task (many steps, large tool output), and those events were durably appended before the crash. Instead it closes the orphaned turn with a synthetic `turn/end { reason: { kind: 'interrupted' } }`, keeping the log balanced and the turn-enclosure invariant intact. `interrupted` is the one `TurnEndReason` no loop emits (see [session.md](session.md#why-a-turn-ended-turnendreasonmap)).
+
+Repair applies only to cold sessions. For a live id, `SessionPersistence.load(id)` snapshots the in-memory log, waits until that snapshot is durable, and returns it with the stored header only when balanced; an open live turn rejects rather than receiving synthetic interruption boundaries. A coordinator-backed cold load reserves the id across backend reads and repair writes, so concurrent publication of a same-id live session rejects and rolls back. HMR also adopts a live prefix without closing its active turn.
 
 `SessionPersistence.inspect(id)` is the observer counterpart to recovery: it returns a detached valid stored prefix without truncating a torn record, adding interruption closers, or publishing write state. Same-id serialization keeps it coherent with backend writes. Derived read models use `inspect`, never `load`, so observing a checkpointed open turn cannot mutate the log if live ownership begins concurrently.
 

@@ -43,7 +43,7 @@ A root belongs to one encoding. Startup discovery and targeted lookup reject the
 
 ## Write path
 
-The plugin buffers frozen session events and drains them on flush or disposal. A per-session cursor prevents resumed sessions from re-appending stored events, and live sessions are seeded when the plugin loads. The owning backend instance serializes operations for one session; disposal waits for initialization and the final drain so no write lands after teardown.
+The plugin copies frozen session events into one controller per live session and starts an eager drain. Concurrent events share the current write; events admitted during it form a follow-up batch, while `session/flush` waits until both current and pending batches are durable. A per-session cursor prevents resumed sessions from re-appending stored events, and live sessions are seeded when the plugin loads. The owning backend instance serializes operations for one session; disposal drains every retained controller before teardown.
 
 ## Model Experience
 
