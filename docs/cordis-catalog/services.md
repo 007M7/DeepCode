@@ -932,26 +932,72 @@ abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 
 /**
+ * Inspect a header and its valid contiguous stored prefix without repairing
+ * a torn tail, closing an interrupted turn, or publishing coordinator state.
+ * This read is serialized with writes for the same id and returns detached
+ * values, so observers cannot mutate backend-owned state.
+ * @param id - the persisted session to inspect.
+ * @returns the header and valid stored event prefix exactly as observed.
+ */
+abstract inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+
+/**
  * Lightweight listing from metadata, without a full-log parse.
  * @returns one header per materialized session.
  */
 abstract list(): Promise<SessionHeader[]>
+
+/**
+ * List materialized sessions with cheap per-log change tokens.
+ *
+ * Repeated observations of an unchanged log return the same revision. A
+ * successful mutating {@link load} repair changes the next listed revision.
+ * Revisions also distinguish independently backed stores so backend-local
+ * counters cannot compare equal across different persistence sources.
+ * @returns one header and opaque revision per materialized session without loading full logs.
+ */
+abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>
 ```
 
-Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md)
+Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:42`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:52`](../../packages/session-persistence/session-persistence/src/index.ts)
 
-## `ctx.sessionQuery` — `SessionQueryService`
+## `ctx.sessionQuery` — `SessionQueryService` (abstract seam)
 
-Live-preferred logical-corpus exact-read and relationship-tracing service.
+Unified live-preferred session query service.
+
+Exact reads, filters, and traces are backend-independent concrete behavior. A backend implements full-text observation, reconciliation, ranking, cursor generations, and query execution on the same `ctx.sessionQuery` service.
 
 ```ts cordis-catalog
+/**
+ * Search the live-preferred logical corpus and group by session.
+ * @param request - query text, metadata filters, page size, and cursor.
+ * @param exec - optional cancellation control.
+ * @returns session hits ranked by their strongest matching event.
+ */
+abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>
+
+/**
+ * Search events within one live-preferred logical session.
+ * @param request - target session, query text, filters, page size, and cursor.
+ * @param exec - optional cancellation control.
+ * @returns matching event hits in deterministic relevance order.
+ */
+abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>
+
 /**
  * List the complete logical corpus using live-preferred records.
  * @returns deterministic newest-first cloned session records.
  */
 listSessions(): Promise<SessionRecord[]>
+
+/**
+ * Filter the complete logical corpus with provider-independent predicates.
+ * @param filters - ANDed session metadata and availability clauses.
+ * @returns matching cloned records in deterministic newest-first order.
+ */
+async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>
 
 /**
  * Fold the latest log-backed title from one live-preferred logical session.
@@ -966,6 +1012,14 @@ async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>
  * @returns event records in ascending seq order.
  */
 async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
+
+/**
+ * Scan first-party semantic event documents with provider-independent filters.
+ * @param sessionId - live-preferred session id to scan.
+ * @param filters - ANDed metadata and literal-text predicates.
+ * @returns matching semantic documents in ascending seq order.
+ */
+async filterEvents( sessionId: SessionId, filters: readonly SessionEventResultFilter[], ): Promise<SessionEventSearchDocument[]>
 
 /**
  * Read one session's complete current model surface from one corpus observation.
@@ -999,9 +1053,9 @@ async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
 
-Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventTrace](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
+Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchHit](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTrace](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-query/session-query/src/index.ts:41`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:73`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessionReferences` — `SessionReferenceService`
 

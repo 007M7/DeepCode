@@ -8,12 +8,15 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
+import { randomUUID } from 'node:crypto'
+import { statSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
-  SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type SessionLocation, type StoredPrefix,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
+  type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -93,6 +96,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   override readonly name = 'session-persistence-sqlite'
 
   private db!: DatabaseSync
+  private storeIdentity!: string
   private ready: Promise<void>
   private coordinator: PersistenceCoordinator<number>
 
@@ -105,13 +109,32 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   }
 
   private async openDb(path: string, journalMode: JournalMode): Promise<void> {
-    if (path !== ':memory:') {
-      const abs = resolve(path)
-      await mkdir(dirname(abs), { recursive: true, mode: 0o700 })
-      await createDatabaseFile(abs)
-      this.db = openDatabase(abs, journalMode)
-    } else {
-      this.db = openDatabase(path, journalMode)
+    const actual = path === ':memory:' ? path : resolve(path)
+    if (actual !== ':memory:') {
+      await mkdir(dirname(actual), { recursive: true, mode: 0o700 })
+      await createDatabaseFile(actual)
+    }
+    this.db = openDatabase(actual, journalMode)
+    try {
+      const row = this.db.prepare(
+        'SELECT store_id FROM persistence_state WHERE singleton = 1',
+      ).get() as { store_id: string } | undefined
+      /* v8 ignore next -- openDatabase inserts the singleton before returning. */
+      if (row === undefined) {
+        throw new Error(`session database at "${actual}" has no store identity`)
+      }
+      if (row.store_id.length === 0) {
+        throw new Error(`session database at "${actual}" has no valid store identity`)
+      }
+      if (actual !== ':memory:') {
+        const identity = statSync(actual, { bigint: true })
+        this.storeIdentity = `file:${identity.dev}:${identity.ino}:${identity.birthtimeNs}:store:${row.store_id}`
+      } else {
+        this.storeIdentity = `memory:store:${row.store_id}`
+      }
+    } catch (error: unknown) {
+      this.db.close()
+      throw error
     }
   }
 
@@ -132,6 +155,10 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
 
   load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.coordinator.load(id)
+  }
+
+  inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.inspect(id)
   }
 
   // One method serves both public `list` and the backend hook; delegating it to
@@ -179,6 +206,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
         const [surfaceSeqs, surfaceOp] = surfaceBindings(event)
         insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp)
       }
+      this.db.prepare('UPDATE sessions SET revision = revision + 1 WHERE id = ?').run(meta.id)
       this.db.exec('COMMIT')
     } catch (error) {
       this.db.exec('ROLLBACK')
@@ -207,6 +235,9 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
           insertEvent.run(meta.id, event.seq, event.type, event.time, JSON.stringify(event.data), surfaceSeqs, surfaceOp)
         }
       }
+      if (tornMarker !== undefined || closers.length > 0) {
+        this.db.prepare('UPDATE sessions SET revision = revision + 1 WHERE id = ?').run(meta.id)
+      }
       this.db.exec('COMMIT')
     } catch (error) {
       // The DELETE+INSERT cannot collide (a row at a closer's seq is preserved or
@@ -226,6 +257,18 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       .prepare('SELECT * FROM sessions')
       .all() as unknown as SessionRow[]
     return rows.map(rowToMeta)
+  }
+
+  /** List metadata with a source-qualified monotonic revision per session. */
+  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+    await this.ready
+    const rows = this.db.prepare('SELECT * FROM sessions').all() as unknown as SessionRow[]
+    return rows.map(row => ({
+      header: rowToMeta(row),
+      revision: SessionPersistenceRevision(
+        `${this.storeIdentity}:incarnation:${row.incarnation}:revision:${row.revision}`,
+      ),
+    }))
   }
 
   /** Close the database handle (awaited by the coordinator's dispose, post-drain). */
@@ -248,8 +291,9 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
    */
   private writeRow(meta: SessionHeader): void {
     this.db.prepare(`
-      INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length, delegation_depth)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions
+        (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, incarnation, revision)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
       ON CONFLICT(id) DO UPDATE SET
         version = excluded.version,
         created_at = excluded.created_at,
@@ -265,6 +309,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       meta.parentSession ?? null,
       meta.seedLength ?? null,
       meta.delegationDepth ?? null,
+      randomUUID(),
     )
   }
 }

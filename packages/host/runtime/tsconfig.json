@@ -24,6 +24,12 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session-title/session-title"
+    },
+    {
+      "path": "../../session-title/session-title-first-message-llm"
+    },
+    {
       "path": "../../core/system-prompt"
     },
     {

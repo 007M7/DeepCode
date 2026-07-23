@@ -643,11 +643,12 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
-    it('load rejects a missing session', async () => {
+    it('load and inspect reject a missing session', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
         await expect(ctx.sessionPersistence.load(SessionId('nope'))).rejects.toThrow(/not found/)
+        await expect(ctx.sessionPersistence.inspect(SessionId('nope'))).rejects.toThrow(/not found/)
       } finally {
         await fiber.dispose()
         await fix.cleanup()

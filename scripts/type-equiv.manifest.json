@@ -1148,6 +1148,61 @@
       "doc": "docs/core-data-structures/lsp.md",
       "symbol": "LspService",
       "source": "packages/lsp/lsp/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "SessionPersistenceRevision",
+      "source": "packages/session-persistence/session-persistence/src/revision.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/persistence.md",
+      "symbol": "SessionPersistenceSnapshot",
+      "source": "packages/session-persistence/session-persistence/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionResultFilter",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventResultFilter",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventSearchDocument",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionSearchCursor",
+      "source": "packages/session-query/session-query/src/cursor.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionSearchRequest",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventSearchRequest",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionSearchPage",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionEventSearchHit",
+      "source": "packages/session-query/session-query/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-query.md",
+      "symbol": "SessionSearchHit",
+      "source": "packages/session-query/session-query/src/types.ts"
     }
   ]
 }

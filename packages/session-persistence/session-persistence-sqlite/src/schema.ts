@@ -1,12 +1,14 @@
 /**
  * Schema + load-time helpers for the SQLite session-persistence backend: the
- * DDL (a `sessions` metadata table and a 1:1 `events` row per `SessionEvent`),
- * the database open/configure step, and the last-`turn/end` cut that gives the
- * SQLite backend the SAME crash-tail-on-load semantics as the JSONL backend.
+ * DDL (a store-identity row, `sessions` metadata, and a 1:1 `events` row per
+ * `SessionEvent`), the database open/configure step, and the last-`turn/end`
+ * cut that gives the SQLite backend the SAME crash-tail-on-load semantics as
+ * the JSONL backend.
  *
  * @module dsh-session-persistence-sqlite/schema
  */
 
+import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepseek-ai/dsh-session'
 
@@ -15,7 +17,7 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 8
 
 /**
  * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
@@ -31,6 +33,10 @@ export interface SessionRow {
   cwd: string | null
   parent_session: string | null
   seed_length: number | null
+  /** Stable identity assigned when this log is materialized. */
+  incarnation: string
+  /** Monotonic log-change token incremented in each mutating transaction. */
+  revision: number
   delegation_depth: number | null
 }
 
@@ -62,23 +68,41 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
  * rather than being migrated in place.
  * @param path - the SQLite database file to open (created when absent).
  * @param journalMode - validated journal pragma.
- * @returns the open handle with pragmas applied and both tables ensured.
+ * @returns the open handle with pragmas applied and all three tables ensured.
  */
 export function openDatabase(path: string, journalMode: JournalMode): DatabaseSync {
   const db = new DatabaseSync(path)
+  try {
+    configureDatabase(db, path, journalMode)
+    return db
+  } catch (error: unknown) {
+    db.close()
+    throw error
+  }
+}
+
+function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalMode): void {
   db.exec('PRAGMA foreign_keys = ON')
   // The validated union is safe to interpolate into a non-bindable PRAGMA.
   db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
   // `PRAGMA user_version` always returns exactly one row { user_version }.
   const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
   if (onDisk !== 0 && onDisk !== SCHEMA_VERSION) {
-    db.close()
     throw new Error(`session database at "${path}" has schema version ${onDisk}, incompatible with this build (${SCHEMA_VERSION})`)
   }
   if (onDisk === 0) {
     // Stamp fresh or pre-versioning databases.
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
   }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS persistence_state (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      store_id  TEXT NOT NULL
+    ) STRICT
+  `)
+  db.prepare(
+    'INSERT OR IGNORE INTO persistence_state (singleton, store_id) VALUES (1, ?)',
+  ).run(randomUUID())
   db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id             TEXT PRIMARY KEY,
@@ -87,7 +111,9 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
       cwd              TEXT,
       parent_session   TEXT,
       seed_length      INTEGER,
-      delegation_depth INTEGER
+      delegation_depth INTEGER,
+      incarnation      TEXT NOT NULL,
+      revision         INTEGER NOT NULL
     ) STRICT
   `)
   db.exec(`
@@ -102,7 +128,6 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
       PRIMARY KEY (session_id, seq)
     ) STRICT
   `)
-  return db
 }
 
 /**

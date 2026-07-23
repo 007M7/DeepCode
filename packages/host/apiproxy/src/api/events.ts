@@ -33,8 +33,9 @@ export type ToolEventView =
 export interface EventsApi {
   /**
    * All-session aggregated mux stream. On open, emits a subscribed control frame for every
-   * attached session and replays each session's still-pending approval/question requested
-   * frames (rpcId reused verbatim — the refresh-recovery baseline).
+   * attached session followed by its optional latest title snapshot, then replays each
+   * session's still-pending approval/question requested frames (rpcId reused verbatim — the
+   * refresh-recovery baseline).
    * since: resume seam, unimplemented in v1 (ignored if passed); reconnection = reopen the
    * stream + refetch history.
    */
@@ -54,6 +55,7 @@ export interface EventsApi {
 export type MuxFrame =
   | { type: 'session/event'; sessionId: SessionId; event: SessionEvent; view?: ToolEventView }
   | { type: 'session/subscribed'; sessionId: SessionId; lastSeq: number }
+  | { type: 'session/title'; sessionId: SessionId; title: string; eventSeq: number; updatedAt: number }
   | { type: 'approval/requested'; sessionId: SessionId; approvalId: ApprovalRequestId; toolName: string; callId?: CallId; reason?: string }
   | { type: 'approval/resolved'; sessionId: SessionId; approvalId: ApprovalRequestId; outcome: ApprovalOutcome }
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }

@@ -62,13 +62,19 @@ function buildAlphaLog(): SessionEvent[] {
   }
   for (let turn = 0; turn < 60; turn++) {
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-    push({
+    const userSeq = push({
       type: 'user/message', surfaceOp: 'append',
       data: {
         content: text(turn === 59 ? USER_MARKDOWN_LITERAL : `问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`),
         source: { kind: 'user' },
       },
     })
+    if (turn === 0) {
+      push({
+        type: 'session/title',
+        data: { title: 'Fixture 历史会话', messageSeqs: [userSeq], source: { kind: 'fallback' } },
+      })
+    }
     if (turn % 9 === 4) {
       push({ type: 'context/message', surfaceOp: 'append', data: { content: text(`[fixture] 上下文注入（turn ${turn}）`), source: { kind: 'plugin', plugin: 'fixture' } } })
     }
@@ -185,6 +191,20 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
     return undefined // cross-page unpaired: documented default
   }
   return undefined
+}
+
+/** Fold the latest fixture title into the host's control-frame projection. */
+function titleFrameOf(id: SessionId, log: readonly SessionEvent[]): Extract<MuxFrame, { type: 'session/title' }> | undefined {
+  const event = log.findLast(item => (item as { type: string }).type === 'session/title')
+  if (event === undefined) return undefined
+  const titleEvent = event as unknown as { seq: number; time: number; data: { title: string } }
+  return {
+    type: 'session/title',
+    sessionId: id,
+    title: titleEvent.data.title,
+    eventSeq: titleEvent.seq,
+    updatedAt: titleEvent.time,
+  }
 }
 
 /**
@@ -361,6 +381,10 @@ export function createFixtureApi(): ApiProxy {
     emitMux(view === undefined
       ? { type: 'session/event', sessionId: id, event }
       : { type: 'session/event', sessionId: id, event, view })
+    if ((event as { type: string }).type === 'session/title') {
+      // The raw title is already in this log, so the latest-title fold must find it.
+      emitMux(titleFrameOf(id, log) as Extract<MuxFrame, { type: 'session/title' }>)
+    }
   }
 
   /** At most one in-flight replay per session; cancel clears it. */
@@ -388,6 +412,12 @@ export function createFixtureApi(): ApiProxy {
     /** Log append + mux emit (the normal live path). */
     appendUser(id: string, msg: string): void {
       append(sid(id), { type: 'user/message', surfaceOp: 'append', data: { content: text(msg), source: { kind: 'user' } } })
+    },
+    /** Append a later durable title revision through the normal raw-event + control-frame path. */
+    appendTitle(id: string, title: string): void {
+      const log = logOf(sid(id))
+      const messageSeqs = log.filter(event => event.type === 'user/message').map(event => event.seq)
+      append(sid(id), { type: 'session/title', data: { title, messageSeqs, source: { kind: 'provider', provider: 'fixture' } } })
     },
     /** Log append WITHOUT the mux emit: a frame lost in transit — history still serves it, the client must repull. */
     appendSilent(id: string, msg: string): void {
@@ -506,6 +536,8 @@ export function createFixtureApi(): ApiProxy {
         for (const s of sessions) {
           if (!s.running) continue
           conn.push({ rpcId: mint(), payload: { type: 'session/subscribed', sessionId: s.sessionId, lastSeq: (logs.get(s.sessionId)?.length ?? 0) - 1 } })
+          const title = titleFrameOf(s.sessionId, logs.get(s.sessionId) ?? [])
+          if (title !== undefined) conn.push({ rpcId: mint(), payload: title })
         }
         conn.push({
           rpcId: pendingApprovalRpcId,

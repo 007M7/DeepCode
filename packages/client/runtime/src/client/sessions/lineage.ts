@@ -4,9 +4,15 @@
 
 import type { SessionId, SessionSummary } from '@deepseek-ai/dsh-client-connection/client'
 
+/** Host list summary enriched with the latest mux-projected durable title. */
+export interface TitledSessionSummary extends SessionSummary {
+  title?: string
+}
+
 /** One flattened session-list row (summary + lineage indent depth). */
 export interface SessionListEntry {
   sessionId: SessionId
+  title?: string
   updatedAt: number
   running: boolean
   parentSessionId?: SessionId
@@ -21,12 +27,12 @@ export interface SessionListEntry {
  * @param summaries - the host's session.list items.
  * @returns display rows in render order.
  */
-export function flattenLineage(summaries: readonly SessionSummary[]): SessionListEntry[] {
-  const byId = new Map<SessionId, SessionSummary>()
+export function flattenLineage(summaries: readonly TitledSessionSummary[]): SessionListEntry[] {
+  const byId = new Map<SessionId, TitledSessionSummary>()
   for (const s of summaries) byId.set(s.sessionId, s)
 
-  const children = new Map<SessionId, SessionSummary[]>()
-  const roots: SessionSummary[] = []
+  const children = new Map<SessionId, TitledSessionSummary[]>()
+  const roots: TitledSessionSummary[] = []
   for (const s of summaries) {
     if (s.parentSessionId !== undefined && byId.has(s.parentSessionId)) {
       const list = children.get(s.parentSessionId) ?? []
@@ -37,12 +43,12 @@ export function flattenLineage(summaries: readonly SessionSummary[]): SessionLis
     }
   }
 
-  const byUpdatedDesc = (a: SessionSummary, b: SessionSummary): number => b.updatedAt - a.updatedAt
+  const byUpdatedDesc = (a: TitledSessionSummary, b: TitledSessionSummary): number => b.updatedAt - a.updatedAt
   roots.sort(byUpdatedDesc)
 
   const out: SessionListEntry[] = []
   const visited = new Set<SessionId>()
-  const walk = (s: SessionSummary, depth: number): void => {
+  const walk = (s: TitledSessionSummary, depth: number): void => {
     if (visited.has(s.sessionId)) {
       console.warn(`[web-runtime] lineage cycle at ${s.sessionId}; emitting as root`)
       return
