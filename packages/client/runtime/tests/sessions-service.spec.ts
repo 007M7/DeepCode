@@ -1,10 +1,12 @@
 /**
- * SessionsService: list store projection (manager → {ids, byId} with derived
- * titles), scope-tree lifecycle (lazy mint / frozen survival / removed
- * teardown with watch deferral), binding identity, ancestry walk, create.
+ * SessionsService: list store projection (manager → {ids, byId, current}
+ * with derived titles), the migrated current-selection account (open
+ * validation, persisted mask semantics, cell resolution), scope-tree
+ * lifecycle (lazy mint / frozen survival / removed teardown with watch
+ * deferral), binding identity, ancestry walk, create.
  */
 import { Context } from 'cordis'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionsService, scopeOf } from '../src/client/sessions/service.ts'
 import { FakeApiClient, ok } from './fake-api.ts'
@@ -109,6 +111,97 @@ describe('scope tree', () => {
     await feedList(b, [{ id: 's1' }, { id: 's2' }]) // reappears
     b.svc.binding(sid('s2')) // watch moves; sweep must NOT tear down the re-listed s1
     expect(b.svc.scope(sid('s1'))).toBe(scoped)
+  })
+})
+
+describe('current selection (migrated from ui-layout, arbitrated into the list snapshot)', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('open() writes list.current; unknown ids fail loud', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    expect(b.svc.list.getSnapshot().current).toBeUndefined()
+    b.svc.open(sid('s1'))
+    expect(b.svc.list.getSnapshot().current).toBe('s1')
+    expect(() => { b.svc.open(sid('ghost')) }).toThrow(/unknown session ghost/)
+    expect(b.svc.list.getSnapshot().current).toBe('s1') // failed open leaves the selection alone
+  })
+
+  it('masks (not destroys) the selection while its session is off the list', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }, { id: 's2' }])
+    b.svc.open(sid('s1'))
+    await feedList(b, [{ id: 's2' }]) // s1 removed → current falls to the empty state
+    expect(b.svc.list.getSnapshot().current).toBeUndefined()
+    await feedList(b, [{ id: 's1' }, { id: 's2' }]) // s1 returns → selection resurfaces
+    expect(b.svc.list.getSnapshot().current).toBe('s1')
+  })
+
+  it('persists the selection under dsh.sessions.current and rehydrates it into a fresh service', async () => {
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => storage.get(k) ?? null,
+      setItem: (k: string, v: string) => { storage.set(k, v) },
+    })
+    const first = bench()
+    await feedList(first, [{ id: 's1' }])
+    first.svc.open(sid('s1'))
+    expect(storage.get('dsh.sessions.current')).toContain('s1')
+    // A fresh boot (same storage) recovers the selection once the list holds the session.
+    const second = bench()
+    await feedList(second, [{ id: 's1' }])
+    expect(second.svc.list.getSnapshot().current).toBe('s1')
+  })
+})
+
+describe('cell (render-layer session kit)', () => {
+  it('resolves an identity-stable {sessionId, session} cell; unknown ids yield undefined', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    const cell = b.svc.cell('s1')
+    expect(cell).toBeDefined()
+    expect(cell?.sessionId).toBe('s1')
+    // Bare-source form (store migration): the cell carries the Session
+    // observable itself; hook binding happens in the React machinery.
+    expect(cell?.session).toBe(b.svc.manager.get(sid('s1')))
+    expect(b.svc.cell('s1')).toBe(cell)
+    expect(b.svc.cell('ghost')).toBeUndefined()
+  })
+
+  it('moves the watch like binding(): switching cells sweeps a deferred removal', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    b.svc.cell('s1') // watched
+    await feedList(b, []) // removed while watched → deferred, scope survives
+    expect(b.svc.scope(sid('s1'))).toBeDefined()
+    await feedList(b, [{ id: 's2' }])
+    b.svc.cell('s2') // watch moves → sweep tears s1 down
+    expect(b.svc.scope(sid('s1'))).toBeUndefined()
+  })
+})
+
+describe('slot-store scope prune hook', () => {
+  it('notifies ctx.slots.pruneStoreScope when a scope dies (both teardown paths)', async () => {
+    const b = bench()
+    const pruneStoreScope = vi.fn()
+    b.ctx.reflect.provide('slots', { pruneStoreScope })
+    await feedList(b, [{ id: 's1' }, { id: 's2' }])
+    b.svc.scope(sid('s1'))
+    b.svc.binding(sid('s2')) // s2 watched
+    await feedList(b, []) // s1 unwatched → immediate drop; s2 watched → deferred
+    expect(pruneStoreScope).toHaveBeenCalledWith('s1')
+    expect(pruneStoreScope).not.toHaveBeenCalledWith('s2')
+    await feedList(b, [{ id: 's3' }])
+    b.svc.binding(sid('s3')) // watch moves → deferred sweep drops s2
+    expect(pruneStoreScope).toHaveBeenCalledWith('s2')
+  })
+
+  it('tolerates a slots-less boot (object-layer benches carry no slot service)', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 's1' }])
+    b.svc.scope(sid('s1'))
+    await feedList(b, []) // teardown without ctx.slots must not throw
+    expect(b.svc.scope(sid('s1'))).toBeUndefined()
   })
 })
 

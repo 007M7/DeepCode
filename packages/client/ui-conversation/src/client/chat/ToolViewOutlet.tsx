@@ -1,13 +1,12 @@
 // ToolViewOutlet: resolves the toolview for one call through ctx.toolviews
 // (uSES over the registry version so unload falls back live) and renders it
 // behind a per-row error boundary. GenericToolCard is the render-side
-// fallback for both a registry miss and a crashed custom row. A registrant
-// inject factory is called once per (registration x binding) and cached,
-// mirroring the scoped-slots injection discipline.
+// fallback for both a registry miss and a crashed custom row. Pure props
+// machinery, zero React context: a registrant inject factory receives the
+// sessionId this outlet already holds, is called once per (registration x
+// session) and cached, mirroring the slot injection discipline.
 
-import { Component, useSyncExternalStore, type FC, type ReactNode } from 'react'
-import { useSessionBinding } from '@deepseek-ai/dsh-client-web-react'
-import type { SessionBinding } from '@deepseek-ai/dsh-client-ui-slots'
+import { Component, useSyncExternalStore, type ReactNode } from 'react'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolViewInject, ToolViewProps, ToolViewResolver } from '../contract/toolview.ts'
 import { GenericToolCard } from './GenericToolCard.tsx'
@@ -19,19 +18,21 @@ export interface ToolViewOutletProps {
   viewProps: ToolViewProps
 }
 
-/** Inject cache: per inject-factory (stable per registration) x binding object. */
-const injectCache = new WeakMap<ToolViewInject<object>, WeakMap<object, object>>()
+/** Inject cache: per inject-factory (stable per registration) x session id.
+ *  The inner Map lives and dies with its factory (WeakMap entry), so entries
+ *  are bounded by the session count over the registration's lifetime. */
+const injectCache = new WeakMap<ToolViewInject<object>, Map<SessionId, object>>()
 
-function cachedInject(inject: ToolViewInject<object>, binding: SessionBinding): object {
-  let perBinding = injectCache.get(inject)
-  if (!perBinding) {
-    perBinding = new WeakMap()
-    injectCache.set(inject, perBinding)
+function cachedInject(inject: ToolViewInject<object>, sessionId: SessionId): object {
+  let perSession = injectCache.get(inject)
+  if (!perSession) {
+    perSession = new Map()
+    injectCache.set(inject, perSession)
   }
-  let props = perBinding.get(binding)
+  let props = perSession.get(sessionId)
   if (!props) {
-    props = inject(binding)
-    perBinding.set(binding, props)
+    props = inject(sessionId)
+    perSession.set(sessionId, props)
   }
   return props
 }
@@ -61,16 +62,6 @@ class RowErrorBoundary extends Component<
   }
 }
 
-/** Split component: only inject-carrying registrations need the session
- *  binding hook (keeps injectless rendering free of the Provider requirement). */
-function InjectedRow({ Row, inject, viewProps }: {
-  Row: FC<ToolViewProps & object>; inject: ToolViewInject<object>; viewProps: ToolViewProps
-}) {
-  const binding = useSessionBinding()
-  const injected = cachedInject(inject, binding)
-  return <Row {...{ ...injected, ...viewProps }} />
-}
-
 export function ToolViewOutlet({ registry, sessionId, toolName, viewProps }: ToolViewOutletProps) {
   const version = useSyncExternalStore(
     (fn) => registry.subscribe(fn),
@@ -83,7 +74,7 @@ export function ToolViewOutlet({ registry, sessionId, toolName, viewProps }: Too
     <RowErrorBoundary resetKey={version} fallback={<GenericToolCard {...viewProps} />}>
       {resolved.inject === undefined
         ? <Row {...viewProps} />
-        : <InjectedRow Row={Row} inject={resolved.inject} viewProps={viewProps} />}
+        : <Row {...{ ...cachedInject(resolved.inject, sessionId), ...viewProps }} />}
     </RowErrorBoundary>
   )
 }

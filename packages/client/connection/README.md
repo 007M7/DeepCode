@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-connection
 
-Wire consumer layer (moved verbatim from web-runtime): IApiClient family (WebApiClient/FixtureApiClient), ConnectionController (SSE dual-stream + backoff reconnect), WEB_EVENTS. Contract: api-contracts v3 §3, export inventory in §3.2.
+Wire consumer layer: the client plugin's apply mounts `ctx.connection` (shared api client + single-consumer stream-loop starter); the export face carries the wire contract types, the `AbstractApiClient` seam, and the loop's sink/config types. The platform subclasses (WebApiClient/FixtureApiClient), the ConnectionController loop, and the fixture data source are package-internal — apply selects and drives them; tests reach them via src. Contract: api-contracts v3 §3.
 
 ## Model Experience
 

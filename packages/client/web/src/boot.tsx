@@ -10,7 +10,8 @@
 import { Context } from 'cordis'
 import { createRoot } from 'react-dom/client'
 import type { ReactNode } from 'react'
-import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-web-react'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSlotRenderer } from '@deepseek-ai/dsh-client-web-react'
 import { createClientLoader, type ClientLoaderOptions } from '@deepseek-ai/dsh-client-runtime/loader'
 import { AppRoot } from './AppRoot.tsx'
 import { buildRenderApp } from './app.tsx'
@@ -59,7 +60,13 @@ export function bootWebShell(el: HTMLElement, seams?: BootSeams): () => void {
 
   loader.start()
   loader.settled().then(
-    () => { settled.flip() },
+    () => {
+      // The renderer install is a shell-boot act, but ctx.slots exists only
+      // once the runtime plugin loaded — so it lands here, after settled and
+      // before the flip that lets renderApp call renderSlot('root').
+      ctx.slots.install(createSlotRenderer())
+      settled.flip()
+    },
     () => { /* stay on the loading page; failures render from loader.status */ },
   )
   return () => { root.unmount() }

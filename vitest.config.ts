@@ -96,6 +96,11 @@ export default defineConfig({
         // yet. TODO(gui): cover and remove as the client test lane matures.
         'packages/client/ui-trajectory/src/*',
         'packages/client/web-react/src/*',
+        'packages/client/runtime/src/*',
+        'packages/client/ui-conversation/src/*',
+        'packages/client/ui-slots/src/*',
+        'packages/client/ui-layout/src/*',
+        'packages/client/web/src/*',
         'packages/host/webserver/src/*',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createSnapshotStore, shallowEqual } from '@deepseek-ai/dsh-client-web-react/store'
+import { createSnapshotStore, defineStore, shallowEqual } from '../src/client/store/index.ts'
 
 interface State {
   a: { n: number }
@@ -121,6 +121,98 @@ describe('createSnapshotStore', () => {
     expect(backing.has('spec-store')).toBe(true)
     const revived = createSnapshotStore(init(), { persist: { name: 'spec-store' } })
     expect(revived.getSnapshot().a.n).toBe(42)
+  })
+})
+
+describe('defineStore', () => {
+  const declare = () => defineStore({
+    init: () => ({ selection: null as string | null, draft: '' }),
+    actions: {
+      select: (d, target: string) => { d.selection = target },
+      setDraft: (d, text: string) => { d.draft = text },
+      clearDraft: (d) => { d.draft = '' },
+    },
+  })
+
+  it('create() yields a live instance: fresh init state, selector-visible action writes', () => {
+    const inst = declare().create()
+    expect(inst.store.getSnapshot()).toEqual({ selection: null, draft: '' })
+    inst.actions.setDraft('hello')
+    inst.actions.select('m1')
+    expect(inst.store.getSnapshot()).toEqual({ selection: 'm1', draft: 'hello' })
+    inst.actions.clearDraft()
+    expect(inst.store.getSnapshot().draft).toBe('')
+  })
+
+  it('bakes draft-stripped actions that write through update (draft mutation, not replacement)', () => {
+    const inst = declare().create()
+    const before = inst.store.getSnapshot()
+    inst.actions.setDraft('x')
+    const after = inst.store.getSnapshot()
+    expect(after).not.toBe(before)
+    expect(after.selection).toBe(before.selection)   // untouched branch preserved (immer path)
+  })
+
+  it('creates independent instances per create() call (the handle is a spec, not a singleton)', () => {
+    const handle = declare()
+    const a = handle.create()
+    const b = handle.create()
+    a.actions.setDraft('only-a')
+    expect(b.store.getSnapshot().draft).toBe('')
+  })
+
+  it('suffixes the persist key with the scope key: per-session persistence plus clearPersisted cleanup', () => {
+    const backing = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => { backing.set(k, v) },
+      removeItem: (k: string) => { backing.delete(k) },
+    })
+    const handle = defineStore({
+      init: () => ({ draft: '' }),
+      persist: 'spec.chat',
+      actions: { setDraft: (d, text: string) => { d.draft = text } },
+    })
+    handle.create('s1').actions.setDraft('one')
+    handle.create('s2').actions.setDraft('two')
+    handle.create().actions.setDraft('root')
+    expect(JSON.parse(backing.get('spec.chat.s1')!)).toEqual({ draft: 'one' })
+    expect(JSON.parse(backing.get('spec.chat.s2')!)).toEqual({ draft: 'two' })
+    expect(JSON.parse(backing.get('spec.chat')!)).toEqual({ draft: 'root' })
+    // Rehydration honors the same suffixed key.
+    expect(handle.create('s1').store.getSnapshot().draft).toBe('one')
+    // Scope-death cleanup removes exactly the suffixed key.
+    handle.create('s1').clearPersisted()
+    expect(backing.has('spec.chat.s1')).toBe(false)
+    expect(backing.has('spec.chat.s2')).toBe(true)
+    expect(backing.has('spec.chat')).toBe(true)
+  })
+
+  it('clearPersisted is a no-op without a persist declaration or without storage', () => {
+    const inst = declare().create('s1')   // no persist key declared
+    expect(() => { inst.clearPersisted() }).not.toThrow()
+    const persisting = defineStore({
+      init: () => ({ n: 0 }),
+      persist: 'spec.nostorage',
+      actions: { inc: (d) => { d.n += 1 } },
+    }).create()
+    // jsdom-less lane: localStorage may exist here, so simulate its absence.
+    vi.stubGlobal('localStorage', undefined)
+    expect(() => { persisting.clearPersisted() }).not.toThrow()
+  })
+
+  it('swallows storage failures in clearPersisted (same non-fatal contract as persistence)', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => { throw new Error('quota / private mode') },
+    })
+    const inst = defineStore({
+      init: () => ({ n: 0 }),
+      persist: 'spec.throwing',
+      actions: { inc: (d) => { d.n += 1 } },
+    }).create()
+    expect(() => { inst.clearPersisted() }).not.toThrow()
   })
 })
 

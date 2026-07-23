@@ -2,7 +2,9 @@
 
 Shell plugin: three-column AppFrame (drag handles, concession chain) + ctx.layout viewing-state service (nav, panel widths, persist); defines the sidebar/conversation/details/conversation.empty slots. Contract: api-contracts v3 §5.
 
-Slot declarations use the composed-props entry form (`owner` share, no full `props`): the exported OwnerShare contracts are `SidebarOwnerProps` / `ConvOwnerProps` / `DetailsOwnerProps` / `EmptyOwnerProps` — registrants reference them via `OwnerOf<'sidebar' | ...>` and compose their own injected share locally. The `conversation` entry authorizes `conversation.empty` delegation through `children`.
+Slot declarations use the composed-props entry form (`owner` share, no full `props`): the exported OwnerShare contracts are `SidebarOwnerProps` / `ConvOwnerProps` / `DetailsOwnerProps` / `EmptyOwnerProps` — registrants reference them via `OwnerOf<'sidebar' | ...>` and compose their own injected share locally. No entry declares `children` (declaring it requires the registered component to carry the slots face — reserved for future business slots): delegation authority is the component-side whitelist, i.e. AppFrame's `ScopedSlots<FrameSlotKey>` face over sidebar/conversation/details/conversation.empty. Since the root-slot rework the frame itself registers into 'root' and renders those child slots at its own render sites; the shell only renders 'root'.
+
+The export surface is the cross-package contract only: the AppFrame trio (+ `AppFrameProps`) consumed by the web shell's assembly, `LayoutService` with its store shapes (`NavState`/`PanelState`/`ViewId`), and the OwnerShare contracts. The concession-chain solver (`computeColumns`) and its geometry constants are package-internal; tests import them from `/src`.
 
 ## Model Experience
 

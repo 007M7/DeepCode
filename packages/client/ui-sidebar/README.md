@@ -1,8 +1,12 @@
 # @deepseek-ai/dsh-client-ui-sidebar
 
-Sidebar plugin: session multi-level tree (cwd grouping + parentId nesting), search, by-workspace grouping, state dots, three creation entries. Contract: api-contracts v3 §6.
+Sidebar plugin: session multi-level tree (cwd grouping + parentId nesting), search, by-workspace grouping, state dots, three creation entries. Contract: the [slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md).
 
-`src/client/contract/slots.ts` is the single-domain contract file: `SidebarRootInjected` (the registrant's own injected share — tree hook, current-session hook, actions) and `SidebarRootComponentProps = OwnerOf<'sidebar'> & SidebarRootInjected` (the owner share referenced from ui-layout's slot declaration, never re-stated). `apply` registers SidebarRoot cast-free against that composition; the inject factory binds layout/sessions off `RootBinding<ClientContext>`.
+`src/client/contract/slots.ts` is the single-domain contract file: `SidebarRootInjected` (the registrant's own injected share — plain service callbacks: onOpen/onCreate/onToggleSidebar) and `SidebarRootComponentProps = PropsRuntime<'sidebar'> & SidebarRootInjected` (owner `{collapsed,width}` plus the standard `useSessions` hook, resolved off ui-layout's SlotMap declaration, never re-stated). `apply` registers SidebarRoot cast-free against that composition; the inject factory closes over the plugin's own ctx.
+
+There is no plugin store: rows derive in the component (`useMemo` over the `useSessions` snapshot + local expansion/search state) through the pure `deriveRows` in `tree.ts`.
+
+The `/client` export surface is the plugin body (`apply`/`inject`) plus the contract types only — SidebarRoot, the row components, and the tree derivation are internal (the slot registration closes over them; tests import src paths directly).
 
 ## Model Experience
 

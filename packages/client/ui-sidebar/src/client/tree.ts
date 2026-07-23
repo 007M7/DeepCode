@@ -2,8 +2,9 @@
  * Pure sidebar tree derivation: session list snapshot -> flat render rows.
  * Groups sessions by project directory (cwd), builds the per-group session
  * tree from parentId links, sorts by recency, and applies search filtering
- * with forced ancestor visibility. Components subscribe to the materialized
- * rows and never derive in render. Contract: api-contracts v3 section 6.
+ * with forced ancestor visibility. Derived data is a pure function (slot
+ * design section 6): the component feeds the useSessions snapshot plus its
+ * local viewing state through useMemo — no materializing store.
  */
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 
@@ -43,10 +44,10 @@ export interface SessionRow {
 /** One flat sidebar list row. */
 export type SidebarRow = ProjectRow | SessionRow
 
-/** Viewing state consumed by the derivation. */
+/** Viewing state consumed by the derivation — the component's local useState arrays, taken as-is. */
 export interface TreeView {
-  expandedProjects: ReadonlySet<string>
-  expandedSessions: ReadonlySet<string>
+  expandedProjects: readonly string[]
+  expandedSessions: readonly string[]
   query: string
 }
 
@@ -217,17 +218,19 @@ function flattenSearch(g: Group, visible: ReadonlySet<SessionId>, rows: SidebarR
  * without a title or label hit are dropped, and a label-only hit keeps the
  * bare project row.
  * @param list - sessions list snapshot.
- * @param view - expansion sets and search query.
+ * @param view - local expansion arrays and search query.
  * @returns rows in render order.
  */
 export function deriveRows(list: SessionListState, view: TreeView): SidebarRow[] {
   const q = view.query.trim().toLowerCase()
+  const expandedProjects = new Set(view.expandedProjects)
+  const expandedSessions = new Set(view.expandedSessions)
   const rows: SidebarRow[] = []
   for (const g of groupByCwd(list)) {
     if (q === '') {
-      const expanded = view.expandedProjects.has(g.key)
+      const expanded = expandedProjects.has(g.key)
       rows.push({ type: 'project', key: g.key, cwd: g.cwd, label: g.label, sessionCount: g.summaries.size, expanded })
-      if (expanded) flattenVisible(g, view.expandedSessions, rows)
+      if (expanded) flattenVisible(g, expandedSessions, rows)
     } else {
       const visible = searchVisible(g, q)
       if (visible.size === 0 && !g.label.toLowerCase().includes(q)) continue
