@@ -98,7 +98,7 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   await ctx.plugin(TaskService)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LlmDeepSeek, {})
-  await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot, compression: 'none' })
+  await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot })
   await ctx.plugin(LocalBashExecutor, {})
   // Tool suite mirroring the demo:repl composition (repl-agent/cordis.yml +
   // the agent-spine bundle) so web sessions get the same coding-agent tool
