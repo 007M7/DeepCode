@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 glossary.md: c1931c0e0c630d05f5bd4fc3f30720f858f1175e
-glossary.zh.md: f8f3c9489a8be94de7fb3f021dd70bea7a399d73
+glossary.zh.md: 951abebc162e2456211437fcd5b27dd57783e9b6
