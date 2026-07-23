@@ -136,6 +136,26 @@ function cachedSessionInject(entry: StoredEntry, cell: SessionCell, actions: obj
 }
 
 /**
+ * Entry-identity React keys for chain boundaries. A chain outlet renders ONE
+ * elected entry through an error boundary; without a key, a boundary that
+ * failed on entry A would survive a re-election and keep a healthy entry B
+ * blacked out. Keying by entry identity remounts the boundary fresh whenever
+ * the election changes (entries are identity-stable per registration, so the
+ * key is stable while the same entry stays elected).
+ */
+let nextEntryKey = 0
+const entryKeys = new WeakMap<StoredEntry, number>()
+
+function entryKeyOf(entry: StoredEntry): number {
+  let key = entryKeys.get(entry)
+  if (key === undefined) {
+    key = nextEntryKey++
+    entryKeys.set(entry, key)
+  }
+  return key
+}
+
+/**
  * Per-entry isolation: one registrant crashing (component render or inject
  * factory) must not take down siblings. Assembly errors (missing providers)
  * rethrow — a miswired shell must fail loud, not degrade into fallbacks.
@@ -265,9 +285,22 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
     // pass runs per render with zero mount side effects: the first non-null
     // election renders, decliners never mount.
     for (const entry of entries) {
-      // Chain entries always carry select (SlotCore register validation).
-      const matched = (entry.select as (owner: object) => unknown)(ownerProps)
-      if (matched !== null) return guarded(entry, undefined, { ...ownerProps, matched })
+      let matched: unknown
+      try {
+        // Chain entries always carry select (SlotCore register validation).
+        matched = (entry.select as (owner: object) => unknown)(ownerProps)
+      } catch (error) {
+        // A throwing selector is a registrant contract breach (select MUST be
+        // pure and total), but it runs before the entry's SlotErrorBoundary
+        // exists — uncontained it would black out the whole owner region. So
+        // it degrades to a decline: the chain and the fallback stay intact,
+        // and the breach is reported like a crashed entry.
+        console.error(
+          `chain selector crashed in '${slotKey}' (${entry.registrant ?? 'unknown registrant'}), treating as declined:`,
+          error)
+        continue
+      }
+      if (matched !== null) return guarded(entry, entryKeyOf(entry), { ...ownerProps, matched })
     }
     return <>{opts?.fallback ?? null}</>
   }

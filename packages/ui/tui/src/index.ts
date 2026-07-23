@@ -146,11 +146,28 @@ export abstract class TuiExtensionService extends Service {
    */
   abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 }
+import {
+  activeAtToken,
+  DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES,
+  DEFAULT_FILE_SEARCH_MAX_ENTRIES,
+  DEFAULT_FILE_SEARCH_MAX_RESULTS,
+  formatFileMention,
+  WorkspaceFileSearch,
+} from './file-autocomplete.ts'
+
+export {
+  DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES,
+  DEFAULT_FILE_SEARCH_MAX_ENTRIES,
+  DEFAULT_FILE_SEARCH_MAX_RESULTS,
+} from './file-autocomplete.ts'
 
 export const name = 'ui-tui'
 export const inject = ['agents', 'commands', 'userInteraction', 'tools', 'llm', 'systemPrompt', 'tokenMeter']
 
-/** Presentation settings for the pi-tui terminal mode. */
+/** Model guidance for path-only file references selected through the TUI. */
+export const FILE_REFERENCE_PROMPT = 'Paths prefixed with @ are files explicitly referenced by the user. Use the read tool when their contents are needed; do not claim to have inspected a file before reading it.'
+
+/** Interaction and presentation settings for the pi-tui terminal mode. */
 export interface TuiConfig {
   /** Render model reasoning blocks. */
   showReasoning?: boolean
@@ -168,6 +185,12 @@ export interface TuiConfig {
   modelDialogWidth?: number
   /** Model-selector maximum height in terminal rows. */
   modelDialogMaxHeight?: number
+  /** Maximum fuzzy file candidates displayed for one `@` query. */
+  fileSearchMaxResults?: number
+  /** Maximum paths retained in one `@` workspace index. */
+  fileSearchMaxEntries?: number
+  /** Directory basenames excluded from `@` traversal and completion. */
+  fileSearchExcludedDirectories?: string[]
   /** Show the terminal's hardware cursor at the pi editor's IME marker. */
   showHardwareCursor?: boolean
   /** Apply the built-in ANSI color palette. */
@@ -191,14 +214,16 @@ const questionDialogWidthSchema = z.number().step(1).min(20).default(200)
 const questionDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
 const modelDialogWidthSchema = z.number().step(1).min(20).default(72)
 const modelDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
+const fileSearchMaxResultsSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_RESULTS)
+const fileSearchMaxEntriesSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_ENTRIES)
+const fileSearchExcludedDirectoriesSchema = z.array(z.string()).default([...DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES])
 const showHardwareCursorSchema = z.boolean().default(false)
 const colorSchema = z.boolean().default(true)
 // No default: an unset value auto-detects truecolor from COLORTERM in `apply`.
 const truecolorSchema = z.boolean()
 const titleSchema = z.string().default('DeepSeek Harness')
 
-/** Schemastery schema for presentation settings embedded by app bundles. */
-export const TuiConfigSchema: z<TuiConfig> = z.object({
+const tuiConfigSchemaFields = {
   showReasoning: showReasoningSchema,
   maxToolOutputLines: maxToolOutputLinesSchema,
   maxQuestionOptions: maxQuestionOptionsSchema,
@@ -207,11 +232,17 @@ export const TuiConfigSchema: z<TuiConfig> = z.object({
   questionDialogMaxHeight: questionDialogMaxHeightSchema,
   modelDialogWidth: modelDialogWidthSchema,
   modelDialogMaxHeight: modelDialogMaxHeightSchema,
+  fileSearchMaxResults: fileSearchMaxResultsSchema,
+  fileSearchMaxEntries: fileSearchMaxEntriesSchema,
+  fileSearchExcludedDirectories: fileSearchExcludedDirectoriesSchema,
   showHardwareCursor: showHardwareCursorSchema,
   color: colorSchema,
   truecolor: truecolorSchema,
   title: titleSchema,
-})
+}
+
+/** Schemastery schema for presentation settings embedded by app bundles. */
+export const TuiConfigSchema: z<TuiConfig> = z.object(tuiConfigSchemaFields)
 
 /** Serializable plugin configuration. */
 export interface Config extends TuiConfig {
@@ -233,18 +264,21 @@ export const Config: z<Config> = z.object({
   welcome: z.string(),
   sessionId: z.string().default('main'),
   resumeCommand: z.string(),
-  showReasoning: showReasoningSchema,
-  maxToolOutputLines: maxToolOutputLinesSchema,
-  maxQuestionOptions: maxQuestionOptionsSchema,
-  maxModelOptions: maxModelOptionsSchema,
-  questionDialogWidth: questionDialogWidthSchema,
-  questionDialogMaxHeight: questionDialogMaxHeightSchema,
-  modelDialogWidth: modelDialogWidthSchema,
-  modelDialogMaxHeight: modelDialogMaxHeightSchema,
-  showHardwareCursor: showHardwareCursorSchema,
-  color: colorSchema,
-  truecolor: truecolorSchema,
-  title: titleSchema,
+  showReasoning: tuiConfigSchemaFields.showReasoning,
+  maxToolOutputLines: tuiConfigSchemaFields.maxToolOutputLines,
+  maxQuestionOptions: tuiConfigSchemaFields.maxQuestionOptions,
+  maxModelOptions: tuiConfigSchemaFields.maxModelOptions,
+  questionDialogWidth: tuiConfigSchemaFields.questionDialogWidth,
+  questionDialogMaxHeight: tuiConfigSchemaFields.questionDialogMaxHeight,
+  modelDialogWidth: tuiConfigSchemaFields.modelDialogWidth,
+  modelDialogMaxHeight: tuiConfigSchemaFields.modelDialogMaxHeight,
+  fileSearchMaxResults: tuiConfigSchemaFields.fileSearchMaxResults,
+  fileSearchMaxEntries: tuiConfigSchemaFields.fileSearchMaxEntries,
+  fileSearchExcludedDirectories: tuiConfigSchemaFields.fileSearchExcludedDirectories,
+  showHardwareCursor: tuiConfigSchemaFields.showHardwareCursor,
+  color: tuiConfigSchemaFields.color,
+  truecolor: tuiConfigSchemaFields.truecolor,
+  title: tuiConfigSchemaFields.title,
 })
 
 /** Fully defaulted TUI presentation settings. */
@@ -257,6 +291,9 @@ export interface ResolvedTuiConfig {
   questionDialogMaxHeight: number
   modelDialogWidth: number
   modelDialogMaxHeight: number
+  fileSearchMaxResults: number
+  fileSearchMaxEntries: number
+  fileSearchExcludedDirectories: string[]
   showHardwareCursor: boolean
   color: boolean
   truecolor: boolean
@@ -295,6 +332,9 @@ export function resolveTuiConfig(config: TuiConfig | undefined): ResolvedTuiConf
     questionDialogMaxHeight: config?.questionDialogMaxHeight ?? 20,
     modelDialogWidth: config?.modelDialogWidth ?? 72,
     modelDialogMaxHeight: config?.modelDialogMaxHeight ?? 20,
+    fileSearchMaxResults: config?.fileSearchMaxResults ?? DEFAULT_FILE_SEARCH_MAX_RESULTS,
+    fileSearchMaxEntries: config?.fileSearchMaxEntries ?? DEFAULT_FILE_SEARCH_MAX_ENTRIES,
+    fileSearchExcludedDirectories: [...(config?.fileSearchExcludedDirectories ?? DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES)],
     showHardwareCursor: config?.showHardwareCursor ?? false,
     color: config?.color ?? true,
     truecolor: config?.truecolor ?? false,
@@ -1349,11 +1389,12 @@ interface PendingQuestion {
   overlay: TuiOverlaySession | undefined
 }
 
-/** Add session candidates to pi-tui's existing command/file provider. */
-class SessionAutocompleteProvider implements AutocompleteProvider {
+/** Merge path-only file candidates and optional session snapshots with commands. */
+class ReferenceAutocompleteProvider implements AutocompleteProvider {
   constructor(
     private readonly base: CombinedAutocompleteProvider,
-    private readonly sessions: SessionReferenceService,
+    private readonly files: WorkspaceFileSearch,
+    private readonly sessions: SessionReferenceService | undefined,
     private readonly agent: Agent,
   ) {}
 
@@ -1367,17 +1408,33 @@ class SessionAutocompleteProvider implements AutocompleteProvider {
     const currentLine = lines[cursorLine]
     /* v8 ignore next -- Editor always supplies its current state line. */
     if (currentLine === undefined) return basePromise
-    const token = /(?:^|\s)(@[^\s]*)$/u.exec(currentLine.slice(0, cursorCol))?.[1]
-    if (token === undefined) return basePromise
-    let candidates
-    try {
-      candidates = await this.sessions.listCandidates(this.agent, token.slice(1), undefined, options.signal)
-    } catch {
+    const token = activeAtToken(currentLine, cursorCol)
+    if (token === undefined) {
+      this.files.invalidate()
       return basePromise
     }
-    const base = await basePromise
+    const filePromise = this.files.list(token.query, options.signal).catch(() => [])
+    const sessionPromise = this.sessions === undefined || token.quoted
+      ? Promise.resolve([])
+      : this.sessions.listCandidates(this.agent, token.query, undefined, options.signal).catch(() => [])
+    const [base, fileCandidates, sessionCandidates] = await Promise.all([
+      basePromise,
+      filePromise,
+      sessionPromise,
+    ])
     if (options.signal.aborted) return base
-    const items: AutocompleteItem[] = candidates.map((candidate) => {
+    const fileItems: AutocompleteItem[] = fileCandidates.flatMap((candidate) => {
+      const value = formatFileMention(candidate, token.quoted)
+      if (value === undefined) return []
+      const name = candidate.path.slice(candidate.path.lastIndexOf('/') + 1)
+      const directory = candidate.kind === 'directory'
+      return [{
+        value,
+        label: `${directory ? 'Folder' : 'File'} · ${displayInlineText(name)}${directory ? '/' : ''}`,
+        description: displayInlineText(candidate.path),
+      }]
+    })
+    const sessionItems: AutocompleteItem[] = sessionCandidates.map((candidate) => {
       const mentionLabel = displayInlineText(candidate.label)
       const sessionId = displayInlineText(candidate.sessionId)
       const location = candidate.cwd === undefined ? '(no cwd)' : displayInlineText(candidate.cwd)
@@ -1388,8 +1445,9 @@ class SessionAutocompleteProvider implements AutocompleteProvider {
         description,
       }
     })
+    const items = [...fileItems, ...sessionItems]
     if (items.length === 0) return base
-    return { items: [...items, ...(base?.items ?? [])], prefix: token }
+    return { items: [...items, ...(base?.items ?? [])], prefix: token.prefix }
   }
 
   applyCompletion(
@@ -1558,6 +1616,11 @@ export function createTuiChat(
   // rather than declaring an injection that would make the TUI require them.
   const skills = ctx.get('skills')
   const cwd = agent.session.header.cwd ?? process.cwd()
+  const fileSearch = new WorkspaceFileSearch(cwd, {
+    maxResults: resolved.fileSearchMaxResults,
+    maxEntries: resolved.fileSearchMaxEntries,
+    excludedDirectories: resolved.fileSearchExcludedDirectories,
+  })
   const skillAbort = new AbortController()
   const tokens = sessionTokens(agent.session)
   const toolCards = new Map<string, ToolCardComponent>()
@@ -2327,9 +2390,12 @@ export function createTuiChat(
       agent.session.header.cwd ?? process.cwd(),
     )
     const sessionReferences = ctx.get('sessionReferences')
-    editor.setAutocompleteProvider(sessionReferences === undefined
-      ? base
-      : new SessionAutocompleteProvider(base, sessionReferences, agent))
+    editor.setAutocompleteProvider(new ReferenceAutocompleteProvider(
+      base,
+      fileSearch,
+      sessionReferences,
+      agent,
+    ))
   }
   const disposeCommandChanges = ctx.on('commands/change', refreshCommandAutocomplete)
   refreshCommandAutocomplete()
@@ -2411,6 +2477,16 @@ export function createTuiChat(
       name: 'exit',
       description: 'Exit after the active turn reaches idle',
       handler: () => { requestExit(); return { kind: 'success' } },
+    })
+  })
+  const fileReferencePromptFiber = agent.ctx.inject(['systemPrompt'], (promptCtx) => {
+    promptCtx.systemPrompt.section({
+      name: 'ui:tui-file-reference',
+      order: 99,
+      // Tool visibility can change dynamically or by agent scope. Empty
+      // sections are omitted by renderPrompt, so guidance never names a tool
+      // that this agent cannot call.
+      text: () => agent.ctx.tools.get('read', agent) === undefined ? '' : FILE_REFERENCE_PROMPT,
     })
   })
 
@@ -2660,6 +2736,7 @@ export function createTuiChat(
 
   const disposeSessionEvents = ctx.on('session/event', (session, event) => {
     if (session !== agent.session) return
+    if (event.type === 'tool/result') fileSearch.invalidate()
     recordEventUsage(tokens, event)
     advanceTurnPhase(event)
     if (event.type === 'steering/message') {
@@ -2708,6 +2785,7 @@ export function createTuiChat(
 
   const detachListeners = (): void => {
     skillAbort.abort()
+    fileSearch.dispose()
     removeInputListener()
     disposeCommandChanges()
     stopBannerReveal()
@@ -2755,10 +2833,13 @@ export function createTuiChat(
   } catch (error: unknown) {
     disposed = true
     detachListeners()
-    void commandFiber.dispose().catch(
+    void Promise.all([
+      commandFiber.dispose(),
+      fileReferencePromptFiber.dispose(),
+    ]).catch(
       /* v8 ignore next 2 -- command registration cleanup is non-throwing; this guards a future disposer regression */
       (cleanupError: unknown) => {
-        ctx.logger.warn(`ui-tui: command cleanup after startup failure failed: ${errorChain(cleanupError)}`)
+        ctx.logger.warn(`ui-tui: scoped cleanup after startup failure failed: ${errorChain(cleanupError)}`)
       },
     )
     clearStatus()
@@ -2775,7 +2856,10 @@ export function createTuiChat(
     async dispose(): Promise<void> {
       detachListeners()
       await shutdown(false)
-      await commandFiber.dispose()
+      await Promise.all([
+        commandFiber.dispose(),
+        fileReferencePromptFiber.dispose(),
+      ])
     },
   }
 }
