@@ -88,7 +88,7 @@ A terminology table is provided below. Follow it strictly:
 - When the target language is English, use the "English" column without a Chinese gloss; do not copy the "中文" or "首次出现" value into English prose.
 - If a term has already been glossed as part of a compound term, do not gloss it again when it appears alone later.
 - NEVER use translations listed in the "不要译作" column.
-- For technical terms not in the table: keep them in the source language. Do not invent a translation. This rule applies to terminology only; for general prose, freely restructure and paraphrase for natural expression.
+- For technical terms not in the table, follow the target language: for a Chinese target, use an established Chinese rendering from a major Chinese-language OSS or vendor source, or keep the source term and flag it as pending when no such precedent exists; for an English target, use the established English technical term, or preserve an ambiguous source term with a short English gloss and flag it as pending. Do not invent a translation. This rule applies to terminology only; for general prose, freely restructure and paraphrase for natural expression.
 
 {{terminology}}
 
@@ -143,7 +143,7 @@ After writing `<translation>`, re-read it in the target language only, without l
 **Terminology**
 - For a Chinese target, are first-occurrence glosses correctly applied (not missing, not repeated)? For an English target, are Chinese glosses absent?
 - Are any "不要译作" forbidden translations present?
-- Are unlisted terms correctly kept in the source language?
+- For unlisted terms, does a Chinese target use established Chinese precedent or retain the source term as pending, and does an English target use established English terminology or preserve only an ambiguous source term with a short English gloss?
 
 **Punctuation** (when target is Chinese)
 - Are there em-dashes that should be replaced with colons, periods, or commas?
