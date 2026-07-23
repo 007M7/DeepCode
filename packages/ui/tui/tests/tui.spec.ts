@@ -1,4 +1,5 @@
-import { homedir } from 'node:os'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
@@ -16,6 +17,7 @@ import SessionReferenceService, { formatSessionReferenceMention } from '@deepsee
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   createTuiChat,
+  FILE_REFERENCE_PROMPT,
   mountTui,
   renderSkillInvocation,
   resolveTuiConfig,
@@ -23,6 +25,7 @@ import {
   type TuiOverlaySession,
   type TuiRuntime,
 } from '../src/index.ts'
+import { WorkspaceFileSearch } from '../src/file-autocomplete.ts'
 import {
   appendAssistant,
   appendUser,
@@ -153,6 +156,9 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 20,
       modelDialogWidth: 72,
       modelDialogMaxHeight: 20,
+      fileSearchMaxResults: 20,
+      fileSearchMaxEntries: 10_000,
+      fileSearchExcludedDirectories: ['.git', 'node_modules'],
       showHardwareCursor: false,
       color: true,
       truecolor: false,
@@ -167,6 +173,9 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      fileSearchMaxResults: 7,
+      fileSearchMaxEntries: 123,
+      fileSearchExcludedDirectories: ['.git', 'generated'],
       showHardwareCursor: true,
       color: false,
       truecolor: true,
@@ -180,6 +189,9 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      fileSearchMaxResults: 7,
+      fileSearchMaxEntries: 123,
+      fileSearchExcludedDirectories: ['.git', 'generated'],
       showHardwareCursor: true,
       color: false,
       truecolor: true,
@@ -1061,6 +1073,125 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.agent.steered).toEqual([[{ type: 'text', text: 'steer @Source chat' }]])
     expect(result.agent.steeredOptions[0]?.contexts).toHaveLength(1)
     await dispose(result)
+  })
+
+  it('fuzzy-completes files and directories while sending only the selected path text', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-tui-file-completion-'))
+    await mkdir(join(cwd, 'src'), { recursive: true })
+    await mkdir(join(cwd, 'docs'), { recursive: true })
+    await writeFile(join(cwd, 'src', 'source-file.ts'), 'export const source = true\n')
+    await writeFile(join(cwd, 'docs', 'design notes.md'), '# Design\n')
+    await writeFile(join(cwd, 'unsafe\nfile.ts'), 'unsafe name\n')
+    const result = await setup({
+      cwd,
+      tools: {
+        read: {
+          name: 'read',
+          description: 'Read a file.',
+          parameters: {},
+          output: UNUSED_TOOL_OUTPUT,
+          execute: () => Promise.resolve([]),
+        },
+      },
+    })
+    try {
+      const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
+      expect(assembly.sections).toContainEqual({
+        name: 'ui:tui-file-reference',
+        text: FILE_REFERENCE_PROMPT,
+      })
+
+      result.terminal.send('@sfts')
+      await vi.waitFor(() => {
+        expect(result.terminal.output).toContain('File · source-file.ts')
+      })
+      expect(result.terminal.output).toContain('src/source-file.ts')
+      result.terminal.send('\t')
+      await tick()
+      result.terminal.send('\r')
+      await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
+      expect(result.agent.sent[0]).toEqual([{ type: 'text', text: '@src/source-file.ts' }])
+      expect(result.agent.sentOptions[0]?.contexts).toEqual([])
+
+      result.terminal.send('@do')
+      await vi.waitFor(() => {
+        expect(result.terminal.output).toContain('Folder · docs/')
+      })
+      result.terminal.send('\t')
+      await vi.waitFor(() => {
+        expect(result.terminal.output).toContain('File · design notes.md')
+      })
+      result.terminal.send('\t')
+      await tick()
+      result.terminal.send('\r')
+      await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })
+      expect(result.agent.sent[1]).toEqual([{ type: 'text', text: '@"docs/design notes.md"' }])
+      expect(result.agent.sentOptions[1]?.contexts).toEqual([])
+
+      result.terminal.send('@unsafe')
+      await tick()
+      expect(result.terminal.output).not.toContain('File · unsafe')
+      result.terminal.send('\x03')
+    } finally {
+      await result.controller.dispose()
+      const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
+      expect(assembly.sections).not.toContainEqual({
+        name: 'ui:tui-file-reference',
+        text: FILE_REFERENCE_PROMPT,
+      })
+      await result.ctx.fiber.dispose()
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('isolates failed file discovery from editor autocomplete', async () => {
+    const list = vi.spyOn(WorkspaceFileSearch.prototype, 'list').mockRejectedValue(new Error('search failed'))
+    const result = await setup()
+    try {
+      result.terminal.send('@failed')
+      await vi.waitFor(() => { expect(list).toHaveBeenCalled() })
+      await tick()
+      expect(result.agent.sent).toEqual([])
+    } finally {
+      list.mockRestore()
+      await dispose(result)
+    }
+  })
+
+  it('shows file-reference guidance only while read is visible to the agent', async () => {
+    const read: ToolDefinition = {
+      name: 'read',
+      description: 'Read a file.',
+      parameters: {},
+      output: UNUSED_TOOL_OUTPUT,
+      execute: () => Promise.resolve([]),
+    }
+    let visibility: 'none' | 'global' | 'agent' = 'none'
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', {
+          get(name: string, scope?: Agent) {
+            if (name !== 'read' || visibility === 'none') return undefined
+            return (scope === undefined) === (visibility === 'global') ? read : undefined
+          },
+        } as never)
+      },
+    })
+    const fileReferenceText = async (): Promise<string | undefined> => {
+      const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
+      return assembly.sections.find(section => section.name === 'ui:tui-file-reference')?.text
+    }
+    try {
+      expect(await fileReferenceText()).toBe('')
+      visibility = 'global'
+      expect(await fileReferenceText()).toBe('')
+      visibility = 'agent'
+      expect(await fileReferenceText()).toBe(FILE_REFERENCE_PROMPT)
+      visibility = 'none'
+      expect(await fileReferenceText()).toBe('')
+    } finally {
+      await dispose(result)
+    }
   })
 
   it('escapes session autocomplete metadata while preserving the referenced session id', async () => {

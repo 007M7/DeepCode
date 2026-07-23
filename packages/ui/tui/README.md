@@ -2,7 +2,7 @@
 
 The interactive terminal front door for DeepSeek Harness agents, built on [`@earendil-works/pi-tui`](https://www.npmjs.com/package/@earendil-works/pi-tui). It requires stdin and stdout TTYs; scripts and Loader pipes should use the one-shot [`@deepseek-ai/dsh-cli-demo`](../../examples/cli-demo/README.md) app instead.
 
-The implemented [TUI feature Agent Note](../../../.agents/notes/implemented/feature/2026-07-17-dedicated-full-screen-tui-front-door.md) owns the front-door decision; the [terminal-state snapshot Agent Note](../../../.agents/notes/implemented/testing/2026-07-18-tui-terminal-state-snapshots.md) owns its verification strategy.
+The implemented [TUI feature Agent Note](../../../.agents/notes/implemented/feature/2026-07-17-dedicated-full-screen-tui-front-door.md) owns the front-door decision; the [file-reference autocomplete Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-tui-file-reference-autocomplete.md) owns path-only `@file` behavior; the [terminal-state snapshot Agent Note](../../../.agents/notes/implemented/testing/2026-07-18-tui-terminal-state-snapshots.md) owns its verification strategy.
 
 Interactive terminals on macOS, Linux, and Windows are supported. Windows uses pi-tui's native console VT-input handling, and the [Windows support Agent Note](../../../.agents/notes/implemented/feature/2026-07-20-windows-tui-support.md) owns the platform decision and ConPTY process verification.
 
@@ -16,7 +16,9 @@ An embedding may provide `TuiRuntime.formatCwd` when its logical workspace label
 
 Before model output, session events, tool presenters, questions, configuration, or diagnostics reach pi-tui's ANSI-aware renderers or the terminal title, the TUI renders C0 and C1 controls other than line feeds as visible `\xNN` text. Those sources cannot add terminal control sequences; the TUI and pi-tui retain ownership of terminal rendering and styling.
 
-When optional `ctx.sessionReferences` is mounted, the existing `@` file menu also offers metadata-only session candidates, inserts `@[label](dsh-session:<payload>)`, and prepares the selected snapshots before dispatch. Preparation disables duplicate submission and restores the editor input on failure. The TUI chooses `agent.steer()` or `agent.send()` from the status after that asynchronous preparation, so idle sends still dispatch `agent/prompt-submit` while in-turn steering joins at a checkpoint without that hook.
+Typing `@` at a token boundary searches files and directories under the session working directory. A bare fuzzy query uses a reusable bounded workspace index; a query containing `/` lists that directory directly, and selecting a folder keeps completion open for descent. Whitespace-bearing paths are inserted as `@"path with spaces"`. Selecting a file inserts only its path and a trailing space: the TUI does not read it, attach hidden context, or replace it with a reference object. When a model-facing `read` tool is registered, the TUI adds one fixed system-prompt instruction telling the model to read an explicit path when its contents are needed.
+
+When optional `ctx.sessionReferences` is mounted, the same `@` menu also offers metadata-only session candidates, inserts `@[label](dsh-session:<payload>)`, and prepares the selected snapshots before dispatch. Session references remain structured because the model has no filesystem-like tool for retrieving session snapshots later. Preparation disables duplicate submission and restores the editor input on failure. The TUI chooses `agent.steer()` or `agent.send()` from the status after that asynchronous preparation, so idle sends still dispatch `agent/prompt-submit` while in-turn steering joins at a checkpoint without that hook.
 
 While the agent is running, ordinary editor submissions call `agent.steer()`; otherwise they call `agent.send()`. A slash at the start of the submitted line enters `ctx.commands` instead: known commands execute directly, unknown commands produce a warning, and neither path automatically reaches the model. A command producer may explicitly schedule agent work; [`dsh-plan-mode`](../../plan/plan-mode/README.md#model-and-human-surfaces) uses that contract for `/plan [message]`. The TUI registers `/help`, `/model`, `/clear`, `/reasoning`, `/tools`, `/redraw`, `/reload`, `/resume`, `/status`, and `/exit` as agent-scoped definitions; every other effective command joins autocomplete and `/help` dynamically, as do `/skill:` completions. A status line above the editor reports the turn phase the TUI derives from session events — waiting for the first token, thinking, responding, or executing tools — with the elapsed time in that phase and the running step total, refreshed each second, and ends with the `Enter sends steering, Esc cancels` hint; while steering messages wait to reach the model it inserts a `N queued ·` badge before the hint that clears as each drains. Ctrl+C or Escape cancels a running turn. Tool cards collapse long bodies into a configurable head/tail preview; Ctrl+O toggles every card between its preview and full output. Ctrl+R toggles reasoning, Ctrl+L redraws, and Ctrl+D exits while idle.
 
@@ -44,6 +46,9 @@ When `resumeCommand` is set and a `sessionPersistence` backend is mounted, exiti
 | `questionDialogMaxHeight` | `20` | Question-panel maximum rows |
 | `modelDialogWidth` | `72` | Model-selector width in columns |
 | `modelDialogMaxHeight` | `20` | Model-selector maximum rows |
+| `fileSearchMaxResults` | `20` | Maximum file and directory candidates shown for one `@` query |
+| `fileSearchMaxEntries` | `10000` | Maximum paths retained in the bounded workspace index used by bare fuzzy queries |
+| `fileSearchExcludedDirectories` | `['.git', 'node_modules']` | Directory basenames omitted from traversal and direct completion |
 | `showHardwareCursor` | `false` | Show the hardware cursor at pi-tui's IME marker |
 | `color` | `true` | Apply the built-in ANSI palette (see [Color](#color)) |
 | `title` | `DeepSeek Harness` | Product suffix for the terminal window title. |
@@ -57,6 +62,7 @@ When `resumeCommand` is set and a `sessionPersistence` backend is mounted, exiti
     sessionId: main-session-123
     showReasoning: true
     maxToolOutputLines: 6
+    fileSearchExcludedDirectories: ['.git', 'node_modules', 'dist']
 ```
 
 Startup fails before mounting when either process stream is not a TTY. The composing app must mount the TUI before its config-created agent so the front door can observe `agent-loop/config-start-failed`; a matching exact-session failure is written before fullscreen mode starts and exits with status 1 instead of leaving a blank terminal. Disposal stops extension admission, unloads the `ctx.tui` provider and its dependent plugins, aborts running commands, removes the TUI definitions, stops loaders, rejects pending questions, drains terminal input, restores terminal state, unregisters event listeners and the user-interaction provider, and never exits a replacement process during HMR.
@@ -80,6 +86,26 @@ Submitted text is retained under the agent loop's normal session-history and com
 #### KV Cache effect
 
 Append-only; newly visible content follows the reusable request prefix and does not invalidate existing KV-cache entries.
+
+### File-reference autocomplete
+
+#### What the model sees
+
+A selected file remains ordinary user text such as `@src/index.ts` or `@"docs/design notes.md"`; autocomplete adds no content block, durable context, or special reference payload. When `read` is registered, every request from this TUI agent also contains the following fixed system-prompt section. The model decides whether the task requires the file contents and calls `read` through the normal tool loop when it does; a path alone is not evidence that the file was inspected.
+
+##### Exact system-prompt text
+
+```markdown
+Paths prefixed with @ are files explicitly referenced by the user. Use the read tool when their contents are needed; do not claim to have inspected a file before reading it.
+```
+
+#### Token effect
+
+Autocomplete itself adds no tokens. The selected path contributes only its ordinary user-text tokens; the fixed instruction contributes system-prompt tokens whenever `read` is available. File contents consume context only after a model-selected `read` call returns them.
+
+#### KV Cache effect
+
+The fixed instruction is part of the stable system-prompt prefix and is reusable across turns. Each selected path is append-only user text; a later `read` result appends the requested contents through the ordinary tool transcript.
 
 ### Session model selection
 
@@ -129,3 +155,5 @@ Append-only; newly visible content follows the reusable request prefix and does 
 - **Tool cards are text terminal presentations** — terminal, diff, and generic cards use tool-owned titles/content, but session content currently has no image block for inline image rendering.
 - **Non-TTY operation is intentionally unsupported** — app bundles that need automation must compose a one-shot or server front door (`dsh-cli-demo`, `dsh-acp`) rather than expecting an internal fallback.
 - **Manual `/skill:` invocation always reloads the full skill body** — the TUI does not detect a skill already present in the conversation, so repeated invocations append its instructions again.
+- **File discovery is host-workspace discovery** — autocomplete reads the TUI process's session `cwd`, while the selected text is later interpreted by the configured `read` tool. Deployments that mount a remote or virtual filesystem must keep those namespaces aligned or provide another completion surface.
+- **File search uses explicit directory exclusions, not ignore files** — `.git` and `node_modules` are excluded by default and deployments may configure more basenames, but `.gitignore` and `.ignore` are not interpreted. Directory symlinks are not traversed.

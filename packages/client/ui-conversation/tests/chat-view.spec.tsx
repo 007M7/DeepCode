@@ -157,6 +157,44 @@ describe('ChatView', () => {
     expect(view.getByText('run a')).toBeTruthy()
   })
 
+  it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal', () => {
+    const markdown = '# Rendered\n\n- **one**\n- `two`'
+    const h = makeHarness({ nodes: [user(1, markdown), assistant(2, markdown)] })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.container.querySelectorAll('h1')).toHaveLength(1)
+    const literal = view.getByText((_content, element) => (
+      element?.tagName === 'DIV' && element.childElementCount === 0 && element.textContent === markdown
+    ))
+    expect(literal.querySelector('h1')).toBeNull()
+
+    act(() => {
+      h.set({ partial: { turn: 2, step: 1, blocks: [{ kind: 'text', text: markdown }] } })
+    })
+    expect(view.container.querySelectorAll('h1')).toHaveLength(2)
+    expect(view.container.querySelector('[data-streaming="true"] h1')?.textContent).toBe('Rendered')
+
+    act(() => {
+      h.set({
+        nodes: [user(1, markdown), assistant(2, markdown), assistant(3, markdown)],
+        partial: null,
+      })
+    })
+    expect(view.container.querySelectorAll('h1')).toHaveLength(2)
+    expect(view.container.querySelector('[data-streaming="true"]')).toBeNull()
+
+    act(() => {
+      h.set({
+        nodes: [
+          user(1, markdown),
+          assistant(2, markdown),
+          { ...assistant(3, markdown), interrupted: true },
+        ],
+      })
+    })
+    expect(view.getByText('已停止')).toBeTruthy()
+    expect(view.container.querySelectorAll('h1')).toHaveLength(2)
+  })
+
   it('streaming partial frames re-render only the tail (Profiler count)', () => {
     const h = makeHarness({
       nodes: [user(1, 'q'), assistant(2, 'old answer'), toolResult(3, 'a')],
