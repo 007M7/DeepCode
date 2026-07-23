@@ -789,6 +789,13 @@ listBackends(): string[]
 async spawn(owner: Agent, request: PtySpawnRequest, signal?: AbortSignal): Promise<PtySpawnResult>
 
 /**
+ * Test whether an exact owner has a published session or unpublished spawn.
+ * @param owner - exact live owner to inspect.
+ * @returns true across the entire spawn-to-close interval, with no publication gap.
+ */
+hasOwnerActivity(owner: Agent): boolean
+
+/**
  * Start one exclusive interactive send.
  * @param owner - exact session owner.
  * @param id - target PTY identity.
@@ -834,7 +841,7 @@ list(owner: Agent): PtySessionSnapshot[]
 
 Types: [Agent](../core-data-structures/core.md) · [PtyBackend](../core-data-structures/pty.md) · [PtyReadRequest](../core-data-structures/pty.md) · [PtyReadResult](../core-data-structures/pty.md) · [PtySendOperation](../core-data-structures/pty.md) · [PtySendRequest](../core-data-structures/pty.md) · [PtySessionId](../core-data-structures/pty.md) · [PtySessionSnapshot](../core-data-structures/pty.md) · [PtySignal](../core-data-structures/pty.md) · [PtySignalResult](../core-data-structures/pty.md) · [PtySpawnRequest](../core-data-structures/pty.md) · [PtySpawnResult](../core-data-structures/pty.md)
 
-Source: [`packages/pty/pty/src/index.ts:95`](../../packages/pty/pty/src/index.ts)
+Source: [`packages/pty/pty/src/index.ts:105`](../../packages/pty/pty/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
@@ -1458,7 +1465,7 @@ attachSurface(name: string): () => void
 
 Types: [Agent](../core-data-structures/core.md) · [TaskDoneListener](../core-data-structures/tasks.md) · [TaskId](../core-data-structures/tasks.md) · [TaskRead](../core-data-structures/tasks.md) · [TaskSnapshot](../core-data-structures/tasks.md) · [TaskStart](../core-data-structures/tasks.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:76`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:77`](../../packages/tasks/tasks/src/index.ts)
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 
@@ -1540,7 +1547,7 @@ Tool registry and execution pipeline. Scoped registrations shadow globals; one v
 /**
  * Register globally or in the calling agent scope. Scoped tools shadow
  * globals; duplicates within one layer and the reserved `run_code` name fail.
- * @param definition - the tool schema, execution, and optional presentation functions.
+ * @param definition - tool schema, execution, and optional finalization/presentation callbacks.
  * @returns the exact disposer that unregisters the tool.
  */
 register(definition: ToolDefinition): () => void
@@ -1595,10 +1602,11 @@ schemas(scope?: ScopeKey): ToolSchema[]
 executionMode(exec: ToolExecutionInput): ToolExecutionMode
 
 /**
- * Execute through pre-policy, guards, around-dispatch, post-policy, and final
- * notification. Tool and listener failures resolve as materialized error
- * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
- * the same lossless, frozen snapshot final observers receive. Cancellation
+ * Execute through pre-policy, guards, around-dispatch, post-policy,
+ * definition-owned content finalization, and final notification. Tool and
+ * listener failures resolve as materialized error results; an invisible tool
+ * reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen
+ * snapshot final observers receive. Cancellation
  * arriving after entry and before final result materialization skips a
  * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a
  * successful started outcome with `ABORTED`; already-started work is still
@@ -1612,7 +1620,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:622`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:634`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.tui` — `TuiExtensionService` (abstract seam)
 

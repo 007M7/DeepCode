@@ -36,6 +36,7 @@
     "@deepseek-ai/dsh-client-i18n": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-question": "workspace:^",
     "@deepseek-ai/dsh-client-ui-layout": "workspace:^",
     "@deepseek-ai/dsh-client-ui-sidebar": "workspace:^",
     "@deepseek-ai/dsh-client-ui-theme": "workspace:^",
@@ -69,6 +70,7 @@
     "@deepseek-ai/dsh-tool-todo": "workspace:^",
     "@deepseek-ai/dsh-tool-workflow": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-user-interaction": "workspace:^",
     "@deepseek-ai/dsh-workspace-context": "workspace:^",
     "@deepseek-ai/dsh-workflow-workerthread": "workspace:^"
   },

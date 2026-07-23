@@ -29,6 +29,7 @@ describe('RpcId', () => {
 describe('rpcErrorSchema', () => {
   it('accepts every code branch with its required details', () => {
     expect(rpcErrorSchema.parse({ code: 'bad-request', message: 'm', details: { issues: [] } }).code).toBe('bad-request')
+    expect(rpcErrorSchema.parse({ code: 'cancelled', message: 'm', details: {} }).code).toBe('cancelled')
     expect(rpcErrorSchema.parse({ code: 'session-not-found', message: 'm', details: { sessionId: 's' } }).code).toBe('session-not-found')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
@@ -132,6 +133,10 @@ describe('events frame schemas', () => {
     for (const frame of frames) expect(muxFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
     expect(() => muxFrameSchema.parse({ type: 'unknown/frame' })).toThrow()
     expect(askUserQuestionItemSchema.parse({ id: 'q', question: 'Q?' }).id).toBe('q')
+  })
+
+  it('rejects an empty question batch (ask() guarantees at least one, so an empty frame is host breakage)', () => {
+    expect(() => muxFrameSchema.parse({ type: 'question/requested', sessionId: 's', questions: [] })).toThrow()
   })
 
   it('accepts every host frame branch', () => {

@@ -1,5 +1,5 @@
 /**
- * mountWebPlugins unit coverage (keyless; the real eight-package walk is the
+ * mountWebPlugins unit coverage (keyless; the real nine-package walk is the
  * built-artifact e2e). The Loader-facing behavior — baseUrl anchoring, entry
  * creation with idempotent reuse, the fiber-less fail-loud sweep, and the
  * resolver seam — is exercised against a stubbed loader service so it runs
@@ -85,7 +85,7 @@ describe('mountWebPlugins (stubbed loader)', () => {
 
   it('mounts the real Loader when none is present (the ctx.plugin(Loader) branch)', async () => {
     root = new Context()
-    // Environment-dependent outcome: with built lib/ the eight imports load
+    // Environment-dependent outcome: with built lib/ the nine imports load
     // and the mount resolves; without them every entry stays fiber-less and
     // the sweep throws its loud list. Either way the branch under test is the
     // Loader auto-mount. Manual try/catch keeps cordis-traced proxies out of
@@ -100,7 +100,7 @@ describe('mountWebPlugins (stubbed loader)', () => {
     }
     expect(outcome === 'resolved' || /UI plugin\(s\) failed to load/.test(outcome)).toBe(true)
     expect(root.get('loader') !== undefined).toBe(true)
-  }, 30_000) // built-env run imports eight real plugin packages through the Loader
+  }, 30_000) // built-env run imports nine real plugin packages through the Loader
 
   it('keeps a caller-set baseUrl (anchors only when absent)', async () => {
     const entriesList: FakeEntry[] = []

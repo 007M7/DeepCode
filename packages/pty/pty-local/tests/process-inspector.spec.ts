@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { createProcessInspector, parseProcStat } from '@deepseek-ai/dsh-pty-local/src/process-inspector.ts'
 import type { ProcessInspectorInternals } from '@deepseek-ai/dsh-pty-local/src/process-inspector.ts'
 
-function stat(pid: number, pgrp: number, session: number, tpgid: number, started: string, parentPid = 1): string {
-  const rest = ['S', String(parentPid), String(pgrp), String(session), '99', String(tpgid)]
+function stat(pid: number, pgrp: number, session: number, tpgid: number, started: string, parentPid = 1, state = 'S'): string {
+  const rest = [state, String(parentPid), String(pgrp), String(session), '99', String(tpgid)]
   while (rest.length < 19) rest.push('0')
   rest.push(started)
   return `${pid} (command with space) ${rest.join(' ')}`
@@ -65,8 +65,10 @@ function fakeInternals() {
 describe('Linux process inspector', () => {
   it('parses stat safely, captures only the rooted process tree, and signals identities', () => {
     expect(parseProcStat('bad')).toBeUndefined()
+    expect(parseProcStat('1 () ')).toBeUndefined()
     expect(parseProcStat('1 () S')).toBeUndefined()
-    expect(parseProcStat(stat(10, 20, 30, 40, '500'))).toEqual({ pid: 10, parentPid: 1, pgrp: 20, session: 30, tpgid: 40, started: '500' })
+    expect(parseProcStat(stat(10, 20, 30, 40, '500', 1, 'SS'))).toBeUndefined()
+    expect(parseProcStat(stat(10, 20, 30, 40, '500'))).toEqual({ pid: 10, parentPid: 1, pgrp: 20, session: 30, state: 'S', tpgid: 40, started: '500' })
 
     const fake = fakeInternals()
     fake.dirs.set('/proc', ['x', '10', '11', '12', '13', '14'])
@@ -89,6 +91,10 @@ describe('Linux process inspector', () => {
     inspector.signalGroup(40, 'SIGINT')
     inspector.signalProcess({ pid: 10, started: '500' }, 'SIGTERM')
     inspector.signalProcess({ pid: 10, started: 'old' }, 'SIGKILL')
+    expect(fake.kills).toEqual([[-40, 'SIGINT'], [10, 'SIGTERM']])
+    fake.files.set('/proc/10/stat', stat(10, 20, 30, 40, '500', 1, 'Z'))
+    expect(inspector.isAlive({ pid: 10, started: '500' })).toBe(false)
+    inspector.signalProcess({ pid: 10, started: '500' }, 'SIGKILL')
     expect(fake.kills).toEqual([[-40, 'SIGINT'], [10, 'SIGTERM']])
   })
 
