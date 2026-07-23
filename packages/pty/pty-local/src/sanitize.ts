@@ -9,6 +9,8 @@ export const PROMPT_MARKER_PREFIX = '133;D;'
 export interface SanitizedChunk {
   text: string
   prompt: boolean
+  /** Present when printable text followed the latest owned prompt marker. */
+  promptText?: true
 }
 
 /**
@@ -20,6 +22,8 @@ export class TerminalSanitizer {
   private pending = ''
   private discardMode: 'osc' | 'csi' | undefined
   private discardOscEscape = false
+  private trailingCarriageReturn = false
+  private awaitingPromptText = false
 
   constructor(private readonly maxPendingBytes: number) {}
 
@@ -32,15 +36,24 @@ export class TerminalSanitizer {
     this.pending += this.discardPrefix(chunk)
     let text = ''
     let prompt = false
+    let promptText = false
     let index = 0
+    const appendText = (value: string): boolean => {
+      text += value
+      if (this.awaitingPromptText && value.replace(/[\r\n\x07]/g, '').length > 0) {
+        this.awaitingPromptText = false
+        return true
+      }
+      return false
+    }
     while (index < this.pending.length) {
       const escape = this.pending.indexOf('\x1b', index)
       if (escape < 0) {
-        text += this.pending.slice(index)
+        promptText = appendText(this.pending.slice(index)) || promptText
         index = this.pending.length
         break
       }
-      text += this.pending.slice(index, escape)
+      promptText = appendText(this.pending.slice(index, escape)) || promptText
       if (escape + 1 >= this.pending.length) {
         index = escape
         break
@@ -59,7 +72,11 @@ export class TerminalSanitizer {
         }
         const terminatorBytes = this.pending[end - 1] === '\x07' ? 1 : 2
         const content = this.pending.slice(escape + 2, end - terminatorBytes)
-        if (content.startsWith(PROMPT_MARKER_PREFIX)) prompt = true
+        if (content.startsWith(PROMPT_MARKER_PREFIX)) {
+          prompt = true
+          promptText = false
+          this.awaitingPromptText = true
+        }
         index = end
         continue
       }
@@ -82,7 +99,7 @@ export class TerminalSanitizer {
     }
     this.pending = this.pending.slice(index)
     this.enforcePendingBound()
-    return { text: normalizeTerminalText(text), prompt }
+    return { text: this.normalizeText(text), prompt, ...promptText ? { promptText: true } : {} }
   }
 
   /**
@@ -94,7 +111,21 @@ export class TerminalSanitizer {
     this.pending = ''
     this.discardMode = undefined
     this.discardOscEscape = false
-    return normalizeTerminalText(text)
+    this.awaitingPromptText = false
+    const normalized = this.normalizeText(text)
+    if (!this.trailingCarriageReturn) return normalized
+    this.trailingCarriageReturn = false
+    return `${normalized}\n`
+  }
+
+  private normalizeText(text: string): string {
+    let complete = this.trailingCarriageReturn ? `\r${text}` : text
+    this.trailingCarriageReturn = false
+    if (complete.endsWith('\r')) {
+      complete = complete.slice(0, -1)
+      this.trailingCarriageReturn = true
+    }
+    return normalizeTerminalText(complete)
   }
 
   private enforcePendingBound(): void {

@@ -144,10 +144,10 @@ async function detailsTrack(page: Page): Promise<number> {
   return Number(cols.split(' ').pop()!.replace('px', ''))
 }
 
-// Readiness gate: `dsh web` serves ALL eight manifest plugins; until every UI
+// Readiness gate: `dsh web` serves ALL nine manifest plugins; until every UI
 // plugin's client bundle exists and exports apply, the loader fail-louds and
 // the frame never appears.
-const UI_PLUGIN_DIRS = ['connection', 'runtime', 'ui-theme', 'i18n', 'ui-layout', 'ui-sidebar', 'ui-conversation', 'ui-trajectory']
+const UI_PLUGIN_DIRS = ['connection', 'runtime', 'ui-theme', 'i18n', 'ui-layout', 'ui-sidebar', 'ui-conversation', 'ui-question', 'ui-trajectory']
 const ROUND_DONE_MARKER = 'WEB_ROUND_DONE'
 const notReady = UI_PLUGIN_DIRS.filter((dir) => {
   const bundle = join(REPO_ROOT, 'packages/client', dir, 'lib/client.js')

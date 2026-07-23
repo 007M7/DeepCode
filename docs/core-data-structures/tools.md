@@ -6,7 +6,7 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 ## `ToolDefinition` — a registered tool
 
-A `ToolSchema` (the model-facing fields) plus a mandatory canonical output declaration, the `execute` function, host-only scheduler metadata, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `output`/`execute`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` must never leak into a model request.
+A `ToolSchema` (the model-facing fields) plus a mandatory canonical output declaration, the `execute` function, host-only scheduler metadata, an optional final-content callback, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `output`/`execute`/`finalizeContent`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` must never leak into a model request.
 
 ```ts type-equiv
 /** Tool-owned canonical output contract used after the body returns a JSON value. */
@@ -36,6 +36,18 @@ interface ToolDefinition extends ToolSchema {
    * @returns the canonical value declared by `output.schema`.
    */
   execute(args: unknown, exec: ToolRunContext): Promise<unknown>
+  /**
+   * Synchronous last-mile transform for model-facing content. The registry
+   * snapshots this callback when execution starts and invokes it exactly once
+   * for every normalized outcome, including pipeline failures that bypass
+   * `tools/post-execute`, immediately before lossless materialization.
+   * Returning `undefined` preserves the content; every other result field
+   * remains registry-owned. The callback must be total and must not throw.
+   * @param exec - immutable execution identity and arguments.
+   * @param result - complete normalized outcome before materialization.
+   * @returns replacement content, or `undefined` to preserve it.
+   */
+  finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined
   /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
@@ -79,7 +91,7 @@ interface ToolDefinition extends ToolSchema {
 }
 ```
 
-`execute` receives `args: unknown` — a raw `ToolDefinition` validates its own input. First-party tools don't write that by hand; they use `defineTool`, which validates and narrows the arguments, infers the body return from `output.schema`, and types both output projectors.
+`execute` receives `args: unknown` — a raw `ToolDefinition` validates its own input. First-party tools don't write that by hand; they use `defineTool`, which validates and narrows the arguments, infers the body return from `output.schema`, and types both output projectors. `finalizeContent` deliberately receives the immutable execution instead of typed arguments because invalid-input and outer pipeline failures reach it too; it may enforce a tool-owned content bound while preserving `isError`, canonical value, structured error identity, deferred contexts, and presentation metadata.
 
 ## The unified JSON-value schema DSL
 
@@ -155,7 +167,7 @@ interface ToolRestriction {
 
 ## Execution: extensible waterfalls plus monotonic policy
 
-`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → `tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
+`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → optional definition-owned `finalizeContent` → `tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
 
 ```ts type-equiv
 /** Opaque call identity that permits correlation without exposing mutable execution state. */
@@ -302,6 +314,8 @@ type ToolExecutionResult = ToolExecutionSuccess | ToolExecutionFailure
 The result carries only the outcome. Call identity remains on the immutable `ToolExecution` that accompanies it through every hook and on the durable `tool/call` / `tool/result` session events, so wrappers cannot create a second, disagreeing identity. The canonical `value` is execution-local: the loop persists only `content`, `error`, and `meta`, while `tool/code-dispatch` stores a bounded summary. Replay reproduces presentation but cannot reconstruct intermediate values.
 
 On success the registry snapshots and validates the body value, freezes it, and invokes the pure renderer plus the optional direct-surface metadata projector. It separately materializes the durable presentation fields immediately before `tools/result`; an invalid value, renderer/projector failure, or non-JSON presentation becomes a JSON-safe `isError`. The final live observer therefore sees the exact execution-local value beside fields safe for the later durable append.
+
+Before final content, the registry materializes the candidate result; a failure in content, structured error, additional context, or presentation metadata becomes a JSON-safe `isError` result that still reaches `finalizeContent`. The registry invokes that callback exactly once, then materializes and freezes the accepted result immediately before `tools/result`, so the observed live outcome is safe for the later durable `tool/result` append.
 
 Each interception waterfall returns a typed **Decision** (the idiom shared with the `agent/*` seams). `tools/pre-execute` listeners receive `(exec, next)` and return a `PreToolDecision`; `tools/execute` wrappers return a `ToolExecutionResult`; `tools/post-execute` listeners receive `(exec, result, next)` and return a `PostToolDecision`:
 

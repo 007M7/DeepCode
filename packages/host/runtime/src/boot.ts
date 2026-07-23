@@ -41,6 +41,7 @@ import * as toolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 import * as timeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
 import SpillLocal from '@deepseek-ai/dsh-spill-local'
 import * as spillPolicy from '@deepseek-ai/dsh-spill-policy'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
 /** Default deterministic title policy for sessions created through the host. */
 const DEFAULT_SESSION_TITLE_CONFIG: SessionTitleConfig = {
@@ -124,6 +125,7 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   }
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRegistry)
+  await ctx.plugin(UserInteractionService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(TaskService)
   await ctx.plugin(AgentLoop, { agents: [] })

@@ -15,6 +15,7 @@ class FakeTerminal {
   kills: string[] = []
   throwWrite = false
   throwKill = false
+  autoExitOnKill = true
   private dataListeners = new Set<(data: string) => void>()
   private exitListeners = new Set<(event: { exitCode: number; signal?: number }) => void>()
 
@@ -44,7 +45,7 @@ class FakeTerminal {
   kill(signal?: string): void {
     if (this.throwKill) throw new Error('kill failed')
     this.kills.push(signal ?? 'SIGHUP')
-    this.emitExit(0, signal === 'SIGKILL' ? 9 : 15)
+    if (this.autoExitOnKill) this.emitExit(0, signal === 'SIGKILL' ? 9 : 15)
   }
 
   resize() {}
@@ -148,7 +149,7 @@ describe('LocalPtySession readiness and output', () => {
     expect(() => session.startSend({ text: '', submit: false })).toThrow('has exited')
   })
 
-  it('cancels with Ctrl-C, observes AbortSignal, and contains write failures', async () => {
+  it('cancels with foreground-group SIGINT, observes AbortSignal, and contains write failures', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
@@ -159,7 +160,8 @@ describe('LocalPtySession readiness and output', () => {
     const operation = session.startSend({ text: 'sleep', submit: true, signal: controller.signal })
     expect(() => session.startSend({ text: 'again', submit: true })).toThrow('active send')
     controller.abort()
-    expect(terminal.writes.at(-1)).toBe('\x03')
+    expect(inspector.groups).toContainEqual([456, 'SIGINT'])
+    expect(terminal.writes).not.toContain('\x03')
     terminal.emitData('\x1b]133;D;130\x07dsh> ')
     await vi.advanceTimersByTimeAsync(10)
     await operation.done
@@ -196,11 +198,13 @@ describe('LocalPtySession readiness and output', () => {
     operationInternal.append('')
     const sessionInternal = session as unknown as {
       pollReadiness(operation: PtySendOperation): void
+      interrupt(operation: PtySendOperation): void
       statusValue: PtySessionStatus
       appendOutput(text: string): void
     }
     sessionInternal.appendOutput('')
     sessionInternal.pollReadiness({} as PtySendOperation)
+    sessionInternal.interrupt({} as PtySendOperation)
     sessionInternal.statusValue = { kind: 'exited', exitCode: 2, signal: null }
     sessionInternal.pollReadiness(operation)
     await operation.done
@@ -212,12 +216,23 @@ describe('LocalPtySession readiness and output', () => {
     expect(unknown.status()).toEqual({ kind: 'exited', exitCode: 1, signal: null })
 
     const cancelTerminal = new FakeTerminal()
-    const cancel = new LocalPtySession(cancelTerminal.asPty(), new FakeInspector(), config())
+    const cancelInspector = new FakeInspector()
+    const cancel = new LocalPtySession(cancelTerminal.asPty(), cancelInspector, config())
     await initialize(cancel, cancelTerminal)
     const cancellable = cancel.startSend({ text: '', submit: false })
-    cancelTerminal.throwWrite = true
+    cancelInspector.throwGroup = true
     expect(cancellable.cancel()).toBe(true)
-    await expect(cancellable.done).rejects.toThrow('write failed')
+    await expect(cancellable.done).rejects.toThrow('group failed')
+    expect(cancellable.cancel()).toBe(false)
+
+    const missingGroupTerminal = new FakeTerminal()
+    const missingGroupInspector = new FakeInspector()
+    const missingGroup = new LocalPtySession(missingGroupTerminal.asPty(), missingGroupInspector, config())
+    await initialize(missingGroup, missingGroupTerminal)
+    missingGroupInspector.pgid = undefined
+    const unresolved = missingGroup.startSend({ text: '', submit: false })
+    expect(unresolved.cancel()).toBe(true)
+    await expect(unresolved.done).rejects.toThrow('cannot resolve foreground process group')
   })
 
   it('does not treat zero-output startup silence as readiness and fails on startup timeout', async () => {
@@ -237,6 +252,38 @@ describe('LocalPtySession readiness and output', () => {
     const timedOut = expect(timeout.initialize()).rejects.toThrow('startup timeout')
     await vi.advanceTimersByTimeAsync(100)
     await timedOut
+  })
+
+  it('preserves the caller abort reason when startup cannot resolve a foreground group', async () => {
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    inspector.pgid = undefined
+    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+    const controller = new AbortController()
+    const reason = new Error('startup cancelled')
+
+    const initializing = session.initialize(controller.signal)
+    const rejected = expect(initializing).rejects.toBe(reason)
+    controller.abort(reason)
+
+    await rejected
+  })
+
+  it('waits for printable prompt text when the startup marker is split from PS1', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal.asPty(), new FakeInspector(), config())
+    let settled = false
+    const initializing = session.initialize().then(() => { settled = true })
+
+    terminal.emitData('\x1b]133;D;0\x07')
+    await vi.advanceTimersByTimeAsync(20)
+    expect(settled).toBe(false)
+
+    terminal.emitData('dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    await initializing
+    expect(session.motd).toBe('dsh> ')
   })
 
   it('trusts prompt markers only while the startup shell owns the foreground group', async () => {
@@ -328,14 +375,15 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     // readiness poll would otherwise mis-settle this as stdin_read once close
     // begins, so teardown must stop polling before its grace period.
     terminal.emitData('\x1b]133;D;0\x07dsh> ')
-    terminal.throwKill = true
+    terminal.autoExitOnKill = false
     const closing = session.close('mid-send')
-    await vi.advanceTimersByTimeAsync(60)
+    await vi.advanceTimersByTimeAsync(20)
+    terminal.emitExit(0, 15)
     expect((await operation.done).waitReason).toBe('session_exit')
     await closing
   })
 
-  it('waits for SIGKILL recipients to leave the process table after the shell exits', async () => {
+  it('keeps the shell alive until SIGKILL recipients leave the process table', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
     const inspector = new FakeInspector()
@@ -348,11 +396,81 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     const closing = session.close('test').then(() => { settled = true })
     await vi.advanceTimersByTimeAsync(20)
     expect(inspector.processes).toContainEqual([124, 'SIGKILL'])
+    expect(terminal.kills).toEqual([])
     expect(settled).toBe(false)
 
     inspector.alive.delete(124)
     await vi.advanceTimersByTimeAsync(20)
     await closing
+    expect(terminal.kills).toEqual(['SIGTERM'])
     expect(settled).toBe(true)
+  })
+
+  it('rescans for descendants forked during TERM before stopping the shell', async () => {
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    let reads = 0
+    inspector.processTree = () => {
+      reads += 1
+      if (reads === 1) {
+        inspector.alive.add(124)
+        return [{ pid: 124, started: 'first' }]
+      }
+      if (reads === 2) {
+        inspector.alive.add(125)
+        return [{ pid: 125, started: 'late' }]
+      }
+      return []
+    }
+    const session = new LocalPtySession(terminal.asPty(), inspector, config())
+
+    await session.close('test')
+
+    expect(inspector.processes).toEqual([[124, 'SIGTERM'], [125, 'SIGKILL']])
+    expect(terminal.kills).toEqual(['SIGTERM'])
+  })
+
+  it('retains captured survivors that are reparented out of the teardown rescan', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const captured = { pid: 124, started: 'captured' }
+    let reads = 0
+    inspector.alive.add(captured.pid)
+    inspector.processTree = () => reads++ === 0 ? [captured] : []
+    inspector.signalProcess = (identity, signal) => {
+      inspector.processes.push([identity.pid, signal])
+      if (signal === 'SIGKILL') inspector.alive.delete(identity.pid)
+    }
+    const session = new LocalPtySession(terminal.asPty(), inspector, config({ disposeGraceMs: 20 }))
+
+    const closing = session.close('test')
+    await vi.advanceTimersByTimeAsync(25)
+    await closing
+
+    expect(inspector.processes).toEqual([[124, 'SIGTERM'], [124, 'SIGKILL']])
+    expect(terminal.kills).toEqual(['SIGTERM'])
+  })
+
+  it('allows teardown to retry after a descendant-survivor failure', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    inspector.members = [{ pid: 124, started: 'child' }]
+    inspector.alive.add(124)
+    inspector.removeOnSignal = false
+    const session = new LocalPtySession(terminal.asPty(), inspector, config({ disposeGraceMs: 10 }))
+
+    const first = session.close('first')
+    const rejected = expect(first).rejects.toThrow('surviving pids: 124')
+    await vi.advanceTimersByTimeAsync(25)
+    await rejected
+    expect(terminal.kills).toEqual([])
+
+    inspector.alive.delete(124)
+    const second = session.close('retry')
+    expect(second).not.toBe(first)
+    await second
+    expect(terminal.kills).toEqual(['SIGTERM'])
   })
 })

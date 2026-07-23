@@ -147,6 +147,9 @@
       "path": "../../client/ui-conversation"
     },
     {
+      "path": "../../client/ui-question"
+    },
+    {
       "path": "../../client/ui-trajectory"
     }
   ]
