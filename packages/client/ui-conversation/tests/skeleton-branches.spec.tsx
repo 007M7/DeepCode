@@ -11,10 +11,10 @@ import { hookOf } from './hook.ts'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SelectionTarget, ViewEntry } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SelectionTarget, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Export discipline: packages/client/AGENTS.md.
 import { createChatStore } from '../src/client/stores.ts'
-import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
+import { ConversationRoot, type ConversationRootProps } from '../src/client/skeleton/ConversationRoot.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
 import { EmptyState } from '../src/client/skeleton/EmptyState.tsx'
 
@@ -53,9 +53,11 @@ function listHook(rows: { id: string; title: string; cwd?: string; parentId?: st
 }
 
 describe('ConversationRoot branches', () => {
-  const chatEntry: ViewEntry = {
-    id: 'chat', label: 'Chat', component: () => <div data-testid="view-body" />,
-  } as unknown as ViewEntry
+  const chatTab: ViewTab = { id: 'chat', label: 'Chat' }
+  /** renderSlot stub in the outlet's baked shape (ring key + only filter marker). */
+  const stubRenderSlot = (() => <div data-testid="view-body" />) as unknown as ConversationRootProps['renderSlot']
+  /** SessionProvider seat stub (render-prop pass-through; ConversationRoot never invokes it). */
+  const SessionProviderStub: ConversationRootProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
 
   function rootProps(over?: {
     rows?: { id: string; title: string; parentId?: string }[]
@@ -70,11 +72,11 @@ describe('ConversationRoot branches', () => {
         useSessions={listHook(over?.rows ?? [])}
         useStore={hookOf(chat)}
         actions={chat.actions}
-        views={{ list: () => [chatEntry], subscribe: () => () => {}, version: () => 1 }}
+        renderSlot={stubRenderSlot}
+        SessionProvider={SessionProviderStub}
+        views={{ list: () => [chatTab], subscribe: () => () => {}, version: () => 1 }}
         send={vi.fn()}
         stop={vi.fn()}
-        openDetails={vi.fn()}
-        loadOlder={vi.fn()}
         open={open}
       />,
     )
@@ -120,7 +122,7 @@ describe('ConversationRoot branches', () => {
   it('an unknown stored view id falls back to the first registered view', () => {
     const { chat } = rootProps({})
     cleanup()
-    chat.actions.setView('gone' as never)
+    chat.actions.setView('gone')
     const view = render(
       <ConversationRoot
         sessionId={SID}
@@ -128,11 +130,11 @@ describe('ConversationRoot branches', () => {
         useSessions={listHook([])}
         useStore={hookOf(chat)}
         actions={chat.actions}
-        views={{ list: () => [chatEntry], subscribe: () => () => {}, version: () => 1 }}
+        renderSlot={stubRenderSlot}
+        SessionProvider={SessionProviderStub}
+        views={{ list: () => [chatTab], subscribe: () => () => {}, version: () => 1 }}
         send={vi.fn()}
         stop={vi.fn()}
-        openDetails={vi.fn()}
-        loadOlder={vi.fn()}
         open={vi.fn()}
       />,
     )
