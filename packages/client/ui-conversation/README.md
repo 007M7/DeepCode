@@ -1,8 +1,10 @@
 # @deepseek-ai/dsh-client-ui-conversation
 
-Conversation domain: skeleton (header/tabs/composer/empty state), chat view (grouped step-summary flow, streaming tail isolation), ctx.toolviews named registry with bash samples, minimal details panel, scope-addressed ConversationService. Contract: api-contracts v3 §7.
+Conversation domain: skeleton (header/tabs/composer/empty state), chat view (grouped step-summary flow, streaming tail isolation), ctx.toolviews named registry with bash samples, minimal details panel, scope-addressed ConversationService. Contract: api-contracts v3 §7 plus the slot terminal design (store seat / props shares).
 
-`src/client/` is organized for the future package split: `contract/` is the sole inter-domain shared face (`slots.ts` composed slot props, `views.ts` view ring, `toolview.ts` tool ring, `tool-call-model.ts`); the `skeleton/`, `chat/`, and `toolviews/` domain directories import contract files and never each other; `apply.ts` is the only assembly point allowed to import all three domains.
+Per-session UI state (selection, composer draft, active view) lives in the declared chat store (`stores.ts` `createChatStore`): apply constructs one handle and passes it to both the conversation and details registrations, so the two session slots share one instance per session (selection written by conversation, read by details) and the framework owns instance lifecycle and draft persistence. Components are pure — the framework standard kit (`useSession`/`sessionId`/`useSessions`) and the store faces (`useStore`/`actions`) arrive automatically from the registration declaration; the inject factories contribute plain data and callbacks only (send/stop choreography, view registry read face, startSession chain).
+
+`src/client/` is organized for the future package split: `contract/` is the sole inter-domain shared face (`slots.ts` composed slot props, `views.ts` view ring, `toolview.ts` tool ring, `tool-call-model.ts`); the `skeleton/`, `chat/`, and `toolviews/` domain directories import contract files and never each other; `apply.ts` is the only assembly point allowed to import all three domains. The `/client` export surface is the contract only — `apply`/`inject`, the two service classes, and the `contract/` type families; implementation components (skeleton, chat rows) and the store factory stay internal and reach the page exclusively through apply's slot registrations (tests take them via the `./src/*` subpath).
 
 ## Model Experience
 

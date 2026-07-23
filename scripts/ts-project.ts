@@ -22,9 +22,13 @@ const configHost: ts.ParseConfigFileHost = {
   },
 }
 
-/** Parse a root tsconfig and flatten all referenced projects into one semantic graph. */
+/**
+ * Parse the host aggregate tsconfig and flatten all referenced projects into one
+ * semantic graph. Never seed the root solution: flattening host+client into one
+ * program collides the cordis Context merges.
+ */
 function loadProjectGraph(projectRoot: string): ProjectGraph {
-  const rootConfigPath = resolve(projectRoot, 'tsconfig.json')
+  const rootConfigPath = resolve(projectRoot, 'tsconfig.host.json')
   const rootConfig = parseConfig(rootConfigPath)
   const rootNames = new Set<string>()
   const visited = new Set<string>()

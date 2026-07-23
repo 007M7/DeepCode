@@ -2,12 +2,10 @@
  * Pure concession-chain column solver for the three-column AppFrame.
  * Chain order is fixed by contract: keep center >= CENTER_MIN by shrinking
  * details first, then sidebar, then auto-closing details (derived zero width —
- * persisted open/width preferences are never rewritten, so widening the window
+ * persisted width preferences are never rewritten, so widening the window
  * restores them). Center absorbs any remaining deficit as the last resort.
+ * Inputs are the layout store's plain width preferences (0 = closed).
  */
-
-/** Panel viewing state consumed by the solver (mirrors LayoutService PanelState). */
-export interface PanelInput { open: boolean; width: number }
 
 /** Resolved widths for one frame; center may drop below CENTER_MIN only at the final fallback. */
 export interface Columns { sidebar: number; center: number; details: number }
@@ -44,16 +42,16 @@ export function clampWidth(px: number, min: number, max: number): number {
  * the output is a function of (viewport, preferences) only, so recovery on
  * re-widening is automatic. After the auto-close step the details pressure is
  * gone, so the sidebar returns to its preferred width when it fits.
+ * Preferences re-clamp here because they cross a durable boundary
+ * (localStorage rehydration may carry stale ranges).
  * @param viewport - available frame width in px.
- * @param sidebar - sidebar preference (open flag + persisted width).
- * @param details - details preference (open flag + persisted width).
+ * @param sidebar - sidebar width preference in px (0 = closed).
+ * @param details - details width preference in px (0 = closed).
  * @returns resolved widths; details 0 means visually closed (never unmounted).
  */
-export function computeColumns(viewport: number, sidebar: PanelInput, details: PanelInput): Columns {
-  const want = (p: PanelInput, min: number, max: number): number =>
-    p.open ? clampWidth(p.width, min, max) : 0
-  const s0 = want(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
-  const d0 = want(details, DETAILS_MIN, DETAILS_MAX)
+export function computeColumns(viewport: number, sidebar: number, details: number): Columns {
+  const s0 = sidebar === 0 ? 0 : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
+  const d0 = details === 0 ? 0 : clampWidth(details, DETAILS_MIN, DETAILS_MAX)
 
   // Step 1: everything fits at preferred widths.
   if (s0 + d0 + CENTER_MIN <= viewport) return { sidebar: s0, center: viewport - s0 - d0, details: d0 }

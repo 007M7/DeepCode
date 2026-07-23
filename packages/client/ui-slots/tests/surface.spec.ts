@@ -1,24 +1,31 @@
+// Dynamic-key escape hatches and untouched-key behavior of the terminal core.
 import { describe, expect, it } from 'vitest'
-import type { FC } from 'react'
-import type { ScopedSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import { narrowSlots, SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SlotComponent } from '@deepseek-ai/dsh-client-ui-slots'
+import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
-    'surface.a': { kind: 'single'; scope: 'root'; props: { label: string } }
-    'surface.b': { kind: 'single'; scope: 'root'; props: { label: string } }
+    'surface.a': { kind: 'single'; scope: 'root' }
+    'surface.b': { kind: 'single'; scope: 'root' }
   }
 }
 
-const Comp: FC<{ label: string }> = () => null
+const Comp: SlotComponent<object> = () => null
 
 describe('dynamic-key escape hatch', () => {
-  it('specDynamic reads wide-typed specs for string keys; undefined before define', () => {
+  it('specDynamic reads wide-typed specs for string keys; undefined while undeclared', () => {
     const core = new SlotCore()
     expect(core.specDynamic('surface.a')).toBeUndefined()
-    core.define('surface.a', { kind: 'single', scope: 'root' })
+    core.register({ name: 'root', children: { 'surface.a': { kind: 'single', scope: 'root' } } }, Comp as never)
     expect(core.specDynamic('surface.a')).toEqual({ kind: 'single', scope: 'root' })
-    expect(core.specDynamic('never.defined')).toBeUndefined()
+    expect(core.specDynamic('never.declared')).toBeUndefined()
+  })
+
+  it('spec() narrows by SlotMap key', () => {
+    const core = new SlotCore()
+    core.register({ name: 'root', children: { 'surface.a': { kind: 'single', scope: 'root' } } }, Comp as never)
+    expect(core.spec('surface.a')).toEqual({ kind: 'single', scope: 'root' })
+    expect(core.spec('surface.b')).toBeUndefined()
   })
 
   it('entries/getVersion on an untouched key return the frozen empty array and 0', () => {
@@ -27,26 +34,9 @@ describe('dynamic-key escape hatch', () => {
     expect(core.entries('surface.b')).toBe(core.entries('surface.b'))
     expect(core.getVersion('surface.b')).toBe(0)
   })
-})
 
-describe('narrowSlots', () => {
-  it('returns the same surface narrowed to the subset whitelist', () => {
-    const wide: ScopedSlots<'surface.a' | 'surface.b'> = { renderSlot: () => null }
-    const narrow = narrowSlots<'surface.a', 'surface.a' | 'surface.b'>(wide)
-    expect(narrow).toBe(wide)
-    const rejects = (s: ScopedSlots<'surface.a'>) => {
-      // @ts-expect-error 'surface.b' is outside the narrowed whitelist
-      return () => s.renderSlot('surface.b', {})
-    }
-    expect(rejects(narrow)).toBeTypeOf('function')
-  })
-})
-
-describe('registration typing', () => {
-  it('keyed/list registrations statically require options (runtime guard retained)', () => {
+  it('isLive is false for entries the core never held', () => {
     const core = new SlotCore()
-    core.define('surface.a', { kind: 'single', scope: 'root' })
-    // single: options omissible.
-    expect(() => core.register('surface.a', Comp)).not.toThrow()
+    expect(core.isLive({ component: Comp, options: {} })).toBe(false)
   })
 })

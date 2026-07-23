@@ -1,42 +1,81 @@
 // ConversationRoot: the conversation slot's skeleton (figma Header 39:27730 +
-// Tab_Group + view area + composer). Zero framework imports — everything
-// arrives via props from the inject factory: breadcrumb feed, view registry
-// read face, per-view render, and the composer's draft/send choreography.
-// The active view id lives in layout.viewFor (shell viewing state), read and
-// written through injected accessors.
+// Tab_Group + view area + composer). Pure component — everything arrives via
+// props: the framework standard kit (useSession/sessionId/useSessions), the
+// declared chat store's useStore/actions, and the injected business face.
+// Breadcrumbs derive from useSessions with a pure parentId walk; the active
+// view id lives in the chat store's `view` field (per-session by store scope).
 
-import { useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
+import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSlotProps } from '../contract/slots.ts'
+import type { ConvViewProps, ViewEntry } from '../contract/views.ts'
 import { InputBar } from './InputBar.tsx'
 import type { InputBarError } from './InputBar.tsx'
 import css from './ConversationRoot.module.css'
 
-/**
- * Full props = owner share (sessionId) & standard share (useSession) &
- * injected share — composed by reference from the contract, never re-typed
- * here (share-ownership rule).
- */
+/** Full props = the automatic shares & injected share — composed by reference
+ *  from the contract, never re-typed here (share-ownership rule). */
 export type ConversationRootProps = ConversationSlotProps
 
+/** Breadcrumb chain: walk parentId links (root ancestor first, self last;
+ *  empty when unknown; a broken link stops the walk). Pure twin of the
+ *  sessions service's ancestry — components derive, they don't subscribe. */
+function deriveAncestry(list: SessionListState, id: SessionId): readonly SessionSummary[] {
+  const chain: SessionSummary[] = []
+  let cursor: SessionId | undefined = id
+  while (cursor !== undefined) {
+    const summary: SessionSummary | undefined = list.byId[cursor]
+    if (summary === undefined || chain.includes(summary)) break
+    chain.unshift(summary)
+    cursor = summary.parentId
+  }
+  return chain
+}
+
 export function ConversationRoot({
-  sessionId, useSession, useAncestry, views, useActiveView, composer, actions, renderView,
+  sessionId, useSession, useSessions, useStore, actions,
+  views, send, stop, openDetails, loadOlder, open,
 }: ConversationRootProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const list = views.list()
-  const activeId = useActiveView() ?? 'chat'
+  // The store's persisted view id may be stale (view plugin unloaded); the
+  // registry is the runtime validator — unknown ids fall to the first view.
+  const activeId = useStore(s => s.view) ?? 'chat'
   const active = list.find(v => v.id === activeId) ?? list[0]
 
-  const ancestry = useAncestry()
-  const draft = composer.useDraft()
-  const running = useSession(s => (s as { running: boolean }).running)
-  const removed = useSession(s => (s as { removed: boolean }).removed)
-  const promptError = useSession(s => (s as { promptError: { op: 'send' | 'stop'; error: { message: string; code: string } } | null }).promptError)
-  const turns = useSession(s => countTurns(s as { nodes: readonly { kind: string }[] }))
+  const ancestry = useSessions(s => deriveAncestry(s, sessionId), shallowEqual)
+  const draft = useStore(s => s.draft)
+  const running = useSession(s => s.running)
+  const removed = useSession(s => s.removed)
+  const promptError = useSession(s => s.promptError)
+  const turns = useSession(s => countTurns(s))
 
   const error: InputBarError | null = promptError === null
     ? null
     : { op: promptError.op, message: `${promptError.error.message}（${promptError.error.code}）` }
+
+  // Views receive the shares this component already holds (hook transfer is
+  // plain props passing); the callback slice is referentially stable per
+  // injected identity so memoized view rows hold.
+  const viewProps = useMemo<ConvViewProps>(() => ({
+    sessionId, useSession, useStore,
+    actions: { openDetails, loadOlder },
+  }), [sessionId, useSession, useStore, openDetails, loadOlder])
+
+  const renderView = (entry: ViewEntry): ReactNode => {
+    const Header = entry.chrome?.header
+    const Footer = entry.chrome?.footer
+    const View = entry.component
+    return (
+      <>
+        {Header !== undefined && <Header sessionId={sessionId} useSession={useSession} />}
+        <View {...viewProps} />
+        {Footer !== undefined && <Footer sessionId={sessionId} useSession={useSession} />}
+      </>
+    )
+  }
 
   return (
     <div className={css.root}>
@@ -52,7 +91,7 @@ export function ConversationRoot({
                     type="button"
                     className={clsx(css.crumb, last && css.crumbCurrent)}
                     disabled={last}
-                    onClick={() => { actions.open(s.id) }}
+                    onClick={() => { open(s.id) }}
                   >
                     {s.title}
                   </button>
@@ -74,7 +113,7 @@ export function ConversationRoot({
                 role="tab"
                 aria-selected={v.id === active?.id}
                 className={clsx(css.tab, v.id === active?.id && css.tabActive)}
-                onClick={() => { actions.openView(v.id) }}
+                onClick={() => { actions.setView(v.id) }}
               >
                 {v.label}
               </button>
@@ -93,9 +132,9 @@ export function ConversationRoot({
         disabled={removed}
         error={error}
         variant="composer"
-        onDraftChange={composer.setDraft}
-        onSend={composer.send}
-        onStop={composer.stop}
+        onDraftChange={actions.setDraft}
+        onSend={(mode) => { send(draft, mode) }}
+        onStop={stop}
       />
     </div>
   )
