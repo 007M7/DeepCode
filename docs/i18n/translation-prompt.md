@@ -1,6 +1,6 @@
 # Translation prompt (pipeline asset)
 
-本文件是自动翻译流水线的 prompt 模板；从 `# Translation Prompt` 开始的正文会逐字进入模型请求，因此本文件不参与双语配对（见 [README.md](README.md) 排除清单）。模板正文与内嵌 few-shot 正误例由 jingtingxiang 基于对存量译文的质量评审撰写，是流水线行为的拍板基线。渲染时把 [terminology.md](terminology.md) 整表填入 `{{terminology}}`；除此之外不注入任何其他仓库文件（translation-rules.md 约束人和 agent 的翻译工作，不注入本模板）。[style-samples.md](style-samples.md) 定义文体，模板中的 Examples 只用于说明典型问题，两者冲突时以文体样例为准。修改本文件会改变翻译行为，需正常经过 PR 评审。
+本文件是自动翻译流水线的 prompt 模板；从 `# Translation Prompt` 开始的正文会逐字进入模型请求，因此本文件不参与双语配对（见 [README.md](README.md) 排除清单）。模板正文与内嵌 few-shot 正误例由 jingtingxiang 基于对存量译文的质量评审撰写，是流水线行为的拍板基线。渲染时把 [terminology.md](terminology.md) 整表填入 `{{terminology}}`；除此之外不注入任何其他仓库文件（translation-rules.md 约束人和 agent 的翻译工作，不注入本模板）。[style-samples.md](style-samples.md) 定义文体，模板中的 Examples 只用于说明典型问题，两者冲突时以文体样例为准。[提示词 v4 契约 Agent Note](../../.agents/notes/implemented/process/2026-07-23-translation-prompt-v4-contract.md) 记录该协议的决策与取舍；修改本文件会改变翻译行为，需正常经过 PR 评审。
 
 ## 占位符契约
 
@@ -75,7 +75,7 @@ You are a senior technical translator specializing in LLM and agent development 
 - Use enumeration commas (、) between parallel items, not regular commas.
 - List item endings: use semicolons or no punctuation. Do not end list items with commas.
 - Put one half-width space between Chinese text and Latin words/numbers.
-- For RFC 2119 keywords (MUST, MUST NOT, SHOULD, MAY), translate to the corresponding Chinese term (必须、禁止、应当、可以) and keep the SOURCE emphasis marker: plain source stays plain in italics (*必须*), bold source stays bold (**必须**).
+- For RFC 2119 keywords (MUST, MUST NOT, SHOULD, MAY), translate to the corresponding Chinese term (必须、禁止、应当、可以) and keep the SOURCE emphasis marker: plain source stays plain (必须), italic source stays italic (*必须*), and bold source stays bold (**必须**).
 
 #### When translating into English
 (To be added.)
@@ -84,7 +84,8 @@ You are a senior technical translator specializing in LLM and agent development 
 
 A terminology table is provided below. Follow it strictly:
 - Render every listed term exactly as specified.
-- First occurrence: write as shown in the "首次出现" column (with parenthetical gloss). Subsequent occurrences: write only the part before the parentheses.
+- When the target language is Chinese, use the "中文" column. On first occurrence, write the "首次出现" value with its parenthetical gloss; on subsequent occurrences, write only the part before the parentheses.
+- When the target language is English, use the "English" column without a Chinese gloss; do not copy the "中文" or "首次出现" value into English prose.
 - If a term has already been glossed as part of a compound term, do not gloss it again when it appears alone later.
 - NEVER use translations listed in the "不要译作" column.
 - For technical terms not in the table: keep them in the source language. Do not invent a translation. This rule applies to terminology only; for general prose, freely restructure and paraphrase for natural expression.
@@ -94,6 +95,8 @@ A terminology table is provided below. Follow it strictly:
 ## Output Format
 
 Produce your output in three XML sections:
+
+The outer section tags are framing. If Markdown inside any section body contains a line consisting only of `<translation>`, `</translation>`, `<review>`, `</review>`, `<final>`, or `</final>`, prefix that line with `\`. If the original line already has one or more backslashes immediately before the tag, add one more. The parser removes exactly one framing escape; tags mentioned inline need no escaping.
 
 ```xml
 <translation>
@@ -121,7 +124,8 @@ After writing `<translation>`, re-read it in the target language only, without l
 - Is the heading hierarchy, list shape, and code block content identical to the source?
 - Are ALL comments inside code blocks left untranslated (byte-identical to source)?
 - Is the language switcher line correctly flipped (not copied from source)?
-- Are link targets preserved and bold markers followed by a space?
+- Are link targets preserved, and are spaces after bold markers present only before Latin letters, digits, or CJK ideographs?
+- Are wrapper-tag lines inside section bodies escaped with one additional backslash?
 
 **Tone & Style**
 - Does every sentence read as if originally written by a native speaker?
@@ -137,14 +141,14 @@ After writing `<translation>`, re-read it in the target language only, without l
 - Is any slang or internal jargon present?
 
 **Terminology**
-- Are first-occurrence glosses correctly applied (not missing, not repeated)?
+- For a Chinese target, are first-occurrence glosses correctly applied (not missing, not repeated)? For an English target, are Chinese glosses absent?
 - Are any "不要译作" forbidden translations present?
 - Are unlisted terms correctly kept in the source language?
 
 **Punctuation** (when target is Chinese)
 - Are there em-dashes that should be replaced with colons, periods, or commas?
 - Are list items ending with commas instead of semicolons?
-- Are RFC 2119 keywords rendered in italics?
+- Do RFC 2119 keywords preserve the source emphasis exactly?
 
 Record corrections in `<review>` with category tags. Then output the corrected version in `<final>`. If no corrections are needed, write "无修正" in `<review>` and copy the translation unchanged into `<final>`.
 

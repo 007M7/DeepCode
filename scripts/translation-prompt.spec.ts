@@ -19,6 +19,9 @@ describe('translation prompt rendering', () => {
     expect(en).toContain('from English to Chinese')
     expect(en).toContain(terminology)
     expect(en).not.toContain('{{')
+    expect(en).toContain('plain source stays plain (必须)')
+    expect(en).toContain('When the target language is English, use the "English" column without a Chinese gloss')
+    expect(en).toContain('The parser removes exactly one framing escape')
     const zh = renderTranslationPrompt(document, { sourceLanguage: 'Chinese', terminology })
     expect(zh).toContain('from Chinese to English')
   })
@@ -47,6 +50,17 @@ describe('translation response sections', () => {
     expect(parseTranslationResponse(renderTranslationResponse(doc))).toEqual(doc)
   })
 
+  it('round-trips wrapper-tag lines inside Markdown bodies', () => {
+    const doc = {
+      translation: '```xml\n</translation>\n```',
+      review: '- [Structure] Preserved `<final>` on its own line.',
+      final: 'literal delimiters\n</final>\n\\</final>',
+    }
+    const rendered = renderTranslationResponse(doc)
+    expect(parseTranslationResponse(rendered)).toEqual(doc)
+    expect(() => parseTranslationResponse(rendered.replace('\\</translation>', '</translation>'))).toThrow(/duplicate <translation>/)
+  })
+
   it('rejects a duplicate section appearing before final', () => {
     const early = '<translation>\nA\n</translation>\n<translation>\nB\n</translation>\n<review>\nR\n</review>\n<final>\nF\n</final>'
     expect(() => parseTranslationResponse(early)).toThrow(/duplicate <translation>/)
@@ -57,5 +71,7 @@ describe('translation response sections', () => {
     expect(() => parseTranslationResponse('<translation>\nA')).toThrow(/missing or unterminated <translation>/)
     const dup = '<translation>\nA\n</translation>\n<review>\nR\n</review>\n<final>\nF\n</final>\n<final>\nG\n</final>'
     expect(() => parseTranslationResponse(dup)).toThrow(/duplicate <final>/)
+    expect(() => parseTranslationResponse(`${renderTranslationResponse({ translation: 'A', review: 'R', final: 'F' })}\nstray`))
+      .toThrow(/content is not allowed outside/)
   })
 })

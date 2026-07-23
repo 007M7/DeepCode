@@ -35,6 +35,7 @@ const PLACEHOLDER = /{{([a-z_]+)}}/g
 const TEMPLATE_OPEN = '## 模板正文\n\n````text\n'
 const TEMPLATE_CLOSE = '\n````'
 const RESPONSE_SECTIONS = ['translation', 'review', 'final'] as const
+const RESPONSE_DELIMITERS = new Set(RESPONSE_SECTIONS.flatMap(section => [`<${section}>`, `</${section}>`]))
 
 /** Extract the machine-consumed text fence from `translation-prompt.md`. */
 function extractTranslationPrompt(document: string): string {
@@ -71,20 +72,31 @@ export function renderTranslationPrompt(document: string, input: TranslationProm
   return template.replace(PLACEHOLDER, (_token, name: string) => values[name as TranslationPromptPlaceholder])
 }
 
-/** Serialize a response in the exact three-section shape the prompt requests. */
+function escapeResponseBody(value: string): string {
+  return value.split('\n').map((line) => {
+    const delimiter = line.replace(/^\\+/, '')
+    return RESPONSE_DELIMITERS.has(delimiter) ? `\\${line}` : line
+  }).join('\n')
+}
+
+function unescapeResponseBody(value: string): string {
+  return value.split('\n').map((line) => {
+    if (!line.startsWith('\\')) return line
+    const candidate = line.slice(1)
+    return RESPONSE_DELIMITERS.has(candidate.replace(/^\\+/, '')) ? candidate : line
+  }).join('\n')
+}
+
+/** Serialize a response in the exact escaped three-section shape the prompt requests. */
 export function renderTranslationResponse(response: TranslationResponse): string {
-  return RESPONSE_SECTIONS.map(section => `<${section}>\n${response[section]}\n</${section}>`).join('\n\n')
+  return RESPONSE_SECTIONS.map(section => `<${section}>\n${escapeResponseBody(response[section])}\n</${section}>`).join('\n\n')
 }
 
 /**
  * Parse the three-section response. Sections must each appear exactly once
- * and in order; bodies are raw Markdown taken verbatim between the tags.
+ * and in order; escaped delimiter lines in Markdown bodies are restored.
  * A fenced ```xml wrapper around the whole response is tolerated, matching
  * the shape some models echo back from the prompt's own example.
- *
- * Section close tags are matched at line starts (the wire shape the prompt
- * example establishes), so a tag mentioned inline in translated prose does
- * not terminate its section early.
  */
 export function parseTranslationResponse(text: string): TranslationResponse {
   let body = text.trim()
@@ -92,17 +104,32 @@ export function parseTranslationResponse(text: string): TranslationResponse {
   if (fenced?.[1] !== undefined) body = fenced[1].trim()
 
   const values: Partial<Record<(typeof RESPONSE_SECTIONS)[number], string>> = {}
-  let previousSectionStart = -1
-  for (const section of RESPONSE_SECTIONS) {
-    const pattern = new RegExp(`^<${section}>\\n?([\\s\\S]*?)\\n?^</${section}>$`, 'gm')
-    const first = pattern.exec(body)
-    if (first?.[1] === undefined) throw new Error(`translation response: missing or unterminated <${section}> section`)
-    if (pattern.exec(body) !== null) throw new Error(`translation response: duplicate <${section}> section`)
-    if (first.index <= previousSectionStart) {
+  const lines = body.split('\n')
+  let previousCloseEnd = 0
+  for (const [index, section] of RESPONSE_SECTIONS.entries()) {
+    const open = `<${section}>`
+    const close = `</${section}>`
+    const openCount = lines.filter(line => line === open).length
+    const closeCount = lines.filter(line => line === close).length
+    if (openCount === 0 || closeCount === 0) {
+      throw new Error(`translation response: missing or unterminated <${section}> section`)
+    }
+    if (openCount > 1 || closeCount > 1) throw new Error(`translation response: duplicate <${section}> section`)
+
+    const openStart = body.search(new RegExp(`^<${section}>$`, 'm'))
+    const closeStart = body.search(new RegExp(`^</${section}>$`, 'm'))
+    const separator = body.slice(previousCloseEnd, openStart)
+    if (closeStart < openStart || (index === 0 ? separator !== '' : !/^\n+$/.test(separator))) {
       throw new Error('translation response: sections must appear in translation, review, final order')
     }
-    previousSectionStart = first.index
-    values[section] = first[1]
+
+    let contentStart = openStart + open.length
+    if (body[contentStart] === '\n') contentStart++
+    let contentEnd = closeStart
+    if (body[contentEnd - 1] === '\n') contentEnd--
+    values[section] = unescapeResponseBody(body.slice(contentStart, contentEnd))
+    previousCloseEnd = closeStart + close.length
   }
+  if (previousCloseEnd !== body.length) throw new Error('translation response: content is not allowed outside response sections')
   return values as TranslationResponse
 }
