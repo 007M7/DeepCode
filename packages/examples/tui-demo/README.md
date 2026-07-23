@@ -48,7 +48,7 @@ Fresh runs mint a `main-session-<uuid>` session id and pass it to both the TUI a
 
 ## The bin
 
-`dsh-tui-demo [path-to-cordis.yml]` defaults to `./cordis.yml`, loads the optional cwd `.env`, boots the Cordis Loader, and waits for the full plugin tree. Bare package specifiers require `node --expose-internals` or the Loader's optional native fallback; the repository scripts use `--expose-internals`.
+`dsh-tui-demo [path-to-cordis.yml]` defaults to `./cordis.yml`, loads the optional cwd `.env`, boots the Cordis Loader, and waits for the full plugin tree. The repository installs Loader's optional native helper, so bare package specifiers resolve under plain Node.
 
 ## Example leaf
 

@@ -70,7 +70,6 @@ describe('jsonrpc-agent keyless smoke', () => {
     const address = modelServer.address()
     if (address === null || typeof address === 'string') throw new Error('model server did not bind a TCP port')
     const child = spawn(process.execPath, [
-      '--expose-internals',
       '--import',
       'tsx',
       binScript,
@@ -171,7 +170,6 @@ describe('jsonrpc-agent keyless smoke', () => {
 
   it('rejects an invalid max-token success env value', async () => {
     const child = spawn(process.execPath, [
-      '--expose-internals',
       '--import',
       'tsx',
       binScript,

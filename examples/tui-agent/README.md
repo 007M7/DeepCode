@@ -50,7 +50,7 @@ This example is a thin leaf `cordis.yml`: it picks the swappable backends, loads
 
 | Entry | Demonstrates |
 |---|---|
-| `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it is Loader-only and needs `node --expose-internals`, which `demo:tui` passes |
+| `hmr` (`@cordisjs/plugin-hmr`) | the dev/demo edit-reload loop — a **leaf** entry (not baked into the app) because it depends on the Loader's internal module access |
 | `llm-deepseek` | real `LlmAdapter` via config (`!!js process.env.…` secrets); swap one line to `@deepseek-ai/dsh-llm-pi-ai` for the library-backed twin |
 | `bash` (`dsh-bash-local`) | the executor implementation — the swappable half of the bash seam. The model-facing `bash` schema (`tool-bash`) and generic `task_*` controls (`tool-tasks`) come from `dsh-agent-spine-demo`, so only the executor is a leaf choice |
 | `tui-agent` (`@deepseek-ai/dsh-tui-demo`) | the app bundle: the agent-spine demo + JSONL persistence + the pi-tui channel + a pre-created `main` agent |
