@@ -207,7 +207,7 @@ interface FsPolicyExec {
 
 ## 读取结果（消费方 / 读取渲染）
 
-文本读取受行窗口、字节上限和后端限制约束。面向模型的 `read` 工具渲染的结果纯粹是展示性的；不存在 `full`/`partial` 视图区分——授权基于新鲜度（工具直接用 stat 的版本 emit `fs/observed`），因此任何窗口化读取在文件未变时都能授权后续的 write/edit。读取窗口化与此结果形状位于 `dsh-tool-fs`（拥有读取操作的执行器）中，而非策略插件中。
+文本读取受行窗口、字节上限和后端限制约束。达到字节上限后，扫描仍会继续，但不再保留更多行，因此 `totalLines` 仍为精确值。面向模型的 `read` 工具渲染的结果纯粹是展示性的；不存在 `full`/`partial` 视图区分——授权基于新鲜度（工具直接用 stat 的版本 emit `fs/observed`），因此任何窗口化读取在文件未变时都能授权后续的 write/edit。读取窗口化与此结果形状位于 `dsh-tool-fs`（拥有读取操作的执行器）中，而非策略插件中。
 
 ```ts type-equiv
 /** Outcome of a bounded text read — what {@link formatReadOutput} renders. */
@@ -216,9 +216,9 @@ interface FileReadOutcome {
   offset: number
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
-  /** Total line count in the file, unless `truncatedByBytes` stopped scanning early. */
+  /** Exact total line count in the file. */
   totalLines: number
-  /** Whether selected output hit the byte cap before EOF or the requested limit. */
+  /** Whether selected output hit the byte cap. */
   truncatedByBytes?: true
 }
 ```
