@@ -51,22 +51,22 @@ describe('ToolRegistry', () => {
     expect(assembly.tools.map(t => t.name)).toEqual(['echo'])
   })
 
-  it('schemas() drops the UI presentation callbacks — they must never reach the model', async () => {
+  it('schemas() drops host callbacks — they must never reach the model', async () => {
     const ctx = await setup()
-    // A tool that declares presentCall/presentResult (functions). schemas() feeds
-    // the system-prompt assembly → the model request, so those callbacks (and
-    // `execute`) must be stripped: a function in the JSON tool schema would
-    // corrupt the request. schemas() is an explicit allowlist, so it can't leak.
+    // Tool definitions contain output, finalization, execution, and presentation
+    // callbacks. schemas() is an explicit allowlist so none can reach the model.
     ctx.tools.register(defineContentToolFixture({
       name: 'present',
       description: 'has presenters',
       parameters: { x: { type: 'string', required: true } },
       async execute() { return [] },
+      finalizeContent: (_exec, result) => result.content,
       presentCall: args => ({ card: 'generic', title: args.x }),
       presentResult: (args, result) => ({ card: 'generic', title: args.x, content: result.content }),
     }))
     const schema = ctx.tools.schemas()[0] as unknown as Record<string, unknown>
     expect(Object.keys(schema).sort()).toEqual(['description', 'name', 'parameters'])
+    expect(schema.finalizeContent).toBeUndefined()
     expect(schema.presentCall).toBeUndefined()
     expect(schema.presentResult).toBeUndefined()
     expect(schema.execute).toBeUndefined()
@@ -153,6 +153,72 @@ describe('ToolRegistry', () => {
     expect(result.content[0]?.type === 'text' && result.content[0].text).toContain('Error:')
     expect(result.error).toMatchObject({ info: { name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' } })
     expect(observedError).toBe(true)
+  })
+
+  it('finalizes errors discovered while snapshotting non-content result fields', async () => {
+    const ctx = await setup()
+    let finalizeCalls = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'throwing-meta',
+      output: {
+        ...echoTool.output,
+        presentationMeta() {
+          const meta = {}
+          Object.defineProperty(meta, 'value', {
+            enumerable: true,
+            get() { throw new Error('snapshot failed: '.repeat(100)) },
+          })
+          return meta
+        },
+      },
+      finalizeContent(_exec, result) {
+        finalizeCalls += 1
+        const block = result.content[0]
+        if (block?.type !== 'text') return undefined
+        return [{ type: 'text', text: block.text.slice(0, 32) }]
+      },
+      async execute() {
+        return 'body'
+      },
+    })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('throwing-meta'), name: 'throwing-meta', arguments: {},
+    })
+
+    expect(result.isError).toBe(true)
+    const block = result.content[0]
+    expect(block?.type).toBe('text')
+    expect(block?.type === 'text' ? block.text : '').toMatch(/^Error: tool "throwing-meta"/)
+    expect(block?.type === 'text' ? block.text : '').toHaveLength(32)
+    expect(finalizeCalls).toBe(1)
+  })
+
+  it('normalizes a throwing final content callback without invoking it again', async () => {
+    const ctx = await setup()
+    let finalizeCalls = 0
+    ctx.tools.register({
+      ...echoTool,
+      name: 'throwing-finalizer',
+      finalizeContent() {
+        finalizeCalls += 1
+        throw new Error('finalizer violated its total contract')
+      },
+    })
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('throwing-finalizer'), name: 'throwing-finalizer', arguments: {},
+    })
+
+    expect(result).toEqual({
+      content: [{ type: 'text', text: 'Error: finalizer violated its total contract' }],
+      isError: true,
+      error: { message: 'finalizer violated its total contract' },
+    })
+    expect(finalizeCalls).toBe(1)
   })
 
   it('requires every raw registration to declare its canonical output', async () => {
@@ -745,6 +811,36 @@ describe('ToolRegistry', () => {
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({ text: 'output rejected: try again' })
+  })
+
+  it('runs the snapshotted final content transform after outer pipeline normalization', async () => {
+    const ctx = await setup()
+    const dispose = ctx.tools.register(defineContentToolFixture({
+      name: 'bounded',
+      description: 'bounded result',
+      parameters: {},
+      async execute() { return [{ type: 'text', text: 'body' }] },
+      finalizeContent(exec, result) {
+        expect(exec.name).toBe('bounded')
+        expect(result.isError).toBe(true)
+        return [{ type: 'text', text: 'bounded failure' }]
+      },
+    }))
+    ctx.on('tools/pre-execute', async () => {
+      dispose()
+      throw new HarnessError('policy failed', 'POLICY_FAILED')
+    })
+
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('bounded'), name: 'bounded', arguments: {} })
+
+    expect(result).toEqual({
+      content: [{ type: 'text', text: 'bounded failure' }],
+      isError: true,
+      error: {
+        message: 'policy failed',
+        info: { name: 'HarnessError', code: 'POLICY_FAILED' },
+      },
+    })
   })
 
   it('a block decision can ALSO attach additionalContexts', async () => {

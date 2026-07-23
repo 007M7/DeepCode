@@ -13,7 +13,7 @@ Use [`@deepseek-ai/dsh-cli-demo`](../cli-demo/README.md) for pipes, scripts, and
 | `@deepseek-ai/dsh-command-goal` | Direct `/goal` status and mutation over the spine's persisted-goal stack |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | Durable session log under `persistenceRoot` |
 | `@deepseek-ai/dsh-session-checkpoint-policy` | Semantic durability barriers before model requests and top-level tool effects, plus completed-step checkpoints |
-| `@deepseek-ai/dsh-session-query` + `@deepseek-ai/dsh-session-reference` | Exact current-surface reads and bounded `@session` snapshots consumed by the TUI |
+| `@deepseek-ai/dsh-session-query-sqlite` + `@deepseek-ai/dsh-session-reference` | Combined exact/FTS session queries and bounded `@session` snapshots consumed by the TUI |
 | `@deepseek-ai/dsh-user-interaction` | Provider-neutral human question service |
 | `@deepseek-ai/dsh-tui` | Full-screen transcript, editor, tool cards, plan, and question overlays |
 | `@deepseek-ai/dsh-tool-ask-user` | Model-facing `ask_user_question` tool |
@@ -37,7 +37,7 @@ Swappable LLM, bash, filesystem, and other capability providers remain in the le
 | `toolTasks` | owner defaults | Background-task control-tool config, or `false` |
 | `goals` | owner defaults | Persisted goal-domain and model-tool config; `false` removes the goal stack and `/goal` producer |
 | `workspaceContext` | required | Workspace-instruction config, or `false` |
-| `persistenceRoot` | `./.sessions` | JSONL persistence root |
+| `persistenceRoot` | `./.sessions` | JSONL persistence root and parent of the derived `session-query.db` index |
 | `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
 | `sessionReferences` | service defaults | Cross-session candidate and snapshot limits routed to `dsh-session-reference` |
 | `welcome` | `ready.` | TUI subtitle |

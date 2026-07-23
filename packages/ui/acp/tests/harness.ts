@@ -37,6 +37,20 @@ import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as AcpPlugin from '../src/index.ts'
 import { type AcpConfig } from '../src/index.ts'
 
+class TestSessionQueryService extends SessionQueryService {
+  override searchSessions(
+    ..._args: Parameters<SessionQueryService['searchSessions']>
+  ): ReturnType<SessionQueryService['searchSessions']> {
+    return Promise.resolve({ items: [] })
+  }
+
+  override searchEvents(
+    ..._args: Parameters<SessionQueryService['searchEvents']>
+  ): ReturnType<SessionQueryService['searchEvents']> {
+    return Promise.resolve({ items: [] })
+  }
+}
+
 /** A scripted mock adapter (mirrors the agent-loop test adapter). */
 class MockAdapter extends LlmAdapter {
   requests: GenerateOptions[] = []
@@ -221,7 +235,7 @@ export async function makeBridgeHarness(options: {
   await ctx.plugin(CommandService)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SessionPersistenceJsonl, { root: options.storageDir })
-  await ctx.plugin(SessionQueryService)
+  await ctx.plugin(TestSessionQueryService)
   if (options.withSessionReferences) {
     await ctx.plugin(SessionReferenceService)
   }

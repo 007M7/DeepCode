@@ -42,6 +42,7 @@ interface TrackedTask {
   id: TaskId
   kind: TaskKind
   label: string
+  outputLimitBytes: number | undefined
   /** Exact lifecycle owner; session-id authorization is derived from it. */
   owner: Agent | undefined
   cancel: (reason?: string) => void
@@ -104,6 +105,10 @@ export class TaskService extends Service {
     }
     if (spec.kind.length === 0) throw new Error('invalid task kind: expected a non-empty string')
     if (spec.label.length === 0) throw new Error('invalid task label: expected a non-empty string')
+    if (spec.outputLimitBytes !== undefined
+      && (!Number.isSafeInteger(spec.outputLimitBytes) || spec.outputLimitBytes <= 0)) {
+      throw new Error(`invalid outputLimitBytes: expected a positive safe integer, got ${JSON.stringify(spec.outputLimitBytes)}`)
+    }
     if (spec.owner !== undefined) this.ensureOwnerCleanup(spec.owner)
 
     const hooks = spec.run()
@@ -117,6 +122,7 @@ export class TaskService extends Service {
       id,
       kind: spec.kind,
       label: spec.label,
+      outputLimitBytes: spec.outputLimitBytes,
       owner: spec.owner,
       cancel: hooks.cancel.bind(hooks),
       readOutput: hooks.readOutput?.bind(hooks),
@@ -329,6 +335,7 @@ export class TaskService extends Service {
       id: task.id,
       kind: task.kind,
       label: task.label,
+      ...task.outputLimitBytes !== undefined ? { outputLimitBytes: task.outputLimitBytes } : {},
       ...ownerSession !== undefined ? { ownerSession } : {},
       status: task.status,
       ...task.detail !== undefined ? { detail: task.detail } : {},

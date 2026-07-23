@@ -15,7 +15,7 @@ stdout is the ACP JSON-RPC channel, so the cluster is defined as much by what it
 | `@deepseek-ai/dsh-command-goal` | the discoverable direct `/goal` producer; the app enables the spine's persisted-goal stack with it |
 | `@deepseek-ai/dsh-user-interaction` | the human question/answer seam used by clients that can complete ACP elicitation requests |
 | `@deepseek-ai/dsh-session-persistence-jsonl` | durable JSONL session log (the bridge advertises `loadSession`) |
-| `@deepseek-ai/dsh-session-query` + `@deepseek-ai/dsh-session-reference` | exact current-surface reads and bounded `dsh-session:` snapshots |
+| `@deepseek-ai/dsh-session-query-sqlite` + `@deepseek-ai/dsh-session-reference` | combined exact/FTS session queries and bounded `dsh-session:` snapshots |
 | `@deepseek-ai/dsh-session-checkpoint-policy` | semantic durability barriers before model requests and top-level tool effects, plus completed-step checkpoints |
 | `@deepseek-ai/dsh-acp` | the bridge that owns stdout for JSON-RPC and provides ACP-backed user answers when a leaf explicitly exposes a user-question tool |
 | ~~`@deepseek-ai/dsh-tool-ask-user`~~ | **omitted by default** — ACP elicitation support is still client-dependent, so leaves must opt in deliberately |
@@ -43,7 +43,7 @@ The app owns this cluster through one ordered Cordis effect. Teardown drains the
 | `toolTasks` | owner defaults | generic `task_output` wait bounds routed through `dsh-agent-spine-demo` |
 | `goals` | owner defaults | persisted goal-domain and model-tool config; `false` removes the goal stack and `/goal` producer |
 | `llmRetry` | owner defaults | bounded transient model-request retry policy routed through `dsh-agent-spine-demo` |
-| `persistenceRoot` | `./.sessions` | the JSONL backend's root directory |
+| `persistenceRoot` | `./.sessions` | the JSONL backend's root directory and the parent of the derived `session-query.db` index |
 | `packChunks` | `false` | write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`) |
 | `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
 | `sessionReferences` | service defaults | cross-session candidate and snapshot limits routed to `dsh-session-reference` |
