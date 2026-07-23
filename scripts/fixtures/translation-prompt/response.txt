@@ -1,4 +1,8 @@
 <translation>
+---
+layout: doc
+---
+
 # 快照说明
 
 agent（智能体）执行一个步骤。
@@ -9,6 +13,10 @@ agent（智能体）执行一个步骤。
 </review>
 
 <final>
+---
+layout: doc
+---
+
 # 快照说明
 
 agent（智能体）执行一个步骤。

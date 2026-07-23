@@ -119,6 +119,10 @@ export function renderTranslationPrompt(document: string, input: TranslationProm
     terminology: input.terminology,
   }
   const template = extractTranslationPrompt(document)
+  const placeholderFreeTemplate = template.replace(PLACEHOLDER, '')
+  if (placeholderFreeTemplate.includes('{{') || placeholderFreeTemplate.includes('}}')) {
+    throw new Error('translation prompt: template contains malformed placeholder syntax')
+  }
   const names = [...template.matchAll(PLACEHOLDER)].map(match => match[1] ?? '')
   const unknown = names.filter(name => !TRANSLATION_PROMPT_PLACEHOLDERS.includes(name as TranslationPromptPlaceholder))
   if (unknown.length > 0) throw new Error(`translation prompt: unsupported placeholder(s): ${[...new Set(unknown)].join(', ')}`)
@@ -215,16 +219,24 @@ export function parseTranslationResponse(text: string): TranslationResponse {
 function correctLanguageSwitcher(markdown: string, switcher: string): string {
   const lines = markdown.replaceAll('\r\n', '\n').split('\n')
   while (lines.at(-1) === '') lines.pop()
-  if (!/^#\s+\S/.test(lines[0] ?? '')) {
+
+  let headingIndex = 0
+  if (lines[0] === '---') {
+    const frontmatterEnd = lines.indexOf('---', 1)
+    if (frontmatterEnd === -1) throw new Error('translation response: final document has unterminated YAML frontmatter')
+    headingIndex = frontmatterEnd + 1
+    while (lines[headingIndex] === '') headingIndex++
+  }
+  if (!/^#\s+\S/.test(lines[headingIndex] ?? '')) {
     throw new Error('translation response: final document must start with an H1 heading')
   }
 
-  let contentStart = 1
+  let contentStart = headingIndex + 1
   while (lines[contentStart] === '') contentStart++
   if (LANGUAGE_SWITCHER.test(lines[contentStart] ?? '')) contentStart++
   while (lines[contentStart] === '') contentStart++
 
-  const output = [lines[0] as string, '', switcher]
+  const output = [...lines.slice(0, headingIndex), lines[headingIndex] as string, '', switcher]
   const content = lines.slice(contentStart)
   if (content.length > 0) output.push('', ...content)
   return `${output.join('\n')}\n`

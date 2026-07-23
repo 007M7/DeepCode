@@ -48,13 +48,13 @@
       },
       {
         "role": "user",
-        "content": "# Snapshot note\n\nThe agent performs one step.\n"
+        "content": "---\nlayout: doc\n---\n\n# Snapshot note\n\nThe agent performs one step.\n"
       }
     ]
   },
   "response": {
-    "translation": "# 快照说明\n\nagent（智能体）执行一个步骤。",
+    "translation": "---\nlayout: doc\n---\n\n# 快照说明\n\nagent（智能体）执行一个步骤。",
     "review": "- 无修正",
-    "final": "# 快照说明\n\n[English](snapshot-note.md) | 中文\n\nagent（智能体）执行一个步骤。\n"
+    "final": "---\nlayout: doc\n---\n\n# 快照说明\n\n[English](snapshot-note.md) | 中文\n\nagent（智能体）执行一个步骤。\n"
   }
 }

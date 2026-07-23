@@ -38,6 +38,17 @@ describe('translation prompt rendering', () => {
     expect(() => renderTranslationPrompt(missing, { sourceLanguage: 'English', sourceFilename: 'guide.md', terminology })).toThrow(/required placeholder/)
   })
 
+  it('rejects unmatched placeholder delimiters', () => {
+    for (const delimiter of ['{{', '}}']) {
+      const malformed = document.replace('Your task is to translate', `Your task ${delimiter} is to translate`)
+      expect(() => renderTranslationPrompt(malformed, {
+        sourceLanguage: 'English',
+        sourceFilename: 'guide.md',
+        terminology,
+      })).toThrow(/malformed placeholder syntax/)
+    }
+  })
+
   it('assembles bare few-shot turns before the real source document', () => {
     const request = renderTranslationRequest(document, {
       sourceLanguage: 'English',
@@ -125,6 +136,46 @@ describe('translation response sections', () => {
       '定稿。',
       '',
     ].join('\n'))
+  })
+
+  it('preserves YAML frontmatter before inserting the target switcher', () => {
+    const response = renderTranslationResponse({
+      translation: '# 指南\n\n初稿。',
+      review: '- 无修正',
+      final: [
+        '---',
+        'layout: home',
+        '---',
+        '',
+        '# 指南',
+        '',
+        '定稿。',
+      ].join('\n'),
+    })
+    expect(consumeTranslationResponse(response, { sourceLanguage: 'English', sourceFilename: 'guide.md' }).final).toBe([
+      '---',
+      'layout: home',
+      '---',
+      '',
+      '# 指南',
+      '',
+      '[English](guide.md) | 中文',
+      '',
+      '定稿。',
+      '',
+    ].join('\n'))
+  })
+
+  it('rejects unterminated YAML frontmatter before the target H1', () => {
+    const response = renderTranslationResponse({
+      translation: '# 指南\n\n初稿。',
+      review: '- 无修正',
+      final: '---\nlayout: home\n\n# 指南\n\n定稿。',
+    })
+    expect(() => consumeTranslationResponse(response, {
+      sourceLanguage: 'English',
+      sourceFilename: 'guide.md',
+    })).toThrow(/unterminated YAML frontmatter/)
   })
 
   it('rejects a source filename that contradicts the translation direction', () => {

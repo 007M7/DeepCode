@@ -71,8 +71,18 @@ try {
     throw new Error('reviewed examples are not assembled as system, example pairs, then source')
   }
   const consumed = consumeTranslationResponse(recordedResponse, englishInput)
-  if (consumed.final.split('\n')[2] !== '[English](snapshot-note.md) | 中文') {
-    throw new Error('recorded new-pair response does not receive the canonical target switcher')
+  const expectedFinalPrefix = [
+    '---',
+    'layout: doc',
+    '---',
+    '',
+    '# 快照说明',
+    '',
+    '[English](snapshot-note.md) | 中文',
+    '',
+  ].join('\n')
+  if (!consumed.final.startsWith(expectedFinalPrefix)) {
+    throw new Error('recorded frontmatter response does not preserve metadata and receive the canonical target switcher')
   }
 
   if (mode === '--snapshot') {
