@@ -1,10 +1,10 @@
 // Keyless boot-chain smoke over the REAL carrier: startWebServer + web-plugins
 // registry surface + __DSH_BOOT__ injection + built shell dist in a real
 // chromium. First describe: manifest injection + static serving. Second
-// describe: the settled success pass — seven REAL tsdown bundles (the
-// infrastructure four + layout/sidebar/conversation) load through the DI
-// chain in ?fixture mode and the three-column frame appears in one flip. The
-// full conversation round lands in smoke-real under the W5 real-host standard.
+// describe: the settled success pass — all nine REAL tsdown bundles load
+// through the DI chain in ?fixture mode, the three-column frame appears in
+// one flip, and the resident question completes through the real UI stack.
+// The full model round lands in smoke-real under the W5 real-host standard.
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
@@ -17,7 +17,7 @@ import { DIST_INDEX, probeFreePort, requireDist, saveFailureShot } from './suppo
 const bundlePath = (dir: string): string =>
   fileURLToPath(new URL(`../../../packages/client/${dir}/lib/client.js`, import.meta.url))
 
-/** id ↔ bundle table for the success pass (immediately four + layout/sidebar). */
+/** id ↔ bundle table for the success pass (the complete Web UI assembly). */
 const REAL_PLUGINS: { id: string; dir: string; inject: string[]; immediately?: boolean }[] = [
   { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-runtime', dir: 'runtime', inject: ['@deepseek-ai/dsh-client-connection'], immediately: true },
@@ -26,6 +26,8 @@ const REAL_PLUGINS: { id: string; dir: string; inject: string[]; immediately?: b
   { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', inject: ['@deepseek-ai/dsh-client-runtime'] },
   { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
   { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-question', dir: 'ui-question', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
+  { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
 
 /** Manifest served by the fake registry: one live bundle row, one missing row. */
@@ -84,7 +86,7 @@ describe('web boot chain (keyless, real carrier)', () => {
   })
 })
 
-describe('web boot chain success pass (keyless, seven real bundles, ?fixture)', () => {
+describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', () => {
   const missing = REAL_PLUGINS.filter(p => !existsSync(bundlePath(p.dir)))
   let server: Awaited<ReturnType<typeof startWebServer>>
   let browser: Browser
@@ -214,6 +216,43 @@ describe('web boot chain success pass (keyless, seven real bundles, ?fixture)', 
     const external = page.getByRole('link', { name: 'DeepSeek' })
     expect(await external.getAttribute('target')).toBe('_blank')
     expect(await external.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
+  it('renders and completes the resident question through the composer slot', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-question-composer'))
+    await page.getByText('fixture', { exact: true }).click()
+    await page.locator('[role="treeitem"]').nth(1).click()
+    const composer = page.locator('[data-question-rpc-id]')
+    await composer.waitFor({ timeout: 15_000 })
+    expect({
+      question: await composer.getByRole('heading').innerText(),
+      progress: await composer.getByText('1 / 3', { exact: true }).innerText(),
+      options: await composer.getByRole('radio').allTextContents(),
+      custom: await composer.getByRole('button', { name: '其他，请填写自定义答案' }).innerText(),
+    }).toMatchInlineSnapshot(`
+      {
+        "custom": "其他，请填写自定义答案",
+        "options": [
+          "1工程落地型推荐更看重能直接做 runtime、tool executor、sandbox、trace 和线上问题排查。",
+          "2研究潜力型更看重 Agent 理解、训练评测思路和长期成长空间。",
+          "3均衡型同时要求工程能力和 Agent 认知，但可能筛选门槛更高。",
+        ],
+        "progress": "1 / 3",
+        "question": "你现在更想招哪类 Agent/Harness 候选人？",
+      }
+    `)
+
+    await composer.getByRole('radio', { name: '工程落地型' }).click()
+    await composer.getByText('2 / 3', { exact: true }).waitFor()
+    await composer.getByRole('button', { name: '跳过本题', exact: true }).click()
+    await composer.getByRole('checkbox', { name: '系统设计' }).click()
+    await composer.getByRole('checkbox', { name: 'Agent 产品判断' }).click()
+    await composer.getByRole('checkbox', { name: 'Agent 产品判断' }).press('Enter')
+
+    await composer.waitFor({ state: 'detached' })
+    const restoredInput = page.locator('textarea[placeholder]')
+    await restoredInput.waitFor()
+    expect(await restoredInput.getAttribute('placeholder')).toBe('回复生成中，可停止后再输入')
   })
 
   it('stayed clean: no page errors across the whole load chain', () => {

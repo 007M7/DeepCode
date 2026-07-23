@@ -2,8 +2,8 @@
 // RpcRequest<P> and returns RpcResponse<T> (echoing the rpcId); streams yield RpcRequest<frame>
 // (the fixture IS the fake server, so it mints frame rpcIds); root respond takes ClientResponse
 // and returns RpcReceipt. fx-alpha carries a hand-built history script (60 turns, pageable);
-// prompt triggers a chunked streaming replay; cancel stops the replay; one resident pending
-// approval (placeholder-card material, subscribed-baseline-replay semantics: stable rpcId reuse).
+// prompt triggers a chunked streaming replay; cancel stops the replay; resident pending
+// approval/question requests exercise replay and composer takeover with stable rpcIds.
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
@@ -281,6 +281,41 @@ export function createFixtureApi(): ApiProxy {
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
   /** Resident pending approval (stable rpcId: every mux open replays the same id, matching host replay semantics). */
   const pendingApprovalRpcId = mint()
+  const pendingQuestionRpcId = mint()
+  let questionPending = true
+  const fixtureQuestions: Extract<MuxFrame, { type: 'question/requested' }>['questions'] = [
+    {
+      id: 'harness-profile',
+      header: '偏好',
+      question: '你现在更想招哪类 Agent/Harness 候选人？',
+      options: [
+        { label: '工程落地型 (Recommended)', description: '更看重能直接做 runtime、tool executor、sandbox、trace 和线上问题排查。' },
+        { label: '研究潜力型', description: '更看重 Agent 理解、训练评测思路和长期成长空间。' },
+        { label: '均衡型', description: '同时要求工程能力和 Agent 认知，但可能筛选门槛更高。' },
+      ],
+    },
+    {
+      id: 'work-mode',
+      header: '方式',
+      question: '你希望候选人优先展示哪种工作方式？',
+      options: [
+        { label: '先做小型原型 (Recommended)', description: '用可运行结果尽快验证关键假设。' },
+        { label: '先写完整设计', description: '先收敛边界、协议和风险，再开始实现。' },
+      ],
+    },
+    {
+      id: 'signals',
+      header: '信号',
+      question: '哪些面试信号最重要？',
+      detail: '按当前招聘目标选择；跳过则视为不设偏好。',
+      multiSelect: true,
+      options: [
+        { label: '系统设计' },
+        { label: '代码质量' },
+        { label: 'Agent 产品判断' },
+      ],
+    },
+  ]
 
   const muxConns = new Set<StreamConn<MuxFrame>>()
   const hostConns = new Set<StreamConn<HostFrame>>()
@@ -467,7 +502,7 @@ export function createFixtureApi(): ApiProxy {
         muxConns.add(conn)
         const breakNow = (): void => { conn.breakNow() }
         streamBreakers.add(breakNow)
-        // Open baseline: subscribed for attached (running) sessions + pending approval replay (stable rpcId).
+        // Open baseline: subscribed sessions + pending interactions replayed with stable rpcIds.
         for (const s of sessions) {
           if (!s.running) continue
           conn.push({ rpcId: mint(), payload: { type: 'session/subscribed', sessionId: s.sessionId, lastSeq: (logs.get(s.sessionId)?.length ?? 0) - 1 } })
@@ -480,6 +515,14 @@ export function createFixtureApi(): ApiProxy {
             toolName: 'dangerous_tool', reason: 'fixture 常驻占位审批（可见不可答）',
           },
         })
+        if (questionPending) {
+          conn.push({
+            rpcId: pendingQuestionRpcId,
+            payload: {
+              type: 'question/requested', sessionId: sid('fx-alpha'), questions: fixtureQuestions,
+            },
+          })
+        }
         try {
           yield* conn.drain(signal)
         } finally {
@@ -509,9 +552,16 @@ export function createFixtureApi(): ApiProxy {
       },
     },
     respond(message: ClientResponse): Promise<RpcReceipt> {
-      // The v1 UI never answers (PendingCard is visible but not answerable); implemented for type completeness, always not-pending.
-      void message
-      return Promise.resolve({ accepted: false, reason: 'not-pending' })
+      if (!questionPending || message.rpcId !== pendingQuestionRpcId) {
+        return Promise.resolve({ accepted: false, reason: 'not-pending' })
+      }
+      questionPending = false
+      emitMux({
+        type: 'question/resolved', sessionId: sid('fx-alpha'),
+        questionRpcId: pendingQuestionRpcId,
+        outcome: message.result.ok ? 'answered' : 'cancelled',
+      })
+      return Promise.resolve({ accepted: true })
     },
   }
 }
