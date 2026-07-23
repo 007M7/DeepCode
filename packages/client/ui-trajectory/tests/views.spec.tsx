@@ -28,6 +28,9 @@ import { WaterfallView } from '@deepseek-ai/dsh-client-ui-trajectory/src/client/
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 
 const SID = 's1' as SessionId
+/** Fallback-only chain stub (no composer takeover in these benches). */
+const fallbackRenderSlotChain: ConversationRootProps['renderSlotChain'] =
+  (_key, _owner, opts) => opts?.fallback ?? null
 
 afterEach(cleanup)
 // The chat store persists under its declared key; clear so one case's active
@@ -120,6 +123,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       useStore={bindSnapshotSelector(chat)}
       actions={chat.actions}
       renderSlot={renderSlot}
+      renderSlotChain={fallbackRenderSlotChain}
       SessionProvider={SessionProviderStub}
       views={{
         list: () => tabsOf(slots),

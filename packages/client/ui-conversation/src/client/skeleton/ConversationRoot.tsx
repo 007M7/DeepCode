@@ -3,7 +3,8 @@
 // props: the framework standard kit (useSession/sessionId/useSessions), the
 // declared chat store's useStore/actions, the injected business face, and the
 // renderSlot share for the declared 'conversation.view' child slot (views are
-// slot entries; the active one renders via the list `only` filter).
+// slot entries; the active one renders via the list `only` filter) plus the
+// renderSlotChain share for the 'conversation.composer' takeover chain.
 // Breadcrumbs derive from useSessions with a pure parentId walk; the active
 // view id lives in the chat store's `view` field (per-session by store scope).
 
@@ -36,7 +37,7 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 }
 
 export function ConversationRoot({
-  sessionId, useSession, useSessions, useStore, actions, renderSlot,
+  sessionId, useSession, useSessions, useStore, actions, renderSlot, renderSlotChain,
   views, send, stop, open,
 }: ConversationRootProps) {
   useSyncExternalStore(views.subscribe, views.version)
@@ -52,10 +53,26 @@ export function ConversationRoot({
   const removed = useSession(s => s.removed)
   const promptError = useSession(s => s.promptError)
   const turns = useSession(s => countTurns(s))
+  const pending = useSession(s => s.pending)
 
   const error: InputBarError | null = promptError === null
     ? null
     : { op: promptError.op, message: `${promptError.error.message}（${promptError.error.code}）` }
+
+  // The default composer doubles as the chain's all-decline fallback: a
+  // pending wait with no registered takeover must still leave the input usable.
+  const composerBar = (
+    <InputBar
+      draft={draft}
+      running={running}
+      disabled={removed}
+      error={error}
+      variant="composer"
+      onDraftChange={actions.setDraft}
+      onSend={(mode) => { send(draft, mode) }}
+      onStop={stop}
+    />
+  )
 
   return (
     <div className={css.root}>
@@ -106,16 +123,7 @@ export function ConversationRoot({
         {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}
       </div>
 
-      <InputBar
-        draft={draft}
-        running={running}
-        disabled={removed}
-        error={error}
-        variant="composer"
-        onDraftChange={actions.setDraft}
-        onSend={(mode) => { send(draft, mode) }}
-        onStop={stop}
-      />
+      {renderSlotChain('conversation.composer', { interactions: pending }, { fallback: composerBar })}
     </div>
   )
 }
