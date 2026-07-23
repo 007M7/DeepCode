@@ -25,16 +25,18 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
   type Component,
+  type AutocompleteItem,
+  type AutocompleteProvider,
+  type AutocompleteSuggestions,
   type EditorTheme,
   type Focusable,
   type MarkdownTheme,
-  type OverlayHandle,
   type SelectListTheme,
   type SlashCommand,
   type Terminal,
   type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
-import type { Context } from 'cordis'
+import { Service, type Context, type Fiber } from 'cordis'
 import z from 'schemastery'
 import {
   installAgentLlmTarget,
@@ -42,6 +44,7 @@ import {
   type AgentLlmTarget,
   type AgentLlmTargetRef,
   type AgentStatus,
+  type HookContext,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
 import type {} from '@deepseek-ai/dsh-token-meter'
@@ -54,7 +57,19 @@ import type {
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
-import { SessionId, type Session, type SessionEvent, type SessionHeader, type TodoItem } from '@deepseek-ai/dsh-session'
+import {
+  displayPromptContent,
+  SessionId,
+  type Session,
+  type SessionEvent,
+  type SessionHeader,
+  type TodoItem,
+} from '@deepseek-ai/dsh-session'
+import {
+  formatSessionReferenceMention,
+  parseSessionReferenceText,
+  type SessionReferenceService,
+} from '@deepseek-ai/dsh-session-reference'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 // Side-effect type import: declaration-merges the optional `sessionPersistence`
 // service onto `Context` so `ctx.get('sessionPersistence')` is typed.
@@ -74,6 +89,62 @@ import {
   type AskUserQuestionItem,
   type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
+import {
+  TuiExtensionServiceImpl,
+  TuiOverlayManager,
+} from './overlay-manager.ts'
+import type {
+  TuiOverlayRequest,
+  TuiOverlaySession,
+  TuiTheme,
+} from './extension.ts'
+
+export type {
+  TuiComponent,
+  TuiFocusable,
+  TuiOverlayAnchor,
+  TuiOverlayCloseReason,
+  TuiOverlayHost,
+  TuiOverlayMargin,
+  TuiOverlayOptions,
+  TuiOverlayOutcome,
+  TuiOverlayRequest,
+  TuiOverlaySession,
+  TuiOverlayState,
+  TuiTheme,
+  TuiViewport,
+} from './extension.ts'
+
+declare module 'cordis' {
+  interface Context {
+    /** Terminal-only interaction service, available only while a TUI is mounted. */
+    tui: TuiExtensionService
+  }
+}
+
+/**
+ * Optional terminal-local interaction service provided by one mounted TUI.
+ *
+ * The concrete provider retains pi-tui, focus, and terminal lifecycle state.
+ * Plugins receive only effect-owned overlay sessions.
+ */
+export abstract class TuiExtensionService extends Service {
+  /** Exact agent driven by this terminal instance. */
+  abstract readonly agent: Agent
+
+  /**
+   * Queue an interactive overlay owned by the calling plugin fiber.
+   *
+   * The TUI displays one overlay at a time in FIFO order. Disposing the caller
+   * removes a queued overlay or closes an active one before plugin teardown
+   * settles. This live presentation is neither logged nor replayed.
+   *
+   * @param request - component factory, layout constraints, and cancellation.
+   * @returns the effect-owned overlay session.
+   * @throws when the TUI has begun shutting down.
+   */
+  abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
+}
 
 export const name = 'ui-tui'
 export const inject = ['agents', 'commands', 'userInteraction', 'tools', 'llm', 'systemPrompt', 'tokenMeter']
@@ -263,6 +334,11 @@ const TERMINAL_CONTROL_PATTERN = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu
 function displayText(text: string): string {
   return text.replace(TERMINAL_CONTROL_PATTERN, control =>
     `\\x${control.charCodeAt(0).toString(16).padStart(2, '0')}`)
+}
+
+/** Escape external controls for terminal fields that must remain on one line. */
+function displayInlineText(text: string): string {
+  return displayText(text).replaceAll('\n', '\\x0a')
 }
 
 /**
@@ -1269,7 +1345,65 @@ interface PendingQuestion {
   resolve(answer: AskUserQuestionAnswer): void
   reject(error: unknown): void
   onAbort: () => void
-  overlay: OverlayHandle | undefined
+  overlay: TuiOverlaySession | undefined
+}
+
+/** Add session candidates to pi-tui's existing command/file provider. */
+class SessionAutocompleteProvider implements AutocompleteProvider {
+  constructor(
+    private readonly base: CombinedAutocompleteProvider,
+    private readonly sessions: SessionReferenceService,
+    private readonly agent: Agent,
+  ) {}
+
+  async getSuggestions(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    options: { signal: AbortSignal; force?: boolean },
+  ): Promise<AutocompleteSuggestions | null> {
+    const basePromise = this.base.getSuggestions(lines, cursorLine, cursorCol, options)
+    const currentLine = lines[cursorLine]
+    /* v8 ignore next -- Editor always supplies its current state line. */
+    if (currentLine === undefined) return basePromise
+    const token = /(?:^|\s)(@[^\s]*)$/u.exec(currentLine.slice(0, cursorCol))?.[1]
+    if (token === undefined) return basePromise
+    let candidates
+    try {
+      candidates = await this.sessions.listCandidates(this.agent, token.slice(1), undefined, options.signal)
+    } catch {
+      return basePromise
+    }
+    const base = await basePromise
+    if (options.signal.aborted) return base
+    const items: AutocompleteItem[] = candidates.map((candidate) => {
+      const mentionLabel = displayInlineText(candidate.label)
+      const sessionId = displayInlineText(candidate.sessionId)
+      const location = candidate.cwd === undefined ? '(no cwd)' : displayInlineText(candidate.cwd)
+      const description = `${candidate.label === candidate.sessionId ? '' : `${sessionId} · `}${location} · ${new Date(candidate.createdAt).toISOString()}`
+      return {
+        value: formatSessionReferenceMention({ sessionId: candidate.sessionId, label: mentionLabel }),
+        label: `Session · ${mentionLabel}`,
+        description,
+      }
+    })
+    if (items.length === 0) return base
+    return { items: [...items, ...(base?.items ?? [])], prefix: token }
+  }
+
+  applyCompletion(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    item: AutocompleteItem,
+    prefix: string,
+  ): { lines: string[]; cursorLine: number; cursorCol: number } {
+    return this.base.applyCompletion(lines, cursorLine, cursorCol, item, prefix)
+  }
+
+  shouldTriggerFileCompletion(lines: string[], cursorLine: number, cursorCol: number): boolean {
+    return this.base.shouldTriggerFileCompletion(lines, cursorLine, cursorCol)
+  }
 }
 
 /** Lifecycle handle for a mounted interactive terminal channel. */
@@ -1341,6 +1475,30 @@ function activeSurfaceSeqs(session: Session): Set<number> {
   return new Set(session.surface.nodes)
 }
 
+function sessionReferenceCard(meta: unknown): string[] | undefined {
+  if (typeof meta !== 'object' || meta === null) return undefined
+  const record = meta as Record<string, unknown>
+  if (record['kind'] !== 'session-reference' || !Array.isArray(record['references'])) return undefined
+  const references = record['references'] as unknown[]
+  const labels: string[] = []
+  for (const reference of references) {
+    if (typeof reference !== 'object' || reference === null) return undefined
+    const entry = reference as Record<string, unknown>
+    const sessionId = entry['sessionId']
+    const label = entry['label']
+    if (typeof sessionId !== 'string' || typeof label !== 'string') return undefined
+    labels.push(label === sessionId ? sessionId : `${label} (${sessionId})`)
+  }
+  return labels
+}
+
+function promptReferenceCards(event: Extract<SessionEvent, { type: 'user/message' | 'steering/message' }>): string[][] {
+  return event.data.envelope?.prefixContexts.flatMap((context) => {
+    const card = sessionReferenceCard(context.meta)
+    return card === undefined ? [] : [card]
+  }) ?? []
+}
+
 function activeToolCallIds(session: Session, active: ReadonlySet<number>): Set<string> {
   const ids = new Set<string>()
   for (const event of session.events) {
@@ -1406,8 +1564,10 @@ export function createTuiChat(
   const liveErrors = new Set<string>()
   const questionQueue: PendingQuestion[] = []
   const commandControllers = new Set<AbortController>()
+  const referenceControllers = new Set<AbortController>()
   let activeQuestion: PendingQuestion | undefined
-  let modelOverlay: OverlayHandle | undefined
+  let modelOverlay: TuiOverlaySession | undefined
+  let tuiServiceFiber: Fiber | undefined
   const target: AgentLlmTargetRef = { current: initialTarget(agent), assembled: undefined }
   let contextWindow: number | undefined
   let contextResolution: Promise<
@@ -1465,6 +1625,41 @@ export function createTuiChat(
     requestRender()
   }
 
+  const extensionTheme: TuiTheme = Object.freeze({
+    text: (value: string) => palette.text(value),
+    muted: (value: string) => palette.muted(value),
+    dim: (value: string) => palette.dim(value),
+    accent: (value: string) => palette.accent(value),
+    success: (value: string) => palette.success(value),
+    warning: (value: string) => palette.warning(value),
+    error: (value: string) => palette.error(value),
+    bold: (value: string) => palette.bold(value),
+  })
+  const overlayManager = new TuiOverlayManager({
+    viewport: () => Object.freeze({
+      columns: runtime.terminal.columns,
+      rows: runtime.terminal.rows,
+    }),
+    theme: () => extensionTheme,
+    display: displayText,
+    show: (component, options) => ui.showOverlay(component, options === undefined
+      ? undefined
+      : {
+        ...options,
+        ...typeof options.margin === 'object'
+          ? { margin: { ...options.margin } }
+          : {},
+      }),
+    invalidate: requestRender,
+    reportError: (error) => {
+      const message = errorChain(error)
+      ctx.logger.warn(`ui-tui: overlay failed: ${message}`)
+      /* v8 ignore next -- shutdown removes overlays before the terminal stops */
+      if (disposed) return
+      appendNotice(`TUI overlay failed: ${message}`, 'error')
+    },
+  })
+
   const disposeTargetListeners = installAgentLlmTarget(agent.ctx, target)
 
   const resolveContextWindow = (selected: AgentLlmTarget | undefined): void => {
@@ -1504,29 +1699,29 @@ export function createTuiChat(
       appendNotice(`Current model: ${current}\nNo models are advertised by registered providers.`, 'warning')
       return
     }
-    modelOverlay?.hide()
-    modelOverlay = undefined
-    const close = (): void => {
-      modelOverlay?.hide()
-      modelOverlay = undefined
-      requestRender()
-    }
-    const dialog = new ModelDialog(
-      choices,
-      target.current,
-      resolved.maxModelOptions,
-      palette,
-      (selected) => {
-        close()
-        selectModel(selected)
+    void modelOverlay?.close()
+    const session = overlayManager.open({
+      create: () => new ModelDialog(
+        choices,
+        target.current,
+        resolved.maxModelOptions,
+        palette,
+        (selected) => {
+          void session.close()
+          selectModel(selected)
+        },
+        () => { void session.close() },
+      ),
+      options: {
+        width: resolved.modelDialogWidth,
+        maxHeight: resolved.modelDialogMaxHeight,
+        anchor: 'center',
+        margin: 1,
       },
-      close,
-    )
-    modelOverlay = ui.showOverlay(dialog, {
-      width: resolved.modelDialogWidth,
-      maxHeight: resolved.modelDialogMaxHeight,
-      anchor: 'center',
-      margin: 1,
+    })
+    modelOverlay = session
+    void session.closed.then(() => {
+      if (modelOverlay === session) modelOverlay = undefined
     })
     requestRender()
   }
@@ -1691,23 +1886,37 @@ export function createTuiChat(
   const renderEvent = (event: SessionEvent, options: { addHistory: boolean; renderChunks: boolean }): void => {
     switch (event.type) {
       case 'user/message': {
-        const text = displayText(contentText(event.data.content).trim())
+        const text = displayText(contentText(displayPromptContent(event.data)).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme))
           if (options.addHistory) editor.addToHistory(text)
         }
+        for (const references of promptReferenceCards(event)) {
+          chat.addChild(new Spacer(1))
+          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
+        }
         break
       }
       case 'steering/message': {
-        const text = displayText(contentText(event.data.content).trim())
+        const text = displayText(contentText(displayPromptContent(event.data)).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme, 'Steering'))
         }
+        for (const references of promptReferenceCards(event)) {
+          chat.addChild(new Spacer(1))
+          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
+        }
         break
       }
       case 'context/message': {
+        const references = sessionReferenceCard(event.data.meta)
+        if (references !== undefined) {
+          chat.addChild(new Spacer(1))
+          chat.addChild(new Text(palette.dim(`Referenced sessions · ${references.map(displayText).join(', ')}`), 1, 0))
+          break
+        }
         const text = displayText(contentText(event.data.content).trim())
         if (text) {
           const source = event.data.source.kind === 'plugin' ? event.data.source.plugin : event.data.source.kind
@@ -1815,7 +2024,7 @@ export function createTuiChat(
   }
 
   const rejectQuestion = (pending: PendingQuestion): void => {
-    pending.overlay?.hide()
+    void pending.overlay?.close()
     pending.overlay = undefined
     removeAbortListener(pending)
     pending.reject(new UserInteractionError(
@@ -1838,31 +2047,48 @@ export function createTuiChat(
         startNextQuestion()
         return
       }
-      const dialog = new QuestionDialog(
-        question,
-        pending.index + 1,
-        pending.request.questions.length,
-        pending.request.questions.length - pending.answers.length,
-        resolved.maxQuestionOptions,
-        palette,
-        (selection) => {
-          pending.overlay?.hide()
-          pending.overlay = undefined
-          pending.answers.push({ id: question.id, ...selection })
-          pending.index += 1
-          show()
+      const session = overlayManager.open({
+        ...pending.request.signal === undefined ? {} : { signal: pending.request.signal },
+        create: () => new QuestionDialog(
+          question,
+          pending.index + 1,
+          pending.request.questions.length,
+          pending.request.questions.length - pending.answers.length,
+          resolved.maxQuestionOptions,
+          palette,
+          (selection) => {
+            pending.overlay = undefined
+            void session.close()
+            pending.answers.push({ id: question.id, ...selection })
+            pending.index += 1
+            show()
+          },
+          () => {
+            activeQuestion = undefined
+            rejectQuestion(pending)
+            startNextQuestion()
+          },
+        ),
+        options: {
+          width: resolved.questionDialogWidth,
+          maxHeight: resolved.questionDialogMaxHeight,
+          anchor: 'bottom-left',
+          margin: { bottom: 1 },
         },
-        () => {
-          activeQuestion = undefined
-          rejectQuestion(pending)
-          startNextQuestion()
-        },
-      )
-      pending.overlay = ui.showOverlay(dialog, {
-        width: resolved.questionDialogWidth,
-        maxHeight: resolved.questionDialogMaxHeight,
-        anchor: 'bottom-left',
-        margin: { bottom: 1 },
+      })
+      pending.overlay = session
+      void session.closed.then((result) => {
+        if (pending.overlay !== session) return
+        pending.overlay = undefined
+        /* v8 ignore next 2 -- close, abort, and shutdown settle the owner before this callback */
+        if (result.reason !== 'error') return
+        activeQuestion = undefined
+        removeAbortListener(pending)
+        pending.reject(new UserInteractionError(
+          `ask_user_question TUI failed: ${errorChain(result.error)}`,
+          'ASK_ABORTED',
+        ))
+        startNextQuestion()
       })
       requestRender()
     }
@@ -1933,18 +2159,23 @@ export function createTuiChat(
   const shutdown = (exitProcess: boolean): Promise<void> => {
     shuttingDown ??= (async () => {
       disposed = true
+      overlayManager.beginShutdown()
       contextResolution = undefined
       clearStatus()
-      modelOverlay?.hide()
-      modelOverlay = undefined
       for (const controller of commandControllers) controller.abort(new Error('TUI disposed'))
       commandControllers.clear()
+      for (const controller of referenceControllers) controller.abort(new Error('TUI disposed'))
+      referenceControllers.clear()
+      await tuiServiceFiber?.dispose()
+      tuiServiceFiber = undefined
       if (activeQuestion !== undefined) {
         const pending = activeQuestion
         activeQuestion = undefined
         rejectQuestion(pending)
       }
       for (const pending of questionQueue.splice(0)) rejectQuestion(pending)
+      await overlayManager.dispose()
+      modelOverlay = undefined
       disposeUserInteraction()
       await runtime.terminal.drainInput(100, 20)
       ui.stop()
@@ -2084,7 +2315,7 @@ export function createTuiChat(
   // still invoke one by typing its exact name.
   let skillCommands: SlashCommand[] = []
   const refreshCommandAutocomplete = (): void => {
-    editor.setAutocompleteProvider(new CombinedAutocompleteProvider(
+    const base = new CombinedAutocompleteProvider(
       [
         ...ctx.commands.list(agent).map(command => ({
           name: command.name,
@@ -2093,7 +2324,11 @@ export function createTuiChat(
         ...skillCommands,
       ],
       agent.session.header.cwd ?? process.cwd(),
-    ))
+    )
+    const sessionReferences = ctx.get('sessionReferences')
+    editor.setAutocompleteProvider(sessionReferences === undefined
+      ? base
+      : new SessionAutocompleteProvider(base, sessionReferences, agent))
   }
   const disposeCommandChanges = ctx.on('commands/change', refreshCommandAutocomplete)
   refreshCommandAutocomplete()
@@ -2198,15 +2433,19 @@ export function createTuiChat(
     ).finally(() => { commandControllers.delete(controller) })
   }
 
-  /** Deliver a user turn to the agent: steer while running, send while idle, or report a disposed agent. */
-  const deliver = (payload: string): void => {
+  const dispatchMessage = (content: ContentBlock[], contexts: HookContext[]): void => {
     if (agent.status === 'disposed') {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
     } else if (agent.status === 'running') {
-      agent.steer([{ type: 'text', text: payload }])
+      agent.steer(content, { contexts })
     } else {
-      agent.send([{ type: 'text', text: payload }])
+      agent.send(content, { contexts })
     }
+  }
+
+  /** Deliver a user turn to the agent: steer while running, send while idle, or report a disposed agent. */
+  const deliver = (payload: string): void => {
+    dispatchMessage([{ type: 'text', text: payload }], [])
   }
 
   /** Load a manually invoked skill and deliver its rendered body as a user turn, reporting lookup outcomes as notices. */
@@ -2317,25 +2556,72 @@ export function createTuiChat(
   editor.onSubmit = (value: string) => {
     const text = value.trim()
     if (text === '') return
-    editor.addToHistory(text)
-    editor.setText('')
+    const restoreSubmittedInput = (): void => {
+      if (editor.getText() === '') editor.setText(value)
+    }
     // `/skill:<name>` carries a colon, which the command registry's name
     // grammar rejects, so it is intercepted before generic command routing.
     if (text.startsWith(SKILL_COMMAND_PREFIX)) {
+      editor.addToHistory(text)
+      editor.setText('')
       const { name, instructions } = parseSkillCommand(text)
       if (name === '') appendNotice('Usage: /skill:<name> [instructions]', 'warning')
       else invokeSkill(name, instructions)
       return
     }
     if (value.startsWith('/')) {
+      editor.addToHistory(text)
+      editor.setText('')
       runCommand(value)
       return
     }
-    deliver(text)
+    let parsed: ReturnType<typeof parseSessionReferenceText>
+    try {
+      parsed = parseSessionReferenceText(text)
+    } catch (error: unknown) {
+      restoreSubmittedInput()
+      appendNotice(`Invalid session reference: ${errorChain(error)}`, 'error')
+      return
+    }
+    if (parsed.references.length === 0) {
+      editor.addToHistory(text)
+      editor.setText('')
+      dispatchMessage([{ type: 'text', text: parsed.text }], [])
+      return
+    }
+    const sessionReferences = ctx.get('sessionReferences')
+    if (sessionReferences === undefined) {
+      restoreSubmittedInput()
+      appendNotice('Session reference capability unavailable.', 'error')
+      return
+    }
+    const controller = new AbortController()
+    referenceControllers.add(controller)
+    editor.disableSubmit = true
+    void sessionReferences.prepare(
+      agent,
+      [{ type: 'text', text: parsed.text }],
+      parsed.references,
+      controller.signal,
+    ).then((prepared) => {
+      if (disposed) return
+      editor.addToHistory(text)
+      if (editor.getText() === value) editor.setText('')
+      dispatchMessage(prepared.content, prepared.contexts)
+    }, (error: unknown) => {
+      if (!disposed && !controller.signal.aborted) {
+        restoreSubmittedInput()
+        appendNotice(`Session reference failed: ${errorChain(error)}`, 'error')
+      }
+    }).finally(() => {
+      referenceControllers.delete(controller)
+      editor.disableSubmit = false
+      requestRender()
+    })
   }
 
   const removeInputListener = ui.addInputListener((data) => {
-    if (activeQuestion !== undefined || modelOverlay !== undefined) return undefined
+    if (overlayManager.hasActiveOverlay()) return undefined
     if (matchesKey(data, Key.ctrl('o'))) {
       toggleTools()
       return { consume: true }
@@ -2479,6 +2765,9 @@ export function createTuiChat(
     ui.stop()
     throw error
   }
+  tuiServiceFiber = ctx.inject([], (serviceCtx) => {
+    new TuiExtensionServiceImpl(serviceCtx, agent, overlayManager)
+  })
   startBannerReveal()
 
   return {

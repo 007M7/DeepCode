@@ -1,23 +1,23 @@
 // @vitest-environment jsdom
-// Final branch tails for the coverage gate, post slot-phase-2: apply's need()
-// throw + cwd cache hit/empty-cwd skip, AssistantMarkdown non-final reasoning,
-// StatsLine usage-less node, ChatView tool-group selected passthrough +
-// running-empty guard, DetailsPanel titleless selection, registry disposer
-// after a foreign removal emptied the list.
+// Final branch tails for the coverage gate, terminal slot form: apply's
+// need() throw, AssistantMarkdown non-final reasoning, StatsLine usage-less
+// node, DetailsPanel titleless selection, registry disposer after a foreign
+// removal emptied the list. (The old cwd WeakMap-cache account retired with
+// the mechanism — derivation lives in EmptyState now, covered by the
+// skeleton specs.)
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
-import { Context } from 'cordis'
-import { createSnapshotStore, bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
-import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { hookOf } from './hook.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-import { apply, inject, ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { createChatStore } from '../src/client/stores.ts'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine } from '../src/client/chat/StatsLine.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 
 afterEach(cleanup)
 
@@ -30,53 +30,6 @@ function snapshotBase(): ConversationSnapshot {
     hasMore: false, loadingOlder: false, promptError: null, lastAgentError: null,
   } as ConversationSnapshot
 }
-
-describe('apply need() and cwd cache', () => {
-  it('apply fails loud when a required service is absent', () => {
-    // Call apply directly (no fiber machinery): need('sessions') on a bare
-    // context throws synchronously — the loud-failure branch without the
-    // fiber runner's internal rejection surface. Mount semantics (inject
-    // gating) are covered by the full bench in apply-inject.spec.
-    void inject
-    const ctx = new Context()
-    expect(() => { (apply as (c: Context) => void)(ctx) }).toThrow(/sessions service unavailable/)
-  })
-
-  it('cwd derivation caches per list state and skips empty cwd values', async () => {
-    const ctx = new Context()
-    const slotsFiber = ctx.plugin(SlotsService)
-    await slotsFiber.await()
-    const listStore = createSnapshotStore<SessionListState>({
-      ids: [SID, 'x2' as SessionId, 'x3' as SessionId],
-      byId: {
-        [SID]: { id: SID, title: 'a', cwd: '/proj', running: false, updatedAt: 1 },
-        ['x2' as SessionId]: { id: 'x2' as SessionId, title: 'b', cwd: '', running: false, updatedAt: 1 },
-        ['x3' as SessionId]: { id: 'x3' as SessionId, title: 'c', running: false, updatedAt: 1 },
-      },
-    })
-    ctx.provide('sessions', { list: listStore, manager: { get: vi.fn() }, ancestry: () => [], scope: () => undefined, create: vi.fn() })
-    ctx.provide('layout', { current: createSnapshotStore<{ viewFor: Record<string, string> }>({ viewFor: {} }), open: vi.fn(), openView: vi.fn(), openDetails: vi.fn(), closeDetails: vi.fn() })
-    ctx.provide('i18n', { bind: () => (k: string) => k })
-    const slots = ctx.get('slots') as SlotsService
-    slots.define('conversation', { kind: 'single', scope: 'session' })
-    slots.define('details', { kind: 'single', scope: 'session' })
-    slots.define('conversation.empty', { kind: 'single', scope: 'root' })
-    const fiber = ctx.plugin({ inject: [...inject], apply })
-    await fiber.await()
-    const entry = slots.entries('conversation.empty')[0]! as unknown as {
-      options: { inject: (b: unknown) => { useCwds: (sel: (s: readonly string[]) => readonly string[]) => readonly string[] } }
-    }
-    const injected = entry.options.inject({ ctx })
-    const Probe = () => {
-      const cwds = injected.useCwds(s => s)
-      const again = injected.useCwds(s => s)
-      // Cache hit: same state object yields the same derived array reference.
-      return <i data-testid="cwds">{`${cwds.join(',')}|${String(cwds === again)}`}</i>
-    }
-    const view = render(<Probe />)
-    expect(view.getByTestId('cwds').textContent).toBe('/proj|true')
-  })
-})
 
 describe('render branch tails', () => {
   it('AssistantMarkdown reasoning row is ok-state when not the streaming tail', () => {
@@ -101,7 +54,7 @@ describe('render branch tails', () => {
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
-      <StatsLine sessionId={SID} useSession={bindSnapshotSelector(source) as unknown as UseSession} />,
+      <StatsLine sessionId={SID} useSession={hookOf(source) as unknown as UseSession<ConversationSnapshot>} />,
     )
     expect(view.getByText('cache hit 0% · 15 tokens · 2 turns · 3 steps')).toBeTruthy()
   })
@@ -114,13 +67,20 @@ describe('render branch tails', () => {
   })
 
   it('DetailsPanel title falls to 详情 when the selection has no toolName and no material', () => {
-    const SEL: SelectionTarget = { turnSeq: 1, callId: 'ghost' }
+    localStorage.clear()
+    const snap = snapshotBase()
+    const chat = createChatStore().create()
+    chat.actions.select({ turnSeq: 1, callId: 'ghost' } satisfies SelectionTarget)
+    const emptyList = createSnapshotStore<SessionListState>(
+      { ids: [], byId: {}, current: undefined } as SessionListState)
     const view = render(
       <DetailsPanel
         sessionId={SID}
-        useSession={bindSnapshotSelector({ getSnapshot: () => snapshotBase(), subscribe: () => () => {} }) as unknown as UseSession}
-        useSelection={bindSnapshotSelector({ getSnapshot: () => SEL, subscribe: () => () => {} })}
-        actions={{ closeDetails: vi.fn() }}
+        useSession={hookOf({ getSnapshot: () => snap, subscribe: () => () => {} }) as unknown as UseSession<ConversationSnapshot>}
+        useSessions={hookOf(emptyList)}
+        useStore={hookOf(chat)}
+        actions={chat.actions}
+        closeDetails={vi.fn()}
       />,
     )
     expect(view.getByText('详情')).toBeTruthy()

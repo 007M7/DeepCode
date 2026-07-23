@@ -6,8 +6,7 @@
  * implementation files import this, never each other.
  */
 import type { FC } from 'react'
-import type { SessionBinding } from '@deepseek-ai/dsh-client-ui-slots'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId, ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CallId, Translate } from './views.ts'
 
@@ -28,11 +27,13 @@ export interface ToolViewProps {
 
 /**
  * Toolview inject factory: produces the registrant's private injected share
- * `I`, called once per (registration x session binding) and cached by the
- * render outlet. Session-bound by nature — tool rows always render inside a
- * session subtree.
+ * `I`, called once per (registration x session) and cached by the render
+ * outlet. Mirrors the slot inject shape (parameters derive from the
+ * declaration): toolviews are session-domain by nature, so the factory
+ * receives the session id only — service access goes through the
+ * registrant's own apply-closure ctx (design §5; binding objects retired).
  */
-export type ToolViewInject<I extends object> = (b: SessionBinding) => I
+export type ToolViewInject<I extends object> = (sessionId: SessionId) => I
 
 /** Options accepted by the toolview registry's register; `I` is inferred from the inject factory. */
 export interface ToolViewOptions<I extends object = object> {

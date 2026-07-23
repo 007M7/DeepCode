@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
 import { SANDBOX_UNAVAILABLE, SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
-import type { ConfinedArgv, SandboxMode, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
+import type { ConfinedArgv, SandboxExecutionPolicy, SandboxMode, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SandboxBashExecutor } from '@deepseek-ai/dsh-bash-sandbox'
 import { classifyDenial, classifyRunnerFailure, shellQuote } from '../src/helpers.ts'
@@ -70,6 +70,10 @@ function output(text: string): CollectedOutput {
 
 function runResult(exitCode: number | null, stderr: string): BashRunResult {
   return { exitCode, signal: null, timedOut: false, aborted: false, timeoutMs: 1000, stdout: output(''), stderr: output(stderr) }
+}
+
+function executionPolicy(mode: SandboxMode, workspaceRoot = resolve(process.cwd())): SandboxExecutionPolicy {
+  return { mode, workspaceRoot }
 }
 
 describe('the provider hand-off', () => {
@@ -147,30 +151,31 @@ describe('danger-full-access', () => {
   })
 })
 
-describe('per-call sandboxMode override (the escalation mechanism)', () => {
+describe('per-call sandbox policy (the session and escalation carrier)', () => {
   it('exposes the configured default as the capability fact, and resolve() stamps it', async () => {
     const { bash } = await setup()
     expect(bash.sandboxMode).toBe('read-only')
-    expect(bash.resolve({ command: 'true' }).sandboxMode).toBe('read-only')
+    expect(bash.resolve({ command: 'true' }).sandboxPolicy).toEqual(executionPolicy('read-only'))
   })
 
-  it('an explicit override outranks the default at resolve(), and the wrap policy follows it', async () => {
+  it('an explicit policy outranks the default at resolve(), and the wrap follows its mode and root', async () => {
     const { bash, calls } = await setup()
-    expect(bash.resolve({ command: 'true', sandboxMode: 'workspace-write' }).sandboxMode).toBe('workspace-write')
-    await bash.run(bash.resolve({ command: 'true', sandboxMode: 'workspace-write' }))
+    const explicit = executionPolicy('workspace-write', '/session/project')
+    expect(bash.resolve({ command: 'true', sandboxPolicy: explicit }).sandboxPolicy).toEqual(explicit)
+    await bash.run(bash.resolve({ command: 'true', sandboxPolicy: explicit }))
     await bash.run(bash.resolve({ command: 'true' }))
-    expect(calls.map(call => call.policy.mode)).toEqual(['workspace-write', 'read-only'])
+    expect(calls.map(call => call.policy)).toEqual([explicit, executionPolicy('read-only')])
   })
 
   it('an escalated run reports the mode it ACTUALLY ran under', async () => {
     const { bash } = await setup()
-    const result = await bash.run(bash.resolve({ command: 'true', sandboxMode: 'workspace-write' }))
+    const result = await bash.run(bash.resolve({ command: 'true', sandboxPolicy: executionPolicy('workspace-write') }))
     expect(result.sandbox).toEqual({ mode: 'workspace-write', denied: false, enforcement: 'full' })
   })
 
   it('escalating to danger-full-access bypasses the provider entirely — the grant, not a probe, is the authority there', async () => {
     const { bash, calls } = await setup()
-    const result = await bash.run(bash.resolve({ command: 'echo free', sandboxMode: 'danger-full-access' }))
+    const result = await bash.run(bash.resolve({ command: 'echo free', sandboxPolicy: executionPolicy('danger-full-access') }))
     expect(result.stdout.text).toBe('free\n')
     expect(result.sandbox).toEqual({ mode: 'danger-full-access', denied: false })
     expect(calls).toHaveLength(0)
@@ -181,7 +186,7 @@ describe('per-call sandboxMode override (the escalation mechanism)', () => {
     // once — anything keyed off the configured default would misreport the
     // escalated one at its settle stamp.
     const { bash } = await setup()
-    const escalated = bash.start(bash.resolve({ command: 'sleep 0.3; echo "x: Permission denied" >&2; exit 1', sandboxMode: 'workspace-write' }))
+    const escalated = bash.start(bash.resolve({ command: 'sleep 0.3; echo "x: Permission denied" >&2; exit 1', sandboxPolicy: executionPolicy('workspace-write') }))
     const plain = bash.start(bash.resolve({ command: 'true' }))
     await plain.done
     await escalated.done
@@ -191,7 +196,7 @@ describe('per-call sandboxMode override (the escalation mechanism)', () => {
 
   it('an escalated danger-full-access background task carries no facts (nothing confined it)', async () => {
     const { bash, calls } = await setup()
-    const task = bash.start(bash.resolve({ command: 'echo bg-free', sandboxMode: 'danger-full-access' }))
+    const task = bash.start(bash.resolve({ command: 'echo bg-free', sandboxPolicy: executionPolicy('danger-full-access') }))
     await task.done
     expect(task.sandbox).toBeUndefined()
     expect(task.readOutput().delta).toContain('bg-free')

@@ -23,7 +23,7 @@ sequenceDiagram
   Driver-->>SDK: <code>agent/status</code> running
   Driver->>Session: <code>turn/start</code>
   Driver->>Hooks: <code>agent/prompt-submit</code> waterfall
-  Hooks-->>Driver: allow, block, or add context
+  Hooks-->>Driver: authoritative allow, block, or add context
   Driver->>Session: <code>user/message</code> or rejected <code>turn/end</code>
   Driver->>Prompt: <code>system-prompt/assemble</code> waterfall
   Driver-->>Driver: <code>agent/pre-step</code> serial checkpoint
@@ -51,7 +51,7 @@ sequenceDiagram
       Driver->>Session: <code>tool/result</code>
     end
   end
-  Driver->>Session: post-tool context and steering
+  Driver->>Session: post-tool context and steering (no prompt-submit)
   Driver->>Hooks: <code>agent/post-step</code> serial checkpoint
   Driver->>Session: <code>step/end</code>
   Driver->>Hooks: <code>agent/turn-continuation</code> waterfall
@@ -65,6 +65,8 @@ sequenceDiagram
 The `assistant/message` edge records every successful provider call, including content-less and `max-tokens` finishes. Empty content stays out of derived history while the durable anchor retains usage and exact chunk provenance, including an explicit empty source set.
 
 `dsh-compact-basic` uses `agent/post-step` for pressure after those durable facts and `agent/request-error` only for canonical context overflow. Once either trigger qualifies, optional tool-result pruning runs before summary selection. Recovery works between the closed failed step and a fresh retry step, and returns retry only when pruning or summarization advances the surface replacement generation; otherwise the original request error remains authoritative.
+
+The returned `agent/prompt-submit` allow is authoritative; listeners wrapping `next()` preserve downstream content and additional contexts unless replacement is intentional. Steering bypasses that waterfall and joins at its durable checkpoint.
 
 SDK users that need replayable transcript data should consume `session/event`; `agent/*` is the live coordination surface for queue/status, prompt interception, request shaping, steering, continuation, and errors.
 

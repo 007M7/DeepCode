@@ -2,32 +2,76 @@
 
 English | [中文](README.zh.md)
 
-The **DeepSeek Harness SDK** is a plugin-based SDK for building agent harnesses.
+DeepSeek Harness (`dsh`) is an open-source coding agent built on the DeepSeek Harness SDK.
+
+It uses an architecture where **everything is a plugin**.
 
 ## Install
 
-Install the `dsh` coding agent with one line — it needs `git` and Node `^22.19 || >=24`, and offers to install `pnpm` if it is missing:
+Install `dsh` with one command:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
 ```
 
-It clones the harness to `~/.dsh/source`, runs `pnpm install`, symlinks `dsh` into `~/.local/bin` (offering to add it to your PATH), prompts once for your `DEEPSEEK_API_KEY`, and launches `dsh`; re-running it updates an existing checkout. Run from inside a checkout (`sh scripts/install.sh`) it reuses that checkout and skips the clone. The overridable `DSH_*` variables are documented in [`scripts/install.sh`](scripts/install.sh).
+The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, and prompts for a DeepSeek API key.
+
+The installer clones DeepSeek Harness to `~/.dsh/source`, links `dsh` into `~/.local/bin`, and launches it. Re-running the command updates the checkout. See [`scripts/install.sh`](scripts/install.sh) for alternate install locations and other options.
+
+## Use DeepSeek Harness
+
+### Web UI
+
+For the recommended local interface, build the frontend after installation and after each update, then start the Web UI:
+
+```sh
+pnpm --dir ~/.dsh/source run build:web
+dsh web
+```
+
+The Web UI is served at `http://127.0.0.1:3080` by default.
+
+### TUI
+
+Start the full-screen terminal interface:
+
+```sh
+dsh
+```
+
+### Headless
+
+Run one task, print the final answer, and exit:
+
+```sh
+dsh -p "summarize this workspace"
+```
+
+## Why DeepSeek Harness
+
+Built-in capabilities cover file reading, editing, and search; shell execution; reusable skills; task tracking; subagents and workflows; persistent sessions; and context compaction. The TUI also includes Plan Mode.
+
+- **Everything is a plugin.** Models, tools, policies, storage, context management, and interfaces are composable [Cordis plugins](docs/user/develop/basic/index.md), so deployments can extend or replace behavior without forking the agent loop. See the [architecture](docs/architecture.md) for the underlying design.
+- **Code Mode (opt-in).** It exposes a `run_code` tool and a generated TypeScript SDK; only program output re-enters model context. See [Code Mode](packages/core/tools/README.md#code-mode).
+- **Self-referential Cordis tools are opt-in.** They let the agent inspect its live runtime and mount or unmount plugins while it runs. See the [Cordis tools](packages/cordis/tool-cordis/README.md).
+
+## Community
+
+Follow <a href="https://x.com/Deepseekharness">DeepSeek Harness on Twitter</a> for project updates.
 
 ## Development
 
-This monorepo is built on the [Cordis](https://github.com/cordiverse/cordis) framework (vendored as source under `vendor/`), microkernel-style: everything is a plugin.
-
 ```sh
 pnpm install
-pnpm run test          # vitest
-# Agent demos require DEEPSEEK_API_KEY.
-pnpm run demo:tui      # full-screen TUI coding agent
-pnpm run demo:headless "task" # one-shot coding agent
-pnpm run demo:cordis   # self-referential agent demo
-pnpm run demo:acp      # ACP server agent demo
+pnpm run test:coverage
 ```
 
-For humans, start with the [development guide](docs/development.md) for local setup, hooks, environment variables, and quality gates, then read the [architecture design](docs/architecture.md) and [documentation graph index](docs/graph-atlas.md) before package work. Local context lives in [packages/](packages/) and [vendor/](vendor/).
+Start with the [development guide](docs/development.md) and read the [architecture](docs/architecture.md) before changing packages.
 
 For agents, follow [AGENTS.md](AGENTS.md).
+
+DeepSeek Harness is currently pre-release.
+
+## License
+
+[BSD 3-Clause](LICENSE)

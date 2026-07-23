@@ -1,142 +1,489 @@
 // @vitest-environment jsdom
+/**
+ * createSlotRenderer machinery account over a behavioral fake host: root
+ * outlet + per-kind child outlets, standard-kit synthesis (renderSlot
+ * binding, session pair, global useSessions, store pair), inject execution
+ * point (inside component bodies, contained per entry) and parameter
+ * derivation, and cache granularity (entry x scope key). Ledger semantics
+ * (declaration conflicts, store instance accounting) belong to the runtime
+ * SlotsService suite, not here.
+ */
 import { describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
-import type {
-  FC } from 'react'
-import type {
-  InjectFactory, RootBinding, SlotCore, SlotEntry, SlotEntryDef, SlotSpec,
-} from '@deepseek-ai/dsh-client-ui-slots'
+import type { ReactNode } from 'react'
+import type { ActionsDecl, SlotEntryDef, SlotSpec, StoreHandle, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  createSessionProvider, createSnapshotStore, RootBindingProvider, scopedSlots,
-  type SessionBinding, type SessionProviderDeps,
+  createSlotRenderer, SessionProvider, SlotOwnershipError,
+  type RenderOpts, type SessionCell,
+  type SlotRendererHost, type StoreInstanceLike,
 } from '@deepseek-ai/dsh-client-web-react'
 
+type AnyProps = Record<string, unknown>
+type RenderSlotFn = (key: string, owner: object, opts?: RenderOpts) => ReactNode
+type DeclaredSpec = SlotSpec<SlotEntryDef>
+/** Entry literal helper: fake entries default the mandatory options bag. */
+const entryOf = (partial: Omit<StoredEntry, 'options'> & { options?: StoredEntry['options'] }): StoredEntry =>
+  ({ options: {}, ...partial })
+
 /**
- * Behavioral SlotCore fake (the real ui-slots is still a T0 stub): registration
- * mutates entries, bumps the key version, and notifies subscribers synchronously
- * (batching semantics belong to fw-slots' core, not this package's outlet).
+ * Minimal store handle satisfying the StoreDecl contract shape (spec +
+ * create(scopeKey?) + instance with clearPersisted): the machinery consumes
+ * only the StoreInstanceLike face (bare snapshot source + baked actions),
+ * but entry.store is typed to the full contract — the real defineStore lives
+ * in runtime, which web-react tests must not import (dependency direction).
  */
-function makeFakeCore() {
-  const specs = new Map<string, SlotSpec<SlotEntryDef>>()
-  const entries = new Map<string, SlotEntry<SlotEntryDef>[]>()
+function miniStore<T extends object>(init: () => T, mutators: Record<string, (state: T, ...params: never[]) => T>): StoreHandle<T, ActionsDecl<T>> {
+  return {
+    spec: { init, actions: {} },
+    create: () => {
+      let state = init()
+      const listeners = new Set<() => void>()
+      const actions: Record<string, (...params: never[]) => void> = {}
+      for (const key of Object.keys(mutators)) {
+        actions[key] = (...params: never[]) => {
+          state = mutators[key]!(state, ...params)
+          for (const fn of [...listeners]) fn()
+        }
+      }
+      return {
+        getSnapshot: () => state,
+        subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn) } },
+        actions,
+        clearPersisted: () => {},
+      } as StoreInstanceLike as ReturnType<StoreHandle<T, ActionsDecl<T>>['create']>
+    },
+  }
+}
+
+function observable<T>(initial: T) {
+  let value = initial
+  const subs = new Set<() => void>()
+  return {
+    getSnapshot: () => value,
+    subscribe: (fn: () => void) => { subs.add(fn); return () => { subs.delete(fn) } },
+    set: (next: T) => { value = next; for (const fn of [...subs]) fn() },
+  }
+}
+
+/**
+ * Behavioral SlotRendererHost fake: registration mutates entries, bumps the
+ * key version, and notifies synchronously (batching semantics belong to the
+ * runtime host, not this package's outlets). Store instances resolve through
+ * the entry's real handle, cached per (entry x scope key) like the real
+ * ledger; session cells are identity-stable per id.
+ */
+function makeHost() {
+  const entries = new Map<string, StoredEntry[]>()
+  const specs = new Map<string, DeclaredSpec>()
   const versions = new Map<string, number>()
   const subs = new Map<string, Set<() => void>>()
+  const live = new Set<StoredEntry>()
+  const storeCache = new Map<StoredEntry, Map<string, StoreInstanceLike>>()
+  const list = observable<{ ids: string[] }>({ ids: [] })
+  const current = observable<string | undefined>(undefined)
+  const cells = new Map<string, SessionCell>()
+
   const bump = (key: string) => {
     versions.set(key, (versions.get(key) ?? 0) + 1)
     for (const fn of [...(subs.get(key) ?? [])]) fn()
   }
-  const core = {
-    define: (key: string, spec: SlotSpec<SlotEntryDef>) => {
-      specs.set(key, spec)
-      bump(key)
-      return () => { specs.delete(key); bump(key) }
-    },
-    // Options widened beyond SlotOptions<SlotEntryDef>: fake keys ('fake.list')
-    // are not in SlotMap, so calls resolve against this signature and need the
-    // list/keyed fields the conditional type would otherwise narrow away.
-    register: (
-      key: string, component: FC<object>,
-      options: { key?: string; id?: string; order?: number; label?: string; inject?: InjectFactory<SlotEntryDef> } = {},
-    ) => {
-      const list = entries.get(key) ?? []
-      const entry: SlotEntry<SlotEntryDef> = { component, options }
-      entries.set(key, [...list, entry])
-      bump(key)
-      return () => {
-        entries.set(key, (entries.get(key) ?? []).filter((e) => e !== entry))
-        bump(key)
-      }
-    },
-    entries: (key: string) => entries.get(key) ?? [],
-    spec: (key: string) => specs.get(key),
-    subscribe: (key: string, fn: () => void) => {
+  const host: SlotRendererHost = {
+    subscribe: (key, fn) => {
       const set = subs.get(key) ?? new Set()
       set.add(fn)
       subs.set(key, set)
       return () => { set.delete(fn) }
     },
-    getVersion: (key: string) => versions.get(key) ?? 0,
-    onMutate: () => () => {},
+    getVersion: (key) => versions.get(key) ?? 0,
+    entriesOf: (key) => entries.get(key) ?? [],
+    specOf: (key) => specs.get(key),
+    isLive: (entry) => live.has(entry),
+    storeOf: (entry, scopeKey) => {
+      if (entry.store === undefined) return undefined
+      let perScope = storeCache.get(entry)
+      if (!perScope) {
+        perScope = new Map()
+        storeCache.set(entry, perScope)
+      }
+      const cacheKey = scopeKey ?? ''
+      let instance = perScope.get(cacheKey)
+      if (!instance) {
+        // Fake entries always carry engine handles (never factories), and the
+        // engine create() takes the scope key (persist suffixing).
+        const handle = entry.store as { create(scopeKey?: string): StoreInstanceLike }
+        instance = handle.create(scopeKey)
+        perScope.set(cacheKey, instance)
+      }
+      return instance
+    },
+    sessions: {
+      list,
+      current,
+      cell: (id) => cells.get(id),
+    },
   }
-  return core as unknown as SlotCore & typeof core
+  return {
+    host,
+    list,
+    current,
+    declare: (key: string, spec: DeclaredSpec) => { specs.set(key, spec); bump(key) },
+    add: (key: string, partial: Omit<StoredEntry, 'options'> & { options?: StoredEntry['options'] }) => {
+      const entry = entryOf(partial)
+      entries.set(key, [...(entries.get(key) ?? []), entry])
+      live.add(entry)
+      bump(key)
+      return () => {
+        entries.set(key, (entries.get(key) ?? []).filter((e) => e !== entry))
+        live.delete(entry)
+        bump(key)
+      }
+    },
+    addSession: (id: string): SessionCell => {
+      // Bare source per cell (identity-stable): the machinery binds useSession from it.
+      const cell: SessionCell = {
+        sessionId: id,
+        session: { getSnapshot: () => ({ sid: id }), subscribe: () => () => {} },
+      }
+      cells.set(id, cell)
+      return cell
+    },
+  }
 }
 
-const useSelectorStub = (() => { throw new Error('unused in these specs') }) as never
+type Fake = ReturnType<typeof makeHost>
 
-const makeBinding = (sessionId: string): SessionBinding => ({
-  sessionId, session: { useSelector: useSelectorStub }, ctx: { tag: sessionId },
-})
-
-/** Mount ui under a SessionProvider bound to one switchable session. */
-function sessionHarness(body: (id: string) => React.ReactNode, bindings: Record<string, SessionBinding>) {
-  const current = createSnapshotStore<{ id: string | undefined }>({ id: undefined })
-  const deps: SessionProviderDeps = {
-    useCurrent: () => current.useSelector((s) => s.id),
-    resolveBinding: (id) => bindings[id],
-    renderBody: body,
-  }
-  const Provider = createSessionProvider(deps)
-  return { current, Provider }
+/** Mount a root entry whose component renders `body` with its kit renderSlot. */
+function mountRoot(h: Fake, children: Record<string, DeclaredSpec>, body: (renderSlot: RenderSlotFn) => ReactNode) {
+  const dispose = h.add('root', {
+    component: (props: { renderSlot: RenderSlotFn }) => <>{body(props.renderSlot)}</>,
+    children,
+  })
+  const renderer = createSlotRenderer()
+  const view = render(<>{renderer.renderRoot(h.host, {})}</>)
+  return { view, dispose }
 }
 
-describe('scopedSlots basics', () => {
-  it('throws on renderSlot before define and on non-whitelisted keys', () => {
-    const core = makeFakeCore()
-    const slots = scopedSlots(core, 'fake.root' as never)
-    expect(() => slots.renderSlot('fake.session' as never, {})).toThrow(/whitelist/)
+const SINGLE_ROOT: DeclaredSpec = { kind: 'single', scope: 'root' }
+const SINGLE_SESSION: DeclaredSpec = { kind: 'single', scope: 'session' }
+
+describe('root outlet', () => {
+  it('renders the root registration and fails loud when root is unregistered (boot order)', () => {
+    const h = makeHost()
+    h.add('root', { component: () => <b>shell</b> })
+    const renderer = createSlotRenderer()
+    const view = render(<>{renderer.renderRoot(h.host, {})}</>)
+    expect(view.container.textContent).toBe('shell')
+
+    const empty = makeHost()
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    expect(() => render(<>{slots.renderSlot('fake.root' as never, {})}</>)).toThrow(/before define/)
+    expect(() => render(<>{createSlotRenderer().renderRoot(empty.host, {})}</>))
+      .toThrow(/boot order/)
     spy.mockRestore()
   })
 
-  it('renders single-kind root slots, falls back when empty, live-updates on register/dispose', () => {
-    const core = makeFakeCore()
-    core.define('fake.root', { kind: 'single', scope: 'root' })
-    const slots = scopedSlots(core, 'fake.root' as never)
-    const view = render(<>{slots.renderSlot('fake.root' as never, {}, { fallback: <i>none</i> })}</>)
+  it('passes renderRoot owner props into the root component', () => {
+    const h = makeHost()
+    h.add('root', { component: ({ tag }: { tag?: string }) => <b>{tag}</b> })
+    const view = render(<>{createSlotRenderer().renderRoot(h.host, { tag: 'OWNER' })}</>)
+    expect(view.container.textContent).toBe('OWNER')
+  })
+})
+
+describe('child outlets and the renderSlot binding', () => {
+  it('renders declared single slots live: fallback when empty, register, dispose back', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    const { view } = mountRoot(h, { 'k.single': SINGLE_ROOT },
+      (renderSlot) => renderSlot('k.single', {}, { fallback: <i>none</i> }))
     expect(view.container.textContent).toBe('none')
     let dispose = () => {}
-    act(() => { dispose = core.register('fake.root', () => <b>SB</b>) })
+    act(() => { dispose = h.add('k.single', { component: () => <b>SB</b> }) })
     expect(view.container.textContent).toBe('SB')
     act(() => { dispose() })
     expect(view.container.textContent).toBe('none')
   })
 
-  it('renders list slots in order, honors only-filter, keyed slots dispatch by entryKey', () => {
-    const core = makeFakeCore()
-    core.define('fake.list', { kind: 'list', scope: 'root' })
-    core.define('fake.keyed', { kind: 'keyed', scope: 'root' })
-    core.register('fake.list', () => <span>b</span>, { id: 'b', order: 2 })
-    core.register('fake.list', () => <span>a</span>, { id: 'a', order: 1 })
-    core.register('fake.keyed', () => <span>goal</span>, { key: 'goal' })
-    const slots = scopedSlots(core, 'fake.list' as never, 'fake.keyed' as never)
-    const list = render(<>{slots.renderSlot('fake.list' as never, {})}</>)
-    expect(list.container.textContent).toBe('ab')
-    const only = render(<>{slots.renderSlot('fake.list' as never, {}, { only: 'b' })}</>)
-    expect(only.container.textContent).toBe('b')
-    const hit = render(<>{slots.renderSlot('fake.keyed' as never, {}, { entryKey: 'goal' })}</>)
-    expect(hit.container.textContent).toBe('goal')
-    const miss = render(
-      <>{slots.renderSlot('fake.keyed' as never, {}, { entryKey: 'nope', fallback: <i>fb</i> })}</>)
-    expect(miss.container.textContent).toBe('fb')
+  it('renders an undeclared key as empty (declaring entry unloaded = natural blank, not a crash)', () => {
+    const h = makeHost()
+    const { view } = mountRoot(h, { 'k.single': SINGLE_ROOT },
+      (renderSlot) => <main>{renderSlot('k.single', {}, { fallback: <i>fb</i> })}</main>)
+    // Declared by children (authorization) but absent from the ledger (specOf
+    // undefined): the outlet renders nothing, not even the fallback path's spec dispatch.
+    expect(view.container.querySelector('main')!.textContent).toBe('')
   })
 
-  it('contains a throwing root inject factory to its own entry (P1 whiteout regression)', () => {
-    const core = makeFakeCore()
-    core.define('fake.list', { kind: 'list', scope: 'root' })
-    core.register('fake.list', () => <span>never</span>, {
-      id: 'bad', order: 1,
-      inject: (() => { throw new Error('inject boom') }) as unknown as InjectFactory<SlotEntryDef>,
+  it('orders list entries, honors only-filter, dispatches keyed entries by entryKey', () => {
+    const h = makeHost()
+    h.declare('k.list', { kind: 'list', scope: 'root' })
+    h.declare('k.keyed', { kind: 'keyed', scope: 'root' })
+    h.add('k.list', { component: () => <span>b</span>, options: { id: 'b', order: 2 } })
+    h.add('k.list', { component: () => <span>a</span>, options: { id: 'a', order: 1 } })
+    h.add('k.keyed', { component: () => <span>goal</span>, options: { key: 'goal' } })
+    const children = { 'k.list': { kind: 'list', scope: 'root' } as DeclaredSpec, 'k.keyed': { kind: 'keyed', scope: 'root' } as DeclaredSpec }
+    const { view } = mountRoot(h, children, (renderSlot) => <>
+      <main>{renderSlot('k.list', {})}</main>
+      <aside>{renderSlot('k.list', {}, { only: 'b' })}</aside>
+      <nav>{renderSlot('k.keyed', {}, { entryKey: 'goal' })}</nav>
+      <footer>{renderSlot('k.keyed', {}, { entryKey: 'nope', fallback: <i>fb</i> })}</footer>
+    </>)
+    expect(view.container.querySelector('main')!.textContent).toBe('ab')
+    expect(view.container.querySelector('aside')!.textContent).toBe('b')
+    expect(view.container.querySelector('nav')!.textContent).toBe('goal')
+    expect(view.container.querySelector('footer')!.textContent).toBe('fb')
+  })
+
+  it('keeps the binding identity-stable across re-renders and throws SlotOwnershipError off-declaration', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    const seen: RenderSlotFn[] = []
+    mountRoot(h, { 'k.single': SINGLE_ROOT }, (renderSlot) => {
+      seen.push(renderSlot)
+      return renderSlot('k.single', {})
     })
-    core.register('fake.list', () => <span>alive</span>, { id: 'ok', order: 2 })
-    const slots = scopedSlots(core, 'fake.list' as never)
-    const root: RootBinding = { ctx: {} }
+    // Bump the 'root' key to force a root-entry re-render (the single-kind
+    // outlet only reads entries[0], so the extra entry is inert).
+    act(() => { h.add('root', { component: () => null }) })
+    expect(seen.length).toBeGreaterThan(1)
+    expect(seen.at(-1)).toBe(seen[0])
+    expect(() => seen[0]!('k.undeclared', {})).toThrow(SlotOwnershipError)
+  })
+
+  it('isolates a crashing entry without collapsing siblings', () => {
+    const h = makeHost()
+    h.declare('k.list', { kind: 'list', scope: 'root' })
+    h.add('k.list', { component: () => { throw new Error('entry boom') }, options: { id: 'bad', order: 1 } })
+    h.add('k.list', { component: () => <span>alive</span>, options: { id: 'ok', order: 2 } })
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const view = render(
-      <RootBindingProvider value={root}>
-        <main>{slots.renderSlot('fake.list' as never, {})}</main>
-      </RootBindingProvider>,
-    )
+    const { view } = mountRoot(h, { 'k.list': { kind: 'list', scope: 'root' } },
+      (renderSlot) => renderSlot('k.list', {}))
+    spy.mockRestore()
+    expect(view.container.textContent).toBe('alive')
+    expect(view.container.querySelector('[data-slot-error]')).not.toBeNull()
+  })
+})
+
+describe('standard-kit synthesis', () => {
+  it('delivers a live useSessions hook to every slot component', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    h.add('k.single', {
+      component: ({ useSessions }: { useSessions: <S>(sel: (s: { ids: string[] }) => S) => S }) =>
+        <b>{useSessions((s) => s.ids.length)}</b>,
+    })
+    const { view } = mountRoot(h, { 'k.single': SINGLE_ROOT }, (renderSlot) => renderSlot('k.single', {}))
+    expect(view.container.textContent).toBe('0')
+    act(() => { h.list.set({ ids: ['a', 'b'] }) })
+    expect(view.container.textContent).toBe('2')
+  })
+
+  it('delivers the session pair (bound useSession + sessionId) under SessionProvider', () => {
+    const h = makeHost()
+    h.declare('k.session', SINGLE_SESSION)
+    h.addSession('s1')
+    const seen: AnyProps[] = []
+    h.add('k.session', {
+      component: (props: { useSession?: <S>(sel: (s: { sid: string }) => S) => S; sessionId?: string }) => {
+        seen.push({ ...props, read: props.useSession!((s) => s.sid) })
+        return null
+      },
+    })
+    mountRoot(h, { 'k.session': SINGLE_SESSION }, (renderSlot) => (
+      <SessionProvider empty={() => <i>empty</i>}>
+        {() => renderSlot('k.session', {})}
+      </SessionProvider>
+    ))
+    act(() => { h.current.set('s1') })
+    const props = seen.at(-1)!
+    // The hook is BOUND by the machinery from the cell's bare source: it
+    // reads the source's snapshot and stays identity-stable across renders
+    // (per-source cache), which the switch-back cache tests cover.
+    expect(props['read']).toBe('s1')
+    expect(props['sessionId']).toBe('s1')
+  })
+
+  it('hands the SessionProvider seat to entries declaring a session-scope child', () => {
+    const h = makeHost()
+    h.declare('k.session', SINGLE_SESSION)
+    h.declare('k.single', SINGLE_ROOT)
+    h.addSession('s1')
+    h.add('k.session', { component: ({ sessionId }: { sessionId?: string }) => <b>{sessionId}</b> })
+    const rootSeen: AnyProps[] = []
+    // Root entry uses its INJECTED provider seat (no value import of SessionProvider).
+    h.add('root', {
+      component: (props: AnyProps) => {
+        rootSeen.push(props)
+        const Provider = props['SessionProvider'] as typeof SessionProvider
+        const renderSlot = props['renderSlot'] as RenderSlotFn
+        return (
+          <Provider empty={() => <i>empty</i>}>
+            {() => renderSlot('k.session', {})}
+          </Provider>
+        )
+      },
+      children: { 'k.session': SINGLE_SESSION },
+    })
+    const view = render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
+    expect(view.container.textContent).toBe('empty')
+    act(() => { h.current.set('s1') })
+    expect(view.container.textContent).toBe('s1')
+
+    // Entries whose children are all root-scope get no provider seat.
+    const h2 = makeHost()
+    h2.declare('k.single', SINGLE_ROOT)
+    const seen2: AnyProps[] = []
+    h2.add('root', {
+      component: (props: AnyProps) => { seen2.push(props); return null },
+      children: { 'k.single': SINGLE_ROOT },
+    })
+    render(<>{createSlotRenderer().renderRoot(h2.host, {})}</>)
+    expect(seen2.at(-1)!['SessionProvider']).toBeUndefined()
+  })
+
+  it('fails loud when a session slot renders outside SessionProvider', () => {
+    const h = makeHost()
+    h.declare('k.session', SINGLE_SESSION)
+    h.add('k.session', { component: () => <b>x</b> })
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(() => mountRoot(h, { 'k.session': SINGLE_SESSION },
+      (renderSlot) => renderSlot('k.session', {}))).toThrow(/outside SessionProvider/)
+    spy.mockRestore()
+  })
+
+  it('delivers the store pair for store-declaring entries and writes through baked actions', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    const handle = miniStore(() => ({ n: 0 }), { inc: (s) => ({ n: s.n + 1 }) })
+    let bump = () => {}
+    h.add('k.single', {
+      component: ({ useStore, actions }: {
+        useStore: <S>(sel: (s: { n: number }) => S) => S
+        actions: { inc: () => void }
+      }) => {
+        bump = actions.inc
+        return <b>{useStore((s) => s.n)}</b>
+      },
+      store: handle,
+    })
+    const { view } = mountRoot(h, { 'k.single': SINGLE_ROOT }, (renderSlot) => renderSlot('k.single', {}))
+    expect(view.container.textContent).toBe('0')
+    act(() => { bump() })
+    expect(view.container.textContent).toBe('1')
+  })
+
+  it('resolves session-slot stores per scope key: values survive a switch-away and back', () => {
+    const h = makeHost()
+    h.declare('k.session', SINGLE_SESSION)
+    h.addSession('s1')
+    h.addSession('s2')
+    const handle = miniStore(() => ({ draft: '' }), { setDraft: (_s, text: string) => ({ draft: text }) })
+    let setDraft: (text: string) => void = () => {}
+    h.add('k.session', {
+      component: ({ useStore, actions }: {
+        useStore: <S>(sel: (s: { draft: string }) => S) => S
+        actions: { setDraft: (text: string) => void }
+      }) => {
+        setDraft = actions.setDraft
+        return <b>{useStore((s) => s.draft) || '(blank)'}</b>
+      },
+      store: handle,
+    })
+    const { view } = mountRoot(h, { 'k.session': SINGLE_SESSION }, (renderSlot) => (
+      <SessionProvider>{() => renderSlot('k.session', {})}</SessionProvider>
+    ))
+    act(() => { h.current.set('s1') })
+    act(() => { setDraft('draft-one') })
+    expect(view.container.textContent).toBe('draft-one')
+    act(() => { h.current.set('s2') })
+    expect(view.container.textContent).toBe('(blank)')   // distinct instance per session
+    act(() => { h.current.set('s1') })
+    expect(view.container.textContent).toBe('draft-one') // same scope key = same instance
+  })
+})
+
+describe('inject: execution point, parameter derivation, cache granularity', () => {
+  it('root inject runs once per entry with no arguments (no store declared)', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    const inject = vi.fn(() => ({ tag: 'FROM-INJECT' }))
+    h.add('k.single', { component: ({ tag }: { tag?: string }) => <b>{tag}</b>, inject })
+    const { view } = mountRoot(h, { 'k.single': SINGLE_ROOT }, (renderSlot) => renderSlot('k.single', {}))
+    expect(view.container.textContent).toBe('FROM-INJECT')
+    act(() => { h.add('k.single', { component: () => null }) })   // sibling bump re-renders the outlet
+    expect(inject).toHaveBeenCalledTimes(1)
+    expect(inject).toHaveBeenCalledWith()
+  })
+
+  it('session inject receives sessionId and caches per (entry x session): switch-back reuses', () => {
+    const h = makeHost()
+    h.declare('k.session', SINGLE_SESSION)
+    h.addSession('s1')
+    h.addSession('s2')
+    const inject = vi.fn((sessionId: string) => ({ sid: sessionId }))
+    h.add('k.session', {
+      component: ({ sid }: { sid?: string }) => <b>{sid}</b>,
+      inject: inject as unknown as StoredEntry['inject'],
+    })
+    const { view } = mountRoot(h, { 'k.session': SINGLE_SESSION }, (renderSlot) => (
+      <SessionProvider>{() => renderSlot('k.session', {})}</SessionProvider>
+    ))
+    act(() => { h.current.set('s1') })
+    expect(view.container.textContent).toBe('s1')
+    expect(inject).toHaveBeenCalledTimes(1)
+    expect(inject).toHaveBeenLastCalledWith('s1')
+    act(() => { h.current.set('s2') })
+    expect(view.container.textContent).toBe('s2')
+    expect(inject).toHaveBeenCalledTimes(2)
+    act(() => { h.current.set('s1') })   // back: (entry x cell) cache hit
+    expect(view.container.textContent).toBe('s1')
+    expect(inject).toHaveBeenCalledTimes(2)
+  })
+
+  it('store-declaring entries get baked actions appended to the inject parameters', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    h.declare('k.session', SINGLE_SESSION)
+    h.addSession('s1')
+    const handle = miniStore(() => ({ n: 0 }), { inc: (s) => ({ n: s.n + 1 }) })
+    const rootInject = vi.fn((actions: { inc: () => void }) => ({ viaRoot: actions }))
+    const sessionInject = vi.fn((sessionId: string, actions: { inc: () => void }) => ({ sid: sessionId, viaSession: actions }))
+    const seenRoot: AnyProps[] = []
+    const seenSession: AnyProps[] = []
+    h.add('k.single', {
+      component: (props: object) => { seenRoot.push(props as AnyProps); return null },
+      inject: rootInject as unknown as StoredEntry['inject'],
+      store: handle,
+    })
+    h.add('k.session', {
+      component: (props: object) => { seenSession.push(props as AnyProps); return null },
+      inject: sessionInject as unknown as StoredEntry['inject'],
+      store: handle,
+    })
+    mountRoot(h, { 'k.single': SINGLE_ROOT, 'k.session': SINGLE_SESSION }, (renderSlot) => <>
+      {renderSlot('k.single', {})}
+      <SessionProvider>{() => renderSlot('k.session', {})}</SessionProvider>
+    </>)
+    act(() => { h.current.set('s1') })
+    // The inject-received actions are the same baked callbacks the component
+    // gets as props.actions (one instance per entry x scope key).
+    expect(rootInject).toHaveBeenCalledTimes(1)
+    expect(seenRoot.at(-1)!['viaRoot']).toBe(seenRoot.at(-1)!['actions'])
+    expect(sessionInject).toHaveBeenCalledTimes(1)
+    expect(sessionInject.mock.calls[0]![0]).toBe('s1')
+    expect(seenSession.at(-1)!['viaSession']).toBe(seenSession.at(-1)!['actions'])
+  })
+
+  it('contains a throwing inject factory to its own entry (runs inside the component body)', () => {
+    const h = makeHost()
+    h.declare('k.list', { kind: 'list', scope: 'root' })
+    h.add('k.list', {
+      component: () => <span>never</span>,
+      options: { id: 'bad', order: 1 },
+      inject: () => { throw new Error('inject boom') },
+    })
+    h.add('k.list', { component: () => <span>alive</span>, options: { id: 'ok', order: 2 } })
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { view } = mountRoot(h, { 'k.list': { kind: 'list', scope: 'root' } },
+      (renderSlot) => <main>{renderSlot('k.list', {})}</main>)
     spy.mockRestore()
     // The failing entry blacks out alone; the sibling and the tree above survive.
     expect(view.container.querySelector('main')).not.toBeNull()
@@ -144,131 +491,20 @@ describe('scopedSlots basics', () => {
     expect(view.container.querySelector('[data-slot-error]')).not.toBeNull()
   })
 
-  it('contains a throwing session inject factory to its own entry', () => {
-    const core = makeFakeCore()
-    core.define('fake.session', { kind: 'single', scope: 'session' })
-    core.register('fake.session', () => <span>never</span>, {
-      inject: (() => { throw new Error('session inject boom') }) as unknown as InjectFactory<SlotEntryDef>,
+  it('merges kit, inject, and owner props with owner winning', () => {
+    const h = makeHost()
+    h.declare('k.single', SINGLE_ROOT)
+    const seen: AnyProps[] = []
+    h.add('k.single', {
+      component: (props: object) => { seen.push(props as AnyProps); return null },
+      inject: () => ({ fromInject: 'inject', shared: 'inject' }),
     })
-    const slots = scopedSlots(core, 'fake.session' as never)
-    const bindings = { s1: makeBinding('s1') }
-    const { current, Provider } = sessionHarness(
-      (id) => <main data-shell={id}>{slots.renderSlot('fake.session' as never, {})}</main>, bindings)
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const view = render(<Provider />)
-    act(() => { current.update((d) => { d.id = 's1' }) })
-    spy.mockRestore()
-    expect(view.container.querySelector('[data-shell]')).not.toBeNull()
-    expect(view.container.querySelector('[data-slot-error]')).not.toBeNull()
-  })
-
-  it('isolates a crashing entry without collapsing siblings', () => {
-    const core = makeFakeCore()
-    core.define('fake.list', { kind: 'list', scope: 'root' })
-    core.register('fake.list', () => { throw new Error('entry boom') }, { id: 'bad', order: 1 })
-    core.register('fake.list', () => <span>alive</span>, { id: 'ok', order: 2 })
-    const slots = scopedSlots(core, 'fake.list' as never)
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const view = render(<>{slots.renderSlot('fake.list' as never, {})}</>)
-    spy.mockRestore()
-    expect(view.container.textContent).toBe('alive')
-    expect(view.container.querySelector('[data-slot-error]')).not.toBeNull()
-  })
-})
-
-describe('inject caching and props merge', () => {
-  it('root inject runs once per entry and receives the root binding ctx', () => {
-    const core = makeFakeCore()
-    core.define('fake.root', { kind: 'single', scope: 'root' })
-    const inject = vi.fn((b: RootBinding) => ({ tag: (b.ctx as { tag: string }).tag }))
-    core.register('fake.root', ({ tag }: { tag?: string }) => <b>{tag}</b>,
-      { inject: inject as unknown as InjectFactory<SlotEntryDef> })
-    const slots = scopedSlots(core, 'fake.root' as never)
-    const root: RootBinding = { ctx: { tag: 'ROOT' } }
-    const view = render(
-      <RootBindingProvider value={root}>
-        {slots.renderSlot('fake.root' as never, {})}
-      </RootBindingProvider>,
-    )
-    expect(view.container.textContent).toBe('ROOT')
-    view.rerender(
-      <RootBindingProvider value={root}>
-        {slots.renderSlot('fake.root' as never, {})}
-      </RootBindingProvider>,
-    )
-    expect(inject).toHaveBeenCalledTimes(1)
-  })
-
-  it('root slots with inject throw without RootBindingProvider; plain entries do not need it', () => {
-    const core = makeFakeCore()
-    core.define('fake.root', { kind: 'single', scope: 'root' })
-    core.register('fake.root', () => <b>plain</b>)
-    const slots = scopedSlots(core, 'fake.root' as never)
-    const view = render(<>{slots.renderSlot('fake.root' as never, {})}</>)
-    expect(view.container.textContent).toBe('plain')
-
-    const core2 = makeFakeCore()
-    core2.define('fake.root', { kind: 'single', scope: 'root' })
-    core2.register('fake.root', () => <b>x</b>,
-      { inject: (() => ({})) as unknown as InjectFactory<SlotEntryDef> })
-    const slots2 = scopedSlots(core2, 'fake.root' as never)
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    expect(() => render(<>{slots2.renderSlot('fake.root' as never, {})}</>))
-      .toThrow(/RootBindingProvider/)
-    spy.mockRestore()
-  })
-
-  it('session inject caches per (entry x binding): session switch re-invokes, switch-back reuses', () => {
-    const core = makeFakeCore()
-    core.define('fake.session', { kind: 'single', scope: 'session' })
-    const inject = vi.fn((b: { sessionId: string }) => ({ sid: b.sessionId }))
-    core.register('fake.session', ({ sid }: { sid?: string }) => <b>{sid}</b>,
-      { inject: inject as unknown as InjectFactory<SlotEntryDef> })
-    const slots = scopedSlots(core, 'fake.session' as never)
-    const bindings = { s1: makeBinding('s1'), s2: makeBinding('s2') }
-    const { current, Provider } = sessionHarness(
-      () => slots.renderSlot('fake.session' as never, {}), bindings)
-    const view = render(<Provider />)
-    act(() => { current.update((d) => { d.id = 's1' }) })
-    expect(view.container.textContent).toBe('s1')
-    expect(inject).toHaveBeenCalledTimes(1)
-    act(() => { current.update((d) => { d.id = 's2' }) })
-    expect(view.container.textContent).toBe('s2')
-    expect(inject).toHaveBeenCalledTimes(2)
-    act(() => { current.update((d) => { d.id = 's1' }) })   // back: cache hit
-    expect(view.container.textContent).toBe('s1')
-    expect(inject).toHaveBeenCalledTimes(2)
-  })
-
-  it('session slots receive standard useSession injection and owner props win the merge', () => {
-    const core = makeFakeCore()
-    core.define('fake.session', { kind: 'single', scope: 'session' })
-    const seen: Record<string, unknown>[] = []
-    core.register('fake.session', (props: object) => {
-      seen.push(props as Record<string, unknown>)
-      return null
-    }, { inject: (() => ({ fromInject: 'inject', shared: 'inject' })) as unknown as InjectFactory<SlotEntryDef> })
-    const slots = scopedSlots(core, 'fake.session' as never)
-    const bindings = { s1: makeBinding('s1') }
-    const { current, Provider } = sessionHarness(
-      () => slots.renderSlot('fake.session' as never, { owner: 'owner', shared: 'owner' } as never), bindings)
-    render(<Provider />)
-    act(() => { current.update((d) => { d.id = 's1' }) })
+    mountRoot(h, { 'k.single': SINGLE_ROOT },
+      (renderSlot) => renderSlot('k.single', { owner: 'owner', shared: 'owner' }))
     const props = seen.at(-1)!
-    expect(props.useSession).toBe(bindings.s1.session.useSelector)
-    expect(props.fromInject).toBe('inject')
-    expect(props.owner).toBe('owner')
-    expect(props.shared).toBe('owner')   // three-source merge: owner overrides inject
-  })
-
-  it('session slots outside a SessionProvider fail loud', () => {
-    const core = makeFakeCore()
-    core.define('fake.session', { kind: 'single', scope: 'session' })
-    core.register('fake.session', () => <b>x</b>)
-    const slots = scopedSlots(core, 'fake.session' as never)
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    expect(() => render(<>{slots.renderSlot('fake.session' as never, {})}</>))
-      .toThrow(/outside SessionProvider/)
-    spy.mockRestore()
+    expect(typeof props['useSessions']).toBe('function')   // kit always present
+    expect(props['fromInject']).toBe('inject')
+    expect(props['owner']).toBe('owner')
+    expect(props['shared']).toBe('owner')   // owner overrides inject
   })
 })

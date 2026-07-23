@@ -35,7 +35,6 @@
   "license": "BSD-3-Clause",
   "dependencies": {
     "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
-    "@deepseek-ai/dsh-client-web-react": "workspace:^",
     "react": "^18.2.0"
   },
   "peerDependencies": {

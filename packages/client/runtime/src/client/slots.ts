@@ -1,22 +1,84 @@
 /**
- * SlotsService: cordis Service wrapper over the pure SlotCore (ui-slots).
- * Every mutation re-emits as the 'slots/changed' cordis event; define/register
- * run through the caller's ctx.effect so a plugin's registrations are
- * collected when its fiber unloads (cordis-native cascade).
+ * SlotsService: the cordis Service layer of the slot system over the pure
+ * SlotCore (ui-slots owns registration semantics, the declaration ledger,
+ * the load-time validations, and the unload cascade). This layer owns what
+ * needs the runtime: the 'slots/changed' event bridge, register through the
+ * caller's ctx.effect (fiber unload collects registrations), the renderer
+ * install seam (install()/renderSlot('root') + the SlotRendererHost face),
+ * and the store INSTANCE axis — handle x scope key -> create/cache, dropped
+ * with the last holding entry, session instances cleared (with persisted
+ * state) on scope death.
  */
 /* eslint-disable @typescript-eslint/no-redundant-type-constituents --
- * `keyof SlotMap & string` is the declare-merge key pattern: SlotMap is empty
- * in this compilation unit (intersection reads `never`) but consumers merge
- * keys in; the rule fires on the empty-map view, not on real redundancy. */
+ * `keyof SlotMap & string` is the declare-merge key pattern: SlotMap only
+ * holds this package's 'root' row in this compilation unit, but consumers
+ * merge keys in; the rule fires on the narrow-map view, not on real
+ * redundancy. */
 import { Service } from 'cordis'
 import type { Context } from 'cordis'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ComposedProps, RegisterArgs, SlotComponent, SlotEntry, SlotEntryDef, SlotMap, SlotSpec } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ClientContext } from './index.ts'
+import type {
+  OwnerOf, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
+  SlotScope, SlotSpec, StoreDecl, StoredEntry, StoreInstanceLike,
+} from '@deepseek-ai/dsh-client-ui-slots'
 
-/** cordis Service wrapper over the pure SlotCore; mutations re-emit as 'slots/changed'. */
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    /** The built-in render-tree root hole (seeded by SlotCore): rendered only by the shell, occupied by a layout entry. */
+    'root': { kind: 'single'; scope: 'root'; owner: RootOwnerProps }
+  }
+}
+
+/** Root owner share: the shell supplies nothing — the frame is inject-assembled. */
+export interface RootOwnerProps { children?: never }
+
+/** Instance key for root-scoped store records (session records key by session id, so the literal cannot collide). */
+const ROOT_INSTANCE_KEY = 'root'
+
+// FIXME(slot-parity): the engine's arbitrated persist extensions — create()
+// takes the scope key (per-session localStorage suffix) and instances expose
+// clearPersisted() — are not yet on ui-slots' StoreHandle/StoreInstanceLike;
+// these local structural faces bridge until fw-slots lifts them.
+
+/** Store handle face as the engine actually ships it (scope-key-aware create). */
+interface EngineStoreHandle { create(scopeKey?: string): EngineStoreInstance }
+
+/** Engine instance face: the host-contract shape plus persisted-state cleanup. */
+interface EngineStoreInstance extends StoreInstanceLike { clearPersisted(): void }
+
+/** Store axis record: one per live handle, dropped when the last holding entry unloads. */
+interface StoreAxisRecord {
+  /** Scope of the slot the handle mounted under (the core validated cross-scope conflicts). */
+  scope: SlotScope
+  /** Live registrations holding the handle. */
+  refs: number
+  /** Root scope: the single instance under {@link ROOT_INSTANCE_KEY}; session scope: one per session id. */
+  instances: Map<string, EngineStoreInstance>
+}
+
+/** Type-erased options view the implementation works with (the typed overloads proved the shares). */
+interface ErasedRegisterOptions {
+  name: string
+  children?: Record<string, SlotSpec<SlotEntryDef>>
+  store?: StoreDecl
+  inject?: (...args: never[]) => Record<string, unknown>
+  key?: string
+  id?: string
+  order?: number
+  label?: string
+  registrant?: string
+}
+
+/** Erased core call face (the service re-erases at its own boundary; the core's typed face targets end callers). */
+interface ErasedCore { register(options: object, component: unknown): () => void }
+
+/** cordis Service layer of the slot system; see the module doc for the split with SlotCore. */
 export class SlotsService extends Service {
   private readonly _core = new SlotCore()
+  /** Store-instance axis: handle -> mounted scope, refcount, resolved instances. */
+  private readonly _stores = new Map<EngineStoreHandle, StoreAxisRecord>()
+  private _renderer: SlotRenderer | undefined
+  private _host: SlotRendererHost | undefined
 
   /**
    * @param ctx - owning root context.
@@ -27,58 +89,97 @@ export class SlotsService extends Service {
   }
 
   /**
-   * Record a slot spec (delegates to SlotCore.define; disposal follows the caller's fiber).
-   * @param key - SlotMap key.
-   * @param spec - kind/scope spec.
-   * @returns disposer.
+   * The single registration API. The typed face IS the core's register
+   * (both overloads reused verbatim — one authority, no structural copy;
+   * see SlotCore.register for children declaration, store seat, inject
+   * face, load-time validation, and the unload cascade). This layer adds:
+   * disposal through the caller's ctx.effect (fiber unload = cascade),
+   * exclusive-factory minting (`store: createXxxStore` becomes a per-entry
+   * handle), the registrant diagnostics stamp, and store-instance lifecycle
+   * on the entry axis.
+   *
+   * Declared here, implemented by prototype assignment below the class: it
+   * MUST stay a prototype method (never an instance arrow) — the cordis
+   * service proxy binds `this.ctx` to the CALLER's context at call time,
+   * which is what routes the effect (and the unload cascade) into the
+   * caller's fiber. An arrow property would freeze `this` to the service's
+   * own root ctx and silently break per-plugin disposal.
    */
-  define<K extends keyof SlotMap & string>(key: K, spec: SlotSpec<SlotMap[K]>): () => void {
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return this.ctx.effect(() => this._core.define(key, spec), 'slots.define()')
+  declare readonly register: SlotCore['register']
+
+  /**
+   * Install the shell's renderer (web-react's createSlotRenderer product).
+   * Boot-once: a second install throws. Runs through the caller's ctx.effect,
+   * so shell fiber unload uninstalls the renderer.
+   * @param renderer - the outlet machinery implementing SlotRenderer.
+   */
+  install(renderer: SlotRenderer): void {
+    if (this._renderer !== undefined) throw new Error('slot renderer already installed (install() is boot-once)')
+    this.ctx.effect(() => {
+      this._renderer = renderer
+      return () => {
+        if (this._renderer === renderer) this._renderer = undefined
+      }
+    }, 'slots.install()')
   }
 
   /**
-   * Contribute a component (delegates to SlotCore.register; disposal follows the caller's fiber).
-   * @param key - SlotMap key.
-   * @param component - contributed component.
-   * @param args - kind-shaped options (mandatory for keyed/list kinds); the
-   * inject factory's binding is pinned to ClientContext.
-   * @returns disposer.
+   * The single ctx-level render entry: the shell renders 'root'; every other
+   * key renders inside components through the props renderSlot face. All
+   * three guards are fail-loud boot-order checks, no fallback.
+   * @param key - must be 'root' (runtime-enforced for dynamically composed callers).
+   * @param owner - owner share for the root entry (the shell supplies {}).
+   * @returns the rendered root tree.
    */
-  register<K extends keyof SlotMap & string, I extends object = Record<string, unknown>>(
-    // Client-context registrations have exactly one ctx shape: pin Ctx to
-    // ClientContext so inject factories dot services without a cast.
-    key: K, component: SlotComponent<ComposedProps<K, NoInfer<I>>>,
-    ...args: RegisterArgs<SlotMap[K], I, ClientContext>): () => void {
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
-    return this.ctx.effect(() => this._core.register<K, I, ClientContext>(key, component, ...args), 'slots.register()')
+  renderSlot<K extends keyof SlotMap & string>(key: K, owner: OwnerOf<K>): ReturnType<SlotRenderer['renderRoot']> {
+    // Widened: in this package's own program SlotMap holds only 'root', which
+    // would fold the guard to constant-false; the check exists for plain-JS
+    // and cross-program callers where K is wider.
+    if ((key as string) !== 'root') {
+      throw new Error(`ctx-level renderSlot only renders 'root' (got "${key}"); child slots render through the component props face`)
+    }
+    if (this._renderer === undefined) {
+      throw new Error("slot renderer not installed — boot must call ctx.slots.install(createSlotRenderer()) before rendering 'root'")
+    }
+    if (this._core.entries('root').length === 0) {
+      throw new Error("'root' has no registration — a layout entry must register into 'root' before the shell renders it")
+    }
+    return this._renderer.renderRoot(this.hostFace(), owner)
   }
 
   /**
-   * Snapshot entries for a key.
-   * @param key - SlotMap key.
-   * @returns registered entries (stable reference between mutations).
+   * Drop the per-session store instances of a dead session (the sessions
+   * service calls this on scope teardown; root-scoped records are untouched).
+   * Persisted state goes with the session — a never-rendered dead session can
+   * still own keys from an earlier page load, so the instance is materialized
+   * transiently just to clear storage (no-op for unpersisted stores).
+   * @param sessionId - the torn-down session.
    */
-  entries<K extends keyof SlotMap & string>(key: K): readonly SlotEntry<SlotMap[K]>[] {
+  pruneStoreScope(sessionId: string): void {
+    for (const [handle, record] of this._stores) {
+      if (record.scope !== 'session') continue
+      const instance = record.instances.get(sessionId) ?? handle.create(sessionId)
+      instance.clearPersisted()
+      record.instances.delete(sessionId)
+    }
+  }
+
+  /**
+   * Snapshot entries for a key (render-erased view; stable reference between mutations).
+   * @param key - SlotMap key.
+   * @returns registered entries.
+   */
+  entries(key: keyof SlotMap & string): readonly StoredEntry[] {
     return this._core.entries(key)
   }
 
   /**
-   * Look up a defined spec.
+   * Look up a declared spec (register-declared or the built-in 'root').
    * @param key - SlotMap key.
    * @returns spec or undefined.
    */
   spec<K extends keyof SlotMap & string>(key: K): SlotSpec<SlotMap[K]> | undefined {
     return this._core.spec(key)
-  }
-
-  /**
-   * Dynamic-key escape hatch for spec lookup (renderer-side string keys).
-   * @param key - candidate slot key.
-   * @returns wide-typed spec or undefined.
-   */
-  specDynamic(key: string): SlotSpec<SlotEntryDef> | undefined {
-    return this._core.specDynamic(key)
   }
 
   /**
@@ -100,8 +201,114 @@ export class SlotsService extends Service {
     return this._core.getVersion(key)
   }
 
-  /** The wrapped pure core (web-react's scopedSlots outlet reads through this). */
-  get core(): SlotCore {
-    return this._core
+  /** Delegating registration path: factory minting + registrant stamp + core write + instance-axis bookkeeping. */
+  private _register(options: ErasedRegisterOptions, component: unknown): () => void {
+    // Exclusive stores pass the factory itself: minted here into a per-entry
+    // handle so the stored entry always carries a resolvable handle (the
+    // core's shared-handle scope pinning applies to it harmlessly).
+    const store = typeof options.store === 'function' ? options.store() : options.store
+    const registrant = options.registrant ?? (this.ctx.fiber as { name?: string } | undefined)?.name
+    const erased: ErasedRegisterOptions = {
+      ...options,
+      ...(store !== undefined ? { store } : {}),
+      ...(registrant !== undefined ? { registrant } : {}),
+    }
+    // Core write first: all load-time validation (undeclared target,
+    // duplicate declaration, kind conflicts, cross-scope handle) throws
+    // there before this layer commits anything.
+    const dispose = (this._core as unknown as ErasedCore).register(erased, component)
+    if (store !== undefined) {
+      // Register succeeded, so the target's spec is on the ledger.
+      const scope = (this._core.specDynamic(options.name) as SlotSpec<never>).scope
+      this._acquire(store, scope)
+    }
+    let disposed = false
+    return () => {
+      if (disposed) return
+      disposed = true
+      dispose()
+      if (store !== undefined) this._release(store)
+    }
+  }
+
+  /** Build (once) the host face the installed renderer reads; sessions resolve lazily at first render. */
+  private hostFace(): SlotRendererHost {
+    if (this._host !== undefined) return this._host
+    const sessions = this.ctx.get('sessions')
+    if (sessions === undefined) {
+      throw new Error("renderSlot('root') before the sessions service mounted — boot order puts runtime apply first")
+    }
+    // Identity-stable view: current rides the list snapshot (arbitrated), but
+    // the provider consumes it as its own observable; one cached object keeps
+    // the renderer's per-source hook cache stable.
+    const current = {
+      getSnapshot: () => sessions.list.getSnapshot().current as string | undefined,
+      subscribe: (fn: () => void) => sessions.list.subscribe(fn),
+    }
+    this._host = {
+      subscribe: (key, fn) => this._core.subscribe(key, fn),
+      getVersion: key => this._core.getVersion(key),
+      entriesOf: key => this._core.entries(key),
+      specOf: key => this._core.specDynamic(key),
+      isLive: entry => this._core.isLive(entry),
+      storeOf: (entry, scopeKey) =>
+        entry.store === undefined ? undefined : this.resolveStore(entry.store as unknown as EngineStoreHandle, scopeKey),
+      sessions: {
+        list: sessions.list,
+        current,
+        cell: id => sessions.cell(id),
+      },
+    }
+    return this._host
+  }
+
+  /** Resolve (create or reuse) the store instance for a registered handle under a scope key. */
+  private resolveStore(handle: EngineStoreHandle, sessionId: string | undefined): StoreInstanceLike {
+    const record = this._stores.get(handle)
+    if (record === undefined) throw new Error('store handle is not registered (entry unloaded, or the handle never went through register)')
+    const key = record.scope === 'session' ? sessionId : ROOT_INSTANCE_KEY
+    if (key === undefined) throw new Error('session-scoped store resolution requires a session id')
+    let instance = record.instances.get(key)
+    if (instance === undefined) {
+      // Session instances get the scope key (the engine suffixes the persist
+      // key per session); root instances stay keyless.
+      instance = record.scope === 'session' ? handle.create(key) : handle.create()
+      record.instances.set(key, instance)
+    }
+    return instance
+  }
+
+  /** Bind (or re-reference) a handle on the axis; cross-scope conflicts already threw in the core. */
+  private _acquire(handle: EngineStoreHandle, scope: SlotScope): void {
+    const record = this._stores.get(handle)
+    if (record === undefined) {
+      this._stores.set(handle, { scope, refs: 1, instances: new Map() })
+      return
+    }
+    record.refs += 1
+  }
+
+  /** Drop one reference; the last holder's unload drops the record (instances go with it — engine stores need no explicit dispose). */
+  private _release(handle: EngineStoreHandle): void {
+    const record = this._stores.get(handle)
+    /* v8 ignore next -- defensive: release only runs from a disposer whose
+     * register acquired the same handle, so the record must exist; kept so a
+     * future call site cannot underflow the axis. */
+    if (record === undefined) return
+    record.refs -= 1
+    if (record.refs === 0) this._stores.delete(handle)
   }
 }
+
+// register's implementation (prototype assignment pairs with the `declare`
+// inside the class — see its JSDoc for why it must live on the prototype).
+// Element access reaches the private _register legally and keeps it a
+// TS-visible read.
+;(SlotsService.prototype as { register: (options: object, component: unknown) => () => void }).register
+  = function register(this: SlotsService, rawOptions: object, component: unknown): () => void {
+    // The core's overloads proved the shares; the implementation works on
+    // the erased view (same pattern as the core's own implementation arm).
+    const options = rawOptions as ErasedRegisterOptions
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    return this.ctx.effect(() => this['_register'](options, component), 'slots.register()')
+  }
