@@ -24,11 +24,11 @@ Prefix-stable; the schema does not change at runtime.
 
 #### What the model sees
 
-`message delivered to running task <taskId>` when the message joined the running activation, or `message started task <taskId> continuing subagent <subagent_id>` when it cold-resumed the child. Failures are errored results whose message states the message was not delivered (unknown or foreign child, ownership conflict, settlement race, no live-delivery capability).
+`message delivered to running task <taskId>` when the message joined the running activation, or `message started task <taskId> continuing subagent <subagent_id>` when it started a cold-resume activation. Synchronous routing failures — an ownership conflict, a lost steering race, no live-delivery capability — are errored results whose message states the message was not delivered. An absent activation always reports `started`: lookup runs inside that Task, so an unknown, foreign, or descriptor-less child surfaces as the started Task settling `failed` (read through `task_output`), not as an errored `send_message` result.
 
 #### Token effect
 
-One short acknowledgement per call; the child's response enters parent history only when collected through `task_output` or injected by the task completion notice.
+One short acknowledgement per call; the child's response enters parent history only when collected through `task_output` (the completion notice is a status line, never the response).
 
 #### KV Cache effect
 

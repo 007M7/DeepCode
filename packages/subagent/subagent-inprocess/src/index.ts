@@ -276,6 +276,19 @@ function driveTurn(
       if (lastBoundary?.type !== 'turn/start') {
         throw new Error(`subagent child "${childId}" turn has already closed; the message was not delivered`)
       }
+      // Terminal turn-stops only run between steps: with no step open, the
+      // loop may be awaiting its continuation/turn-stop checkpoints, where
+      // pending steering was already folded and a terminal decision discards
+      // a later arrival. A message accepted during an OPEN step is instead
+      // drained and recorded at that step's settlement checkpoint before any
+      // terminal decision (cancellation remains the documented shared-outcome
+      // race).
+      const lastStep = child.session.events.findLast(
+        event => event.type === 'step/start' || event.type === 'step/end',
+      )
+      if (lastStep?.type !== 'step/start') {
+        throw new Error(`subagent child "${childId}" is between steps; the message was not delivered`)
+      }
       // A committed structured capture makes the pending `agent/turn-stop`
       // checkpoint terminal, and the loop then discards late steering. The
       // capture is synchronously observable, so reject rather than

@@ -258,6 +258,35 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
+  it('strict steer rejects the between-steps window where a terminal turn-stop discards steering', async () => {
+    // Hold `agent/turn-stop` open: the step has closed, pending steering was
+    // already folded into the continuation decision, and a terminal stop
+    // would discard a message arriving now — the exact window an
+    // acknowledged delivery would be a lie.
+    const { ctx, parent } = await setup([textResponse('quick')])
+    let releaseStop: (() => void) | undefined
+    ctx.on('agent/turn-stop', (agent) => {
+      if (agent.session.header.parentSession === undefined || releaseStop !== undefined) return undefined
+      return new Promise((resolve) => {
+        releaseStop = () => { resolve(undefined) }
+      })
+    })
+    const run = await startInProcessRun(request(parent), {})
+    const child = ctx.agents.get(run.id)!
+    await new Promise<void>((resolve) => {
+      const timer = setInterval(() => {
+        if (releaseStop !== undefined) { clearInterval(timer); resolve() }
+      }, 5)
+    })
+    expect(child.status).toBe('running')
+    expect(() => { run.steer!([{ type: 'text', text: 'too late for this turn' }]) })
+      .toThrow(/between steps; the message was not delivered/)
+    releaseStop!()
+    await run.result
+    expect(child.session.events.some(event => event.type === 'steering/message')).toBe(false)
+    await run.dispose()
+  })
+
   it('strict steer rejects the closed-turn flush window where the loop discards steering', async () => {
     // Hold the turn-end durability flush open: the turn has closed in the log
     // and status is still `running`, exactly the window where the loop would
