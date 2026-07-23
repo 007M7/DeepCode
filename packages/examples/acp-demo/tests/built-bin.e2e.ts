@@ -37,7 +37,8 @@ const dshPackages = [
   'bash/bash-local', 'bash/tool-bash', 'context/workspace-context', 'support/invariants', 'ui/app-boot',
   'session-persistence/session-persistence',
   'session-persistence/session-checkpoint-policy', 'session-persistence/session-persistence-jsonl',
-  'session-query/session-query', 'context/session-reference', 'ui/acp', 'examples/acp-demo', 'util/paths',
+  'session-query/session-query', 'session-query/session-query-sqlite',
+  'context/session-reference', 'ui/acp', 'examples/acp-demo', 'util/paths',
 ]
 const vendorPackages = [
   'cordis', 'loader', 'include', 'timer', 'hmr', 'logger-console',

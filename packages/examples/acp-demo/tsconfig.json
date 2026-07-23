@@ -27,6 +27,9 @@
       "path": "../../session-query/session-query"
     },
     {
+      "path": "../../session-query/session-query-sqlite"
+    },
+    {
       "path": "../../context/session-reference"
     },
     {

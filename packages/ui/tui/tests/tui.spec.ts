@@ -12,7 +12,6 @@ import SkillService, { type SkillDefinition, type SkillSummary } from '@deepseek
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
-import SessionQueryService from '@deepseek-ai/dsh-session-query'
 import SessionReferenceService, { formatSessionReferenceMention } from '@deepseek-ai/dsh-session-reference'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
@@ -33,6 +32,7 @@ import {
   disposeTuiTestHarness,
   type TuiHarnessOptions,
 } from './harness.ts'
+import { TestSessionQueryService } from './session-query.ts'
 
 const UNUSED_TOOL_OUTPUT: ToolDefinition['output'] = {
   schema: { type: 'null' },
@@ -1031,7 +1031,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const result = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
-        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
         const source = ctx.sessions.create(SessionId('source-session'), { meta: { cwd: process.cwd(), createdAt: 1 } })
         sourceId = source.id
@@ -1200,7 +1200,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const result = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
-        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
         const source = ctx.sessions.create(unsafeId, { meta: { cwd: unsafeCwd, createdAt: 1 } })
         appendUser(source, 'safe background')
@@ -1232,7 +1232,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const result = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
-        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
       },
     })
@@ -1297,7 +1297,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const result = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
-        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
       },
     })
@@ -1417,7 +1417,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const result = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
-        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
         ctx.sessions.create(SessionId('source'))
       },
@@ -1467,7 +1467,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const lateSuccess = await setup({
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
-        await ctx.plugin(SessionQueryService)
+        await ctx.plugin(TestSessionQueryService)
         await ctx.plugin(SessionReferenceService)
         ctx.sessions.create(SessionId('source'))
       },
