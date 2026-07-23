@@ -201,7 +201,10 @@ export class ReactLoopAgent extends Agent {
     id: AgentMessageId, content: ContentBlock[], source: MessageSource, wakeup: boolean, options?: SendOptions,
   ): InboxMessage {
     const contexts = options?.contexts ?? []
-    const accepted = snapshotJsonValue({ id, content, source, contexts, wakeup })
+    const accepted = snapshotJsonValue({
+      id, content, source, contexts, wakeup,
+      ...options?.meta !== undefined ? { meta: options.meta } : {},
+    })
     if (accepted === undefined) {
       throw new TypeError('agent message content, source, and contexts must be losslessly JSON-serializable')
     }
@@ -344,6 +347,11 @@ export class ReactLoopAgent extends Agent {
       agentEvents(this.loopCtx, this).emit('agent/cancel-requested', resolvedCause)
     }
     if (!keepInbox) {
+      // Whether the parked driver was already scheduled to run: a waking item
+      // woke `waitForQueued`, so the loop WILL resume and settle idle waiters
+      // itself through the pre-run-cancel path (possibly after a replacement
+      // prompt). Only a lone quiet item leaves the loop truly parked.
+      const willResume = this.#inbox.hasWakingQueued
       // Snapshot before clearing so the discard notification carries the exact
       // dropped items; a replacement synchronously enqueued by an
       // `agent/cancel-requested` observer belongs to the next turn, not here.
@@ -353,6 +361,15 @@ export class ReactLoopAgent extends Agent {
       if (discarded.length > 0) {
         const items = discarded.map(({ message, steering }) => agentMessage(message, steering))
         agentEvents(this.loopCtx, this).emit('agent/inbox/discard', items)
+      }
+      // Clearing a parked quiet (`wakeup:false`) item reaches quiescence with no
+      // status transition and without waking the parked driver, so settle any
+      // `whenIdle` waiter here. When a waking item was present the loop resumes
+      // and settles itself; while `running` (including the post-turn flush
+      // window) the driver still owns the eventual idle transition. So settle
+      // only for a parked, non-running agent whose sole cleared work was quiet.
+      if (cancellation === undefined && !willResume && this._status !== 'running') {
+        this.settleIdleWaiters()
       }
     }
     cancellation?.request(resolvedCause)
@@ -365,7 +382,9 @@ export class ReactLoopAgent extends Agent {
    */
   whenIdle(): Promise<void> {
     if (this._status === 'disposed') return this.done
-    if (this._status !== 'running' && !this.#inbox.hasQueued) return Promise.resolve()
+    // A lone quiet (`wakeup:false`) queued item leaves the agent quiescent — the
+    // driver stays parked — so gate on hasWakingQueued, not hasQueued.
+    if (this._status !== 'running' && !this.#inbox.hasWakingQueued) return Promise.resolve()
     // Agent-owned waiters survive concurrent fiber disposal.
     return new Promise<void>((resolve) => {
       this.idleWaiters.push(() => {

@@ -202,9 +202,11 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
   while (!handle.isDisposed()) {
     // An idle listener can enqueue and cancel replacement work before the next
     // wait is installed. Consume that empty marker before parking the driver.
+    // A quiet (`wakeup:false`) item alone must not un-park the loop, so gate on
+    // hasWakingQueued, not hasQueued.
     if (handle.isPreRunCancelled()) {
       handle.clearPreRunCancel()
-      if (!handle.inbox.hasQueued) {
+      if (!handle.inbox.hasWakingQueued) {
         handle.settleIdle()
         handle.setStatus('idle')
         continue
@@ -218,7 +220,7 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
     // a replacement prompt still runs before the eventual idle transition.
     if (handle.isPreRunCancelled()) {
       handle.clearPreRunCancel()
-      if (!handle.inbox.hasQueued) {
+      if (!handle.inbox.hasWakingQueued) {
         // Settle before publishing idle: the already-idle path has no status
         // transition, while an idle listener can register waiters for new work.
         handle.settleIdle()
@@ -235,10 +237,11 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
     }
 
     // A synchronous `running` listener can cancel before `runTurn`; balance the
-    // status only when no replacement prompt was queued by that listener.
+    // status only when no waking replacement prompt was queued by that listener
+    // (a lone quiet item parks at idle rather than driving a turn).
     if (cancellation.signal.aborted) {
       handle.clearTurnCancellation(cancellation)
-      if (!handle.inbox.hasQueued) {
+      if (!handle.inbox.hasWakingQueued) {
         handle.setStatus('idle')
         continue
       }
@@ -266,7 +269,9 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
       if (!terminalStopped) handle.inbox.enqueue(message)
     }
 
-    if (!handle.inbox.hasQueued) handle.setStatus('idle')
+    // Park at idle unless a waking item still wants the model to run; a lone
+    // quiet (`wakeup:false`) item stays queued but does not keep the loop busy.
+    if (!handle.inbox.hasWakingQueued) handle.setStatus('idle')
   }
 }
 
@@ -282,7 +287,10 @@ async function runTurn(
     for (const message of messages) {
       events.emit('agent/inbox/dequeue', agentMessage(message, true))
       const prepared = preparePromptMessage(message.content, message.source, message.contexts)
-      session.append('steering/message', { turn, ...prepared.data }, { surfaceOp: 'append' })
+      session.append('steering/message', {
+        turn, ...prepared.data,
+        ...message.meta === undefined ? {} : { meta: message.meta },
+      }, { surfaceOp: 'append' })
       for (const context of prepared.separateContexts) {
         session.append('user/message', {
           content: context.content,
@@ -364,7 +372,10 @@ async function runTurn(
       // `allow.content` REPLACES the prompt bytes (a rewrite); absent keeps them.
       const content = promptDecision.content ?? message.content
       const prepared = preparePromptMessage(content, message.source, promptDecision.additionalContexts ?? [])
-      session.append('user/message', prepared.data, { surfaceOp: 'append' })
+      session.append('user/message', {
+        ...prepared.data,
+        ...message.meta === undefined ? {} : { meta: message.meta },
+      }, { surfaceOp: 'append' })
       // Separate contexts still enter THIS turn through inject(). Prefix
       // contexts are already baked into the user/message with their durable
       // display envelope, so appending them again would duplicate model input.
@@ -543,10 +554,15 @@ async function runTurn(
       // enqueue event a public steer would, so the inbox ledger stays balanced
       // (every FIFO entry has a matching enqueue before its dequeue/discard).
       if (decision.action === 'continue' && decision.reason) {
-        const item: InboxMessage = {
-          id: AgentMessageId(randomUUID()), content: decision.reason.content,
-          source: decision.reason.source, contexts: [], wakeup: true,
-        }
+        // Detach and freeze the listener-owned reason like a public steer, so an
+        // enqueue listener or the producer cannot mutate the durable/model-visible
+        // steering message before it drains.
+        const item: InboxMessage = deepFreeze({
+          id: AgentMessageId(randomUUID()),
+          content: structuredClone(decision.reason.content),
+          source: structuredClone(decision.reason.source),
+          contexts: [], wakeup: true,
+        })
         handle.inbox.steer(item)
         events.emit('agent/inbox/enqueue', agentMessage(item, true))
       }
@@ -572,7 +588,13 @@ async function runTurn(
       if (terminalStop) {
         terminalStopped = true
         // Terminal stop discards steering but preserves ordinary queued prompts.
-        handle.inbox.drainSteering()
+        // Publish a discard for every dropped steering item so the enqueue ⇒
+        // dequeue-or-discard ledger stays balanced (the outstanding-count
+        // invariant and correlation consumers must not be left with dangling ids).
+        const dropped = handle.inbox.drainSteering()
+        if (dropped.length > 0) {
+          events.emit('agent/inbox/discard', dropped.map(item => agentMessage(item, true)))
+        }
         shouldContinue = false
       }
 

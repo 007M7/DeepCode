@@ -7,6 +7,7 @@
  */
 
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type { AgentMessage, AgentMessageId, HookContext } from '@deepseek-ai/dsh-agent'
 
 /** One message waiting in an agent's inbox; `id` is the value `send` returned. */
@@ -17,6 +18,8 @@ export interface InboxMessage {
   contexts: HookContext[]
   /** Whether the item is marked to wake the driver or force a continuation. */
   wakeup: boolean
+  /** Opaque durable JSON state retained on the durable message but hidden from the model. */
+  meta?: JsonValue
 }
 
 /**
@@ -39,9 +42,20 @@ export class Inbox {
   private steeringMessages: InboxMessage[] = []
   private wakeup: (() => void) | undefined
 
-  /** True while queued messages are pending — read by the idle wait's fast path and the loop's turn-start checks. */
+  /** True while any queued message is pending — read by cancellation's discard snapshot and the turn-start dequeue guard. */
   get hasQueued(): boolean {
     return this.queuedMessages.length > 0
+  }
+
+  /**
+   * True while a queued message wants to wake the driver — the "should the loop
+   * run" signal read by the idle wait's fast path, the loop's idle-publish
+   * check, and `whenIdle`. A `wakeup:false` (quiet) item alone leaves this
+   * false, so the driver stays parked until a waking send (or a waking item
+   * ahead of it in FIFO order) drives the loop; the quiet item then rides along.
+   */
+  get hasWakingQueued(): boolean {
+    return this.queuedMessages.some(message => message.wakeup)
   }
 
   /** True while steering messages are pending — read by cancellation and the loop's stop-override check. */
@@ -116,7 +130,7 @@ export class Inbox {
    *   loop can exit).
    */
   waitForQueued(cancel: Promise<void>): Promise<void> {
-    if (this.hasQueued) return Promise.resolve()
+    if (this.hasWakingQueued) return Promise.resolve()
     const { promise, resolve } = Promise.withResolvers<void>()
     this.wakeup = resolve
     void cancel.then(resolve)

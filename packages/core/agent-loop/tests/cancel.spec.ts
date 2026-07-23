@@ -117,6 +117,38 @@ describe('Agent.cancel()', () => {
     expect(userTexts(agent)).toEqual(['preserved', 'wake it'])
   })
 
+  it('a lone quiet (wakeup:false) send leaves the agent parked at idle', async () => {
+    const adapter = new MockAdapter([textResponse('reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    // A quiet item alone must NOT wake the driver: no turn runs and whenIdle
+    // resolves (the agent is quiescent), leaving the item queued.
+    agent.send([{ type: 'text', text: 'quiet' }], { target: 'next-turn', wakeup: false })
+    await agent.whenIdle()
+    expect(agent.status).toBe('idle')
+    expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
+
+    // A later waking send drives the loop, and the quiet item rides along first.
+    send(agent, 'wake')
+    await waitForIdle(ctx, agent)
+    expect(userTexts(agent)).toEqual(['quiet', 'wake'])
+  })
+
+  it('cancelling a parked quiet item settles a pending whenIdle() without a later send', async () => {
+    const adapter = new MockAdapter([textResponse('reply')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    agent.send([{ type: 'text', text: 'quiet' }], { target: 'next-turn', wakeup: false })
+    const idle = agent.whenIdle()
+    // Cancel reaches quiescence with no status transition and no waking send;
+    // whenIdle must still resolve (previously it hung until the next send).
+    agent.cancel({ kind: 'user' })
+    await idle
+    expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
+  })
+
   it('pre-step cancel drops the about-to-start turn (no turn is opened)', async () => {
     const adapter = new MockAdapter([textResponse('should not run')])
     const ctx = await harness(adapter)

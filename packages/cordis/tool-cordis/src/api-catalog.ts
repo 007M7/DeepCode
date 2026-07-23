@@ -1152,6 +1152,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
 /** Shapes of every exported type the SERVICE_API signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
+    name: 'Agent',
+    declaration: 'export abstract class Agent {\n    abstract readonly id: SessionId;\n    abstract readonly options: AgentOptions;\n    abstract readonly session: Session;\n    abstract readonly status: AgentStatus;\n    abstract readonly ctx: Context;\n    abstract send(content: ContentBlock[], options?: SendOptions): AgentMessageId;\n    abstract cancel(cause?: AgentCancelCause, options?: CancelOptions): void;\n    abstract whenIdle(): Promise<void>;\n    followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId;\n    steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId;\n    inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId;\n}',
+  },
+  {
+    name: 'AgentCancelCause',
+    declaration: 'export type AgentCancelCause = {\n    readonly kind: \'user\';\n} | {\n    readonly kind: \'parent\';\n};',
+  },
+  {
     name: 'AgentFactory',
     declaration: 'export interface AgentFactory {\n    createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>;\n    resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>;\n}',
   },
@@ -1160,8 +1168,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AgentHandle {\n    agent: Agent;\n    dispose(): Promise<void>;\n}',
   },
   {
+    name: 'AgentMessageId',
+    declaration: 'export type AgentMessageId = Branded<\'AgentMessageId\'>;',
+  },
+  {
     name: 'AgentOptions',
     declaration: 'export interface AgentOptions {\n    provider?: string;\n    model?: string;\n}',
+  },
+  {
+    name: 'AgentStatus',
+    declaration: 'export type AgentStatus = \'idle\' | \'running\' | \'disposed\';',
+  },
+  {
+    name: 'AliasSendOptions',
+    declaration: 'export type AliasSendOptions = Omit<SendOptions, \'target\' | \'wakeup\'>;',
   },
   {
     name: 'ApprovalOutcome',
@@ -1254,6 +1274,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'CallId',
     declaration: 'export type CallId = Branded<\'CallId\'>;',
+  },
+  {
+    name: 'CancelOptions',
+    declaration: 'export interface CancelOptions {\n    keepInbox?: boolean;\n}',
   },
   {
     name: 'CodeBindingErrorClass',
@@ -1496,6 +1520,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'LlmAdapter',
+    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModelContext(_provider: string, _model: string): Promise<LlmModelContext | undefined>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+  },
+  {
     name: 'LlmCallConfig',
     declaration: 'export interface LlmCallConfig {\n    provider: string;\n    model: string;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n}',
   },
@@ -1696,6 +1724,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ScopeKey = object;',
   },
   {
+    name: 'SendOptions',
+    declaration: 'export interface SendOptions {\n    target?: SendTarget;\n    wakeup?: boolean;\n    source?: MessageSource;\n    contexts?: HookContext[];\n    meta?: JsonValue;\n}',
+  },
+  {
+    name: 'SendTarget',
+    declaration: 'export type SendTarget = \'next-turn\' | \'next-step\';',
+  },
+  {
+    name: 'Session',
+    declaration: 'export class Session {\n    private log: SessionEvent[];\n    private readonly surfaceManager;\n    get surface(): SessionSurface {\n        return this.surfaceManager;\n    }\n    readonly header: SessionHeader;\n    get id(): SessionId {\n        return this.header.id;\n    }\n    constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);\n    private eventsSnapshot: readonly SessionEvent[] | undefined;\n    get events(): readonly SessionEvent[] {\n        this.eventsSnapshot ??= Object.freeze([...this.log]);\n        return this.eventsSnapshot;\n    }\n    get seq(): number {\n        return this.log.length;\n    }\n    append<T extends SessionEventType>(type: T, data: SessionEventMap[T], ...opts: T extends SurfaceEventType ? [\n        opts: SurfaceIntent\n    ] : [\n    ]): SessionEvent<T>;\n    private headerFold: EpochHeader | undefined;\n    private headerFoldSeq;\n    requestHeader(): EpochHeader | undefined;\n    private derived: Message[];\n    private derivedNodes;\n    private derivedGeneration;\n    deriveMessages(): Message[];\n    deriveEventMessage(event: SessionEvent): Message | null;\n}',
+  },
+  {
     name: 'SessionEvent',
     declaration: 'export type SessionEvent<T extends SessionEventType = SessionEventType> = {\n    [K in SessionEventType]: {\n        type: K;\n        seq: number;\n        time: number;\n        data: SessionEventMap[K];\n    } & (K extends SurfaceEventType ? {\n        sourceEventSeqs?: number[];\n        surfaceOp?: SurfaceOp;\n    } : object);\n}[T];',
   },
@@ -1766,6 +1806,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionReferenceInput',
     declaration: 'export interface SessionReferenceInput {\n    sessionId: SessionId;\n    label?: string;\n}',
+  },
+  {
+    name: 'SessionSurface',
+    declaration: 'export interface SessionSurface {\n    readonly nodes: readonly number[];\n    readonly replaceGeneration: number;\n}',
   },
   {
     name: 'SessionSurfaceSnapshot',
@@ -1898,6 +1942,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SurfaceEventType',
     declaration: 'export type SurfaceEventType = \'user/message\' | \'assistant/message\' | \'tool/result\' | \'steering/message\';',
+  },
+  {
+    name: 'SurfaceIntent',
+    declaration: 'export interface SurfaceIntent {\n    surfaceOp: SurfaceOp;\n    sourceEventSeqs?: number[];\n}',
   },
   {
     name: 'SurfaceOp',

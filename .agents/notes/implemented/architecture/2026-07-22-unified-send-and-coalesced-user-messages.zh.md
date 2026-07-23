@@ -36,6 +36,8 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 投递接口现在是一个原语加三个自解释的预设，(`target` × `wakeup`) 矩阵把此前无法表达的组合显式化。一种持久消息类型同时服务提示词、注入的上下文和 goal 轮次，因此对外接口的投影和每一处“是否人类提示词？”检查都简化为一次 `source` 判断。代价是：`Agent` 变成了抽象类，因此对象字面量形式的测试替身必须提供 `followup`，且无法在不重新做类型转换的情况下展开一个类类型的值（原型方法不可枚举）；goal 折叠的通道区分从事件类型改到了 `source.round`；此前过滤 `context/message` 的每个消费方现在改为按来源过滤 `user/message`。轮次封闭与重建的不变量保持不变——空闲状态下的一次注入仍然封装成一个一次性轮次，只是现在发出 `user/message` 而非 `context/message`。
 
+`wakeup` 是“模型是否应当运行”的信号，因此 inbox 区分 `hasWakingQueued`（驱动 loop 以及空闲/静默判定）与 `hasQueued`（是否有任何可 dequeue 的项）：一个孤立的 `next-turn`/no-wakeup 队列项会停泊在空闲状态，并随下一次唤醒 send 一同带出，而 `whenIdle`/`cancel` 依据唤醒信号来结算静默。排队 send 或 steering send 上的 `SendOptions.meta` 会被带到持久的 `user/message`/`steering/message` 上，与注入保持一致。每一次 FIFO 退出都恰好发布一个生命周期事件：一次会丢弃待处理 steering 项的终止性 `agent/turn-stop` 现在会为它发出 `agent/inbox/discard`，而由 loop 生成的继续原因会像一次对外 send 那样被快照并冻结。`gen-cordis-api` 收集导出的类（剥除方法体），因此如今已是类的 `Agent` 及其传递涉及的形状仍会出现在面向模型的 API 目录中。
+
 ## 相关
 
 - [one-send-one-turn](../simplification/2026-07-17-one-send-one-turn.md)——本决策所依托的“每轮次只认领一条消息”规则。

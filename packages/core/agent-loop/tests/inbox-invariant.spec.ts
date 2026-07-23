@@ -86,4 +86,35 @@ describe('inbox FIFO-conservation invariant', () => {
     expect(warn.mock.calls.flat().some(arg => String(arg).includes('agent/inbox'))).toBe(false)
     expect(warn.mock.calls.flat().some(arg => String(arg).includes('INVARIANT'))).toBe(false)
   })
+
+  it('stays balanced when a terminal stop discards pending steering', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(adapter)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    const discards: number[] = []
+    ctx.on('agent/inbox/discard', (subject, messages) => { if (subject === agent) discards.push(messages.length) })
+
+    // A continuation reason enqueues a steering item; a terminal stop then drops
+    // it. The drop must emit a discard so the enqueue ⇒ dequeue-or-discard
+    // ledger stays balanced (no dangling outstanding id).
+    ctx.on('agent/turn-continuation', async (subject, _turn, _default, _signal, next) => {
+      if (subject !== agent) return next()
+      return { action: 'continue' as const, reason: { content: [{ type: 'text', text: 'keep going' }], source: { kind: 'plugin', plugin: 'loop' } } }
+    })
+    let stopped = false
+    ctx.on('agent/turn-stop', (subject) => {
+      if (subject !== agent || stopped) return undefined
+      stopped = true
+      return { action: 'stop' as const }
+    })
+
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+
+    expect(discards).toEqual([1]) // the dropped steering item was reported
+    expect(warn.mock.calls.flat().some(arg => String(arg).includes('agent/inbox'))).toBe(false)
+    expect(warn.mock.calls.flat().some(arg => String(arg).includes('INVARIANT'))).toBe(false)
+  })
 })

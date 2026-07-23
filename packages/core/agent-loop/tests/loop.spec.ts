@@ -526,6 +526,28 @@ describe('agent loop', () => {
     expect(agent.session.events.some(event => event.type === 'user/message' && event.data.source.kind === 'plugin')).toBe(false)
   })
 
+  it('preserves SendOptions.meta on the durable user/message and steering/message', async () => {
+    const adapter = new MockAdapter([toolCallResponse('c1', 'noop', {}), textResponse('done')])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineContentToolFixture({
+      name: 'noop', description: '', parameters: {},
+      async execute() {
+        // Running steer carries its own meta onto the durable steering/message.
+        agent.steer([{ type: 'text', text: 's' }], { source: { kind: 'plugin', plugin: 'p' }, meta: { steer: 1 } })
+        return []
+      },
+    }))
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    agent.send([{ type: 'text', text: 'go' }], { target: 'next-turn', wakeup: true, meta: { prompt: 1 } })
+    await waitForIdle(ctx, agent)
+
+    const user = agent.session.events.find(e => e.type === 'user/message')
+    expect(user?.type === 'user/message' && user.data.meta).toEqual({ prompt: 1 })
+    const steering = agent.session.events.find(e => e.type === 'steering/message')
+    expect(steering?.type === 'steering/message' && steering.data.meta).toEqual({ steer: 1 })
+  })
+
   it('agent/turn-continuation can force-continue (/loop pattern) and force-stop', async () => {
     // force-continue: model never calls tools, but a plugin forces 3 steps
     const adapter = new MockAdapter([
