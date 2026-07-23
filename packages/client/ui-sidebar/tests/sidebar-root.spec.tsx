@@ -75,7 +75,7 @@ function mount(...summaries: SessionSummary[]) {
   )
   const onToggleSidebar = vi.fn(() => {
     collapsed = !collapsed
-    utils.rerender(view(collapsed ? 60 : 300))
+    utils.rerender(view(collapsed ? 56 : 300))
   })
   const utils = render(view(300))
   return { sessions, onOpen, onCreate, onToggleSidebar, ...utils }
@@ -158,19 +158,34 @@ describe('SidebarRoot', () => {
     expect(onCreate).toHaveBeenLastCalledWith('/proj')
   })
 
-  it('collapsed rail keeps the expand and settings controls', () => {
-    const { onToggleSidebar } = mount(...projectData())
+  it('collapsed rail keeps the four controls and settings', () => {
+    const { onToggleSidebar, onCreate } = mount(...projectData())
     act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
     expect(onToggleSidebar).toHaveBeenCalledOnce()
     expect(screen.getByLabelText('Expand sidebar')).toBeTruthy()
+    expect(screen.getByLabelText('New session')).toBeTruthy()
+    expect(screen.getByLabelText('Search sessions')).toBeTruthy()
+    expect(screen.getByLabelText('New workspace')).toBeTruthy()
     expect(screen.getByLabelText('Settings')).toBeTruthy()
     expect(screen.queryByText('HARNESS')).toBeNull()
     expect(screen.queryByText('New Session')).toBeNull()
     expect(screen.queryByRole('tree')).toBeNull()
+    // Rail creation entries route like their expanded counterparts.
+    act(() => { fireEvent.click(screen.getByLabelText('New session')) })
+    expect(onCreate).toHaveBeenLastCalledWith()
     act(() => { fireEvent.click(screen.getByLabelText('Expand sidebar')) })
     expect(onToggleSidebar).toHaveBeenCalledTimes(2)
     expect(screen.getByLabelText('Collapse sidebar')).toBeTruthy()
     expect(screen.getByText('New Session')).toBeTruthy()
+  })
+
+  it('rail search expands the sidebar and focuses the search box', () => {
+    const { onToggleSidebar } = mount(...projectData())
+    act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
+    act(() => { fireEvent.click(screen.getByLabelText('Search sessions')) })
+    expect(onToggleSidebar).toHaveBeenCalledTimes(2)
+    const input = screen.getByPlaceholderText('Search name, keywords...')
+    expect(document.activeElement).toBe(input)
   })
 
   it('group-by menu behaves', () => {

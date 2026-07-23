@@ -21,8 +21,8 @@ export const SIDEBAR_MIN = 240
 export const SIDEBAR_MAX = 420
 /** Sidebar width before any user drag. */
 export const SIDEBAR_DEFAULT = 300
-/** Closed-sidebar rail: one 28px control between 16px horizontal paddings. */
-export const SIDEBAR_COLLAPSED = 60
+/** Closed-sidebar rail: a 24px icon column between 16px horizontal paddings. */
+export const SIDEBAR_COLLAPSED = 56
 /** Details drag clamp floor. */
 export const DETAILS_MIN = 300
 /** Details drag clamp ceiling. */

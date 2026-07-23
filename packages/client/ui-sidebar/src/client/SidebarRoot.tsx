@@ -5,10 +5,11 @@
  * standard useSessions hook, viewing state (expansion, search) is local
  * component state, and rows are derived in render via useMemo (slot design
  * section 6: derived data is a pure function, no materializing store).
- * The collapsed render keeps only the rail controls (expand toggle +
- * Settings); the body unmounts, dropping its sessions subscription.
+ * The collapsed render is the compact rail: expand / new session / search /
+ * new workspace icons plus the Settings foot; the body unmounts, dropping
+ * its sessions subscription. Rail search expands and focuses the search box.
  */
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import {
   FishLogo,
@@ -33,10 +34,13 @@ function toggled(list: readonly string[], key: string): string[] {
   return list.includes(key) ? list.filter((k) => k !== key) : [...list, key]
 }
 
-type SidebarBodyProps = Pick<SidebarRootComponentProps, 'useSessions' | 'onOpen' | 'onCreate'>
+type SidebarBodyProps = Pick<SidebarRootComponentProps, 'useSessions' | 'onOpen' | 'onCreate'> & {
+  /** Focus the search input on mount (rail search control expands into search). */
+  autoFocusSearch: boolean
+}
 
 /** Expanded-only content; unmounting drops the sessions subscription and viewing state while the rail is collapsed. */
-function SidebarBody({ useSessions, onOpen, onCreate }: SidebarBodyProps) {
+function SidebarBody({ useSessions, onOpen, onCreate, autoFocusSearch }: SidebarBodyProps) {
   const list = useSessions((s) => s)
   // Wave-2 seam: row highlight expects `current` on the sessions list
   // snapshot (sessions.current lives with the runtime sessions service).
@@ -99,6 +103,7 @@ function SidebarBody({ useSessions, onOpen, onCreate }: SidebarBodyProps) {
           type="text"
           placeholder="Search name, keywords..."
           value={query}
+          autoFocus={autoFocusSearch}
           onChange={(e) => { setQuery(e.target.value) }}
         />
         {query !== '' && (
@@ -152,41 +157,90 @@ function SidebarBody({ useSessions, onOpen, onCreate }: SidebarBodyProps) {
  * @returns the sidebar element tree.
  */
 export function SidebarRoot({ collapsed, useSessions, onOpen, onCreate, onToggleSidebar }: SidebarRootComponentProps) {
+  // Rail search = expand + land in the search box: the flag arms right before
+  // the expand toggle, the remounting SidebarBody autofocuses its input, and
+  // the post-commit effect disarms so later remounts stay unfocused.
+  const [searchOnExpand, setSearchOnExpand] = useState(false)
+  useEffect(() => {
+    if (!collapsed && searchOnExpand) setSearchOnExpand(false)
+  }, [collapsed, searchOnExpand])
+
+  if (collapsed) {
+    // Rail (figma parity with deepsuite CollapsedSider): the four controls
+    // mirror their expanded counterparts top-down; actions that need the
+    // expanded surface expand first.
+    return (
+      <div className={clsx(css.root, css.collapsed)}>
+        <button
+          type="button"
+          className={css.iconButton}
+          aria-label="Expand sidebar"
+          onClick={() => { onToggleSidebar() }}
+        >
+          <IconPanelLeftOutline16 />
+        </button>
+        <button
+          type="button"
+          className={css.iconButton}
+          aria-label="New session"
+          onClick={() => { onCreate() }}
+        >
+          <IconNewChatOutline16 />
+        </button>
+        <button
+          type="button"
+          className={css.iconButton}
+          aria-label="Search sessions"
+          onClick={() => { setSearchOnExpand(true); onToggleSidebar() }}
+        >
+          <IconSearchOutline16 />
+        </button>
+        <button
+          type="button"
+          className={css.iconButton}
+          aria-label="New workspace"
+          onClick={() => { onCreate() }}
+        >
+          <IconProjectAddOutline16 />
+        </button>
+        <div className={css.foot} role="button" tabIndex={0} aria-label="Settings">
+          <IconSettingsOutline14 />
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className={clsx(css.root, collapsed && css.collapsed)}>
+    <div className={css.root}>
       <div className={css.headerBlock}>
         <div className={css.logoRow}>
-          {!collapsed && (
-            <span className={css.brand}>
-              {/* Wordmark svg not extracted yet (figma 88:8932) — text stands in at the same ink. */}
-              <FishLogo size={23} />
-              <span className={css.wordmark}>deepseek</span>
-              <span className={css.badge}>HARNESS</span>
-            </span>
-          )}
+          <span className={css.brand}>
+            {/* Wordmark svg not extracted yet (figma 88:8932) — text stands in at the same ink. */}
+            <FishLogo size={23} />
+            <span className={css.wordmark}>deepseek</span>
+            <span className={css.badge}>HARNESS</span>
+          </span>
           <button
             type="button"
             className={css.iconButton}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label="Collapse sidebar"
             onClick={() => { onToggleSidebar() }}
           >
             <IconPanelLeftOutline16 />
           </button>
         </div>
 
-        {!collapsed && (
-          <button type="button" className={css.newSession} onClick={() => { onCreate() }}>
-            <IconNewChatOutline16 size={14} />
-            New Session
-          </button>
-        )}
+        <button type="button" className={css.newSession} onClick={() => { onCreate() }}>
+          <IconNewChatOutline16 size={14} />
+          New Session
+        </button>
       </div>
 
-      {!collapsed && <SidebarBody useSessions={useSessions} onOpen={onOpen} onCreate={onCreate} />}
+      <SidebarBody useSessions={useSessions} onOpen={onOpen} onCreate={onCreate} autoFocusSearch={searchOnExpand} />
 
       <div className={css.foot} role="button" tabIndex={0} aria-label="Settings">
         <IconSettingsOutline14 />
-        {!collapsed && <span>Settings</span>}
+        <span>Settings</span>
       </div>
     </div>
   )

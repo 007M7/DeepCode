@@ -35,13 +35,13 @@ function DetailsColumn(props: { children?: ReactNode }) {
 }
 
 /** One drag handle: pointer capture, rAF-throttled dx reports against the drag-start origin. */
-function DragHandle(props: { left: number; onStart: () => void; onDrag: (dx: number) => void }) {
+function DragHandle(props: { left: number; onStart: () => void; onDrag: (dx: number) => void; onEnd: () => void }) {
   const [dragging, setDragging] = useState(false)
   const origin = useRef(0)
   const latest = useRef(0)
   const frame = useRef<number | null>(null)
-  const callbacks = useRef({ onStart: props.onStart, onDrag: props.onDrag })
-  callbacks.current = { onStart: props.onStart, onDrag: props.onDrag }
+  const callbacks = useRef({ onStart: props.onStart, onDrag: props.onDrag, onEnd: props.onEnd })
+  callbacks.current = { onStart: props.onStart, onDrag: props.onDrag, onEnd: props.onEnd }
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -65,6 +65,7 @@ function DragHandle(props: { left: number; onStart: () => void; onDrag: (dx: num
     if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null }
     callbacks.current.onDrag(latest.current - origin.current)
     setDragging(false)
+    callbacks.current.onEnd()
   }, [])
 
   return (
@@ -114,8 +115,12 @@ export function AppFrame({ useStore, actions, renderSlot, SessionProvider }: App
   // it stays frozen for the whole gesture so dx deltas do not compound.
   const sidebarBase = useRef(0)
   const detailsBase = useRef(0)
-  const onSidebarStart = useCallback(() => { sidebarBase.current = colsRef.current.sidebar }, [])
-  const onDetailsStart = useCallback(() => { detailsBase.current = colsRef.current.details }, [])
+  // Track-level transitions pause for the whole gesture: eased tracks would
+  // detach the column edge from the pointer (AppFrame.module.css).
+  const [dragging, setDragging] = useState(false)
+  const onDragEnd = useCallback(() => { setDragging(false) }, [])
+  const onSidebarStart = useCallback(() => { sidebarBase.current = colsRef.current.sidebar; setDragging(true) }, [])
+  const onDetailsStart = useCallback(() => { detailsBase.current = colsRef.current.details; setDragging(true) }, [])
   const onSidebarDrag = useCallback((dx: number) => {
     actions.setSidebar(sidebarBase.current + dx)
   }, [actions])
@@ -130,6 +135,7 @@ export function AppFrame({ useStore, actions, renderSlot, SessionProvider }: App
       style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
       data-sidebar-collapsed={panels.sidebar === 0 || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
+      data-dragging={dragging || undefined}
     >
       <div className={css.sidebarCol}>
         {/* Render-site slot call with live concession output: a closed
@@ -155,8 +161,8 @@ export function AppFrame({ useStore, actions, renderSlot, SessionProvider }: App
         )}
       </SessionProvider>
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {panels.sidebar > 0 && <DragHandle left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} />}
-      {cols.details > 0 && <DragHandle left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} />}
+      {panels.sidebar > 0 && <DragHandle left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {cols.details > 0 && <DragHandle left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>
   )
 }

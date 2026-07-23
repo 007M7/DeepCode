@@ -15,24 +15,24 @@
   font-size: 14px;
 }
 
-/* Closed state is a persistent rail: the layout reserves exactly the root's
-   horizontal padding plus one icon control. */
+/* Closed state is a persistent rail: a 24px icon column between the 16px
+   horizontal paddings (SIDEBAR_COLLAPSED = 56). Controls mirror their
+   expanded counterparts top-down: expand, new session, search, new
+   workspace; settings keeps the foot. */
 .root.collapsed {
-  gap: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 6px;
 }
 
-.collapsed .headerBlock {
-  padding-bottom: 0;
-}
-
-.collapsed .logoRow {
-  justify-content: center;
-  padding-inline: 0;
+.collapsed .iconButton {
+  width: 24px;
+  height: 24px;
 }
 
 .collapsed .foot {
   justify-content: center;
-  width: 28px;
+  width: 24px;
   margin-top: auto;
   padding: 0;
 }

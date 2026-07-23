@@ -136,18 +136,32 @@ describe('web boot chain success pass (keyless, six real bundles, ?fixture)', ()
     expect(owners).toContain('@deepseek-ai/dsh-client-ui-sidebar')
   })
 
-  it('collapsed sidebar keeps a 60px rail with expand and settings controls', async () => {
+  it('collapsed sidebar animates to a 56px rail with the four controls', async () => {
     onTestFailed(() => saveFailureShot(page, 'smoke-boot-collapsed-rail'))
     const frame = page.locator('[class*="frame"]')
     const firstTrack = async (): Promise<string> => (await frame.evaluate(
       el => getComputedStyle(el).gridTemplateColumns)).split(' ')[0]!
+    // The tracks transition on the deepsuite curve; assert the animated
+    // settle rather than an instant jump.
+    const settledTrack = async (px: string): Promise<void> => {
+      await expect.poll(firstTrack, { timeout: 2000 }).toBe(px)
+    }
     await page.getByRole('button', { name: 'Collapse sidebar' }).click()
-    expect(await firstTrack()).toBe('60px')
-    await expect(page.getByRole('button', { name: 'Expand sidebar' }).isVisible()).resolves.toBe(true)
-    await expect(page.getByRole('button', { name: 'Settings' }).isVisible()).resolves.toBe(true)
+    await settledTrack('56px')
+    for (const name of ['Expand sidebar', 'New session', 'Search sessions', 'New workspace', 'Settings']) {
+      await expect(page.getByRole('button', { name }).isVisible(), name).resolves.toBe(true)
+    }
     await page.getByRole('button', { name: 'Expand sidebar' }).click()
-    expect(await firstTrack()).toBe('300px')
+    await settledTrack('300px')
     await expect(page.getByRole('button', { name: 'Collapse sidebar' }).isVisible()).resolves.toBe(true)
+    // Rail search: collapse again, the search control expands and lands in the box.
+    await page.getByRole('button', { name: 'Collapse sidebar' }).click()
+    await settledTrack('56px')
+    await page.getByRole('button', { name: 'Search sessions' }).click()
+    await settledTrack('300px')
+    const focused = await page.evaluate(() =>
+      (document.activeElement as HTMLInputElement | null)?.placeholder ?? '')
+    expect(focused).toContain('Search')
   })
 
   it('stayed clean: no page errors across the whole load chain', () => {
