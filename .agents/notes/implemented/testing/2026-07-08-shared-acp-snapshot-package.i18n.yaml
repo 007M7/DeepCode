@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-08-shared-acp-snapshot-package.md: 3e5a2b12114d535490a17361128862f6d1c09a73
-2026-07-08-shared-acp-snapshot-package.zh.md: 63daf0bd8b18a5afb44161b1621ab16ff7285ba2
+2026-07-08-shared-acp-snapshot-package.zh.md: 86b3e65c76a1bde593c30d0d1c20010ec7e4d6d5

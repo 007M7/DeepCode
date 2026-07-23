@@ -36,7 +36,7 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 
 ### 三个承重的循环决策
 
-1. **在 prompt 策略之前开启轮次。** 被阻止的 prompt 成为零步骤的 `rejected` 轮次，保持封闭性并为 ACP（Agent Client Protocol）提供持久的终结事件。否决记录 `prompt/blocked`（含原始 prompt 和原因），而每个允许的 `additionalContexts` 条目都注入到已开启的轮次中。依照[一次 send 对应一个 turn 的简化](../simplification/2026-07-17-one-send-one-turn.md)，每个取得所有权的 ordinary-send 条目都是其轮次中的唯一消息；启动前丢弃不会创建轮次。
+1. **在 prompt 策略之前开启轮次。** 被阻止的 prompt 成为零步骤的 `rejected` 轮次，保持封闭性并为 ACP（Agent Client Protocol）提供持久的终结事件。否决记录 `prompt/blocked`（含原始 prompt 和原因），而每个允许的 `additionalContexts` 条目都注入到已开启的轮次中。依照[一次 send 对应一个轮次的简化](../simplification/2026-07-17-one-send-one-turn.md)，每个取得所有权的 ordinary-send 条目都是其轮次中的唯一消息；启动前丢弃不会创建轮次。
 
 2. **Post-tool `additionalContexts` 与异步注入进入活跃批次 FIFO，并在该批次结算时追加。** `content`/`feedback` 塑造 `execute()` 返回的结果，但每项上下文都是独立的 `context/message`，而单个步骤或组合工具可以产生许多上下文。立即追加上下文会产生 `result(c1) → context → result(c2)` 的交错，或把嵌套上下文放在外层结果之前，破坏工具调用/结果邻接性。因此 `ToolRunContext.deferContext()` 会在失败路径上也收集嵌套调度上下文，`execute()` 在 `ToolExecutionResult` 上暴露有序数组，循环再把它接纳到与执行期间 `agent.inject()` 调用相同的 FIFO 中。FIFO 在批次结算时，于每个已记录结果之后追加，其中也包括被中断轮次关闭之前。被接受的外层调用将 deferred contexts 保留在 decision contexts 之前；被外层阻止时则丢弃 deferred contexts，只暴露阻止 decision 显式提供的上下文。
 

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-04-remove-agent-steering-mirror.md: 9f7cd5abe968ff216cbd7012163ea1c04dc00599
-2026-07-04-remove-agent-steering-mirror.zh.md: b498f473941b69eb5eab66e2e3034976da75e62c
+2026-07-04-remove-agent-steering-mirror.zh.md: 2650dbd142288458afc429fd87c564fed01e1493

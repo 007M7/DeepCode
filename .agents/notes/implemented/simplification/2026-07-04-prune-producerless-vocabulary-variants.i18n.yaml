@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-07-04-prune-producerless-vocabulary-variants.md: 34492e6906cd2d795f880310b1bcd120e3953fcf
-2026-07-04-prune-producerless-vocabulary-variants.zh.md: 710f64d7e848bcabb8a1bc0c0c8be9af7b2ca1b0
+2026-07-04-prune-producerless-vocabulary-variants.zh.md: c564b3052719cc7e9aef60775a1801f3e214d4cc

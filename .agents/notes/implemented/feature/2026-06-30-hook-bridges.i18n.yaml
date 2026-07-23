@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-30-hook-bridges.md: b6b0894e5551563187b1631e8c641e326fa166b0
-2026-06-30-hook-bridges.zh.md: 70d55c62f3d8e43af9deb0f847b1dec7dc474617
+2026-06-30-hook-bridges.zh.md: 3b1fe00ffcd26eaf42af0c089d4659bcef60763d

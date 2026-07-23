@@ -33,7 +33,7 @@ ACP（Agent Client Protocol）快照层（[快照 Agent Note（agent 决策记�
 
 ## 测试
 
-提取一致性得到机械证明：迁移后，`pnpm run test:snapshot` 的结果与基准提交匹配，`examples/acp-agent/tests/snapshots/` 下没有任何字节变化。包的 `src/` 在门禁单元运行中保持逐文件 100% 语句/分支/函数/行覆盖，并通过脚本化 fake ACP bin（`tests/fixtures/fake-acp-agent.ts`，每个场景由 fixture 旁的 `behavior.json` 编排行为）经过真实 launcher 驱动：`harness.spec.ts` 直接覆盖 launcher 默认值、捕获、更新等待、关闭以及环境/配置变体，随后覆盖每种场景 step 操作、两个 expect-error 分支、权限队列（选择、后备、不可能点击）、workspace seed，以及采集顺序/噪音/后备分支；`suite.spec.ts` 在收集时真实运行 factory——一个针对已提交合成 fixture 的重放套件和一个针对临时副本的记录套件（写回从不触及已提交树；`ACP_SNAPSHOT_SPEC_BOOTSTRAP=1` 会重新引导它）——并包含纯辅助函数的直接用例。fake bin 会把 `session/new` cwd 而非 `process.cwd()` 代入脚本化日志，与真实 bin 请求头携带的内容一致（darwin 会将 `/var/folders/…` realpath 为 `/private/var/folders/…`）。
+提取一致性得到机械证明：迁移后，`pnpm run test:snapshot` 的结果与基准提交匹配，`examples/acp-agent/tests/snapshots/` 下没有任何字节变化。包的 `src/` 在门禁单元运行中保持逐文件 100% 语句/分支/函数/行覆盖，并通过脚本化 fake ACP bin（`tests/fixtures/fake-acp-agent.ts`，每个场景由 fixture 旁的 `behavior.json` 编排行为）经过真实 launcher 驱动：`harness.spec.ts` 直接覆盖 launcher 默认值、捕获、更新等待、关闭以及环境/配置变体，随后覆盖每种场景步骤操作、两个 expect-error 分支、权限队列（选择、后备、不可能点击）、workspace seed，以及采集顺序/噪音/后备分支；`suite.spec.ts` 在收集时真实运行 factory——一个针对已提交合成 fixture 的重放套件和一个针对临时副本的记录套件（写回从不触及已提交树；`ACP_SNAPSHOT_SPEC_BOOTSTRAP=1` 会重新引导它）——并包含纯辅助函数的直接用例。fake bin 会把 `session/new` cwd 而非 `process.cwd()` 代入脚本化日志，与真实 bin 请求头携带的内容一致（darwin 会将 `/var/folders/…` realpath 为 `/private/var/folders/…`）。
 
 ## 后果
 

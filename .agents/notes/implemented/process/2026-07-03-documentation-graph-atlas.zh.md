@@ -40,7 +40,7 @@ Status: implemented
 | [cordis-agent 应用组合](../../../../examples/cordis-agent/composition.md) | 混合生成式 | `examples/cordis-agent/cordis.yml` 插件列表，以及人工维护的应用/bundle 展开 |
 | [acp-agent 应用组合](../../../../examples/acp-agent/composition.md) | 混合生成式 | `examples/acp-agent/cordis.yml` 插件列表加人工策划的应用/bundle 展开 |
 | [事件生产者/消费者矩阵](../../../../docs/event-producer-consumer.md) | 混合生成式 | Cordis 事件声明、经 AST 扫描的 `ctx.on/emit/parallel/serial/waterfall` 位置，以及显式动态分派覆盖 |
-| [agent turn 与 step 生命周期](../../../../docs/agent-lifecycle.md) | 人工维护 | architecture.md 循环生命周期、Cordis 目录链接，以及 session 事件语义 |
+| [agent 轮次与步骤生命周期](../../../../docs/agent-lifecycle.md) | 人工维护 | architecture.md 循环生命周期、Cordis 目录链接，以及 session 事件语义 |
 | [工具执行管线](../../../../docs/tool-execution-pipeline.md) | 人工维护 | 工具管线语义与 `tools/execute` waterfall（瀑布式事件）|
 | [ACP（Agent Client Protocol）快照回放](../../../../packages/ui/acp/snapshot-replay.md) | 人工策划 | 快照 harness 行为 |
 

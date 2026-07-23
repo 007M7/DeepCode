@@ -18,13 +18,13 @@ Status: implemented
 
 - **仅请求，记录在 header 中。** `deriveMessages()` 从不返回前缀；它唯一的持久记录是实例锚定的 `request/header` 快照上的 `EpochHeader.messagePrefix`——可重建请求 Agent Note 已为请求的非历史部分拥有的通道，因此不引入新的会话事件。配套的 [`dsh-agent-loop/invariant`](../../../../packages/core/agent-loop/src/invariant.ts)对每个循环构建的请求重新计算 `messagePrefix + boundary derivation`；启用该贡献时，未记录的前缀无法到达协议格式。
 - **按实例冻结。** 复用是结构性的，而非靠纪律保证：缓存的产物在会话中途不可变，因此提供方的 prompt 缓存从构造上成立，前缀以每步零边际成本扩展了可缓存区域。进程重启或 `ctx.agents.resume()` 产生新实例：它重新组合，任何漂移都可追溯地落在 `'resume'` header 快照上。这就是本 seam 创建的路由规则：会话冻结的开场内容走前缀；会话中途变化的内容走仅追加历史通道（`agent.inject()` 或工具/prompt-submit 的 `additionalContexts`——[拦截 seam Agent Note](2026-06-30-interception-seams.md)），每条都是一次性支付的持久 `context/message`，之后被前缀缓存覆盖。
-- **在持久请求信封中保持精确。** 组合先于实例的首次 `agent/pre-step` 和请求边界。第一个已路由请求会把当前前缀记录在其 header 上，因此步骤后的 token 压力会将精确前缀与实际 prompt、工具和已路由模型一起读取；通用 pre-step seam 不携带压缩专属参数。被 cancel/dispose 中断的组合会被丢弃，永不缓存：感知中止的监听器的降级回退不会泄漏到后续请求中，下一轮次在活信号下重新组合。
+- **在持久请求信封中保持精确。** 组合先于实例的首次 `agent/pre-step` 和请求边界。第一个已路由请求会把当前前缀记录在其 header 上，因此步骤后的 token 压力会将精确前缀与实际 prompt、工具和已路由模型一起读取；通用的步骤前检查点 seam 不携带压缩专属参数。被 cancel/dispose 中断的组合会被丢弃，永不缓存：感知中止的监听器的降级回退不会泄漏到后续请求中，下一轮次在活信号下重新组合。
 
 由于组合在边界快照之前运行，组合监听器的会话追加会加入当前请求的派生历史。压缩在结构上不可能触及前缀（或系统提示词）：它重写的是表面节点，而 header 状态从不进入表面。
 
 ## 测试
 
-[拦截测试](../../../../packages/core/agent-loop/tests/interception.spec.ts)固定了以下行为：没有变更 header 时的组合一次复用、前置插入顺序、空前缀省略、不可变性、组合先于 pre-step，以及已路由 header 上的前缀；[取消测试](../../../../packages/core/agent-loop/tests/cancel.spec.ts)固定了丢弃与重新组合。Session、不变式、token-meter 和压缩测试覆盖 header 往返、请求重建与持久前缀感知的压力核算。快照归一化保留前缀计数，[固定 header 场景](../testing/2026-07-06-pin-request-header-content-in-one-scenario.md)拥有内容，默认示例保持无前缀。与提供方无关的 seam 无需专门 e2e；带密钥的 [request-cache e2e](../../../../packages/core/agent-loop/tests/request-cache.e2e.ts) 覆盖了其缓存经济性。
+[拦截测试](../../../../packages/core/agent-loop/tests/interception.spec.ts)固定了以下行为：没有变更 header 时的组合一次复用、前置插入顺序、空前缀省略、不可变性、组合在步骤前检查点之前完成，以及已路由 header 上的前缀；[取消测试](../../../../packages/core/agent-loop/tests/cancel.spec.ts)固定了丢弃与重新组合。Session、不变式、token-meter 和压缩测试覆盖 header 往返、请求重建与持久前缀感知的压力核算。快照归一化保留前缀计数，[固定 header 场景](../testing/2026-07-06-pin-request-header-content-in-one-scenario.md)拥有内容，默认示例保持无前缀。与提供方无关的 seam 无需专门 e2e；带密钥的 [request-cache e2e](../../../../packages/core/agent-loop/tests/request-cache.e2e.ts) 覆盖了其缓存经济性。
 
 ## 曾考虑的替代方案
 

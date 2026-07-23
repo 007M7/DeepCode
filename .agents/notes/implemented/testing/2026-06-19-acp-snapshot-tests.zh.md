@@ -24,7 +24,7 @@ Status: implemented
 
 ### 回放从日志推导模型脚本
 
-`llm-replay` 短路了提供方无关的 `llm/stream` waterfall（瀑布式事件）。`deriveReplayScript()` 按 `(turn, step)` 对已录制的 chunk 分组，每次模型调用服务一组。agent loop（智能体循环）每个 step 发起一次流调用，因此分组精确对应，错误结束 chunk 也无需特殊处理。
+`llm-replay` 短路了提供方无关的 `llm/stream` waterfall（瀑布式事件）。`deriveReplayScript()` 按 `(turn, step)` 对已录制的 chunk 分组，每次模型调用服务一组。agent loop（智能体循环）每个步骤发起一次流调用，因此分组精确对应，错误结束 chunk 也无需特殊处理。
 
 ### 内存中的回放条目遵守完整的 LLM 契约
 

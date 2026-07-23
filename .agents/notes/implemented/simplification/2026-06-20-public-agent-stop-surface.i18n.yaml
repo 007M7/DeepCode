@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-public-agent-stop-surface.md: 81a21de30bfbc25688069efbffb21647889b1bdb
-2026-06-20-public-agent-stop-surface.zh.md: 4ad4b6b0beb01bc55f10c046023c7851558ecb20
+2026-06-20-public-agent-stop-surface.zh.md: 78fd2e5f0392b2632671311420eca8f5ad96c501

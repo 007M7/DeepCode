@@ -26,9 +26,9 @@ subagent seam（[seam Agent Note](../../implemented/feature/2026-06-21-subagent-
 
 **codex CLI 0.142.5，`codex app-server`（v2 词汇）。** LF 分隔的 JSON，JSON-RPC 2.0 形状但省略 `"jsonrpc"` 头。
 
-- 生命周期：`initialize{clientInfo}` + `initialized` → `thread/start`（接受 `cwd`、`model`、`sandbox`、`approvalPolicy`、`ephemeral`；未认证即可成功）→ `turn/start{threadId, input:[{type:'text',text}]}` 立即返回一个 `inProgress` 的 turn；终止信号是携带 `Turn{status: completed|interrupted|failed|inProgress, error}` 的 `turn/completed` 通知。
+- 生命周期：`initialize{clientInfo}` + `initialized` → `thread/start`（接受 `cwd`、`model`、`sandbox`、`approvalPolicy`、`ephemeral`；未认证即可成功）→ `turn/start{threadId, input:[{type:'text',text}]}` 立即返回一个 `inProgress` 的轮次；终止信号是携带 `Turn{status: completed|interrupted|failed|inProgress, error}` 的 `turn/completed` 通知。
 - 审批是服务端发起的请求——`item/commandExecution/requestApproval`、`item/fileChange/requestApproval`、`item/permissions/requestApproval`、`item/tool/requestUserInput`、`mcpServer/elicitation/request`——以 `accept`/`decline` 系列决策应答。
-- 认证：`account/login/start{type:'apiKey', apiKey}` 是一等 RPC，`account/read` 报告 `requiresOpenaiAuth`——且未认证的 `turn/start` 不会快速失败（它会挂在重试中），因此后端必须预检认证状态，并在失败时大声结算为 `error`，而非等待 turn。
+- 认证：`account/login/start{type:'apiKey', apiKey}` 是一等 RPC，`account/read` 报告 `requiresOpenaiAuth`——且未认证的 `turn/start` 不会快速失败（它会挂在重试中），因此后端必须预检认证状态，并在失败时大声结算为 `error`，而非等待轮次。
 - 隔离：`CODEX_HOME` 重定向被尊重（`initialize` 响应会回显它，测试可据此断言隔离），`ephemeral: true` 的 thread 不留任何会话文件。
 
 ## 隔离与凭证
@@ -43,7 +43,7 @@ subagent seam（[seam Agent Note](../../implemented/feature/2026-06-21-subagent-
 
 Claude Code：`success` → `completed`；`error_max_turns`、`error_during_execution`、`error_max_budget_usd`、`error_max_structured_output_retries` → `error`（与 ACP 对 `max_turn_requests` 的处理对齐：未完成的任务不是成功）；生成器中止 → `aborted`；未知值 → `error`。Codex：`Turn.status` 为 `completed` → `completed`；`interrupted` → `aborted`；`failed` 且 `codexErrorInfo: 'contextWindowExceeded'` → `max-tokens`，其他 `failed` → `error`；传输/spawn/认证预检失败 → `error`（若已请求取消则为 `aborted`）。两者中，`cancel()` 采用 ACP 形状：标志位 + abort/interrupt + 一个 cancel-settled 竞争分支，使不合作的子进程无法阻塞结果。
 
-活性姿态，明确声明：teardown 时序是配置项，turn 时长不是。两个后端将 dispose 阶梯的宽限期作为带默认值的已验证配置字段（ACP 后端的 `disposeEofGraceMs`/`disposeGraceMs` 形状，由提取库承载），但刻意不设 turn 时长或启动超时——与 ACP 一致：turn 期间的活性由调用方通过 `cancel()`/abort signal 掌控，subagent turn 合理地可达数分钟，而 Codex 认证预检消除了唯一已验证的必然挂起场景；需要墙钟上限的部署从父侧取消即可。
+活性姿态，明确声明：teardown 时序是配置项，轮次时长不是。两个后端将 dispose 阶梯的宽限期作为带默认值的已验证配置字段（ACP 后端的 `disposeEofGraceMs`/`disposeGraceMs` 形状，由提取库承载），但刻意不设轮次时长或启动超时——与 ACP 一致：轮次期间的活性由调用方通过 `cancel()`/abort signal 掌控，subagent 轮次持续数分钟也属合理，而 Codex 认证预检消除了唯一已验证的必然挂起场景；需要墙钟上限的部署从父侧取消即可。
 
 ## 测试
 

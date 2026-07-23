@@ -15,7 +15,7 @@ Status: implemented
 
 ## 问题
 
-循环在 `SessionEvent` 中记录规范 transcript（文本记录），同时还发出一组并行的实时 `agent/*` 边界镜像事件：`agent/turn-start`、`agent/turn-end`、`agent/step-start` 和 `agent/step-end`。这些镜像迫使消费者在同一持久事实的两个事实来源之间做选择。ACP（Agent Client Protocol）已经为面向编辑器的 transcript 选择 session log，因为它是唯一持久、可重放的记录；消费实时镜像需要把它的时序与日志中已经存储的边界进行调和。stdio UI 是唯一仍从镜像事件渲染 turn 边界的生产消费者；它已经从 `session/event` 渲染工具调用和结果。
+循环在 `SessionEvent` 中记录规范 transcript（文本记录），同时还发出一组并行的实时 `agent/*` 边界镜像事件：`agent/turn-start`、`agent/turn-end`、`agent/step-start` 和 `agent/step-end`。这些镜像迫使消费者在同一持久事实的两个事实来源之间做选择。ACP（Agent Client Protocol）已经为面向编辑器的 transcript 选择 session log，因为它是唯一持久、可重放的记录；消费实时镜像需要把它的时序与日志中已经存储的边界进行调和。stdio UI 是唯一仍从镜像事件渲染轮次边界的生产消费者；它已经从 `session/event` 渲染工具调用和结果。
 
 这种重复并非零成本。每次生命周期变更都需要同时更新会话事件、镜像事件、文档、不变式、测试和快照预期。重复的边界事件还使失败排序变得微妙：一个轮次可能在实时 `agent/turn-end` 监听器运行之前就已被持久化关闭，因此边界之后的监听器失败在日志中已没有合法位置可以插入，只能带外上报。
 
@@ -25,7 +25,7 @@ Status: implemented
 
 四个持久边界镜像——`agent/turn-start`、`agent/turn-end`、`agent/step-start`、`agent/step-end`——已从 agent（智能体）事件分类中移除。希望在边界处取得 agent handle 的 UI 会保留来自 `agent/created`/`agent/disposed` 的实时目标对象，并直接比较其 session；`dsh-ui-stdio` 据此为应用拥有的 agent 标记 `[main turn N]` 头部，其他 session 则渲染其持久 id。规范记录仍是事件溯源 session log。
 
-step 镜像（完全没有消费者）最先在[事件域语义 Agent Note（agent 决策记录）](../architecture/2026-06-30-event-domain-semantics.md) 中移除；该 Agent Note 当时以 stdio UI 需要在 turn 边界取得 `Agent` handle 为由，保留了 turn 镜像。本 Agent Note 完成余下工作：`dsh-ui-stdio` 是可随时丢弃的测试 REPL，其渲染可以自由变化，因此“ui-stdio 需要它”并不是保留镜像的理由——它读取 `session/event`，只保留自己的实时目标对象。
+步骤镜像（完全没有消费者）最先在[事件域语义 Agent Note（agent 决策记录）](../architecture/2026-06-30-event-domain-semantics.md) 中移除；该 Agent Note 当时以 stdio UI 需要在轮次边界取得 `Agent` handle 为由，保留了轮次镜像。本 Agent Note 完成余下工作：`dsh-ui-stdio` 是可随时丢弃的测试 REPL，其渲染可以自由变化，因此“ui-stdio 需要它”并不是保留镜像的理由——它读取 `session/event`，只保留自己的实时目标对象。
 
 ## 范围：移除什么、不移除什么
 
@@ -40,8 +40,8 @@ step 镜像（完全没有消费者）最先在[事件域语义 Agent Note（age
 ## 曾考虑的替代方案
 
 - **将 `agent/steering` 一并移除**——原始提案的形状；作为范围蔓延被排除：它镜像持久的 `steering/message` 控制记录，而非边界，后来由[自己的决策](2026-07-04-remove-agent-steering-mirror.md)移除（`agent/stream-chunk` 也由 [stream chunk 镜像 Agent Note](2026-07-02-remove-stream-chunk-mirror.md) 移除）。
-- **为 stdio UI 保留 turn 镜像**——[事件域语义 Agent Note](../architecture/2026-06-30-event-domain-semantics.md) 的原始立场；在此否决，因为 `dsh-ui-stdio` 是可随时丢弃的测试 REPL，而非承载关键约束的消费者，并且它改为根据 `session/event` 加自己的实时目标对象渲染边界。
+- **为 stdio UI 保留轮次镜像**——[事件域语义 Agent Note](../architecture/2026-06-30-event-domain-semantics.md) 的原始立场；在此否决，因为 `dsh-ui-stdio` 是可随时丢弃的测试 REPL，而非承载关键约束的消费者，并且它改为根据 `session/event` 加自己的实时目标对象渲染边界。
 
 ## 后果
 
-插件不能再从便捷的 `Agent` 优先事件观察 turn/step 边界。它需要订阅 `session/event`；如果需要实时对象，则通过 `ctx.agents` 解析共享 id，或保留自己已经拥有的对象。这是可以接受的取舍：边界消费者不应依赖可能与持久日志发生漂移的第二条事件 feed。
+插件不能再从便捷的 `Agent` 优先事件观察轮次/步骤边界。它需要订阅 `session/event`；如果需要实时对象，则通过 `ctx.agents` 解析共享 id，或保留自己已经拥有的对象。这是可以接受的取舍：边界消费者不应依赖可能与持久日志发生漂移的第二条事件 feed。

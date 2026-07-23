@@ -27,7 +27,7 @@ harness 的扩展面是其类型化的拦截 seam（见[拦截 seam Agent Note](
 | `agent/prompt-submit` | `deny`→`block`；仅上下文→delegate+fold | `block`→`block`；仅上下文→delegate+fold |
 | `tools/pre-execute` | `deny`→`deny`；`ask`→`ask` | `block`→`deny`（无 allow/ask） |
 | `tools/post-execute` | `deny`→`block`+feedback；仅上下文→delegate+fold | 同上 |
-| `agent/turn-continuation` | 阻塞的 Stop → `continue`（reason = next-step steering（中途引导）） | 同上 |
+| `agent/turn-continuation` | 阻塞的 Stop → `continue`（reason = 下一步 steering（中途引导）） | 同上 |
 | `subagent/start`（emit） | additionalContext → 注入到存活的进程内 subagent；远程 subagent 无本地注入目标 | 本桥接不支持 |
 | `subagent/end`（emit） | 仅观察 | 本桥接不支持 |
 

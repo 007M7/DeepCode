@@ -1,6 +1,6 @@
 # Agent Note: 移除持久化的步骤边界事件
 
-Status: rejected — `step/end` 是 model step 已完成的持久信号；保留对称的 `step/start` / `step/end` 对，比从相邻的 step-scoped 事件推断完成状态更便于理解崩溃修复、不变式与 transcript 检查。
+Status: rejected — `step/end` 是模型步骤已完成的持久信号；保留对称的 `step/start` / `step/end` 对，比从相邻的步骤作用域事件推断完成状态更便于理解崩溃修复、不变式与 transcript 检查。
 
 [English](2026-06-20-drop-durable-step-boundaries.md) | 中文
 

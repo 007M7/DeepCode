@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 2026-06-20-truncate-interrupted-turns.md: af18618ad4c41af125e37c51b9fd971dd8eae64e
-2026-06-20-truncate-interrupted-turns.zh.md: a6c7d1df32d444d301635665afb4fe3b0c4ac5af
+2026-06-20-truncate-interrupted-turns.zh.md: a20d0169f7735aa7a9437c10c958580c00704171

@@ -1,12 +1,12 @@
 # Agent Note: 加载时截断被中断的最终轮次
 
-Status: rejected — 单个 turn 可以包含大量真实工作，包括多个 steps 和大量工具输出。保留被中断的 turns，优于在加载时静默丢弃这段尾部。
+Status: rejected — 单个轮次可以包含大量真实工作，包括多个步骤和大量工具输出。保留被中断的轮次，优于在加载时静默丢弃这段尾部。
 
 [English](2026-06-20-truncate-interrupted-turns.md) | 中文
 
 ## 问题
 
-当前的持久化契约会保留已持久写入但从未关闭的最终轮次。加载时，`interruptedTurnClosers()` 扫描尾部，为未应答的工具调用合成 error `tool/result` 事件，在 step 处于打开状态时追加 `step/end`，追加 `turn/end { kind: 'interrupted' }`，并要求后端持久提交这次修复。协调器、JSONL 后端、SQLite 后端、会话事件词汇、不变式、文档和测试都对这条合成关闭路径进行了建模。
+当前的持久化契约会保留已持久写入但从未关闭的最终轮次。加载时，`interruptedTurnClosers()` 扫描尾部，为未应答的工具调用合成 error `tool/result` 事件，在步骤处于打开状态时追加 `step/end`，追加 `turn/end { kind: 'interrupted' }`，并要求后端持久提交这次修复。协调器、JSONL 后端、SQLite 后端、会话事件词汇、不变式、文档和测试都对这条合成关闭路径进行了建模。
 
 这是一套庞大的机制，只为保留上次崩溃轮次中的部分工作。它还会凭空创造从未发生过的事件。合成的工具结果虽然有用（因为它使提供方历史保持合法），但也意味着恢复后的日志中包含了模型可见、却并非任何工具产出的文本。当前设计在尚无已发布产品、也没有真实恢复 UX 来证明部分轮次恢复确有价值的情况下，就优化了最大化尾部保留。
 
@@ -31,6 +31,6 @@ Status: rejected — 单个 turn 可以包含大量真实工作，包括多个 s
 
 ## 相关
 
-本提案是对[会话持久化](../../implemented/architecture/2026-06-14-session-persistence.md)与[轮次封闭不变式](../../implemented/architecture/2026-06-15-turn-enclosure-invariant.md)的直接简化。它还移除了持久化 step 边界事件的大部分动机，使[移除持久化 step 边界事件](2026-06-20-drop-durable-step-boundaries.md)的改动更小。
+本提案是对[会话持久化](../../implemented/architecture/2026-06-14-session-persistence.md)与[轮次封闭不变式](../../implemented/architecture/2026-06-15-turn-enclosure-invariant.md)的直接简化。它还移除了持久化步骤边界事件的大部分动机，使[移除持久化步骤边界事件](2026-06-20-drop-durable-step-boundaries.md)的改动更小。
 
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->

@@ -37,15 +37,15 @@ hook bridge——[`dsh-hooks-claude`](../../../../packages/hooks/hooks-claude)�
 
 在构建矩阵过程中发现，记录于此是因为这些遗漏是决策而非疏忽：
 
-- **`SessionStart` 和 `SubagentStart`** 通过脱离且尽力而为的 `void runPoint(...).then(agent.inject())` 注入上下文，没有 turn 绑定。由此产生的 `context/message` 会与它应先于的工作（首次模型请求 / 子项的第一个 turn）竞速，并落在不确定的日志位置。记录的预期输出甚至无法在自己的重放中复现——对两者执行 10 次重放稳定性检查，结果均为 10/10 次失败。它们继续留在 bridge 的单元覆盖率中，那里会直接驱动接缝而不存在时序竞速。（如果注入未来改为绑定 turn 且具备确定性——`TODO(session-start-gating)` 所指方向——它们就能接受快照测试。）
-- **`SubagentStop`** 只观察：其 `subagent/end` handler 不传递 turn（因此没有 `hook/*` 日志事件），也不执行注入。它不会向 transcript 写入任何内容，因此预期输出会与无 hook 运行逐字节相同，永远无法证明失败——一道咬不住问题的守卫。它继续由单元覆盖率负责（`bridge.spec.ts` 已断言仅观察调用）。
+- **`SessionStart` 和 `SubagentStart`** 通过脱离且尽力而为的 `void runPoint(...).then(agent.inject())` 注入上下文，没有轮次绑定。由此产生的 `context/message` 会与它应先于的工作（首次模型请求 / 子项的第一个轮次）竞速，并落在不确定的日志位置。记录的预期输出甚至无法在自己的重放中复现——对两者执行 10 次重放稳定性检查，结果均为 10/10 次失败。它们继续留在 bridge 的单元覆盖率中，那里会直接驱动接缝而不存在时序竞速。（如果注入未来改为绑定轮次且具备确定性——`TODO(session-start-gating)` 所指方向——它们就能接受快照测试。）
+- **`SubagentStop`** 只观察：其 `subagent/end` handler 不传递轮次（因此没有 `hook/*` 日志事件），也不执行注入。它不会向 transcript 写入任何内容，因此预期输出会与无 hook 运行逐字节相同，永远无法证明失败——一道咬不住问题的守卫。它继续由单元覆盖率负责（`bridge.spec.ts` 已断言仅观察调用）。
 
 因此，该矩阵覆盖了所有具有确定性、可观测 transcript 足迹的 hook 点，涵盖两种方言。
 
 ## 后果
 
-- 现在，两种 dialect 中每个具有可观察 transcript 的 bridge 接缝映射，都在真实应用的完整 transcript 层受到守护——包括此前完全没有端到端覆盖的 Codex bridge。记录的预期输出捕获模型对遭拒绝/遭阻止/强制继续 turn 的真实反应，而手工编写的 transcript 只能猜测这种反应。
-- `UserPromptSubmit` 阻止场景无需密钥即可编写（没有模型 turn）；其余场景从已记录 fixture（测试前置数据）无需密钥重放。`pnpm run test:snapshot:record` 从实时 API 重新生成记录式 fixture，并像所有记录场景一样在缺少密钥时自行跳过。
+- 现在，两种 dialect 中每个具有可观察 transcript 的 bridge 接缝映射，都在真实应用的完整 transcript 层受到守护——包括此前完全没有端到端覆盖的 Codex bridge。记录的预期输出捕获模型对遭拒绝/遭阻止/强制继续轮次的真实反应，而手工编写的 transcript 只能猜测这种反应。
+- `UserPromptSubmit` 阻止场景无需密钥即可编写（没有模型轮次）；其余场景从已记录 fixture（测试前置数据）无需密钥重放。`pnpm run test:snapshot:record` 从实时 API 重新生成记录式 fixture，并像所有记录场景一样在缺少密钥时自行跳过。
 - 证明会变红的准则仍成立：篡改 hook 配置输出（例如改变拒绝理由）会让相应场景在重放时变红——hook 进程在重放期间真实运行（只有模型被重放），因此预期输出守护的是实际 hook→接缝→循环路径，而非其 mock。
 - `acp-agent` 演示现在加载了一个通常会无操作的 Codex bridge（典型项目中没有 `codex-hooks.json`），这正是预期的柔性失败行为，而非代价。
 

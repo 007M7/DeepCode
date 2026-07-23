@@ -14,7 +14,7 @@ Status: implemented
 
 ## 决策
 
-`CacheHint`、其 `cache?` 块字段、`agent` 消息来源变体和 `continuation` turn 触发器变体均已删除：已发布词汇不再携带它们。llm-replay fixture 使用 `injection` 触发器（任何非 `message` 触发器都能满足其用途）。[core.md](../../../../docs/core-data-structures/core.md) 和 [session.md](../../../../docs/core-data-structures/session.md) 中的 type-equiv 粘贴与裁剪后的 map 匹配——两个符号仍保留在 `scripts/type-equiv.manifest.json` 中的行，因为每个 map 都只是少了一个成员而继续存在——并且[内容块词汇 Agent Note](../architecture/2026-06-11-content-block-vocabulary.md)的后果按照 [implemented/AGENTS.md](../AGENTS.md)，将 cache hint 记录为由生产者门控，而不是已有归属。
+`CacheHint`、其 `cache?` 块字段、`agent` 消息来源变体和 `continuation` 轮次触发器变体均已删除：已发布词汇不再携带它们。llm-replay fixture 使用 `injection` 触发器（任何非 `message` 触发器都能满足其用途）。[core.md](../../../../docs/core-data-structures/core.md) 和 [session.md](../../../../docs/core-data-structures/session.md) 中的 type-equiv 粘贴与裁剪后的 map 匹配——两个符号仍保留在 `scripts/type-equiv.manifest.json` 中的行，因为每个 map 都只是少了一个成员而继续存在——并且[内容块词汇 Agent Note](../architecture/2026-06-11-content-block-vocabulary.md)的后果按照 [implemented/AGENTS.md](../AGENTS.md)，将 cache hint 记录为由生产者门控，而不是已有归属。
 
 每个变体在获得真正的生产者之日回归，这正是映射表设计的增长方式：缓存功能连同传输它的适配器一起重新添加 `cache`；subagent 归属连同打标的后端和路由它的消费方一起重新添加 `agent`；真正启动新轮次的自动续行功能连同发出它的插件一起重新添加 `continuation`。
 
