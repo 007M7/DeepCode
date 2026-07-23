@@ -27,6 +27,8 @@
     { "path": "./packages/client/ui-slots" },
     { "path": "./packages/client/ui-primitives" },
     { "path": "./packages/client/web-react" },
+    { "path": "./packages/client/modules" },
+    { "path": "./packages/client/hmr" },
     { "path": "./packages/client/connection" },
     { "path": "./packages/client/runtime" },
     { "path": "./packages/client/ui-layout" },
