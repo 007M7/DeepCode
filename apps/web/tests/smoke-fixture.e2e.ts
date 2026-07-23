@@ -196,6 +196,26 @@ describe('web boot chain success pass (keyless, seven real bundles, ?fixture)', 
     expect(await writeRoot.getByText('notes/new-demo.txt', { exact: true }).count()).toBe(1)
   })
 
+  it('keeps Markdown semantic while a fixture reply streams and finalizes', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-markdown-stream'))
+    await page.getByRole('button', { name: 'New session', exact: true }).click()
+    const input = page.locator('textarea[placeholder]')
+    await input.waitFor({ timeout: 15_000 })
+    await input.fill('render markdown')
+    await page.getByRole('button', { name: '发送' }).click()
+
+    const streaming = page.locator('[data-streaming="true"]')
+    await streaming.getByRole('heading', { name: 'Markdown fixture' }).waitFor({ timeout: 15_000 })
+    await streaming.waitFor({ state: 'detached', timeout: 15_000 })
+
+    const finalHeading = page.getByRole('heading', { name: 'Markdown fixture' })
+    expect(await finalHeading.evaluate(element => element.tagName)).toBe('H1')
+    expect(await page.locator('pre code').filter({ hasText: 'const markdown = true' }).count()).toBe(1)
+    const external = page.getByRole('link', { name: 'DeepSeek' })
+    expect(await external.getAttribute('target')).toBe('_blank')
+    expect(await external.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
   it('stayed clean: no page errors across the whole load chain', () => {
     expect(pageErrors).toEqual([])
   })

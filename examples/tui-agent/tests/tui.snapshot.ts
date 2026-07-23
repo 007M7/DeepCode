@@ -26,7 +26,7 @@ import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
-import { createTuiChat } from '@deepseek-ai/dsh-tui'
+import { createTuiChat, FILE_REFERENCE_PROMPT } from '@deepseek-ai/dsh-tui'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import WorkerWorkflowEngine from '@deepseek-ai/dsh-workflow-workerthread'
 import { HeadlessTerminal } from '../../../packages/ui/tui/tests/headless-terminal.ts'
@@ -302,6 +302,9 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     }
 
     const events: SessionEvent[] = [...agent.session.events]
+    const firstHeader = events.find(event => event.type === 'request/header')
+    expect(firstHeader?.type === 'request/header' && firstHeader.data.header.system)
+      .toContain(FILE_REFERENCE_PROMPT)
     expect(events.filter(event => event.type === 'tool/call').map(event => event.data.name)).toEqual(scenario.expectedTools)
     for (const [type, count] of Object.entries(scenario.expectedEventCounts ?? {})) {
       expect(events.filter(event => event.type === type), `${scenario.name} must emit ${type}`).toHaveLength(count)
@@ -309,7 +312,6 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     if (scenario.enterPlanMode === true) {
       expect(ctx.planMode.get(agent)).toEqual({ active: true })
       const planMode = events.find(event => event.type === 'plan/mode')
-      const firstHeader = events.find(event => event.type === 'request/header')
       if (planMode === undefined || firstHeader === undefined) {
         throw new Error('plan-mode command snapshot needs plan/mode before its first request/header')
       }
