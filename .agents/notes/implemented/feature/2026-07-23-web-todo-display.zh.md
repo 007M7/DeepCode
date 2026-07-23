@@ -32,4 +32,4 @@ Status: implemented
 
 ## Consequences
 
-回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都免费保持 todos 一致；fx-alpha 第 63 轮的 fixture（测试前置数据）加 `scripts/verify-todo-display.mjs` 在真实 chromium 里钉住整条链（面板可见性、行摘要、详情联动、折叠、深色主题）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。ACP 桥接的 todo → `plan` 映射与 TUI 面板均未受改动；Web 各面渲染同一个事件，不引入任何新的协议词汇。已知缺口：该投影以窗口为界——重新打开一个最后一次 `todo/write` 落在尾页之前的会话时，计划面板为空，直到用户翻页翻到它；要兑现工具 Note 里冷加载重建的承诺，需要一份独立于显示窗口的当前投影（history 响应由 host 附带，或提供专门的读取口）。
+回放正确性由一条代码路径掌管：未来对窗口重建的任何改动都免费保持 todos 一致；fx-alpha 第 63 轮的 fixture（测试前置数据）加 `scripts/verify-todo-display.mjs` 在真实 chromium 里钉住整条链（面板可见性、行摘要、详情联动、折叠、深色主题）。`todos` 是 `ConversationSnapshot` 的必填字段，所以 spec 里脚本化的 fake 必须带上它。ACP 桥接的 todo → `plan` 映射与 TUI 面板均未受改动；Web 各面渲染同一个事件，不引入任何新的协议词汇。冷加载重建由 host 兜底：history 尾页附带 `todos`——全量 log 上最新一次 `todo/write` 的投影，独立于分页窗口计算（与 view 配对同一种 backscan 姿势）——因此重开会话时即使最后一次写入落在窗口之前，计划也照常恢复；播种值跨窗口重建保留，之后的任何写入照常覆盖。

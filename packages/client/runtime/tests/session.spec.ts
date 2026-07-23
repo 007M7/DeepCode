@@ -22,9 +22,9 @@ function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: 
   return { api, session: new Session(SID, api) }
 }
 
-function histResponse(events: SessionEvent[], hasMore = false) {
+function histResponse(events: SessionEvent[], hasMore = false, todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[]) {
   // history now returns HistoryEntry[] ({event, view?}); these tests are view-less.
-  return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
+  return Promise.resolve(ok({ events: entries(events) as never[], hasMore, ...todos === undefined ? {} : { todos } }))
 }
 
 describe('open', () => {
@@ -168,6 +168,25 @@ describe('live event path', () => {
     replayed.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ev.todoWrite(6, listA), ev.todoWrite(7, listB)])
     await replayed.session.open()
     expect(replayed.session.getSnapshot().todos).toEqual(listB)
+  })
+
+  it('seeds todos from the tail page projection when the last write precedes the window', async () => {
+    const list = [{ content: '窗口外的计划', status: 'in_progress' as const }]
+    // Cold open: the page window carries NO todo/write; the projection rides the response.
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(100, 9, '问', '答'), true, list)
+    await session.open()
+    expect(session.getSnapshot().todos).toEqual(list)
+    // Paging an older window in must not clear the session-level projection.
+    api.onHistory = () => histResponse(plainTurn(94, 8, '旧问', '旧答'), false)
+    await session.loadOlder()
+    expect(session.getSnapshot().todos).toEqual(list)
+    // A later live write still overrides the seeded projection.
+    session.handleMuxEnvelope('r' as never, {
+      type: 'session/event', sessionId: SID,
+      event: ev.todoWrite(106, [{ content: '新计划', status: 'pending' as const }]),
+    })
+    expect(session.getSnapshot().todos).toEqual([{ content: '新计划', status: 'pending' }])
   })
 
   it('repairs a seq gap by repulling the tail page instead of appending a hole', async () => {

@@ -18,7 +18,7 @@ The model sends the ENTIRE list every call; the new list replaces the old (last-
 
 ### State on the session log, not a service
 
-The list is appended as a `todo/write` event carrying the full `{ todos }` snapshot. The harness is event-sourced — the LLM history, tool calls, and turn structure all live on the log — so the todo list lives there too. This buys durability, replay, and `session/load` reconstruction for free: a reopened session re-derives the current list (the last `todo/write`) and the ACP bridge re-emits the `plan` on load, with no separate persistence backend, no in-memory service to rehydrate, and no extra wiring. An in-memory `ctx.todos` service would have had to reinvent all of that. (Full-log consumers get this reconstruction outright; the web client's paged window currently sees only the tail page — the gap and its fix directions are recorded in the [web todo display note](2026-07-23-web-todo-display.md).)
+The list is appended as a `todo/write` event carrying the full `{ todos }` snapshot. The harness is event-sourced — the LLM history, tool calls, and turn structure all live on the log — so the todo list lives there too. This buys durability, replay, and `session/load` reconstruction for free: a reopened session re-derives the current list (the last `todo/write`) and the ACP bridge re-emits the `plan` on load, with no separate persistence backend, no in-memory service to rehydrate, and no extra wiring. An in-memory `ctx.todos` service would have had to reinvent all of that. (Full-log consumers get this reconstruction outright; the web client's paged window gets it from the tail history page's host-computed projection — see the [web todo display note](2026-07-23-web-todo-display.md).)
 
 ### NOT a surface event
 

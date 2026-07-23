@@ -6,7 +6,7 @@
 // approval/question requests exercise replay and composer takeover with stable rpcIds.
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
@@ -254,6 +254,15 @@ function pageOf(
   return { events, hasMore: start > 0 }
 }
 
+/** Current todo projection over the full log (host parallel: latest todo/write, last write wins). */
+function backscanTodos(log: readonly SessionEvent[]): TodoItem[] | undefined {
+  for (let i = log.length - 1; i >= 0; i--) {
+    const event = log[i]
+    if (event !== undefined && event.type === 'todo/write') return event.data.todos
+  }
+  return undefined
+}
+
 interface StreamConn<F> {
   push(envelope: RpcRequest<F>): void
 }
@@ -492,12 +501,14 @@ export function createFixtureApi(): ApiProxy {
         const log = logs.get(request.payload.sessionId) ?? []
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
         const page = pageOf(log, request.payload.beforeSeq, request.payload.maxMessages ?? 50)
+        // Tail page carries the session-level todo projection (host parallel: full-log backscan).
+        const todos = request.payload.beforeSeq === undefined ? backscanTodos(log) : undefined
         const doomed = failNextHistory
         failNextHistory = false
         const delay = historyDelayMs
         if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
         if (doomed) throw new Error('fixture: simulated history transport failure')
-        return ok(request, page)
+        return ok(request, { ...page, ...todos === undefined ? {} : { todos } })
       },
       prompt: (request) => {
         const { sessionId: id, mode, content } = request.payload

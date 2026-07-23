@@ -327,13 +327,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         this.openError = result.error
         return
       }
-      this.installWindow(result.value.events, result.value.hasMore)
+      this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
         result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
-        if (result.ok) this.installWindow(result.value.events, result.value.hasMore)
+        if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
       }
       this.openState = 'open'
     } catch (error) {
@@ -351,11 +351,15 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    *  Stitching MUST NOT route through acceptLiveEvent: openState is still 'loading' here
    *  (doOpen flips it after install), so recursing would push every buffered event straight
    *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1). */
-  private installWindow(entries: HistoryEntry[], hasMore: boolean): void {
+  private installWindow(entries: HistoryEntry[], hasMore: boolean, todos?: readonly TodoItem[]): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
+    // Session-level projection from the tail page (full-log latest todo/write,
+    // independent of the window); an in-window write below re-derives the same
+    // value, and later live events keep overwriting it.
+    if (todos !== undefined) this.todos = todos
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
     const buffered = this.liveBuffer
@@ -494,14 +498,16 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 
   /** Re-derive state (partial/openCalls/frozenNodes) from raw window events after a rebuild — keeps
    *  paging/stitching consistent, and makes the live freeze and the history replay converge on the
-   *  same interrupted nodes (chunks are logged, so the replayed sweep re-freezes identical text). */
+   *  same interrupted nodes (chunks are logged, so the replayed sweep re-freezes identical text).
+   *  todos is deliberately NOT reset: it is session-level (seeded by the tail page's full-log
+   *  projection, not derivable from an arbitrary window). The window always extends to the log
+   *  tail, so an in-window todo/write can only overwrite it with the same latest value. */
   private rebuildDerivedFromWindow(): void {
     this.partial = null
     this.openCalls.clear()
     this.callsRev++
     this.frozenNodes = []
     this.frozenRev++
-    this.todos = []
     for (let i = 0; i < this.events.length; i++) {
       const event = this.events[i]
       /* v8 ignore next -- dense-array guard: i stays within events.length, so the undefined arm needs a sparse array no caller builds. */
