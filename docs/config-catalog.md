@@ -933,7 +933,9 @@ export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
    * `process.cwd()` would scatter session files as the process's cwd changes
-   * (bash calls, subprocesses). Sessions group under per-cwd subdirectories.
+   * (bash calls, subprocesses). Sessions group under per-cwd subdirectories. An
+   * existing root must be a readable directory; an absent root is created on
+   * first materialization.
    */
   root: string
   /**
@@ -953,7 +955,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:37`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:38`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 
