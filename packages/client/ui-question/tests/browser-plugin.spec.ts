@@ -1,11 +1,19 @@
+/**
+ * apply wiring on a real cordis Context + SlotsService (terminal register
+ * form): QuestionComposer registered as the `question` entry of the
+ * conversation-declared keyed composer slot, the thin inject surface (two
+ * receipt-checked session callbacks closed over the plugin ctx — no hooks, no
+ * store lines), load-order fail-loud, and fiber-teardown unregistration.
+ * Component behavior is covered props-direct in question-composer.spec.tsx;
+ * no renderer machinery here.
+ */
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
-import type { PendingInteraction, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { QuestionComposerInjected, QuestionInteraction } from '../src/client/contract/slots.ts'
 import { apply, inject } from '../src/client/index.ts'
-
-type QuestionInteraction = Extract<PendingInteraction, { kind: 'question' }>
 
 function interaction(): QuestionInteraction {
   return {
@@ -14,56 +22,88 @@ function interaction(): QuestionInteraction {
   }
 }
 
-/** Declare the conversation-owned composer slot the way production does: a
- *  parent entry's children table (register is the single declaration API). */
-function declareComposerSlot(slots: SlotsService): void {
-  slots.register({
-    name: 'root',
-    children: { 'conversation.composer': { kind: 'keyed', scope: 'session' } },
-  } as never, (() => null) as never)
+async function bench() {
+  const ctx = new Context()
+  await ctx.plugin(SlotsService).await()
+  const answerQuestion = vi.fn()
+    .mockResolvedValueOnce({ accepted: true })
+    .mockResolvedValueOnce({ accepted: false, reason: 'not-pending' })
+  const cancelQuestion = vi.fn()
+    .mockResolvedValueOnce({ accepted: true })
+    .mockResolvedValueOnce({ accepted: false, reason: 'bad-response' })
+  const get = vi.fn(() => ({ answerQuestion, cancelQuestion }))
+  ctx.provide('sessions', { manager: { get } })
+  const slots = ctx.get('slots') as SlotsService
+  // Stand-in for ui-conversation's conversation entry: the composer slot only
+  // exists while a live entry declares it in children (declaration account:
+  // design §2.2).
+  slots.register(
+    { name: 'root', children: { 'conversation.composer': { kind: 'keyed', scope: 'session' } } } as never,
+    () => null,
+  )
+  return { ctx, slots, get, answerQuestion, cancelQuestion }
 }
 
-describe('ui-question browser plugin', () => {
-  it('declares its services and fails loud without them', () => {
+/** The question entry's injected share, resolved for one session id. */
+function injectedOf(slots: SlotsService, sessionId: SessionId): QuestionComposerInjected {
+  const entries = slots.entries('conversation.composer')
+  expect(entries).toHaveLength(1)
+  // The typed StoredEntry.inject is declaration-derived ((...args: never[])
+  // shape); the question factory takes the framework-resolved sessionId.
+  const inject = entries[0]!.inject as ((id: SessionId) => QuestionComposerInjected) | undefined
+  return inject!(sessionId)
+}
+
+describe('apply', () => {
+  it('declares the services it binds', () => {
     expect(inject).toEqual(['slots', 'sessions'])
-    expect(() => { apply(new Context()) }).toThrow(/slots and sessions services are required/)
   })
 
-  it('registers scoped answer and cancel actions, including rejected receipts', async () => {
+  it('fails loud when its services are missing', () => {
+    // apply resolves both services through the strict need() reader (the
+    // program's host-side Context merge shadows typed property access).
+    expect(() => { apply(new Context()) }).toThrow(/slots service unavailable/)
+  })
+
+  it('fails loud when no live entry has declared the composer slot', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotsService).await()
-    const answerQuestion = vi.fn()
-      .mockResolvedValueOnce({ accepted: true })
-      .mockResolvedValueOnce({ accepted: false, reason: 'not-pending' })
-    const cancelQuestion = vi.fn()
-      .mockResolvedValueOnce({ accepted: true })
-      .mockResolvedValueOnce({ accepted: false, reason: 'bad-response' })
-    ctx.provide('sessions', {
-      manager: { get: vi.fn(() => ({ answerQuestion, cancelQuestion })) },
-    })
-    const slots = ctx.get('slots') as SlotsService
-    declareComposerSlot(slots)
+    ctx.provide('sessions', {})
+    await expect(ctx.plugin({ inject: [...inject], apply }))
+      .rejects.toThrow(/slot "conversation.composer" is not declared/)
+  })
+
+  it('registers the question entry with the thin two-callback inject surface', async () => {
+    const { ctx, slots, get } = await bench()
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    expect(slots.entries('conversation.composer')[0]!.options.key).toBe('question')
+    const injected = injectedOf(slots, 'session-1' as SessionId)
+    // The whole business face: two plain callbacks, no hooks, no store lines.
+    expect(Object.keys(injected).sort()).toEqual(['answer', 'cancel'])
+    expect(get).toHaveBeenCalledWith('session-1')
+  })
+
+  it('routes answer/cancel through the session and surfaces rejected receipts', async () => {
+    const { ctx, slots, answerQuestion, cancelQuestion } = await bench()
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    const { answer, cancel } = injectedOf(slots, 'session-1' as SessionId)
+    const item = interaction()
+    const batch = { answers: [{ id: 'mode', selected: ['Fast'] }] }
+
+    await expect(answer(item, batch)).resolves.toBeUndefined()
+    await expect(answer(item, batch)).rejects.toThrow(/not-pending/)
+    await expect(cancel(item)).resolves.toBeUndefined()
+    await expect(cancel(item)).rejects.toThrow(/bad-response/)
+    expect(answerQuestion).toHaveBeenCalledWith(item.rpcId, batch)
+    expect(cancelQuestion).toHaveBeenCalledWith(item.rpcId)
+  })
+
+  it('teardown unregisters the slot entry', async () => {
+    const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-
-    const entry = slots.entries('conversation.composer')[0] as unknown as {
-      options: { key: string }
-      inject(sessionId: SessionId): { actions: {
-        answer: (item: QuestionInteraction, answer: { answers: { id: string; selected: string[] }[] }) => Promise<void>
-        cancel: (item: QuestionInteraction) => Promise<void>
-      } }
-    }
-    expect(entry.options.key).toBe('question')
-    const actions = entry.inject('session-1' as SessionId).actions
-    const item = interaction()
-    const answer = { answers: [{ id: 'mode', selected: ['Fast'] }] }
-
-    await expect(actions.answer(item, answer)).resolves.toBeUndefined()
-    await expect(actions.answer(item, answer)).rejects.toThrow(/not-pending/)
-    await expect(actions.cancel(item)).resolves.toBeUndefined()
-    await expect(actions.cancel(item)).rejects.toThrow(/bad-response/)
-    expect(answerQuestion).toHaveBeenCalledWith(item.rpcId, answer)
-    expect(cancelQuestion).toHaveBeenCalledWith(item.rpcId)
-    await ctx.fiber.dispose()
+    expect(slots.entries('conversation.composer')).toHaveLength(1)
+    await fiber.dispose()
+    expect(slots.entries('conversation.composer')).toHaveLength(0)
   })
 })

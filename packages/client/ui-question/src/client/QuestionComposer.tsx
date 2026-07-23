@@ -1,15 +1,11 @@
 import { useState, type KeyboardEvent } from 'react'
 import clsx from 'clsx'
-import type { QuestionResponsePayload } from '@deepseek-ai/dsh-client-connection/client'
 import {
   Button, IconCheckOutline16, IconChevronLeftOutline14, IconChevronRightOutline14,
   IconCloseOutline16, IconEditOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { QuestionComposerOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { QuestionAnswer, QuestionComposerProps } from './contract/slots.ts'
 import css from './QuestionComposer.module.css'
-
-type QuestionInteraction = QuestionComposerOwnerProps['interaction']
-type Answer = QuestionResponsePayload['answer']
 
 interface DraftAnswer {
   selected: string[]
@@ -17,19 +13,6 @@ interface DraftAnswer {
   customOpen: boolean
   skipped: boolean
 }
-
-/** Actions assembled from the session object layer. */
-export interface QuestionComposerInjected {
-  actions: {
-    answer(interaction: QuestionInteraction, answer: Answer): Promise<void>
-    cancel(interaction: QuestionInteraction): Promise<void>
-  }
-}
-
-/** Consumed question-composer props: the slot's owner share & the injected
- *  share. A strict subset of the composed props the register site proves
- *  (the framework session/global standard kit goes unconsumed here). */
-export type QuestionComposerProps = QuestionComposerOwnerProps & QuestionComposerInjected
 
 /**
  * Split the conventional recommendation suffix without changing the answer value.
@@ -66,7 +49,7 @@ export function QuestionComposer(props: QuestionComposerProps) {
   return <QuestionFlow key={props.interaction.rpcId} {...props} />
 }
 
-function QuestionFlow({ interaction, actions }: QuestionComposerProps) {
+function QuestionFlow({ interaction, answer: submitAnswer, cancel }: QuestionComposerProps) {
   const questions = interaction.questions
   const [index, setIndex] = useState(0)
   const [drafts, setDrafts] = useState<DraftAnswer[]>(() => questions.map(question => ({
@@ -81,7 +64,7 @@ function QuestionFlow({ interaction, actions }: QuestionComposerProps) {
   const cancelFlow = (): void => {
     setBusy('cancel')
     setError(null)
-    void actions.cancel(interaction).catch((cause: unknown) => {
+    void cancel(interaction).catch((cause: unknown) => {
       setBusy(null)
       setError(cause instanceof Error ? cause.message : String(cause))
     })
@@ -122,7 +105,7 @@ function QuestionFlow({ interaction, actions }: QuestionComposerProps) {
       setError('请先完成这道问题。')
       return
     }
-    const answer: Answer = {
+    const answer: QuestionAnswer = {
       answers: questions.map((item, itemIndex) => {
         const value = values[itemIndex] as DraftAnswer
         if (value.skipped) return { id: item.id, selected: [] }
@@ -136,7 +119,7 @@ function QuestionFlow({ interaction, actions }: QuestionComposerProps) {
     }
     setBusy('answer')
     setError(null)
-    void actions.answer(interaction, answer).catch((cause: unknown) => {
+    void submitAnswer(interaction, answer).catch((cause: unknown) => {
       setBusy(null)
       setError(cause instanceof Error ? cause.message : String(cause))
     })

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import type { PendingInteraction } from '@deepseek-ai/dsh-client-runtime/client'
+import type { PendingInteraction, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
+import type { QuestionComposerProps } from '../src/client/contract/slots.ts'
 import {
   QuestionComposer, parseQuestionTitle, parseRecommendedLabel,
 } from '../src/client/QuestionComposer.tsx'
@@ -10,6 +11,15 @@ import {
 afterEach(cleanup)
 
 type Interaction = Extract<PendingInteraction, { kind: 'question' }>
+
+/** Framework standard-kit stubs: the composer consumes none of them, the
+ *  composed props type mandates their delivery (framework hooks are plain
+ *  stubs per the client testing discipline). */
+const kit: Pick<QuestionComposerProps, 'sessionId' | 'useSession' | 'useSessions'> = {
+  sessionId: 's1' as SessionId,
+  useSession: (() => { throw new Error('unused') }) as unknown as QuestionComposerProps['useSession'],
+  useSessions: (() => { throw new Error('unused') }) as unknown as QuestionComposerProps['useSessions'],
+}
 
 function interaction(rpcId = 'question-1'): Interaction {
   return {
@@ -38,7 +48,7 @@ describe('QuestionComposer', () => {
   it('collects single, custom, and multi-select answers before one batch submit', () => {
     const answer = vi.fn(() => Promise.resolve())
     const cancel = vi.fn(() => Promise.resolve())
-    render(<QuestionComposer interaction={interaction()} actions={{ answer, cancel }} />)
+    render(<QuestionComposer interaction={interaction()} answer={answer} cancel={cancel} {...kit} />)
 
     expect(screen.getByText('1 / 3')).toBeTruthy()
     expect(screen.getByText('推荐')).toBeTruthy()
@@ -76,7 +86,7 @@ describe('QuestionComposer', () => {
   it('skips individual questions without discarding earlier answers', () => {
     const answer = vi.fn(() => Promise.resolve())
     const cancel = vi.fn(() => Promise.resolve())
-    render(<QuestionComposer interaction={interaction()} actions={{ answer, cancel }} />)
+    render(<QuestionComposer interaction={interaction()} answer={answer} cancel={cancel} {...kit} />)
 
     expect((screen.getByText('下一题').closest('button') as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('radio', { name: '研究潜力型' }))
@@ -98,7 +108,7 @@ describe('QuestionComposer', () => {
   it('keeps IME Enter inside the custom input until composition finishes', () => {
     const answer = vi.fn(() => Promise.resolve())
     const cancel = vi.fn(() => Promise.resolve())
-    render(<QuestionComposer interaction={interaction()} actions={{ answer, cancel }} />)
+    render(<QuestionComposer interaction={interaction()} answer={answer} cancel={cancel} {...kit} />)
 
     fireEvent.click(screen.getByRole('radio', { name: '研究潜力型' }))
     const custom = screen.getByPlaceholderText('输入你的答案')
@@ -119,7 +129,7 @@ describe('QuestionComposer', () => {
   it('opens custom input, reports missing skipped answers, and supports header navigation', () => {
     const answer = vi.fn(() => Promise.resolve())
     const cancel = vi.fn(() => Promise.resolve())
-    render(<QuestionComposer interaction={interaction()} actions={{ answer, cancel }} />)
+    render(<QuestionComposer interaction={interaction()} answer={answer} cancel={cancel} {...kit} />)
 
     fireEvent.click(screen.getByRole('button', { name: '其他，请填写自定义答案' }))
     expect(screen.getByPlaceholderText('输入你的答案')).toBeTruthy()
@@ -143,7 +153,7 @@ describe('QuestionComposer', () => {
   it('surfaces explicit cancellation rejection', async () => {
     const answer = vi.fn(() => Promise.resolve())
     const cancel = vi.fn(() => Promise.reject('取消请求失败'))
-    render(<QuestionComposer interaction={interaction()} actions={{ answer, cancel }} />)
+    render(<QuestionComposer interaction={interaction()} answer={answer} cancel={cancel} {...kit} />)
 
     fireEvent.click(screen.getByRole('button', { name: '放弃整组问题' }))
     expect(await screen.findByText('取消请求失败')).toBeTruthy()
@@ -158,11 +168,11 @@ describe('QuestionComposer', () => {
     const answer = vi.fn(() => Promise.reject(new Error('网络中断')))
     const cancel = vi.fn(() => Promise.resolve())
     const first = interaction('first')
-    const view = render(<QuestionComposer interaction={first} actions={{ answer, cancel }} />)
+    const view = render(<QuestionComposer interaction={first} answer={answer} cancel={cancel} {...kit} />)
 
     fireEvent.click(screen.getByRole('radio', { name: /研究潜力型/ }))
     expect(screen.getByText('2 / 3')).toBeTruthy()
-    view.rerender(<QuestionComposer interaction={interaction('second')} actions={{ answer, cancel }} />)
+    view.rerender(<QuestionComposer interaction={interaction('second')} answer={answer} cancel={cancel} {...kit} />)
     expect(screen.getByRole('radio', { name: /研究潜力型/ }).getAttribute('aria-checked')).toBe('false')
 
     fireEvent.click(screen.getByRole('radio', { name: /工程落地型/ }))
