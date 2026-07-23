@@ -227,6 +227,16 @@ export class PlanModeService extends Service {
       parameters: {
         plan: { type: 'string', required: true, description: 'The complete plan, as markdown, starting with a # heading that names it.' },
       },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            approved: { type: 'boolean', const: true, required: true },
+          },
+        },
+        render: () => [{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }],
+      },
       execute: async (args, exec) => {
         const agent = exec.agent
         if (agent === undefined) throw new Error(`${EXIT_PLAN_MODE} requires a calling agent (no session to switch)`)
@@ -270,7 +280,7 @@ export class PlanModeService extends Service {
         // Keep plan guidance for the rest of this assistant tool batch. The
         // silent intent flushes after the step, before the next assembly.
         this.pendingIntents.set(agent.session, { active: false, narrate: false })
-        return [{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }]
+        return { approved: true }
       },
       presentCall: args => ({
         card: 'generic',

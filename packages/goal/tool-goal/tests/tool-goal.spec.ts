@@ -98,9 +98,12 @@ async function execute(
 /** Parse the compact JSON returned by a successful goal tool. */
 function resultJson(result: ToolExecutionResult): Record<string, unknown> {
   expect(result.isError).toBe(false)
+  if (result.isError) throw new Error('expected goal tool success')
   const block = result.content[0]
   if (block?.type !== 'text') throw new Error('expected text tool result')
-  return JSON.parse(block.text) as Record<string, unknown>
+  const parsed = JSON.parse(block.text) as Record<string, unknown>
+  expect(result.value).toEqual(parsed)
+  return parsed
 }
 
 /** Read the returned goal sub-object. */
@@ -196,7 +199,7 @@ describe('goal tool execution authority', () => {
   it('rejects agentless, driverless, non-human, and live-child creation', async () => {
     const { ctx, root } = await harness()
     const agentless = await execute(ctx, 'get_goal', {})
-    expect(agentless.error?.code).toBe('GOAL_TOOL_AGENT_REQUIRED')
+    expect(agentless.error?.info?.code).toBe('GOAL_TOOL_AGENT_REQUIRED')
 
     openTurn(root, { kind: 'user' })
     const driverless = await ctx.tools.execute({
@@ -206,12 +209,12 @@ describe('goal tool execution authority', () => {
       arguments: {},
       agent: root.agent,
     })
-    expect(driverless.error?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
+    expect(driverless.error?.info?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
     closeTurn(root, 1)
 
     openTurn(root, { kind: 'plugin', plugin: 'test' })
     const nonHuman = await execute(ctx, 'create_goal', { objective: 'forged' }, root.agent)
-    expect(nonHuman.error?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
+    expect(nonHuman.error?.info?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
     closeTurn(root, 2)
 
     const child = stubAgent('goal-tool-child')
@@ -219,7 +222,7 @@ describe('goal tool execution authority', () => {
     ctx.agents.announce(child.agent)
     openTurn(child, { kind: 'user' })
     const childResult = await execute(ctx, 'create_goal', { objective: 'child goal' }, child.agent)
-    expect(childResult.error?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
+    expect(childResult.error?.info?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
   })
 
   it('rejects stale agent objects and agents outside running status through the executor', async () => {
@@ -227,11 +230,11 @@ describe('goal tool execution authority', () => {
     openTurn(root, { kind: 'user' })
     const stale = { ...root.agent }
     const staleResult = await execute(ctx, 'get_goal', {}, stale, stale)
-    expect(staleResult.error?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
+    expect(staleResult.error?.info?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
 
     root.setStatus('idle')
     const idleResult = await execute(ctx, 'get_goal', {}, root.agent)
-    expect(idleResult.error?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
+    expect(idleResult.error?.info?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
   })
 
   it('treats a fork resumed as a runtime root as direct-human authority', async () => {
@@ -261,12 +264,12 @@ describe('goal tool execution authority', () => {
   it('rejects calls before a turn and after its end boundary', async () => {
     const { ctx, root } = await harness()
     const before = await execute(ctx, 'get_goal', {}, root.agent)
-    expect(before.error?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
+    expect(before.error?.info?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
 
     const turn = openTurn(root, { kind: 'user' })
     closeTurn(root, turn)
     const after = await execute(ctx, 'get_goal', {}, root.agent)
-    expect(after.error?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
+    expect(after.error?.info?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
   })
 
   it('rejects terminal reporting without human input or a current goal round', async () => {
@@ -275,11 +278,11 @@ describe('goal tool execution authority', () => {
     const result = await execute(ctx, 'update_goal', {
       goal_id: 'goal-missing', revision: 1, action: 'complete',
     }, root.agent)
-    expect(result.error?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
+    expect(result.error?.info?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
     const malformed = await execute(ctx, 'update_goal', {
       goal_id: 'goal-missing', revision: 1, action: 'pause', objective: 'probe',
     }, root.agent)
-    expect(malformed.error?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
+    expect(malformed.error?.info?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
   })
 
   it('accepts direct human steering in a goal-sourced root turn', async () => {
@@ -307,7 +310,7 @@ describe('goal tool execution authority', () => {
     ctx.agents.register(other.agent)
     openTurn(other, { kind: 'user' })
     const result = await execute(ctx, 'get_goal', {}, other.agent, root.agent)
-    expect(result.error?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
+    expect(result.error?.info?.code).toBe('GOAL_TOOL_DRIVER_REQUIRED')
   })
 })
 
@@ -378,7 +381,7 @@ describe('goal tool state transitions', () => {
     const { ctx, root } = await harness()
     openTurn(root, { kind: 'user' })
     const invalidCreate = await execute(ctx, 'create_goal', { objective: ' ' }, root.agent)
-    expect(invalidCreate.error?.code).toBe('GOAL_INVALID_OBJECTIVE')
+    expect(invalidCreate.error?.info?.code).toBe('GOAL_INVALID_OBJECTIVE')
     const created = ctx.goals.create(root.agent, { objective: 'valid' })
     const replacement = await execute(ctx, 'update_goal', {
       goal_id: created.id,
@@ -386,26 +389,26 @@ describe('goal tool state transitions', () => {
       action: 'pause',
       objective: 'not valid for pause',
     }, root.agent)
-    expect(replacement.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    expect(replacement.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
     const terminalUpdate = await execute(ctx, 'update_goal', {
       goal_id: created.id,
       revision: created.revision,
       action: 'complete',
       max_goal_rounds: 2,
     }, root.agent)
-    expect(terminalUpdate.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    expect(terminalUpdate.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
     const blockedWithoutReason = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: created.revision, action: 'blocked',
     }, root.agent)
-    expect(blockedWithoutReason.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    expect(blockedWithoutReason.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
     const blockedWithEmptyReason = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: created.revision, action: 'blocked', blocked_reason: ' ',
     }, root.agent)
-    expect(blockedWithEmptyReason.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    expect(blockedWithEmptyReason.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
     const completeWithReason = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: created.revision, action: 'complete', blocked_reason: 'Not a blocker.',
     }, root.agent)
-    expect(completeWithReason.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    expect(completeWithReason.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
     const editWithReason = await execute(ctx, 'update_goal', {
       goal_id: created.id,
       revision: created.revision,
@@ -413,11 +416,11 @@ describe('goal tool state transitions', () => {
       objective: 'still valid',
       blocked_reason: 'Not valid for edit.',
     }, root.agent)
-    expect(editWithReason.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    expect(editWithReason.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
     const malformedRef = await execute(ctx, 'update_goal', {
       goal_id: '', revision: 0, action: 'edit', objective: 'x',
     }, root.agent)
-    expect(malformedRef.error?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    expect(malformedRef.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
   })
 
   it('allows exact goal rounds to complete but not edit or pause', async () => {
@@ -429,7 +432,7 @@ describe('goal tool state transitions', () => {
     const edit = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: created.revision, action: 'edit', objective: 'forbidden',
     }, root.agent)
-    expect(edit.error?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
+    expect(edit.error?.info?.code).toBe('GOAL_TOOL_AUTHORITY_REQUIRED')
     const complete = await execute(ctx, 'update_goal', {
       goal_id: created.id, revision: created.revision, action: 'complete',
     }, root.agent)
@@ -451,7 +454,7 @@ describe('goal tool state transitions', () => {
         action: 'blocked',
         blocked_reason: 'The required credential is still unavailable.',
       }, root.agent)
-      expect(result.error?.code).toBe('GOAL_TOOL_BLOCK_THRESHOLD')
+      expect(result.error?.info?.code).toBe('GOAL_TOOL_BLOCK_THRESHOLD')
       closeTurn(root, turn)
     }
     openTurn(root, { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 3 })

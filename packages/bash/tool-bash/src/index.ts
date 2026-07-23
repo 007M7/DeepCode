@@ -11,8 +11,9 @@
 import { Service, type Context } from 'cordis'
 import z from 'schemastery'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, TerminalCallView, ToolExecution, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -22,7 +23,7 @@ import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandb
 import { ESCALATION_TARGETS, approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-bash'
-import type { DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
+import type { BashRunResult, DshEnvironment, DshEnvironmentKey } from '@deepseek-ai/dsh-bash'
 import { DSH_HOME_ENV, resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { processOutcome } from './background.ts'
 import { parseExitStatus, renderProcessRead, renderResult } from './render.ts'
@@ -206,7 +207,7 @@ export class BashEnvRegistry extends Service {
   }
 }
 
-/** Parsed tool args; execute validates value constraints absent from SchemaSpec. */
+/** Parsed tool args; execute validates value constraints absent from ParameterSchemaSpec. */
 interface BashToolArgs {
   command: string
   description: string
@@ -318,6 +319,38 @@ function resolveWorkdir(
   return modelWorkdir
 }
 
+/** Detach the executor DTO from readonly seam interfaces into plain JSON data. */
+function canonicalBashResult(result: BashRunResult) {
+  const output = (stream: BashRunResult['stdout']) => ({
+    text: stream.text,
+    truncated: stream.truncated,
+    ...stream.spillPath !== undefined ? { spillPath: stream.spillPath } : {},
+  })
+  return {
+    exitCode: result.exitCode,
+    signal: result.signal,
+    timedOut: result.timedOut,
+    aborted: result.aborted,
+    timeoutMs: result.timeoutMs,
+    stdout: output(result.stdout),
+    stderr: output(result.stderr),
+    ...result.sandbox !== undefined ? {
+      sandbox: {
+        mode: result.sandbox.mode,
+        denied: result.sandbox.denied,
+        ...result.sandbox.enforcement !== undefined ? { enforcement: result.sandbox.enforcement } : {},
+        ...result.sandbox.runnerFailed !== undefined ? { runnerFailed: result.sandbox.runnerFailed } : {},
+      },
+    } : {},
+  }
+}
+
+/** Canonical background-handle properties shared by the bash output union. */
+const BACKGROUND_OUTPUT_PROPERTIES = {
+  kind: { type: 'string', required: true, const: 'background' },
+  taskId: { type: 'string', required: true },
+} as const
+
 export function apply(ctx: Context, config: Config = {}): void {
   const bashEnv = new BashEnvRegistry(ctx, config)
   bashEnv.register({
@@ -415,6 +448,65 @@ export function apply(ctx: Context, config: Config = {}): void {
         },
       } : {},
     },
+    output: {
+      schema: {
+        oneOf: [
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: BACKGROUND_OUTPUT_PROPERTIES,
+          },
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              kind: { type: 'string', required: true, const: 'foreground' },
+              exitCode: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
+              signal: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }] },
+              timedOut: { type: 'boolean', required: true },
+              aborted: { type: 'boolean', required: true },
+              timeoutMs: { type: 'number', required: true },
+              stdout: {
+                type: 'object',
+                additionalProperties: false,
+                required: true,
+                properties: {
+                  text: { type: 'string', required: true },
+                  truncated: { type: 'boolean', required: true },
+                  spillPath: { type: 'string' },
+                },
+              },
+              stderr: {
+                type: 'object',
+                additionalProperties: false,
+                required: true,
+                properties: {
+                  text: { type: 'string', required: true },
+                  truncated: { type: 'boolean', required: true },
+                  spillPath: { type: 'string' },
+                },
+              },
+              sandbox: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  mode: { type: 'string', required: true },
+                  denied: { type: 'boolean', required: true },
+                  enforcement: { type: 'string' },
+                  runnerFailed: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        ],
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.kind === 'background'
+          ? `started background task ${value.taskId}`
+          : renderResult(value as { kind: 'foreground' } & BashRunResult, escalationModes),
+      }],
+    },
     async execute(args: BashToolArgs, exec) {
       validateBashArgs(args)
       // Description is display metadata; workdir defaults to the caller's session.
@@ -444,7 +536,11 @@ export function apply(ctx: Context, config: Config = {}): void {
           throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
         }
         // The caller owns cancellation until TaskService commits detached ownership.
-        if (exec.signal.aborted) return []
+        if (exec.signal.aborted) {
+          const error = new HarnessError('tool call aborted', TOOL_ABORTED)
+          error.name = 'AbortError'
+          throw error
+        }
         // Task preflight finishes before the starter can spawn a process.
         const id = tasks.start({
           kind: 'bash',
@@ -459,14 +555,14 @@ export function apply(ctx: Context, config: Config = {}): void {
             }
           },
         })
-        return [{ type: 'text', text: `started background task ${id}` }]
+        return { kind: 'background' as const, taskId: id }
       }
       const result = await ctx.bash.run(ctx.bash.resolve({
         ...request,
         signal: exec.signal,
       }))
       if (result.aborted) throw new Error('command aborted')
-      return [{ type: 'text', text: renderResult(result, escalationModes) }]
+      return { kind: 'foreground' as const, ...canonicalBashResult(result) }
     },
     presentCall: presentBashCall,
     presentResult: presentBashResult,

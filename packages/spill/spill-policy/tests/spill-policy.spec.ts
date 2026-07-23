@@ -15,11 +15,12 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import type { PostToolDecision, ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
 import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
+import { WorkerCodeRuntime } from '@deepseek-ai/dsh-code-runtime-worker'
 
 const testToolSignal = new AbortController().signal
 
@@ -41,7 +42,7 @@ class StubStore extends SpillStore {
 
 /** A tool returning `text` verbatim (name configurable so we can register `read`). */
 function textTool(name: string, text: string) {
-  return defineTool({
+  return defineContentToolFixture({
     name,
     description: name,
     parameters: {},
@@ -60,7 +61,11 @@ function exec(name: string, session = 's1'): ToolExecution {
  * Build a context with tools + the policy, and optionally a spill backend.
  * Returns the context and the backend handle (undefined when `withSpill` false).
  */
-async function setup(config: SpillPolicy.Config, withSpill = true): Promise<{ ctx: Context; spill?: StubStore; fiber: Awaited<ReturnType<Context['plugin']>> }> {
+async function setup(
+  config: SpillPolicy.Config,
+  withSpill = true,
+  beforePolicy?: (ctx: Context) => void,
+): Promise<{ ctx: Context; spill?: StubStore; fiber: Awaited<ReturnType<Context['plugin']>> }> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
@@ -69,6 +74,7 @@ async function setup(config: SpillPolicy.Config, withSpill = true): Promise<{ ct
     await ctx.plugin(StubStore)
     spill = ctx.spillStore as StubStore
   }
+  beforePolicy?.(ctx)
   const fiber = await ctx.plugin(SpillPolicy, config)
   return { ctx, fiber, ...spill ? { spill } : {} }
 }
@@ -162,7 +168,7 @@ describe('oversized plain-text replacement', () => {
 
   it('leaves a result with a non-text block unchanged', async () => {
     const { ctx, spill } = await setup({ maxInlineBytes: 5 })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'mixed',
       description: 'mixed',
       parameters: {},
@@ -176,12 +182,64 @@ describe('oversized plain-text replacement', () => {
   })
 })
 
+describe('outer Code Mode failure capture', () => {
+  it('spills the bounded output-limit diagnostic through the ordinary outer-result policy', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry, { mode: 'code' })
+    await ctx.plugin(StubStore)
+    await ctx.plugin(SpillPolicy, { maxInlineBytes: 200 })
+    await ctx.plugin(WorkerCodeRuntime, { maxOutputBytes: 500 })
+    const events: unknown[] = []
+    const agent = {
+      session: {
+        header: { id: SessionId('code-spill'), cwd: '/workspace' },
+        append: (_type: string, data: unknown) => { events.push(data) },
+      },
+    }
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('code-output-limit'),
+      name: 'run_code',
+      arguments: {
+        code: 'console.log("HEAD-" + "x".repeat(300)); console.log("TAIL-" + "y".repeat(300)); return "unreachable";',
+      },
+      agent: agent as never,
+    })
+
+    expect(result.isError).toBe(true)
+    const saved = (ctx.spillStore as StubStore).saves
+    expect(saved).toHaveLength(1)
+    expect(saved[0]?.source.toolName).toBe('run_code')
+    expect(saved[0]?.content).toContain('code run failed (output-limit)')
+    expect(saved[0]?.content).toContain('HEAD-')
+    expect(textOf(result.content)).toContain('Full formatted result stored at: /spill/run_code.txt')
+    expect(events).toEqual([])
+  })
+})
+
 describe('read skip', () => {
   it('never spills the read tool result (avoids a read → spill → read loop)', async () => {
     const { ctx, spill } = await setup({ maxInlineBytes: 10 })
     ctx.tools.register(textTool('read', 'x'.repeat(1000)))
     const result = await ctx.tools.execute(exec('read'))
     expect(textOf(result.content)).toBe('x'.repeat(1000))
+    expect(spill?.saves).toHaveLength(0)
+  })
+})
+
+describe('nested-call skip', () => {
+  it('leaves nested composite results complete and spillable only through their outer call', async () => {
+    const { ctx, spill } = await setup({ maxInlineBytes: 10 })
+    const body = 'x'.repeat(1000)
+    ctx.tools.register(textTool('nested', body))
+    const nested = {
+      ...exec('nested'),
+      parent: Symbol('outer') as ToolExecutionToken,
+    }
+    const result = await ctx.tools.execute(nested)
+    expect(textOf(result.content)).toBe(body)
     expect(spill?.saves).toHaveLength(0)
   })
 })
@@ -219,6 +277,26 @@ describe('best-effort fallback', () => {
 })
 
 describe('composition', () => {
+  it('wraps an earlier tool-owned projection before applying the generic cap', async () => {
+    let downstreamDecision: PostToolDecision | undefined
+    const { ctx, spill } = await setup({ maxInlineBytes: 200 }, true, (target) => {
+      target.on('tools/post-execute', async (_exec, _result, next): Promise<PostToolDecision> => {
+        downstreamDecision = await next()
+        return {
+          kind: 'accept',
+          content: [{ type: 'text', text: `first page\n\nFull canonical result stored at /spill/search-results.txt.\n${'z'.repeat(500)}` }],
+        }
+      })
+    })
+    ctx.tools.register(textTool('search', 'initial capped page'))
+
+    const result = await ctx.tools.execute(exec('search'))
+
+    expect(downstreamDecision).toEqual({ kind: 'accept' })
+    expect(spill?.saves[0]?.content).toContain('Full canonical result stored at /spill/search-results.txt.')
+    expect(textOf(result.content)).toContain('Full formatted result stored at')
+  })
+
   it('bounds content a downstream post-execute listener replaced', async () => {
     const { ctx, spill } = await setup({ maxInlineBytes: 200 })
     // A later-registered listener replaces the (small) tool result with a big one;
@@ -240,6 +318,21 @@ describe('composition', () => {
     const result = await ctx.tools.execute(exec('big'))
     expect(textOf(result.content)).toContain('Full formatted result stored at')
     expect(result.additionalContexts).toEqual([context])
+  })
+
+  it('passes a downstream value replacement through for registry rendering', async () => {
+    const { ctx, spill } = await setup({ maxInlineBytes: 10 })
+    const replacement = [{ type: 'text' as const, text: 'z'.repeat(500) }]
+    ctx.on('tools/post-execute', async () => ({ kind: 'accept' as const, value: replacement }))
+    ctx.tools.register(textTool('small', 'tiny'))
+
+    const result = await ctx.tools.execute(exec('small'))
+
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected replacement success')
+    expect(result.value).toEqual(replacement)
+    expect(textOf(result.content)).toBe('z'.repeat(500))
+    expect(spill?.saves).toHaveLength(0)
   })
 })
 
