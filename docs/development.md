@@ -75,20 +75,20 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 ## Git hooks
 
-lefthook is configured in `lefthook.yml` as a fast local checkpoint:
+lefthook is configured in `lefthook.yml` with fast commit-local checks and a comprehensive publication check:
 
 - `pre-commit` runs staged-file ESLint fixes, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
-- `pre-push` runs only the incremental repository typecheck (`tsc -b` over the root solution, covering both the host and client aggregates).
+- `pre-push` invokes `pnpm run check:pre-push`, which selects the same primary Node gate inventory as `pnpm run check:ci` from `scripts/run-gates.ts`.
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
-The hooks intentionally do not run tests, snapshots, documentation checks, builds, or hygiene. Contributors run the [checks relevant to the changed behavior](../AGENTS.md#run-relevant-checks-locally) once; CI owns exhaustive coverage, built-artifact smokes, and the Node 22.19, 24, and 26 compatibility matrix.
+Contributors run [checks relevant to the changed behavior](../AGENTS.md#run-relevant-checks-locally) while iterating. A normal push runs the complete local primary aggregate once and stops publication on any failure; do not run the same aggregate immediately before pushing.
 
-Contributors can opt into the comprehensive local gate set with `pnpm run check:all`. The command is independent of both Git hooks and is not an agent instruction.
+The pre-push result covers the keyless primary Node lane on the current host. It does not replace the supported-version and platform matrix, Python SDK tests, real-API e2e, or sandbox workflows. `pnpm run check:all` remains a broad opt-in development inventory; it is independent of both Git hooks and is not the publication contract.
 
 ## CI gates
 
-The keyless [CI workflow](../.github/workflows/ci.yml) groups independent gates into broad lanes and runs a smaller compatibility signal across supported Node versions. Artifact consumers wait for one build within their lane. The separate real-API workflow runs `pnpm run test:e2e` with its configured worker bound. See [scripts/run-gates.ts](../scripts/run-gates.ts) and the workflow files for the current gate and job inventory.
+The keyless [CI workflow](../.github/workflows/ci.yml) groups independent gates into broad lanes and runs a smaller compatibility signal across supported Node versions. Artifact consumers wait for one build within their lane. `check:pre-push` and the primary CI job share one gate inventory; the separate real-API workflow runs `pnpm run test:e2e` with its configured worker bound. See [scripts/run-gates.ts](../scripts/run-gates.ts) and the workflow files for the current gate and job inventory.
 
 ## Daily commands
 
@@ -98,7 +98,8 @@ Use these from the repo root:
 pnpm run test           # unit tests
 pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run check:all      # comprehensive opt-in gate set; not wired to Git hooks
+pnpm run check:pre-push # primary Node CI inventory; runs automatically before push
+pnpm run check:all      # broad opt-in development gate set; not wired to Git hooks
 pnpm run typecheck      # tsc -b over the root solution: emits package/vendor lib/types, checks both aggregates
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix

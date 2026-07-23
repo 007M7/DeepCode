@@ -75,20 +75,20 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 ## Git 钩子
 
-lefthook 在 `lefthook.yml` 中配置，作为快速的本地检查点：
+lefthook 在 `lefthook.yml` 中配置了快速的提交级检查和全面的发布检查：
 
 - `pre-commit` 运行对暂存文件的 ESLint 修复，检查暂存 diff 中的空白错误，并运行 vendor manifest（元数据清单）守卫；
-- `pre-push` 只运行仓库增量类型检查（对根 solution 执行 `tsc -b`，覆盖 host 与 client 两个聚合）。
+- `pre-push` 调用 `pnpm run check:pre-push`；该命令从 `scripts/run-gates.ts` 中选择与 `pnpm run check:ci` 相同的主 Node 门禁清单。
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。
 
-这些钩子有意不运行测试、快照、文档检查、构建或 `hygiene`。贡献者只运行一次[与改动行为相关的检查](../AGENTS.md#run-relevant-checks-locally)；CI 负责全量覆盖率门禁、构建产物冒烟测试，以及 Node 22.19、24 和 26 兼容性矩阵。
+贡献者在迭代过程中运行[与改动行为相关的检查](../AGENTS.md#run-relevant-checks-locally)。正常推送会在本地完整运行一次主 CI 聚合，并在任何检查失败时阻止发布；不要在推送前立即重复运行同一个聚合。
 
-贡献者可以选择运行 `pnpm run check:all`，执行全面的本地门禁集。该命令独立于两个 Git 钩子，也不是对 agent 的指令。
+pre-push 的结果覆盖当前主机上的 keyless 主 Node lane，但不能代替受支持版本与平台矩阵、Python SDK 测试、真实 API e2e 或沙箱工作流。`pnpm run check:all` 仍是一份广泛的可选开发检查清单；它独立于两个 Git 钩子，也不属于发布契约。
 
 ## CI 门禁
 
-keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若干宽粒度 lane，并在受支持的 Node 版本上运行一组较小的兼容性检查。产物消费方在各自 lane 内等待一次 build。单独的真实 API 工作流按其配置的 worker 上限运行 `pnpm run test:e2e`。当前门禁和 job 清单以 [scripts/run-gates.ts](../scripts/run-gates.ts) 和工作流文件为准。
+keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若干宽粒度 lane，并在受支持的 Node 版本上运行一组较小的兼容性检查。产物消费方在各自 lane 内等待一次 build。`check:pre-push` 与主 CI job 共用一份门禁清单；单独的真实 API 工作流按其配置的 worker 上限运行 `pnpm run test:e2e`。当前门禁和 job 清单以 [scripts/run-gates.ts](../scripts/run-gates.ts) 和工作流文件为准。
 
 ## 日常命令
 
@@ -98,7 +98,8 @@ keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若�
 pnpm run test           # unit tests
 pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run check:all      # comprehensive opt-in gate set; not wired to Git hooks
+pnpm run check:pre-push # primary Node CI inventory; runs automatically before push
+pnpm run check:all      # broad opt-in development gate set; not wired to Git hooks
 pnpm run typecheck      # tsc -b over the root solution: emits package/vendor lib/types, checks both aggregates
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix

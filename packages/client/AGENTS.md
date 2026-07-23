@@ -66,7 +66,7 @@ Run the narrowest rung that covers what you touched; escalate only when the chan
 
 1. **Every GUI code change** — `pnpm run test:gui` (seconds; no browser, no server): the client suites plus the host-side GUI packages. This is the inner loop; run it as freely as a typecheck.
 2. **Changes to the build surface, boot wiring, or static serving** (`apps/web`, vite config, `dsh-host-webserver`) — additionally `pnpm run test:web`: rebuilds the frontend dist, then runs the browser smoke pair (the real-host case self-skips without `DEEPSEEK_API_KEY`).
-3. **Before a PR** — `pnpm run check:pre-push` (the repo-wide gate ladder). Between PR windows this rung is not expected on every commit.
+3. **Before every push** — the normal hook runs `pnpm run check:pre-push` (the repo-wide primary CI inventory). Do not invoke it manually immediately before pushing.
 
 If `test:gui` is red on code you did not touch, neither silently fix nor ignore it: note it in your handoff so it lands in the next PR window's sweep.
 
