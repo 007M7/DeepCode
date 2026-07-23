@@ -10,7 +10,7 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 |---|---|
 | `locate(meta): SessionLocation \| undefined` | Resolve an absolute per-session artifact target without I/O or materialization. Backends without an independent local artifact return `undefined`. |
 | `create(meta): Promise<void>` | Register a new session's metadata. MAY defer the physical write until the first `append` (lazy materialization). |
-| `append(id, events): Promise<void>` | Durably persist a batch (from the `session/flush` drain). Append-only; first event `seq` == stored next-seq after any repair; rejects non-JSON-serializable data naming the offending type. |
+| `append(id, events): Promise<void>` | Durably persist a batch. Append-only; first event `seq` == stored next-seq after any repair; rejects non-JSON-serializable data naming the offending type. |
 | `load(id): Promise<{ meta; events }>` | Reload meta + log. Preserves an interrupted (unclosed) final turn and closes it with synthetic closers — an error `tool/result` per unanswered `tool-call`, then `step/end?`+`turn/end {interrupted}` (a turn can be huge — never truncated); only a torn tail fragment is dropped. Events contiguous (`events[i].seq === i`); rejects a committed-region gap/parse error or unknown `version`. |
 | `list(): Promise<SessionHeader[]>` | Lightweight listing from metadata, no full-log parse. A zero-event lazily-materialized session is absent from `list`. |
 
@@ -23,11 +23,11 @@ The persisted unit IS the existing `SessionEvent` (event-sourced model — the l
 
 ## The write coordinator
 
-`PersistenceCoordinator` owns per-id state, write-behind buffers and serialization, the `session/event` → `session/flush` drain, lazy materialization, crash-tail repair, session adoption, and quiescent disposal. A first-party backend composes one, implements the small `PersistenceBackend` storage hook interface, and delegates its four public service methods. JSONL and SQLite therefore share lifecycle correctness while retaining different storage primitives; see the [coordinator Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md).
+`PersistenceCoordinator` owns per-id serialization, one eager write controller per live session, lazy materialization, crash-tail repair, session adoption, and quiescent disposal. A first-party backend composes one, implements the small `PersistenceBackend` storage hook interface, and delegates its four public service methods. JSONL and SQLite therefore share lifecycle correctness while retaining different storage primitives; see the [coordinator Agent Note](../../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md) and [flush-controller simplification](../../../.agents/notes/implemented/simplification/2026-07-23-collapse-persistence-flush-state.md).
 
-The coordinator implements durability at checkpoints but does not select their schedule. Persisted deployments explicitly compose [`dsh-session-checkpoint-policy`](../session-checkpoint-policy) when they want request-, tool-dispatch-, and completed-step recovery boundaries; omitting it leaves the loop's coarser checkpoints intact.
+Each `session/event` copies its event into the session controller and starts an eager drain without blocking the producer. Concurrent notifications share the current drain; events admitted during a write remain pending and trigger the next batch. `session/flush` is an observation barrier that waits until the controller has no current or pending batch. An eager failure is logged and retains the batch; the next explicit flush or backend teardown retries it and surfaces failure to its caller.
 
-When a live session emits `session/disposed`, the coordinator waits for its initialization, serializes a final buffer drain, then releases every map entry owned by that exact `Session` object. A failed final drain keeps the pending buffer for backend teardown to retry. Backend teardown stops event admission first, awaits all in-flight session retirements and remaining per-id operations, drains any retained buffers, and only then closes the storage handle.
+When a live session emits `session/disposed`, the coordinator waits for its controller, serializes a final drain, then releases state owned by that exact `Session` object. Failed retirement leaves the controller in the live-session map, so backend teardown can retry it. Backend teardown stops event admission first, flushes every remaining controller, awaits per-id operations, and only then closes the storage handle.
 
 The side-effect-free `locate` query remains backend-owned because it describes storage topology rather than write orchestration.
 

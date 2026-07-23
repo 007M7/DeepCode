@@ -904,10 +904,9 @@ abstract locate(meta: SessionHeader): SessionLocation | undefined
 abstract create(meta: SessionHeader): Promise<void>
 
 /**
- * Durably persist a batch of events (called from the write-behind drain at
- * the `session/flush` checkpoint). Honors the append-only and contiguous-seq
- * contracts: the first event's `seq` MUST equal the stored next-seq (after
- * `load` has durably closed any interrupted turn). Rejects non-JSON-
+ * Durably persist a batch of events. Honors the append-only and contiguous-
+ * seq contracts: the first event's `seq` MUST equal the stored next-seq
+ * (after `load` has durably closed any interrupted turn). Rejects non-JSON-
  * serializable `event.data` with an error naming the offending event type.
  * @param id - the session the batch belongs to.
  * @param events - the contiguous batch to persist, in seq order.
