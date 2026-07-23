@@ -137,7 +137,7 @@ describe('require resolution', () => {
   it('require prefers the platform seed word over the module table', async () => {
     const react = { marker: 'react' }
     const b = bench([row('a')], {
-      a: (req) => ({ dep: req('react') }),
+      a: req => ({ dep: req('react') }),
     }, { seed: { react } })
     const surface = await b.loader.import('a', '', {})
     expect((surface as { dep: unknown }).dep).toBe(react)
@@ -148,7 +148,7 @@ describe('require resolution', () => {
   it('require answers an already-materialized module from the cache', async () => {
     let built = 0
     const b = bench([row('a'), row('c')], {
-      a: (req) => ({ dep: req('c') }),
+      a: req => ({ dep: req('c') }),
       c: () => { built += 1; return { marker: 'c' } },
     })
     const c = await b.loader.import('c', '', {})
@@ -158,14 +158,14 @@ describe('require resolution', () => {
   })
 
   it('a require that misses the module table is loud', async () => {
-    const b = bench([row('a')], { a: (req) => ({ dep: req('ghost') }) })
+    const b = bench([row('a')], { a: req => ({ dep: req('ghost') }) })
     await expect(b.loader.import('a', '', {})).rejects.toThrow('require("ghost") missed the module table')
   })
 
   it('a require cycle is fatal', async () => {
     const b = bench([row('a'), row('b')], {
-      a: (req) => ({ dep: req('b') }),
-      b: (req) => ({ dep: req('a') }),
+      a: req => ({ dep: req('b') }),
+      b: req => ({ dep: req('a') }),
     })
     await b.loader.prefetch('b')
     await expect(b.loader.import('a', '', {})).rejects.toThrow('require cycle through "a"')
@@ -176,7 +176,7 @@ describe('static registry', () => {
   it('serves shell-own modules to import and require without any fetch', async () => {
     const shell = { marker: 'app-shell' }
     const b = bench([row('a'), { id: 'app-shell' }], {
-      a: (req) => ({ dep: req('app-shell') }),
+      a: req => ({ dep: req('app-shell') }),
     })
     b.loader.registerStatic('app-shell', shell)
     await b.loader.prefetch('app-shell')
