@@ -99,10 +99,6 @@ jobs:
           : > "$static_log"
           pnpm run check:ci:static > >(tee "$static_log") 2>&1 &
           static_pid=$!
-          pnpm run check:ci:lint &
-          lint_pid=$!
-          pnpm run check:node-compat &
-          compat_pid=$!
 
           until grep -Fq 'run-gates: PASS build ' "$static_log"; do
             if ! kill -0 "$static_pid" 2>/dev/null; then
@@ -116,6 +112,10 @@ jobs:
             sleep 0.2
           done
 
+          pnpm run check:ci:lint &
+          lint_pid=$!
+          pnpm run check:node-compat &
+          compat_pid=$!
           DSH_EXAMPLE_MODE=lib pnpm run test:snapshot &
           snapshot_pid=$!
           pnpm run publint &
