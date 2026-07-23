@@ -205,7 +205,7 @@ describe('SidebarRoot', () => {
     }
   })
 
-  it('expanded search control focuses the field without toggling the sidebar', () => {
+  it('expanded search focuses without toggling the sidebar', () => {
     const { onToggleSidebar } = mount(...projectData())
     const input = screen.getByPlaceholderText('Search name, keywords...')
     act(() => { fireEvent.click(screen.getByLabelText('Search sessions')) })

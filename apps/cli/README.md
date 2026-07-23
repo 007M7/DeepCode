@@ -1,6 +1,6 @@
 # `@deepseek-ai/dsh`
 
-The `dsh` command-line entry, following the `apps/` assembly tier proposed by the `dsh web` PR (#443): `apps/*` are product assemblies over `packages/*` libraries. This branch ships one surface — plain `dsh [config.yml]` boots the interactive TUI coding agent — and reserves the `web` and `-p`/`--prompt` subcommands for that PR so the dispatch merges as a union.
+The `dsh` command-line entry follows the `apps/` assembly tier: `apps/*` are product assemblies over `packages/*` libraries. Plain `dsh [config.yml]` boots the interactive TUI coding agent, `dsh -p "task"` runs one headless turn, and `dsh web` serves the browser UI.
 
 The TUI surface:
 
@@ -9,6 +9,8 @@ The TUI surface:
 - treats the **invoking directory** as the workspace — sessions, relative paths, and workspace instructions resolve from the cwd;
 - tells the agent where its own source lives: after boot it adds a prompt section naming this harness checkout, resolved from the launcher's real path so it holds under a PATH symlink and an arbitrary cwd, so the self-referential `cordis` toolset can read and modify it;
 - applies the personal overlay from `~/.dsh` (see [app-boot's Personal config](../../packages/ui/app-boot/README.md#personal-config)): `.env` fills environment gaps (ambient > project `.env` > personal `.env`), `config.yaml` patches the booted tree.
+
+The Web surface treats its invoking directory as the default project and loads applicable `AGENTS.md`/`CLAUDE.md` instructions into each agent-loop request prefix with a 65,536-byte render budget.
 
 ## Install (developer machine)
 

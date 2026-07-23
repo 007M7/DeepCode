@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import LlmService, { type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import PlanModeService, { foldPlanMode } from '@deepseek-ai/dsh-plan-mode'
@@ -30,7 +30,7 @@ async function harness(adapter: MockAdapter): Promise<Context> {
   await ctx.plugin(PlanModeService, PLAN_CONFIG)
   ctx.llm.registerAdapter(['mock'], adapter)
   for (const name of ['read', 'write']) {
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name,
       description: `test tool ${name}`,
       parameters: {},

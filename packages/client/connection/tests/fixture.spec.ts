@@ -113,7 +113,7 @@ describe('createFixtureApi', () => {
     const missing = await api.sessions.prompt(req({ sessionId: sid('ghost'), mode: 'queue' as const, content: [{ type: 'text' as const, text: 'x' }] }))
     expect(missing.result).toMatchObject({ ok: false, error: { code: 'session-not-found', details: { sessionId: 'ghost' } } })
     // Real prompt: replay starts (running flips true), cancel freezes it.
-    const accepted = await api.sessions.prompt(req({ sessionId: id, mode: 'queue' as const, content: [{ type: 'text' as const, text: '取消我' }] }))
+    const accepted = await api.sessions.prompt(req({ sessionId: id, mode: 'queue' as const, content: [{ type: 'text' as const, text: 'render markdown' }] }))
     expect(accepted.result).toMatchObject({ ok: true, value: { accepted: true } })
     await new Promise(resolve => setTimeout(resolve, 120)) // a couple of typewriter ticks
     await api.sessions.cancel(req({ sessionId: id }))

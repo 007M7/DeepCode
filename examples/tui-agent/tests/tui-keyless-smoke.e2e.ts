@@ -13,14 +13,24 @@ const scriptedConfigPath = fileURLToPath(new URL('./fixtures/tui-scripted.cordis
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
 /**
- * Seed the harness workspace: personal files land in the isolated Harness home
- * (`.dsh`), skill bundles under the agents home's `skills/` root — the same
- * trees `$DSH_HOME` / `$DSH_AGENTS_HOME` point the child at.
+ * Seed the isolated process workspace: ordinary files land in `cwd`, personal
+ * files in the Harness home (`.dsh`), and skill bundles under the agents
+ * home's `skills/` root — the same trees `$DSH_HOME` /
+ * `$DSH_AGENTS_HOME` point the child at.
  */
 function seedWorkspace(
-  files: { personal?: Record<string, string>; skills?: Record<string, string> },
+  files: {
+    workspace?: Record<string, string>
+    personal?: Record<string, string>
+    skills?: Record<string, string>
+  },
 ): (cwd: string) => Promise<void> {
   return async (cwd) => {
+    for (const [name, content] of Object.entries(files.workspace ?? {})) {
+      const file = join(cwd, name)
+      await mkdir(dirname(file), { recursive: true })
+      await writeFile(file, content)
+    }
     for (const [name, content] of Object.entries(files.personal ?? {})) {
       const file = join(cwd, '.dsh', name)
       await mkdir(dirname(file), { recursive: true })
@@ -165,6 +175,27 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
       ],
     })
     expect(output).toContain('Scripted skill body received.')
+    expect(output).toContain('\u001B[?2004l')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('fuzzy-completes an @file path without reading or submitting the file', async () => {
+    const output = await smoke({
+      label: 'tui-agent file autocomplete',
+      tempDirPrefix: 'tui-agent-file-autocomplete-',
+      prepare: seedWorkspace({
+        workspace: {
+          'src/terminal-special-case.ts': 'export const marker = true\n',
+          'src/other.ts': 'export const other = true\n',
+        },
+      }),
+      actions: [
+        { waitFor: 'main-session-', send: '@tsc' },
+        { waitFor: 'File · terminal-special-case.t', send: '\t' },
+        { waitFor: '@src/terminal-special-case.ts', send: '\x03/exit\r' },
+      ],
+    })
+    expect(output).toContain('File · terminal-special-case.t')
+    expect(output).toContain('@src/terminal-special-case.ts')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 

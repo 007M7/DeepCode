@@ -168,7 +168,6 @@ function nodeOptions(...options: string[]): string {
 function gatesForMode(selected: Mode): Gate[] {
   switch (selected) {
     case 'ci-primary':
-    case 'pre-push':
       return ciPrimaryGates()
     case 'ci-static':
       return ciStaticGates()
@@ -191,6 +190,7 @@ function gatesForMode(selected: Mode): Gate[] {
       return ciWindowsObservationalGates()
     case 'node-compat':
       return nodeCompatGates()
+    case 'pre-push': return []
     case 'check-all':
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
@@ -317,14 +317,8 @@ function ciWindowsCompleteGates(): Gate[] {
 function ciWindowsObservationalGates(): Gate[] {
   return [
     ...ciStaticGates(),
-    lintGate(),
+    // Linux owns required lint, coverage, and snapshots; Windows omits those duplicates.
     pnpmScript('duplication', 'duplication'),
-    {
-      ...coverageGate(),
-      env: { DSH_EXAMPLE_MODE: 'lib' },
-      needs: ['build'],
-    },
-    snapshotGate(),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',

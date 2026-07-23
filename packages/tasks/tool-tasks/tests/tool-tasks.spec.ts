@@ -116,7 +116,16 @@ describe('task_output', () => {
     ctx.tasks.start(producer({ readOutput: () => chunks.shift() ?? '' }).spec)
 
     // A body already ending in a newline gets no doubled separator.
-    expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' }))).toBe('line one\n[status: running]')
+    const first = await call(ctx, 'task_output', { task_id: 'bash-1' })
+    if (first.isError) throw new Error('expected task_output success')
+    const firstValue = first.value as { text: string; task: Record<string, unknown> }
+    expect(firstValue).toMatchObject({
+      text: 'line one\n',
+      task: { id: 'bash-1', kind: 'bash', label: 'sleep 60', status: 'running' },
+    })
+    expect(firstValue.task).not.toHaveProperty('ownerSession')
+    expect(firstValue.task).not.toHaveProperty('reported')
+    expect(text(first)).toBe('line one\n[status: running]')
     expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' }))).toBe('(no new output)\n[status: running]')
   })
 
@@ -173,7 +182,17 @@ describe('task_list', () => {
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     await tick()
 
-    expect(text(await call(ctx, 'task_list', {}, alice))).toBe([
+    const listed = await call(ctx, 'task_list', {}, alice)
+    if (listed.isError) throw new Error('expected task_list success')
+    const listedValue = listed.value as Array<Record<string, unknown>>
+    expect(listedValue).toHaveLength(3)
+    expect(listedValue[0]).toMatchObject({ id: 'bash-1', kind: 'bash', label: 'pnpm test', status: 'running' })
+    expect(listedValue[2]).toMatchObject({ id: 'bash-2', kind: 'bash', label: 'build', status: 'completed', detail: 'exit code: 0' })
+    for (const task of listedValue) {
+      expect(task).not.toHaveProperty('ownerSession')
+      expect(task).not.toHaveProperty('reported')
+    }
+    expect(text(listed)).toBe([
       'bash-1 [bash] running — pnpm test',
       'subagent-1 [subagent] running — open research',
       'bash-2 [bash] completed — build',
@@ -191,6 +210,14 @@ describe('task_kill', () => {
     ctx.tasks.start(p.spec)
 
     const result = await call(ctx, 'task_kill', { task_id: 'bash-1', reason: 'superseded' })
+    if (result.isError) throw new Error('expected task_kill success')
+    const killValue = result.value as { outcome: string; task: Record<string, unknown> }
+    expect(killValue).toMatchObject({
+      outcome: 'cancellation-requested',
+      task: { id: 'bash-1', kind: 'bash', label: 'sleep 60', status: 'stopping' },
+    })
+    expect(killValue.task).not.toHaveProperty('ownerSession')
+    expect(killValue.task).not.toHaveProperty('reported')
     expect(text(result)).toBe('requested cancellation of task bash-1')
     expect(p.cancels).toEqual(['superseded'])
   })
@@ -203,8 +230,13 @@ describe('task_kill', () => {
     p.settle({ status: 'completed', detail: 'exit code: 0' })
     await tick()
 
-    expect(text(await call(ctx, 'task_kill', { task_id: 'bash-1' })))
-      .toBe('task bash-1 had already finished [status: completed, exit code: 0]')
+    const killed = await call(ctx, 'task_kill', { task_id: 'bash-1' })
+    if (killed.isError) throw new Error('expected task_kill success')
+    expect(killed.value).toMatchObject({
+      outcome: 'already-finished',
+      task: { id: 'bash-1', kind: 'bash', label: 'sleep 60', status: 'completed', detail: 'exit code: 0' },
+    })
+    expect(text(killed)).toBe('task bash-1 had already finished [status: completed, exit code: 0]')
     // The kill described the task via a non-consuming snapshot: the delta is intact.
     expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' }))).toBe('unread tail\n[status: completed, exit code: 0]')
   })

@@ -35,21 +35,13 @@ export interface PersistenceBackend<TornMarker = unknown> {
   readonly name: string
 
   /**
-   * Read a stored prefix by id, scanning ANY storage scope (for JSONL: every
-   * cwd bucket). Returns `undefined` if no stored artifact exists. Used by
-   * resume/load, and — via `!== undefined` — by the create-collision probe.
-   * The returned `tornMarker` is present iff there is a torn tail to truncate.
+   * Read a stored prefix by id, scanning every backend storage scope. Returns
+   * `undefined` if no stored artifact exists. Returned metadata must identify
+   * `id` before repair or state publication. Used by resume/load, live adoption,
+   * and — via `!== undefined` — the create-collision probe. The returned
+   * `tornMarker` is present iff there is a torn tail to truncate.
    */
   loadStored(id: SessionId): Promise<StoredPrefix<TornMarker> | undefined>
-
-  /**
-   * Read a stored prefix SCOPED to `cwd`. Deliberately distinct from
-   * {@link loadStored}: HMR live-adoption must only adopt a persisted log at the
-   * SAME cwd as the live session (a same-id log at a different cwd is a
-   * collision, not a resume) — conflating the two reintroduces a cross-cwd
-   * adoption bug. For a globally-unique-id backend (SQLite) `cwd` is ignored.
-   */
-  loadLive(id: SessionId, cwd: string | undefined): Promise<StoredPrefix<TornMarker> | undefined>
 
   /**
    * Durably append a CONTIGUOUS batch, lazily materializing the session first
@@ -264,6 +256,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const stored = await this.backend.loadStored(id)
     if (stored === undefined) throw new Error(`session "${id}" not found`)
     const { meta, events, tornMarker } = stored
+    this.assertStoredId(id, meta)
     this.assertVersion(meta)
     assertSupportedEvents(events, id)
 
@@ -319,6 +312,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private assertVersion(meta: SessionHeader): void {
     if (meta.version !== SESSION_FORMAT_VERSION) {
       throw new Error(`unsupported session format version ${meta.version} for "${meta.id}" (only v${SESSION_FORMAT_VERSION} is supported)`)
+    }
+  }
+
+  /** Reject backend metadata that is not bound to the requested session id. */
+  private assertStoredId(id: SessionId, meta: SessionHeader): void {
+    if (meta.id !== id) {
+      throw new Error(`stored session identity mismatch: requested "${id}", header contains "${meta.id}"`)
     }
   }
 
@@ -444,6 +444,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const stored = await this.backend.loadStored(id)
     /* v8 ignore next -- a cursor > 0 means the session was materialized, so it exists */
     if (stored === undefined) return false
+    this.assertStoredId(id, stored.meta)
     return seedCoversPrefix(seed, stored.events.slice(0, cursor))
   }
 
@@ -453,9 +454,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * Cases, by whether this backend tracks the id and whether an artifact exists:
    *   1. Already tracked → no-op (or claim ownerless state if the seed matches,
    *      or reclaim a truly-abandoned id, else reject as a collision).
-   *   2. Not tracked, an artifact EXISTS at this cwd and is a seq-aligned PREFIX
-   *      of the live events → ADOPT it (HMR/reload), persisting any live suffix.
-   *   3. Not tracked, an artifact EXISTS but is NOT a prefix → REJECT (collision).
+   *   2. Not tracked, an artifact EXISTS at the same cwd and is a seq-aligned
+   *      PREFIX of the live events → ADOPT it, persisting any live suffix.
+   *   3. Not tracked, an artifact EXISTS at another cwd or is NOT a prefix →
+   *      REJECT (collision).
    *   4. Not tracked and NO artifact → a genuinely new session: register meta
    *      (lazy) and persist its seed once.
    */
@@ -469,14 +471,11 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       if (tracked.owner === undefined) {
         // Ownerless state from the public create()/load() API. The FIRST live
         // session claims it — but ONLY if BOTH the cwd scope and the seed match.
-        // The cwd guard mirrors case-2's cwd-scoped loadLive(): a same-id
-        // ownerless artifact at a DIFFERENT cwd is a collision, not a claim
-        // (claiming it would append the live cwd's events under the stored
-        // header's cwd, the exact cross-cwd corruption the loadLive scope
-        // prevents). The seed guard then ensures the live events reproduce the
-        // persisted prefix (else a fresh, unrelated session reusing the id would
-        // have its seq 0..cursor-1 events filtered as already-written and
-        // grafted on).
+        // A same-id ownerless artifact at a different cwd is a collision, not a
+        // claim: accepting it would append this live session's events through
+        // the stored header's cwd. The seed guard then ensures the live events
+        // reproduce the persisted prefix; otherwise a fresh session reusing the
+        // id could have its leading events filtered as already written.
         if (tracked.meta.cwd !== session.header.cwd) {
           throw new Error(`session "${id}" is already persisted at a different cwd (persisted: ${String(tracked.meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
         }
@@ -500,11 +499,9 @@ export class PersistenceCoordinator<TornMarker = unknown> {
       }
     }
 
-    // case 2/3: an artifact at THIS cwd is adopted as a live prefix (or rejected
-    // as a collision inside adoptLivePrefix). cwd-scoped (loadLive), never
-    // any-scope: a same-id artifact at a different cwd is a collision, not a
-    // resume.
-    const live = await this.backend.loadLive(id, session.header.cwd)
+    // case 2/3: resolve the id once across storage, then let adoption reject a
+    // cwd mismatch before repair or state publication.
+    const live = await this.backend.loadStored(id)
     if (live !== undefined) {
       // Do NOT route through loadCore(): that crash-repairs open turns as
       // interrupted, which is wrong for HMR while the live Session is still the
@@ -533,6 +530,10 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    */
   private async adoptLivePrefix(session: Session, seed: readonly SessionEvent[], stored: StoredPrefix<TornMarker>): Promise<void> {
     const { meta, events, tornMarker } = stored
+    this.assertStoredId(session.header.id, meta)
+    if (meta.cwd !== session.header.cwd) {
+      throw new Error(`session "${session.header.id}" is already persisted at a different cwd (persisted: ${String(meta.cwd)}, live: ${String(session.header.cwd)}) (id collision)`)
+    }
     this.assertVersion(meta)
     assertSupportedEvents(events, session.header.id)
     if (!seedCoversPrefix(seed, events)) {

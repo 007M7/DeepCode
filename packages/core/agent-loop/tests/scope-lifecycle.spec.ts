@@ -3,7 +3,7 @@ import { Context, symbols, type EffectMeta, type Fiber } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -172,10 +172,10 @@ describe('agent scope lifecycle', () => {
     const handle = await ctx.agents.create({ sessionId: SessionId('s1'), agentOptions: { provider: 'mock', model: 'mock' } })
     const { agent } = handle
     agent.ctx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: 'You run tests.' })
-    agent.ctx.tools.register({
+    agent.ctx.tools.register(defineContentToolFixture({
       name: 'mine', description: 'scoped', parameters: {},
       execute: () => Promise.resolve(text('ran')),
-    })
+    }))
 
     const scopedAssembly = await ctx.systemPrompt.assemble(assembleContextFor(agent))
     expect(scopedAssembly.sections.find(s => s.name === 'deployment:persona')?.text).toBe('You run tests.')
@@ -587,12 +587,12 @@ describe('agent scope lifecycle', () => {
         sessionId: SessionId('dependency-origin-s'),
         agentOptions: { provider: 'mock', model: 'mock' },
         setup: (agentCtx) => {
-          agentCtx.tools.register({
+          agentCtx.tools.register(defineContentToolFixture({
             name: 'dependency-origin-tool',
             description: 'proves AgentLoop dependency origin',
             parameters: {},
             execute: () => Promise.resolve(text('ok')),
-          })
+          }))
           agentCtx.systemPrompt.section({
             name: 'dependency-origin-section',
             order: 1,

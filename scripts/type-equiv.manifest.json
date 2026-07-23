@@ -136,7 +136,11 @@
       "symbol": "Scope",
       "source": "packages/core/scope/src/index.ts"
     },
-    { "doc": "docs/core-data-structures/scope.md", "symbol": "ScopeLayer", "source": "packages/core/scope/src/store.ts" },
+    {
+      "doc": "docs/core-data-structures/scope.md",
+      "symbol": "ScopeLayer",
+      "source": "packages/core/scope/src/store.ts"
+    },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalRef",
@@ -294,7 +298,11 @@
       "symbol": "SessionEventMap",
       "source": "packages/core/session/src/types.ts"
     },
-    { "doc": "docs/core-data-structures/session.md", "symbol": "OutOfBandSessionEventMap", "source": "packages/core/session/src/types.ts" },
+    {
+      "doc": "docs/core-data-structures/session.md",
+      "symbol": "OutOfBandSessionEventMap",
+      "source": "packages/core/session/src/types.ts"
+    },
     {
       "doc": "docs/core-data-structures/session.md",
       "symbol": "EpochHeader",
@@ -426,7 +434,6 @@
       "symbol": "SessionEventTrace",
       "source": "packages/session-query/session-query/src/types.ts"
     },
-
     {
       "doc": "docs/core-data-structures/session-reference.md",
       "symbol": "SessionReferenceInput",
@@ -447,18 +454,66 @@
       "symbol": "SessionReferenceErrorCode",
       "source": "packages/context/session-reference/src/config.ts"
     },
-
-    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProviderId", "source": "packages/session-title/session-title/src/index.ts" },
-    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleModelProvenance", "source": "packages/session-title/session-title/src/index.ts" },
-    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleSource", "source": "packages/session-title/session-title/src/index.ts" },
-    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleEventData", "source": "packages/session-title/session-title/src/index.ts" },
-    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleSnapshot", "source": "packages/session-title/session-title/src/index.ts" },
-    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleLlmRequestEventData", "source": "packages/session-title/session-title-llm/src/index.ts" },
-    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleUserMessage", "source": "packages/session-title/session-title/src/index.ts" },
-    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleAutomaticMode", "source": "packages/session-title/session-title/src/index.ts" },
-    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProviderRequest", "source": "packages/session-title/session-title/src/index.ts" },
-    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProviderResult", "source": "packages/session-title/session-title/src/index.ts" },
-    { "doc": "docs/core-data-structures/session-title.md", "symbol": "SessionTitleProvider", "source": "packages/session-title/session-title/src/index.ts" },
+    {
+      "doc": "docs/core-data-structures/session-title.md",
+      "symbol": "SessionTitleProviderId",
+      "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-title.md",
+      "symbol": "SessionTitleModelProvenance",
+      "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-title.md",
+      "symbol": "SessionTitleSource",
+      "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-title.md",
+      "symbol": "SessionTitleEventData",
+      "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-title.md",
+      "symbol": "SessionTitleSnapshot",
+      "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-title.md",
+      "symbol": "SessionTitleLlmRequestEventData",
+      "source": "packages/session-title/session-title-llm/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-title.md",
+      "symbol": "SessionTitleUserMessage",
+      "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-title.md",
+      "symbol": "SessionTitleAutomaticMode",
+      "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-title.md",
+      "symbol": "SessionTitleProviderRequest",
+      "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-title.md",
+      "symbol": "SessionTitleProviderResult",
+      "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session-title.md",
+      "symbol": "SessionTitleProvider",
+      "source": "packages/session-title/session-title/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolOutputDefinition",
+      "source": "packages/core/tools/src/index.ts"
+    },
     {
       "doc": "docs/core-data-structures/tools.md",
       "symbol": "ToolDefinition",
@@ -466,12 +521,22 @@
     },
     {
       "doc": "docs/core-data-structures/tools.md",
-      "symbol": "SchemaProp",
+      "symbol": "ValueSchemaSpec",
       "source": "packages/core/tools/src/schema.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.md",
-      "symbol": "SchemaSpec",
+      "symbol": "ParameterPropertySpec",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ParameterSchemaSpec",
+      "source": "packages/core/tools/src/schema.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "InferValue",
       "source": "packages/core/tools/src/schema.ts"
     },
     {
@@ -521,6 +586,21 @@
     },
     {
       "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolFailure",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolExecutionSuccess",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
+      "symbol": "ToolExecutionFailure",
+      "source": "packages/core/tools/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/tools.md",
       "symbol": "ToolExecutionResult",
       "source": "packages/core/tools/src/index.ts"
     },
@@ -536,22 +616,22 @@
     },
     {
       "doc": "docs/core-data-structures/tools.md",
-      "symbol": "StructuredScalar",
+      "symbol": "JsonSchemaScalar",
       "source": "packages/core/tools/src/json-schema.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.md",
-      "symbol": "StructuredSchemaType",
+      "symbol": "JsonSchemaType",
       "source": "packages/core/tools/src/json-schema.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.md",
-      "symbol": "StructuredSchemaNode",
+      "symbol": "JsonSchemaNode",
       "source": "packages/core/tools/src/json-schema.ts"
     },
     {
       "doc": "docs/core-data-structures/tools.md",
-      "symbol": "StructuredOutputSchema",
+      "symbol": "ObjectJsonSchema",
       "source": "packages/core/tools/src/json-schema.ts"
     },
     {
@@ -751,6 +831,11 @@
     },
     {
       "doc": "docs/core-data-structures/code-runtime.md",
+      "symbol": "CodeJsonValue",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.md",
       "symbol": "CodeRunRequest",
       "source": "packages/code-runtime/code-runtime/src/types.ts"
     },
@@ -762,6 +847,11 @@
     {
       "doc": "docs/core-data-structures/code-runtime.md",
       "symbol": "CodeBindingNamespace",
+      "source": "packages/code-runtime/code-runtime/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/code-runtime.md",
+      "symbol": "CodeBindingErrorClass",
       "source": "packages/code-runtime/code-runtime/src/types.ts"
     },
     {
