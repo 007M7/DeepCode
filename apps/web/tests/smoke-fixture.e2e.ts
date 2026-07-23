@@ -285,6 +285,28 @@ describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', (
     expect(await restoredInput.getAttribute('placeholder')).toBe('回复生成中，可停止后再输入')
   })
 
+  it('renders the todo plan strip and the dedicated todo_write row off the session events', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-todo-display'))
+    // The question pass above already opened the fixture session; the strip
+    // reads the todo/write snapshot (tail-page projection + window replay).
+    const panel = page.locator('[data-testid="todo-panel"]')
+    await panel.waitFor({ timeout: 15_000 })
+    const text = await panel.innerText()
+    for (const expected of ['Plan', '1/3', '梳理需求', '实现 fixture 样本', '浏览器验收']) {
+      expect(text).toContain(expected)
+    }
+    // The dedicated row renders through the keyed toolview hole with the plan summary.
+    const row = page.locator('[data-sample="todo-row"]')
+    await row.scrollIntoViewIfNeeded()
+    expect(await row.innerText()).toContain('1/3 已完成')
+    // Collapse hides the list and surfaces the active item as the header hint.
+    await panel.locator('button').first().click()
+    const collapsed = await panel.innerText()
+    expect(collapsed).not.toContain('梳理需求')
+    expect(collapsed).toContain('实现 fixture 样本')
+    await panel.locator('button').first().click() // restore for later passes
+  })
+
   it('stayed clean: no page errors across the whole load chain', () => {
     expect(pageErrors).toEqual([])
   })
