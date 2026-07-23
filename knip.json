@@ -583,13 +583,21 @@
       ]
     },
     "packages/client/modules": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
       "project": [
-        "src/**/*.ts"
+        "src/**/*.ts",
+        "tests/**/*.ts"
       ]
     },
     "packages/client/hmr": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
       "project": [
-        "src/**/*.ts"
+        "src/**/*.ts",
+        "tests/**/*.ts"
       ]
     }
   }
