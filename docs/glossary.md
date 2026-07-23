@@ -33,7 +33,7 @@ FIXME(glossary-completeness): Expand this glossary before the first release so i
 ## loop hierarchy
 
 - **turn** — one drain of admitted input in a session, ending after the model and its tools stop or a terminal policy intervenes. <a id="turn"></a>
-- **step** — one model request plus the tool executions caused by its response; a turn contains one or more steps. <a id="step"></a>
+- **step** — one model request plus the tool executions caused by its response; a turn contains zero or more steps. <a id="step"></a>
 - **round** — an outer policy iteration containing a turn, such as a [goal round](#goal-round) or one fresh-agent Ralph attempt. Round counters belong to that policy and do not count every turn in a session. <a id="round"></a>
 
 ## Ralph
