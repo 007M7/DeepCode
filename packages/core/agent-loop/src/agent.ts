@@ -347,11 +347,6 @@ export class ReactLoopAgent extends Agent {
       agentEvents(this.loopCtx, this).emit('agent/cancel-requested', resolvedCause)
     }
     if (!keepInbox) {
-      // Whether the parked driver was already scheduled to run: a waking item
-      // woke `waitForQueued`, so the loop WILL resume and settle idle waiters
-      // itself through the pre-run-cancel path (possibly after a replacement
-      // prompt). Only a lone quiet item leaves the loop truly parked.
-      const willResume = this.#inbox.hasWakingQueued
       // Snapshot before clearing so the discard notification carries the exact
       // dropped items; a replacement synchronously enqueued by an
       // `agent/cancel-requested` observer belongs to the next turn, not here.
@@ -362,15 +357,12 @@ export class ReactLoopAgent extends Agent {
         const items = discarded.map(({ message, steering }) => agentMessage(message, steering))
         agentEvents(this.loopCtx, this).emit('agent/inbox/discard', items)
       }
-      // Clearing a parked quiet (`wakeup:false`) item reaches quiescence with no
-      // status transition and without waking the parked driver, so settle any
-      // `whenIdle` waiter here. When a waking item was present the loop resumes
-      // and settles itself; while `running` (including the post-turn flush
-      // window) the driver still owns the eventual idle transition. So settle
-      // only for a parked, non-running agent whose sole cleared work was quiet.
-      if (cancellation === undefined && !willResume && this._status !== 'running') {
-        this.settleIdleWaiters()
-      }
+      // No idle-waiter settle here: a `whenIdle` waiter exists only while the
+      // agent is `running` or a waking item is queued, and neither is left
+      // quiescent by clearing the inbox — a lone quiet item takes `whenIdle`'s
+      // fast path (no waiter), a waking item keeps the woken driver running,
+      // and a running agent owns its own idle transition (including the
+      // post-turn flush window).
     }
     cancellation?.request(resolvedCause)
   }

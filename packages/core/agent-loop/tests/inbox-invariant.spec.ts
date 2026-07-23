@@ -117,4 +117,39 @@ describe('inbox FIFO-conservation invariant', () => {
     expect(warn.mock.calls.flat().some(arg => String(arg).includes('agent/inbox'))).toBe(false)
     expect(warn.mock.calls.flat().some(arg => String(arg).includes('INVARIANT'))).toBe(false)
   })
+
+  it('stays balanced when late steering lands after a terminal stop (post-turn flush window)', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(adapter)
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+
+    let enqueues = 0
+    const discards: number[] = []
+    ctx.on('agent/inbox/enqueue', (subject) => { if (subject === agent) enqueues += 1 })
+    ctx.on('agent/inbox/discard', (subject, messages) => { if (subject === agent) discards.push(messages.length) })
+
+    // Terminal-stop the turn, then steer during the post-turn flush window
+    // (status is still running). That late steer is drained by runLoop and
+    // dropped because the turn terminally stopped; it must still be discarded so
+    // its enqueue is matched (the drain sits on a different code path than the
+    // in-turn terminal-stop drop).
+    ctx.on('agent/turn-stop', subject => (subject === agent ? { action: 'stop' as const } : undefined))
+    let steered = false
+    ctx.on('session/flush', (session) => {
+      if (session !== agent.session || steered) return
+      steered = true
+      agent.steer([{ type: 'text', text: 'late' }], { source: { kind: 'plugin', plugin: 'late' } })
+    })
+
+    agent.send([{ type: 'text', text: 'go' }])
+    await waitForIdle(ctx, agent)
+
+    // The prompt plus the late steer both enqueued; both are matched (the prompt
+    // dequeued, the late steer discarded) so no id is left outstanding.
+    expect(enqueues).toBe(2)
+    expect(discards).toEqual([1])
+    expect(warn.mock.calls.flat().some(arg => String(arg).includes('agent/inbox'))).toBe(false)
+    expect(warn.mock.calls.flat().some(arg => String(arg).includes('INVARIANT'))).toBe(false)
+  })
 })

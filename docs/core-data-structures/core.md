@@ -428,7 +428,9 @@ The `agent/inbox/*` live events carry one accepted message; injection bypasses t
  * message's enqueue, dequeue, and discard events. Source defaults are already
  * applied, so these are the exact values the item was accepted with. `steering`
  * is true for a `next-step` item drained between steps; a `next-turn` item is
- * claimed at a turn boundary.
+ * claimed at a turn boundary. `SendOptions.meta` is intentionally omitted: it is
+ * durable model-hidden state that lands on the eventual `user/message`/
+ * `steering/message`, not live-event routing data.
  */
 interface AgentMessage {
   /** The id `send` returned for this message. */

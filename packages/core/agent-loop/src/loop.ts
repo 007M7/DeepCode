@@ -264,9 +264,17 @@ export async function runLoop(ctx: Context, handle: LoopHandle): Promise<void> {
       handle.clearTurnCancellation(cancellation)
     }
 
-    // Late steering becomes queued input unless terminal policy stopped the turn.
-    for (const message of handle.inbox.drainSteering()) {
-      if (!terminalStopped) handle.inbox.enqueue(message)
+    // Late steering (arriving after runTurn returns, e.g. during the post-turn
+    // flush) becomes queued input — unless terminal policy stopped the turn, in
+    // which case it is dropped and must publish a discard so its enqueue is
+    // still matched (the invariant only catches a NEGATIVE count, not a leak).
+    const lateSteering = handle.inbox.drainSteering()
+    if (terminalStopped) {
+      if (lateSteering.length > 0) {
+        events.emit('agent/inbox/discard', lateSteering.map(message => agentMessage(message, true)))
+      }
+    } else {
+      for (const message of lateSteering) handle.inbox.enqueue(message)
     }
 
     // Park at idle unless a waking item still wants the model to run; a lone

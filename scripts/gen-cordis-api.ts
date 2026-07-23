@@ -36,20 +36,34 @@ function quote(value: string): string {
  * program against, so it belongs in the type closure alongside interfaces.
  */
 function classShape(node: ts.ClassDeclaration): ts.ClassDeclaration {
-  const members = node.members.map((member): ts.ClassElement => {
+  const isNonPublic = (member: ts.ClassElement): boolean =>
+    (ts.canHaveModifiers(member) ? ts.getModifiers(member) : undefined)?.some(m =>
+      m.kind === ts.SyntaxKind.PrivateKeyword || m.kind === ts.SyntaxKind.ProtectedKeyword) ?? false
+  const members = node.members.flatMap((member): ts.ClassElement[] => {
+    // A model-facing type shape carries only the public surface — drop private,
+    // protected, and #private members, and strip every kept member's body.
+    if (isNonPublic(member) || (ts.isPropertyDeclaration(member) && ts.isPrivateIdentifier(member.name))) return []
     if (ts.isMethodDeclaration(member)) {
-      return ts.factory.updateMethodDeclaration(
+      return [ts.factory.updateMethodDeclaration(
         member, member.modifiers, member.asteriskToken, member.name, member.questionToken,
-        member.typeParameters, member.parameters, member.type, undefined)
+        member.typeParameters, member.parameters, member.type, undefined)]
     }
     if (ts.isConstructorDeclaration(member)) {
-      return ts.factory.updateConstructorDeclaration(member, member.modifiers, member.parameters, undefined)
+      return [ts.factory.updateConstructorDeclaration(member, member.modifiers, member.parameters, undefined)]
+    }
+    if (ts.isGetAccessorDeclaration(member)) {
+      return [ts.factory.updateGetAccessorDeclaration(
+        member, member.modifiers, member.name, member.parameters, member.type, undefined)]
+    }
+    if (ts.isSetAccessorDeclaration(member)) {
+      return [ts.factory.updateSetAccessorDeclaration(
+        member, member.modifiers, member.name, member.parameters, undefined)]
     }
     if (ts.isPropertyDeclaration(member)) {
-      return ts.factory.updatePropertyDeclaration(
-        member, member.modifiers, member.name, member.questionToken ?? member.exclamationToken, member.type, undefined)
+      return [ts.factory.updatePropertyDeclaration(
+        member, member.modifiers, member.name, member.questionToken ?? member.exclamationToken, member.type, undefined)]
     }
-    return member
+    return [member]
   })
   return ts.factory.updateClassDeclaration(
     node, node.modifiers, node.name, node.typeParameters, node.heritageClauses, members)
