@@ -1,4 +1,5 @@
-import { mkdir, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -31,6 +32,7 @@ const CHECKPOINTS = [
   'retry-cancelled',
   'retry-exhausted',
   'banner-gradient',
+  'file-autocomplete',
   'code-mode-pending',
   'dynamic-workflow-pending',
   'cordis-tools-pending',
@@ -335,6 +337,24 @@ describe('TUI terminal-state snapshots', () => {
     const harness = await setupSnapshot({ config: { truecolor: true } })
     await checkpoint('banner-gradient', harness.terminal, {}, true)
     await disposeSnapshot(harness)
+  })
+
+  it('pins fuzzy file candidates and the active path-only mention', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-tui-file-snapshot-'))
+    await mkdir(join(cwd, 'src'), { recursive: true })
+    await writeFile(join(cwd, 'src', 'terminal-special-case.ts'), 'export const marker = true\n')
+    await writeFile(join(cwd, 'src', 'terminal-state.ts'), 'export const state = true\n')
+    const harness = await setupSnapshot({ cwd, formatCwd: () => '/workspace/project' })
+    try {
+      harness.terminal.send('@tsc')
+      await vi.waitFor(async () => {
+        expect(await harness.terminal.snapshot()).toContain('File · terminal-special-case.t')
+      })
+      await checkpoint('file-autocomplete', harness.terminal)
+    } finally {
+      await disposeSnapshot(harness)
+      await rm(cwd, { recursive: true, force: true })
+    }
   })
 
   it('pins Code Mode run_code with its production presenter', async () => {
