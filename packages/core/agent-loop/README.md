@@ -67,7 +67,7 @@ Within a step, exclusive calls form barriers; parallel-safe calls use a bounded 
 ### What belongs to plugins
 
 Everything that goes beyond "call the model, run the tools, repeat" belongs to plugins listening on the event taxonomy:
-- Hooks and policy: the relevant `agent/*` checkpoints plus the guarded `tools/pre-execute` → `tools/execute` → `tools/post-execute` → `tools/result` pipeline; exact signatures and modes live in the [generated event catalog](../../../docs/cordis-catalog/events.md)
+- Hooks and policy: the relevant `agent/*` checkpoints plus the guarded `tools/pre-execute` → `tools/execute` → `tools/post-execute` → definition-owned `finalizeContent` → `tools/result` pipeline; exact event signatures and modes live in the [generated event catalog](../../../docs/cordis-catalog/events.md)
 - Compaction: pressure on `agent/post-step`; canonical context overflow on `agent/request-error`
 - Transient model recovery: `dsh-llm-retry` on `agent/request-error`, with finite code-specific budgets and non-surface `llm/retry` status events
 - Sandbox, permission, plan mode: `tools/pre-execute` for extensible deny/ask, `tools.guard()` for monotonic owner policy, `tools/post-execute` for result decisions, and `tools/result` for final observation

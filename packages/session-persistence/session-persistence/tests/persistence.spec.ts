@@ -3,8 +3,8 @@ import { Context } from 'cordis'
 import SessionStore, { SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
-  SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type StoredPrefix,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix,
 } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from './coordinator-contract.ts'
@@ -73,7 +73,7 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     super(ctx)
     // Assign the store BEFORE constructing the coordinator: the coordinator's
     // constructor installs the write path and synchronously seeds existing live
-    // sessions (onCreated → loadLive → this.store), so store must exist first.
+    // sessions through loadStored(), so store must exist first.
     this.store = config?.store ?? new Map<string, { meta: SessionHeader; events: SessionEvent[] }>()
     this.coordinator = new PersistenceCoordinator<never>(this.ctx, this)
   }
@@ -96,18 +96,17 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return this.coordinator.load(id)
   }
 
+  inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.inspect(id)
+  }
+
   // --- PersistenceBackend hooks (the Map storage primitives) ---
 
-  // A Map-backed store has no torn tails, so `tornMarker` is never set. Ids are
-  // globally unique, so loadStored and loadLive are identical (cwd is ignored).
+  // A Map-backed store has no torn tails, so `tornMarker` is never set.
   async loadStored(id: SessionId): Promise<StoredPrefix<never> | undefined> {
     const entry = this.store.get(id)
     if (!entry) return undefined
     return { meta: structuredClone(entry.meta), events: structuredClone(entry.events) }
-  }
-
-  loadLive(id: SessionId, _cwd: string | undefined): Promise<StoredPrefix<never> | undefined> {
-    return this.loadStored(id)
   }
 
   async appendBatch(m: SessionHeader, events: readonly SessionEvent[], _isMaterialized: boolean): Promise<void> {
@@ -138,6 +137,13 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
   async list(): Promise<SessionHeader[]> {
     return [...this.store.values()].map(e => structuredClone(e.meta))
   }
+
+  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+    return [...this.store.values()].map(entry => ({
+      header: structuredClone(entry.meta),
+      revision: SessionPersistenceRevision(`events:${entry.events.length}`),
+    }))
+  }
 }
 
 /** Controllable storage primitive for serialization and retirement failure tests. */
@@ -147,6 +153,7 @@ class ControlledBackend implements PersistenceBackend<never> {
   readonly lifecycle: string[] = []
   appendAttempts = 0
   loadAttempts = 0
+  repairAttempts = 0
   beforeAppend?: (attempt: number) => Promise<void>
   beforeLoadStored?: (attempt: number) => Promise<void>
 
@@ -155,10 +162,6 @@ class ControlledBackend implements PersistenceBackend<never> {
     const entry = this.store.get(id)
     if (entry === undefined) return undefined
     return { meta: structuredClone(entry.meta), events: structuredClone(entry.events) }
-  }
-
-  loadLive(id: SessionId, _cwd: string | undefined): Promise<StoredPrefix<never> | undefined> {
-    return this.loadStored(id)
   }
 
   async appendBatch(m: SessionHeader, events: readonly SessionEvent[], _isMaterialized: boolean): Promise<void> {
@@ -172,7 +175,9 @@ class ControlledBackend implements PersistenceBackend<never> {
     }
   }
 
-  async commitRepair(_m: SessionHeader, _tornMarker: undefined, _closers: readonly SessionEvent[]): Promise<void> {}
+  async commitRepair(_m: SessionHeader, _tornMarker: undefined, _closers: readonly SessionEvent[]): Promise<void> {
+    this.repairAttempts += 1
+  }
 
   async list(): Promise<SessionHeader[]> {
     return [...this.store.values()].map(entry => structuredClone(entry.meta))
@@ -202,6 +207,36 @@ runCoordinatorContract('memory', async (): Promise<CoordinatorFixture> => {
     mount: async ctx => ctx.plugin(MemoryPersistence, { store }),
     cleanup: async () => { store.clear() },
   }
+})
+
+describe('PersistenceCoordinator stored identity', () => {
+  it('rejects a mismatched backend header before repair or state publication', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const requested = SessionId('requested')
+    backend.store.set(requested, {
+      meta: meta('different'),
+      events: [{
+        type: 'turn/start',
+        seq: 0,
+        time: 1,
+        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      }],
+    })
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+    try {
+      await expect(coordinator.load(requested)).rejects.toThrow(/stored session identity mismatch/)
+      expect(backend.repairAttempts).toBe(0)
+      expect((coordinator as unknown as CoordinatorInternals).states.size).toBe(0)
+    } finally {
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
 })
 
 describe('PersistenceCoordinator retirement', () => {

@@ -42,6 +42,9 @@ export default defineConfig({
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
     include: [
+      // The assembled Web snapshot executes generated client bundles; source
+      // mode remains the zero-build path, while lib mode requires a prior build.
+      ...(process.env.DSH_EXAMPLE_MODE === 'lib' ? ['apps/web/tests/**/*.snapshot.ts'] : []),
       'examples/*/tests/**/*.snapshot.ts',
       'packages/sdk/*/tests/**/*.snapshot.ts',
       'packages/ui/tui/tests/**/*.snapshot.ts',

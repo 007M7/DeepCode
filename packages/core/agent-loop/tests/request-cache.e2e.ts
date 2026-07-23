@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -45,7 +45,7 @@ async function loopHarness(): Promise<Context> {
   await created.plugin(AgentRegistry)
   await created.plugin(AgentLoop, { agents: [] })
   await created.plugin(LlmDeepSeek)
-  created.tools.register(defineTool({
+  created.tools.register(defineContentToolFixture({
     name: 'lookup',
     description: 'Look up the stored value for a key.',
     parameters: { key: { type: 'string', description: 'The key to look up.' } },

@@ -26,11 +26,15 @@
     "src"
   ],
   "license": "BSD-3-Clause",
+  "dependencies": {
+    "schemastery": "^3.18.0"
+  },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-llm": "^0.0.1",
     "@deepseek-ai/dsh-pty": "^0.0.1",
+    "@deepseek-ai/dsh-retention": "^0.0.1",
     "@deepseek-ai/dsh-system-prompt": "^0.0.1",
     "@deepseek-ai/dsh-tasks": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
@@ -44,6 +48,7 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-pty": "workspace:^",
     "@deepseek-ai/dsh-pty-local": "workspace:^",
+    "@deepseek-ai/dsh-retention": "workspace:^",
     "@deepseek-ai/dsh-sandbox": "workspace:^",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",

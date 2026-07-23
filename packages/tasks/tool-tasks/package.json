@@ -26,21 +26,23 @@
     "src"
   ],
   "license": "BSD-3-Clause",
+  "dependencies": {
+    "schemastery": "^3.18.0"
+  },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
+    "@deepseek-ai/dsh-retention": "^0.0.1",
     "@deepseek-ai/dsh-system-prompt": "^0.0.1",
     "@deepseek-ai/dsh-tasks": "^0.0.1",
     "@deepseek-ai/dsh-tools": "^0.0.1",
     "cordis": "^4.0.0-rc.6"
   },
-  "dependencies": {
-    "schemastery": "^3.18.0"
-  },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-retention": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tasks": "workspace:^",

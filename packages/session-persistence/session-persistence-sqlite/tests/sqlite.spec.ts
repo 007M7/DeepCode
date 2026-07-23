@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { existsSync } from 'node:fs'
-import { chmod, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -155,8 +155,8 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     const path = await freshDbPath()
     const m = meta('legacy-header-delta', '/legacy')
     const db = openDatabase(path, 'wal')
-    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length) VALUES (?, ?, ?, ?, NULL, NULL)')
-      .run(m.id, m.version, m.createdAt, m.cwd ?? null)
+    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, incarnation, revision) VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, 1)')
+      .run(m.id, m.version, m.createdAt, m.cwd ?? null, 'legacy-header-delta')
     const insert = db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
     insert.run(m.id, 0, 'turn/start', 1, JSON.stringify({ turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } }))
     insert.run(m.id, 1, 'request/header-delta', 2, JSON.stringify({ config: { model: 'legacy' } }))
@@ -172,8 +172,8 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     const path = await freshDbPath()
     const m = meta('legacy-header-fallback', '/legacy')
     const db = openDatabase(path, 'wal')
-    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length) VALUES (?, ?, ?, ?, NULL, NULL)')
-      .run(m.id, m.version, m.createdAt, m.cwd ?? null)
+    db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, incarnation, revision) VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, 1)')
+      .run(m.id, m.version, m.createdAt, m.cwd ?? null, 'legacy-header-fallback')
     db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
       .run(m.id, 0, 'request/header', 1, JSON.stringify({
         header: { config: { model: 'legacy' } },
@@ -294,22 +294,20 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     dbNewer.close()
     expect(() => openDatabase(path, 'wal')).toThrow(/incompatible with this build/)
 
-    // A stale OLDER version (e.g. a pre-summary-drop v1 DB) is also rejected —
-    // we do not migrate (unreleased software, no backward-compat).
+    // The immediately preceding layout lacks the required store identity and is
+    // rejected rather than migrated (unreleased software, no backward-compat).
     const olderPath = await freshDbPath()
     openDatabase(olderPath, 'wal').close()
     const dbOlder = openDatabase(olderPath, 'wal')
-    dbOlder.exec('PRAGMA user_version = 1')
+    dbOlder.exec(`PRAGMA user_version = ${SCHEMA_VERSION - 1}`)
     dbOlder.close()
     expect(() => openDatabase(olderPath, 'wal')).toThrow(/incompatible with this build/)
   })
 
   it('rejects a sibling v3 database (the merge-collided version) rather than opening it against missing columns', async () => {
-    // Two unmerged branches each shipped a DISTINCT layout under user_version 3 (one added only
-    // `seed_length`, the other only the surface columns). The merged v4 cannot interpret that
-    // ambiguous, incomplete layout and must reject it.
+    // Version 3 identified two incompatible sibling layouts, so it is always rejected.
     const path = await freshDbPath()
-    openDatabase(path, 'wal').close() // creates + stamps user_version = SCHEMA_VERSION (4)
+    openDatabase(path, 'wal').close() // creates + stamps user_version = SCHEMA_VERSION
     const db = openDatabase(path, 'wal')
     db.exec('PRAGMA user_version = 3')
     db.close()
@@ -382,12 +380,95 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await fiber2.dispose()
   })
 
+  it('source-qualifies revisions across stores while preserving same-file reopen identity', async () => {
+    const pathA = await freshDbPath()
+    const pathB = await freshDbPath()
+    const m = meta('revision-source')
+    const a = await backend(pathA)
+    await a.ctx.sessionPersistence.create(m)
+    await a.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const revisionA = (await a.ctx.sessionPersistence.listSnapshots())[0]?.revision
+    await a.dispose()
+
+    const probeA = openDatabase(pathA, 'wal')
+    const storeIdA = (probeA.prepare(
+      'SELECT store_id FROM persistence_state WHERE singleton = 1',
+    ).get() as { store_id: string }).store_id
+    probeA.close()
+
+    const aliasA = `${pathA}.alias`
+    await symlink(pathA, aliasA)
+    const reopenedA = await backend(aliasA)
+    expect((await reopenedA.ctx.sessionPersistence.listSnapshots())[0]?.revision).toBe(revisionA)
+    await reopenedA.dispose()
+
+    const b = await backend(pathB)
+    await b.ctx.sessionPersistence.create(m)
+    await b.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const revisionB = (await b.ctx.sessionPersistence.listSnapshots())[0]?.revision
+    const probeB = openDatabase(pathB, 'wal')
+    const storeIdB = (probeB.prepare(
+      'SELECT store_id FROM persistence_state WHERE singleton = 1',
+    ).get() as { store_id: string }).store_id
+    probeB.close()
+    expect(storeIdB).not.toBe(storeIdA)
+    expect(revisionB).not.toBe(revisionA)
+    expect(String(revisionA)).toMatch(/:revision:1$/)
+    expect(String(revisionB)).toMatch(/:revision:1$/)
+    await b.dispose()
+  })
+
+  it('changes revisions when a deleted session id is materialized again in the same database', async () => {
+    const path = await freshDbPath()
+    const m = meta('recreated-revision')
+    const first = await backend(path)
+    await first.ctx.sessionPersistence.create(m)
+    await first.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const before = (await first.ctx.sessionPersistence.listSnapshots())[0]?.revision
+    await first.dispose()
+
+    const cleanup = openDatabase(path, 'wal')
+    cleanup.prepare('DELETE FROM sessions WHERE id = ?').run(m.id)
+    cleanup.close()
+
+    const second = await backend(path)
+    await second.ctx.sessionPersistence.create(m)
+    await second.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const after = (await second.ctx.sessionPersistence.listSnapshots())[0]?.revision
+    expect(after).not.toBe(before)
+    expect(String(before)).toMatch(/:revision:1$/)
+    expect(String(after)).toMatch(/:revision:1$/)
+    await second.dispose()
+  })
+
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(5)
+    expect(SCHEMA_VERSION).toBe(8)
+  })
+
+  it('keeps the revision stable for an empty repair hook', async () => {
+    const b = await backend()
+    const m = meta('empty-repair')
+    await b.ctx.sessionPersistence.create(m)
+    await b.ctx.sessionPersistence.append(m.id, oneTurnLog())
+    const before = await b.ctx.sessionPersistence.listSnapshots()
+    await (b.ctx.sessionPersistence as SessionPersistenceSqlite).commitRepair(m, undefined, [])
+    expect(await b.ctx.sessionPersistence.listSnapshots()).toEqual(before)
+    await b.dispose()
   })
 })
 
 describe('SessionPersistenceSqlite: edge cases', () => {
+  it('rejects and closes a current-schema database with an invalid store identity', async () => {
+    const path = await freshDbPath()
+    const db = openDatabase(path, 'wal')
+    db.exec("UPDATE persistence_state SET store_id = '' WHERE singleton = 1")
+    db.close()
+
+    const b = await backend(path)
+    await expect(b.ctx.sessionPersistence.listSnapshots()).rejects.toThrow(/no valid store identity/)
+    await expect(b.dispose()).resolves.toBeUndefined()
+  })
+
   it('creates a new database and WAL sidecars with owner-only modes without changing its parent mode', async () => {
     if (process.platform === 'win32') return
     const path = await freshDbPath()

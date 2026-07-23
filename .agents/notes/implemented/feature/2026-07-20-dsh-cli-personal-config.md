@@ -12,7 +12,7 @@ A developer's own preferences — which provider and model the TUI uses, persona
 
 Two coupled pieces, aligned with the `apps/` assembly tier proposed by the `dsh web` PR (#443):
 
-**The `dsh` CLI (`apps/cli`, npm name `@deepseek-ai/dsh`).** `apps/*` joins the workspaces as the product-assembly tier over `packages/*` libraries. The bin's dispatch reserves `web` and `-p`/`--prompt` for PR #443 (they exit with a pointer) so the two branches merge as a near-union; everything else runs the default surface: the interactive TUI, booting the shipped `examples/tui-agent/cordis.yml` (or an explicit config argument) with the invoking directory as the workspace. The committed `bin/dsh` launcher resolves the checkout through its own real path and runs the bin **from source** via the repo's tsx (with `--expose-internals` for the config's HMR entry), so `ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh` installs a command that always executes the current working tree. `pnpm run demo:tui` runs the same entry.
+**The `dsh` CLI (`apps/cli`, npm name `@deepseek-ai/dsh`).** `apps/*` joins the workspaces as the product-assembly tier over `packages/*` libraries. The bin's dispatch reserves `web` and `-p`/`--prompt` for PR #443 (they exit with a pointer) so the two branches merge as a near-union; everything else runs the default surface: the interactive TUI, booting the shipped `examples/tui-agent/cordis.yml` (or an explicit config argument) with the invoking directory as the workspace. The committed `bin/dsh` launcher resolves the checkout through its own real path and runs the bin **from source** via the repo's tsx, so `ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh` installs a command that always executes the current working tree. `pnpm run demo:tui` runs the same entry.
 
 **Personal config (`dsh-app-boot`).** The personal overlay lives in the Harness home — `$DSH_HOME`, else `~/.dsh` — resolved by the shared [`resolveDshHome`](../architecture/2026-07-24-single-harness-home-resolver.md) (`@deepseek-ai/dsh-paths`), the same single root skills and AGENTS.md resolve against. The dsh TUI surface consumes its two optional files; the demo bins boot their committed trees verbatim:
 
@@ -21,6 +21,8 @@ Two coupled pieces, aligned with the `apps/` assembly tier proposed by the `dsh 
 - A missing file means no overlay; a present-but-unreadable, unparsable, or non-array file throws at boot (misconfiguration fails loud, never a silent skip).
 
 The PTY smoke's launcher isolates `$DSH_HOME` to a per-test directory, exactly as it already isolates `DSH_AGENTS_HOME`, so a developer's real personal overlay cannot leak into fixtures; only the dsh CLI reads personal config, so no other test launcher needed changes.
+
+Hot-reload interplay: the include re-applies its `patches` on every config re-read (the [config hot-reload resilience Agent Note](../bug-fix/2026-07-20-config-hot-reload-resilience.md)), so a live `cordis.yml` edit keeps the personal overlay applied.
 
 ## Alternatives considered
 

@@ -96,6 +96,7 @@ export default defineConfig({
         // branches need a browser-grade harness the jsdom lane doesn't cover
         // yet. TODO(gui): cover and remove as the client test lane matures.
         'packages/client/ui-trajectory/src/*',
+        'packages/client/ui-question/src/client/QuestionComposer.tsx',
         'packages/client/web-react/src/*',
         'packages/client/runtime/src/*',
         'packages/client/ui-conversation/src/*',

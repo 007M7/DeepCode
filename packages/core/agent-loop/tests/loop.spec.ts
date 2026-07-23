@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { CallId, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, TurnEndReason, type JsonValue } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture, defineTool } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -89,7 +89,7 @@ describe('agent loop', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: 'echo back',
       parameters: { text: { type: 'string' } },
@@ -118,22 +118,27 @@ describe('agent loop', () => {
     const types = agent.session.events.map(e => e.type)
     expect(types).toContain('tool/call')
     expect(types).toContain('tool/result')
+    const durableResult = agent.session.events.find(event => event.type === 'tool/result')
+    expect(durableResult?.type === 'tool/result' && 'value' in durableResult.data).toBe(false)
   })
 
-  it('threads a tool-attached meta (execute object return) onto the tool/result event', async () => {
+  it('persists presentation metadata projected from the canonical value', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'writer', { path: 'a.txt' }, 'writing'),
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    // A tool that returns the { content, meta } object form: the loop must
-    // persist `meta` on the tool/result event so a UI reproduces the card on replay.
     ctx.tools.register(defineTool({
       name: 'writer',
       description: 'writes a file',
       parameters: { path: { type: 'string' } },
+      output: {
+        schema: { type: 'string' },
+        render: () => [{ type: 'text', text: 'ok' }],
+        presentationMeta: (_args, value) => ({ diffs: [{ path: value, oldText: null, newText: 'x' }] }),
+      },
       async execute() {
-        return { content: [{ type: 'text', text: 'ok' }], meta: { diffs: [{ path: 'a.txt', oldText: null, newText: 'x' }] } }
+        return 'a.txt'
       },
     }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -152,7 +157,7 @@ describe('agent loop', () => {
     // projecting this agent's configured model, so the model knows its own name.
     const ctx = await harness(adapter, 'You are a test agent on {{model}}.')
     ctx.systemPrompt.section({ name: 'tool:noop', order: 100, text: 'Use the noop tool wisely.' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'noop',
       description: 'does nothing',
       parameters: {},
@@ -248,7 +253,7 @@ describe('agent loop', () => {
     ['BigInt', { n: 1n }],
     ['Map', new Map([['key', 'value']])],
     ['class instance', new (class ResultMeta { x = 1 })()],
-  ])('normalizes non-JSON tool meta (%s) before the durable result commit', async (_kind, meta) => {
+  ])('rejects non-JSON presentation metadata (%s) before the durable result commit', async (_kind, meta) => {
     const adapter = new MockAdapter([
       toolCallResponse('bad-meta-call', 'bad-meta', {}, 'calling'),
       textResponse('recovered'),
@@ -258,7 +263,12 @@ describe('agent loop', () => {
       name: 'bad-meta',
       description: 'returns invalid durable metadata',
       parameters: {},
-      execute: () => Promise.resolve({ content: [{ type: 'text' as const, text: 'apparent success' }], meta }),
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+        presentationMeta: () => meta as unknown as JsonValue,
+      },
+      execute: () => Promise.resolve('apparent success'),
     }))
     const agent = ctx.agentLoop.create(SessionId('bad-meta-agent'), { provider: 'mock', model: 'mock' })
 
@@ -271,15 +281,16 @@ describe('agent loop', () => {
       expect(result.data.callId).toBe('bad-meta-call')
       expect(result.data.isError).toBe(true)
       expect(result.data.meta).toBeUndefined()
+      expect(result.data.error).toEqual({ name: 'ToolOutputError', code: 'INVALID_TOOL_OUTPUT' })
       expect(result.data.content).toEqual([{
         type: 'text',
-        text: 'Error: tool result must be losslessly JSON-serializable',
+        text: 'Error: tool "bad-meta" returned invalid output: output.presentationMeta returned non-lossless JSON',
       }])
     }
     // The normalized failure was durably logged and fed back to the model; the
     // turn continued normally instead of failing after an apparent success.
     expect(adapter.requests).toHaveLength(2)
-    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('losslessly JSON-serializable')
+    expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('output.presentationMeta returned non-lossless JSON')
   })
 
   it('omits the system field when a system-prompt/assemble veto empties the assembly', async () => {
@@ -326,7 +337,7 @@ describe('agent loop', () => {
     const ctx = await harness(adapter)
 
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'slow',
       description: '',
       parameters: {},
@@ -432,7 +443,7 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
     let visibleDuringTool = false
     const meta = { kind: 'deferred-test', version: 1 }
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'noticer',
       description: 'injects a notice',
       parameters: {},
@@ -494,7 +505,7 @@ describe('agent loop', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('invalid-context'), { provider: 'mock', model: 'mock' })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'invalid-injector',
       description: 'attempts an invalid context injection',
       parameters: {},
@@ -541,7 +552,7 @@ describe('agent loop', () => {
   it('agent/turn-continuation can veto continuation despite tool calls (budget-guard pattern)', async () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'echo', { text: 'x' })])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: '',
       parameters: { text: { type: 'string' } },
@@ -589,7 +600,7 @@ describe('agent loop', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo', description: 'echo', parameters: {},
       async execute() { return [{ type: 'text', text: 'echoed' }] },
     }))
@@ -781,7 +792,7 @@ describe('agent loop', () => {
     ]])
     const ctx = await harness(adapter)
     let executions = 0
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: '',
       parameters: { text: { type: 'string' } },
@@ -821,7 +832,7 @@ describe('agent loop', () => {
       { type: 'finish', reason: { kind: 'max-tokens' } },
     ]])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: '',
       parameters: { text: { type: 'string' } },
@@ -908,7 +919,7 @@ describe('agent loop', () => {
       textResponse('continued after tool call'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: '',
       parameters: { text: { type: 'string' } },
@@ -1240,7 +1251,7 @@ describe('agent loop', () => {
       textResponse('done'),
     ])
     const ctx = await harness(adapter)
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'echo',
       description: '',
       parameters: { text: { type: 'string' } },

@@ -1,25 +1,32 @@
-/** Public configuration and typed failures for session-query. */
+/** Public configuration and typed failures for the combined session-query service. */
 
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
 /** Default maximum `before`/`after` raw-event window. */
 export const SESSION_QUERY_READ_WINDOW_MAX = 50
 
-/** Configuration for exact session-query reads and traces. */
+/** Backend-independent configuration inherited by every session-query implementation. */
 export interface Config {
   /** Maximum accepted raw read context on either side. Defaults to 50. */
   readWindowMax?: number
 }
 
-/** Stable machine-routable failure taxonomy for exact session reads and traces. */
+/** Stable machine-routable failure taxonomy for session reads, traces, and search. */
 export type SessionQueryErrorCode =
+  | 'SESSION_QUERY_ABORTED'
   | 'SESSION_QUERY_EVENT_NOT_FOUND'
+  | 'SESSION_QUERY_INDEX_FAILED'
   | 'SESSION_QUERY_INVALID_CONFIG'
+  | 'SESSION_QUERY_INVALID_CURSOR'
+  | 'SESSION_QUERY_INVALID_FILTER'
+  | 'SESSION_QUERY_INVALID_LIMIT'
+  | 'SESSION_QUERY_INVALID_QUERY'
   | 'SESSION_QUERY_INVALID_LINEAGE'
   | 'SESSION_QUERY_INVALID_SURFACE'
   | 'SESSION_QUERY_INVALID_WINDOW'
   | 'SESSION_QUERY_PERSISTENCE_FAILED'
   | 'SESSION_QUERY_SESSION_NOT_FOUND'
+  | 'SESSION_QUERY_STALE_CURSOR'
   | 'SESSION_QUERY_SOURCE_CONFLICT'
 
 /** Typed session-query failure whose `code` is one closed taxonomy member. */

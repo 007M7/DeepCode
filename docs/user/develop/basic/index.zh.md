@@ -138,8 +138,12 @@ export function apply(ctx: Context) {
     parameters: {
       name: { type: 'string', required: true },
     },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
     async execute(args) {
-      return [{ type: 'text', text: `Hello, ${args.name}!` }]
+      return `Hello, ${args.name}!`
     },
   }))
 }
