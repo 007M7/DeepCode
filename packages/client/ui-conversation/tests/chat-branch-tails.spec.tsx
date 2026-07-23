@@ -8,7 +8,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { act } from '@testing-library/react'
 import type { SessionId, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import type { RpcId } from '@deepseek-ai/dsh-client-connection/client'
+import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
+import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import { hookOf } from './hook.ts'
 import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -65,7 +66,7 @@ describe('MessageItem arms', () => {
 describe('small branch tails', () => {
   it('PendingCard approval reason renders when present', () => {
     const view = render(
-      <PendingCard item={{ kind: 'approval', rpcId: 'r1' as RpcId, approvalId: 'a1', toolName: 'rm', reason: 'careful' }} />,
+      <PendingCard item={new PendingWait('approval', RpcId('r1'), 's1' as SessionId, { approvalId: 'a1', toolName: 'rm', reason: 'careful' } as PendingWait<'approval'>['payload'], vi.fn())} />,
     )
     expect(view.getByText('careful')).toBeTruthy()
   })

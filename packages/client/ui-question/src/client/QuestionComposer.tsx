@@ -1,10 +1,10 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useMemo, useState, type KeyboardEvent } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCheckOutline16, IconChevronLeftOutline14, IconChevronRightOutline14,
   IconCloseOutline16, IconEditOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { QuestionAnswer, QuestionComposerProps } from './contract/slots.ts'
+import { PendingQuestion, type QuestionAnswer, type QuestionComposerProps } from './contract/slots.ts'
 import css from './QuestionComposer.module.css'
 
 interface DraftAnswer {
@@ -41,16 +41,20 @@ function isComposing(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
 }
 
 /**
- * Composer takeover boundary; rpcId keys local drafts while same-id replay preserves them.
- * @param props - Pending interaction and scoped answer/cancel actions.
+ * Composer takeover boundary; the carrier key keys local drafts, so a
+ * same-request replay (same key, new carrier object) preserves them.
+ * @param props - the selector-matched pending question carrier plus the framework standard kit.
  * @returns The question flow for this request.
  */
 export function QuestionComposer(props: QuestionComposerProps) {
-  return <QuestionFlow key={props.interaction.rpcId} {...props} />
+  // Domain-face mint rides the carrier's stable identity (never minted in a
+  // select/render dispatch — per-dispatch minting would churn memo identity).
+  const question = useMemo(() => new PendingQuestion(props.matched), [props.matched])
+  return <QuestionFlow key={question.key} pending={question} />
 }
 
-function QuestionFlow({ interaction, answer: submitAnswer, cancel }: QuestionComposerProps) {
-  const questions = interaction.questions
+function QuestionFlow({ pending }: { pending: PendingQuestion }) {
+  const questions = pending.questions
   const [index, setIndex] = useState(0)
   const [drafts, setDrafts] = useState<DraftAnswer[]>(() => questions.map(question => ({
     selected: [], custom: '', customOpen: (question.options?.length ?? 0) === 0, skipped: false,
@@ -64,7 +68,7 @@ function QuestionFlow({ interaction, answer: submitAnswer, cancel }: QuestionCom
   const cancelFlow = (): void => {
     setBusy('cancel')
     setError(null)
-    void cancel(interaction).catch((cause: unknown) => {
+    void pending.cancel().catch((cause: unknown) => {
       setBusy(null)
       setError(cause instanceof Error ? cause.message : String(cause))
     })
@@ -119,7 +123,7 @@ function QuestionFlow({ interaction, answer: submitAnswer, cancel }: QuestionCom
     }
     setBusy('answer')
     setError(null)
-    void submitAnswer(interaction, answer).catch((cause: unknown) => {
+    void pending.answer(answer).catch((cause: unknown) => {
       setBusy(null)
       setError(cause instanceof Error ? cause.message : String(cause))
     })
@@ -156,12 +160,12 @@ function QuestionFlow({ interaction, answer: submitAnswer, cancel }: QuestionCom
   }
 
   return (
-    <div className={css.frame} data-question-rpc-id={interaction.rpcId}>
-      <section className={css.card} aria-labelledby={`question-${interaction.rpcId}-${String(index)}`}>
+    <div className={css.frame} data-question-key={pending.key}>
+      <section className={css.card} aria-labelledby={`question-${pending.key}-${String(index)}`}>
         <header className={css.header}>
           <div className={css.headingBlock}>
             {question.header !== undefined && <div className={css.eyebrow}>{question.header}</div>}
-            <h2 className={css.title} id={`question-${interaction.rpcId}-${String(index)}`}>
+            <h2 className={css.title} id={`question-${pending.key}-${String(index)}`}>
               <span>{question.multiSelect === true
                 ? parseQuestionTitle(question.question)
                 : question.question}</span>

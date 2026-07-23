@@ -4,7 +4,7 @@
  * conversation.empty). Terminal slot design (§3): full component props are the
  * automatic shares — PropsRuntime<K> (framework standard kit) & PropsStore<H>
  * (declared store's read/write faces) & the injected business face declared
- * here. The conversation entry alone declares a child slot (the keyed
+ * here. The conversation entry alone declares a child slot (the chain-kind
  * conversation.composer takeover), so only ConversationSlotProps carries the
  * renderSlot share.
  */
@@ -42,9 +42,16 @@ export interface ConversationInjected {
   open(id: SessionId): void
 }
 
-/** Question-composer owner share supplied by ConversationRoot at its renderSlot site. */
-export interface QuestionComposerOwnerProps {
-  interaction: Extract<PendingInteraction, { kind: 'question' }>
+/**
+ * Composer chain currency: what ConversationRoot dispatches at its
+ * renderSlotChain site. The owner declares the currency only — never a
+ * per-entry contract; takeover packages narrow it in their own selectors
+ * (`interactions.find(i => i.kind === ...)`), so new takeover kinds register
+ * with zero owner changes.
+ */
+export interface ComposerChainProps {
+  /** The session's live pending waits, in arrival order (snapshot reference). */
+  interactions: readonly PendingInteraction[]
 }
 
 /** Full conversation-slot component props: runtime share & child-render share & store share & injected share. */

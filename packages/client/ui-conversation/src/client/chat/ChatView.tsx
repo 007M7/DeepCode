@@ -271,7 +271,7 @@ export function createChatView(deps: ChatViewDeps): FC<ConvViewProps> {
             </div>
           )}
           {pending.map((item) => item.kind === 'approval'
-            ? <PendingCard key={item.rpcId} item={item} />
+            ? <PendingCard key={item.key} item={item} />
             : null)}
           </div>
         </div>

@@ -12,8 +12,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FC } from 'react'
 import { hookOf } from './hook.ts'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
+import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ConversationSnapshot, PendingInteraction, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSlotProps, SelectionTarget, ViewEntry } from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Export discipline: packages/client/AGENTS.md.
@@ -102,7 +103,7 @@ describe('EmptyState', () => {
 describe('ConversationRoot', () => {
   function bench(
     views: ViewEntry[], activeView?: string, init: Partial<FakeSnapshot> = {},
-    renderSlot?: ConversationSlotProps['renderSlot'],
+    renderSlotChain?: ConversationSlotProps['renderSlotChain'],
   ) {
     const { useSession } = fakeSession({ nodes: [{ kind: 'user' }, { kind: 'user' }], ...init })
     const { useSessions } = fakeSessions([
@@ -133,7 +134,8 @@ describe('ConversationRoot', () => {
         openDetails={openDetails}
         loadOlder={loadOlder}
         open={open}
-        renderSlot={renderSlot ?? ((_key, _owner, opts) => opts?.fallback ?? null)}
+        renderSlot={(() => { throw new Error('no non-chain child keys') }) as unknown as ConversationSlotProps['renderSlot']}
+        renderSlotChain={renderSlotChain ?? ((_key, _owner, opts) => opts?.fallback ?? null)}
         SessionProvider={StubSessionProvider}
       />)
     return { ui, chat, send, stop, open }
@@ -195,20 +197,22 @@ describe('ConversationRoot', () => {
     expect(send).toHaveBeenCalledWith('hi', 'queue')
   })
 
-  it('dispatches a pending question to the composer slot instead of rendering InputBar', () => {
-    const renderSlot = vi.fn(() => <div>question takeover</div>) as unknown as ConversationSlotProps['renderSlot']
+  it('dispatches the pending list to the composer chain instead of rendering InputBar', () => {
+    const renderSlotChain = vi.fn(() => <div>question takeover</div>) as unknown as ConversationSlotProps['renderSlotChain']
     bench([view('chat', 'Chat')], undefined, {
-      pending: [{
-        kind: 'question', rpcId: 'rq' as never,
-        questions: [{ id: 'mode', question: 'Choose?', options: [{ label: 'Fast' }] }],
-      }],
-    }, renderSlot)
+      pending: [new PendingWait('question', RpcId('rq'), sid('s1'),
+        { questions: [{ id: 'mode', question: 'Choose?', options: [{ label: 'Fast' }] }] } as PendingWait<'question'>['payload'], vi.fn())],
+    }, renderSlotChain)
     expect(screen.getByText('question takeover')).toBeTruthy()
     expect(screen.queryByPlaceholderText(/输入消息/)).toBeNull()
-    expect(renderSlot).toHaveBeenCalledWith(
+    // The owner dispatches the raw pending list (chain currency); routing
+    // lives in entry selectors, not here.
+    expect(renderSlotChain).toHaveBeenCalledWith(
       'conversation.composer',
-      expect.objectContaining({ interaction: expect.objectContaining({ rpcId: 'rq' }) }),
-      expect.objectContaining({ entryKey: 'question' }),
+      expect.objectContaining({
+        interactions: expect.arrayContaining([expect.objectContaining({ key: 'q:rq' })]),
+      }),
+      expect.objectContaining({ fallback: expect.anything() }),
     )
   })
 })

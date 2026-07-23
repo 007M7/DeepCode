@@ -79,11 +79,11 @@ export function apply(ctx: Context): void {
 
   slots.register({
     name: 'conversation',
-    // Declaring the keyed composer slot here both creates it and authorizes
-    // ConversationRoot (the takeover dispatch site) to render it; feature
-    // plugins (ui-question) register their replacement composers into it.
+    // Declaring the chain composer slot here both creates it and authorizes
+    // ConversationRoot (the takeover dispatch site) to render it; takeover
+    // plugins (ui-question) register selector-routed composer replacements.
     children: {
-      'conversation.composer': { kind: 'keyed', scope: 'session' },
+      'conversation.composer': { kind: 'chain', scope: 'session' },
     },
     store: chat,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chat>): ConversationInjected => {

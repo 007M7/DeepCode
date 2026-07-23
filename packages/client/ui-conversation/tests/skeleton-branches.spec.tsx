@@ -21,9 +21,12 @@ import { EmptyState } from '../src/client/skeleton/EmptyState.tsx'
 afterEach(cleanup)
 
 const SID = 's1' as SessionId
-/** Fallback-only renderSlot stub (no takeover registered in these benches). */
-const fallbackRenderSlot: ConversationSlotProps['renderSlot'] =
+/** Fallback-only chain stub (no takeover registered in these benches). */
+const fallbackRenderSlotChain: ConversationSlotProps['renderSlotChain'] =
   (_key, _owner, opts) => opts?.fallback ?? null
+/** Non-chain renderSlot stub: ConversationRoot renders no non-chain child keys. */
+const unusedRenderSlot: ConversationSlotProps['renderSlot'] =
+  (() => { throw new Error('no non-chain child keys') }) as unknown as ConversationSlotProps['renderSlot']
 /** Standard-seat stub: ConversationRoot never renders it, delivery is mandatory in the props type. */
 const StubSessionProvider: ConversationSlotProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
 
@@ -81,7 +84,8 @@ describe('ConversationRoot branches', () => {
         openDetails={vi.fn()}
         loadOlder={vi.fn()}
         open={open}
-        renderSlot={fallbackRenderSlot}
+        renderSlot={unusedRenderSlot}
+        renderSlotChain={fallbackRenderSlotChain}
         SessionProvider={StubSessionProvider}
       />,
     )
@@ -141,7 +145,8 @@ describe('ConversationRoot branches', () => {
         openDetails={vi.fn()}
         loadOlder={vi.fn()}
         open={vi.fn()}
-        renderSlot={fallbackRenderSlot}
+        renderSlot={unusedRenderSlot}
+        renderSlotChain={fallbackRenderSlotChain}
         SessionProvider={StubSessionProvider}
       />,
     )

@@ -9,6 +9,8 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
   AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, ToolResultNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
+import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import { hookOf } from './hook.ts'
 import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConvViewProps, SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -288,11 +290,10 @@ describe('ChatView', () => {
   it('renders approval cards while questions stay in the composer', () => {
     const h = makeHarness({
       pending: [
-        { kind: 'approval', rpcId: 'r1' as never, approvalId: 'ap1', toolName: 'bash' },
-        {
-          kind: 'question', rpcId: 'r2' as never,
-          questions: [{ id: 'mode', question: 'Composer only?', options: [{ label: 'Yes' }] }],
-        },
+        new PendingWait('approval', RpcId('r1'), SID,
+          { approvalId: 'ap1', toolName: 'bash' } as PendingWait<'approval'>['payload'], vi.fn()),
+        new PendingWait('question', RpcId('r2'), SID,
+          { questions: [{ id: 'mode', question: 'Composer only?', options: [{ label: 'Yes' }] }] } as PendingWait<'question'>['payload'], vi.fn()),
       ],
     })
     const view = render(<h.ChatView {...h.props} />)

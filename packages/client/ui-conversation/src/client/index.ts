@@ -8,7 +8,7 @@
  */
 import type { ConversationService } from './service.ts'
 import type { ToolViewRegistry } from './toolviews/registry.ts'
-import type { QuestionComposerOwnerProps } from './contract/slots.ts'
+import type { ComposerChainProps } from './contract/slots.ts'
 
 export { apply, inject } from './apply.ts'
 export { ConversationService } from './service.ts'
@@ -22,8 +22,8 @@ export type {
   ResolvedToolView, ToolCallBlock, ToolViewOptions, ToolViewProps, ToolViewResolver,
 } from './contract/toolview.ts'
 export type {
-  ChatStore, ConversationInjected, ConversationSlotProps, DetailsInjected, DetailsSlotProps,
-  EmptyStateInjected, EmptyStateSlotProps, QuestionComposerOwnerProps,
+  ChatStore, ComposerChainProps, ConversationInjected, ConversationSlotProps, DetailsInjected,
+  DetailsSlotProps, EmptyStateInjected, EmptyStateSlotProps,
 } from './contract/slots.ts'
 // Export discipline: packages/client/AGENTS.md.
 
@@ -37,9 +37,9 @@ declare module 'cordis' {
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     'conversation.composer': {
-      kind: 'keyed'
+      kind: 'chain'
       scope: 'session'
-      owner: QuestionComposerOwnerProps
+      owner: ComposerChainProps
     }
   }
 }

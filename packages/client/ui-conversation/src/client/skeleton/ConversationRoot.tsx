@@ -36,7 +36,7 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 
 export function ConversationRoot({
   sessionId, useSession, useSessions, useStore, actions,
-  views, send, stop, openDetails, loadOlder, open, renderSlot,
+  views, send, stop, openDetails, loadOlder, open, renderSlotChain,
 }: ConversationRootProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const list = views.list()
@@ -51,7 +51,7 @@ export function ConversationRoot({
   const removed = useSession(s => s.removed)
   const promptError = useSession(s => s.promptError)
   const turns = useSession(s => countTurns(s))
-  const question = useSession(s => s.pending.find(item => item.kind === 'question'))
+  const pending = useSession(s => s.pending)
 
   const error: InputBarError | null = promptError === null
     ? null
@@ -78,8 +78,8 @@ export function ConversationRoot({
     )
   }
 
-  // The default composer doubles as the keyed slot's fallback: a pending
-  // question with no registered takeover must still leave the input usable.
+  // The default composer doubles as the chain's all-decline fallback: a
+  // pending wait with no registered takeover must still leave the input usable.
   const composerBar = (
     <InputBar
       draft={draft}
@@ -142,12 +142,7 @@ export function ConversationRoot({
         {active !== undefined && renderView(active)}
       </div>
 
-      {question !== undefined && question.kind === 'question'
-        ? renderSlot('conversation.composer', { interaction: question }, {
-            entryKey: 'question',
-            fallback: composerBar,
-          })
-        : composerBar}
+      {renderSlotChain('conversation.composer', { interactions: pending }, { fallback: composerBar })}
     </div>
   )
 }
