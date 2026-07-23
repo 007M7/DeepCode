@@ -293,6 +293,48 @@ describe('PersistenceCoordinator stored identity', () => {
       await ctx.fiber.dispose()
     }
   })
+
+  it('reserves a cold id across asynchronous storage repair', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const backend = new ControlledBackend()
+    const id = SessionId('cold-load-reservation')
+    const header = meta(id)
+    const start: SessionEvent = {
+      type: 'turn/start',
+      seq: 0,
+      time: 1,
+      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+    }
+    backend.store.set(id, { meta: header, events: [start] })
+    const loadGate = Promise.withResolvers<boolean>()
+    backend.beforeLoadStored = async () => { await loadGate.promise }
+    let coordinator!: PersistenceCoordinator<never>
+    const fiber = await ctx.plugin(Object.assign((inner: Context) => {
+      coordinator = new PersistenceCoordinator(inner, backend)
+    }, { inject: ['sessions'] }))
+
+    try {
+      const loading = coordinator.load(id)
+      await vi.waitFor(() => { expect(backend.loadAttempts).toBe(1) })
+
+      await expect(ctx.plugin(Object.assign((inner: Context) => {
+        inner.sessions.create(id, { seed: [start], meta: header })
+      }, { inject: ['sessions'] }))).rejects.toThrow(/persisted history is loading/)
+      expect(ctx.sessions.get(id)).toBeUndefined()
+
+      loadGate.resolve(true)
+      const loaded = await loading
+      expect(loaded.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+
+      const resumed = ctx.sessions.create(id, { seed: loaded.events, meta: loaded.meta })
+      await expect(ctx.sessions.flush(resumed)).resolves.toBeUndefined()
+    } finally {
+      loadGate.resolve(true)
+      await fiber.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
 })
 
 describe('PersistenceCoordinator retirement', () => {
@@ -399,17 +441,20 @@ describe('PersistenceCoordinator retirement', () => {
       appendGate.resolve(true)
       await vi.waitFor(() => { expect(backend.loadAttempts).toBe(baselineLoads + 1) })
 
-      let reuse!: Session
-      await ctx.plugin(Object.assign((inner: Context) => {
-        reuse = inner.sessions.create(id)
-      }, { inject: ['sessions'] }))
-      const reuseFlush = ctx.sessions.flush(reuse)
+      await expect(ctx.plugin(Object.assign((inner: Context) => {
+        inner.sessions.create(id)
+      }, { inject: ['sessions'] }))).rejects.toThrow(/persisted history is loading/)
 
       loadGate.resolve(true)
       await expect(coldLoad).resolves.toMatchObject({
         events: [{ seq: 0 }, { seq: 1 }],
       })
-      await expect(reuseFlush).rejects.toThrow(/id collision/)
+
+      let reuse!: Session
+      await ctx.plugin(Object.assign((inner: Context) => {
+        reuse = inner.sessions.create(id)
+      }, { inject: ['sessions'] }))
+      await expect(ctx.sessions.flush(reuse)).rejects.toThrow(/id collision/)
       await vi.waitFor(() => {
         expect(backend.store.get(id)?.events.map(event => event.seq)).toEqual([0, 1])
       })

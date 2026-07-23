@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-23-collapse-persistence-flush-state.md: 3a7bc4d832d9c139614a8ecd85f7b29a6b5afe51
-2026-07-23-collapse-persistence-flush-state.zh.md: b99906f1051d2dc1369a92072d0e8b98402bba9f
+2026-07-23-collapse-persistence-flush-state.md: 21e99b0fc37f97e441f6d92eb02636767cabf51e
+2026-07-23-collapse-persistence-flush-state.zh.md: 0b11c45ed7d5291daed4726b9dd7fb8878d4a783

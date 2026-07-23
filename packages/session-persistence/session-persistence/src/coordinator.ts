@@ -154,6 +154,8 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   private states = new Map<SessionId, SessionState>()
   /** Lifecycle and write-behind state keyed by the exact live Session. */
   private live = new Map<Session, LiveSessionState>()
+  /** Cold loads currently reserving an id across backend reads and repair writes. */
+  private coldLoads = new Set<SessionId>()
   /**
    * Per-session serialization: every operation chains onto the prior one for the
    * same id, so writes for one session never interleave. Keyed by session id.
@@ -251,7 +253,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     const selected = await this.serialize(id, async () => {
       const live = this.ctx.sessions.get(id)
       if (live !== undefined) return { live }
-      return { loaded: await this.loadCore(id) }
+      this.coldLoads.add(id)
+      try {
+        return { loaded: await this.loadCore(id) }
+      } finally {
+        this.coldLoads.delete(id)
+      }
     })
     return 'loaded' in selected ? selected.loaded : this.loadLiveSnapshot(selected.live)
   }
@@ -372,7 +379,12 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }, `${this.backend.name} write path`)
 
     // Capture the header on creation and persist a fork's seed once.
-    ctx.on('session/created', (session) => { void this.initFor(session) })
+    ctx.on('session/created', (session) => {
+      if (this.coldLoads.has(session.id)) {
+        throw new Error(`cannot publish session "${session.id}" while its persisted history is loading`)
+      }
+      void this.initFor(session)
+    })
 
     // Keep a persistence-owned copy of each frozen event and start an eager drain.
     ctx.on('session/event', (session, event) => {
@@ -394,6 +406,7 @@ export class PersistenceCoordinator<TornMarker = unknown> {
 
   /** Start and observe one disposed session's final drain. */
   private retire(session: Session): void {
+    if (!this.live.has(session)) return
     void this.retireCore(session).catch((error: unknown) => {
       this.ctx.logger.warn(`${this.backend.name}: session "${session.id}" retirement failed: ${String(error)}`)
     })
