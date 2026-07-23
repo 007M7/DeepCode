@@ -140,9 +140,13 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
-        const session = ctx.sessions.create(SessionId('forked-child'), { meta: { cwd: WORK, seedLength: 3 } })
+        let session!: Session
+        const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
+          session = inner.sessions.create(SessionId('forked-child'), { meta: { cwd: WORK, seedLength: 3 } })
+        }, { inject: ['sessions'] }))
         send(session, oneTurnLog())
         await ctx.sessions.flush(session)
+        await sessionFiber.dispose()
 
         const loaded = await ctx.sessionPersistence.load(SessionId('forked-child'))
         expect(loaded.meta.seedLength).toBe(3)
@@ -159,11 +163,15 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       try {
-        const session = ctx.sessions.create(SessionId('delegated-child'), {
-          meta: { cwd: WORK, parentSession: SessionId('root'), delegationDepth: 2 },
-        })
+        let session!: Session
+        const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
+          session = inner.sessions.create(SessionId('delegated-child'), {
+            meta: { cwd: WORK, parentSession: SessionId('root'), delegationDepth: 2 },
+          })
+        }, { inject: ['sessions'] }))
         send(session, oneTurnLog())
         await ctx.parallel('session/flush', session)
+        await sessionFiber.dispose()
 
         const loaded = await ctx.sessionPersistence.load(SessionId('delegated-child'))
         expect(loaded.meta.delegationDepth).toBe(2)
