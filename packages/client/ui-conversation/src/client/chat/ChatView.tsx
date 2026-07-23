@@ -254,7 +254,7 @@ export function ChatView({ useSession, useStore, renderSlot, openDetails, loadOl
             ))}
           </div>
         )}
-        {pending.map((item) => <PendingCard key={item.rpcId} item={item} />)}
+        {pending.map((item) => <PendingCard key={item.key} item={item} />)}
         </div>
       </div>
       <StatsLine useSession={useSession} />

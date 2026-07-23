@@ -21,6 +21,9 @@ import { EmptyState } from '../src/client/skeleton/EmptyState.tsx'
 afterEach(cleanup)
 
 const SID = 's1' as SessionId
+/** Fallback-only chain stub (no takeover registered in these benches). */
+const fallbackRenderSlotChain: ConversationRootProps['renderSlotChain'] =
+  (_key, _owner, opts) => opts?.fallback ?? null
 
 function snapshotBase(): ConversationSnapshot {
   return {
@@ -73,6 +76,7 @@ describe('ConversationRoot branches', () => {
         useStore={hookOf(chat)}
         actions={chat.actions}
         renderSlot={stubRenderSlot}
+        renderSlotChain={fallbackRenderSlotChain}
         SessionProvider={SessionProviderStub}
         views={{ list: () => [chatTab], subscribe: () => () => {}, version: () => 1 }}
         send={vi.fn()}
@@ -131,6 +135,7 @@ describe('ConversationRoot branches', () => {
         useStore={hookOf(chat)}
         actions={chat.actions}
         renderSlot={stubRenderSlot}
+        renderSlotChain={fallbackRenderSlotChain}
         SessionProvider={SessionProviderStub}
         views={{ list: () => [chatTab], subscribe: () => () => {}, version: () => 1 }}
         send={vi.fn()}

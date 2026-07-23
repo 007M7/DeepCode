@@ -13,7 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
-import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationSnapshot, PendingInteraction, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
+import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SelectionTarget, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ConversationRootProps } from '../src/client/skeleton/ConversationRoot.tsx'
 // Export discipline: packages/client/AGENTS.md.
@@ -36,11 +38,12 @@ interface FakeSnapshot {
   running: boolean
   removed: boolean
   promptError: { op: 'send' | 'stop'; error: { message: string; code: string } } | null
+  pending: readonly PendingInteraction[]
 }
 
 function fakeSession(init: Partial<FakeSnapshot> = {}) {
   const store = createSnapshotStore<FakeSnapshot>({
-    nodes: [], runningCalls: [], running: false, removed: false, promptError: null, ...init,
+    nodes: [], runningCalls: [], running: false, removed: false, promptError: null, pending: [], ...init,
   })
   return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
 }
@@ -99,8 +102,11 @@ describe('EmptyState', () => {
 })
 
 describe('ConversationRoot', () => {
-  function bench(tabs: ViewTab[], activeView?: string) {
-    const { useSession } = fakeSession({ nodes: [{ kind: 'user' }, { kind: 'user' }] })
+  function bench(
+    tabs: ViewTab[], activeView?: string, init: Partial<FakeSnapshot> = {},
+    renderSlotChain?: ConversationRootProps['renderSlotChain'],
+  ) {
+    const { useSession } = fakeSession({ nodes: [{ kind: 'user' }, { kind: 'user' }], ...init })
     const { useSessions } = fakeSessions([
       { id: 'root', title: 'proj' },
       { id: 's1', title: 'child', parentId: 'root' },
@@ -124,6 +130,7 @@ describe('ConversationRoot', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         renderSlot={renderSlot as unknown as ConversationRootProps['renderSlot']}
+        renderSlotChain={renderSlotChain ?? ((_key, _owner, opts) => opts?.fallback ?? null)}
         SessionProvider={SessionProviderStub}
         views={{
           list: () => tabs,
@@ -178,6 +185,30 @@ describe('ConversationRoot', () => {
     expect(chat.store.getSnapshot().draft).toBe('hi')
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(send).toHaveBeenCalledWith('hi', 'queue')
+  })
+
+  it('dispatches the pending list to the composer chain; all-decline falls back to InputBar', () => {
+    const wait = new PendingWait('question', RpcId('rq'), sid('s1'),
+      { questions: [{ id: 'mode', question: 'Choose?', options: [{ label: 'Fast' }] }] } as PendingWait<'question'>['payload'], vi.fn())
+    // A matching entry takes the composer over.
+    const renderSlotChain = vi.fn(() => <div>question takeover</div>) as unknown as ConversationRootProps['renderSlotChain']
+    bench([tab('chat', 'Chat')], undefined, { pending: [wait] }, renderSlotChain)
+    expect(screen.getByText('question takeover')).toBeTruthy()
+    expect(screen.queryByPlaceholderText(/输入消息/)).toBeNull()
+    // The owner dispatches the raw pending list (chain currency); routing
+    // lives in entry selectors, not here.
+    expect(renderSlotChain).toHaveBeenCalledWith(
+      'conversation.composer',
+      expect.objectContaining({
+        interactions: expect.arrayContaining([expect.objectContaining({ key: 'q:rq' })]),
+      }),
+      expect.objectContaining({ fallback: expect.anything() }),
+    )
+    cleanup()
+    // Zero registered entries (default all-decline stub): the fallback IS the
+    // default InputBar — behavior equals the pre-chain composer.
+    bench([tab('chat', 'Chat')], undefined, { pending: [wait] })
+    expect(screen.getByPlaceholderText(/输入消息/)).toBeTruthy()
   })
 })
 
