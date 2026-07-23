@@ -2,8 +2,15 @@
 import { StrictMode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
-import { bindSnapshotSelector, shallowEqual } from '@deepseek-ai/dsh-client-web-react'
-import type { ObservableSnapshot, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react/store'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import type { HostObservable as ObservableSnapshot, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+
+// Local one-level equality: the engine's shallowEqual moved to runtime with
+// the store relocation, and web-react tests must not import runtime (the
+// dependency direction is runtime → web-react). The eq PARAMETER contract is
+// what this suite asserts, not any specific equality implementation.
+const shallowEqual = (a: Record<string, unknown>, b: Record<string, unknown>): boolean =>
+  Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((k) => Object.is(a[k], b[k]))
 
 interface Snap { a: number; b: number }
 
@@ -34,7 +41,7 @@ function Harness<S>({ useSelector, sel, eq, probe }: {
   useSelector: SnapshotSelectorHook<Snap>
   sel: (s: Snap) => S
   eq?: (a: S, b: S) => boolean
-  probe: { renders: number; value?: S }
+  probe: { renders: number; value?: S | undefined }
 }) {
   probe.renders += 1
   probe.value = useSelector(sel, eq)

@@ -78,7 +78,12 @@ export async function runHeadless(argv: string[]): Promise<void> {
   }
 
   // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught by design).
-  const host = await startHost({ boot: { persistenceRoot: './.sessions' } })
+  const host = await startHost({
+    boot: {
+      persistenceRoot: './.sessions',
+      workspaceContext: false,
+    },
+  })
   const api = new InProcessApiClient(host.handler)
 
   const created = await unwrap(await api.sessions.create({}), () => host.dispose())

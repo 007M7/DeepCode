@@ -36,8 +36,9 @@ if (process.env.DSH_SNAPSHOT === 'record') {
 
 export default defineConfig({
   // Same resolution note as vitest.config.ts: bare workspace names resolve
-  // through the root tsconfig paths map; the native option cannot do this.
-  plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
+  // through the tsconfig.base.json paths facade; the native option cannot do
+  // this (the root tsconfig is a solution file with no paths).
+  plugins: [tsconfigPaths({ projects: ['./tsconfig.base.json'] })],
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
     include: [

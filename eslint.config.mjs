@@ -86,7 +86,8 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         // Same shared project service as the src block: test files resolve
-        // through the root tsconfig (its include covers every tests/ tree).
+        // through the root solution to tsconfig.host.json (its include covers
+        // every host tests/ tree).
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },

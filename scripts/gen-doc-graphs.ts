@@ -198,6 +198,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Plugins register direct human commands; TUI and ACP consume the same effective per-agent catalog without sending invocations to the model.',
   },
   {
+    key: 'tui',
+    pkg: 'tui',
+    title: 'Mounted-terminal interaction service',
+    mode: 'bundle',
+    note: 'One TUI front door provides a FIFO overlay host; injected plugins receive caller-fiber ownership without access to pi-tui or terminal lifecycle state.',
+  },
+  {
     key: 'skills',
     pkg: 'skill',
     title: 'Skill provider registry',

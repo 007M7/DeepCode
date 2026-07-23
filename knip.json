@@ -88,8 +88,7 @@
     },
     "packages/client/runtime": {
       "entry": [
-        "tests/**/*.spec.ts",
-        "tests/**/*.e2e.ts"
+        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -97,6 +96,16 @@
       ]
     },
     "packages/client/ui-primitives": {
+      "entry": [
+        "tests/**/*.spec.tsx"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.tsx"
+      ]
+    },
+    "packages/client/web-react": {
       "entry": [
         "tests/**/*.spec.tsx"
       ],
@@ -116,9 +125,6 @@
         "src/**/*.tsx",
         "tests/**/*.ts",
         "tests/**/*.tsx"
-      ],
-      "ignoreDependencies": [
-        "@deepseek-ai/dsh-client-ui-slots"
       ]
     },
     "website": {

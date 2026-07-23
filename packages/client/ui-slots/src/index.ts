@@ -1,18 +1,23 @@
 /**
- * Slot registry pure core. Owners declare slot contracts by merging into
- * {@link SlotMap}; `define` records the runtime spec, `register` contributes a
- * component. Zero runtime dependencies (React types only).
+ * Slot registry pure core (slot terminal design). Owners declare slot
+ * contracts by merging into {@link SlotMap}; one `register` call contributes a
+ * component AND (optionally) declares child slots, a store seat, and the
+ * registrant's business face. Zero runtime dependencies (React types only).
  *
- * SlotMap and its companion types live directly in this entry module: consumer
- * `declare module` augmentation merges with declarations lexically in the
- * augmented module, not with re-exports.
+ * SlotMap and the standard-kit interfaces live directly in this entry module:
+ * consumer `declare module` augmentation merges with declarations lexically in
+ * the augmented module, not with re-exports.
  */
 /* eslint-disable @typescript-eslint/no-redundant-type-constituents --
  * `keyof SlotMap & string` is the declare-merge key pattern: SlotMap is empty
  * in THIS compilation unit (so the intersection reads as `never`), but every
  * consumer merges keys in and the intersection is what keeps them string-typed.
  * The rule fires on the empty-map view, not on real redundancy. */
-import type { FC, ReactNode } from 'react'
+import type { ReactNode } from 'react'
+import type { BoundActions, HandleOf, PropsStore, SnapshotSelectorHook, StoreDecl } from './store.ts'
+
+export * from './store.ts'
+export * from './renderer.ts'
 
 /** Slot contract table. Owners extend via declaration merging; entries are {@link SlotEntryDef}. */
 export interface SlotMap {}
@@ -24,147 +29,238 @@ export type SlotKind = 'single' | 'list' | 'keyed'
 export type SlotScope = 'root' | 'session'
 
 /**
- * One SlotMap entry: kind/scope axes, the owner-supplied props share, and an
- * optional sub-slot whitelist. Ownership rule (a share's type lives with
- * whoever wires it): `owner` is the render-side share declared by the
- * slot-owning package and REFERENCED by registrants; the registrant's own
- * injected share never enters this table — full component props are composed
- * at the component as `OwnerOf<K> & <injector-narrowed standard> & OwnInjected`.
- * `props` is the legacy full-props slot kept while consumers migrate to
- * composed declarations (new entries declare `owner` and omit it).
+ * One SlotMap entry: kind/scope axes plus the optional owner-supplied props
+ * share (`owner` is what the parent passes at its renderSlot call site; the
+ * framework standard kit and the registrant's injected share never enter this
+ * table — full component props compose at the component as the four-share
+ * intersection, see {@link ComposedProps}).
  */
 export interface SlotEntryDef {
   kind: SlotKind
   scope: SlotScope
-  props?: object
   owner?: object
-  children?: keyof SlotMap & string
 }
 
 /**
- * Owner-supplied props share for a slot key: the render-side contract half.
- * Falls back to the legacy Partial form when the entry declares no `owner`.
+ * Runtime dispatch spec for one slot, recorded from a register call's
+ * `children` value. The literal is compile-time checked against the SlotMap
+ * entry (`SlotSpec<SlotMap[P]>` in {@link ChildrenDecl}), so type and value
+ * are declared at one point and validate each other.
  */
-export type OwnerOf<K extends keyof SlotMap & string> =
-  SlotMap[K] extends { owner: infer O extends object } ? O : OwnerProps<SlotMap[K]>
-
-/**
- * CONSTRAINT-position standard share for register(): the framework supplies
- * session slots' bound selector hook, so it is bottom-typed here — any
- * registrant narrowing (e.g. a runtime-typed conversation hook) is accepted,
- * and the type responsibility for what actually arrives lives with the
- * injecting side (web-react's renderer). Do NOT compose component props from
- * this type; declare the narrowed hook the component actually consumes.
- */
-export type StandardOf<K extends keyof SlotMap & string> =
-  SlotMap[K]['scope'] extends 'session' ? { useSession: never } : object
-
-/**
- * Delegable sub-slot whitelist declared by an entry: the `children` key union,
- * or `never` when the entry declares none (no delegation authorized).
- */
-export type ChildrenOf<K extends keyof SlotMap & string> =
-  SlotMap[K] extends { children: infer C extends keyof SlotMap & string } ? C : never
-
-/**
- * B-b optional validation layer over the hand-written whitelist (B-a): the
- * composed register constraint carries a `slots` face whose key union is the
- * entry's `children` declaration. Components wanting a SUBSET whitelist
- * accept it through ScopedSlots covariance; an out-of-union whitelist makes
- * the component's `slots` parameter unsatisfiable and the register call site
- * reports it. Entries without `children` add no slots constraint, so any
- * hand-written whitelist registers freely (the layer is opt-in per entry).
- * This is constraint-side only: whether slots are actually delivered stays
- * with the renderer/owner (B-a trust).
- */
-export type SlotsFaceOf<K extends keyof SlotMap & string> =
-  [ChildrenOf<K>] extends [never]
-    ? object
-    : { slots: ScopedSlots<ChildrenOf<K>> }
-
-/**
- * The registration-boundary composed props constraint: owner share + standard
- * share + registrant share, gated by the entry's `children` authorization
- * (see {@link ChildrenChecked}). Entries without an `owner` declaration
- * (legacy full-props form) keep the plain props constraint until they migrate.
- */
-export type ComposedProps<K extends keyof SlotMap & string, I extends object> =
-  SlotMap[K] extends { owner: infer O extends object }
-    ? O & StandardOf<K> & SlotsFaceOf<K> & I
-    : PropsShape<SlotMap[K]>
-
-/**
- * Registration-position component shape: the bare call signature, so the
- * ComposedProps constraint checks through clean parameter contravariance
- * (FC's propTypes/defaultProps statics add covariant noise that rejects
- * legitimate narrowings of the bottom-typed standard share).
- */
-export type SlotComponent<P> = (props: P) => ReactNode
-
-/** The stored component's props shape: the legacy full-props slot, or wide for composed entries. */
-export type PropsShape<E extends SlotEntryDef> =
-  E extends { props: infer P extends object } ? P : object
-
-/**
- * Session-scoped assembly handle passed to inject factories (apply world
- * only, never into props). `Ctx` defaults to unknown at this zero-dependency
- * layer; runtime re-exports the ClientContext-narrowed alias.
- */
-export interface SessionBinding<Ctx = unknown> {
-  readonly sessionId: string
-  readonly session: SessionAccess
-  readonly ctx: Ctx
-}
-
-/** Root-scoped assembly handle passed to inject factories. */
-export interface RootBinding<Ctx = unknown> { readonly ctx: Ctx }
-
-/** Session subscription surface; web-react narrows `useSelector` to the typed hook. */
-export interface SessionAccess { readonly useSelector: unknown }
-
-/**
- * Factory producing the registrant's private injected props, called once per
- * (entry x session) for session slots or per entry for root slots. `I` is the
- * registrant's own injected share, inferred at the registration site. `Ctx`
- * parameterizes the binding's context (default unknown keeps this layer
- * dependency-free); runtime's narrowed binding aliases flow through here so
- * factories written against a narrowed ctx type-check without a cast.
- */
-export type InjectFactory<E extends SlotEntryDef, I extends object = Record<string, unknown>, Ctx = unknown> =
-  (b: E['scope'] extends 'session' ? SessionBinding<Ctx> : RootBinding<Ctx>) => I
-
-/** Runtime spec recorded at define time; must match the SlotMap declaration. */
 export interface SlotSpec<E extends SlotEntryDef> { kind: E['kind']; scope: E['scope'] }
 
 /**
- * Registration options, shaped by the slot kind and the registrant's injected
- * share `I`. `Ctx` flows through to the inject factory's binding parameter
- * (narrowing wrappers fix it to their client context type).
+ * Child-slot declaration table for register(): keys are the declared (and
+ * thereby render-authorized) slot names, values are their runtime dispatch
+ * specs. Declaring is claiming: the registering entry becomes the only entry
+ * allowed to render these keys.
  */
-export type SlotOptions<E extends SlotEntryDef, I extends object = Record<string, unknown>, Ctx = unknown> =
-  E['kind'] extends 'keyed' ? { key: string; inject?: InjectFactory<E, I, Ctx> }
-    : E['kind'] extends 'list' ? { id: string; order?: number; label?: string; inject?: InjectFactory<E, I, Ctx> }
-      : { inject?: InjectFactory<E, I, Ctx> }
+export type ChildrenDecl = { [P in keyof SlotMap & string]?: SlotSpec<SlotMap[P]> }
 
-/** register() trailing args: options are statically mandatory for keyed/list kinds (key/id live there). */
-export type RegisterArgs<E extends SlotEntryDef, I extends object = Record<string, unknown>, Ctx = unknown> =
-  E['kind'] extends 'keyed' | 'list' ? [options: SlotOptions<E, I, Ctx>] : [options?: SlotOptions<E, I, Ctx>]
+/** Owner-supplied props share for a slot key ({} for entries declaring no `owner`). */
+export type OwnerOf<K extends keyof SlotMap & string> =
+  SlotMap[K] extends { owner: infer O extends object } ? O : object
 
-/** One registered contribution: the component plus its registration options. */
-export interface SlotEntry<E extends SlotEntryDef, I extends object = Record<string, unknown>> {
-  component: FC<PropsShape<E>>
-  options: SlotOptions<E, I>
+/** Scope axis of a slot key's SlotMap entry. */
+export type ScopeOf<K extends keyof SlotMap & string> = SlotMap[K]['scope']
+
+/**
+ * Framework standard kit delivered to every session-scope slot component.
+ * Declared EMPTY here (zero-dependency layer): the runtime package merges the
+ * real members (`useSession` bound to the conversation snapshot and the
+ * framework-supplied `sessionId`) exactly as consumers merge SlotMap keys.
+ */
+export interface SessionStandardProps {}
+
+/**
+ * Framework standard kit delivered to EVERY slot component (the global seat).
+ * Declared empty here; the runtime package merges `useSessions` (the session
+ * list selector hook — the sidebar tree's single derivation source).
+ */
+export interface GlobalStandardProps {}
+
+/**
+ * The session id type as the runtime's SessionStandardProps merge declares it
+ * (branded); falls back to `string` in programs without the merge (this
+ * package's own tests).
+ */
+export type SessionIdOf = SessionStandardProps extends { sessionId: infer S } ? S : string
+
+/**
+ * Runtime props share for a slot key: owner share (parent's renderSlot call
+ * site) + session standard kit (session scope only) + the global seat.
+ */
+export type PropsRuntime<K extends keyof SlotMap & string> =
+  OwnerOf<K> &
+  (ScopeOf<K> extends 'session' ? SessionStandardProps : object) &
+  GlobalStandardProps
+
+/** renderSlot dispatch options: keyed dispatch key, list filtering, empty fallback. */
+export interface RenderOpts { entryKey?: string; only?: string; fallback?: ReactNode }
+
+/**
+ * Conversation-session selector hook alias for props contracts. Wide by
+ * default at this dependency-inverted layer; the runtime narrows at its
+ * export seam (`UseSession<ConversationSnapshot>`).
+ */
+export type UseSession<Snap extends object = object> = SnapshotSelectorHook<Snap>
+
+/** Props of the standard-kit SessionProvider seat (render-prop form). */
+export interface SessionAreaProps {
+  /** No-session body (also covers a current id whose session cannot be resolved). */
+  empty?: (() => ReactNode) | undefined
+  /** Session body; the framework remounts it per session (key=sessionId). */
+  children: (sessionId: SessionIdOf) => ReactNode
 }
 
-/** Type-erased stored entry; public typing is restored at the entries() boundary. */
-interface StoredEntry {
+/**
+ * The framework-wired session area component (slot terminal design §7):
+ * subscribes to the current-session selection internally (design fiat ① —
+ * selection authority lives with runtime sessions) and switches between the
+ * session body and the empty branch. Delivered as a standard seat to every
+ * entry whose children declaration contains a session-scope slot (the
+ * derivation rides {@link PropsRenderSlots}); the value is injected by the
+ * installed renderer — business code never imports it.
+ */
+export type SessionProviderComponent = (props: SessionAreaProps) => ReactNode
+
+/**
+ * Child-slot render share: `renderSlot` statically narrowed to the entry's
+ * declared children keys. Delegation is plain props passing (hand
+ * `props.renderSlot` down); the authorizing identity stays the registering
+ * entry. `__renders` is a phantom variance anchor (never materialized):
+ * generic method signatures compare loosely across differing key unions, so
+ * this contravariant marker is what actually enforces "component key set ⊆
+ * children declaration" at the register call site.
+ */
+export type PropsRenderSlots<S extends keyof SlotMap & string> = {
+  /**
+   * Render a declared child slot.
+   * @param key - declared child key.
+   * @param owner - owner props share for that key (decided at the render site).
+   * @param opts - kind dispatch options.
+   * @returns rendered node(s).
+   */
+  renderSlot: <K extends S>(key: K, owner: OwnerOf<K>, opts?: RenderOpts) => ReactNode
+  readonly __renders?: ((key: S) => void) | undefined
+} & ('session' extends ScopeOf<S>
+  // The SessionProvider seat rides the same source as renderSlot: declaring
+  // a session-scope child is what makes a session area exist, so the seat
+  // derives from the children key set's scopes (renderer injects the value).
+  ? { SessionProvider: SessionProviderComponent }
+  : object)
+
+/**
+ * Registration-position component shape: the bare call signature, so composed
+ * constraints check through clean parameter contravariance (FC statics add
+ * covariant noise rejecting legitimate narrowings).
+ */
+export type SlotComponent<P> = (props: P) => ReactNode
+
+/**
+ * The four-share component props intersection: runtime share (SlotMap) +
+ * child-render share (children declaration) + store share (declared handle) +
+ * the registrant's injected business face. Each share derives from its single
+ * source of truth; components reference this composition, never re-type it.
+ */
+export type ComposedProps<
+  K extends keyof SlotMap & string,
+  S extends keyof SlotMap & string,
+  H,
+  I extends object,
+> = PropsRuntime<K> & PropsRenderSlots<S> & PropsStore<H> & I
+
+/**
+ * Inject factory parameter list, derived from the registration's declaration:
+ * session slots receive the framework-resolved `sessionId`; a declared store
+ * appends the baked `actions` (the same callbacks the component receives);
+ * root slots without a store take no parameters. Business data access happens
+ * through the apply closure's ctx — no binding object parameter exists.
+ */
+export type InjectParams<K extends keyof SlotMap & string, H> =
+  ScopeOf<K> extends 'session'
+    ? ([H] extends [StoreDecl] ? [sessionId: SessionIdOf, actions: BoundActions<HandleOf<H>>] : [sessionId: SessionIdOf])
+    : ([H] extends [StoreDecl] ? [actions: BoundActions<HandleOf<H>>] : [])
+
+/** Kind shape fields carried in register options (keyed dispatch key; list id/order/label). */
+export type KindOptions<E extends SlotEntryDef> =
+  E['kind'] extends 'keyed' ? { key: string }
+    : E['kind'] extends 'list' ? { id: string; order?: number; label?: string }
+      : object
+
+/**
+ * Compile-time presence check: an entry declaring children MUST consume
+ * `renderSlot` (declaring is claiming — an entry that does not render its
+ * children should not declare them). Evaluates to an unsatisfiable
+ * intersection member naming the declared keys when violated.
+ */
+type RendersCheck<C, D> =
+  [keyof D & keyof SlotMap & string] extends [never] ? unknown
+    : C extends (props: infer P) => ReactNode
+      ? ('renderSlot' extends keyof P ? unknown
+        : { 'children declared but the component consumes no renderSlot': keyof D & keyof SlotMap & string })
+      : unknown
+
+/** Common register options share (see {@link SlotCore.register} for semantics). */
+type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H> = {
+  /** Target slot key (the entry contributes INTO this slot). */
+  name: K
+  /** Child-slot declaration + render authorization + runtime spec, in one table. */
+  children?: D
+  /** Store seat: a shared handle (apply-constructed) or an exclusive factory (framework-called per entry x scope). */
+  store?: H
+  /** Registrant identity label for diagnostics (the runtime Service wrapper stamps the caller's fiber name). */
+  registrant?: string
+} & KindOptions<SlotMap[K]>
+
+/**
+ * One stored registration, as recorded by the core and read by the render
+ * machinery (type-erased at this boundary; the register seam already proved
+ * the shares against the component).
+ */
+export interface StoredEntry {
   component: unknown
-  options: { key?: string; id?: string; order?: number; label?: string; inject?: unknown }
+  options: { key?: string; id?: string; order?: number; label?: string }
+  /** Registrant business face; positional params derive from the declaration (sessionId?, actions?). */
+  inject?: ((...args: never[]) => Record<string, unknown>) | undefined
+  /** Child-slot declaration table (declaration + authorization + runtime spec in one). */
+  children?: Readonly<Record<string, SlotSpec<SlotEntryDef>>> | undefined
+  /** Declared store seat (instance resolution and lifecycle live with the host machinery). */
+  store?: StoreDecl | undefined
+  /** Diagnostics label of who registered. */
+  registrant?: string | undefined
 }
 
-/** Per-key registry record. Created on first define/subscribe/version read; never removed (version stays monotonic across redefines). */
+/**
+ * Type-erased options view the implementation works with. Optional members
+ * carry explicit `| undefined`: under exactOptionalPropertyTypes the public
+ * overloads (whose generics admit undefined) would otherwise fail
+ * overload-to-implementation compatibility.
+ */
+interface ErasedOptions {
+  name: string
+  key?: string | undefined
+  id?: string | undefined
+  order?: number | undefined
+  label?: string | undefined
+  children?: Record<string, SlotSpec<SlotEntryDef>> | undefined
+  store?: StoreDecl | undefined
+  /* eslint-disable-next-line @typescript-eslint/no-explicit-any --
+   * implementation-signature position only (both public overloads type inject
+   * exactly); `never[]` would fail overload-to-implementation compatibility
+   * against the per-declaration InjectParams tuples. */
+  inject?: ((...args: any) => Record<string, unknown>) | undefined
+  registrant?: string | undefined
+}
+
+/**
+ * Per-key registry record. Created on first touch; never removed (version
+ * stays monotonic across redeclarations).
+ */
 interface SlotRecord {
   spec: SlotSpec<SlotEntryDef> | undefined
+  /** Diagnostics: which slot's entry declared this key ('(built-in)' for root). */
+  declaredBy: string | undefined
   entries: readonly StoredEntry[]
   version: number
   listeners: Set<() => void>
@@ -173,8 +269,11 @@ interface SlotRecord {
 const NO_ENTRIES: readonly StoredEntry[] = Object.freeze([])
 
 /**
- * Pure slot registry (no cordis; event emission lives in the runtime Service
- * wrapper via {@link SlotCore.onMutate}).
+ * Pure slot registry (no cordis; event emission and the renderer install seam
+ * live in the runtime Service wrapper).
+ *
+ * The 'root' slot is the one a-priori declaration, seeded at construction
+ * (single/root, declared by the framework) — the render tree's root hole.
  *
  * Change propagation contract: versions bump and {@link SlotCore.onMutate}
  * fires synchronously per mutation (registry state is consistent when they
@@ -184,101 +283,187 @@ const NO_ENTRIES: readonly StoredEntry[] = Object.freeze([])
 export class SlotCore {
   private records = new Map<string, SlotRecord>()
   private mutateListeners = new Set<(key: string) => void>()
+  /** Shared-handle scope ledger: handle → the scope it first mounted under + live mount count. */
+  private handleScopes = new Map<object, { scope: SlotScope; count: number }>()
   // Dirty records, not keys: records are never removed, so holding the
   // reference skips a lookup (and an unreachable missing-record branch) at flush.
   private dirty = new Set<SlotRecord>()
   private flushScheduled = false
 
+  constructor() {
+    // The a-priori root hole. No markDirty: nothing can observe construction.
+    const root = this.record('root')
+    root.spec = { kind: 'single', scope: 'root' }
+    root.declaredBy = '(built-in)'
+  }
+
   /**
-   * Record a slot's runtime spec. Registering into an undefined key throws;
-   * defining an already-defined key throws (one owner per slot).
-   * @param key - SlotMap key.
-   * @param spec - kind/scope spec matching the declaration.
-   * @returns disposer removing the definition and its entries (idempotent; a
-   * stale disposer after redefine is a no-op).
+   * Contribute a component to a declared slot and (optionally) declare child
+   * slots, a store seat, and the registrant's business face — the single
+   * composition API (the separate define API is retired).
+   *
+   * Load-time validation (misconfiguration fails loud; the render hot path
+   * re-checks nothing): registering into an undeclared slot throws; declaring
+   * an already-declared child key throws (one declarer per slot — the message
+   * names the first declarer); mounting one shared store handle under slots
+   * of different scopes throws. Kind constraints: single — duplicate
+   * registration throws; keyed — missing/duplicate `key` throws; list —
+   * missing/duplicate `id` throws.
+   *
+   * Lifecycle: the disposer removes the contribution AND collapses every
+   * declared child slot (child entries clear recursively; their stale
+   * disposers become no-ops) — one lifecycle axis, no dangling state.
+   *
+   * @param options - registration options: target `name`, `children`
+   * declaration table, `store` seat, `inject` business-face factory, kind
+   * shape fields (keyed `key`; list `id`/`order`/`label`).
+   * @param component - component honoring the four-share composed props
+   * contract ({@link ComposedProps}); checked at this call site.
+   * @returns disposer removing the registration and its declarations
+   * (idempotent; stale disposers after a cascade are no-ops).
    */
-  define<K extends keyof SlotMap & string>(key: K, spec: SlotSpec<SlotMap[K]>): () => void {
-    const rec = this.record(key)
-    if (rec.spec) throw new Error(`slot "${String(key)}" is already defined`)
-    const recorded: SlotSpec<SlotEntryDef> = spec
-    rec.spec = recorded
-    this.markDirty(key, rec)
+  register<
+    K extends keyof SlotMap & string,
+    const D extends ChildrenDecl = Record<never, never>,
+    H extends StoreDecl | undefined = undefined,
+    C extends SlotComponent<never> = SlotComponent<never>,
+  >(
+    options: BaseOptions<K, D, H> & { inject?: undefined },
+    component: C
+      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, object>>
+      & RendersCheck<C, D>,
+  ): () => void
+  /**
+   * Inject-bearing overload: identical semantics to the overload above, plus
+   * the registrant's business face — `I` is inferred from the inject
+   * factory's return and joins the component's composed-props constraint
+   * (factory parameters derive from the declaration, {@link InjectParams}).
+   * @param options - registration options plus the `inject` business-face factory.
+   * @param component - component honoring the four-share composed props
+   * contract including the inject share `I`.
+   * @returns disposer removing the registration and its declarations.
+   */
+  register<
+    K extends keyof SlotMap & string,
+    I extends object,
+    const D extends ChildrenDecl = Record<never, never>,
+    H extends StoreDecl | undefined = undefined,
+    C extends SlotComponent<never> = SlotComponent<never>,
+  >(
+    options: BaseOptions<K, D, H> & { inject: (...args: InjectParams<K, H>) => I },
+    component: C
+      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, I>>
+      & RendersCheck<C, D>,
+  ): () => void
+  register(options: ErasedOptions, component: unknown): () => void {
+    const rec = this.records.get(options.name)
+    if (!rec?.spec) {
+      throw new Error(`slot "${options.name}" is not declared (a parent entry's children table must declare it)`)
+    }
+    const spec = rec.spec
+    // Kind constraints stay runtime checks for dynamically-composed callers;
+    // typed callers already satisfied KindOptions statically.
+    switch (spec.kind) {
+      case 'single':
+        if (rec.entries.length > 0) throw new Error(`single slot "${options.name}" already has a registration`)
+        break
+      case 'keyed':
+        if (options.key === undefined) throw new Error(`keyed slot "${options.name}" requires options.key`)
+        if (rec.entries.some(e => e.options.key === options.key)) {
+          throw new Error(`keyed slot "${options.name}" already has an entry for key "${options.key}"`)
+        }
+        break
+      case 'list':
+        if (options.id === undefined) throw new Error(`list slot "${options.name}" requires options.id`)
+        if (rec.entries.some(e => e.options.id === options.id)) {
+          throw new Error(`list slot "${options.name}" already has an entry with id "${options.id}"`)
+        }
+        break
+    }
+    if (options.children) {
+      for (const childKey of Object.keys(options.children)) {
+        const childRec = this.records.get(childKey)
+        if (childRec?.spec) {
+          throw new Error(`slot "${childKey}" is already declared (by ${childRec.declaredBy ?? 'an unknown entry'})`)
+        }
+      }
+    }
+    // Shared handles pin their scope on first mount; factories are exempt
+    // (the framework creates per-entry instances, no shared identity exists).
+    if (options.store !== undefined && typeof options.store !== 'function') {
+      const pinned = this.handleScopes.get(options.store)
+      if (pinned && pinned.scope !== spec.scope) {
+        throw new Error(
+          `store handle mounted under "${options.name}" (scope "${spec.scope}") is already mounted under scope "${pinned.scope}" — one handle, one scope`)
+      }
+      if (pinned) pinned.count += 1
+      else this.handleScopes.set(options.store, { scope: spec.scope, count: 1 })
+    }
+
+    const entry: StoredEntry = {
+      component,
+      options: {
+        ...(options.key !== undefined ? { key: options.key } : {}),
+        ...(options.id !== undefined ? { id: options.id } : {}),
+        ...(options.order !== undefined ? { order: options.order } : {}),
+        ...(options.label !== undefined ? { label: options.label } : {}),
+      },
+      ...(options.inject !== undefined ? { inject: options.inject } : {}),
+      ...(options.children !== undefined ? { children: options.children } : {}),
+      ...(options.store !== undefined ? { store: options.store } : {}),
+      ...(options.registrant !== undefined ? { registrant: options.registrant } : {}),
+    }
+    const next = [...rec.entries, entry]
+    // Stable sort: order ascending, ties keep registration sequence.
+    if (spec.kind === 'list') next.sort((a, b) => (a.options.order ?? 0) - (b.options.order ?? 0))
+    rec.entries = next
+    this.markDirty(options.name, rec)
+    if (options.children) {
+      for (const [childKey, childSpec] of Object.entries(options.children)) {
+        const childRec = this.record(childKey)
+        childRec.spec = childSpec
+        childRec.declaredBy = `an entry in "${options.name}"${options.registrant ? ` (${options.registrant})` : ''}`
+        this.markDirty(childKey, childRec)
+      }
+    }
     return () => {
-      if (rec.spec !== recorded) return
-      rec.spec = undefined
-      rec.entries = NO_ENTRIES
-      this.markDirty(key, rec)
+      if (!rec.entries.includes(entry)) return
+      rec.entries = rec.entries.filter(e => e !== entry)
+      this.markDirty(options.name, rec)
+      this.releaseEntry(entry)
     }
   }
 
   /**
-   * Contribute a component to a defined slot. single: duplicate registration
-   * throws; keyed: missing or duplicate `options.key` throws; list: missing or
-   * duplicate `options.id` throws (duplicates would make `only`/`entryKey`
-   * dispatch ambiguous).
-   * @param key - SlotMap key.
-   * @param component - component honoring the entry's composed props contract (owner & standard & injected shares).
-   * @param args - kind-shaped registration options; statically mandatory for keyed/list (key/id live there).
-   * @returns disposer removing the registration (idempotent; a stale disposer
-   * after the slot's define disposer ran is a no-op).
+   * Whether a previously obtained entry is still registered (the render
+   * machinery's stale-authorization probe: a retained renderSlot binding
+   * whose entry left the ledger must not render).
+   * @param entry - a previously read entry.
+   * @returns false once the entry's registration was disposed.
    */
-  register<K extends keyof SlotMap & string, I extends object = Record<string, unknown>, Ctx = unknown>(
-    // NoInfer pins I's inference to the inject factory: letting the component
-    // position drive I would absorb any props drift into the constraint.
-    // Ctx flows from the options' inject-factory parameter annotation
-    // (narrowing wrappers fix it; the core stays context-agnostic).
-    key: K, component: SlotComponent<ComposedProps<K, NoInfer<I>>>, ...args: RegisterArgs<SlotMap[K], I, Ctx>): () => void {
-    const rec = this.records.get(key)
-    if (!rec?.spec) throw new Error(`slot "${String(key)}" is not defined`)
-    const opts = (args[0] ?? {}) as StoredEntry['options']
-    // keyed/list options are statically mandatory (RegisterArgs); the runtime
-    // checks below stay for dynamically-composed callers.
-    switch (rec.spec.kind) {
-      case 'single':
-        if (rec.entries.length > 0) throw new Error(`single slot "${String(key)}" already has a registration`)
-        break
-      case 'keyed':
-        if (opts.key === undefined) throw new Error(`keyed slot "${String(key)}" requires options.key`)
-        if (rec.entries.some(e => e.options.key === opts.key)) {
-          throw new Error(`keyed slot "${String(key)}" already has an entry for key "${opts.key}"`)
-        }
-        break
-      case 'list':
-        if (opts.id === undefined) throw new Error(`list slot "${String(key)}" requires options.id`)
-        if (rec.entries.some(e => e.options.id === opts.id)) {
-          throw new Error(`list slot "${String(key)}" already has an entry with id "${opts.id}"`)
-        }
-        break
+  isLive(entry: StoredEntry): boolean {
+    for (const rec of this.records.values()) {
+      if (rec.entries.includes(entry)) return true
     }
-    const entry: StoredEntry = { component, options: opts }
-    const next = [...rec.entries, entry]
-    // Stable sort: order ascending, ties keep registration sequence.
-    if (rec.spec.kind === 'list') next.sort((a, b) => (a.options.order ?? 0) - (b.options.order ?? 0))
-    rec.entries = next
-    this.markDirty(key, rec)
-    return () => {
-      if (!rec.entries.includes(entry)) return
-      rec.entries = rec.entries.filter(e => e !== entry)
-      this.markDirty(key, rec)
-    }
+    return false
   }
 
   /**
    * Snapshot the registered entries for a key. Returns the cached array
    * reference (stable between mutations — safe as a uSES getSnapshot source);
-   * empty for keys not (or no longer) defined, so renderers may probe ahead of
-   * plugin load order.
-   * @param key - SlotMap key.
+   * empty for keys not (or no longer) declared, so renderers may probe ahead
+   * of plugin load order.
+   * @param key - slot key (dynamic: the render machinery holds keys as strings).
    * @returns entries in registration (list: order) sequence.
    */
-  entries<K extends keyof SlotMap & string>(key: K): readonly SlotEntry<SlotMap[K]>[] {
-    return (this.records.get(key)?.entries ?? NO_ENTRIES) as unknown as readonly SlotEntry<SlotMap[K]>[]
+  entries(key: string): readonly StoredEntry[] {
+    return this.records.get(key)?.entries ?? NO_ENTRIES
   }
 
   /**
-   * Look up a slot's defined spec, narrowed by the SlotMap key.
+   * Look up a slot's declared spec, narrowed by the SlotMap key.
    * @param key - SlotMap key.
-   * @returns the spec, or undefined before define.
+   * @returns the spec, or undefined while undeclared.
    */
   spec<K extends keyof SlotMap & string>(key: K): SlotSpec<SlotMap[K]> | undefined {
     return this.records.get(key)?.spec as SlotSpec<SlotMap[K]> | undefined
@@ -289,7 +474,7 @@ export class SlotCore {
    * only hold as strings (generic dispatch) use this wide form; statically
    * keyed callers use {@link SlotCore.spec}.
    * @param key - candidate slot key.
-   * @returns the wide-typed spec, or undefined before define.
+   * @returns the wide-typed spec, or undefined while undeclared.
    */
   specDynamic(key: string): SlotSpec<SlotEntryDef> | undefined {
     return this.records.get(key)?.spec
@@ -297,12 +482,12 @@ export class SlotCore {
 
   /**
    * Subscribe to registration changes for a key (microtask-batched).
-   * Subscribing ahead of define is allowed; the define itself notifies.
-   * @param key - SlotMap key.
+   * Subscribing ahead of declaration is allowed; the declaration notifies.
+   * @param key - slot key.
    * @param fn - change callback.
    * @returns unsubscribe.
    */
-  subscribe(key: keyof SlotMap & string, fn: () => void): () => void {
+  subscribe(key: string, fn: () => void): () => void {
     const rec = this.record(key)
     rec.listeners.add(fn)
     return () => { rec.listeners.delete(fn) }
@@ -311,10 +496,10 @@ export class SlotCore {
   /**
    * Monotonic version for a key, bumped synchronously per mutation so a
    * uSES getSnapshot read is never stale when its batched notification lands.
-   * @param key - SlotMap key.
+   * @param key - slot key.
    * @returns current version (0 for untouched keys).
    */
-  getVersion(key: keyof SlotMap & string): number {
+  getVersion(key: string): number {
     return this.records.get(key)?.version ?? 0
   }
 
@@ -330,10 +515,35 @@ export class SlotCore {
     return () => { this.mutateListeners.delete(fn) }
   }
 
+  /**
+   * Cascade for a removed entry: release its store mount and collapse every
+   * child slot it declared — specs clear, contributions empty (their stale
+   * disposers no-op), recursively down the declaration tree. One lifecycle
+   * axis: ledger rows, slots, contributions, and store mounts die together.
+   */
+  private releaseEntry(entry: StoredEntry): void {
+    if (entry.store !== undefined && typeof entry.store !== 'function') {
+      const pinned = this.handleScopes.get(entry.store)
+      if (pinned && --pinned.count === 0) this.handleScopes.delete(entry.store)
+    }
+    if (!entry.children) return
+    for (const childKey of Object.keys(entry.children)) {
+      const childRec = this.records.get(childKey)
+      /* v8 ignore next -- defensive: declaring always creates the record */
+      if (!childRec) continue
+      const doomed = childRec.entries
+      childRec.spec = undefined
+      childRec.declaredBy = undefined
+      childRec.entries = NO_ENTRIES
+      this.markDirty(childKey, childRec)
+      for (const dead of doomed) this.releaseEntry(dead)
+    }
+  }
+
   private record(key: string): SlotRecord {
     let rec = this.records.get(key)
     if (!rec) {
-      rec = { spec: undefined, entries: NO_ENTRIES, version: 0, listeners: new Set() }
+      rec = { spec: undefined, declaredBy: undefined, entries: NO_ENTRIES, version: 0, listeners: new Set() }
       this.records.set(key, rec)
     }
     return rec
@@ -359,49 +569,3 @@ export class SlotCore {
     }
   }
 }
-
-/**
- * Whitelist-narrowed render surface handed to owner components via props
- * (implementation lives in web-react's scopedSlots factory).
- */
-export interface ScopedSlots<K extends keyof SlotMap & string> {
-  /**
-   * Render a slot's registered entries.
-   * @param key - whitelisted SlotMap key.
-   * @param props - owner-supplied share of the entry's props contract.
-   * @param opts - render options.
-   * @returns rendered node(s).
-   */
-  renderSlot: <Key extends K>(key: Key, props: OwnerOf<Key>, opts?: RenderOpts) => ReactNode
-  /**
-   * Phantom variance anchor (never materialized at runtime): generic method
-   * signatures compare loosely across differing key-union constraints, so
-   * this contravariant marker is what actually enforces "a surface is
-   * assignable only where its whitelist covers the target's keys".
-   */
-  readonly __accepts?: ((key: K) => void) | undefined
-}
-
-/** renderSlot options: keyed dispatch key, list filtering, empty fallback. */
-export interface RenderOpts { entryKey?: string; only?: string; fallback?: ReactNode }
-
-/**
- * Narrow a slots surface to a subset whitelist for delegation to a child
- * component (`K2` ⊆ `K1`). Pure type narrowing — ScopedSlots is covariant in
- * its key union, so the same object is returned.
- * @param slots - the owner's wider surface.
- * @returns the same surface, typed to the subset.
- */
-export function narrowSlots<K2 extends K1, K1 extends keyof SlotMap & string>(
-  slots: ScopedSlots<K1>): ScopedSlots<K2> {
-  return slots
-}
-
-/**
- * The owner-supplied share of an entry's props. `useSession` is excluded (the
- * framework injects it on session slots; owners must not shadow the bound
- * hook). Registrant inject keys are per-registration and unknowable at the
- * type level, so the remaining share stays Partial rather than exact.
- */
-export type OwnerProps<E extends SlotEntryDef> =
-  E extends { props: infer P extends object } ? Partial<Omit<P, 'useSession'>> : object
