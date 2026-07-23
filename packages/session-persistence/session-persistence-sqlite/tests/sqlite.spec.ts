@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { chmod, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SurfaceEvent, SurfaceEventType } from '@deepseek-ai/dsh-session'
 import SessionPersistenceSqlite, { SCHEMA_VERSION } from '@deepseek-ai/dsh-session-persistence-sqlite'
@@ -304,6 +305,23 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     expect(() => openDatabase(olderPath, 'wal')).toThrow(/incompatible with this build/)
   })
 
+  it('rejects a nonempty unversioned database before stamping or changing journal mode', async () => {
+    const path = await freshDbPath()
+    const legacy = new DatabaseSync(path)
+    legacy.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY)')
+    legacy.close()
+
+    expect(() => openDatabase(path, 'wal')).toThrow(/nonempty unversioned schema/)
+
+    const unchanged = new DatabaseSync(path)
+    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: 0 })
+    expect(unchanged.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    expect(unchanged.prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'sessions'",
+    ).get()).toEqual({ name: 'sessions' })
+    unchanged.close()
+  })
+
   it('rejects a sibling v3 database (the merge-collided version) rather than opening it against missing columns', async () => {
     // Version 3 identified two incompatible sibling layouts, so it is always rejected.
     const path = await freshDbPath()
@@ -442,7 +460,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
   })
 
   it('exposes the schema version constant', () => {
-    expect(SCHEMA_VERSION).toBe(8)
+    expect(SCHEMA_VERSION).toBe(9)
   })
 
   it('keeps the revision stable for an empty repair hook', async () => {

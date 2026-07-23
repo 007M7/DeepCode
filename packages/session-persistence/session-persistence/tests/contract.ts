@@ -84,6 +84,20 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
+    it('round-trips a finite fractional creation timestamp', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = { ...meta('fractional-created-at'), createdAt: 1.5 }
+        await persistence.create(m)
+        await persistence.append(m.id, oneTurnLog())
+
+        const loaded = await persistence.load(m.id)
+        expect(loaded.meta.createdAt).toBe(1.5)
+      } finally {
+        await dispose()
+      }
+    })
+
     it('crash recovery: load preserves an interrupted (unclosed) turn and closes it with turn/end {interrupted}', async () => {
       const { persistence, dispose } = await make()
       try {

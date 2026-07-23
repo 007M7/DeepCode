@@ -17,7 +17,7 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 8
+export const SCHEMA_VERSION = 9
 
 /**
  * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
@@ -63,9 +63,10 @@ export interface EventRow {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 /**
- * Open the database and apply its schema and pragmas. A zero `user_version` is
- * stamped with {@link SCHEMA_VERSION}; every other non-current version rejects
- * rather than being migrated in place.
+ * Open the database and apply its schema and pragmas. An empty database with a
+ * zero `user_version` is initialized at {@link SCHEMA_VERSION}; a nonempty
+ * unversioned database and every other non-current version reject rather than
+ * being migrated in place.
  * @param path - the SQLite database file to open (created when absent).
  * @param journalMode - validated journal pragma.
  * @returns the open handle with pragmas applied and all three tables ensured.
@@ -83,17 +84,20 @@ export function openDatabase(path: string, journalMode: JournalMode): DatabaseSy
 
 function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalMode): void {
   db.exec('PRAGMA foreign_keys = ON')
-  // The validated union is safe to interpolate into a non-bindable PRAGMA.
-  db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
   // `PRAGMA user_version` always returns exactly one row { user_version }.
   const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
+  const { count: userTableCount } = db.prepare(
+    "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+  ).get() as { count: number }
+  if (onDisk === 0 && userTableCount > 0) {
+    throw new Error(`session database at "${path}" has a nonempty unversioned schema`)
+  }
   if (onDisk !== 0 && onDisk !== SCHEMA_VERSION) {
     throw new Error(`session database at "${path}" has schema version ${onDisk}, incompatible with this build (${SCHEMA_VERSION})`)
   }
-  if (onDisk === 0) {
-    // Stamp fresh or pre-versioning databases.
-    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
-  }
+  // The validated union is safe to interpolate into a non-bindable PRAGMA.
+  // Apply it only after rejecting incompatible existing databases.
+  db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
   db.exec(`
     CREATE TABLE IF NOT EXISTS persistence_state (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -107,7 +111,7 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
     CREATE TABLE IF NOT EXISTS sessions (
       id             TEXT PRIMARY KEY,
       version        INTEGER NOT NULL,
-      created_at     INTEGER NOT NULL,
+      created_at     REAL NOT NULL,
       cwd              TEXT,
       parent_session   TEXT,
       seed_length      INTEGER,
@@ -128,6 +132,7 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
       PRIMARY KEY (session_id, seq)
     ) STRICT
   `)
+  if (onDisk === 0) db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
 }
 
 /**
