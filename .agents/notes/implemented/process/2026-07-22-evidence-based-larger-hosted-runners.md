@@ -12,11 +12,15 @@ Larger runners make it possible to pay setup once and parallelize inside the rep
 
 ## Decision
 
-The organization keeps twelve x64 larger-runner pools in the repo-restricted `dsh-larger-ci` group: Ubuntu 24.04 and Windows 2025 at 4, 8, 16, 32, 64, and 96 cores. Public IPs are disabled. Each pool has an autoscaling ceiling of 256; the ceiling does not allocate idle machines or remove the need to bound workflow demand.
+The enterprise keeps repo-restricted x64 larger-runner pools for Ubuntu and Windows. Ordinary pull requests name three 32-core pools directly: Ubuntu 24.04 for exhaustive coverage, Ubuntu latest for the remaining primary Node 24 inventory, and Windows 2025 for blocking Windows contracts. Public IPs are disabled, and workflow concurrency remains bounded because an autoscaling ceiling neither allocates idle machines nor makes repository work scale without limit.
 
-The pools are measurement infrastructure, not a dependency of ordinary pull requests. The [portable required-CI decision](2026-07-23-portable-required-pull-request-ci.md) runs branch-protection jobs on standard GitHub-hosted capacity; `suite=larger-runner-benchmark` compares isolated critical lanes across every provisioned size, and `suite=consolidated-runner-benchmark` compares whole aggregates. Each benchmark reports its observed processor and memory capacity before running repository work.
+The required primary path depends on those enterprise pools. Standard GitHub-hosted jobs retain the Node 22.19, Node 26, and Python SDK compatibility contracts, while the [portable recovery boundary](2026-07-23-portable-required-pull-request-ci.md) and [serial reference](2026-07-21-serial-cross-platform-ci-reference.md) keep complete standard-runner evidence available on `master`. `suite=larger-runner-benchmark` compares isolated critical lanes across provisioned sizes, and `suite=consolidated-runner-benchmark` compares whole aggregates. Each benchmark reports its observed processor and memory capacity before running repository work.
 
 The former gate-level and coarse primary shard jobs are absent from the workflow. Their static, lint, coverage, snapshot, and scenario shard selectors are also absent from the repository, so an unused diagnostic path cannot preserve a second CI architecture.
+
+Linux primary work uses two independent 32-core jobs. Coverage runs alone with its own worker bound. The other job starts the static scheduler alone; once it reports a successful build, lint, Node 24 runtime compatibility, build-backed snapshots, and all artifact consumers start against that completed tree. Generated NodeNext consumer directories are excluded from ESLint discovery because the artifact check removes them while these processes overlap. The pnpm store and ESLint cache are restored without putting cache uploads on the pull-request critical path. Performance reports use each job's `startedAt` to `completedAt` interval; runner queue delay is capacity evidence, not repository execution time.
+
+Windows shares one 32-core setup across the blocking build and production site plus observational built-artifact contracts. Linux owns the duplicate lint, coverage, and snapshot inventories because running those observational copies on Windows extends the paid critical path without adding a blocking platform claim.
 
 An [exact-head all-size benchmark](https://github.com/deepseek-harness/deepseek-harness/actions/runs/29908491351) ran the complete unsharded primary Node aggregate on every Linux pool before the eager-build correction:
 
@@ -42,7 +46,7 @@ Inner and outer worker limits are separate controls. An [exact-head 32-worker ES
 
 The process-bound coverage project contains exactly five suite files. Thirty-two forks crashed Node 24's CJS lexer twice, and a later 16-fork run reproduced the worker loss and invalid coverage result. The single Vitest invocation therefore uses threads for the broad inventory and reserves forks for suites that exercise process-global state, `process` APIs, or timing-sensitive process I/O. That narrow fork inventory includes the local bash process-plumbing suite and the pi-ai adapter suite because aggregate contention changed timing observations in both. These failures make deterministic coverage, not advertised cores, the upper bound on worker selection.
 
-Complete serial Linux, macOS, and Windows references run only when `master` moves. Pull requests use the portable required path, while larger-runner suites run only by manual dispatch.
+Complete serial Linux, macOS, and Windows references run only when `master` moves. Pull requests use the enterprise required path plus standard-hosted compatibility jobs, while other larger-runner sizes run only by manual dispatch.
 
 ## Alternatives considered
 
@@ -54,7 +58,7 @@ Complete serial Linux, macOS, and Windows references run only when `master` move
 
 **Keep build behind typecheck.** This orders independent compiler invocations and turns snapshot replay into a three-stage critical chain. Build output has its own success dependency, so only snapshot and publication consumers wait for it.
 
-**Make larger-runner pools the required default.** This offers lower measured latency when allocation works, but a missing entitlement or delayed organization transfer leaves required jobs queued without repository diagnostics. The portable path accepts longer runtime, and manual suites preserve the performance experiment.
+**Keep the complete required path on standard GitHub-hosted capacity.** This avoids repository-external runner configuration, but exact-head standard-runner runs remain materially slower and can spend longer queued behind shared capacity. Standard-hosted compatibility and serial references preserve portable evidence without making that slower topology the ordinary primary path.
 
 **Keep required and observational Windows checks in separate jobs.** The split preserves status semantics at the workflow level but pays setup twice. `run-gates` preserves the same required versus non-blocking distinction inside one process.
 
@@ -62,10 +66,10 @@ Complete serial Linux, macOS, and Windows references run only when `master` move
 
 ## Consequences
 
-The benchmark topology pays one setup wave per measured aggregate and retains no shard selectors. It runs paid larger-runner executions only when manually dispatched instead of charging every pull request.
+The required topology pays one setup wave per 32-core lane and retains no shard selectors. Every ordinary pull request consumes paid enterprise Linux and Windows minutes; manual benchmarks add other sizes only when remeasurement is useful.
 
-GitHub rounds each larger-runner execution up to a whole minute, so whole-aggregate measurement exposes both billed time and workflow complexity without making that cost part of branch protection.
+GitHub rounds each larger-runner execution up to a whole minute, so complete-job measurement exposes both billed time and workflow complexity. Splitting Linux repeats setup once, but isolates coverage from build, lint, and snapshot contention; consolidating Windows avoids repeating its slower setup.
 
 Performance targets are observations, not cancellation deadlines or correctness requirements. Manual all-size and serial suites remain available when image, dependency, scheduler, or pricing changes need remeasurement.
 
-Missing or renamed organization-owned labels leave only manual benchmark jobs queued. All twelve pools remain defined so the benchmark can compare sizes after allocation recovers, while required CI follows the standard-runner fallback.
+Missing or renamed enterprise labels leave required primary jobs queued. Standard-hosted compatibility jobs and `master` references still report useful evidence, but they do not substitute for the required aggregate; runner assignment is therefore an operational dependency that repository CI cannot repair.
