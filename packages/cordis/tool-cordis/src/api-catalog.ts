@@ -1254,16 +1254,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type CallId = Branded<\'CallId\'>;',
   },
   {
+    name: 'CodeBindingErrorClass',
+    declaration: 'export interface CodeBindingErrorClass {\n    name: string;\n    memberNameProperty: string;\n}',
+  },
+  {
     name: 'CodeBindingFunction',
-    declaration: 'export type CodeBindingFunction = (args: unknown) => Promise<unknown>;',
+    declaration: 'export type CodeBindingFunction = (args: unknown) => Promise<CodeJsonValue>;',
   },
   {
     name: 'CodeBindingNamespace',
-    declaration: 'export interface CodeBindingNamespace {\n    global: string;\n    functions: Record<string, CodeBindingFunction>;\n}',
+    declaration: 'export interface CodeBindingNamespace {\n    global: string;\n    functions: Record<string, CodeBindingFunction>;\n    errorClass?: CodeBindingErrorClass;\n}',
+  },
+  {
+    name: 'CodeJsonValue',
+    declaration: 'export type CodeJsonValue = null | boolean | number | string | CodeJsonValue[] | {\n    [key: string]: CodeJsonValue;\n};',
   },
   {
     name: 'CodeRunFailure',
-    declaration: 'export interface CodeRunFailure {\n    kind: \'exception\' | \'timeout\' | \'abort\' | \'worker-exit\';\n    message: string;\n}',
+    declaration: 'export interface CodeRunFailure {\n    kind: \'exception\' | \'timeout\' | \'abort\' | \'worker-exit\' | \'invalid-output\' | \'output-limit\';\n    message: string;\n}',
   },
   {
     name: 'CodeRunRequest',
@@ -1271,7 +1279,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'CodeRunResult',
-    declaration: 'export interface CodeRunResult {\n    value?: unknown;\n    logs: string[];\n    error?: CodeRunFailure;\n}',
+    declaration: 'export interface CodeRunResult {\n    value?: CodeJsonValue;\n    logs: string[];\n    error?: CodeRunFailure;\n}',
   },
   {
     name: 'CollectedOutput',
@@ -1474,6 +1482,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface InvariantInstaller {\n    (ctx: Context, fail: InvariantFailure): void | Promise<void>;\n    readonly inject?: Inject;\n}',
   },
   {
+    name: 'JsonSchemaNode',
+    declaration: 'export interface JsonSchemaNode {\n    type?: JsonSchemaType;\n    oneOf?: JsonSchemaNode[];\n    properties?: Record<string, JsonSchemaNode>;\n    required?: string[];\n    additionalProperties?: boolean;\n    items?: JsonSchemaNode;\n    enum?: JsonSchemaScalar[];\n    const?: JsonSchemaScalar;\n    description?: string;\n    title?: string;\n    default?: JsonValue;\n    examples?: JsonValue;\n}',
+  },
+  {
+    name: 'JsonSchemaScalar',
+    declaration: 'export type JsonSchemaScalar = string | number | boolean | null;',
+  },
+  {
+    name: 'JsonSchemaType',
+    declaration: 'export type JsonSchemaType = \'object\' | \'array\' | \'string\' | \'number\' | \'integer\' | \'boolean\' | \'null\';',
+  },
+  {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
@@ -1508,6 +1528,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MessageSourceMap',
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    };\n}',
+  },
+  {
+    name: 'ObjectJsonSchema',
+    declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
   {
     name: 'OutOfBandSessionEventMap',
@@ -1679,7 +1703,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: unknown;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: Req /* …truncated — full shape in source */',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'context/message\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        meta?: JsonValue;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: R /* …truncated — full shape in source */',
   },
   {
     name: 'SessionEventReadRequest',
@@ -1842,22 +1866,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: unknown;\n};',
   },
   {
-    name: 'StructuredOutputSchema',
-    declaration: 'export type StructuredOutputSchema = StructuredSchemaNode & {\n    type: \'object\';\n};',
-  },
-  {
-    name: 'StructuredScalar',
-    declaration: 'export type StructuredScalar = string | number | boolean | null;',
-  },
-  {
-    name: 'StructuredSchemaNode',
-    declaration: 'export interface StructuredSchemaNode {\n    type: StructuredSchemaType;\n    properties?: Record<string, StructuredSchemaNode>;\n    required?: string[];\n    additionalProperties?: boolean;\n    items?: StructuredSchemaNode;\n    enum?: StructuredScalar[];\n    const?: StructuredScalar;\n    description?: string;\n    title?: string;\n    default?: unknown;\n    examples?: unknown;\n}',
-  },
-  {
-    name: 'StructuredSchemaType',
-    declaration: 'export type StructuredSchemaType = \'object\' | \'array\' | \'string\' | \'number\' | \'integer\' | \'boolean\' | \'null\';',
-  },
-  {
     name: 'SubagentCapabilities',
     declaration: 'export interface SubagentCapabilities {\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
   },
@@ -1875,7 +1883,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentStartRequest',
-    declaration: 'export interface SubagentStartRequest {\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: StructuredOutputSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
+    declaration: 'export interface SubagentStartRequest {\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
   },
   {
     name: 'SubagentStopReason',
@@ -1979,19 +1987,19 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    execute(args: unknown, exec: ToolRunContext): Promise<ToolExecuteReturn>;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolErrorInfo',
     declaration: 'export interface ToolErrorInfo {\n    name: string;\n    code: string;\n}',
   },
   {
-    name: 'ToolExecuteReturn',
-    declaration: 'export type ToolExecuteReturn = ContentBlock[] | {\n    content: ContentBlock[];\n    meta?: unknown;\n};',
-  },
-  {
     name: 'ToolExecution',
     declaration: 'export interface ToolExecution extends ToolExecutionInput {\n    readonly token: ToolExecutionToken;\n}',
+  },
+  {
+    name: 'ToolExecutionFailure',
+    declaration: 'export interface ToolExecutionFailure {\n    readonly isError: true;\n    readonly error: ToolFailure;\n    readonly value?: never;\n    readonly content: ContentBlock[];\n    readonly meta?: JsonValue;\n    readonly additionalContexts?: HookContext[];\n}',
   },
   {
     name: 'ToolExecutionInput',
@@ -2003,15 +2011,27 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionResult',
-    declaration: 'export interface ToolExecutionResult {\n    content: ContentBlock[];\n    isError: boolean;\n    error?: ToolErrorInfo;\n    additionalContexts?: HookContext[];\n    meta?: unknown;\n}',
+    declaration: 'export type ToolExecutionResult = ToolExecutionSuccess | ToolExecutionFailure;',
+  },
+  {
+    name: 'ToolExecutionSuccess',
+    declaration: 'export interface ToolExecutionSuccess {\n    readonly isError: false;\n    readonly value: JsonValue;\n    readonly content: ContentBlock[];\n    readonly error?: never;\n    readonly meta?: JsonValue;\n    readonly additionalContexts?: HookContext[];\n}',
   },
   {
     name: 'ToolExecutionToken',
     declaration: 'export type ToolExecutionToken = symbol & {\n    readonly [toolExecutionTokenBrand]: true;\n};',
   },
   {
+    name: 'ToolFailure',
+    declaration: 'export interface ToolFailure {\n    message: string;\n    info?: ToolErrorInfo;\n}',
+  },
+  {
     name: 'ToolGuard',
     declaration: 'export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined;',
+  },
+  {
+    name: 'ToolOutputDefinition',
+    declaration: 'export interface ToolOutputDefinition {\n    readonly schema: JsonSchemaNode;\n    render(args: unknown, value: JsonValue): ContentBlock[];\n    presentationMeta?(args: unknown, value: JsonValue): JsonValue;\n}',
   },
   {
     name: 'ToolProviderResult',
@@ -2023,7 +2043,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolResult',
-    declaration: 'export interface ToolResult {\n    content: ContentBlock[];\n    isError: boolean;\n    meta?: unknown;\n}',
+    declaration: 'export interface ToolResult {\n    content: ContentBlock[];\n    isError: boolean;\n    meta?: JsonValue;\n}',
   },
   {
     name: 'ToolResultBlock',

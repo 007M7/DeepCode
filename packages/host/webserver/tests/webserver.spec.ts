@@ -1,21 +1,9 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
-import { createServer as createNetServer, Server as NetServer, type AddressInfo } from 'node:net'
+import { Server as NetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { startWebServer, type RunningWebServer } from '../src/index.ts'
-
-/** Reserve a loopback port for tests that need to address a second server. */
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createNetServer()
-    probe.once('error', reject)
-    probe.listen(0, '127.0.0.1', () => {
-      const port = (probe.address() as AddressInfo).port
-      probe.close(() => { resolve(port) })
-    })
-  })
-}
 
 /** dist fixture: index.html + one asset of each MIME class + a subdir. */
 function makeDist(): { distIndex: string; distRoot: string } {
@@ -106,8 +94,7 @@ afterEach(async () => {
 
 async function boot(onError: (err: Error) => void = () => undefined): Promise<string> {
   const { distIndex } = makeDist()
-  const port = await freePort()
-  server = await startWebServer({ host: '127.0.0.1', port, distIndex, apiHandler: echoingApi }, onError)
+  server = await startWebServer({ host: '127.0.0.1', port: 0, distIndex, apiHandler: echoingApi }, onError)
   return `http://127.0.0.1:${String(server.port)}`
 }
 
@@ -147,8 +134,8 @@ describe('startWebServer', () => {
 
   it('rejects when the port is already taken', async () => {
     const { distIndex } = makeDist()
-    const port = await freePort()
-    server = await startWebServer({ host: '127.0.0.1', port, distIndex, apiHandler: echoingApi }, () => undefined)
+    server = await startWebServer({ host: '127.0.0.1', port: 0, distIndex, apiHandler: echoingApi }, () => undefined)
+    const { port } = server
     await expect(startWebServer({ host: '127.0.0.1', port, distIndex, apiHandler: echoingApi }, () => undefined))
       .rejects.toMatchObject({ code: 'EADDRINUSE' })
   })
@@ -205,9 +192,8 @@ describe.skipIf(process.platform === 'win32')('web plugin surfaces (boot injecti
       snapshot: () => rows,
       clientPath: (id: string) => id === rows[0]?.id ? join(distRoot, 'bundle.js') : undefined,
     }
-    const port = await freePort()
     server = await startWebServer(
-      { host: '127.0.0.1', port, distIndex, apiHandler: echoingApi, webPlugins }, () => undefined,
+      { host: '127.0.0.1', port: 0, distIndex, apiHandler: echoingApi, webPlugins }, () => undefined,
     )
     return `http://127.0.0.1:${String(server.port)}`
   }
@@ -243,9 +229,8 @@ describe.skipIf(process.platform === 'win32')('web plugin surfaces (boot injecti
       snapshot: () => rows,
       clientPath: () => '/nonexistent/lib/client.js',
     }
-    const port = await freePort()
     server = await startWebServer(
-      { host: '127.0.0.1', port, distIndex, apiHandler: echoingApi, webPlugins }, () => undefined,
+      { host: '127.0.0.1', port: 0, distIndex, apiHandler: echoingApi, webPlugins }, () => undefined,
     )
     const res = await fetch(`http://127.0.0.1:${String(server.port)}/plugins/@deepseek-ai/dsh-client-connection/client.js`)
     expect(res.status).toBe(404)

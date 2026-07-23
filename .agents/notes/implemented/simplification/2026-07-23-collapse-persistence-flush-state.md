@@ -16,7 +16,7 @@ Each live `Session` has one controller containing `pending`, `init`, and the opt
 
 Initialization now enters the existing per-id operation chain once and calls the unserialized core operations while it owns that turn. The chain remains separate from the live controller because detached public `create`/`append`/`load` calls can race without a `Session` object and still require identity-level serialization.
 
-Crash repair is cold-only. For a live identity, `load(id)` snapshots the authoritative in-memory header and events before awaiting their flush; it returns that durable snapshot when balanced and rejects an open turn without reading or repairing storage. A cold identity follows the stored-prefix repair path. HMR adoption remains separate through `loadLive` and truncates torn storage without closing the authoritative live turn.
+Crash repair is cold-only. For a live identity, `load(id)` snapshots the authoritative in-memory header and events before awaiting their flush; it returns that durable snapshot when balanced and rejects an open turn without reading or repairing storage. A cold identity follows the stored-prefix repair path. HMR adoption remains separate through `loadStored` plus the coordinator's cwd check and truncates torn storage without closing the authoritative live turn.
 
 The live-controller map is also the retirement registry. Successful retirement drains and removes its controller; failed retirement leaves it in the map. Backend teardown stops event admission, flushes every controller still present, awaits remaining per-id operations, and closes the backend. No separate retirement set is needed to rediscover unfinished work.
 

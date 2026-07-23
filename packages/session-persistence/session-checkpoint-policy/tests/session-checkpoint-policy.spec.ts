@@ -121,7 +121,8 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     })
     ctx.tools.register({
       name: 'write', description: 'side effect', parameters: {},
-      execute: async () => { order.push('tool'); return [] },
+      output: { schema: { type: 'null' }, render: () => [] },
+      execute: async () => { order.push('tool'); return null },
     })
 
     const pending = ctx.tools.execute({
@@ -149,7 +150,8 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     })
     ctx.tools.register({
       name: 'write', description: 'side effect', parameters: {},
-      execute: async () => { order.push('tool'); return [] },
+      output: { schema: { type: 'null' }, render: () => [] },
+      execute: async () => { order.push('tool'); return null },
     })
 
     const pending = ctx.tools.execute({
@@ -164,7 +166,10 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     await expect(pending).resolves.toEqual({
       content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
       isError: true,
-      error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+      error: {
+        message: 'tool call aborted before dispatch',
+        info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
+      },
     })
     expect(order).toEqual(['flush:start', 'flush:end'])
   })
@@ -177,7 +182,8 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     ctx.on('session/flush', () => Promise.reject(new Error('disk unavailable')))
     ctx.tools.register({
       name: 'write', description: 'side effect', parameters: {},
-      execute: async () => { ran = true; return [] },
+      output: { schema: { type: 'null' }, render: () => [] },
+      execute: async () => { ran = true; return null },
     })
     const result = await ctx.tools.execute({
       callId: CallId('write-2'), name: 'write', arguments: {}, agent,
@@ -194,7 +200,11 @@ describe('session-checkpoint-policy tool and step boundaries', () => {
     const agent = { session } as Agent
     let flushes = 0
     ctx.on('session/flush', () => { flushes += 1 })
-    ctx.tools.register({ name: 'nested', description: 'nested', parameters: {}, execute: async () => [] })
+    ctx.tools.register({
+      name: 'nested', description: 'nested', parameters: {},
+      output: { schema: { type: 'null' }, render: () => [] },
+      execute: async () => null,
+    })
     await ctx.tools.execute({
       callId: CallId('nested-1'), name: 'nested', arguments: {}, agent,
       parent: Symbol('outer') as never,

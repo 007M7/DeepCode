@@ -27,19 +27,15 @@ env:
 
 jobs:
 
-  # One enterprise runner pays setup once, then executes the complete
-  # unsharded primary Node inventory with repository-level concurrency.
+  # Three enterprise jobs isolate coverage, static analysis, and the
+  # build-backed consumer tail. The static job publishes its exact build so
+  # consumers do not repeat the longest part of their critical path.
   node-24:
     if: github.event_name == 'pull_request'
-    runs-on: dsh-enterprise-ubuntu-24-04-32core-test
-    name: node 24 / complete
+    runs-on: dsh-enterprise-ubuntu-latest-32core-test
+    name: node 24 / static
     env:
-      DSH_COVERAGE_MAX_WORKERS: '16'
-      DSH_ESLINT_CACHE: '1'
-      DSH_ESLINT_CONCURRENCY: '16'
-      DSH_GATE_CONCURRENCY: '10'
-      DSH_PUBLINT_CONCURRENCY: '16'
-      DSH_SNAPSHOT_MAX_CONCURRENCY: '8'
+      DSH_GATE_CONCURRENCY: '8'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -47,6 +43,103 @@ jobs:
 
       # Pull requests consume the default-branch cache but do not put cache
       # compression and upload on the paid latency-critical path.
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/.local/share/pnpm/store/v11
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack and install dependencies
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Run static gates
+        run: pnpm run check:ci:static
+
+      - name: Pack built tree
+        run: >-
+          tar -czf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
+          apps/*/lib packages/*/*/lib vendor/*/lib
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: node-24-built-tree
+          path: ${{ runner.temp }}/node-24-built-tree.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  node-24-coverage:
+    if: github.event_name == 'pull_request'
+    runs-on: dsh-enterprise-ubuntu-24-04-32core-test
+    name: node 24 / coverage
+    env:
+      DSH_COVERAGE_MAX_WORKERS: '24'
+      DSH_GATE_CONCURRENCY: '8'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/.local/share/pnpm/store/v11
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack, install dependencies, and prepare bubblewrap
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile &
+          install_pid=$!
+          bash scripts/prepare-ci-bubblewrap.sh &
+          sandbox_pid=$!
+          install_status=0
+          wait "$install_pid" || install_status=$?
+          sandbox_status=0
+          wait "$sandbox_pid" || sandbox_status=$?
+          if (( install_status != 0 )); then exit "$install_status"; fi
+          exit "$sandbox_status"
+
+      - name: Run exhaustive coverage
+        run: pnpm run check:ci:coverage
+
+  node-24-consumers:
+    needs: node-24
+    if: github.event_name == 'pull_request'
+    runs-on: dsh-enterprise-ubuntu-latest-32core-test
+    name: node 24 / snapshots and artifacts
+    env:
+      DSH_ESLINT_CACHE: '1'
+      DSH_ESLINT_CONCURRENCY: '8'
+      DSH_GATE_CONCURRENCY: '8'
+      DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
+      DSH_PUBLINT_CONCURRENCY: '8'
+      DSH_SNAPSHOT_MAX_CONCURRENCY: '32'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: node-24-built-tree
+          path: ${{ runner.temp }}
+
+      - name: Restore built tree
+        run: tar -xzf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
+
       - uses: actions/cache/restore@v4
         with:
           path: /home/runner/.local/share/pnpm/store/v11
@@ -79,8 +172,45 @@ jobs:
           if (( install_status != 0 )); then exit "$install_status"; fi
           exit "$sandbox_status"
 
-      - name: Run complete unsharded primary Node CI concurrently
-        run: pnpm run check:ci
+      - name: Run compatibility, snapshot, and artifact gates
+        run: |
+          pnpm run check:ci:lint &
+          lint_pid=$!
+          pnpm run check:node-compat &
+          compat_pid=$!
+          DSH_EXAMPLE_MODE=lib pnpm run test:snapshot &
+          snapshot_pid=$!
+          pnpm run publint &
+          publint_pid=$!
+          pnpm run verify-node-next-types &
+          node_next_pid=$!
+          pnpm run verify-built-package-invariants &
+          built_invariants_pid=$!
+          DSH_EXAMPLE_MODE=lib pnpm exec vitest run --config vitest.e2e.config.ts \
+            examples/headless-agent/tests/keyless-smoke.e2e.ts \
+            examples/tui-agent/tests/tui-keyless-smoke.e2e.ts \
+            packages/examples/cli-demo/tests/built-bin.e2e.ts \
+            packages/examples/acp-demo/tests/built-bin.e2e.ts \
+            packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts \
+            packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts \
+            packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts &
+          built_bin_pid=$!
+
+          final_status=0
+          capture_status() {
+            local child_status=0
+            wait "$1" || child_status=$?
+            if (( final_status == 0 && child_status != 0 )); then
+              final_status=$child_status
+            fi
+          }
+          for child_pid in \
+            "$lint_pid" "$compat_pid" "$snapshot_pid" \
+            "$publint_pid" "$node_next_pid" "$built_invariants_pid" "$built_bin_pid"
+          do
+            capture_status "$child_pid"
+          done
+          exit "$final_status"
 
 
   node-compat:
@@ -148,26 +278,18 @@ jobs:
         run: uv run --python 3.10 --group test --project python/sdk pytest
 
   # One Windows box shares setup across the required build/site checks and the
-  # complete observational portability inventory. run-gates reports failures
-  # from observational gates without allowing them to fail the required job.
+  # observational portability inventory. Linux owns duplicate lint, coverage,
+  # and snapshots so they do not dominate the paid Windows critical path.
   windows:
     if: github.event_name == 'pull_request'
     runs-on: dsh-enterprise-windows-2025-32core-test
     name: windows node 24 / complete
     env:
       DSH_COVERAGE_MAX_WORKERS: '12'
-      DSH_ESLINT_CACHE: '1'
       DSH_GATE_CONCURRENCY: '16'
       DSH_PUBLINT_CONCURRENCY: '16'
     steps:
       - uses: actions/checkout@v6
-
-      - uses: actions/cache/restore@v4
-        with:
-          path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.base.client.json', 'tsconfig.host.json', 'tsconfig.client.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
       - name: Enable Developer Mode (symlink support)
         shell: pwsh
@@ -565,7 +687,7 @@ jobs:
   all-checks-passed:
     name: all checks passed
     runs-on: ubuntu-latest
-    needs: [node-24, node-compat, python-sdk, windows]
+    needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, windows]
     if: always() && github.event_name == 'pull_request'
     steps:
       - name: Fail if any needed job did not succeed

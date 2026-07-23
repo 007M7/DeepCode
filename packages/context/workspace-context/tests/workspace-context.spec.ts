@@ -22,8 +22,11 @@ import type {
 } from '@deepseek-ai/dsh-fs'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import type {
+  ToolExecution,
+  ToolExecutionToken,
+} from '@deepseek-ai/dsh-tools'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import {
   discoverBaselineInstructionFiles,
@@ -864,6 +867,7 @@ describe('workspace context request injection', () => {
         agent: stubAgent('/virtual/repo'),
       }), {
         isError: false,
+        value: null,
         content: [{ type: 'text', text: 'file content' }],
       }, async () => ({
         kind: 'accept',
@@ -900,7 +904,8 @@ describe('workspace context request injection', () => {
         agent,
       })
       const result = {
-        isError: false,
+        isError: false as const,
+        value: null,
         content: [{ type: 'text' as const, text: 'hello' }],
       }
 
@@ -1699,7 +1704,7 @@ describe('dynamic nested workspace context injection', () => {
       await ctx.plugin(AgentLoop, { agents: [] })
       ctx.llm.registerAdapter(['mock'], adapter)
       const agent = ctx.agentLoop.create(SessionId('workspace-context-abort'), { provider: 'mock', model: 'mock' }, { cwd: root })
-      ctx.tools.register(defineTool({
+      ctx.tools.register(defineContentToolFixture({
         name: 'abort_step',
         description: 'Abort the current test step.',
         parameters: {},
@@ -1770,6 +1775,7 @@ describe('dynamic nested workspace context injection', () => {
       const pending = ctx.waterfall('tools/post-execute', exec, {
         content: [{ type: 'text', text: 'ok' }],
         isError: false,
+        value: null,
       }, () => Promise.resolve({ kind: 'accept' as const }))
 
       await expect(pending).rejects.toBe(reason)
@@ -2777,7 +2783,8 @@ describe('dynamic nested workspace context injection', () => {
       const result = {
         callId: CallId('provider-probe-result'),
         content: [{ type: 'text' as const, text: 'ok' }],
-        isError: false,
+        isError: false as const,
+        value: null,
       }
 
       const failedStat = await ctx.waterfall('tools/post-execute', stubToolExecution({
@@ -2837,7 +2844,7 @@ describe('dynamic nested workspace context injection', () => {
     }
   })
 
-  it('preserves nested and downstream post-execute contexts as separate entries', async () => {
+  it('preserves a downstream canonical value replacement and keeps contexts separate', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -2848,7 +2855,12 @@ describe('dynamic nested workspace context injection', () => {
       await mountFileToolsAndWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
       ctx.on('tools/post-execute', async () => ({
         kind: 'accept' as const,
-        content: [{ type: 'text' as const, text: 'downstream replacement' }],
+        value: {
+          path: 'pkg/deep/file.txt',
+          offset: 1,
+          lines: [{ number: 1, text: 'downstream replacement' }],
+          totalLines: 1,
+        },
         additionalContexts: [{
           content: [{ type: 'text' as const, text: 'downstream context' }],
           source: { kind: 'plugin' as const, plugin: 'downstream' },
@@ -2863,7 +2875,15 @@ describe('dynamic nested workspace context injection', () => {
         agent: stubAgent(root),
       })
 
-      expect(blocksText(result.content)).toBe('downstream replacement')
+      expect(result.isError).toBe(false)
+      if (result.isError) throw new Error('expected read replacement success')
+      expect(result.value).toEqual({
+        path: 'pkg/deep/file.txt',
+        offset: 1,
+        lines: [{ number: 1, text: 'downstream replacement' }],
+        totalLines: 1,
+      })
+      expect(blocksText(result.content)).toContain('downstream replacement')
       expect(result.additionalContexts).toHaveLength(2)
       expect(workspaceContextOf(result)?.source).toEqual({ kind: 'plugin', plugin: 'workspace-context' })
       expect(workspaceContextOf(result)?.meta).toMatchObject({
@@ -2980,7 +3000,7 @@ describe('dynamic nested workspace context injection', () => {
       await ctx.plugin(ToolRegistry)
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       await ctx.plugin(ToolFs)
-      ctx.tools.register(defineTool({
+      ctx.tools.register(defineContentToolFixture({
         name: 'composite-read',
         description: 'read through a nested dispatch',
         parameters: {},
@@ -3035,7 +3055,7 @@ describe('dynamic nested workspace context injection', () => {
       await ctx.plugin(workspaceContext, { maxBytes: 65536 })
       const agent = stubAgent('/')
       const parent = Symbol('parent') as ToolExecutionToken
-      const plainResult = { callId: CallId('plain'), content: [], isError: false }
+      const plainResult = { callId: CallId('plain'), content: [], isError: false as const, value: null }
 
       ctx.emit('tools/result', stubToolExecution({
         signal: testToolSignal,
@@ -3077,7 +3097,8 @@ describe('dynamic nested workspace context injection', () => {
       const result = {
         callId: CallId('manual'),
         content: [{ type: 'text' as const, text: 'manual result' }],
-        isError: false,
+        isError: false as const,
+        value: null,
       }
       const cases = [
         { name: 'read', arguments: { file_path: join('pkg', 'deep', 'file.txt') }, agent: undefined },

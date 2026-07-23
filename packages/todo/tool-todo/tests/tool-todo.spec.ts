@@ -73,6 +73,11 @@ describe('dsh-tool-todo', () => {
     ]
     const result = await callTodo(ctx, { todos }, { agent })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected todo_write success')
+    expect(result.value).toEqual({
+      todos,
+      counts: { pending: 1, inProgress: 1, completed: 0 },
+    })
     expect(text(result)).toContain('1 pending, 1 in progress, 0 completed')
 
     const event = agent.session.events.findLast(e => e.type === 'todo/write')!

@@ -48,6 +48,7 @@ Ask the user a concise question when you need confirmation, a choice, or missing
       "description": "Questions to ask the user before continuing.",
       "items": {
         "type": "object",
+        "additionalProperties": true,
         "properties": {
           "id": {
             "type": "string",
@@ -66,6 +67,7 @@ Ask the user a concise question when you need confirmation, a choice, or missing
             "description": "Optional choices to show the user. If you recommend one, put it first and append \"(Recommended)\" to that label.",
             "items": {
               "type": "object",
+              "additionalProperties": true,
               "properties": {
                 "label": {
                   "type": "string",
@@ -229,7 +231,7 @@ Source: [`packages/cordis/tool-cordis/src/index.ts`](../packages/cordis/tool-cor
 
 ### `cordis_mount`
 
-Mount a NEW cordis plugin into the live runtime that is running THIS agent (self-modification). `code` runs as the body of an async JavaScript function in an isolated sandbox and MUST `return` a plugin. Two forms: FUNCTION form `return (ctx) => { … }` — declares no inject, so it can register tools, listen to events, and provide services, but reaching ANY service (e.g. ctx.bash) throws; use it only when you need no services. OBJECT form `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }` — declares dependencies, and cordis activates the plugin only after the services exist; PREFER this form. You may reach ONLY the services you list in inject: an undeclared service throws even if it exists, because an undeclared dependency would not be cleaned up if its provider is unmounted. BEFORE calling a service from your code, read cordis_inspect what:"api" — it lists method signatures AND the type shapes of their arguments/returns (do not guess a field's type; e.g. a bash run's stdout is an object, not a string). Inside `apply`, use the standard cordis API: `ctx.on(event, listener)` to observe events (see cordis_inspect what:"events"), or call `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, async execute(args) { … } }))` to give yourself a new tool — it becomes callable on your NEXT step. Tool parameters: each key IS a property — { type: 'string'|'number'|'boolean'|'object'|'array', required?: true, description?, enum?, items?, properties? }; a JSON-Schema-style { type: 'object', properties, required: […] } wrapper and type 'integer' are also accepted and normalized. A tool's `execute` MUST return an ARRAY of content blocks, e.g. `return [{ type: 'text', text: someString }]` — never a bare string. Mounts can COMPOSE: one plugin may `ctx.provide('name', value)` a service and another may declare `inject: ['name']` to consume it — the consumer stays pending until the provider exists and returns to pending when the provider is unmounted. Everything registered inside `apply` is cleaned up automatically on unmount. Sandbox globals: `console` (tagged `[cordis:<id>]`, writes through to the harness terminal), `harness.defineTool`, `harness.registerTool`, `btoa`, `atob`, `TextEncoder`, `TextDecoder`. Node APIs are DISABLED — do filesystem/network/timer work through the cordis services, never Node built-ins: `require`, `setTimeout`/`setInterval`, and `fetch` throw redirect errors; `process` and `Buffer` are undefined. Instead use inject: ['fs'] + ctx.fs for files, inject: ['web'] + ctx.web for HTTP, inject: ['bash'] + ctx.bash for processes, and inject: ['timer'] + ctx.setTimeout/ctx.setInterval for timing (fiber effects, auto-cleaned on unmount) — cordis_inspect what:"api" shows what THIS runtime provides. Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a trailing `next` callback which MUST be called — returning without `next()` VETOES the call; prefer plain notification events unless you intend to intercept. (2) Never await something that only resolves after the current turn (your code runs INSIDE a tool call of that turn — it would deadlock). (3) Your `ctx` is a restricted façade: you can register tools, observe events, provide/consume services, and use timers, but framework internals (ctx.root, ctx.fiber, ctx.extend, ctx.plugin, …) are withheld. It is not a security boundary though — the services you inject (e.g. ctx.bash) reach the real runtime.
+Mount a NEW cordis plugin into the live runtime that is running THIS agent (self-modification). `code` runs as the body of an async JavaScript function in an isolated sandbox and MUST `return` a plugin. Two forms: FUNCTION form `return (ctx) => { … }` — declares no inject, so it can register tools, listen to events, and provide services, but reaching ANY service (e.g. ctx.bash) throws; use it only when you need no services. OBJECT form `return { name?, inject: ['bash', 'llm', …], apply(ctx) { … } }` — declares dependencies, and cordis activates the plugin only after the services exist; PREFER this form. You may reach ONLY the services you list in inject: an undeclared service throws even if it exists, because an undeclared dependency would not be cleaned up if its provider is unmounted. BEFORE calling a service from your code, read cordis_inspect what:"api" — it lists method signatures AND the type shapes of their arguments/returns (do not guess a field's type; e.g. a bash run's stdout is an object, not a string). Inside `apply`, use the standard cordis API: `ctx.on(event, listener)` to observe events (see cordis_inspect what:"events"), or call `harness.registerTool(ctx, harness.defineTool({ name, description, parameters: { text: { type: 'string', required: true } }, output: { schema: { type: 'string' }, render(_args, value) { return [{ type: 'text', text: value }] } }, async execute(args) { return args.text } }))` to give yourself a new tool — it becomes callable on your NEXT step. Tool parameters: each key IS a property — { type: 'string'|'number'|'integer'|'boolean'|'null'|'object'|'array'|'json', required?: true, description?, enum?, const?, items?, properties? }; every direct DSL object declares additionalProperties: true|false, and oneOf: [schema, schema, ...] replaces type for an exact-one union. A raw JSON-Schema { type: 'object', properties, required?: […] } wrapper is also accepted with open-by-default objects. A tool's `execute` MUST return the lossless JSON value declared by `output.schema`; `output.render(args, value)` separately returns Native/model content blocks. Mounts can COMPOSE: one plugin may `ctx.provide('name', value)` a service and another may declare `inject: ['name']` to consume it — the consumer stays pending until the provider exists and returns to pending when the provider is unmounted. Everything registered inside `apply` is cleaned up automatically on unmount. Sandbox globals: `console` (tagged `[cordis:<id>]`, writes through to the harness terminal), `harness.defineTool`, `harness.registerTool`, `btoa`, `atob`, `TextEncoder`, `TextDecoder`. Node APIs are DISABLED — do filesystem/network/timer work through the cordis services, never Node built-ins: `require`, `setTimeout`/`setInterval`, and `fetch` throw redirect errors; `process` and `Buffer` are undefined. Instead use inject: ['fs'] + ctx.fs for files, inject: ['web'] + ctx.web for HTTP, inject: ['bash'] + ctx.bash for processes, and inject: ['timer'] + ctx.setTimeout/ctx.setInterval for timing (fiber effects, auto-cleaned on unmount) — cordis_inspect what:"api" shows what THIS runtime provides. Write PLAIN JavaScript, not TypeScript (no `as`, no type annotations). Cautions: (1) waterfall events (e.g. tools/pre-execute) hand the listener a trailing `next` callback which MUST be called — returning without `next()` VETOES the call; prefer plain notification events unless you intend to intercept. (2) Never await something that only resolves after the current turn (your code runs INSIDE a tool call of that turn — it would deadlock). (3) Your `ctx` is a restricted façade: you can register tools, observe events, provide/consume services, and use timers, but framework internals (ctx.root, ctx.fiber, ctx.extend, ctx.plugin, …) are withheld. It is not a security boundary though — the services you inject (e.g. ctx.bash) reach the real runtime.
 
 ```json
 {
@@ -896,6 +898,7 @@ Record and update a structured task list for the current work. Send the ENTIRE l
       "description": "The COMPLETE task list, replacing any previous list.",
       "items": {
         "type": "object",
+        "additionalProperties": true,
         "properties": {
           "content": {
             "type": "string",
@@ -937,7 +940,7 @@ Run a JavaScript workflow script that orchestrates subagents at scale. Use this 
 The workflow's identity rides the `meta` parameter as JSON: required `name` (short kebab-case) and `description` strings, optional `whenToUse` string and `phases` array (`{title, detail?, provider?, model?}`). The `script` parameter is the plain JavaScript body ONLY (NOT TypeScript, and NO `export const meta` statement — meta is a parameter, not code), running with top-level await; end with `return <value>` — the value must be JSON-serializable and is this tool's result.
 
 Script-body hooks:
-- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const — no oneOf/pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.
+- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.
 - `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages.
 - `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.
 - `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.
@@ -957,6 +960,7 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
     "meta": {
       "type": "object",
       "description": "The workflow identity block (plain JSON — never code).",
+      "additionalProperties": true,
       "properties": {
         "name": {
           "type": "string",
@@ -975,6 +979,7 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
           "description": "Optional phase declarations matched by phase() calls.",
           "items": {
             "type": "object",
+            "additionalProperties": true,
             "properties": {
               "title": {
                 "type": "string",
@@ -1006,7 +1011,8 @@ Constraints: concurrency and total-agent caps apply; no filesystem, network, tim
     },
     "args": {
       "type": "object",
-      "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]})."
+      "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
+      "additionalProperties": true
     }
   },
   "required": [
