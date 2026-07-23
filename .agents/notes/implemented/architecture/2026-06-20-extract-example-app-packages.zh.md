@@ -26,7 +26,7 @@ Status: implemented
 
 提案最初将 `hmr` 列入交互式应用内置的前门集群。对照代码验证后发现，将 `hmr` 内置到应用包中会在两个方面与 Cordis 冲突，因此改为作为**叶子 `cordis.yml` 条目**交付：
 
-1. `@cordisjs/plugin-hmr` 是一个仅限 Loader、仅限子进程的开发插件——其构造函数在没有 `node --expose-internals` 和活跃的 `loader` 服务时会抛出异常，因此只能在真实的 `demo:*`/bin 子进程中运行，不能在进程内的单元/覆盖率测试层运行。
+1. `@cordisjs/plugin-hmr` 是一个仅限 Loader、仅限子进程的开发插件——它需要活跃的 `loader` 服务及其内部模块访问权限，因此只能在真实的 `demo:*`/bin 子进程中运行，不能在进程内的单元/覆盖率测试层运行。
 2. 进程内测试层（vitest）甚至无法*导入* vendor 的 `hmr` 模块（其 class-decorator `@Inject` 形式在 Vite 的 transform 下会失败），因此一个 `apply` 静态导入了它的包永远无法满足其主函数的逐文件 100% 覆盖率门禁。
 
 关键在于，`hmr` 不是 stdout 纯净隐患：ACP 配置中误加该条目不会破坏 JSON-RPC 帧。所有已交付应用都省略 stdout 控制台 logger；stdout 只归应用或协议 driver 所有。

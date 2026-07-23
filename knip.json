@@ -273,6 +273,10 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/session-query/session-query-sqlite": {
+      "entry": ["tests/**/*.spec.ts", "tests/**/*.e2e.ts"],
+      "project": ["src/**/*.ts", "tests/**/*.ts"]
+    },
     "packages/code-runtime/code-runtime-worker": {
       "entry": [
         "tests/**/*.spec.ts",
@@ -551,6 +555,7 @@
     "apps/web": {
       "entry": [
         "tests/**/*.e2e.ts",
+        "tests/**/*.snapshot.ts",
         "tests/support.ts"
       ],
       "project": [
@@ -558,7 +563,6 @@
         "tests/**/*.ts"
       ],
       "ignoreDependencies": [
-        "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-primitives",
         "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-web-react",

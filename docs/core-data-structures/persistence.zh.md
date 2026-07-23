@@ -4,15 +4,19 @@
 
 事件日志的**持久性 seam**。[session.md](session.md) 描述了内存中的 `Session`：仅追加的 `SessionEvent` 日志即为真源。本页描述如何使该日志持久化：抽象的 `SessionPersistence` 服务、它的后端、flush 检查点、崩溃恢复，以及随日志一同存储的元数据头。日志承载的事件词汇在生成的[持久化日志事件目录](../persistence-catalog.md)中逐项列举。
 
-该 seam 是典型的[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：一个抽象服务（[dsh-session-persistence](../../packages/session-persistence/session-persistence)，`ctx.sessionPersistence`）在现有 `SessionEvent` 上定义 locate/create/append/load/list——**没有平行的持久化类型**——以及两个可互换、通过同一套 `runPersistenceContract` 的后端。见 [session-persistence Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)。
+该 seam 是典型的[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：一个抽象服务（[dsh-session-persistence](../../packages/session-persistence/session-persistence)，`ctx.sessionPersistence`）在现有 `SessionEvent` 上定义 locate/create/append、会执行崩溃修复的 load、不会修改数据的 inspect，以及轻量的 list/snapshot 观察——**没有平行的持久化类型**——以及两个可互换、通过同一套 `runPersistenceContract` 的后端。见 [session-persistence Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)。
 
 ## flush 检查点
 
-`session/event` 是一个*同步*通知；持久化插件会将其缓冲（write-behind）至 `session/flush`。循环会 await 普通轮次的检查点后再领取下一个队列项；同步的 idle `inject()` 会调度自己的检查点而不阻塞 `send()`，dispose（资源释放）仍会将其排空。成功 flush 会把已关闭轮次作为一个单元持久提交；被拒绝的 flush 通过 `agent/error` 与 logger 报告——绝不会作为已关闭轮次之后的会话事件——而后端会保留已缓冲事件供下次 flush 使用。
+`session/event` 是一个*同步*通知；持久化插件会将事件复制到逐会话控制器，并立即启动写入而不阻塞生产方。并发事件会加入当前批次；在该批次写入期间接纳的事件会触发后续批次。`session/flush` 会等待当前与待处理批次全部清空，因此循环仍将其用作在领取下一个普通轮次之前的顺序与错误观察检查点。立即写入被拒绝时会保留对应事件；显式 flush 会重试这些事件，并通过 `agent/error` 和 logger 报告失败，绝不会把失败记录成已关闭轮次之后的会话事件。dispose（资源释放）会执行同样的最终排空。
 
 ## 崩溃恢复保留被中断的轮次
 
 后端重新加载一个在轮次中途崩溃的日志时，会发现一个已打开的 `turn/start` 却没有 `turn/end`。它**不会**截断日志：在长周期任务中，单个轮次可能非常庞大（许多步骤、大量工具输出），而这些事件在崩溃前已被持久追加。后端改为用一个合成的 `turn/end { reason: { kind: 'interrupted' } }` 关闭这个遗留轮次，保持日志平衡与轮次闭合不变式。`interrupted` 是唯一一个不由循环发出的 `TurnEndReason`（见 [session.md](session.md#why-a-turn-ended-turnendreasonmap)）。
+
+修复仅适用于冷会话。对于活跃 id，`SessionPersistence.load(id)` 会对内存日志拍摄快照，等待该快照完成持久化，并且只在日志平衡时连同已存储的 header 返回；若活跃轮次仍未闭合，则拒绝操作，而不是添加合成的中断边界。由协调器管理的冷加载会在后端读取和修复写入期间占用该 id，因此并发发布同 id 的活跃会话会被拒绝并回滚。HMR 也会接管活跃前缀，而不会关闭其中正在进行的轮次。
+
+`SessionPersistence.inspect(id)` 是恢复机制面向观察方的对等操作：它返回已存储有效前缀的独立副本，不截断不完整记录、不添加中断结束事件，也不发布写入状态。同 id 串行化确保它与后端写入保持一致。派生读取模型使用 `inspect`，绝不使用 `load`，因此即使活跃所有权并发建立，观察已落检查点但仍未闭合的轮次也不会修改日志。
 
 ## `SessionLocation`——可选的逐会话产物目标
 
@@ -100,9 +104,31 @@ interface CreateSessionOptions {
 
 因此，回放/fork 的调用方式为 `ctx.sessions.create(id, { seed: seedEvents })`；将一个*持久化*会话恢复为活跃 agent 的调用方式为 `ctx.agents.resume({ resumeSessionId })`。
 
+## 轻量源修订号
+
+派生状态的消费方会在加载完整事件日志之前比较一个低开销的不透明修订号。其表示由持久化后端拥有，并随 append 或会修改数据的 load 修复以事务方式改变；调用方仅比较修订号是否相等。
+
+```ts type-equiv
+/**
+ * Backend-owned token that identifies both one storage source and one revision
+ * of a persisted session log.
+ */
+type SessionPersistenceRevision = Branded<'SessionPersistenceRevision'>
+```
+
+```ts type-equiv
+/** Lightweight immutable source identity returned without loading a full log. */
+interface SessionPersistenceSnapshot {
+  /** Detached metadata for one materialized session. */
+  header: SessionHeader
+  /** Opaque source-qualified token that changes whenever this stored log changes. */
+  revision: SessionPersistenceRevision
+}
+```
+
 ## 后端
 
-两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/load/list），并通过 `runPersistenceContract`，证明该 seam 确实与后端无关：
+两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/load/inspect/list/listSnapshots），并通过 `runPersistenceContract`，证明该 seam 确实与后端无关：
 
 - **[dsh-session-persistence-jsonl](../../packages/session-persistence/session-persistence-jsonl)**——每个会话一份仅追加的逻辑 JSONL 日志，默认存储为带 checksum 的连续 Zstandard frame，也可配置为原始行；支持崩溃安全的原子写入、被中断轮次的恢复以及读取/回放路径。
 - **[dsh-session-persistence-sqlite](../../packages/session-persistence/session-persistence-sqlite)**：基于 `node:sqlite`，每个 `SessionEvent` 一行。行结构 `(session_id, seq, type, time, data, source_event_seqs, surface_op)` 与事件 1:1 映射（包含可选的 surface 元数据），因此没有需要保持同步的并行持久化 schema。

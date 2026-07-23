@@ -4,6 +4,8 @@ Web shell library: `bootWebShell(el, seams?)` mounts the whole client — loader
 
 The optional `seams` parameter forwards the client loader's `fetchBundle`/`executeBundle` transport overrides (`BootSeams`); production callers omit it — it exists for test environments where `<script>` execution cannot reach the page context (jsdom).
 
+The shell owns browser-title projection. With a selected session carrying a durable title, it renders `<session title> — <existing HTML title>` and reacts to later title revisions; no selection or a selected untitled session preserves the existing title, and shell unmount restores it. The existing HTML title remains the configurable product suffix.
+
 ## Model Experience
 
 None, as the entry shell boots the browser plugin tree; nothing here reaches a model request.

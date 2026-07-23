@@ -30,6 +30,7 @@ export function RpcId(id: string): RpcId {
 /** Error code → details type map (a second table isomorphic to RpcMethodMap). New code = one row here + one branch in the error schema. */
 export interface RpcErrorDetailsMap {
   'bad-request': { issues: ZodIssue[] }
+  'cancelled': {}
   'session-not-found': { sessionId: SessionId }
   'agent-busy': { reason: string }
   'internal': {}

@@ -12,6 +12,7 @@
  */
 
 import type { Context } from 'cordis'
+import { join } from 'node:path'
 import z from 'schemastery'
 import * as acp from '@deepseek-ai/dsh-acp'
 import CommandService from '@deepseek-ai/dsh-commands'
@@ -25,7 +26,7 @@ import SessionPersistenceJsonl, {
 } from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as sessionCheckpointPolicy from '@deepseek-ai/dsh-session-checkpoint-policy'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
-import SessionQueryService from '@deepseek-ai/dsh-session-query'
+import SessionQuerySqlite from '@deepseek-ai/dsh-session-query-sqlite'
 import SessionReferenceService, { type Config as SessionReferenceConfig } from '@deepseek-ai/dsh-session-reference'
 
 export const name = 'acp-demo'
@@ -57,7 +58,7 @@ export interface Config {
   dshHome?: string
   /** Fallback session-title limits forwarded through agent-spine-demo. */
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
-  /** Directory the JSONL session backend writes under. Defaults to `./.sessions`. */
+  /** Directory for JSONL sessions and the derived query index. Defaults to `./.sessions`. */
   persistenceRoot?: string
   /** Write delta-chunk runs as packed storage rows (the JSONL backend's `packChunks`). Defaults to `false`. */
   packChunks?: boolean
@@ -110,14 +111,16 @@ export const Config: z<Config> = z.object({
 /**
  * Compose the spine with the ACP front door. The agent-spine-demo bundle pre-creates
  * NO agents (its `agents` list defaults to `[]`) and carries the deployment
- * `persona`; the JSONL backend persists under `persistenceRoot`; the ACP
- * bridge owns stdout for JSON-RPC and creates one agent per `session/new`
- * from the provider/model pair. The composite effect unloads in reverse order,
- * keeping checkpoint and persistence listeners attached until ACP agents have
- * flushed their closing events. No logger, no `hmr` — stdout stays pure.
+ * `persona`; the JSONL backend and derived query index persist under
+ * `persistenceRoot`; the ACP bridge owns stdout for JSON-RPC and creates one
+ * agent per `session/new` from the provider/model pair. The composite effect
+ * unloads in reverse order, keeping checkpoint and persistence listeners
+ * attached until ACP agents have flushed their closing events. No logger, no
+ * `hmr` — stdout stays pure.
  */
 export function apply(ctx: Context, config: Config): void {
   const goals = config.goals ?? {}
+  const persistenceRoot = config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT
   ctx.effect(function* () {
     yield ctx.plugin(CommandService).dispose
     if (goals !== false) yield ctx.plugin(commandGoal).dispose
@@ -127,13 +130,13 @@ export function apply(ctx: Context, config: Config): void {
     // persistence passthroughs rather than sharing a facade with stdio-demo.
     /* jscpd:ignore-start */
     yield ctx.plugin(SessionPersistenceJsonl, {
-      root: config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT,
+      root: persistenceRoot,
       ...config.packChunks !== undefined ? { packChunks: config.packChunks } : {},
       ...(config.persistenceCompression === undefined ? {} : { compression: config.persistenceCompression }),
     }).dispose
     /* jscpd:ignore-end */
     yield ctx.plugin(sessionCheckpointPolicy).dispose
-    yield ctx.plugin(SessionQueryService).dispose
+    yield ctx.plugin(SessionQuerySqlite, { path: join(persistenceRoot, 'session-query.db') }).dispose
     yield ctx.plugin(SessionReferenceService, config.sessionReferences ?? {}).dispose
     yield ctx.plugin(acp, { provider: config.provider, model: config.model }).dispose
   }, 'acp-demo.composition')

@@ -22,15 +22,16 @@ harness 需要一套钩子子系统：用户像 Claude Code（CC）和 Codex 那
 
 ### 工具流水线为每个阶段赋予一种权限
 
-每次调用遵循 `tools/pre-execute` → guards → `tools/execute` → dispatch → `tools/post-execute` → `tools/result`。注册表快照调用方输入、实体化并冻结参数、分配一个不透明 token。嵌套调用仅携带父 token。身份始终不可变；只有 `signal` 可在环绕调度时改变。日志、UI 和工具体因此对「执行了什么」达成一致。
+每次调用遵循 `tools/pre-execute` → guards → `tools/execute` → dispatch → `tools/post-execute` → 由定义拥有的 `finalizeContent` → `tools/result`。注册表对调用方输入创建快照、实体化并冻结参数、分配一个不透明 token，并在策略开始前对可见定义的最终内容回调创建快照。嵌套调用仅携带父 token。身份始终不可变；只有 `signal` 可在环绕调度时改变。日志、UI 和工具体因此对「执行了什么」达成一致。
 
-- **`tools/pre-execute`** 是可扩展的 waterfall 门禁。其 `PreToolDecision` 允许、拒绝或询问。拒绝跳过 `tools/execute` 与核心调度。询问通过可选的审批 seam 解析：只有 `allowed-once` 继续通过 guards 和调度；拒绝、取消、通道不可用、审批服务缺失或无 agent 调用均规范化为拒绝。每种结果仍会到达后策略与最终观测者。
+- **`tools/pre-execute`** 是可扩展的 waterfall 门禁。其 `PreToolDecision` 允许、拒绝或询问。拒绝跳过 `tools/execute` 与核心调度。询问通过可选的审批 seam 解析：只有 `allowed-once` 继续通过 guards 和调度；拒绝、取消、通道不可用、审批服务缺失或无 agent 调用均规范化为拒绝。每个已解析的 decision 仍会到达后策略；抛出异常的监听器会成为最终的规范化失败。
 - **`ctx.tools.guard()`** 在整个 pre-execute waterfall 之后安装同步的、作用域感知的策略。guard 可以拒绝或弃权，永远不能强制允许，因此监听器顺序无法复活一个被最终不变式禁止的操作。
 - **`tools/execute`** 是用于超时、重试和指标插件的环绕调度 waterfall。包装层通过 `next()` 委托给核心调度，在此之前可以替换并恢复必需的 `exec.signal`，但不能移除它；包装层接收抛出异常或未知工具产生的、已完成规范化的规范成功／失败结果。包装层自行产生的成功结果会短路调度，并通过已解析的输出声明重新规范化。
-- **`tools/post-execute`** 是检查/变换 waterfall。其 `PostToolDecision` 接受、以反馈阻止、替换呈现内容或规范值，或附加 `additionalContexts`。替换值会重新校验并重新计算呈现；替换内容会保留程序化值，且不构成保密边界。返回的 decision 是受支持的变换通道；waterfall 结束后，注册表会在最终观测前一次性实体化完整结果。
+- **`tools/post-execute`** 是检查/变换 waterfall。其 `PostToolDecision` 接受、以反馈阻止、替换呈现内容或规范值，或附加 `additionalContexts`。替换值会重新校验并重新计算呈现；替换内容会保留程序化值，且不构成保密边界。返回的 decision 是受支持的变换通道。
+- **`ToolDefinition.finalizeContent`** 是一个可选、同步、完备且仅能处理内容的边界，在调用创建时随可见定义一起被快照。注册表将候选结果规范化并创建无损快照后，它恰好运行一次；候选结果包括绕过后续 waterfall 的 pre、around 或 post 监听器失败，以及为另一个结果字段创建快照时发现的错误。它可以替换 `content`，也可返回 `undefined` 保留原内容，但不能重写 `isError`、结构化错误身份、上下文或呈现元数据。工具在此执行自身最后一道内容不变式，而无需将策略失败转换为更弱的 block decision。
 - **`tools/result`** 是在所有变换、无损 JSON 实体化和外层错误边界之后的同步封闭通知。它接收相同的冻结执行身份和权威结果的不可变快照；观测者的失败按监听器隔离，无法改变或拒绝 `ToolRegistry.execute()` 返回的结果。
 
-核心调度与工具体位于规范化边界内部，因此工具、监听器、无效规范值、渲染器／投影器、非 JSON 呈现和身份形状错误均解析为 JSON 安全的 `isError` 结果，而非逃逸出轮次。post-execute 监听器因此可以检查一个抛出异常的工具，最终观测者会同时看到执行期间的规范值，以及会话日志能够持久化的确切呈现字段。[规范工具输出契约](../architecture/2026-07-20-canonical-tool-output-contract.md)定义值／投影与持久性规则。
+核心调度与工具体位于规范化边界内部，因此工具、监听器、无效规范值、渲染器／投影器、非 JSON 呈现和身份形状错误均解析为 JSON 安全的 `isError` 结果，而非逃逸出轮次。post-execute 监听器因此可以检查一个抛出异常的工具；由定义拥有的最终内容不变式也会覆盖外层流水线与候选结果实体化失败；最终观测者会同时看到执行期间的规范值，以及会话日志能够持久化的确切呈现字段。[规范工具输出契约](../architecture/2026-07-20-canonical-tool-output-contract.md)定义值／投影与持久性规则。
 
 **`TurnEndReason.rejected`**（`dsh-session`）：取得所有权的 prompt 被 `prompt-submit` 阻止的零步骤轮次。
 

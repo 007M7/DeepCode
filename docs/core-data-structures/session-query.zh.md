@@ -2,7 +2,7 @@
 
 [English](session-query.md) | 中文
 
-对优先使用 live 数据的逻辑会话集合执行精确读取与关系追踪。[包（package）契约](../../packages/session-query/session-query)拥有来源优先级、动态可选持久化、克隆、surface 分类、有界窗口、追踪校验与类型化失败。全文搜索属于另一个拟议的 SQLite 包。
+本文定义面向优先使用 live 数据的逻辑会话语料库的查询词汇。[接口包（package）](../../packages/session-query/session-query)负责精确读取、来源优先级、关系追踪、语义提取，以及与提供方无关的过滤器；[SQLite 包](../../packages/session-query/session-query-sqlite)负责具体全文索引的生命周期。
 
 源码：[`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 
@@ -54,6 +54,113 @@ interface SessionEventRecord {
   time: number
   /** Event placement in the folded session surface. */
   surface: SessionEventSurface
+}
+```
+
+## 与提供方无关的过滤器和文档
+
+会话和事件过滤器数组内的各项按逻辑与（AND）组合；单个列表子句中的各值按逻辑或（OR）组合。范围包含两端。事件的 `text` 子句会对提取出的语义文本执行正则表达式扫描：搜索文本按字面量处理，Unicode 字符不区分大小写，空白字符可灵活匹配；该过程与全文搜索提供方无关。
+
+```ts type-equiv
+/**
+ * One logical-session predicate. A filter array is ANDed; `values` within a
+ * clause are ORed.
+ */
+type SessionResultFilter =
+  | { kind: 'id'; values: readonly SessionId[] }
+  | { kind: 'cwd'; values: readonly (string | null)[] }
+  | ({ kind: 'created-at' } & SessionResultRange)
+  | { kind: 'parent'; values: readonly (SessionId | null)[] }
+  | { kind: 'availability'; values: readonly SessionAvailability[] }
+```
+
+```ts type-equiv
+/**
+ * One event predicate. A filter array is ANDed; list-valued clauses are ORed.
+ * Text is a literal, case-insensitive, whitespace-flexible semantic-text scan.
+ */
+type SessionEventResultFilter =
+  | ({ kind: 'seq' } & SessionResultRange)
+  | ({ kind: 'time' } & SessionResultRange)
+  | { kind: 'type'; values: readonly SessionEventType[] }
+  | { kind: 'surface'; values: readonly SessionEventSurface[] }
+  | { kind: 'text'; text: string }
+```
+
+```ts type-equiv
+/** Searchable semantic document derived from one session event. */
+interface SessionEventSearchDocument extends SessionEventRecord {
+  /** First-party semantic text used by scan filters and full-text indexes. */
+  text: string
+}
+```
+
+`ctx.sessionQuery.filterSessions(filters)` 会对完整的逻辑会话语料库应用 `SessionResultFilter`；`ctx.sessionQuery.filterEvents(sessionId, filters)` 按 seq 升序返回匹配的文档。消息、推理（reasoning）、工具调用和工具结果、被阻止的提示词、待办事项，以及失败和状态详情会纳入语义文本；结构事件和流分片则不会。
+
+## 全文搜索结果页
+
+整合后的 `ctx.sessionQuery` seam 提供两个全文搜索范围。`searchSessions()` 按匹配度最强的事件对语料库分组；`searchEvents()` 搜索单个会话。请求将不透明游标与规范化后的查询、元数据过滤器和结果数量上限绑定。提供方的元数据过滤器有意不包含事件文本扫描。
+
+```ts type-equiv
+/** Provider-owned opaque continuation token returned by session search. */
+type SessionSearchCursor = Branded<'SessionSearchCursor'>
+```
+
+```ts type-equiv
+/** Cross-session full-text search request. */
+interface SessionSearchRequest {
+  /** Full-text query interpreted as data, never executable FTS syntax. */
+  query: string
+  /** Logical-session predicates applied before event ranking. */
+  sessionFilters?: readonly SessionResultFilter[]
+  /** Event predicates applied before event ranking. */
+  eventFilters?: readonly SessionEventMetadataFilter[]
+  /** Maximum sessions in this page. */
+  limit?: number
+  /** Opaque cursor returned for the identical normalized request. */
+  cursor?: SessionSearchCursor
+}
+```
+
+```ts type-equiv
+/** Within-session full-text search request. */
+interface SessionEventSearchRequest {
+  /** Session whose live-preferred logical log is searched. */
+  sessionId: SessionId
+  /** Full-text query interpreted as data, never executable FTS syntax. */
+  query: string
+  /** Event predicates applied before ranking. */
+  filters?: readonly SessionEventMetadataFilter[]
+  /** Maximum events in this page. */
+  limit?: number
+  /** Opaque cursor returned for the identical normalized request. */
+  cursor?: SessionSearchCursor
+}
+```
+
+```ts type-equiv
+/** One cursor-paginated result page. */
+interface SessionSearchPage<T> {
+  /** Results for this page in contract-defined order. */
+  items: readonly T[]
+  /** Opaque continuation cursor, absent on the final page. */
+  nextCursor?: SessionSearchCursor
+}
+```
+
+```ts type-equiv
+/** One event full-text search hit with a bounded plain-text excerpt. */
+interface SessionEventSearchHit extends SessionEventRecord {
+  /** Plain text excerpt selected around the match. */
+  snippet: string
+}
+```
+
+```ts type-equiv
+/** One grouped cross-session hit, ranked by its strongest matching event. */
+interface SessionSearchHit extends SessionRecord {
+  /** Strongest matching event for this session. */
+  bestMatch: SessionEventSearchHit
 }
 ```
 
@@ -167,14 +274,21 @@ interface SessionEventTrace {
 封闭的 code 联合类型区分请求校验、目标缺失、surface 日志格式错误、可选后端故障与矛盾的源元数据。
 
 ```ts type-equiv
-/** Stable machine-routable failure taxonomy for exact session reads and traces. */
+/** Stable machine-routable failure taxonomy for session reads, traces, and search. */
 type SessionQueryErrorCode =
+  | 'SESSION_QUERY_ABORTED'
   | 'SESSION_QUERY_EVENT_NOT_FOUND'
+  | 'SESSION_QUERY_INDEX_FAILED'
   | 'SESSION_QUERY_INVALID_CONFIG'
+  | 'SESSION_QUERY_INVALID_CURSOR'
+  | 'SESSION_QUERY_INVALID_FILTER'
+  | 'SESSION_QUERY_INVALID_LIMIT'
+  | 'SESSION_QUERY_INVALID_QUERY'
   | 'SESSION_QUERY_INVALID_LINEAGE'
   | 'SESSION_QUERY_INVALID_SURFACE'
   | 'SESSION_QUERY_INVALID_WINDOW'
   | 'SESSION_QUERY_PERSISTENCE_FAILED'
   | 'SESSION_QUERY_SESSION_NOT_FOUND'
+  | 'SESSION_QUERY_STALE_CURSOR'
   | 'SESSION_QUERY_SOURCE_CONFLICT'
 ```

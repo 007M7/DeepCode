@@ -12,11 +12,10 @@
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
     thinking: enabled
     reasoningEffort: max
+    defaultContextWindow: 256000
     models:
       - id: deepseek-v4-flash
-        contextWindow: 256000
       - id: deepseek-v4-pro
-        contextWindow: 256000
 
 # The default composition confines bash AND the filesystem tools to the
 # workspace and asks before a wider retry. Snapshot runs select

@@ -4,7 +4,7 @@
 
 import type { IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId, SessionSummary } from '@deepseek-ai/dsh-client-connection/client'
 import { transportError } from '@deepseek-ai/dsh-client-connection/client'
-import type { SessionListEntry } from './lineage.ts'
+import type { SessionListEntry, TitledSessionSummary } from './lineage.ts'
 import { flattenLineage } from './lineage.ts'
 import { Notifier } from './notifier.ts'
 import { Session } from './session.ts'
@@ -19,6 +19,13 @@ export interface SessionListSnapshot {
 /** Per-session cap for pre-instantiation approval/question buffering (low-frequency frames; a few dozen covers any real backlog). */
 const PENDING_BUFFER_CAP = 32
 
+/** Latest title control snapshot retained independently of list/instance arrival. */
+interface SessionTitleSnapshot {
+  title: string
+  eventSeq: number
+  updatedAt: number
+}
+
 /** Instance cluster + frame entry + the session list (see the web client architecture RFC). */
 export class SessionManager {
   private readonly sessions = new Map<SessionId, Session>()
@@ -27,6 +34,7 @@ export class SessionManager {
    *  drop-and-backfill path; replayed and cleared on instantiation. Bounded per session (these
    *  frames are low-frequency; overflow drops oldest) and dropped on session-removed (audit S7). */
   private readonly pendingBuffers = new Map<SessionId, RpcRequest<MuxFrame>[]>()
+  private readonly titleSnapshots = new Map<SessionId, SessionTitleSnapshot>()
   private summaries: SessionSummary[] = []
   private listState: 'idle' | 'loading' | 'error' = 'idle'
   private listError: RpcError | null = null
@@ -158,6 +166,24 @@ export class SessionManager {
   handleMuxEnvelope(envelope: RpcRequest<MuxFrame>): void {
     const frame = envelope.payload
     if (frame.type === 'stream/error') return // Controller already treats this as stream failure
+    if (frame.type === 'session/title') {
+      const current = this.titleSnapshots.get(frame.sessionId)
+      if (current !== undefined && current.eventSeq >= frame.eventSeq) return
+      this.titleSnapshots.set(frame.sessionId, {
+        title: frame.title,
+        eventSeq: frame.eventSeq,
+        updatedAt: frame.updatedAt,
+      })
+      this.notifier.markDirty()
+      return
+    }
+    if (frame.type === 'session/subscribed') {
+      const current = this.titleSnapshots.get(frame.sessionId)
+      if (current !== undefined && current.eventSeq > frame.lastSeq) {
+        this.titleSnapshots.delete(frame.sessionId)
+        this.notifier.markDirty()
+      }
+    }
     const session = this.sessions.get(frame.sessionId)
     if (session === undefined) {
       // Approval/question frames never hit history: buffer for replay on instantiation;
@@ -204,6 +230,7 @@ export class SessionManager {
         this.summaries = this.summaries.filter(s => s.sessionId !== frame.sessionId)
         this.sessions.get(frame.sessionId)?.handleRemoved() // instance survives (resident-instance rule), only flagged in the snapshot
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
+        this.titleSnapshots.delete(frame.sessionId)
         this.notifier.markDirty()
         return
       }
@@ -230,12 +257,19 @@ export class SessionManager {
   }
 
   private buildListSnapshot(): SessionListSnapshot {
-    const fresh = flattenLineage(this.summaries)
+    const merged: TitledSessionSummary[] = this.summaries.map((summary) => {
+      const title = this.titleSnapshots.get(summary.sessionId)
+      return title === undefined
+        ? summary
+        : { ...summary, title: title.title, updatedAt: Math.max(summary.updatedAt, title.updatedAt) }
+    })
+    const fresh = flattenLineage(merged)
     const items = fresh.map((entry) => {
       const prev = this.entryCache.get(entry.sessionId)
       if (
         prev !== undefined && prev.updatedAt === entry.updatedAt && prev.running === entry.running
-        && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd && prev.depth === entry.depth
+        && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
+        && prev.title === entry.title && prev.depth === entry.depth
       ) return prev
       this.entryCache.set(entry.sessionId, entry)
       return entry

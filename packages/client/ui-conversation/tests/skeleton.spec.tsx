@@ -53,7 +53,7 @@ function fakeSessions(rows: { id: string; title: string; cwd?: string; parentId?
   const store = createSnapshotStore<SessionListState>({
     ids: rows.map(r => sid(r.id)),
     byId: Object.fromEntries(rows.map(r => [r.id, {
-      id: sid(r.id), title: r.title, running: false, updatedAt: 1,
+      id: sid(r.id), title: `durable ${r.title}`, displayTitle: r.title, running: false, updatedAt: 1,
       ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
       ...(r.parentId !== undefined ? { parentId: sid(r.parentId) } : {}),
     }])),

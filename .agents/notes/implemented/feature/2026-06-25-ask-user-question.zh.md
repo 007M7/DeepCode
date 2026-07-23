@@ -16,11 +16,15 @@ agent（智能体）有时仅凭模型推理（inference）无法安全地继续
 
 面向模型的请求词汇有意与产品调研 schema 对齐：`ask_user_question({ questions: [{ id, question, header?, options?: [{ label, description? }], multi_select? }] })`。`id` 按问题提供并在结果中回传，使批量请求无需依赖问题文本即可路由。`label` 既是面向用户的显示文本，也是返回给模型的选中值；没有单独的 `value`，没有 `recommended`，没有 `allow_custom`，也没有 `desc` 别名。
 
-Provider 返回 `{ answers: [{ id, selected, custom? }] }`。`selected` 始终是选中选项 label 的数组，因此单选和 `multi_select` 的答案共享同一种结果形状。`custom` 承载自由文本的「其他」答案；无选项的问题直接收集 `custom`。当 `custom` 存在时，它覆盖任何已选择的选项，`selected` 为空。
+Provider 返回 `{ answers: [{ id, selected, custom? }] }`。`selected` 始终是选中选项 label 的数组，因此单选和 `multi_select` 的答案共享同一种结果形状。`custom` 承载自由文本的「其他」答案；无选项的问题直接收集 `custom`。当 `custom` 存在时，它覆盖任何已选择的选项，`selected` 为空。支持部分完成的提供方使用现有的 `{ id, selected: [] }` 形状表示某项被有意跳过，在不扩展工具结果词汇的前提下保留其他答案。
 
 `UserInteractionError` 继承 `HarnessError`，因此 `NO_PROVIDER`、`ASK_ABORTED`、ACP（Agent Client Protocol）取消或会话路由缺失等失败会以机器可路由的 `{ name, code }` 工具错误形式通过 `ctx.tools.execute()` 传出。这与结构化错误分类体系一致，使模型或包装插件能够区分「用户取消」与一般的抛出异常。
 
 ## UI 映射
+
+`dsh web` 挂载 `dsh-client-ui-question`：其 host 侧使 Web 产品选择性加载面向模型的工具，浏览器侧则在 conversation 拥有的具名输入区 slot 中注册 `question` 项。`createApiProxy` 使用以 host 生成的 rpcId 为键的进程内 pending 表实现 Web 提供方。它先注册等待项，再广播 `question/requested`；每次 mux 重开时以相同 id 重放；在受理前校验会话和完整答案批次；并在回答、取消、中止或资源释放后广播 `question/resolved`。受理会同步删除该条目，因此首个有效响应胜出，重复或迟到的响应返回 `not-pending`。
+
+Web 输入区一次显示一个问题，同时在会话对象层保留每个请求。它支持单选、多选、无选项问题或显式自定义答案、描述文本与可视化推荐标记，但不会自动选中推荐项。选择单选项后会立即进入下一项；当所有项都已回答或显式跳过时，按 Enter 提交；IME 组字期间按 Enter 只会确认输入候选项。页脚只跳过当前项并保留先前的草稿；关闭控件以 `ASK_CANCELLED` 拒绝整个工具调用。常规输入区只有在 host 的 resolved 帧移除待处理项后才会恢复。
 
 `dsh-tui` 将每个问题渲染为键盘叠层，展示选项描述，支持单选、多选和自由格式自定义答案，并在中止、provider dispose（资源释放）或终端关闭时拒绝待处理的问题。批量请求和并发请求都会排队，确保同一时刻只有一个叠层占用键盘焦点。
 
@@ -44,8 +48,8 @@ ACP elicitation 目前在 SDK 中标记为 unstable。回退仍然是结构化�
 
 该功能赋予模型一个强大的暂停原语，因此 prompt 引导很重要。工具描述告诉模型：提问要简洁，尽可能使用选项。产品策略后续可以包装 `tools/execute` 来限制工具何时可用，但循环不应对其做特殊处理。
 
-`dsh-user-interaction` 和 `dsh-tool-ask-user` 都位于 `packages/ui`，因为它们共同构成一个面向产品的人机交互能力。`agent-core` 不加载工具或 provider。`dsh-tui-demo` 选择性加载 seam、TUI provider 和面向模型的工具。`acp-agent` 默认只保留 `userInteraction` seam/provider：ACP elicitation 支持仍取决于客户端，因此 ACP 叶节点必须在其客户端能完成 elicitation 请求后才有意加载面向模型的工具。
+`dsh-user-interaction` 和 `dsh-tool-ask-user` 都位于 `packages/ui`，因为它们共同构成一个面向产品的人机交互能力。`agent-core` 不加载工具或 provider。`dsh-tui-demo` 选择性加载 seam、TUI provider 和面向模型的工具。`dsh web` 在 host 运行时启动 seam/提供方，并通过选定的 Web question 插件暴露该工具。`acp-agent` 默认只保留 `userInteraction` seam/provider：ACP elicitation 支持仍取决于客户端，因此 ACP 叶节点必须在其客户端能完成 elicitation 请求后才有意加载面向模型的工具。
 
 ## 测试
 
-单元覆盖率固定了以下场景：provider 注册/释放、重复 provider 拒绝、provider 就绪前中止、空问题拒绝、通过 `ctx.tools.execute()` 传出的结构化工具错误、批量答案、多选答案、自定义答案，以及模型 schema（包括移除 `value`、`recommended`、`allow_custom` 和 `desc`）。TUI 测试覆盖选项描述、排队请求、关闭/中止清理、无选项自由格式输入、无效选择、重复多选和批量问题流。ACP bridge 测试驱动一个真实的内存 ACP 连接（使用真实的 `ask_user_question` 工具），验证选中选项、custom 覆盖 choice、多选和无选项自由格式 elicitation 路径能继续 agent loop。
+单元覆盖率固定了以下场景：provider 注册/释放、重复 provider 拒绝、provider 就绪前中止、空问题拒绝、通过 `ctx.tools.execute()` 传出的结构化工具错误、批量答案、多选答案、自定义答案、显式按项跳过，以及模型 schema（包括移除 `value`、`recommended`、`allow_custom` 和 `desc`）。TUI 测试覆盖选项描述、排队请求、关闭/中止清理、无选项自由格式输入、无效选择、重复多选和批量问题流。ACP bridge 测试驱动一个真实的内存 ACP 连接（使用真实的 `ask_user_question` 工具），验证选中选项、custom 覆盖 choice、多选和无选项自由格式 elicitation 路径能继续 agent loop。Web 测试固定稳定 id 重放、响应校验、首个响应胜出的结算、重复和迟到响应、整个请求的取消与拥有方中止的区别、单选后前进、IME 安全的 Enter 提交、按项跳过保留、输入区接管、结构化批量提交，以及常规输入区的恢复。
