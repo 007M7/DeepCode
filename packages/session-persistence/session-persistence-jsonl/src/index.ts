@@ -8,8 +8,9 @@
 
 import { Context } from 'cordis'
 import z from 'schemastery'
+import { readdirSync } from 'node:fs'
 import { open, mkdir, readFile, readdir, link, rm, stat as fsStat, truncate } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
   SessionPersistence, PersistenceCoordinator,
@@ -38,7 +39,9 @@ export interface Config {
   /**
    * Root directory for all session files. Required (no default): a default of
    * `process.cwd()` would scatter session files as the process's cwd changes
-   * (bash calls, subprocesses). Sessions group under per-cwd subdirectories.
+   * (bash calls, subprocesses). Sessions group under per-cwd subdirectories. An
+   * existing root must be a readable directory; an absent root is created on
+   * first materialization.
    */
   root: string
   /**
@@ -101,6 +104,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     // the cast records that runtime fact for exactOptionalPropertyTypes.
     this.packChunks = (config as Required<Config>).packChunks
     this.compression = config.compression ?? DEFAULT_COMPRESSION
+    this.assertUsableRoot()
     this.coordinator = new PersistenceCoordinator<JsonlTornMarker>(this.ctx, this)
   }
 
@@ -135,40 +139,32 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   /** Read a stored prefix by id across all cwd buckets when cwd is unknown. */
   async loadStored(id: SessionId): Promise<StoredPrefix<JsonlTornMarker> | undefined> {
     await this.ensureRootEncoding()
-    const file = await this.findLog(id)
-    if (file === undefined) return undefined
-    return this.readPrefix(file.path)
-  }
-
-  /**
-   * Read a stored prefix within one cwd for HMR adoption. `undefined` names the
-   * no-cwd bucket rather than an unknown cwd, so this never scans other buckets.
-   */
-  async loadLive(id: SessionId, cwd: string | undefined): Promise<StoredPrefix<JsonlTornMarker> | undefined> {
-    await this.ensureRootEncoding()
-    const path = logPath(this.root, cwd, id, this.compression)
-    if (!await this.exists(path)) {
-      await this.rejectOppositeArtifact(cwd, id)
-      return undefined
-    }
-    return this.readPrefix(path)
+    const path = await this.findLog(id)
+    if (path === undefined) return undefined
+    return this.readPrefix(path, id)
   }
 
   /**
    * Read a stored prefix and convert torn-tail state to the opaque marker the
    * coordinator can round-trip without knowing the physical encoding.
    */
-  private async readPrefix(path: string): Promise<StoredPrefix<JsonlTornMarker>> {
+  private async readPrefix(path: string, expectedId?: SessionId): Promise<StoredPrefix<JsonlTornMarker>> {
     const buffer = await readFile(path)
-    if (this.compression === 'zstd') return this.readZstdPrefix(buffer)
-    const { meta, events, committedBytes } = scanLog(buffer)
-    return {
-      meta,
-      events,
-      ...committedBytes < buffer.byteLength
-        ? { tornMarker: { truncateTo: committedBytes, recoveredEvents: [] } }
-        : {},
+    let prefix: StoredPrefix<JsonlTornMarker>
+    if (this.compression === 'zstd') {
+      prefix = await this.readZstdPrefix(buffer)
+    } else {
+      const { meta, events, committedBytes } = scanLog(buffer)
+      prefix = {
+        meta,
+        events,
+        ...committedBytes < buffer.byteLength
+          ? { tornMarker: { truncateTo: committedBytes, recoveredEvents: [] } }
+          : {},
+      }
     }
+    this.assertStoredIdentity(path, prefix.meta, expectedId)
+    return prefix
   }
 
   /** Decode complete frames and retain complete JSONL records from a torn final frame. */
@@ -245,19 +241,26 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     if (repairedEvents.length > 0) await this.appendLines(meta, repairedEvents)
   }
 
-  /** List all stored sessions' metadata (header line only — no full-log parse). */
+  /** List valid unique stored sessions' metadata (header line only — no full-log parse). */
   async list(): Promise<SessionHeader[]> {
     await this.ensureRootEncoding()
     const metas: SessionHeader[] = []
+    const ids = new Set<SessionId>()
     for (const dir of await this.listCwdDirs()) {
       for (const name of await this.listArtifacts(dir)) {
+        const path = join(dir, name)
         // Read only headers so listing scales with session count, not log size.
         const first = this.compression === 'zstd'
-          ? await this.readFirstZstdLine(`${dir}/${name}`)
-          : await this.readFirstLine(`${dir}/${name}`)
+          ? await this.readFirstZstdLine(path)
+          : await this.readFirstLine(path)
         if (first === undefined) continue // empty/half-written file
         const meta = parseHeaderMeta(first)
         if (meta === undefined) continue // not a session header
+        this.assertStoredIdentity(path, meta)
+        if (ids.has(meta.id)) {
+          throw new Error(`duplicate JSONL session id "${meta.id}" appears in multiple cwd buckets`)
+        }
+        ids.add(meta.id)
         metas.push(meta)
       }
     }
@@ -506,30 +509,54 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  /**
-   * Find a session by id across cwd buckets for resume. Cwd-scoped HMR adoption
-   * bypasses this scan so a no-cwd session cannot claim another bucket.
-   */
-  private async findLog(id: SessionId): Promise<{ path: string; cwd: string | undefined } | undefined> {
+  /** Find the unique physical log for an id across every cwd bucket. */
+  private async findLog(id: SessionId): Promise<string | undefined> {
     const target = encodeSegment(id) + logSuffix(this.compression)
+    const oppositeTarget = encodeSegment(id) + logSuffix(this.oppositeCompression())
+    const matches: string[] = []
     for (const dir of await this.listCwdDirs()) {
-      const path = `${dir}/${target}`
-      const opposite = `${dir}/${encodeSegment(id)}${logSuffix(this.oppositeCompression())}`
+      const path = join(dir, target)
+      const opposite = join(dir, oppositeTarget)
       if (await this.exists(opposite)) throw this.encodingMismatch(opposite)
-      if (await this.exists(path)) {
-        // Recover the cwd from the header so the caller has the session's bucket.
-        const { meta } = await this.readPrefix(path)
-        return { path, cwd: meta.cwd }
-      }
+      if (await this.exists(path)) matches.push(path)
     }
-    return undefined
+    if (matches.length > 1) {
+      throw new Error(`duplicate JSONL session id "${id}" appears in multiple cwd buckets`)
+    }
+    return matches[0]
+  }
+
+  /** Require an existing configured root to be a readable directory. */
+  private assertUsableRoot(): void {
+    try {
+      readdirSync(this.root)
+    } catch (error) {
+      if (isENOENT(error)) return
+      throw error
+    }
+  }
+
+  /** Reject metadata that does not identify the selected physical log. */
+  private assertStoredIdentity(path: string, meta: SessionHeader, expectedId?: SessionId): void {
+    if (expectedId !== undefined && meta.id !== expectedId) {
+      throw new Error(`corrupt session log "${path}": requested id "${expectedId}" does not match header id "${meta.id}"`)
+    }
+    let expectedPath: string
+    try {
+      expectedPath = logPath(this.root, meta.cwd, meta.id, this.compression)
+    } catch (error) {
+      throw new Error(`corrupt session log "${path}": header id cannot name a storage path`, { cause: error })
+    }
+    if (path !== expectedPath) {
+      throw new Error(`corrupt session log "${path}": header id "${meta.id}" and cwd belong at "${expectedPath}"`)
+    }
   }
 
   /** The cwd-bucket directories under the root (absolute paths). */
   private async listCwdDirs(): Promise<string[]> {
     try {
       const entries = await readdir(this.root, { withFileTypes: true })
-      return entries.filter(e => e.isDirectory()).map(e => `${this.root}/${e.name}`)
+      return entries.filter(e => e.isDirectory()).map(e => join(this.root, e.name))
     } catch (error) {
       // Only an absent root means no sessions; rethrow every other I/O failure.
       if (isENOENT(error)) return []
