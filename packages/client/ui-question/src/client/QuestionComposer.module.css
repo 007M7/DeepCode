@@ -5,8 +5,14 @@
 }
 
 .card {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   max-width: 720px;
+  /* Composer seat sits in a fixed-height conversation column (overflow
+     hidden): cap the card against the viewport and scroll the option list
+     so header and footer actions stay reachable on long batches. */
+  max-height: min(60vh, 520px);
   padding: 14px 16px 12px;
   border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
   border-radius: 18px;
@@ -25,6 +31,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  flex-shrink: 0;
   margin-bottom: 8px;
 }
 
@@ -110,6 +117,9 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* The scrollable region of the capped card (ChatView list pattern). */
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .option {
@@ -271,6 +281,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-shrink: 0;
   margin-top: 8px;
   padding: 0 2px;
 }
