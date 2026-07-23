@@ -1,8 +1,10 @@
 /**
- * ConversationService implementation: scope-addressed send/cancel, per-scope
- * selection/draft stores booked on the session scope fiber, view registry
- * with a uSES read face, openDetails orchestration, and the empty-state
- * startSession chain. Contract: api-contracts v3 section 7.
+ * ConversationService implementation: scope-addressed send/cancel, view
+ * registry with a uSES read face, and the empty-state startSession chain.
+ * Contract: api-contracts v3 section 7. Selection/draft state moved to the
+ * declared chat store (slot terminal design §4) — the per-scope store maps,
+ * lazy construction, and prune bookkeeping this service used to carry are
+ * retired; what remains is the send/stop orchestration face.
  *
  * Scope addressing rides the cordis Service tracker: property access through
  * `ctx.conversation` rebinds `this.ctx` to the caller's context, so methods
@@ -20,11 +22,8 @@ import type { Context } from 'cordis'
 // SessionsService tags contexts with — scopeOf then always returns undefined
 // in the browser while unit tests (single-instance path resolution) stay green.
 import { scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
-import type { Session, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-web-react'
-import type { LayoutService } from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { SelectionTarget, ViewEntry, ViewId } from './index.ts'
+import type { Session, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ViewEntry, ViewId } from './index.ts'
 
 /** Mutable view-registry cell (plain object: mutation never crosses the tracker proxy). */
 interface ViewsState {
@@ -37,8 +36,6 @@ interface ViewsState {
 
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
 export class ConversationService extends Service {
-  private readonly selections = new Map<SessionId, SnapshotStore<SelectionTarget | null>>()
-  private readonly draftStores = new Map<SessionId, SnapshotStore<string>>()
   private readonly viewsState: ViewsState = {
     entries: new Map(), cache: null, tick: 0, listeners: new Set(),
   }
@@ -69,37 +66,6 @@ export class ConversationService extends Service {
     const session = this.scopedSession('cancel')
     const result = await session.cancel()
     if (!result.ok) throw new Error(`conversation.cancel failed: ${result.error.code}: ${result.error.message}`)
-  }
-
-  /** Per-scope selection channel (details linkage); root access throws. */
-  get selection(): SnapshotStore<SelectionTarget | null> {
-    return this.scopeStore(this.selections, 'selection',
-      () => createSnapshotStore<SelectionTarget | null>(null))
-  }
-
-  /**
-   * Per-scope draft store, persisted per session id; root access throws.
-   * Persistence is hand-rolled (raw string per key): the snapshot-store
-   * engine's persist middleware object-spreads state on save, corrupting
-   * primitive-state stores.
-   */
-  get drafts(): SnapshotStore<string> {
-    return this.scopeStore(this.draftStores, 'drafts', (id) => {
-      const key = `dsh.conversation.draft.${id}`
-      const store = createSnapshotStore<string>(loadDraft(key))
-      store.subscribe(() => { saveDraft(key, store.getSnapshot()) })
-      return store
-    })
-  }
-
-  /**
-   * Write the scoped selection and open the details panel. Orchestration
-   * only — panel geometry stays with ctx.layout.
-   * @param target - selection target.
-   */
-  openDetails(target: SelectionTarget): void {
-    this.selection.set(target)
-    this.requireLayout().openDetails()
   }
 
   /**
@@ -170,9 +136,9 @@ export class ConversationService extends Service {
     const sessions = this.requireSessions()
     const id = await sessions.create(opts.cwd === undefined ? {} : { cwd: opts.cwd })
     // The manager notifier flushes per microtask; one await guarantees the
-    // list-store projection landed before layout.open validates against it.
+    // list-store projection landed before sessions.open validates against it.
     await Promise.resolve()
-    this.requireLayout().open(id)
+    sessions.open(id)
     const scoped = sessions.scope(id)
     if (scoped === undefined) throw new Error(`conversation.startSession: created session "${id}" resolved no scope`)
     // ctx.get, not scoped.conversation: property access walks the fiber
@@ -185,34 +151,11 @@ export class ConversationService extends Service {
 
   /** Resolve the caller scope's Session or throw on root contexts. */
   private scopedSession(op: string): Session {
-    const id = this.scopeId(op)
-    return this.requireSessions().manager.get(id)
-  }
-
-  /** Read the caller's session scope tag; root contexts fail loud. */
-  private scopeId(op: string): SessionId {
     const id = scopeOf(this.ctx)
     if (id === undefined) {
       throw new Error(`conversation.${op} requires a session scope — address one via ctx.sessions.scope(id).conversation`)
     }
-    return id
-  }
-
-  /**
-   * Per-scope store account: lazily created, booked on the scope fiber so the
-   * scope teardown (SessionsService prune) collects the entry.
-   */
-  private scopeStore<T>(
-    map: Map<SessionId, SnapshotStore<T>>, op: string,
-    make: (id: SessionId) => SnapshotStore<T>): SnapshotStore<T> {
-    const id = this.scopeId(op)
-    let store = map.get(id)
-    if (store === undefined) {
-      store = make(id)
-      map.set(id, store)
-      this.ctx.effect(() => () => { map.delete(id) }, `conversation.${op} scope account`)
-    }
-    return store
+    return this.requireSessions().manager.get(id)
   }
 
   private requireSessions(): SessionsService {
@@ -223,29 +166,10 @@ export class ConversationService extends Service {
     if (sessions === undefined) throw new Error('conversation: sessions service unavailable')
     return sessions
   }
-
-  private requireLayout(): LayoutService {
-    const layout = this.ctx.get('layout')
-    if (layout === undefined) throw new Error('conversation: layout service unavailable')
-    return layout
-  }
 }
 
 function bumpViews(state: ViewsState): void {
   state.cache = null
   state.tick += 1
   for (const fn of [...state.listeners]) fn()
-}
-
-function loadDraft(key: string): string {
-  /* v8 ignore next -- storage-less environment guard (workers/tests without DOM); jsdom always provides localStorage. */
-  if (typeof localStorage === 'undefined') return ''
-  return localStorage.getItem(key) ?? ''
-}
-
-function saveDraft(key: string, text: string): void {
-  /* v8 ignore next -- storage-less environment guard (workers/tests without DOM); jsdom always provides localStorage. */
-  if (typeof localStorage === 'undefined') return
-  if (text === '') localStorage.removeItem(key)
-  else localStorage.setItem(key, text)
 }

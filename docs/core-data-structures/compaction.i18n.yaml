@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
 compaction.md: 71bbe7d9c17c6a3d35684a6c87d3072ab4f88df1
-compaction.zh.md: 592e215e7efe69f0dd6099d3d510847cc732e641
+compaction.zh.md: 3a49976c34b99d583647ca6a20a875faf319ff4a

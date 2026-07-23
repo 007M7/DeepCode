@@ -3,83 +3,83 @@
  * bootWebShell over the REAL client loader in jsdom (runScripts:dangerously —
  * the loader's <script> execute path runs for real): fetch is stubbed to
  * serve fake bundle text, everything else is production code — seeded module
- * table, DSHClientProxy handoff, inject topology, settled flip, one-pass
- * switch to the assembled UI, and the fail-loud path — through the loader's
- * fetch/execute seams (jsdom's <script> vm context cannot reach the test
- * window, so execute is indirect eval). The fake plugins pull the REAL
- * SlotCore from the seeded ui-slots module; full-fidelity plugin content
- * belongs to the apps/web e2e.
+ * table, DSHClientProxy handoff, inject topology, renderer install after
+ * settled, the one-line renderSlot('root') shell, and the fail-loud paths —
+ * through the loader's fetch/execute seams (jsdom's <script> vm context
+ * cannot reach the test window, so execute is indirect eval). The fake
+ * runtime is the REAL SlotsService mounted by the real runtime plugin shape;
+ * full-fidelity plugin content belongs to the apps/web e2e.
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { act } from '@testing-library/react'
 import { bootWebShell } from '@deepseek-ai/dsh-client-web'
+import { createSnapshotStore, defineStore, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 
 interface BootWindow extends Window {
   __DSH_BOOT__?: { plugins: { id: string; url: string; inject: string[]; immediately?: boolean }[] }
   DSHClientProxy?: unknown
-  __TEST_NAV__?: { sessionId?: string; viewFor: Record<string, string> }
+  __TEST_SLOTS_SERVICE__?: unknown
+  __TEST_RUNTIME_STORE__?: { createSnapshotStore: unknown; defineStore: unknown }
 }
 const win = window as unknown as BootWindow
 
-/** Fake runtime half: real SlotCore behind a minimal slots service + sessions stub. */
+/**
+ * Fake runtime half: mounts the REAL SlotsService (built-in 'root', ledger,
+ * install/renderSlot) plus a minimal sessions face for the renderer host.
+ * The runtime package is not a seeded library (in production it arrives as a
+ * bundle), so the spec hands the real class in through a window global — the
+ * plugin body and everything downstream stay production code.
+ */
 const RUNTIME_STUB = `
 window.DSHClientProxy.loadPlugin({
   id: 'fake-runtime',
   factory: (require) => {
-    const { SlotCore } = require('@deepseek-ai/dsh-client-ui-slots')
-    const { createSnapshotStore } = require('@deepseek-ai/dsh-client-web-react')
+    const SlotsService = window.__TEST_SLOTS_SERVICE__
+    const { createSnapshotStore } = window.__TEST_RUNTIME_STORE__
     return {
       apply: (ctx) => {
-        const core = new SlotCore()
-        ctx.provide('slots', { core, define: (k, s) => core.define(k, s), register: (k, c, o) => core.register(k, c, o) })
-        const binding = {
-          sessionId: 's1',
-          session: { useSelector: (sel) => sel({}) },
-          ctx,
-        }
+        ctx.plugin(SlotsService)
+        const list = createSnapshotStore({ ids: ['s1'], byId: { s1: { id: 's1', title: 'S1', running: false, updatedAt: 1 } }, current: 's1' })
         ctx.provide('sessions', {
-          list: createSnapshotStore({ ids: ['s1'], byId: { s1: { id: 's1', title: 'S1', running: false, updatedAt: 1 } } }),
-          binding: (id) => (id === 's1' ? binding : undefined),
+          list,
+          cell: (id) => (id === 's1' ? { sessionId: 's1', session: { getSnapshot: () => ({}), subscribe: () => () => {} } } : undefined),
         })
       },
     }
   },
 })`
 
-/** Fake layout half: real slot specs + the export surface the shell assembly consumes. */
+/** Fake layout half: ONE terminal register() call — occupy 'root', declare a
+ *  child, seat a store factory, expose the store round trip as a probe. */
 const LAYOUT_STUB = `
 window.DSHClientProxy.loadPlugin({
   id: 'fake-layout',
   factory: (require) => {
     const React = require('react')
-    const { createSnapshotStore } = require('@deepseek-ai/dsh-client-web-react')
+    const { defineStore } = window.__TEST_RUNTIME_STORE__
     return {
       inject: ['slots'],
-      AppFrame: (props) => {
-        const sw = props.useSidebar((st) => st.width)
-        const dw = props.useDetails((st) => st.width)
-        return React.createElement('div', {
-          'data-testid': 'fake-frame',
-          'data-widths': sw + 'x' + dw,
-          onClick: () => { props.setSidebarWidth(311); props.setDetailsWidth(411) },
-        }, props.sidebar, props.children)
-      },
-      CenterColumn: (props) => React.createElement('div', null, props.children),
-      DetailsColumn: (props) => React.createElement('div', null, props.children),
       apply: (ctx) => {
-        const sidebar = createSnapshotStore({ open: true, width: 300 })
-        const details = createSnapshotStore({ open: false, width: 360 })
-        ctx.reflect.provide('layout', {
-          current: createSnapshotStore(window.__TEST_NAV__ ?? { sessionId: 's1', viewFor: {} }),
-          sidebar, details,
-          setSidebarWidth: (px) => { sidebar.update((d) => { d.width = px }) },
-          setDetailsWidth: (px) => { details.update((d) => { d.width = px }) },
+        const createProbeStore = () => defineStore({
+          init: () => ({ sidebar: 300, details: 360 }),
+          actions: {
+            setSidebar: (d, px) => { d.sidebar = px },
+            setDetails: (d, px) => { d.details = px },
+          },
         })
-        ctx.slots.define('sidebar', { kind: 'single', scope: 'root' })
-        ctx.slots.define('conversation', { kind: 'single', scope: 'session' })
-        ctx.slots.define('details', { kind: 'single', scope: 'session' })
-        ctx.slots.define('conversation.empty', { kind: 'single', scope: 'root' })
-        ctx.slots.core.register('conversation', () => React.createElement('div', { 'data-testid': 'conv-body' }))
+        ctx.slots.register({
+          name: 'root',
+          children: { 'probe.child': { kind: 'single', scope: 'root' } },
+          store: createProbeStore,
+        }, (props) => {
+          const sw = props.useStore((st) => st.sidebar)
+          const dw = props.useStore((st) => st.details)
+          return React.createElement('div', {
+            'data-testid': 'fake-frame',
+            'data-widths': sw + 'x' + dw,
+            onClick: () => { props.actions.setSidebar(311); props.actions.setDetails(411) },
+          }, props.renderSlot('probe.child', {}))
+        })
       },
     }
   },
@@ -113,63 +113,62 @@ async function flushLoader(): Promise<void> {
   for (let i = 0; i < 10; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
 }
 
+function bootPlugins(): { id: string; url: string; inject: string[]; immediately?: boolean }[] {
+  return [
+    { id: 'fake-runtime', url: '/plugins/fake-runtime.js', inject: [], immediately: true },
+    { id: LAYOUT_ID, url: '/plugins/fake-layout.js', inject: ['fake-runtime'] },
+  ]
+}
+
+function fakeBundles(): Record<string, string> {
+  return {
+    '/plugins/fake-runtime.js': RUNTIME_STUB,
+    '/plugins/fake-layout.js': LAYOUT_STUB.replace("id: 'fake-layout'", `id: '${LAYOUT_ID}'`),
+  }
+}
+
 afterEach(() => {
   delete win.__DSH_BOOT__
   delete win.DSHClientProxy
-  delete win.__TEST_NAV__
+  delete win.__TEST_SLOTS_SERVICE__
+  delete win.__TEST_RUNTIME_STORE__
   document.body.innerHTML = ''
   document.head.querySelectorAll('script').forEach((s) => { s.remove() })
 })
 
+/** Hand the real runtime surface to the stub bundle (runtime is not a seeded library). */
+function seedSlotsService(): void {
+  win.__TEST_SLOTS_SERVICE__ = SlotsService
+  win.__TEST_RUNTIME_STORE__ = { createSnapshotStore, defineStore }
+}
+
 describe('bootWebShell (real loader + real script execution)', () => {
-  it('loading page → settled → assembled UI in one pass; unmount clears the tree', async () => {
-    win.__DSH_BOOT__ = {
-      plugins: [
-        { id: 'fake-runtime', url: '/plugins/fake-runtime.js', inject: [], immediately: true },
-        { id: LAYOUT_ID, url: '/plugins/fake-layout.js', inject: ['fake-runtime'] },
-      ],
-    }
+  it('loading page → settled → renderer installed → assembled UI in one pass; unmount clears the tree', async () => {
+    win.__DSH_BOOT__ = { plugins: bootPlugins() }
+    seedSlotsService()
     const el = mountPoint()
     let unmount: (() => void) | undefined
-    const s = seams({
-      '/plugins/fake-runtime.js': RUNTIME_STUB,
-      '/plugins/fake-layout.js': LAYOUT_STUB.replace("id: 'fake-layout'", `id: '${LAYOUT_ID}'`),
-    })
-    act(() => { unmount = bootWebShell(el, s) })
+    act(() => { unmount = bootWebShell(el, seams(fakeBundles())) })
     expect(el.textContent).toContain('HARNESS')
     expect(el.querySelector('[data-testid="fake-frame"]')).toBeNull()
 
     await flushLoader()
     expect(el.querySelector('[data-testid="fake-frame"]')).not.toBeNull()
     expect(el.textContent).not.toContain('HARNESS')
-    // Selected session: SessionProvider resolved the binding and renderBody
-    // mounted the conversation slot content into the center column.
-    expect(el.querySelector('[data-testid="conv-body"]')).not.toBeNull()
 
     act(() => { unmount!() })
     expect(el.childElementCount).toBe(0)
   })
 
-  it('no selected session: renderEmpty keeps the grid and forwards width setters', async () => {
-    win.__TEST_NAV__ = { viewFor: {} }
-    win.__DSH_BOOT__ = {
-      plugins: [
-        { id: 'fake-runtime', url: '/plugins/fake-runtime.js', inject: [], immediately: true },
-        { id: LAYOUT_ID, url: '/plugins/fake-layout.js', inject: ['fake-runtime'] },
-      ],
-    }
+  it('store seat round-trips through the entry props (useStore + actions)', async () => {
+    win.__DSH_BOOT__ = { plugins: bootPlugins() }
+    seedSlotsService()
     const el = mountPoint()
-    const s = seams({
-      '/plugins/fake-runtime.js': RUNTIME_STUB,
-      '/plugins/fake-layout.js': LAYOUT_STUB.replace("id: 'fake-layout'", `id: '${LAYOUT_ID}'`),
-    })
-    act(() => { bootWebShell(el, s) })
+    act(() => { bootWebShell(el, seams(fakeBundles())) })
     await flushLoader()
     const frame = el.querySelector('[data-testid="fake-frame"]')
     expect(frame).not.toBeNull()
-    // Empty path: no conversation body (nothing registered into conversation.empty → fallback null).
-    expect(el.querySelector('[data-testid="conv-body"]')).toBeNull()
-    // Width setter/selector pass-through (assembly closures over ctx.layout).
+    // Width write/read round trip through the framework-delivered store share.
     expect((frame as HTMLElement).dataset['widths']).toBe('300x360')
     act(() => { (frame as HTMLElement).click() })
     expect((frame as HTMLElement).dataset['widths']).toBe('311x411')
@@ -184,17 +183,44 @@ describe('bootWebShell (real loader + real script execution)', () => {
     expect(el.textContent).toContain('absent-plugin')
     expect(el.querySelector('[data-testid="fake-frame"]')).toBeNull()
   })
+
+  it("fail loud: rendering with no 'root' registration throws through the shell error surface", async () => {
+    // Runtime loads (slots service present, renderer installed) but no layout
+    // entry ever registers into 'root' — the ctx-level renderSlot must throw.
+    win.__DSH_BOOT__ = {
+      plugins: [{ id: 'fake-runtime', url: '/plugins/fake-runtime.js', inject: [], immediately: true }],
+    }
+    seedSlotsService()
+    const el = mountPoint()
+    // React logs the render error before the boundary rethrow reaches us — keep the spec output clean.
+    const consoleError = console.error
+    console.error = () => {}
+    try {
+      act(() => { bootWebShell(el, seams({ '/plugins/fake-runtime.js': RUNTIME_STUB })) })
+      let thrown: unknown
+      try {
+        await flushLoader()
+      } catch (error) {
+        thrown = error
+      }
+      expect(String(thrown)).toMatch(/'root' has no registration/)
+    } finally {
+      console.error = consoleError
+    }
+  })
 })
 
-describe('buildRenderApp — assembly guards', () => {
-  it('throws loud when the sessions service is absent', async () => {
+describe('buildRenderApp — assembly contract', () => {
+  it('is exactly the ctx-level root render call (fail-loud before install)', async () => {
     const { buildRenderApp } = await import('@deepseek-ai/dsh-client-web')
     const { Context } = await import('cordis')
+    const { SlotsService } = await import('@deepseek-ai/dsh-client-runtime/client')
     const ctx = new Context()
-    ctx.reflect.provide('layout', {})
-    expect(() => buildRenderApp({
-      ctx,
-      requireModule: () => ({ AppFrame: () => null, CenterColumn: () => null, DetailsColumn: () => null }),
-    })).toThrow(/sessions service unavailable/)
+    const fiber = ctx.plugin(SlotsService)
+    await fiber.await()
+    const renderApp = buildRenderApp({ ctx, requireModule: () => undefined })
+    expect(renderApp).toBeTypeOf('function')
+    // No renderer installed: the one-line shell must surface the boot-order error.
+    expect(() => renderApp()).toThrow(/renderer not installed/)
   })
 })

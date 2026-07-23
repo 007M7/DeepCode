@@ -15,10 +15,10 @@ export const name = 'client-ui-sidebar-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: a pure-consumer plugin deriving its tree store from
- * sessions.list — it emits no cordis events and owns no cross-plugin mutable
- * state; derivation and interaction behavior are asserted directly by this
- * package's tree/store/component specs.
+ * No runtime invariant: a pure-consumer plugin deriving its rows in-component
+ * from the standard useSessions delivery — it emits no cordis events and owns
+ * no cross-plugin mutable state; derivation and interaction behavior are
+ * asserted directly by this package's tree/component specs.
  */
 const install: InvariantInstaller = () => {}
 

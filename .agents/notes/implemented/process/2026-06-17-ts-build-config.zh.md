@@ -1,8 +1,10 @@
-# Agent Note: TSC 优先的构建与单一 tsconfig
+# Agent Note: TSC 优先构建与编译器单一归属
 
 Status: implemented
 
 [English](2026-06-17-ts-build-config.md) | 中文
+
+> 根项目拓扑（即哪个 tsconfig 拥有哪张图）后来改为由一个 solution 根文件统辖两个聚合 program；见[solution 根文件 Agent Note](2026-07-22-tsconfig-solution-root-two-aggregates.md)。本文确定的 TSC 优先流水线保持不变。
 
 ## 问题
 
@@ -30,29 +32,29 @@ Status: implemented
 
 `pnpm run build` 是两阶段构建：
 
-- 阶段 1：`tsc -b tsconfig.build.json` 将逐模块的 `.js`、声明文件 `.d.ts`、JS sourcemap `.js.map` 和声明 sourcemap `.d.ts.map` 输出到各 package 的 `lib/types`。这是权威的 TypeScript 编译结果。发布时保留 `.d.ts` / `.d.ts.map`，忽略 `.js` / `.js.map`。
-    - 构建项目使用 `tsc -b` 编译的 project-reference 图。例如，根 `tsconfig.build.json` 引用 package 和 vendor 的 tsconfig，校验并输出 package/vendor 的构建结果。
+- 阶段 1：在根 solution 上执行 `tsc -b`，将逐模块的 `.js`、声明文件 `.d.ts`、JS sourcemap `.js.map` 和声明 sourcemap `.d.ts.map` 输出到各 package 的 `lib/types`。这是权威的 TypeScript 编译结果。发布时保留 `.d.ts` / `.d.ts.map`，忽略 `.js` / `.js.map`。
+    - 该图是从根 solution `tsconfig.json` 经两个聚合可达的 project-reference 图（[拓扑](2026-07-22-tsconfig-solution-root-two-aggregates.md)），用于校验并输出 package/vendor 的构建结果。
 - 阶段 2：打包器读取 `lib/types` 下输出的 JS，将打包后的运行时入口写为 `lib/index.js` 或 `lib/index.mjs`（沿用当前行为）。此阶段仅做打包，禁止读取 TypeScript 源码或输出声明文件。
 
 `tsdown` 不再负责 TypeScript 编译或声明文件输出。
 
-`pnpm run typecheck` 以 build 模式运行根 `tsconfig.json`。
-- 根 `tsconfig.json` 是唯一的开发/类型检查项目。它以 `noEmit` 方式检查示例、测试和脚本，并通过 references 校验 package/vendor 源码。
-- 被引用的 package/vendor 项目保持与 build 相同的输出行为，因此 typecheck 可以刷新它们的 `lib/types` 输出，而无需使用独立的 no-emit 图。项目特定的严格度变更放在各自的 `packages/*/*/tsconfig.json` 或 `vendor/*/tsconfig.json` 中。
-- 根 no-emit 项目禁用 `rewriteRelativeImportExtensions`；它不输出任何文件，且包含跨 project-reference 边界导入 helper 的测试。package/vendor 的 emit 项目保持重写开启。
+`pnpm run typecheck` 运行同一张 `tsc -b` 图。
+- 两个聚合（`tsconfig.host.json`、`tsconfig.client.json`）以 `noEmit` 方式检查示例、测试和脚本，并通过 references 校验 package/vendor 源码。
+- 被引用的 package/vendor 项目保持与 build 相同的输出行为，因此 typecheck 会刷新它们的 `lib/types` 输出，而无需使用独立的 no-emit 图。项目特定的严格度变更放在各自的 `packages/*/*/tsconfig.json` 或 `vendor/*/tsconfig.json` 中。
+- 两个 no-emit 聚合禁用 `rewriteRelativeImportExtensions`；它们不输出任何文件，且包含跨 project-reference 边界导入 helper 的测试。package/vendor 的 emit 项目保持重写开启。
 
 命令编排结构如下：
 
 ```sh
 pnpm run build:
-tsc -b tsconfig.build.json
+tsc -b
 tsdown
 
 pnpm run verify-node-next-types:
 tsx scripts/verify-node-next-types.ts
 
 pnpm run typecheck:
-tsc -b tsconfig.json
+tsc -b
 ```
 
 `pnpm run demo:*` 仍通过 tsx 和根路径直接运行 `src`，无需编译步骤。
@@ -67,7 +69,7 @@ tsc -b tsconfig.json
 构建职责更加清晰：
 
 - `packages/<group>/<pkg>` 和 `vendor/*` 下的每个模块有一份本地 tsconfig，同时服务于构建、类型检查和直接运行源码的工具（如 `tsx` 和 `vitest`）。
-- `build` 命令使用 `tsconfig.build.json`。`tsc -b` 负责可发布的逐模块 `.js` 和 `.d.ts` 输出，打包器仅负责 `lib/index.*`。
+- `build` 命令驱动根 solution 图。`tsc -b` 负责可发布的逐模块 `.js` 和 `.d.ts` 输出，打包器仅负责 `lib/index.*`。
     - `lib/types/*.d.ts` 和 `.d.ts.map` 是发布用的声明输出。
     - `lib/types/*.d.ts` 使用显式 `.ts` 相对说明符，TypeScript 的 NodeNext/Node16 解析器会将其映射到同级的 `.d.ts` 文件。
     - `lib/types/*.js` 仅作为打包器输入，禁止用作运行时入口或公开导入目标。

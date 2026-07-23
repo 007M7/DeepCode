@@ -17,7 +17,7 @@ Status: implemented
 - 根目录 `tsdown.config.ts`，配置 `workspace: ['vendor/*', 'packages/*/*']`（显式 glob 将打包范围限定在 vendor 的 Cordis 与 TypeScript 包目录树内；`workspace: true` 还会发现示例 manifest 和不需要打包的 workspace 成员）。
 - 共享形状：入口为 `lib/types/index.js`，`outDir: 'lib'`，ESM，`platform: node`，`target: es2024`，`fixedExtension: false`（为 `"type": "module"` 包保留 `.js`），`dts: false`（声明归 tsc -b 所有），`clean: false`（lib/ 还保存 TSC 的 `lib/types` 中间树）。入口最初是 `src/index.ts`；[TSC 优先构建 Agent Note（agent 决策记录）](2026-06-17-ts-build-config.md)随后将 tsdown 改为打包 TSC 输出的 JS，使 TypeScript 转换行为统一由一个编译器提供。
 - vendor/ 中有两个按包覆盖的配置（属于我们自己的修改，与重新生成的 tsconfig 类似；记录在 vendor/README.md 中）：schemastery（通过 `outExtensions` 输出双格式 `.mjs`/`.cjs`）、logger-console（两次单入口 pass，使共享基类被内联到每个入口而非生成哈希命名的 chunk，与上游发布形态一致）。
-- `scripts/build.ts` 删除；`pnpm run build` = `tsc -b tsconfig.build.json && tsdown`。
+- `scripts/build.ts` 删除；`pnpm run build` = `tsc -b && tsdown`（根 solution 拥有 emit 图）。
 
 ## 曾考虑的替代方案
 

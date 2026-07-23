@@ -1,14 +1,15 @@
 /**
- * ctx-to-React glue: uSES bridge, SessionProvider (dependency-inverted),
- * scopedSlots outlet factory, useInvoke. Contract: api-contracts v3 section 2.
+ * Shell-side React glue (slot terminal design §8): createSlotRenderer (the
+ * install-seam implementation), SessionProvider (framework-wired render
+ * prop, also delivered as a standard seat to session-area entries),
+ * bindSnapshotSelector (the one hook constructor), and useInvoke. The
+ * snapshot-store engine and defineStore live in runtime (store relocation);
+ * contract types are ui-slots authority — this face re-exports only what its
+ * own values traffic in. React contexts stay in-package: business components
+ * see none.
  */
-import type { ReactNode } from 'react'
-import type { SnapshotSelectorHook } from './store/index.ts'
+import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 
-export type {
-  ObservableSnapshot, SnapshotSelectorHook, SnapshotStore,
-} from './store/index.ts'
-export { createSnapshotStore, shallowEqual } from './store/index.ts'
 export { bindSnapshotSelector } from './bind.ts'
 
 /**
@@ -19,23 +20,15 @@ export { bindSnapshotSelector } from './bind.ts'
  */
 export type UseSession<Snap extends object = object> = SnapshotSelectorHook<Snap>
 
-/** Session assembly handle narrowed from ui-slots' structural form. */
-export interface SessionBinding<Snap extends object = object> {
-  readonly sessionId: string
-  readonly session: { useSelector: UseSession<Snap> }
-  readonly ctx: unknown
-}
+// -- renderer: the install-seam implementation; contract lives in ui-slots --
+export type {
+  HostObservable, RenderOpts, SessionCell, SnapshotSelectorHook,
+  SlotRenderer, SlotRendererHost, StoreInstanceLike,
+} from '@deepseek-ai/dsh-client-ui-slots'
+export { SlotOwnershipError, StaleAuthorizationError } from '@deepseek-ai/dsh-client-ui-slots'
+export { createSlotRenderer } from './scoped-slots.tsx'
 
-/** SessionProvider dependency surface (inverted: web-react never imports runtime). */
-export interface SessionProviderDeps {
-  useCurrent: () => string | undefined
-  resolveBinding: (id: string) => SessionBinding | undefined
-  /** Assembler-owned body: the shell closes over its own scopedSlots to render the session slots. */
-  renderBody: (id: string) => ReactNode
-}
-
-export { createSessionProvider, RootBindingProvider, SlotAssemblyError, useRootBinding, useSessionBinding } from './session-provider.tsx'
-
-export { scopedSlots } from './scoped-slots.tsx'
+// -- session area: the framework-wired provider; binding contexts stay internal --
+export { SessionProvider, SlotAssemblyError, type SessionProviderProps } from './session-provider.tsx'
 
 export { useInvoke } from './use-invoke.ts'

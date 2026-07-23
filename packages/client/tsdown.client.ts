@@ -36,7 +36,6 @@ export const CLIENT_EXTERNALS = [
   'cordis',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-web-react',
-  '@deepseek-ai/dsh-client-web-react/store',
   '@deepseek-ai/dsh-client-ui-primitives',
   '@deepseek-ai/dsh-client-connection/client',
   '@deepseek-ai/dsh-client-runtime/client',
@@ -81,6 +80,21 @@ export function clientBundle(id: string, libEntry: readonly string[]): UserConfi
     dts: false,
     clean: false,
     external: CLIENT_EXTERNALS,
+    // Browser bundles inline node-idiom deps (zustand/immer read
+    // process.env.NODE_ENV; zustand's esm build also probes
+    // import.meta.env.MODE, which a CJS output cannot carry — rolldown flags
+    // EMPTY_IMPORT_META). vite defined both on the seed path; tsdown inlining
+    // needs the substitutions here or the factory throws ReferenceError at
+    // boot / the build gate reds. Both keys honor the build's NODE_ENV so a
+    // dev build keeps the dev-branch semantics; artifacts default to production.
+    // The bare `import.meta.env` key is required alongside the precise MODE
+    // key: zustand probes `import.meta.env ? import.meta.env.MODE : ...`, and
+    // the truthiness probe would otherwise survive as an empty import.meta.
+    define: {
+      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+      'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+      'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
+    },
     // tsdown auto-externalizes package dependencies; anything NOT in the
     // loader module table must inline instead (wire/type layers, zod, clsx —
     // every non-shared dep). A require() the table cannot answer is a

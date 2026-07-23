@@ -55,9 +55,9 @@ packages/
 
 包列表此前在五个地方重复枚举。统一的深度 2 布局使大部分可以被推导：
 
-- `tsconfig.base.json` 通过一条 `@deepseek-ai/dsh-*` `paths` 通配符（每个分组列一个候选）映射所有包，取代了逐包条目。根 `tsconfig.json` 复用该源映射，并携带显式 project references 以保持 package/vendor 类型检查边界完整。（这里引入了一个细节：路径候选中包含 `/*/`，朴素的正则注释剥离器会将其误认为块注释——`scripts/doc-typecheck.ts` 正是因此通过 TypeScript 解析器读取 JSONC 配置，而非手动剥离注释。）
+- `tsconfig.base.json` 通过一条 `@deepseek-ai/dsh-*` `paths` 通配符（每个分组列一个候选）映射所有包，取代了逐包条目。聚合配置（`tsconfig.host.json`、`tsconfig.client.json`）复用该源映射，并携带显式 project references 以保持 package/vendor 类型检查边界完整。（这里引入了一个细节：路径候选中包含 `/*/`，朴素的正则注释剥离器会将其误认为块注释——`scripts/doc-typecheck.ts` 正是因此通过 TypeScript 解析器读取 JSONC 配置，而非手动剥离注释。）
 - `scripts/publint-all.ts` 通过读取层级结构（`packages/<group>/<pkg>`）推导列表，解决了 `TODO(package-inventory)`。
-- `tsconfig.build.json` 的 project `references` 仍为显式列表——TypeScript project references 没有通配符形式。从 manifest（元数据清单）生成这些引用留作后续工作（见[通过发现机制获取包清单](../../proposed/process/2026-06-20-discover-package-inventory.md)）。
+- 聚合配置的 project `references` 仍为显式列表——TypeScript project references 没有通配符形式。从 manifest（元数据清单）生成这些引用留作后续工作（见[通过发现机制获取包清单](../../proposed/process/2026-06-20-discover-package-inventory.md)）。
 
 ### 新增的护栏
 
