@@ -122,8 +122,8 @@
 - id: tool-ralph
   name: '@deepseek-ai/dsh-tool-ralph'
 
-# Plan mode gives the TUI a plugin-owned /plan [message] command; the exit
-# review rides the TUI's user-interaction provider.
+# Plan mode gives the TUI plugin-owned /plan [message] entry and /plan off exit
+# commands; the reviewed exit rides the TUI's user-interaction provider.
 - id: plan-mode
   name: '@deepseek-ai/dsh-plan-mode'
   config:
