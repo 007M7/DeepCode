@@ -17,8 +17,11 @@
   transition: padding var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
+/* The 56px track paints a 1px column border, leaving a 55px content box;
+   the right padding gives back that pixel so every row holds exactly 24px
+   of content and all five glyphs share the track's 28px center axis. */
 .root.collapsed {
-  padding-top: 14px;
+  padding: 14px 15px 6px 16px;
 }
 
 /* Wide-only content: fades ahead of the geometry (200ms vs 300ms) and
@@ -55,10 +58,16 @@
     margin var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
+/* Rail axis: every collapsed row centers its surviving icon in the 55px
+   content box (56px track minus the column border), putting all five glyphs
+   on one vertical line; capsule border-widths zero out so they stop taking
+   layout space. While wide content is still fading its flex:1 spans keep
+   absorbing the free space, so justify-content only takes over at unmount. */
 .collapsed .logoRow {
   height: 24px;
   padding: 0;
   margin-bottom: 8px;
+  justify-content: center;
 }
 
 /* Brand group (figma I133:7632): fish + wordmark ride the text ink
@@ -144,7 +153,7 @@
     padding var(--ds-transition-duration-slow) var(--ds-ease-in-out),
     margin var(--ds-transition-duration-slow) var(--ds-ease-in-out),
     gap var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    border var(--ds-transition-duration-slow) var(--ds-ease-in-out),
     background-color 200ms var(--ds-ease-in-out);
 }
 
@@ -152,12 +161,14 @@
   background: var(--dsw-alias-button-floating-hover);
 }
 
+/* Border width zeroes with the color: a leftover 1px border inside the
+   border-box would shave the rail row's content below 24px. */
 .collapsed .newSession {
   height: 24px;
   padding: 0;
   margin-bottom: 8px;
   gap: 0;
-  border-color: transparent;
+  border-width: 0;
   background: transparent;
 }
 
@@ -169,7 +180,10 @@
   max-width: 200px;
   overflow: hidden;
   white-space: nowrap;
-  transition: max-width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+  /* Opacity restated: this shorthand would otherwise replace .wide's fade. */
+  transition:
+    max-width var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    opacity 200ms var(--ds-ease-in-out);
 }
 
 .collapsed .newSessionLabel {
@@ -201,6 +215,7 @@
   height: 24px;
   padding-left: 0;
   margin-bottom: 8px;
+  justify-content: center;
 }
 
 .sectionLabel {
@@ -236,7 +251,7 @@
     padding var(--ds-transition-duration-slow) var(--ds-ease-in-out),
     margin var(--ds-transition-duration-slow) var(--ds-ease-in-out),
     gap var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    border-color var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    border var(--ds-transition-duration-slow) var(--ds-ease-in-out),
     background-color 200ms var(--ds-ease-in-out);
 }
 
@@ -244,13 +259,16 @@
   --dsh-search-input-fill: var(--dsw-static-neutral-bluish-900);
 }
 
+/* Border width zeroes with the color (see .collapsed .newSession); the row
+   centers its surviving icon once the input unmounts. */
 .collapsed .search {
   height: 24px;
   padding: 0;
   margin-bottom: 8px;
   gap: 0;
-  border-color: transparent;
+  border-width: 0;
   background: transparent;
+  justify-content: center;
 }
 
 /* The capsule's leading icon, upgraded to the rail's search control. While
@@ -398,7 +416,10 @@
   max-width: 120px;
   overflow: hidden;
   white-space: nowrap;
-  transition: max-width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+  /* Opacity restated: this shorthand would otherwise replace .wide's fade. */
+  transition:
+    max-width var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+    opacity 200ms var(--ds-ease-in-out);
 }
 
 .collapsed .footLabel {
