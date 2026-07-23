@@ -11,7 +11,7 @@ import { Context } from 'cordis'
 import LlmService, { type Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
@@ -365,7 +365,7 @@ describe('Agent.cancel()', () => {
     ])
     const ctx = await harness(adapter)
     let executions = 0
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'danger',
       description: 'must not run after cancellation',
       parameters: {},
@@ -952,7 +952,7 @@ describe('Agent.cancel()', () => {
         })
         break
       case 'tool':
-        ctx.tools.register(defineTool({
+        ctx.tools.register(defineContentToolFixture({
           name: 'blocked',
           description: 'wait for cancellation',
           parameters: {},
