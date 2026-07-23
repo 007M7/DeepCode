@@ -17,6 +17,7 @@ export const askUserQuestionItemSchema = z.object({
   id: z.string(),
   question: z.string(),
   header: z.string().optional(),
+  detail: z.string().optional(),
   options: z.array(z.object({ label: z.string(), description: z.string().optional() })).optional(),
   multiSelect: z.boolean().optional(),
 }) satisfies z.ZodType<Wire<AskUserQuestionItem>>
@@ -27,7 +28,10 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('session/subscribed'), sessionId: sessionIdSchema, lastSeq: z.number().int() }),
   z.object({ type: z.literal('approval/requested'), sessionId: sessionIdSchema, approvalId: approvalRequestIdSchema, toolName: z.string(), callId: z.string().optional(), reason: z.string().optional() }),
   z.object({ type: z.literal('approval/resolved'), sessionId: sessionIdSchema, approvalId: approvalRequestIdSchema, outcome: z.union([z.literal('allowed-once'), z.literal('rejected'), z.literal('cancelled'), z.literal('unavailable')]) }),
-  z.object({ type: z.literal('question/requested'), sessionId: sessionIdSchema, questions: z.array(askUserQuestionItemSchema) }),
+  // Non-empty by wire contract: the user-interaction service rejects empty
+  // batches at ask() (EMPTY_QUESTIONS), so an empty frame is host breakage
+  // and must fail loud here, not reach the composer.
+  z.object({ type: z.literal('question/requested'), sessionId: sessionIdSchema, questions: z.array(askUserQuestionItemSchema).min(1) }),
   z.object({ type: z.literal('question/resolved'), sessionId: sessionIdSchema, questionRpcId: rpcIdSchema, outcome: z.union([z.literal('answered'), z.literal('cancelled')]) }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<MuxFrame>

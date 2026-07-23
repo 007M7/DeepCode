@@ -137,6 +137,7 @@ flowchart TD
     pkg_client_ui_conversation["client-ui-conversation"]
     pkg_client_ui_layout["client-ui-layout"]
     pkg_client_ui_primitives["client-ui-primitives"]
+    pkg_client_ui_question["client-ui-question"]
     pkg_client_ui_sidebar["client-ui-sidebar"]
     pkg_client_ui_slots["client-ui-slots"]
     pkg_client_ui_theme["client-ui-theme"]
@@ -216,6 +217,7 @@ flowchart TD
   pkg_client_ui_conversation --> pkg_invariants
   pkg_client_ui_layout --> pkg_invariants
   pkg_client_ui_primitives --> pkg_invariants
+  pkg_client_ui_question --> pkg_invariants
   pkg_client_ui_sidebar --> pkg_invariants
   pkg_client_ui_slots --> pkg_invariants
   pkg_client_ui_theme --> pkg_invariants
@@ -765,6 +767,7 @@ flowchart TD
 | [`client-ui-conversation`](../packages/client/ui-conversation) | `client` | [`invariants`](../packages/support/invariants) |
 | [`client-ui-layout`](../packages/client/ui-layout) | `client` | [`invariants`](../packages/support/invariants) |
 | [`client-ui-primitives`](../packages/client/ui-primitives) | `client` | [`invariants`](../packages/support/invariants) |
+| [`client-ui-question`](../packages/client/ui-question) | `client` | [`invariants`](../packages/support/invariants) |
 | [`client-ui-sidebar`](../packages/client/ui-sidebar) | `client` | [`invariants`](../packages/support/invariants) |
 | [`client-ui-slots`](../packages/client/ui-slots) | `client` | [`invariants`](../packages/support/invariants) |
 | [`client-ui-theme`](../packages/client/ui-theme) | `client` | [`invariants`](../packages/support/invariants) |
