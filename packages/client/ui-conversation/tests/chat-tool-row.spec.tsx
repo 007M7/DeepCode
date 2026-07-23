@@ -6,6 +6,7 @@ afterEach(cleanup)
 import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import { classifyTool, toolRowModel } from '../src/client/contract/tool-call-model.ts'
+import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { ToolRow } from '../src/client/chat/ToolRow.tsx'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
 import type { ToolViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -111,6 +112,25 @@ describe('ToolRow', () => {
     expect(open).toHaveBeenCalledTimes(1)
     fireEvent.click(view.container.querySelector('button')!)
     expect(open).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ThinkRow', () => {
+  it('expands from either Think or the reasoning summary', () => {
+    const view = render(
+      <AssistantMarkdown
+        blocks={[{ kind: 'reasoning', text: 'Inspect the session\nCheck persistence' }]}
+        streaming={false}
+      />,
+    )
+    const row = view.getByRole('button')
+
+    fireEvent.click(view.getByText('Inspect the session'))
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByText(/Check persistence/)).toBeTruthy()
+
+    fireEvent.click(view.getByText('Think'))
+    expect(row.getAttribute('aria-expanded')).toBe('false')
   })
 })
 
