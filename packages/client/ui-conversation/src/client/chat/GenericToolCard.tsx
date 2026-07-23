@@ -17,6 +17,7 @@ const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
   search: <IconSearchOutline16 />,
   read: <IconBrowseOutline16 />,
   bash: <IconApiOutline14 size={16} />,
+  write: <IconEditOutline16 />,
   edit: <IconEditOutline16 />,
   others: <IconSparkle16 />,
 }

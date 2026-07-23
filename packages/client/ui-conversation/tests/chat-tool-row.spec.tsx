@@ -29,6 +29,7 @@ describe('tool-call-model', () => {
     expect(classifyTool('web_fetch')).toBe('read')
     expect(classifyTool('web_search')).toBe('search')
     expect(classifyTool('grep')).toBe('search')
+    expect(classifyTool('write')).toBe('write')
     expect(classifyTool('edit')).toBe('edit')
     expect(classifyTool('todo_write')).toBe('others')
   })
@@ -50,6 +51,7 @@ describe('tool-call-model', () => {
   it('keeps summaries single-line and falls back for opaque args', () => {
     expect(toolRowModel('bash', running({ argsRaw: '{"command":"a\\nb"}' })).summary).toBe('a')
     expect(toolRowModel('read', running({ name: 'read', argsRaw: '{"path":"/tmp/x.ts"}' })).summary).toBe('/tmp/x.ts')
+    expect(toolRowModel('write', running({ name: 'write', argsRaw: '{"file_path":"src/x.ts"}' })).summary).toBe('src/x.ts')
     expect(toolRowModel('edit', running({ name: 'edit', argsRaw: '{"file_path":"src/x.ts"}' })).summary).toBe('src/x.ts')
     // Others rows prefix the real tool name into the summary slot (figma-flows
     // ruling: static "Tool call" title, name rides the mutable summary).
@@ -170,6 +172,19 @@ describe('GenericToolCard', () => {
     expect(view.getByText('Edit')).toBeTruthy()
     expect(view.getByText('src/x.ts')).toBeTruthy()
     expect(view.container.querySelector('[data-variant="edit"]')).not.toBeNull()
+    expect(view.container.querySelector('svg')).not.toBeNull()
+  })
+
+  it('renders write with its dedicated title, icon variant, and path summary', () => {
+    const view = render(
+      <GenericToolCard {...props('write', running({
+        name: 'write',
+        argsRaw: '{"file_path":"src/x.ts","content":"hello"}',
+      }))} />,
+    )
+    expect(view.getByText('Write')).toBeTruthy()
+    expect(view.getByText('src/x.ts')).toBeTruthy()
+    expect(view.container.querySelector('[data-variant="write"]')).not.toBeNull()
     expect(view.container.querySelector('svg')).not.toBeNull()
   })
 

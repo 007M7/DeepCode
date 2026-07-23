@@ -2,7 +2,7 @@
 
 Conversation domain: skeleton (header/tabs/composer/empty state), chat view (grouped step-summary flow, streaming tail isolation), ctx.toolviews named registry with bash samples, minimal details panel, scope-addressed ConversationService. Contract: api-contracts v3 §7 plus the slot terminal design (store seat / props shares).
 
-Generic tool rows classify the built-in bash, read, search, and edit names into dedicated visual variants. The edit variant renders the edit icon and `Edit · <path>` summary while retaining the shared row-to-details interaction.
+Generic tool rows classify the built-in bash, read, search, write, and edit names into dedicated visual variants. The filesystem variants render the edit icon and `Write · <path>` or `Edit · <path>` summary while retaining the shared row-to-details interaction.
 
 Per-session UI state (selection, composer draft, active view) lives in the declared chat store (`stores.ts` `createChatStore`): apply constructs one handle and passes it to both the conversation and details registrations, so the two session slots share one instance per session (selection written by conversation, read by details) and the framework owns instance lifecycle and draft persistence. Components are pure — the framework standard kit (`useSession`/`sessionId`/`useSessions`) and the store faces (`useStore`/`actions`) arrive automatically from the registration declaration; the inject factories contribute plain data and callbacks only (send/stop choreography, view registry read face, startSession chain).
 
