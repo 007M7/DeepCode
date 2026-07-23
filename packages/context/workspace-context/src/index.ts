@@ -129,8 +129,7 @@ export function apply(ctx: Context, config: Config): void {
     if (update === undefined) return downstream
     pendingVersionUpdates.set(exec.token, update.versionUpdates)
     return {
-      kind: 'accept',
-      ...downstream.content !== undefined ? { content: downstream.content } : {},
+      ...downstream,
       additionalContexts: [update.context, ...downstream.additionalContexts ?? []],
     }
   })

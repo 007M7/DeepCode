@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { RUN_CODE_NAME, defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { RUN_CODE_NAME, defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { agentEvents, type Agent, type RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
@@ -101,13 +101,23 @@ function noticeTexts(session: Session): string[] {
 
 function registerNamedTools(ctx: Context, names: string[]): void {
   for (const name of names) {
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name,
       description: `test tool ${name}`,
       parameters: {},
       execute: () => Promise.resolve([{ type: 'text', text: `ran ${name}` }]),
     }))
   }
+}
+
+/** Assert the mapped Code Mode SDK includes the stable plan exit binding and test tools. */
+function expectPlanCodeSdkBindings(sdk: string): void {
+  expect(sdk).toContain('interface ToolArgsMap {')
+  expect(sdk).toContain('read: Record<string, JsonValue>;')
+  expect(sdk).toContain('write: Record<string, JsonValue>;')
+  expect(sdk).toContain('interface ToolOutputMap {')
+  expect(sdk).toContain('exit_plan_mode: {\n    approved: true;\n  };')
+  expect(sdk).toContain('[K in ToolName]: (args: ToolArgsMap[K]) => Promise<ToolOutputMap[K]>;')
 }
 
 let callCounter = 0
@@ -445,9 +455,7 @@ describe('the soft layer', () => {
     // The SDK documents the full binding set plus the exit; plan mode never
     // prunes capabilities and restrains through guidance alone.
     const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-    expect(sdk).toContain('read(args:')
-    expect(sdk).toContain('write(args:')
-    expect(sdk).toContain('exit_plan_mode(args:')
+    expectPlanCodeSdkBindings(sdk)
   })
 
   it('keeps native wire schemas and the SDK in step under mode both', async () => {
@@ -468,9 +476,7 @@ describe('the soft layer', () => {
     // is present on the wire AND in the SDK alongside the untouched toolset.
     expect(assembly.tools.map(tool => tool.name).sort()).toEqual(['exit_plan_mode', 'read', 'run_code', 'write'])
     const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-    expect(sdk).toContain('read(args:')
-    expect(sdk).toContain('write(args:')
-    expect(sdk).toContain('exit_plan_mode(args:')
+    expectPlanCodeSdkBindings(sdk)
   })
 
   it('keeps the Code Mode SDK byte-identical across mode switches', async () => {
@@ -487,9 +493,7 @@ describe('the soft layer', () => {
     registerNamedTools(withPlanMode, ['read', 'write'])
     const agent = await agentWithSession(withPlanMode)
     const defaultSdk = (await assembleFor(withPlanMode, agent)).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-    expect(defaultSdk).toContain('read(args:')
-    expect(defaultSdk).toContain('write(args:')
-    expect(defaultSdk).toContain('exit_plan_mode(args:')
+    expectPlanCodeSdkBindings(defaultSdk)
     agent.session.append('plan/mode', { active: true })
     const planSdk = (await assembleFor(withPlanMode, agent)).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
     expect(planSdk).toBe(defaultSdk)
@@ -502,7 +506,7 @@ describe('the soft layer', () => {
     await bare.plugin(FakeRuntime)
     registerNamedTools(bare, ['read', 'write'])
     const bareSdk = (await bare.systemPrompt.assemble({ agent })).sections.find(section => section.name === 'tools:sdk')?.text ?? ''
-    expect(bareSdk).not.toContain('exit_plan_mode(args:')
+    expect(bareSdk).not.toContain('exit_plan_mode:')
     expect(defaultSdk).not.toBe(bareSdk)
   })
 })
@@ -662,6 +666,8 @@ describe('exit_plan_mode', () => {
     const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected approved plan result')
+    expect(result.value).toEqual({ approved: true })
     expect(result.content).toEqual([{ type: 'text', text: 'Plan approved — plan mode exited; carry out the plan starting with your next step.' }])
     // Boundary-applied, not a direct append: the fold stays plan until the
     // step's end, so the plan policy covers any remaining call of the SAME batch.

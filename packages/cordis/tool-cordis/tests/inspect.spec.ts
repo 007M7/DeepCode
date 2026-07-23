@@ -16,6 +16,8 @@ describe('cordis_inspect', () => {
     const result = await call(ctx, 'cordis_inspect', {})
     expect(result.isError).toBe(false)
     const report = text(result)
+    if (result.isError) throw new Error('expected cordis_inspect success')
+    expect(result.value).toBe(report)
     for (const heading of ['services', 'plugins', 'tools', 'dynamic', 'api', 'events']) {
       expect(report).toContain(`## ${heading}`)
     }
