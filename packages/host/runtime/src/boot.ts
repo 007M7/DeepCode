@@ -70,8 +70,8 @@ export interface BootHostOptions {
   model?: string
   /** Deterministic fallback-title limits. */
   sessionTitle?: SessionTitleConfig
-  /** First-message model-title policy; omitted provider/model inherit the session's logged main-request route. */
-  sessionTitleLlm?: SessionTitleLlmConfig
+  /** Opt-in first-message model-title policy; `true` selects host defaults and an explicit config overrides them. */
+  sessionTitleLlm?: true | SessionTitleLlmConfig
   /**
    * Default project directory for sessions created without an explicit cwd
    * (defaults to the host process working directory). A session's cwd is its
@@ -116,7 +116,12 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionTitleService, options.sessionTitle ?? DEFAULT_SESSION_TITLE_CONFIG)
-  await ctx.plugin(SessionTitleFirstMessageLlm, options.sessionTitleLlm ?? DEFAULT_SESSION_TITLE_LLM_CONFIG)
+  if (options.sessionTitleLlm !== undefined) {
+    await ctx.plugin(
+      SessionTitleFirstMessageLlm,
+      options.sessionTitleLlm === true ? DEFAULT_SESSION_TITLE_LLM_CONFIG : options.sessionTitleLlm,
+    )
+  }
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)

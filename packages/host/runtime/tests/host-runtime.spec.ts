@@ -104,7 +104,7 @@ afterEach(async () => {
 async function boot(
   script: (StreamChunk[] | 'hang')[] = [],
   sessionTitle?: SessionTitleConfig,
-  sessionTitleLlm?: SessionTitleLlmConfig,
+  sessionTitleLlm?: true | SessionTitleLlmConfig,
 ): Promise<RunningHost> {
   host = await startHost({
     boot: {
@@ -188,6 +188,23 @@ describe('bootHost / startHost', () => {
     expect(requestText).toContain('Instructions from: AGENTS.md')
     expect(requestText).toContain('host-workspace-context-probe')
   })
+
+  it('keeps model title generation disabled when sessionTitleLlm is omitted', async () => {
+    const running = await boot([textResponse('pong')])
+    const { api, ctx } = running
+    const { sessionId } = expectOk(await api.sessions.create(request({})))
+    const agent = ctx.agents.get(sessionId) as Agent
+    const idle = waitForIdle(ctx, agent)
+    expectOk(await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'Explain durable session titles.' }],
+    })))
+    await idle
+
+    expect((await ctx.sessionTitle.refresh(agent.session))?.source).toEqual({ kind: 'fallback' })
+    expect(agent.session.events.some(event => event.type === 'session/title-llm-request')).toBe(false)
+  })
 })
 
 describe('host.describe', () => {
@@ -218,7 +235,7 @@ describe('sessions.create / list', () => {
 
 describe('sessions.prompt / cancel', () => {
   it.each([
-    { name: 'host default', config: undefined, target: '5 words', maxTokens: 64 },
+    { name: 'host default', config: true, target: '5 words', maxTokens: 64 },
     {
       name: 'configured policy',
       config: {
@@ -233,7 +250,7 @@ describe('sessions.prompt / cancel', () => {
     },
   ] satisfies {
     name: string
-    config: SessionTitleLlmConfig | undefined
+    config: true | SessionTitleLlmConfig
     target: string
     maxTokens: number
   }[])('replaces the fallback with a model-backed first-message title using the $name', async ({ config, target, maxTokens }) => {
