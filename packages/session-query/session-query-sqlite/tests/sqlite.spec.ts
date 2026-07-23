@@ -482,6 +482,7 @@ describe('SQLite session search', () => {
       { path: ':memory:', defaultLimit: 1e100 },
       { path: ':memory:', maxLimit: 1e100 },
       { path: ':memory:', snippetChars: 0 },
+      { path: ':memory:', readWindowMax: -1 },
       { path: ':memory:', defaultLimit: 3, maxLimit: 2 },
       { path: ':memory:', journalMode: 'memory' },
     ]) {
@@ -489,6 +490,7 @@ describe('SQLite session search', () => {
       await direct.plugin(SessionStore)
       expect(() => new SessionQuerySqlite(direct, config as never))
         .toThrow(expectCode('SESSION_QUERY_INVALID_CONFIG'))
+      expect(direct.sessionQuery).toBeUndefined()
     }
   })
 

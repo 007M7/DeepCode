@@ -191,8 +191,10 @@ export class SessionQuerySqlite extends SessionQueryService {
   private readonly _optionalPersistenceFiber: Fiber
 
   constructor(ctx: Context, config: Config) {
-    super(ctx, config)
-    this.config = resolveConfig(config)
+    // The assignment expression resolves before the base constructor can
+    // register `ctx.sessionQuery`; keep that same validated value afterward.
+    super(ctx, config = resolveConfig(config))
+    this.config = config as ResolvedConfig
     this._ready = this._open()
     this._optionalPersistenceFiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
       const service = childCtx.sessionPersistence
@@ -919,6 +921,9 @@ function resolveConfig(config: Config): ResolvedConfig {
   assertPageLimit('defaultLimit', resolved.defaultLimit)
   assertPageLimit('maxLimit', resolved.maxLimit)
   assertPositiveInteger('snippetChars', resolved.snippetChars)
+  if (!Number.isInteger(resolved.readWindowMax) || resolved.readWindowMax < 0) {
+    throw invalidConfig('readWindowMax must be a non-negative integer')
+  }
   if (resolved.defaultLimit > resolved.maxLimit) {
     throw invalidConfig('defaultLimit must be less than or equal to maxLimit')
   }
