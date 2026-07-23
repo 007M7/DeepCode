@@ -1,7 +1,6 @@
 import { useState, type KeyboardEvent } from 'react'
 import clsx from 'clsx'
 import type { QuestionResponsePayload } from '@deepseek-ai/dsh-client-connection/client'
-import type { PendingInteraction } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   Button, IconCheckOutline16, IconChevronLeftOutline14, IconChevronRightOutline14,
   IconCloseOutline16, IconEditOutline16,
@@ -9,7 +8,7 @@ import {
 import type { QuestionComposerOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import css from './QuestionComposer.module.css'
 
-type QuestionInteraction = Extract<PendingInteraction, { kind: 'question' }>
+type QuestionInteraction = QuestionComposerOwnerProps['interaction']
 type Answer = QuestionResponsePayload['answer']
 
 interface DraftAnswer {
@@ -27,7 +26,9 @@ export interface QuestionComposerInjected {
   }
 }
 
-/** Full question-composer props. */
+/** Consumed question-composer props: the slot's owner share & the injected
+ *  share. A strict subset of the composed props the register site proves
+ *  (the framework session/global standard kit goes unconsumed here). */
 export type QuestionComposerProps = QuestionComposerOwnerProps & QuestionComposerInjected
 
 /**

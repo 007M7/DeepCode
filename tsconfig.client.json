@@ -4,14 +4,13 @@
   // under the same keys (sessions, loader) with different services; shared
   // leaves (session/llm/tools/apiproxy/...) build once and are referenced by
   // both programs through each client package's own references.
-  "extends": "./tsconfig.base.json",
+  "extends": "./tsconfig.base.client.json",
   "compilerOptions": {
     "noEmit": true,
     "rewriteRelativeImportExtensions": false,
-    "jsx": "react-jsx",
-    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     // Tests execute under vitest on node (e2e files spawn processes); browser
-    // purity of package src is each package's own tsconfig + verify-client-closure.
+    // purity of package src is each package's own tsconfig plus
+    // scripts/client-bundle-purity.spec.ts.
     "types": ["node"]
   },
   "include": [

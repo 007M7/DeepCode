@@ -3,20 +3,26 @@
 // toolview dispatch and selection handoff — driven through a scripted
 // ObservableSnapshot fake, no wire.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
   AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, ToolResultNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
+import { hookOf } from './hook.ts'
+import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConvViewProps, SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { createChatStore } from '../src/client/stores.ts'
 import { createChatView } from '../src/client/chat/ChatView.tsx'
 import { deriveChatFlow, flowKeys } from '../src/client/chat/chat-flow.ts'
 
 afterEach(cleanup)
+// Keyless create() persists under the bare declared key; clear between cases
+// so one harness's selection cannot rehydrate into the next.
+beforeEach(() => {
+  localStorage.clear()
+})
 
 const SID = 's1' as SessionId
 
@@ -68,33 +74,17 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const ChatView = createChatView({ toolviews: registry, t: (k) => k })
   const openDetails = vi.fn<(t: SelectionTarget) => void>()
   const loadOlder = vi.fn()
-  const selection = makeSelection()
+  // Selection rides the REAL chat store (same construction path as
+  // production; the view reads it through the ConvViewProps useStore share).
+  const chat = createChatStore().create()
   const props: ConvViewProps = {
     sessionId: SID,
-    useSession: bindSnapshotSelector(source) as unknown as UseSession,
-    useSelection: bindSnapshotSelector(selection.source),
+    useSession: hookOf(source) as unknown as UseSession,
+    useStore: hookOf(chat),
     actions: { openDetails, loadOlder },
-    slots: { renderSlot: () => null } as never,
   }
-  return { set, registry, ChatView, props, openDetails, loadOlder, setSelection: selection.set }
-}
-
-function makeSelection() {
-  let sel: SelectionTarget | null = null
-  const subs = new Set<() => void>()
-  return {
-    set(next: SelectionTarget | null) {
-      sel = next
-      for (const fn of [...subs]) fn()
-    },
-    source: {
-      getSnapshot: () => sel,
-      subscribe: (fn: () => void) => {
-        subs.add(fn)
-        return () => subs.delete(fn)
-      },
-    },
-  }
+  const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
+  return { set, registry, ChatView, props, openDetails, loadOlder, setSelection }
 }
 
 describe('chat-flow derivation', () => {

@@ -1,12 +1,14 @@
 // EmptyState (figma NEW SESSION screen): centered hero card built around the
 // SAME InputBar component the resident composer uses (the empty→content
 // transition is one component changing position, never a swap). Project
-// picker: cwd set derived from sessions.list plus a free-form new-directory
-// input; submit runs the startSession chain (create → open → send) in one
-// service call.
+// picker: cwd set derived in-component from the standard useSessions hook
+// (subscription is the framework's, derivation is a pure function — design
+// §6) plus a free-form new-directory input; submit runs the startSession
+// chain (create → open → send) in one service call.
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
 import type { EmptyStateSlotProps } from '../contract/slots.ts'
 import { InputBar } from './InputBar.tsx'
 import type { InputBarError } from './InputBar.tsx'
@@ -15,11 +17,22 @@ import css from './EmptyState.module.css'
 /** Select sentinel for the free-form directory entry (impossible as a real path: not absolute). */
 const NEW_DIR = '::new-directory'
 
-/** Full props composed by reference from the contract (owner & injected shares; root slot has no standard share). */
+/** Full props composed by reference from the contract (runtime share & injected share; no store). */
 export type EmptyStateProps = EmptyStateSlotProps
 
-export function EmptyState({ useCwds, actions }: EmptyStateProps) {
-  const cwds = useCwds(s => s)
+/** Deduped cwd set in list order (pure derivation over the sessions list). */
+function deriveCwds(state: SessionListState): readonly string[] {
+  const seen = new Set<string>()
+  for (const id of state.ids) {
+    const cwd = state.byId[id]?.cwd
+    if (cwd !== undefined && cwd !== '') seen.add(cwd)
+  }
+  return [...seen]
+}
+
+export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
+  const list = useSessions(s => s)
+  const cwds = useMemo(() => deriveCwds(list), [list])
   // Local viewing state: the empty state owns no session, so its draft is
   // ephemeral by design (drafts are keyed by session id; there is none yet).
   const [draft, setDraft] = useState('')
@@ -35,14 +48,14 @@ export function EmptyState({ useCwds, actions }: EmptyStateProps) {
     setSending(true)
     setError(null)
     const chosen = cwd.trim()
-    actions.startSession({ text, mode, ...(chosen === '' ? {} : { cwd: chosen }) })
+    startSession({ text, mode, ...(chosen === '' ? {} : { cwd: chosen }) })
       .catch((reason: unknown) => {
         // The empty state survives failure with the draft intact (no session
         // exists to carry promptError; this is the only local error surface).
         setError({ op: 'send', message: reason instanceof Error ? reason.message : String(reason) })
         setSending(false)
       })
-    // Success needs no cleanup: layout.open swaps this slot out for the session body.
+    // Success needs no cleanup: the session selection swaps this slot out for the session body.
   }
 
   const picker = (

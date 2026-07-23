@@ -14,6 +14,15 @@ function interaction(): QuestionInteraction {
   }
 }
 
+/** Declare the conversation-owned composer slot the way production does: a
+ *  parent entry's children table (register is the single declaration API). */
+function declareComposerSlot(slots: SlotsService): void {
+  slots.register({
+    name: 'root',
+    children: { 'conversation.composer': { kind: 'keyed', scope: 'session' } },
+  } as never, (() => null) as never)
+}
+
 describe('ui-question browser plugin', () => {
   it('declares its services and fails loud without them', () => {
     expect(inject).toEqual(['slots', 'sessions'])
@@ -33,17 +42,19 @@ describe('ui-question browser plugin', () => {
       manager: { get: vi.fn(() => ({ answerQuestion, cancelQuestion })) },
     })
     const slots = ctx.get('slots') as SlotsService
-    slots.define('conversation.composer', { kind: 'keyed', scope: 'session' })
+    declareComposerSlot(slots)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
 
     const entry = slots.entries('conversation.composer')[0] as unknown as {
-      options: { inject(binding: { sessionId: SessionId }): { actions: {
+      options: { key: string }
+      inject(sessionId: SessionId): { actions: {
         answer: (item: QuestionInteraction, answer: { answers: { id: string; selected: string[] }[] }) => Promise<void>
         cancel: (item: QuestionInteraction) => Promise<void>
-      } } }
+      } }
     }
-    const actions = entry.options.inject({ sessionId: 'session-1' as SessionId }).actions
+    expect(entry.options.key).toBe('question')
+    const actions = entry.inject('session-1' as SessionId).actions
     const item = interaction()
     const answer = { answers: [{ id: 'mode', selected: ['Fast'] }] }
 

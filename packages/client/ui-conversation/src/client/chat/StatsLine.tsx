@@ -7,7 +7,7 @@
 
 import { memo, useMemo } from 'react'
 import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
+import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChromeProps } from '../contract/views.ts'
 import css from './StatsLine.module.css'
 

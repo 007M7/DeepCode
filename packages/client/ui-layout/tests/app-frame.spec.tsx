@@ -1,16 +1,33 @@
 // @vitest-environment jsdom
 /**
- * AppFrame interaction spec: drag sequences (pointer capture + rAF flush),
- * concession response to viewport change, details stays mounted at zero
- * width. jsdom has no layout engine, so the frame width comes from a mocked
- * getBoundingClientRect and resizes are driven through the ResizeObserver
- * stub; assertions read the inline grid template.
+ * AppFrame interaction spec under the four-share props form: real layout
+ * store instance (createLayoutStore().create() — the test-sanctioned engine
+ * path), a recording renderSlot stub, and a render-prop SessionProvider stub
+ * (the real one is framework-wired to the renderer host; its own behavior is
+ * web-react's spec territory). Drag sequences (pointer capture + rAF flush),
+ * concession response to viewport change, and details staying mounted at
+ * zero width are the preserved behavior assertions. jsdom has no layout
+ * engine, so the frame width comes from a mocked getBoundingClientRect and
+ * resizes are driven through the ResizeObserver stub.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-web-react'
-import { AppFrame, CenterColumn, DetailsColumn, type PanelState } from '@deepseek-ai/dsh-client-ui-layout/client'
-import { clampWidth } from '@deepseek-ai/dsh-client-ui-layout/client'
+import { useSyncExternalStore } from 'react'
+import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
+import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
+import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
+
+// Session-mode switch for the SessionProvider stub prop.
+const sessionMode = { current: true }
+
+// Render-prop contract stub fed through the standard seat prop (the renderer
+// injects the real one in production): session mode runs children(id), empty
+// mode runs the empty branch — the frame must work against exactly this
+// shape. Typed as the seat's own component type so the branded sessionId
+// parameter stays contract-checked.
+const SessionProviderStub: AppFrameProps['SessionProvider'] = ({ children, empty }) =>
+  sessionMode.current ? <>{children('s-test' as Parameters<typeof children>[0])}</> : <>{empty?.() ?? null}</>
+
 
 /** Observer stub: captures the callback so tests can fire resizes manually. */
 let fireResize: (() => void) | null = null
@@ -24,24 +41,35 @@ class ResizeObserverStub {
 
 let frameWidth = 1920
 
+/** Minimal selector hook over an engine instance (the engine carries no hook since the store migration; the renderer binds in production, the spec binds here). */
+function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapshot: () => T }) {
+  return <S,>(sel: (s: T) => S): S => sel(useSyncExternalStore(inst.subscribe, inst.getSnapshot))
+}
+
 function mountFrame() {
   window.innerWidth = frameWidth // first-render viewport source before the observer fires
-  const sidebar = createSnapshotStore<PanelState>({ open: true, width: 300 })
-  const details = createSnapshotStore<PanelState>({ open: true, width: 360 })
+  const instance = createLayoutStore().create()
+  instance.actions.openDetails() // seed: sidebar at default 300, details open at default 360
+  const slotCalls: { key: string; props: unknown }[] = []
+  const renderSlot = ((key: string, owner: object) => {
+    slotCalls.push({ key, props: owner })
+    if (key === 'sidebar') return <div data-testid="sidebar-content" />
+    if (key === 'conversation') return <div data-testid="center-content" />
+    if (key === 'details') return <div data-testid="details-content" />
+    return <div data-testid="empty-content" />
+  }) as AppFrameProps['renderSlot']
+  const useSessions = ((sel: (s: unknown) => unknown) => sel({ ids: [], byId: {} })) as never
   const utils = render(
     <AppFrame
-      useSidebar={sidebar.useSelector}
-      useDetails={details.useSelector}
-      setSidebarWidth={(px) => { sidebar.update((d) => { d.width = clampWidth(px, 240, 420) }) }}
-      setDetailsWidth={(px) => { details.update((d) => { d.width = clampWidth(px, 300, 520) }) }}
-      sidebar={<div data-testid="sidebar-content" />}
-    >
-      <CenterColumn><div data-testid="center-content" /></CenterColumn>
-      <DetailsColumn><div data-testid="details-content" /></DetailsColumn>
-    </AppFrame>,
+      useStore={hookOf(instance) as never}
+      actions={instance.actions}
+      renderSlot={renderSlot}
+      useSessions={useSessions}
+      SessionProvider={SessionProviderStub}
+    />,
   )
   const frame = utils.container.firstElementChild as HTMLElement
-  return { sidebar, details, frame, ...utils }
+  return { instance, frame, slotCalls, ...utils }
 }
 
 function tracks(frame: HTMLElement): number[] {
@@ -61,6 +89,8 @@ function drag(handle: Element, fromX: number, toX: number): void {
 
 beforeEach(() => {
   frameWidth = 1920
+  sessionMode.current = true
+  localStorage.clear() // the layout store persists; instances must not bleed across tests
   vi.useFakeTimers()
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(() => { cb(0) }, 16) as unknown as number)
@@ -83,9 +113,35 @@ afterEach(() => {
 })
 
 describe('AppFrame', () => {
-  it('renders three tracks from panel state', () => {
+  it('renders three tracks from store state', () => {
     const { frame } = mountFrame()
     expect(tracks(frame)).toEqual([300, 360])
+  })
+
+  it('renders the session pair with empty owner shares (sessionId is framework-standard)', () => {
+    const { slotCalls, getByTestId } = mountFrame()
+    expect(getByTestId('center-content')).toBeTruthy()
+    expect(getByTestId('details-content')).toBeTruthy()
+    const keys = slotCalls.map((c) => c.key)
+    expect(keys).toContain('conversation')
+    expect(keys).toContain('details')
+    expect(keys).not.toContain('conversation.empty')
+    expect(slotCalls.find((c) => c.key === 'conversation')!.props).toEqual({})
+    expect(slotCalls.find((c) => c.key === 'details')!.props).toEqual({})
+  })
+
+  it('renders the empty branch through conversation.empty when no session is current', () => {
+    sessionMode.current = false
+    const { slotCalls, getByTestId, queryByTestId } = mountFrame()
+    expect(getByTestId('empty-content')).toBeTruthy()
+    expect(queryByTestId('center-content')).toBeNull()
+    expect(slotCalls.map((c) => c.key)).toContain('conversation.empty')
+    expect(slotCalls.map((c) => c.key)).not.toContain('conversation')
+  })
+
+  it('sidebar slot receives live concession output as owner props', () => {
+    const { slotCalls } = mountFrame()
+    expect(slotCalls.find((c) => c.key === 'sidebar')!.props).toEqual({ collapsed: false, width: 300 })
   })
 
   it('sidebar drag widens through rAF-batched pointer moves', () => {
@@ -104,16 +160,16 @@ describe('AppFrame', () => {
 
   it('drag base is the rendered (concession-clamped) width, not the preference', () => {
     frameWidth = 1250 // step-2 squeeze: details renders 310 while preference is 360
-    const { frame, details } = mountFrame()
+    const { frame, instance } = mountFrame()
     expect(tracks(frame)).toEqual([300, 310])
     const handles = frame.querySelectorAll('[class*="handle"]')
     drag(handles[1]!, 940, 950) // shrink by 10 from the rendered width
-    expect(details.getSnapshot().width).toBe(300)
+    expect(instance.getSnapshot().details).toBe(300)
   })
 
   it('details column stays mounted at zero width', () => {
-    const { frame, details, getByTestId } = mountFrame()
-    act(() => { details.update((d) => { d.open = false }) })
+    const { frame, instance, getByTestId } = mountFrame()
+    act(() => { instance.actions.closeDetails() })
     expect(tracks(frame)).toEqual([300, 0])
     expect(getByTestId('details-content')).toBeTruthy()
     expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
@@ -130,31 +186,31 @@ describe('AppFrame', () => {
   })
 
   it('drag handles disappear for collapsed columns', () => {
-    const { frame, details, sidebar } = mountFrame()
+    const { frame, instance } = mountFrame()
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
-    act(() => { details.update((d) => { d.open = false }) })
+    act(() => { instance.actions.closeDetails() })
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
-    act(() => { sidebar.update((d) => { d.open = false }) })
+    act(() => { instance.actions.toggleSidebar() })
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
   })
 })
 
 describe('AppFrame — guard branches', () => {
   it('pointer moves without capture are ignored (no width write)', () => {
-    const { frame, sidebar } = mountFrame()
+    const { frame, instance } = mountFrame()
     const handle = frame.querySelectorAll('[class*="handle"]')[0]!
-    const before = sidebar.getSnapshot().width
+    const before = instance.getSnapshot().sidebar
     // Move + up without a preceding pointerdown: hasPointerCapture is false.
     act(() => {
       handle.dispatchEvent(new PointerEvent('pointermove', { pointerId: 9, clientX: 500, bubbles: true }))
       vi.advanceTimersByTime(20)
       handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 9, clientX: 500, bubbles: true }))
     })
-    expect(sidebar.getSnapshot().width).toBe(before)
+    expect(instance.getSnapshot().sidebar).toBe(before)
   })
 
   it('two moves inside one frame coalesce through the pending rAF', () => {
-    const { frame, sidebar } = mountFrame()
+    const { frame, instance } = mountFrame()
     const handle = frame.querySelectorAll('[class*="handle"]')[0]!
     act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 300, bubbles: true })) })
     act(() => {
@@ -165,11 +221,11 @@ describe('AppFrame — guard branches', () => {
       vi.advanceTimersByTime(20)
     })
     act(() => { handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 340, bubbles: true })) })
-    expect(sidebar.getSnapshot().width).toBe(340)
+    expect(instance.getSnapshot().sidebar).toBe(340)
   })
 
   it('pointerup with a pending rAF cancels it and commits the final position', () => {
-    const { frame, sidebar } = mountFrame()
+    const { frame, instance } = mountFrame()
     const handle = frame.querySelectorAll('[class*="handle"]')[0]!
     act(() => { handle.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientX: 300, bubbles: true })) })
     act(() => {
@@ -177,7 +233,7 @@ describe('AppFrame — guard branches', () => {
       // No timer advance: the rAF is still pending when pointerup arrives.
       handle.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 360, bubbles: true }))
     })
-    expect(sidebar.getSnapshot().width).toBe(360)
+    expect(instance.getSnapshot().sidebar).toBe(360)
   })
 
   it('zero-width resize reports are ignored (display:none window)', () => {
@@ -199,7 +255,7 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
     expect(() => { vi.advanceTimersByTime(20) }).not.toThrow()
   })
 
-  it('double resize inside one frame rides the pending rAF (?"?= guard)', () => {
+  it('double resize inside one frame rides the pending rAF (??= guard)', () => {
     const { frame } = mountFrame()
     frameWidth = 1250
     act(() => { fireResize?.(); fireResize?.(); vi.advanceTimersByTime(20) })

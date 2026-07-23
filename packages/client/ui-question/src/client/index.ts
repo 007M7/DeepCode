@@ -1,9 +1,11 @@
 /**
  * Web question plugin, browser half: registers a composer replacement for
- * pending ask_user_question requests.
+ * pending ask_user_question requests into the conversation-declared keyed
+ * `conversation.composer` slot (single register API — the slot exists because
+ * the conversation entry's children declaration created it).
  */
 import type { Context } from 'cordis'
-import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId, SessionsService, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { QuestionComposer, type QuestionComposerInjected } from './QuestionComposer.tsx'
 
 export { QuestionComposer, parseRecommendedLabel } from './QuestionComposer.tsx'
@@ -17,15 +19,16 @@ export const inject = ['slots', 'sessions']
  * @param ctx - Browser plugin context carrying slots and sessions.
  */
 export function apply(ctx: Context): void {
-  const slots = ctx.get('slots')
+  const slots = ctx.get('slots') as SlotsService | undefined
   const sessions = ctx.get('sessions') as SessionsService | undefined
   if (slots === undefined || sessions === undefined) {
     throw new Error('ui-question: slots and sessions services are required')
   }
-  slots.register<'conversation.composer', QuestionComposerInjected>('conversation.composer', QuestionComposer, {
+  slots.register({
+    name: 'conversation.composer',
     key: 'question',
-    inject(binding): QuestionComposerInjected {
-      const session = sessions.manager.get(binding.sessionId as SessionId)
+    inject: (sessionId: SessionId): QuestionComposerInjected => {
+      const session = sessions.manager.get(sessionId)
       return {
         actions: {
           async answer(interaction, answer) {
@@ -43,5 +46,5 @@ export function apply(ctx: Context): void {
         },
       }
     },
-  })
+  }, QuestionComposer)
 }
