@@ -73,10 +73,10 @@ When required `gh`, `pnpm`, build, test, or generator commands fail because the 
 
 ### Run relevant checks locally
 
-Agents MUST run relevant tests and checks before pushing; select them with [dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md) and report only commands run.
+Agents MUST run focused checks while implementing; normal pre-push runs `check:pre-push`, the same primary Node inventory as `check:ci`. Select focused evidence with [dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md) and report only commands run.
 
 - Match evidence to the surface: focused tests for behavior, snapshots for model or user output, `doc-sync` for docs, build/hygiene and built smokes for published paths, and real-API e2e for provider behavior.
-- Never default to the full suite or repeat a passing check for commit or push. CI owns exhaustive coverage and the platform matrix; rehearse all locally only by explicit request, for CI diagnosis, or for an irreducibly repository-wide change.
+- Let the hook run the full aggregate once; never bypass a failure without explicit approval. Remote CI owns the platform and provider matrix.
 - `test:coverage`, not `test`, is the CI coverage gate ([why](docs/testing.md)).
 
 ## Secrets / .env
