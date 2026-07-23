@@ -34,11 +34,14 @@ interface AnchorProps {
 export function Tooltip({ label, side = 'right', disabled = false, children }: { label: string; side?: TooltipSide; disabled?: boolean; children: ReactElement<AnchorProps> }) {
   const anchor = useRef<HTMLElement | null>(null)
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  // Hover and focus are independent triggers: the bubble hides only after
+  // BOTH clear (hovering away from a focused anchor must not drop it).
+  const triggers = useRef({ hover: false, focus: false })
 
   // Disabling mid-hover (e.g. clicking a rail control expands the sidebar)
   // must drop an already-visible bubble: no mouseleave fires.
   useEffect(() => {
-    if (disabled) setPos(null)
+    if (disabled) { triggers.current = { hover: false, focus: false }; setPos(null) }
   }, [disabled])
 
   const show = () => {
@@ -51,16 +54,18 @@ export function Tooltip({ label, side = 'right', disabled = false, children }: {
       ? { x: r.right + 10, y: r.top + r.height / 2 }
       : { x: r.left + r.width / 2, y: r.bottom + 8 })
   }
-  const hide = () => { setPos(null) }
+  const hide = () => {
+    if (!triggers.current.hover && !triggers.current.focus) setPos(null)
+  }
 
   return (
     <>
       {cloneElement(children, {
         ref: anchor,
-        onMouseEnter: (e) => { children.props.onMouseEnter?.(e); show() },
-        onMouseLeave: (e) => { children.props.onMouseLeave?.(e); hide() },
-        onFocus: (e) => { children.props.onFocus?.(e); show() },
-        onBlur: (e) => { children.props.onBlur?.(e); hide() },
+        onMouseEnter: (e) => { children.props.onMouseEnter?.(e); triggers.current.hover = true; show() },
+        onMouseLeave: (e) => { children.props.onMouseLeave?.(e); triggers.current.hover = false; hide() },
+        onFocus: (e) => { children.props.onFocus?.(e); triggers.current.focus = true; show() },
+        onBlur: (e) => { children.props.onBlur?.(e); triggers.current.focus = false; hide() },
       })}
       {pos !== null && (
         <span className={css.bubble} data-side={side} style={{ left: pos.x, top: pos.y }} role="tooltip">
