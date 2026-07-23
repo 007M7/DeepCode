@@ -1,5 +1,5 @@
-# Git hooks (lefthook). Keep these local checkpoints fast; CI owns the full
-# repository-wide gate matrix.
+# Git hooks (lefthook). Pre-commit keeps commit-local checks fast; pre-push
+# runs the primary Node CI inventory before publication.
 # Install: `pnpm exec lefthook install` (runs automatically via postinstall).
 
 pre-commit:
@@ -19,5 +19,5 @@ pre-commit:
 
 pre-push:
   jobs:
-    - name: typecheck
-      run: node_modules/.bin/tsc -b --pretty false
+    - name: primary CI
+      run: pnpm run check:pre-push
