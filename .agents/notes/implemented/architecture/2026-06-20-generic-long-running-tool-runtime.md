@@ -25,6 +25,8 @@ The literal types live in the [task data-structure catalog](../../../../docs/cor
 
 `outputLimitBytes` is producer-owned presentation policy, not a registry buffer. The registry validates and projects it unchanged into `TaskSnapshot`; generic control surfaces apply the cap to complete model-facing output after adding their own status or notice metadata. Omitting it preserves the existing surface behavior, so the runtime does not impose a hidden default on unrelated producer families.
 
+A model-facing producer exposes that committed id in its canonical success value, normally `{ kind: 'background', taskId }`; Native rendering may keep human-readable prose. A pre-aborted background call fails rather than returning a no-op because no task exists to satisfy the promised handle. Once registration publishes the id, cancellation belongs to the task's own controller and the task runtime: later cancellation of the producing tool call must not kill the published task. `task_kill`, owner disposal, and service teardown request cancellation; foreground execution remains coupled to the call's `exec.signal`.
+
 The producer hooks define three responsibilities:
 
 - `cancel(reason?)` synchronously requests termination, is idempotent, and must cause `done` to settle.

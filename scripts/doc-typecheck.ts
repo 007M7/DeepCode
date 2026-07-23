@@ -55,15 +55,20 @@ const configHost: ts.ParseConfigFileHost = {
   },
 }
 
-/** Load root settings and redirect workspace aliases to declarations from the coordinated build. */
+/**
+ * Load host-aggregate settings and redirect workspace aliases to declarations
+ * from the coordinated build. Doc fragments speak the host vocabulary; the host
+ * aggregate (never the root solution — it has no compilerOptions) carries the
+ * workspace paths via tsconfig.base.json.
+ */
 function builtTypeCompilerOptions(): ts.CompilerOptions {
-  const configPath = join(root, 'tsconfig.json')
+  const configPath = join(root, 'tsconfig.host.json')
   const parsed = ts.getParsedCommandLineOfConfigFile(configPath, {}, configHost)
   if (!parsed) throw new Error(`doc-typecheck: cannot parse ${configPath}`)
   if (parsed.errors.length > 0) {
     throw new Error(parsed.errors.map(error => ts.flattenDiagnosticMessageText(error.messageText, '\n')).join('\n'))
   }
-  if (parsed.options.paths === undefined) throw new Error('doc-typecheck: root tsconfig has no workspace paths')
+  if (parsed.options.paths === undefined) throw new Error('doc-typecheck: host tsconfig has no workspace paths')
   const paths = Object.fromEntries(Object.entries(parsed.options.paths).map(([specifier, candidates]) => [
     specifier,
     candidates.map(builtDeclarationPath),
@@ -125,9 +130,14 @@ function formatDiagnostics(diagnostics: readonly ts.Diagnostic[], blocks: Block[
   return remapBlockPaths(formatted, blocks)
 }
 
-/** Reuse the repo typecheck graph references from a temp project one directory below root. */
+/**
+ * Reuse the host-aggregate references from a temp project one directory below
+ * root. Doc fragments speak the host vocabulary, so the standalone project
+ * seeds tsconfig.host.json (never the root solution: flattening host+client
+ * into one program collides the cordis Context merges).
+ */
 function workspaceReferences(): { path: string }[] {
-  const file = join(root, 'tsconfig.json')
+  const file = join(root, 'tsconfig.host.json')
   // Parse with TypeScript's own JSONC reader: a regex comment stripper corrupts the `/*/` path
   // candidate in the workspace wildcard.
   const result = ts.readConfigFile(file, path => readFileSync(path, 'utf8'))
@@ -144,7 +154,7 @@ function workspaceReferences(): { path: string }[] {
 /** The standalone temp project used when no coordinated build owns declaration freshness. */
 function tempTsconfig(): string {
   return JSON.stringify({
-    extends: '../tsconfig.json',
+    extends: '../tsconfig.host.json',
     compilerOptions: {
       noUnusedLocals: false,
       noUnusedParameters: false,

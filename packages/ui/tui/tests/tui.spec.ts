@@ -1,4 +1,5 @@
-import { homedir } from 'node:os'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
@@ -16,11 +17,15 @@ import SessionReferenceService, { formatSessionReferenceMention } from '@deepsee
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   createTuiChat,
+  FILE_REFERENCE_PROMPT,
   mountTui,
   renderSkillInvocation,
   resolveTuiConfig,
+  type TuiOverlayHost,
+  type TuiOverlaySession,
   type TuiRuntime,
 } from '../src/index.ts'
+import { WorkspaceFileSearch } from '../src/file-autocomplete.ts'
 import {
   appendAssistant,
   appendUser,
@@ -28,6 +33,11 @@ import {
   disposeTuiTestHarness,
   type TuiHarnessOptions,
 } from './harness.ts'
+
+const UNUSED_TOOL_OUTPUT: ToolDefinition['output'] = {
+  schema: { type: 'null' },
+  render: () => [],
+}
 
 class FakeTerminal implements Terminal {
   columns = 88
@@ -146,6 +156,9 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 20,
       modelDialogWidth: 72,
       modelDialogMaxHeight: 20,
+      fileSearchMaxResults: 20,
+      fileSearchMaxEntries: 10_000,
+      fileSearchExcludedDirectories: ['.git', 'node_modules'],
       showHardwareCursor: false,
       color: true,
       truecolor: false,
@@ -160,6 +173,9 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      fileSearchMaxResults: 7,
+      fileSearchMaxEntries: 123,
+      fileSearchExcludedDirectories: ['.git', 'generated'],
       showHardwareCursor: true,
       color: false,
       truecolor: true,
@@ -173,6 +189,9 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      fileSearchMaxResults: 7,
+      fileSearchMaxEntries: 123,
+      fileSearchExcludedDirectories: ['.git', 'generated'],
       showHardwareCursor: true,
       color: false,
       truecolor: true,
@@ -1056,6 +1075,125 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
+  it('fuzzy-completes files and directories while sending only the selected path text', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-tui-file-completion-'))
+    await mkdir(join(cwd, 'src'), { recursive: true })
+    await mkdir(join(cwd, 'docs'), { recursive: true })
+    await writeFile(join(cwd, 'src', 'source-file.ts'), 'export const source = true\n')
+    await writeFile(join(cwd, 'docs', 'design notes.md'), '# Design\n')
+    await writeFile(join(cwd, 'unsafe\nfile.ts'), 'unsafe name\n')
+    const result = await setup({
+      cwd,
+      tools: {
+        read: {
+          name: 'read',
+          description: 'Read a file.',
+          parameters: {},
+          output: UNUSED_TOOL_OUTPUT,
+          execute: () => Promise.resolve([]),
+        },
+      },
+    })
+    try {
+      const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
+      expect(assembly.sections).toContainEqual({
+        name: 'ui:tui-file-reference',
+        text: FILE_REFERENCE_PROMPT,
+      })
+
+      result.terminal.send('@sfts')
+      await vi.waitFor(() => {
+        expect(result.terminal.output).toContain('File · source-file.ts')
+      })
+      expect(result.terminal.output).toContain('src/source-file.ts')
+      result.terminal.send('\t')
+      await tick()
+      result.terminal.send('\r')
+      await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
+      expect(result.agent.sent[0]).toEqual([{ type: 'text', text: '@src/source-file.ts' }])
+      expect(result.agent.sentOptions[0]?.contexts).toEqual([])
+
+      result.terminal.send('@do')
+      await vi.waitFor(() => {
+        expect(result.terminal.output).toContain('Folder · docs/')
+      })
+      result.terminal.send('\t')
+      await vi.waitFor(() => {
+        expect(result.terminal.output).toContain('File · design notes.md')
+      })
+      result.terminal.send('\t')
+      await tick()
+      result.terminal.send('\r')
+      await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })
+      expect(result.agent.sent[1]).toEqual([{ type: 'text', text: '@"docs/design notes.md"' }])
+      expect(result.agent.sentOptions[1]?.contexts).toEqual([])
+
+      result.terminal.send('@unsafe')
+      await tick()
+      expect(result.terminal.output).not.toContain('File · unsafe')
+      result.terminal.send('\x03')
+    } finally {
+      await result.controller.dispose()
+      const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
+      expect(assembly.sections).not.toContainEqual({
+        name: 'ui:tui-file-reference',
+        text: FILE_REFERENCE_PROMPT,
+      })
+      await result.ctx.fiber.dispose()
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('isolates failed file discovery from editor autocomplete', async () => {
+    const list = vi.spyOn(WorkspaceFileSearch.prototype, 'list').mockRejectedValue(new Error('search failed'))
+    const result = await setup()
+    try {
+      result.terminal.send('@failed')
+      await vi.waitFor(() => { expect(list).toHaveBeenCalled() })
+      await tick()
+      expect(result.agent.sent).toEqual([])
+    } finally {
+      list.mockRestore()
+      await dispose(result)
+    }
+  })
+
+  it('shows file-reference guidance only while read is visible to the agent', async () => {
+    const read: ToolDefinition = {
+      name: 'read',
+      description: 'Read a file.',
+      parameters: {},
+      output: UNUSED_TOOL_OUTPUT,
+      execute: () => Promise.resolve([]),
+    }
+    let visibility: 'none' | 'global' | 'agent' = 'none'
+    const result = await setup({
+      async configureContext(ctx) {
+        ctx.provide('tools', {
+          get(name: string, scope?: Agent) {
+            if (name !== 'read' || visibility === 'none') return undefined
+            return (scope === undefined) === (visibility === 'global') ? read : undefined
+          },
+        } as never)
+      },
+    })
+    const fileReferenceText = async (): Promise<string | undefined> => {
+      const assembly = await result.ctx.systemPrompt.assemble(assembleContextFor(result.agent))
+      return assembly.sections.find(section => section.name === 'ui:tui-file-reference')?.text
+    }
+    try {
+      expect(await fileReferenceText()).toBe('')
+      visibility = 'global'
+      expect(await fileReferenceText()).toBe('')
+      visibility = 'agent'
+      expect(await fileReferenceText()).toBe(FILE_REFERENCE_PROMPT)
+      visibility = 'none'
+      expect(await fileReferenceText()).toBe('')
+    } finally {
+      await dispose(result)
+    }
+  })
+
   it('escapes session autocomplete metadata while preserving the referenced session id', async () => {
     const unsafeId = SessionId('evil\x1b\x07\u009b\ns')
     const unsafeCwd = '/x/\x1b\x07\u009b\nf'
@@ -1378,6 +1516,15 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Unknown model: missing')
     expect(result.terminal.output).toContain('advertised by multiple providers')
     expect(result.terminal.output).toContain('already alpha/a1')
+
+    result.terminal.send('/model')
+    result.terminal.send('\r')
+    result.terminal.send('/model')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Select model')
+    result.terminal.send('\x1b')
+    await tick()
 
     result.agent.status = 'running'
     result.terminal.send('/model')
@@ -1846,17 +1993,17 @@ describe('renderSkillInvocation', () => {
 describe('tool cards and surface replay', () => {
   const tools: Record<string, ToolDefinition> = {
     bash: {
-      name: 'bash', description: '', parameters: {}, execute: async () => [],
+      name: 'bash', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'terminal', title: 'printf hello', description: 'Run command', cwd: '/tmp' }),
       presentResult: () => ({ card: 'terminal', output: 'hello\nworld\nthird', exitCode: 0 }),
     },
     signal: {
-      name: 'signal', description: '', parameters: {}, execute: async () => [],
+      name: 'signal', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'terminal', title: 'sleep 10' }),
       presentResult: () => ({ card: 'terminal', signal: 'SIGTERM' }),
     },
     edit: {
-      name: 'edit', description: '', parameters: {}, execute: async () => [],
+      name: 'edit', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({
         card: 'diff',
         title: 'Edit files',
@@ -1868,35 +2015,35 @@ describe('tool cards and surface replay', () => {
       presentResult: () => ({ card: 'diff', diffs: [{ path: 'a.txt', oldText: null, newText: 'created' }] }),
     },
     generic: {
-      name: 'generic', description: '', parameters: {}, execute: async () => [],
+      name: 'generic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Inspect value', rawInput: { alpha: 1 } }),
       presentResult: () => ({ card: 'generic', title: 'Inspected', content: [{ type: 'text', text: 'result text' }] }),
     },
     throwing: {
-      name: 'throwing', description: '', parameters: {}, execute: async () => [],
+      name: 'throwing', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => { throw new Error('call presenter boom') },
       presentResult: () => { throw new Error('result presenter boom') },
     },
     rawTerminal: {
-      name: 'rawTerminal', description: '', parameters: {}, execute: async () => [],
+      name: 'rawTerminal', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'terminal', title: 'raw command' }),
     },
     undefinedViews: {
-      name: 'undefinedViews', description: '', parameters: {}, execute: async () => [],
+      name: 'undefinedViews', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => undefined,
       presentResult: () => undefined,
     },
     empty: {
-      name: 'empty', description: '', parameters: {}, execute: async () => [],
+      name: 'empty', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Empty card' }),
     },
     terminalResult: {
-      name: 'terminalResult', description: '', parameters: {}, execute: async () => [],
+      name: 'terminalResult', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Becomes terminal' }),
       presentResult: () => ({ card: 'terminal', output: 'converted terminal' }),
     },
     symbolic: {
-      name: 'symbolic', description: '', parameters: {}, execute: async () => [],
+      name: 'symbolic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Symbol input', rawInput: Symbol('input') }),
     },
   }
@@ -2193,6 +2340,141 @@ describe('TUI user-interaction dialogs', () => {
       .rejects.toMatchObject({ code: 'NO_PROVIDER' })
     await result.ctx.fiber.dispose()
   })
+
+  it('rejects malformed questions when a dialog cannot be constructed', async () => {
+    const result = await setup()
+    const broken = {
+      id: 'broken',
+      question: 'Broken question',
+      get options(): never {
+        throw new Error('question setup failed')
+      },
+    }
+    const answer = result.ctx.userInteraction.ask({ questions: [broken] })
+    await expect(answer).rejects.toThrow('ask_user_question TUI failed: question setup failed')
+    await tick()
+    expect(result.terminal.output).toContain('TUI overlay failed: question setup failed')
+    await dispose(result)
+  })
+})
+
+describe('TUI extension service', () => {
+  it('renders effect-owned plugin overlays in the shared FIFO and restores editor input', async () => {
+    const result = await setup()
+    const sessions: TuiOverlaySession[] = []
+    const hosts: TuiOverlayHost[] = []
+    const plugin = result.ctx.inject(['tui'], (pluginCtx) => {
+      expect(pluginCtx.tui.agent).toBe(result.agent)
+      for (const label of ['first', 'second']) {
+        sessions.push(pluginCtx.tui.openOverlay({
+          create(host) {
+            hosts.push(host)
+            return {
+              focused: false,
+              render: width => [
+                host.theme.accent(`${label} plugin overlay`),
+                [
+                  host.theme.text('text'),
+                  host.theme.muted('muted'),
+                  host.theme.dim('dim'),
+                  host.theme.success('success'),
+                  host.theme.warning('warning'),
+                  host.theme.error('error'),
+                  host.theme.bold('bold'),
+                ].join(' '),
+                `${String(host.viewport.columns)}x${String(host.viewport.rows)} · ${String(width)}`,
+              ],
+              handleInput(data) {
+                host.invalidate()
+                if (data === label[0]) host.close()
+              },
+              invalidate() {},
+            }
+          },
+          options: { width: 50, maxHeight: 8, anchor: 'center', margin: 1 },
+        }))
+      }
+    })
+    await plugin
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('first plugin overlay')
+    })
+    expect(sessions.map(session => session.state)).toEqual(['active', 'queued'])
+    expect(hosts).toHaveLength(1)
+
+    const question = result.ctx.userInteraction.ask({
+      questions: [{ id: 'after-plugin', question: 'Question after plugins?', options: [{ label: 'Yes' }] }],
+    })
+    result.terminal.send('f')
+    await expect(sessions[0]!.closed).resolves.toEqual({ reason: 'closed' })
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('second plugin overlay')
+    })
+    expect(hosts).toHaveLength(2)
+    expect(sessions[1]?.state).toBe('active')
+
+    result.terminal.send('s')
+    await expect(sessions[1]!.closed).resolves.toEqual({ reason: 'closed' })
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Question after plugins?')
+    })
+    result.terminal.send('\r')
+    await expect(question).resolves.toEqual({
+      answers: [{ id: 'after-plugin', selected: ['Yes'] }],
+    })
+
+    result.terminal.send('editor works again')
+    result.terminal.send('\r')
+    expect(result.agent.sent.at(-1)).toEqual([{ type: 'text', text: 'editor works again' }])
+    await plugin.dispose()
+    await dispose(result)
+  })
+
+  it('unloads and reloads dependent plugins with the mounted TUI', async () => {
+    const result = await setup()
+    const sessions: TuiOverlaySession[] = []
+    const signals: AbortSignal[] = []
+    let starts = 0
+    const plugin = result.ctx.inject(['tui'], (pluginCtx) => {
+      starts += 1
+      sessions.push(pluginCtx.tui.openOverlay({
+        create(host) {
+          signals.push(host.signal)
+          return {
+            render: () => [`plugin mount ${String(starts)}`],
+            invalidate() {},
+          }
+        },
+      }))
+    })
+    await plugin
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('plugin mount 1')
+    })
+
+    await result.controller.dispose()
+    await expect(sessions[0]!.closed).resolves.toEqual({ reason: 'owner-disposed' })
+    expect(signals[0]?.aborted).toBe(true)
+    expect(result.ctx.get('tui')).toBeUndefined()
+
+    const secondTerminal = new FakeTerminal()
+    const secondController = createTuiChat(result.ctx, {
+      sessionId: result.agent.id,
+      color: false,
+      welcome: 'Mounted again.',
+    }, {
+      terminal: secondTerminal,
+      exit: vi.fn(),
+    })
+    await vi.waitFor(() => {
+      expect(starts).toBe(2)
+      expect(secondTerminal.output).toContain('plugin mount 2')
+    })
+    await sessions[1]?.close()
+    await secondController.dispose()
+    await plugin.dispose()
+    await result.ctx.fiber.dispose()
+  })
 })
 
 describe('terminal mounting', () => {
@@ -2355,6 +2637,7 @@ describe('terminal mounting', () => {
     expect(ctx.commands.list(ctx.agents.get(SessionId('failed-start-session'))!)).toEqual([])
     expect(terminal.stopped).toBe(1)
     expect(terminal.progress).toEqual([false, true, false])
+    expect(ctx.get('tui')).toBeUndefined()
     await expect(ctx.userInteraction.ask({ questions: [{ id: 'late', question: 'Late?' }] }))
       .rejects.toMatchObject({ code: 'NO_PROVIDER' })
     session.append('assistant/chunk', {

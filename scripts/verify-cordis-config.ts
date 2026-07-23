@@ -152,12 +152,13 @@ function localPackageDirectories(): Map<string, string> {
 }
 
 function rootProjectReferences(): Set<string> {
-  // Typecheck runs two sibling aggregates (root = host program,
-  // tsconfig.client.json = client program; the two sides merge cordis Context
-  // under the same keys, so one program cannot see both). Seed both and follow
-  // any nested aggregate references to collect the covered leaf project set.
+  // The root solution references the host and client aggregates (the two
+  // sides merge cordis Context under the same keys, so one program cannot see
+  // both — but this BFS only collects reference paths, it never forms a
+  // program). Seed the solution and follow nested aggregate references to
+  // collect the covered leaf project set.
   const collected = new Set<string>()
-  const queue = [resolve(root, 'tsconfig.json'), resolve(root, 'tsconfig.client.json')]
+  const queue = [resolve(root, 'tsconfig.json')]
   const seen = new Set<string>()
   for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
     if (seen.has(file)) continue

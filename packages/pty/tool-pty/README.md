@@ -53,7 +53,7 @@ Prefix-stable while tool visibility and definitions are unchanged.
 
 #### What the model sees
 
-Spawn returns the id and bounded MOTD. Send/read return bounded terminal text plus readiness/history markers. Background mode returns a generic task id. Every terminal-owned or policy-produced single-text result is capped by `maxResultBytes` after normalized tool or pipeline errors, denials, short-circuits, replacements, blocks, and generic task status text. Structured multi-block policy results retain their shape. Results remain in session history until compaction; incremental task reads do not repeat consumed output.
+Spawn returns the id and bounded MOTD. Send/read return bounded terminal text plus readiness/history markers. Background mode returns a generic task id. Every terminal-owned or policy-produced single-text result is capped by `maxResultBytes` after normalized tool or pipeline errors, denials, short-circuits, replacements, blocks, and generic task status text. Structured multi-block policy results retain their shape. Results remain in session history until compaction; incremental task reads do not repeat consumed output. Programmatic callers receive typed session snapshots, bounded provider read/send DTOs, signal and close outcomes, or `{ kind: "background", taskId }`; Native rendering applies the presentation cap above.
 
 #### Token effect
 

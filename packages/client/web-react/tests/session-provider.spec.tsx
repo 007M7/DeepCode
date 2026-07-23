@@ -1,106 +1,155 @@
 // @vitest-environment jsdom
+/**
+ * SessionProvider behavior account (render-prop form, framework-wired):
+ * empty/body branching off the host's current-session source, key={sessionId}
+ * remount semantics, and cell delivery observed through a session slot's
+ * standard kit — never through the internal context objects (BindingContext
+ * does not leave the package).
+ */
 import { useEffect, useRef } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
-import type { RootBinding } from '@deepseek-ai/dsh-client-ui-slots'
+import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  createSessionProvider, createSnapshotStore, RootBindingProvider,
-  useRootBinding, useSessionBinding,
-  type SessionBinding, type SessionProviderDeps,
+  createSlotRenderer, SessionProvider,
+  type SessionCell, type SlotRendererHost,
 } from '@deepseek-ai/dsh-client-web-react'
 
-const makeBinding = (sessionId: string): SessionBinding => ({
-  sessionId,
-  session: { useSelector: (() => { throw new Error('unused') }) as never },
-  ctx: { tag: sessionId },
-})
-
-function setup(bindings: Record<string, SessionBinding>) {
-  const current = createSnapshotStore<{ id: string | undefined }>({ id: undefined })
-  const resolveBinding = vi.fn((id: string) => bindings[id])
-  const seen: { id: string; binding: SessionBinding; mountCount: number }[] = []
-  let mounts = 0
-
-  function Body({ id }: { id: string }) {
-    const binding = useSessionBinding()
-    const mountRef = useRef(0)
-    useEffect(() => { mounts += 1; mountRef.current = mounts }, [])
-    seen.push({ id, binding, mountCount: mountRef.current })
-    return <div data-testid="body">{id}</div>
+function observable<T>(initial: T) {
+  let value = initial
+  const subs = new Set<() => void>()
+  return {
+    getSnapshot: () => value,
+    subscribe: (fn: () => void) => { subs.add(fn); return () => { subs.delete(fn) } },
+    set: (next: T) => { value = next; for (const fn of [...subs]) fn() },
   }
-
-  const deps: SessionProviderDeps = {
-    useCurrent: () => current.useSelector((s) => s.id),
-    resolveBinding,
-    renderBody: (id) => <Body id={id} />,
-  }
-  const SessionProvider = createSessionProvider(deps)
-  return { current, resolveBinding, SessionProvider, seen, mountCount: () => mounts }
 }
 
-describe('createSessionProvider', () => {
-  it('renders empty without a current session and switches to the body on select', () => {
-    const { current, SessionProvider } = setup({ s1: makeBinding('s1') })
-    const view = render(<SessionProvider renderEmpty={() => <span>empty</span>} />)
+/**
+ * Minimal host: SessionProvider only reads sessions.current/cell, but it must
+ * render inside the renderer tree (HostContext), so the harness mounts a real
+ * root entry whose body is the test's render-prop provider.
+ */
+function makeHost(bodies: { root: (rp: (key: string, owner: object) => React.ReactNode) => React.ReactNode }) {
+  const current = observable<string | undefined>(undefined)
+  const cells = new Map<string, SessionCell>()
+  const sessionEntries: StoredEntry[] = []
+  const rootEntry: StoredEntry = {
+    component: (props: { renderSlot: (key: string, owner: object) => React.ReactNode }) =>
+      <>{bodies.root(props.renderSlot)}</>,
+    options: {},
+    children: { 'k.session': { kind: 'single', scope: 'session' } },
+  }
+  const host: SlotRendererHost = {
+    subscribe: () => () => {},
+    getVersion: () => 0,
+    entriesOf: (key) => key === 'root' ? [rootEntry] : sessionEntries,
+    specOf: (key) => key === 'k.session' ? { kind: 'single', scope: 'session' } : undefined,
+    isLive: () => true,
+    storeOf: () => undefined,
+    sessions: {
+      list: observable<unknown>({ ids: [] }),
+      current,
+      cell: (id) => cells.get(id),
+    },
+  }
+  return {
+    host,
+    current,
+    addSession: (id: string) => {
+      // Bare source per cell (identity-stable): the machinery binds useSession from it.
+      const cell: SessionCell = {
+        sessionId: id,
+        session: { getSnapshot: () => ({ sid: id }), subscribe: () => () => {} },
+      }
+      cells.set(id, cell)
+      return cell
+    },
+    registerSession: (entry: StoredEntry) => { sessionEntries.push(entry) },
+  }
+}
+
+describe('SessionProvider', () => {
+  it('renders empty without a current session, switches to the body on select, falls back on an unresolvable id', () => {
+    const h = makeHost({
+      root: () => (
+        <SessionProvider empty={() => <span>empty</span>}>
+          {(id) => <div data-testid="body">{id}</div>}
+        </SessionProvider>
+      ),
+    })
+    h.addSession('s1')
+    const view = render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
     expect(view.container.textContent).toBe('empty')
-    act(() => { current.update((d) => { d.id = 's1' }) })
+    act(() => { h.current.set('s1') })
     expect(view.container.textContent).toBe('s1')
+    act(() => { h.current.set('ghost') })   // listed nowhere: cell() misses
+    expect(view.container.textContent).toBe('empty')
   })
 
-  it('renders null empty state when renderEmpty is omitted', () => {
-    const { SessionProvider } = setup({})
-    const view = render(<SessionProvider />)
+  it('renders null empty state when the empty prop is omitted', () => {
+    const h = makeHost({
+      root: () => <SessionProvider>{(id) => <b>{id}</b>}</SessionProvider>,
+    })
+    const view = render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
     expect(view.container.textContent).toBe('')
   })
 
-  it('falls back to empty when the binding does not resolve', () => {
-    const { current, SessionProvider } = setup({})
-    const view = render(<SessionProvider renderEmpty={() => <span>empty</span>} />)
-    act(() => { current.update((d) => { d.id = 'ghost' }) })
-    expect(view.container.textContent).toBe('empty')
+  it('remounts the body on session switch (key semantics) but not on unrelated re-renders', () => {
+    let mounts = 0
+    function Body({ id }: { id: string }) {
+      const mounted = useRef(false)
+      useEffect(() => {
+        /* v8 ignore next -- strict-mode double-invoke guard, not a branch under test */
+        if (!mounted.current) { mounted.current = true; mounts += 1 }
+      }, [])
+      return <div>{id}</div>
+    }
+    const h = makeHost({
+      root: () => <SessionProvider>{(id) => <Body id={id} />}</SessionProvider>,
+    })
+    h.addSession('s1')
+    h.addSession('s2')
+    const view = render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
+    act(() => { h.current.set('s1') })
+    const afterS1 = mounts
+    act(() => { h.current.set('s2') })
+    expect(mounts).toBe(afterS1 + 1)
+    const afterS2 = mounts
+    view.rerender(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
+    expect(mounts).toBe(afterS2)
   })
 
-  it('passes the resolved binding through context and remounts on session switch', () => {
-    const bindings = { s1: makeBinding('s1'), s2: makeBinding('s2') }
-    const { current, SessionProvider, seen, mountCount } = setup(bindings)
-    render(<SessionProvider />)
-    act(() => { current.update((d) => { d.id = 's1' }) })
-    expect(seen.at(-1)!.binding).toBe(bindings.s1)
-    const mountsAfterS1 = mountCount()
-    act(() => { current.update((d) => { d.id = 's2' }) })
-    expect(seen.at(-1)!.binding).toBe(bindings.s2)
-    // key={id} semantics: switching sessions remounts the body subtree.
-    expect(mountCount()).toBe(mountsAfterS1 + 1)
+  it('delivers the resolved cell to session slots under it (observable behavior, not context internals)', () => {
+    const seen: Record<string, unknown>[] = []
+    const h = makeHost({
+      root: (renderSlot) => <SessionProvider>{() => renderSlot('k.session', {})}</SessionProvider>,
+    })
+    h.addSession('s1')
+    h.addSession('s2')
+    h.registerSession({
+      component: (props: { useSession?: <S>(sel: (s: { sid: string }) => S) => S; sessionId?: string }) => {
+        // The bound hook reads the cell's bare source — asserting through it
+        // proves the machinery wired THIS session's source, not another's.
+        seen.push({ sessionId: props.sessionId, read: props.useSession!((s) => s.sid) })
+        return null
+      },
+      options: {},
+    })
+    render(<>{createSlotRenderer().renderRoot(h.host, {})}</>)
+    act(() => { h.current.set('s1') })
+    expect(seen.at(-1)!['read']).toBe('s1')
+    expect(seen.at(-1)!['sessionId']).toBe('s1')
+    act(() => { h.current.set('s2') })
+    expect(seen.at(-1)!['read']).toBe('s2')
+    expect(seen.at(-1)!['sessionId']).toBe('s2')
   })
 
-  it('does not remount the body when unrelated renders happen on the same session', () => {
-    const bindings = { s1: makeBinding('s1') }
-    const { current, SessionProvider, mountCount } = setup(bindings)
-    const view = render(<SessionProvider />)
-    act(() => { current.update((d) => { d.id = 's1' }) })
-    const mounts = mountCount()
-    view.rerender(<SessionProvider />)
-    expect(mountCount()).toBe(mounts)
-  })
-})
-
-describe('binding contexts', () => {
-  it('useSessionBinding throws outside a SessionProvider subtree', () => {
+  it('fails loud when mounted outside the renderer tree (no host channel)', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    function Naked() { useSessionBinding(); return null }
-    expect(() => render(<Naked />)).toThrow(/outside SessionProvider/)
-    spy.mockRestore()
-  })
-
-  it('RootBindingProvider supplies the root binding; absence throws', () => {
-    const root: RootBinding = { ctx: { tag: 'root' } }
-    let got: RootBinding | undefined
-    function Probe() { got = useRootBinding(); return null }
-    render(<RootBindingProvider value={root}><Probe /></RootBindingProvider>)
-    expect(got).toBe(root)
-
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    expect(() => render(<Probe />)).toThrow(/RootBindingProvider/)
+    expect(() => render(
+      <SessionProvider>{(id) => <b>{id}</b>}</SessionProvider>,
+    )).toThrow(/outside the installed renderer tree/)
     spy.mockRestore()
   })
 })

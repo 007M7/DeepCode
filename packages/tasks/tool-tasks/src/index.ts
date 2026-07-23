@@ -32,12 +32,55 @@ export const Config: z<Config> = z.object({
   maxWaitTimeoutMs: z.number().min(1).default(600_000),
 })
 
+/** Task state safe for model-authored programs; ownership/bookkeeping fields are omitted. */
+export interface PublicTaskSnapshot {
+  id: string
+  kind: string
+  label: string
+  status: TaskSnapshot['status']
+  detail?: string
+  startedAt: number
+  finishedAt?: number
+}
+
+/** Shared schema for task-control outputs. */
+const PUBLIC_TASK_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    id: { type: 'string', required: true },
+    kind: { type: 'string', required: true },
+    label: { type: 'string', required: true },
+    status: {
+      type: 'string',
+      required: true,
+      enum: ['running', 'stopping', 'completed', 'killed', 'failed'],
+    },
+    detail: { type: 'string' },
+    startedAt: { type: 'integer', required: true },
+    finishedAt: { type: 'integer' },
+  },
+} as const
+
+/** Remove task ownership and notification bookkeeping from a registry snapshot. */
+function publicTask(snapshot: TaskSnapshot): PublicTaskSnapshot {
+  return {
+    id: snapshot.id,
+    kind: snapshot.kind,
+    label: snapshot.label,
+    status: snapshot.status,
+    ...snapshot.detail !== undefined ? { detail: snapshot.detail } : {},
+    startedAt: snapshot.startedAt,
+    ...snapshot.finishedAt !== undefined ? { finishedAt: snapshot.finishedAt } : {},
+  }
+}
+
 /**
  * Render generic status with optional producer detail.
  * @param snapshot - task state to render.
  * @returns a bracketed status line.
  */
-export function statusLine(snapshot: TaskSnapshot): string {
+export function statusLine(snapshot: Pick<TaskSnapshot, 'status' | 'detail'>): string {
   return snapshot.detail !== undefined
     ? `[status: ${snapshot.status}, ${snapshot.detail}]`
     : `[status: ${snapshot.status}]`
@@ -94,13 +137,19 @@ function fitCompletionNotice(snapshot: TaskSnapshot): string {
   return `${retainHead(prefix, maxBytes - actionBytes)}${action}`
 }
 
-function boundSingleText(content: readonly ContentBlock[], maxBytes: number): ContentBlock[] | undefined {
+function rawSingleText(content: readonly ContentBlock[]): string | undefined {
   if (content.length !== 1) return undefined
   const block = content[0]
   if (block?.type !== 'text') return undefined
+  return block.text
+}
+
+function boundSingleText(content: readonly ContentBlock[], maxBytes: number): ContentBlock[] | undefined {
+  const text = rawSingleText(content)
+  if (text === undefined) return undefined
   return [{
     type: 'text',
-    text: fitWithSuffix(block.text, '', maxBytes, '\n[result truncated]'),
+    text: fitWithSuffix(text, '', maxBytes, '\n[result truncated]'),
   }]
 }
 
@@ -111,7 +160,7 @@ function visibleOutputLimit(ctx: Context, exec: ToolExecution): number | undefin
   return ctx.tasks.list(exec.agent).find(snapshot => snapshot.id === taskId)?.outputLimitBytes
 }
 
-/** Validate the non-empty constraint that SchemaSpec cannot express. */
+/** Validate the non-empty constraint that ParameterSchemaSpec cannot express. */
 function validateTaskId(value: string): TaskId {
   if (value.length === 0) {
     throw new Error(`invalid task_id: expected a non-empty string, got ${JSON.stringify(value)}`)
@@ -140,7 +189,22 @@ export function apply(ctx: Context, config: Config): void {
   const finalizeTaskContent: NonNullable<ToolDefinition['finalizeContent']> = (exec, result) => {
     const maxBytes = outputLimits.get(exec) ?? visibleOutputLimit(ctx, exec)
     outputLimits.delete(exec)
-    return maxBytes === undefined ? undefined : boundSingleText(result.content, maxBytes)
+    if (maxBytes === undefined) return undefined
+    if (exec.name === 'task_output' && !result.isError) {
+      // This definition owns and schema-validates the canonical value. Preserve
+      // its output/status split only while policy left the default rendering intact.
+      const value = result.value as unknown as { text: string; task: PublicTaskSnapshot }
+      const body = value.text.length > 0 ? value.text : '(no new output)'
+      const content = body.endsWith('\n') ? body.slice(0, -1) : body
+      const suffix = `\n${statusLine(value.task)}`
+      if (rawSingleText(result.content) === `${content}${suffix}`) {
+        return [{
+          type: 'text',
+          text: fitWithSuffix(content, suffix, maxBytes, '\n[output truncated]'),
+        }]
+      }
+    }
+    return boundSingleText(result.content, maxBytes)
   }
 
   // Producers may start work only while a control surface is attached.
@@ -184,6 +248,21 @@ export function apply(ctx: Context, config: Config): void {
       timeout_ms: { type: 'number', description: 'Max wait in milliseconds (only meaningful with wait: true). Defaults to the configured wait timeout; capped by the configured maximum.' },
     },
     finalizeContent: finalizeTaskContent,
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          text: { type: 'string', required: true },
+          task: { ...PUBLIC_TASK_SCHEMA, required: true },
+        },
+      },
+      render: (_args, value) => {
+        const body = value.text.length > 0 ? value.text : '(no new output)'
+        const separator = body.endsWith('\n') ? '' : '\n'
+        return [{ type: 'text', text: `${body}${separator}${statusLine(value.task)}` }]
+      },
+    },
     async execute(args, exec) {
       const id = validateTaskId(args.task_id)
       if (args.wait === true) {
@@ -191,17 +270,7 @@ export function apply(ctx: Context, config: Config): void {
         await ctx.tasks.wait(id, timeout, exec.agent, exec.signal)
       }
       const read = ctx.tasks.read(id, exec.agent)
-      const body = read.text.length > 0 ? read.text : '(no new output)'
-      const content = body.endsWith('\n') ? body.slice(0, -1) : body
-      return [{
-        type: 'text',
-        text: fitWithSuffix(
-          content,
-          `\n${statusLine(read.snapshot)}`,
-          read.snapshot.outputLimitBytes,
-          '\n[output truncated]',
-        ),
-      }]
+      return { text: read.text, task: publicTask(read.snapshot) }
     },
     presentCall: args => presentTaskCall(`Read output from background task ${args.task_id}`, 'read', args.task_id),
   }))
@@ -210,12 +279,18 @@ export function apply(ctx: Context, config: Config): void {
     name: 'task_list',
     description: 'List your background tasks (running and finished) with their ids, kinds, and statuses.',
     parameters: {},
+    output: {
+      schema: { type: 'array', items: PUBLIC_TASK_SCHEMA },
+      render: (_args, tasks) => [{
+        type: 'text',
+        text: tasks.length === 0
+          ? '(no background tasks)'
+          : tasks.map(t => `${t.id} [${t.kind}] ${t.status} — ${t.label}`).join('\n'),
+      }],
+    },
     execute(_args, exec) {
       const tasks = ctx.tasks.list(exec.agent)
-      const text = tasks.length === 0
-        ? '(no background tasks)'
-        : tasks.map(t => `${t.id} [${t.kind}] ${t.status} — ${t.label}`).join('\n')
-      return Promise.resolve([{ type: 'text', text }])
+      return Promise.resolve(tasks.map(publicTask))
     },
     presentCall: () => presentTaskCall('List background tasks', 'read'),
   }))
@@ -228,31 +303,35 @@ export function apply(ctx: Context, config: Config): void {
       reason: { type: 'string', description: 'Optional short reason, recorded in the log and forwarded to the task.' },
     },
     finalizeContent: finalizeTaskContent,
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          outcome: {
+            type: 'string',
+            required: true,
+            enum: ['cancellation-requested', 'already-finished'],
+          },
+          task: { ...PUBLIC_TASK_SCHEMA, required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.outcome === 'already-finished'
+          ? `task ${value.task.id} had already finished ${statusLine(value.task)}`
+          : `requested cancellation of task ${value.task.id}`,
+      }],
+    },
     execute(args, exec) {
       const id = validateTaskId(args.task_id)
-      const snapshot = ctx.tasks.get(id, exec.agent)
       const result = ctx.tasks.kill(id, exec.agent, args.reason)
-      if (result === 'already-finished') {
-        // A snapshot describes terminal state without consuming pending output.
-        return Promise.resolve([{
-          type: 'text',
-          text: fitWithSuffix(
-            `task ${id} had already finished`,
-            ` ${statusLine(snapshot)}`,
-            snapshot.outputLimitBytes,
-            '\n[notice truncated]',
-          ),
-        }])
-      }
-      return Promise.resolve([{
-        type: 'text',
-        text: fitWithSuffix(
-          `requested cancellation of task ${id}`,
-          '',
-          snapshot.outputLimitBytes,
-          '\n[notice truncated]',
-        ),
-      }])
+      // A snapshot describes current state without consuming pending output.
+      const snapshot = publicTask(ctx.tasks.get(id, exec.agent))
+      return Promise.resolve({
+        outcome: result === 'already-finished' ? 'already-finished' as const : 'cancellation-requested' as const,
+        task: snapshot,
+      })
     },
     presentCall: args => presentTaskCall(`Kill background task ${args.task_id}`, 'execute', args.task_id),
   }))

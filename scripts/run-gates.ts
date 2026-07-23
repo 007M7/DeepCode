@@ -228,7 +228,10 @@ function ciPrimaryGates(): Gate[] {
     ...docSyncLeafGates(),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
     pnpmScript('knip', 'knip'),
-    pnpmScript('build', 'build'),
+    // typecheck and build now drive the same root solution graph; without the
+    // dependency two concurrent `tsc -b` runs race the same tsbuildinfo files.
+    // The tsc step is an incremental no-op after typecheck.
+    pnpmScript('build', 'build', { needs: ['typecheck'] }),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -314,14 +317,8 @@ function ciWindowsCompleteGates(): Gate[] {
 function ciWindowsObservationalGates(): Gate[] {
   return [
     ...ciStaticGates(),
-    lintGate(),
+    // Linux owns required lint, coverage, and snapshots; Windows omits those duplicates.
     pnpmScript('duplication', 'duplication'),
-    {
-      ...coverageGate(),
-      env: { DSH_EXAMPLE_MODE: 'lib' },
-      needs: ['build'],
-    },
-    snapshotGate(),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',

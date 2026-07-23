@@ -13,6 +13,8 @@ Each tool is registered independently; a product that wants only one disables th
 
 Both tools opt into concurrent scheduling because provider reads return content without mutating parent-agent state.
 
+The normalized seam results are also the canonical tool values: `WebSearchResult` and `WebFetchResult`. Native renderers preserve the answer/source and fetched-body text below; provider search/body caps remain acquisition limits rather than presentation-only truncation.
+
 ## Config
 
 | Key | Default | Meaning |

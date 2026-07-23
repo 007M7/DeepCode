@@ -1,7 +1,50 @@
 /** Model and ACP rendering for persistent terminal tool results. */
 
 import { TextRetainer } from '@deepseek-ai/dsh-retention'
-import type { PtyReadResult, PtySendRead, PtySendResult, PtySessionSnapshot, PtySpawnResult } from '@deepseek-ai/dsh-pty'
+
+interface RenderedSessionStatusRunning {
+  kind: 'running'
+}
+
+interface RenderedSessionStatusExited {
+  kind: 'exited'
+  exitCode: number | null
+  signal: string | null
+}
+
+type RenderedSessionStatus = RenderedSessionStatusRunning | RenderedSessionStatusExited
+
+interface RenderedSessionSnapshot {
+  sessionId: string
+  name?: string
+  type: string
+  pid?: number
+  status: RenderedSessionStatus
+}
+
+interface RenderedSpawnResult extends RenderedSessionSnapshot {
+  motd: string
+}
+
+interface RenderedSendResult {
+  viewport: string
+  waitReason: 'stdin_read' | 'inferred_idle' | 'timeout' | 'session_exit'
+  sessionStatus: RenderedSessionStatus
+  truncated: boolean
+}
+
+interface RenderedSendRead {
+  delta: string
+  truncated: boolean
+}
+
+interface RenderedReadResult {
+  text: string
+  totalLines: number
+  lineBegin: number
+  lineEnd: number
+  truncated: boolean
+}
 
 const encoder = new TextEncoder()
 const TRUNCATED = '\n[output truncated]'
@@ -60,7 +103,7 @@ export function boundTerminalText(text: string, maxBytes: number): string {
  * @param maxBytes - complete UTF-8 result cap.
  * @returns Model-facing session acknowledgement.
  */
-export function renderSpawn(result: PtySpawnResult, maxBytes: number): string {
+export function renderSpawn(result: RenderedSpawnResult, maxBytes: number): string {
   const label = result.name === undefined ? result.sessionId : `${result.sessionId} (${result.name})`
   const prefix = `started terminal session ${label} [type: ${result.type}]\n`
   const motd = result.motd || '(no startup output)'
@@ -74,7 +117,7 @@ export function renderSpawn(result: PtySpawnResult, maxBytes: number): string {
  * @param maxBytes - complete UTF-8 result cap.
  * @returns Terminal output plus wait/session markers.
  */
-export function renderSend(result: PtySendResult, maxBytes: number): string {
+export function renderSend(result: RenderedSendResult, maxBytes: number): string {
   const output = result.viewport || '(no new output)'
   const status = result.sessionStatus.kind === 'running'
     ? 'running'
@@ -93,7 +136,7 @@ export function renderSend(result: PtySendResult, maxBytes: number): string {
  * @returns Delta plus its upstream truncation marker. The generic task control
  *   applies the producer's complete-result cap after adding task status.
  */
-export function renderSendRead(read: PtySendRead): string {
+export function renderSendRead(read: RenderedSendRead): string {
   const separator = read.delta.endsWith('\n') || read.delta.length === 0 ? '' : '\n'
   return `${read.delta}${read.truncated ? `${separator}[output truncated]` : ''}`
 }
@@ -104,7 +147,7 @@ export function renderSendRead(read: PtySendRead): string {
  * @param maxBytes - complete UTF-8 result cap.
  * @returns Page text plus pagination and truncation markers.
  */
-export function renderRead(result: PtyReadResult, maxBytes: number): string {
+export function renderRead(result: RenderedReadResult, maxBytes: number): string {
   const output = result.text || '(no retained output)'
   return boundBodyWithSuffix(
     output,
@@ -120,7 +163,7 @@ export function renderRead(result: PtyReadResult, maxBytes: number): string {
  * @param maxBytes - complete UTF-8 result cap.
  * @returns One line per session or the empty marker.
  */
-export function renderList(sessions: PtySessionSnapshot[], maxBytes: number): string {
+export function renderList(sessions: readonly RenderedSessionSnapshot[], maxBytes: number): string {
   if (sessions.length === 0) return '(no terminal sessions)'
   const text = sessions.map((session) => {
     const name = session.name === undefined ? '' : ` (${session.name})`
