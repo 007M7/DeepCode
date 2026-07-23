@@ -966,13 +966,14 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
 
   it('surfaces filesystem failures while pre-creating the database', async () => {
     const path = `${await temporaryPath()}\0`
-    const ctx = await liveContext({ path })
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
 
-    await expect(ctx.sessionQuery.searchSessions({ query: 'needle' })).rejects.toMatchObject({
+    await expect(ctx.plugin(SessionQuerySqlite, { path })).rejects.toMatchObject({
       code: 'SESSION_QUERY_INDEX_FAILED',
       cause: { code: 'ERR_INVALID_ARG_VALUE' },
     })
-    await (ctx.sessionQuery as SessionQuerySqlite).close()
+    expect(ctx.sessionQuery).toBeUndefined()
   })
 
   it('resets a recognized incompatible derived schema but refuses a foreign database', async () => {
@@ -998,26 +999,28 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     foreign.exec('CREATE TABLE canonical(value TEXT)')
     foreign.exec("INSERT INTO canonical VALUES ('safe')")
     foreign.close()
-    const foreignCtx = await liveContext({ path: foreignPath, journalMode: 'delete' })
-    await expect(foreignCtx.sessionQuery.searchSessions({ query: 'needle' }))
+    const foreignCtx = new Context()
+    await foreignCtx.plugin(SessionStore)
+    await expect(foreignCtx.plugin(SessionQuerySqlite, { path: foreignPath, journalMode: 'delete' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
+    expect(foreignCtx.sessionQuery).toBeUndefined()
     const stillForeign = new DatabaseSync(foreignPath)
     expect(stillForeign.prepare('SELECT value FROM canonical').get()).toEqual({ value: 'safe' })
     expect(stillForeign.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
     stillForeign.close()
-    await (foreignCtx.sessionQuery as SessionQuerySqlite).close()
 
     const otherAppPath = await temporaryPath('other-app.db')
     const otherApp = new DatabaseSync(otherAppPath)
     otherApp.exec('PRAGMA application_id = 123')
     otherApp.close()
-    const otherAppCtx = await liveContext({ path: otherAppPath })
-    await expect(otherAppCtx.sessionQuery.searchSessions({ query: 'needle' }))
+    const otherAppCtx = new Context()
+    await otherAppCtx.plugin(SessionStore)
+    await expect(otherAppCtx.plugin(SessionQuerySqlite, { path: otherAppPath }))
       .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
-    await (otherAppCtx.sessionQuery as SessionQuerySqlite).close()
+    expect(otherAppCtx.sessionQuery).toBeUndefined()
   })
 
-  it('observes asynchronous open rejection even when no query is made', async () => {
+  it('fails plugin initialization without an unhandled rejection or partial service', async () => {
     const path = await temporaryPath('never-queried.db')
     const foreign = new DatabaseSync(path)
     foreign.exec('CREATE TABLE canonical(value TEXT)')
@@ -1026,10 +1029,13 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
     process.on('unhandledRejection', onUnhandled)
     try {
-      const ctx = await liveContext({ path })
+      const ctx = new Context()
+      await ctx.plugin(SessionStore)
+      await expect(ctx.plugin(SessionQuerySqlite, { path }))
+        .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
       await new Promise<void>((resolve) => { setImmediate(resolve) })
       expect(unhandled).toEqual([])
-      await (ctx.sessionQuery as SessionQuerySqlite).close()
+      expect(ctx.sessionQuery).toBeUndefined()
     } finally {
       process.off('unhandledRejection', onUnhandled)
     }

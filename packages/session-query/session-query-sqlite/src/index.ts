@@ -6,7 +6,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { Context, type Fiber } from 'cordis'
+import { Context, Service, type Fiber } from 'cordis'
 import z from 'schemastery'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type SessionPersistence from '@deepseek-ai/dsh-session-persistence'
@@ -193,9 +193,6 @@ export class SessionQuerySqlite extends SessionQueryService {
     super(ctx, config)
     this.config = resolveConfig(config)
     this._ready = this._open()
-    // Attach a rejection observer immediately; callers still receive the same
-    // rejection from `_ready`, including when no search is ever attempted.
-    void this._ready.catch(() => undefined)
     this._optionalPersistenceFiber = ctx.inject(['sessionPersistence'], (childCtx: Context) => {
       const service = childCtx.sessionPersistence
       const binding = { identity: Symbol(), service }
@@ -210,6 +207,11 @@ export class SessionQuerySqlite extends SessionQueryService {
       return () => this._optionalPersistenceFiber.dispose()
     }, 'sessionQuerySqlite.optionalPersistence')
     ctx.effect(() => async () => this.close(), 'sessionQuerySqlite.close')
+  }
+
+  /** Open the index before Cordis publishes this combined service as active. */
+  protected async [Service.init](): Promise<void> {
+    await this._ensureReady(undefined)
   }
 
   override async searchSessions(
