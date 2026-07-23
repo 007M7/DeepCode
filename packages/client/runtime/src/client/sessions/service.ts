@@ -16,8 +16,8 @@
 import type { Context, Fiber } from 'cordis'
 import type { IApiClient, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionCell } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SnapshotStore } from '../store/index.ts'
-import { createSnapshotStore } from '../store/index.ts'
+import type { SnapshotStore } from '../contract/store.ts'
+import { createSnapshotStore } from '../contract/store.ts'
 import { SessionManager } from './manager.ts'
 import type { Session } from './session.ts'
 
