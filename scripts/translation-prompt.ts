@@ -92,16 +92,17 @@ export function parseTranslationResponse(text: string): TranslationResponse {
   if (fenced?.[1] !== undefined) body = fenced[1].trim()
 
   const values: Partial<Record<(typeof RESPONSE_SECTIONS)[number], string>> = {}
+  let previousSectionStart = -1
   for (const section of RESPONSE_SECTIONS) {
     const pattern = new RegExp(`^<${section}>\\n?([\\s\\S]*?)\\n?^</${section}>$`, 'gm')
     const first = pattern.exec(body)
     if (first?.[1] === undefined) throw new Error(`translation response: missing or unterminated <${section}> section`)
     if (pattern.exec(body) !== null) throw new Error(`translation response: duplicate <${section}> section`)
+    if (first.index <= previousSectionStart) {
+      throw new Error('translation response: sections must appear in translation, review, final order')
+    }
+    previousSectionStart = first.index
     values[section] = first[1]
-  }
-  const order = RESPONSE_SECTIONS.map(section => body.search(new RegExp(`^<${section}>`, 'm')))
-  if (!(order[0]! < order[1]! && order[1]! < order[2]!)) {
-    throw new Error('translation response: sections must appear in translation, review, final order')
   }
   return values as TranslationResponse
 }
