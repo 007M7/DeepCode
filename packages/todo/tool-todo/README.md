@@ -18,7 +18,7 @@ Beyond the schema's type/required/enum checks, `execute` rejects an empty or dup
 
 ## Rendering
 
-The canonical result is `{ todos, counts: { pending, inProgress, completed } }`; its Native renderer returns the compact update acknowledgement. The tool also writes the full `todo/write` session event. UIs subscribe to `session/event` and render that durable list themselves: the [TUI app](../../examples/tui-demo) shows a persistent plan, and the [ACP bridge](../../ui/acp) maps the list to a `plan` sessionUpdate (synthesizing the `priority` ACP requires).
+The canonical result is `{ todos, counts: { pending, inProgress, completed } }`; its Native renderer returns the compact update acknowledgement. The tool also writes the full `todo/write` session event. UIs subscribe to `session/event` and render that durable list themselves: the [TUI app](../../examples/tui-demo) shows a persistent plan, the [ACP bridge](../../ui/acp) maps the list to a `plan` sessionUpdate (synthesizing the `priority` ACP requires), and the [web client](../../client/ui-conversation) renders a plan strip plus a dedicated tool row off `ConversationSnapshot.todos` ([Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-web-todo-display.md)).
 
 ## Export shape
 
