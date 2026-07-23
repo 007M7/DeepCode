@@ -60,17 +60,24 @@ function mount(...summaries: SessionSummary[]) {
   const sessions = createSnapshotStore<SessionListState>(listStateOf(...summaries))
   const onOpen = vi.fn((id: SessionId) => { sessions.update((d) => { d.current = id }) })
   const onCreate = vi.fn()
-  const onToggleSidebar = vi.fn()
-  const utils = render(
+  // The owner decides collapsed in production (AppFrame maps the preference);
+  // the harness mirrors that loop so the toggle drives a re-render.
+  let collapsed = false
+  const view = (width: number) => (
     <SidebarRoot
-      collapsed={false}
-      width={300}
+      collapsed={collapsed}
+      width={width}
       useSessions={hookOf(sessions)}
       onOpen={onOpen}
       onCreate={onCreate}
       onToggleSidebar={onToggleSidebar}
-    />,
+    />
   )
+  const onToggleSidebar = vi.fn(() => {
+    collapsed = !collapsed
+    utils.rerender(view(collapsed ? 56 : 300))
+  })
+  const utils = render(view(300))
   return { sessions, onOpen, onCreate, onToggleSidebar, ...utils }
 }
 
@@ -151,10 +158,73 @@ describe('SidebarRoot', () => {
     expect(onCreate).toHaveBeenLastCalledWith('/proj')
   })
 
-  it('collapse button and group-by menu behave', () => {
-    const { onToggleSidebar } = mount(...projectData())
-    act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
-    expect(onToggleSidebar).toHaveBeenCalledOnce()
+  it('collapse fades the wide content out, then the rail keeps the four controls', () => {
+    vi.useFakeTimers()
+    try {
+      const { onToggleSidebar, onCreate } = mount(...projectData())
+      act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
+      expect(onToggleSidebar).toHaveBeenCalledOnce()
+      // Fade window: the wide chrome is still mounted while it fades.
+      expect(screen.getByText('HARNESS')).toBeTruthy()
+      expect(screen.getByRole('tree')).toBeTruthy()
+      // Settle: wide content unmounts, the rail controls remain.
+      act(() => { vi.advanceTimersByTime(300) })
+      expect(screen.queryByText('HARNESS')).toBeNull()
+      expect(screen.queryByText('New Session')).toBeNull()
+      expect(screen.queryByRole('tree')).toBeNull()
+      // Rail order mirrors the expanded rows: expand, new session, new workspace, search.
+      const rail = ['Expand sidebar', 'New session', 'New workspace', 'Search sessions', 'Settings']
+        .map((label) => screen.getByLabelText(label))
+      for (let i = 1; i < rail.length; i++) {
+        expect(rail[i - 1]!.compareDocumentPosition(rail[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      }
+      // Rail creation entries route like their expanded counterparts.
+      act(() => { fireEvent.click(screen.getByLabelText('New session')) })
+      expect(onCreate).toHaveBeenLastCalledWith()
+      act(() => { fireEvent.click(screen.getByLabelText('Expand sidebar')) })
+      expect(onToggleSidebar).toHaveBeenCalledTimes(2)
+      expect(screen.getByLabelText('Collapse sidebar')).toBeTruthy()
+      expect(screen.getByText('New Session')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rail search expands the sidebar and focuses the search box', () => {
+    vi.useFakeTimers()
+    try {
+      const { onToggleSidebar } = mount(...projectData())
+      act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
+      act(() => { vi.advanceTimersByTime(300) })
+      act(() => { fireEvent.click(screen.getByLabelText('Search sessions')) })
+      expect(onToggleSidebar).toHaveBeenCalledTimes(2)
+      const input = screen.getByPlaceholderText('Search name, keywords...')
+      expect(document.activeElement).toBe(input)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('the search query survives a collapse/expand round trip', () => {
+    vi.useFakeTimers()
+    try {
+      mount(...projectData())
+      const input = screen.getByPlaceholderText('Search name, keywords...')
+      act(() => { fireEvent.change(input, { target: { value: 'forked' } }) })
+      act(() => { fireEvent.click(screen.getByLabelText('Collapse sidebar')) })
+      act(() => { vi.advanceTimersByTime(300) })
+      act(() => { fireEvent.click(screen.getByLabelText('Expand sidebar')) })
+      const restored = screen.getByPlaceholderText('Search name, keywords...') as HTMLInputElement
+      expect(restored.value).toBe('forked')
+      expect(screen.getByText('forked child')).toBeTruthy()
+      expect(screen.queryByText('elsewhere')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('group-by menu behaves', () => {
+    mount(...projectData())
     expect(screen.queryByText('Update')).toBeNull()
     act(() => { fireEvent.click(screen.getByLabelText('Group by')) })
     expect(screen.getByText('Update')).toBeTruthy()
