@@ -5,9 +5,12 @@
  * renderSlot binding synthesized from the entry's children declaration.
  * Standard-kit synthesis per entry: the global useSessions hook, the session
  * pair (useSession + sessionId) under SessionProvider, the store pair
- * (useStore + actions) for store-declaring entries, and the renderSlot
- * binding (entry-identity bound, stale-checked) for children-declaring
- * entries. Inject factories run inside the entry component bodies ON PURPOSE
+ * (useStore + actions) for store-declaring entries, the renderSlot binding
+ * (entry-identity bound, stale-checked) for children-declaring entries, and
+ * the renderSlotChain binding for entries declaring a chain-kind child
+ * (selector-routed: first non-null select elects and its value joins the
+ * props as `matched`; all-null falls to the owner fallback).
+ * Inject factories run inside the entry component bodies ON PURPOSE
  * — the per-entry error boundary contains a throwing factory to its own
  * entry; parameters follow the declaration (sessionId for session slots,
  * baked actions when a store is declared).
@@ -15,8 +18,8 @@
 import { Component, useSyncExternalStore, type FC, type ReactNode } from 'react'
 import {
   SlotOwnershipError, StaleAuthorizationError,
-  type RenderOpts, type SessionCell, type SlotRenderer, type SlotRendererHost,
-  type StoredEntry,
+  type ChainRenderOpts, type RenderOpts, type SessionCell, type SlotRenderer,
+  type SlotRendererHost, type StoredEntry,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   HostContext, SessionProvider, SlotAssemblyError, observableHook, useHost, useSessionCell,
@@ -26,6 +29,9 @@ type InjectedProps = Record<string, unknown>
 
 /** Owner-facing renderSlot binding shape (typed narrowing lands on the wave-1 props seam). */
 type RenderSlotBinding = (key: string, owner: object, opts?: RenderOpts) => ReactNode
+
+/** Owner-facing renderSlotChain binding shape (typed narrowing lands on the props seam). */
+type RenderSlotChainBinding = (key: string, owner: object, opts?: ChainRenderOpts) => ReactNode
 
 /**
  * Per-entry renderSlot bindings. The binding is identity-stable per entry
@@ -43,12 +49,45 @@ function boundRenderSlot(host: SlotRendererHost, entry: StoredEntry): RenderSlot
         throw new StaleAuthorizationError(`renderSlot('${key}') from a disposed registration`)
       }
       // Plain-JS backstop; typed callers are narrowed to the declared keys.
-      if (entry.children?.[key] === undefined) {
+      const declared = entry.children?.[key]
+      if (declared === undefined) {
         throw new SlotOwnershipError(`slot '${key}' is not declared by this entry's children`)
+      }
+      if (declared.kind === 'chain') {
+        throw new SlotOwnershipError(`slot '${key}' is declared 'chain' — use renderSlotChain`)
       }
       return <SlotOutlet slotKey={key} ownerProps={owner} opts={opts} />
     }
     renderSlotCache.set(entry, binding)
+  }
+  return binding
+}
+
+/**
+ * Per-entry renderSlotChain bindings: identity-stable per entry (same cache
+ * axis as renderSlot — a per-frame dispatch must not rebuild the binding) and
+ * dead with the entry. The chain-kind check is the plain-JS backstop twin of
+ * the declaration check; typed callers are narrowed to chain keys.
+ */
+const renderSlotChainCache = new WeakMap<StoredEntry, RenderSlotChainBinding>()
+
+function boundRenderSlotChain(host: SlotRendererHost, entry: StoredEntry): RenderSlotChainBinding {
+  let binding = renderSlotChainCache.get(entry)
+  if (!binding) {
+    binding = (key, owner, opts) => {
+      if (!host.isLive(entry)) {
+        throw new StaleAuthorizationError(`renderSlotChain('${key}') from a disposed registration`)
+      }
+      const declared = entry.children?.[key]
+      if (declared === undefined) {
+        throw new SlotOwnershipError(`slot '${key}' is not declared by this entry's children`)
+      }
+      if (declared.kind !== 'chain') {
+        throw new SlotOwnershipError(`slot '${key}' is declared '${declared.kind}', not 'chain' — use renderSlot`)
+      }
+      return <SlotOutlet slotKey={key} ownerProps={owner} opts={opts} />
+    }
+    renderSlotChainCache.set(entry, binding)
   }
   return binding
 }
@@ -94,6 +133,26 @@ function cachedSessionInject(entry: StoredEntry, cell: SessionCell, actions: obj
     perCell.set(cell, props)
   }
   return props
+}
+
+/**
+ * Entry-identity React keys for chain boundaries. A chain outlet renders ONE
+ * elected entry through an error boundary; without a key, a boundary that
+ * failed on entry A would survive a re-election and keep a healthy entry B
+ * blacked out. Keying by entry identity remounts the boundary fresh whenever
+ * the election changes (entries are identity-stable per registration, so the
+ * key is stable while the same entry stays elected).
+ */
+let nextEntryKey = 0
+const entryKeys = new WeakMap<StoredEntry, number>()
+
+function entryKeyOf(entry: StoredEntry): number {
+  let key = entryKeys.get(entry)
+  if (key === undefined) {
+    key = nextEntryKey++
+    entryKeys.set(entry, key)
+  }
+  return key
 }
 
 /**
@@ -144,6 +203,11 @@ function standardKit(host: SlotRendererHost, entry: StoredEntry, cell: SessionCe
   }
   if (entry.children !== undefined) {
     kit['renderSlot'] = boundRenderSlot(host, entry)
+    // renderSlotChain rides the same declaration source: only entries whose
+    // children include a chain-kind slot receive the chain dispatch seat.
+    if (Object.values(entry.children).some((spec) => spec.kind === 'chain')) {
+      kit['renderSlotChain'] = boundRenderSlotChain(host, entry)
+    }
     // SessionProvider standard seat: entries declaring a session-scope child
     // render the session area, so the framework hands them the self-wired
     // provider (module-level component = stable reference; no value import).
@@ -198,9 +262,9 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
   // The boundary must wrap the Entry ELEMENT, not live inside it: inject
   // factories and kit synthesis run in the Entry body and must land in the
   // per-entry fallback rather than escaping to the tree above.
-  const guarded = (entry: StoredEntry, key?: string | number) => (
+  const guarded = (entry: StoredEntry, key?: string | number, owner: object = ownerProps) => (
     <SlotErrorBoundary slotKey={slotKey} key={key}>
-      <Entry entry={entry} ownerProps={ownerProps} />
+      <Entry entry={entry} ownerProps={owner} />
     </SlotErrorBoundary>
   )
 
@@ -213,6 +277,32 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
     const entry = entries.find((e) => e.options?.key === opts?.entryKey)
     if (!entry) return <>{opts?.fallback ?? null}</>
     return guarded(entry)
+  }
+  if (spec.kind === 'chain') {
+    // Entries arrive priority-sorted from the ledger (the core orders at
+    // register, ties keep registration sequence). Selectors are pure
+    // functions of the owner props (register-face contract), so the routing
+    // pass runs per render with zero mount side effects: the first non-null
+    // election renders, decliners never mount.
+    for (const entry of entries) {
+      let matched: unknown
+      try {
+        // Chain entries always carry select (SlotCore register validation).
+        matched = (entry.select as (owner: object) => unknown)(ownerProps)
+      } catch (error) {
+        // A throwing selector is a registrant contract breach (select MUST be
+        // pure and total), but it runs before the entry's SlotErrorBoundary
+        // exists — uncontained it would black out the whole owner region. So
+        // it degrades to a decline: the chain and the fallback stay intact,
+        // and the breach is reported like a crashed entry.
+        console.error(
+          `chain selector crashed in '${slotKey}' (${entry.registrant ?? 'unknown registrant'}), treating as declined:`,
+          error)
+        continue
+      }
+      if (matched !== null) return guarded(entry, entryKeyOf(entry), { ...ownerProps, matched })
+    }
+    return <>{opts?.fallback ?? null}</>
   }
   // list: registration order refined by explicit order, optional id filter.
   const withListOptions = entries.map((entry) => ({

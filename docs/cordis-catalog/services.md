@@ -759,7 +759,7 @@ set(agent: Agent, active: boolean): void
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/plan/plan-mode/src/index.ts:141`](../../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:142`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 
@@ -787,6 +787,13 @@ listBackends(): string[]
  * @returns published identity, metadata, status, and MOTD.
  */
 async spawn(owner: Agent, request: PtySpawnRequest, signal?: AbortSignal): Promise<PtySpawnResult>
+
+/**
+ * Test whether an exact owner has a published session or unpublished spawn.
+ * @param owner - exact live owner to inspect.
+ * @returns true across the entire spawn-to-close interval, with no publication gap.
+ */
+hasOwnerActivity(owner: Agent): boolean
 
 /**
  * Start one exclusive interactive send.
@@ -834,7 +841,7 @@ list(owner: Agent): PtySessionSnapshot[]
 
 Types: [Agent](../core-data-structures/core.md) · [PtyBackend](../core-data-structures/pty.md) · [PtyReadRequest](../core-data-structures/pty.md) · [PtyReadResult](../core-data-structures/pty.md) · [PtySendOperation](../core-data-structures/pty.md) · [PtySendRequest](../core-data-structures/pty.md) · [PtySessionId](../core-data-structures/pty.md) · [PtySessionSnapshot](../core-data-structures/pty.md) · [PtySignal](../core-data-structures/pty.md) · [PtySignalResult](../core-data-structures/pty.md) · [PtySpawnRequest](../core-data-structures/pty.md) · [PtySpawnResult](../core-data-structures/pty.md)
 
-Source: [`packages/pty/pty/src/index.ts:95`](../../packages/pty/pty/src/index.ts)
+Source: [`packages/pty/pty/src/index.ts:105`](../../packages/pty/pty/src/index.ts)
 
 ## `ctx.sandbox` — `SandboxProvider` (abstract seam)
 
@@ -929,26 +936,72 @@ abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
 abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 
 /**
+ * Inspect a header and its valid contiguous stored prefix without repairing
+ * a torn tail, closing an interrupted turn, or publishing coordinator state.
+ * This read is serialized with writes for the same id and returns detached
+ * values, so observers cannot mutate backend-owned state.
+ * @param id - the persisted session to inspect.
+ * @returns the header and valid stored event prefix exactly as observed.
+ */
+abstract inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+
+/**
  * Lightweight listing from metadata, without a full-log parse.
  * @returns one header per materialized session.
  */
 abstract list(): Promise<SessionHeader[]>
+
+/**
+ * List materialized sessions with cheap per-log change tokens.
+ *
+ * Repeated observations of an unchanged log return the same revision. A
+ * successful mutating {@link load} repair changes the next listed revision.
+ * Revisions also distinguish independently backed stores so backend-local
+ * counters cannot compare equal across different persistence sources.
+ * @returns one header and opaque revision per materialized session without loading full logs.
+ */
+abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>
 ```
 
-Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md)
+Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:42`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:52`](../../packages/session-persistence/session-persistence/src/index.ts)
 
-## `ctx.sessionQuery` — `SessionQueryService`
+## `ctx.sessionQuery` — `SessionQueryService` (abstract seam)
 
-Live-preferred logical-corpus exact-read and relationship-tracing service.
+Unified live-preferred session query service.
+
+Exact reads, filters, and traces are backend-independent concrete behavior. A backend implements full-text observation, reconciliation, ranking, cursor generations, and query execution on the same `ctx.sessionQuery` service.
 
 ```ts cordis-catalog
+/**
+ * Search the live-preferred logical corpus and group by session.
+ * @param request - query text, metadata filters, page size, and cursor.
+ * @param exec - optional cancellation control.
+ * @returns session hits ranked by their strongest matching event.
+ */
+abstract searchSessions( request: SessionSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionSearchHit>>
+
+/**
+ * Search events within one live-preferred logical session.
+ * @param request - target session, query text, filters, page size, and cursor.
+ * @param exec - optional cancellation control.
+ * @returns matching event hits in deterministic relevance order.
+ */
+abstract searchEvents( request: SessionEventSearchRequest, exec?: SessionSearchExecContext, ): Promise<SessionSearchPage<SessionEventSearchHit>>
+
 /**
  * List the complete logical corpus using live-preferred records.
  * @returns deterministic newest-first cloned session records.
  */
 listSessions(): Promise<SessionRecord[]>
+
+/**
+ * Filter the complete logical corpus with provider-independent predicates.
+ * @param filters - ANDed session metadata and availability clauses.
+ * @returns matching cloned records in deterministic newest-first order.
+ */
+async filterSessions(filters: readonly SessionResultFilter[]): Promise<SessionRecord[]>
 
 /**
  * Fold the latest log-backed title from one live-preferred logical session.
@@ -963,6 +1016,14 @@ async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined>
  * @returns event records in ascending seq order.
  */
 async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]>
+
+/**
+ * Scan first-party semantic event documents with provider-independent filters.
+ * @param sessionId - live-preferred session id to scan.
+ * @param filters - ANDed metadata and literal-text predicates.
+ * @returns matching semantic documents in ascending seq order.
+ */
+async filterEvents( sessionId: SessionId, filters: readonly SessionEventResultFilter[], ): Promise<SessionEventSearchDocument[]>
 
 /**
  * Read one session's complete current model surface from one corpus observation.
@@ -996,9 +1057,9 @@ async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace>
 async readEvent(request: SessionEventReadRequest): Promise<SessionEventWindow>
 ```
 
-Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventTrace](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
+Types: [SessionEventReadRequest](../core-data-structures/session-query.md) · [SessionEventRecord](../core-data-structures/session-query.md) · [SessionEventResultFilter](../core-data-structures/session-query.md) · [SessionEventSearchDocument](../core-data-structures/session-query.md) · [SessionEventSearchHit](../core-data-structures/session-query.md) · [SessionEventSearchRequest](../core-data-structures/session-query.md) · [SessionEventTrace](../core-data-structures/session-query.md) · [SessionEventTraceRequest](../core-data-structures/session-query.md) · [SessionEventWindow](../core-data-structures/session-query.md) · [SessionId](../core-data-structures/core.md) · [SessionLineageTrace](../core-data-structures/session-query.md) · [SessionRecord](../core-data-structures/session-query.md) · [SessionResultFilter](../core-data-structures/session-query.md) · [SessionSearchExecContext](../core-data-structures/session-query.md) · [SessionSearchHit](../core-data-structures/session-query.md) · [SessionSearchPage](../core-data-structures/session-query.md) · [SessionSearchRequest](../core-data-structures/session-query.md) · [SessionSurfaceSnapshot](../core-data-structures/session-query.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-query/session-query/src/index.ts:41`](../../packages/session-query/session-query/src/index.ts)
+Source: [`packages/session-query/session-query/src/index.ts:73`](../../packages/session-query/session-query/src/index.ts)
 
 ## `ctx.sessionReferences` — `SessionReferenceService`
 
@@ -1462,7 +1523,7 @@ attachSurface(name: string): () => void
 
 Types: [Agent](../core-data-structures/core.md) · [TaskDoneListener](../core-data-structures/tasks.md) · [TaskId](../core-data-structures/tasks.md) · [TaskRead](../core-data-structures/tasks.md) · [TaskSnapshot](../core-data-structures/tasks.md) · [TaskStart](../core-data-structures/tasks.md)
 
-Source: [`packages/tasks/tasks/src/index.ts:76`](../../packages/tasks/tasks/src/index.ts)
+Source: [`packages/tasks/tasks/src/index.ts:77`](../../packages/tasks/tasks/src/index.ts)
 
 ## `ctx.tokenMeter` — `TokenMeterService`
 
@@ -1544,7 +1605,7 @@ Tool registry and execution pipeline. Scoped registrations shadow globals; one v
 /**
  * Register globally or in the calling agent scope. Scoped tools shadow
  * globals; duplicates within one layer and the reserved `run_code` name fail.
- * @param definition - the tool schema, execution, and optional presentation functions.
+ * @param definition - tool schema, execution, and optional finalization/presentation callbacks.
  * @returns the exact disposer that unregisters the tool.
  */
 register(definition: ToolDefinition): () => void
@@ -1599,10 +1660,11 @@ schemas(scope?: ScopeKey): ToolSchema[]
 executionMode(exec: ToolExecutionInput): ToolExecutionMode
 
 /**
- * Execute through pre-policy, guards, around-dispatch, post-policy, and final
- * notification. Tool and listener failures resolve as materialized error
- * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
- * the same lossless, frozen snapshot final observers receive. Cancellation
+ * Execute through pre-policy, guards, around-dispatch, post-policy,
+ * definition-owned content finalization, and final notification. Tool and
+ * listener failures resolve as materialized error results; an invisible tool
+ * reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen
+ * snapshot final observers receive. Cancellation
  * arriving after entry and before final result materialization skips a
  * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a
  * successful started outcome with `ABORTED`; already-started work is still
@@ -1616,7 +1678,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:622`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:634`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.tui` — `TuiExtensionService` (abstract seam)
 

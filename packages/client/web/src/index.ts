@@ -8,4 +8,5 @@
 export { bootWebShell } from './boot.tsx'
 export { AppRoot, type AppRootProps } from './AppRoot.tsx'
 export { buildRenderApp, type AssemblyDeps } from './app.tsx'
+export { DocumentTitle, type DocumentTitleProps } from './DocumentTitle.tsx'
 export { seedModules } from './seed.ts'

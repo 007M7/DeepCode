@@ -35,6 +35,11 @@ interface TaskStart {
   /** One-line model-facing label (the command; the delegation description). */
   label: string
   /**
+   * Optional UTF-8 byte cap for each complete model-facing completion notice or
+   * output read, including control-surface status metadata.
+   */
+  outputLimitBytes?: number
+  /**
    * Owning live agent. Access is fenced by its session id, and agent disposal
    * cancels and awaits the task. The instance must be the one currently
    * registered under its agent id. Omitting the owner creates an unowned task,
@@ -104,6 +109,8 @@ interface TaskSnapshot {
   kind: TaskKind
   /** The producer-supplied one-line label. */
   label: string
+  /** Producer-owned cap for complete model-facing notices and output reads. */
+  outputLimitBytes?: number
   /**
    * Owner session id used for authorization and correlation; absent for
    * unowned tasks. Completion listeners receive the exact {@link Agent}

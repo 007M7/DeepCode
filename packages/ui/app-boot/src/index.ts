@@ -209,9 +209,8 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
  * `cordis:include` builtin, loading through the ambient module pipeline
  * (vite/tsx/plain ESM) while the included tree's own specifiers stay
  * config-relative. A missing fiber rejects here; a later init rejection is
- * handled by {@link installFailLoud}. Built bins need `--expose-internals` or
- * the Loader's native fallback for bare plugin specifiers; relative specifiers
- * do not.
+ * handled by {@link installFailLoud}. Built bins need the Loader's native
+ * helper for bare plugin specifiers; relative specifiers do not.
  * @param binName - the diagnostic prefix for load-failure errors.
  * @param absoluteConfigPath - the config to include; must already be absolute
  * (see {@link resolveConfigPath}).

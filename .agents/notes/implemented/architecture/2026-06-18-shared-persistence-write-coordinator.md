@@ -8,9 +8,9 @@ Status: implemented
 
 ## Decision
 
-Extract a backend-agnostic `PersistenceCoordinator` into `dsh-session-persistence`. The coordinator owns the orchestration once; each first-party backend composes one (`new PersistenceCoordinator(ctx, this)`), implements a small `PersistenceBackend` hook interface, and delegates its four public service methods (`create`/`append`/`load`/`list`) to it.
+Extract a backend-agnostic `PersistenceCoordinator` into `dsh-session-persistence`. The coordinator owns the orchestration once; each first-party backend composes one (`new PersistenceCoordinator(ctx, this)`), implements a small `PersistenceBackend` hook interface, and delegates its stateful public methods (`create`/`append`/`load`/`inspect`) to it. Backend-owned metadata and revision listing bypass the coordinator.
 
-Composition, not inheritance. The coordinator is a concrete class the backend holds, not a base class the backend extends. The Agent Note's risk — "a coordinator must not make unusual backends fight an inheritance hierarchy" — is avoided: a backend exposes only the hooks; it cannot reach the coordinator's private orchestration state, and the public `SessionPersistence` service shape is unchanged, so a third-party backend MAY still implement the abstract service directly without the coordinator at all.
+Composition, not inheritance. The coordinator is a concrete class the backend holds, not a base class the backend extends. The Agent Note's risk — "a coordinator must not make unusual backends fight an inheritance hierarchy" — is avoided: a backend exposes only the hooks and cannot reach the coordinator's private orchestration state. A third-party backend MAY still implement the abstract service directly without the coordinator, including the non-mutating `inspect` contract used by read models.
 
 The coordinator holds one controller for each exact live `Session`; the controller combines initialization, pending events, and the shared flush promise. Each `session/event` starts an eager drain, and `session/flush` observes quiescence rather than initiating the ordinary write path. The [flush-controller simplification](../simplification/2026-07-23-collapse-persistence-flush-state.md) owns this lifecycle.
 
@@ -21,7 +21,7 @@ The coordinator retires a session from `session/disposed`: it waits for the cont
 Five required members plus an optional lifecycle hook form the only boundary between the coordinator and storage:
 
 - `name` — backend label for the dispose-failure `AggregateError`.
-- `loadStored(id)` — read one stored prefix by id across every storage scope (every JSONL cwd bucket; SQLite's id is globally unique). Resume/load, live adoption, and the create-collision probe share this lookup. The coordinator asserts the returned id and rejects a stored/live cwd mismatch before repair or state publication.
+- `loadStored(id)` — read one stored prefix by id across every storage scope (every JSONL cwd bucket; SQLite's id is globally unique). Resume/load, non-mutating inspection, live adoption, and the create-collision probe share this lookup. The coordinator asserts the returned id and rejects a stored/live cwd mismatch before repair or state publication.
 - `appendBatch(meta, events, isMaterialized)` — durably append a contiguous batch, lazily materializing the session ATOMICALLY when not yet materialized (the materialize-write and the first event batch must commit together — a crash between them must not leave a materialized-but-empty session; this is why there is no separate `materialize` hook).
 - `commitRepair(meta, tornMarker, closers)` — make a crash repair durable: truncate the torn tail (iff `tornMarker !== undefined`) and append `closers`. **NOT required to be atomic** — JSONL legitimately truncates-then-appends in two fsync'd steps, SQLite does DELETE+INSERT in one transaction. Used by `load` (truncate + synthetic closers) and live-adoption (truncate only, `closers = []`).
 - `list()` — list all stored metadata.
@@ -33,7 +33,7 @@ The single design choice that keeps the seam clean: the crash-repair "where is t
 
 ## Testing
 
-The shared `runPersistenceContract` (public-API contract) runs for every backend. `runCoordinatorContract` (`tests/coordinator-contract.ts`) covers adoption, HMR, collision, disposal drains, and crash-tail repair through an in-memory reference, JSONL, and SQLite. Coordinator-specific tests cover eager follow-up batches, live-controller cleanup, same-id chain-tail races, failed-drain retry, and close ordering. The per-backend specs retain storage mechanics only. A through-coordinator torn-tail repair test per real backend keeps the opaque-marker branch covered.
+The shared `runPersistenceContract` (public-API contract) runs for every backend and proves that `inspect` leaves interrupted logs and revisions unchanged before `load` performs recovery. `runCoordinatorContract` (`tests/coordinator-contract.ts`) covers adoption, HMR, collision, session and backend disposal drains, and crash-tail repair through an in-memory reference, JSONL, and SQLite. Coordinator-specific tests cover eager follow-up batches, live-controller cleanup, same-id chain-tail races, failed-drain retry, and close ordering. The per-backend specs retain storage mechanics only. A through-coordinator torn-tail repair test per real backend keeps the opaque-marker branch covered because the contract crash case produces synthetic closers without a torn marker.
 
 ## Alternatives considered
 
@@ -42,4 +42,4 @@ The shared `runPersistenceContract` (public-API contract) runs for every backend
 
 ## Consequences
 
-The coordinator adds one indirection and an opaque torn marker, but centralizes correctness-heavy orchestration previously duplicated by every backend. Session disposal remains an observe-only event, so the coordinator contains retirement failures, preserves pending events in the live controller, and makes backend teardown the final quiescence boundary. Its hook surface stays narrow: identity, adoption, and collision checks reuse `loadStored`; materialization stays atomic inside `appendBatch`; and listing bypasses the coordinator. New backends implement storage primitives rather than copy the write lifecycle.
+The coordinator adds one indirection, an opaque torn marker, and detached session-retirement tasks, but centralizes correctness-heavy orchestration previously duplicated by every backend. Session disposal remains an observe-only event, so the session owner does not await persistence retirement; the coordinator contains failures, preserves pending events in the live controller, and makes backend teardown the quiescence boundary. Its hook surface stays narrow: identity, adoption, collision checks, and non-mutating inspection reuse `loadStored`; materialization stays atomic inside `appendBatch`; and listing bypasses the coordinator. Read models use `inspect` rather than `load`, so observing a persisted open turn cannot race a new live owner by committing interruption closers. New backends implement storage primitives rather than copy the eager write lifecycle.

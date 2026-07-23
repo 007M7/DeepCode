@@ -39,10 +39,10 @@ In `tmp/cordis-tutorial`, write `cordis.yml`:
 
 Two support plugins joined the list: HMR logs through the Cordis logger service, so without a console exporter you would not see its messages, and it `inject`s the `timer` service for debouncing — without `@cordisjs/plugin-timer` it sits in PENDING forever, silently. That silence is the subject of the next section.
 
-HMR also needs Node's loader internals:
+HMR reads Node's loader internals through the Loader's native helper. Run Cordis under tsx:
 
 ```sh
-node --expose-internals --import tsx ../../vendor/cordis/bin.js
+node --import tsx ../../vendor/cordis/bin.js
 ```
 
 Now edit `hello.ts` — change the log message — and save:

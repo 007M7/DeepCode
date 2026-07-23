@@ -8,7 +8,8 @@ import { cleanup, render } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { SessionId, SessionListState, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import type { RpcId } from '@deepseek-ai/dsh-client-connection/client'
+import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
+import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ToolRowOwnerProps, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as nodeApply } from '../src/index.ts'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
@@ -34,7 +35,7 @@ describe('tails', () => {
 
   it('PendingCard renders the question arm with its count', () => {
     const view = render(
-      <PendingCard item={{ kind: 'question', rpcId: 'r1' as RpcId, questions: [{}, {}] }} />,
+      <PendingCard item={new PendingWait('question', RpcId('r1'), 's1' as SessionId, { questions: [{}, {}] } as PendingWait<'question'>['payload'], vi.fn())} />,
     )
     expect(view.getByText(/等待回答（2 题）/)).toBeTruthy()
   })

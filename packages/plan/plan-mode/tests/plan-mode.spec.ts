@@ -546,14 +546,17 @@ describe('/plan', () => {
     const plainSteer = vi.fn()
     ;(plainAgent as unknown as { steer: typeof plainSteer }).steer = plainSteer
     expect(ctx.commands.list(plainAgent)).toEqual([
-      { name: 'plan', description: 'Enter plan mode', input: { hint: '[message]' } },
+      { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } },
     ])
 
     const signal = new AbortController().signal
     expect(await ctx.commands.execute(plainAgent, '/mode', signal)).toBeUndefined()
     expect(await ctx.commands.execute(plainAgent, '/review', signal)).toBeUndefined()
     const plain = await ctx.commands.execute(plainAgent, '/plan', signal)
-    expect(plain).toEqual({ kind: 'success', text: 'Entering plan mode (applies from the next step).' })
+    expect(plain).toEqual({
+      kind: 'success',
+      text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
+    })
     expect(ctx.planMode.get(plainAgent)).toEqual({ active: false, pending: true })
     expect(plainSteer).not.toHaveBeenCalled()
 
@@ -561,9 +564,48 @@ describe('/plan', () => {
     const messageSteer = vi.fn()
     ;(messageAgent as unknown as { steer: typeof messageSteer }).steer = messageSteer
     const plan = await ctx.commands.execute(messageAgent, '/plan   draft the migration  ', signal)
-    expect(plan).toEqual({ kind: 'success', text: 'Entering plan mode (applies from the next step).' })
+    expect(plan).toEqual({
+      kind: 'success',
+      text: 'Entering plan mode (applies from the next step). Use /plan off to leave.',
+    })
     expect(ctx.planMode.get(messageAgent)).toEqual({ active: false, pending: true })
     expect(messageSteer).toHaveBeenCalledExactlyOnceWith([{ type: 'text', text: 'draft the migration' }])
+  })
+
+  it('leaves active plan mode, cancels a pending entry, and treats inactive exit as idempotent', async () => {
+    const ctx = await setup()
+    await ctx.plugin(CommandService)
+    await new Promise(resolve => setImmediate(resolve))
+    const signal = new AbortController().signal
+
+    const inactive = await agentWithSession(ctx, 'inactive-plan-command')
+    expect(await ctx.commands.execute(inactive, '/plan off', signal))
+      .toEqual({ kind: 'success', text: 'Plan mode is already inactive.' })
+    expect(ctx.planMode.get(inactive)).toEqual({ active: false })
+
+    const entering = await agentWithSession(ctx, 'entering-plan-command')
+    const enteringSteer = vi.fn()
+    ;(entering as unknown as { steer: typeof enteringSteer }).steer = enteringSteer
+    await ctx.commands.execute(entering, '/plan', signal)
+    expect(await ctx.commands.execute(entering, '/plan off', signal))
+      .toEqual({ kind: 'success', text: 'Plan mode entry cancelled.' })
+    expect(ctx.planMode.get(entering)).toEqual({ active: false, pending: false })
+    expect(enteringSteer).not.toHaveBeenCalled()
+    await boundary(ctx, entering, 'turn/start')
+    expect(ctx.planMode.get(entering)).toEqual({ active: false })
+    expect(entering.session.events.some(event => event.type === 'plan/mode')).toBe(false)
+
+    const active = await agentWithSession(ctx, 'active-plan-command', { active: true })
+    const activeSteer = vi.fn()
+    ;(active as unknown as { steer: typeof activeSteer }).steer = activeSteer
+    expect(await ctx.commands.execute(active, '/plan off', signal))
+      .toEqual({ kind: 'success', text: 'Leaving plan mode (applies from the next step).' })
+    expect(ctx.planMode.get(active)).toEqual({ active: true, pending: false })
+    expect(await ctx.commands.execute(active, '/plan off', signal))
+      .toEqual({ kind: 'success', text: 'Leaving plan mode (applies from the next step).' })
+    expect(activeSteer).not.toHaveBeenCalled()
+    await boundary(ctx, active, 'turn/start')
+    expect(ctx.planMode.get(active)).toEqual({ active: false })
   })
 
   it('removes the contributed command when the plan-mode plugin is disposed', async () => {

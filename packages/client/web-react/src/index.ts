@@ -22,7 +22,7 @@ export type UseSession<Snap extends object = object> = SnapshotSelectorHook<Snap
 
 // -- renderer: the install-seam implementation; contract lives in ui-slots --
 export type {
-  HostObservable, RenderOpts, SessionCell, SnapshotSelectorHook,
+  ChainRenderOpts, HostObservable, RenderOpts, SessionCell, SnapshotSelectorHook,
   SlotRenderer, SlotRendererHost, StoreInstanceLike,
 } from '@deepseek-ai/dsh-client-ui-slots'
 export { SlotOwnershipError, StaleAuthorizationError } from '@deepseek-ai/dsh-client-ui-slots'

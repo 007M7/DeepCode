@@ -26,8 +26,8 @@ async function bench() {
   const listStore = createSnapshotStore<SessionListState>({
     ids: [ROOT, CHILD],
     byId: {
-      [ROOT]: { id: ROOT, title: 'R', running: false, updatedAt: 1 },
-      [CHILD]: { id: CHILD, title: 'C', parentId: ROOT, running: false, updatedAt: 2 },
+      [ROOT]: { id: ROOT, title: 'R', displayTitle: 'R', running: false, updatedAt: 1 },
+      [CHILD]: { id: CHILD, title: 'C', displayTitle: 'C', parentId: ROOT, running: false, updatedAt: 2 },
     },
     current: undefined,
   } as SessionListState)
