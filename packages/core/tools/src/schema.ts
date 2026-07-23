@@ -3,7 +3,7 @@
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
-import type { ToolDefinition, ToolRunContext, ToolResult } from './index.ts'
+import type { ToolDefinition, ToolExecution, ToolExecutionResult, ToolRunContext, ToolResult } from './index.ts'
 import { assertSupportedJsonSchema, isJsonSchemaRecord, isPlainJsonArray, JsonSchemaError, validateJsonSchemaValue } from './json-schema.ts'
 import type { JsonSchemaNode, JsonSchemaScalar, ObjectJsonSchema } from './json-schema.ts'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
@@ -512,6 +512,15 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
    */
   execute(args: InferArgs<S>, exec: ToolRunContext): Promise<InferValue<NoInfer<O>>>
   /**
+   * Optional last-mile content transform for every normalized outcome. Unlike
+   * `execute`, arguments remain `unknown` because invalid-input failures also
+   * reach this callback. See {@link ToolDefinition.finalizeContent}.
+   * @param exec - immutable execution identity and arguments.
+   * @param result - complete normalized outcome before materialization.
+   * @returns replacement content, or `undefined` to preserve it.
+   */
+  finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined
+  /**
    * Pure pending-state presenter.
    * @param args - typed validated arguments.
    * @returns Tool-owned render intent, or `undefined` for the generic card.
@@ -530,7 +539,7 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
  * Define a first-party tool with inferred arguments and strict execution
  * validation. Replay-only presenters validate softly and fall back to generic
  * rendering for obsolete logged arguments.
- * @param options - typed definition and optional presenters.
+ * @param options - typed definition and optional finalizer and presenters.
  * @returns A registry-ready definition.
  */
 export function defineTool<const S extends ParameterSchemaSpec, const O extends ValueSchemaSpec>(
@@ -539,6 +548,8 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
   // Object-literal methods do not use `this`; retaining references is safe.
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userExecute = options.execute
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const userFinalizeContent = options.finalizeContent
   // eslint-disable-next-line @typescript-eslint/unbound-method
   const userRender = options.output.render
   // eslint-disable-next-line @typescript-eslint/unbound-method
@@ -577,6 +588,13 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
       return userExecute(args as InferArgs<S>, exec) as Promise<JsonValue>
     },
   }
+  if (userFinalizeContent) {
+    tool.finalizeContent = (exec, result) => userFinalizeContent(exec, result)
+  }
+  // Presentation is display-only and may run on REPLAY of arbitrary logged args
+  // (possibly from an older schema), so it must never throw: validate softly and
+  // fall back to `undefined` (a generic UI presentation) on any mismatch, rather
+  // than the hard `ToolArgsError` the execute path raises.
   if (userPresentCall) {
     tool.presentCall = (args: unknown): ToolCallView | undefined => {
       if (validate(args).length > 0) return undefined

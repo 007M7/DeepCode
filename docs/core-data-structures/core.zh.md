@@ -24,7 +24,7 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [commands.md](commands.md) | 人类命令 seam：定义、适配器发现、直接调用、结果与解析视图 |
 | [session.md](session.md) | 完整的 `SessionEventMap` 变体目录、`TurnTrigger`/`TurnEndReason`、`deriveMessages()`、轮次封闭不变式 |
 | [persistence.md](persistence.md) | 持久性 seam：`SessionPersistence`、JSONL + SQLite 后端、`session/flush`、崩溃恢复、`SessionHeader` |
-| [session-query.md](session-query.md) | 逻辑记录、有界精确事件读取与关系追踪 |
+| [session-query.md](session-query.md) | 逻辑记录、有界精确事件读取、关系追踪、语义筛选器/文档与全文检索结果页 |
 | [session-title.md](session-title.md) | 持久标题快照、来源 provenance 与异步提供方契约 |
 | [system-prompt.md](system-prompt.md) | 逐次组装的上下文、工具提供方结果、提示词段落与协作式组装 |
 | [tools.md](tools.md) | `ToolDefinition` 完整字段、schema DSL、`ToolExecution`/`ToolResult`、工具展示 UI 类型，以及受保护的执行流水线 |
@@ -244,10 +244,10 @@ interface GenerateOptions {
   sessionId?: Branded<'SessionId'>
   /**
    * Provider-neutral classification for an auxiliary model call. Adapters may
-   * map the purpose to model-hidden transport metadata. Ordinary conversation
-   * requests leave it unset.
+   * map the purpose to model-hidden transport metadata or purpose-specific
+   * generation policy. Ordinary conversation requests leave it unset.
    */
-  purpose?: 'compaction'
+  purpose?: 'compaction' | 'session-title'
 }
 ```
 
@@ -550,6 +550,6 @@ type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 
 ## `ToolDefinition`
 
-唯一属于核心的流水线编写类型：每个已注册工具*是什么*——一个面向模型的 `ToolSchema` 加上一个 `execute` 函数和可选的 UI 展示器。工具作者很少手动构造它（`defineTool` DSL 会用类型化参数构建），但它是注册表持有、循环分发所经过的契约。
+唯一属于核心的流水线编写类型：每个已注册工具*是什么*——一个面向模型的 `ToolSchema` 加上一个 `execute` 函数，以及可选的最终内容回调与 UI 回调。工具作者很少手动构造它（`defineTool` DSL 会用类型化参数构建），但它是注册表持有、循环分发所经过的契约。
 
 其完整字段、`defineTool`/`ValueSchemaSpec`/`ParameterSchemaSpec` 类型化 schema DSL、`ToolExecution`/`ToolExecutionResult` waterfall 形状，以及工具展示 UI 词汇在 **[tools.md](tools.md)** 中。

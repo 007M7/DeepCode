@@ -87,14 +87,16 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     const output = await smoke({
       label: 'tui-agent boot',
       actions: [
-        { waitFor: 'main-session-', send: '/plan\r' },
-        { waitFor: 'Entering plan mode (applies from the next step).', send: '/exit\r' },
+        { waitFor: 'main-session-', send: '/plan' },
+        { waitFor: '[off|message] — Enter or leave plan mode', send: '\r' },
+        { waitFor: 'Entering plan mode (applies from the next step). Use /plan off to leave.', send: '/exit\r' },
       ],
     })
     expect(output).toContain('DEEPSEEK')
     expect(output).toContain('HARNESS')
     expect(output).toContain('main-session-')
-    expect(output).toContain('Entering plan mode (applies from the next step).')
+    expect(output).toContain('[off|message] — Enter or leave plan mode')
+    expect(output).toContain('Entering plan mode (applies from the next step). Use /plan off to leave.')
     // Borderless: no box-drawing frame around the banner.
     expect(output).not.toContain('╭')
     expect(output).not.toContain('╮')
@@ -120,12 +122,16 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
         // window title as `<session title> — <configured title>` via OSC 0.
         // Gating /status on it keeps the assertion race-free; the diagnostics
         // card is then exercised through the same real Loader/PTY composition.
-        { waitFor: 'scripted session title — DeepSeek Harness', send: '/status\r' },
+        { waitFor: 'scripted session title — DeepSeek Harness', send: '/plan off\r' },
+        { waitFor: 'Leaving plan mode (applies from the next step).', send: 'Confirm the scripted run left plan mode.\r' },
+        { waitFor: 'Default mode confirmed.', send: '/status\r' },
         { waitFor: 'Session status', send: '/exit\r' },
       ],
     })
     expect(output).toContain('I need one decision before I continue.')
-    expect(output).toContain('Entering plan mode (applies from the next step).')
+    expect(output).toContain('Entering plan mode (applies from the next step). Use /plan off to leave.')
+    expect(output).toContain('Leaving plan mode (applies from the next step).')
+    expect(output).toContain('Default mode confirmed.')
     expect(output).toContain(String.raw`\x1b]2;MODEL_CONTROLLED\x07`)
     expect(output).toContain(String.raw`\x1b[999CMODEL_CURSOR`)
     expect(output).toContain(String.raw`\x9b31mMODEL_C1`)

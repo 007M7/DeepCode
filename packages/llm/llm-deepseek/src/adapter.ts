@@ -40,6 +40,8 @@ export interface DeepSeekAdapterOptions {
   baseURL: string
   /** Request defaults applied to every call (thinking mode, effort). */
   defaults?: RequestDefaults
+  /** Positive context capacity used when the selected model has no exact value. */
+  defaultContextWindow?: number
   /** Advisory models exposed to discovery consumers; requests remain unrestricted. */
   models?: readonly DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding. */
@@ -96,6 +98,10 @@ export class DeepSeekAdapter extends LlmAdapter {
 
   constructor(private readonly options: DeepSeekAdapterOptions) {
     super()
+    if (options.defaultContextWindow !== undefined
+      && (!Number.isInteger(options.defaultContextWindow) || options.defaultContextWindow <= 0)) {
+      throw new Error('llm-deepseek: defaultContextWindow must be a positive integer')
+    }
     this.streamIdleTimeoutMs = options.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
     if (!Number.isFinite(this.streamIdleTimeoutMs)
       || this.streamIdleTimeoutMs <= 0
@@ -124,6 +130,7 @@ export class DeepSeekAdapter extends LlmAdapter {
     model: string,
   ): Promise<LlmModelContext | undefined> {
     const contextWindow = this.options.models?.find(entry => entry.id === model)?.contextWindow
+      ?? this.options.defaultContextWindow
     return Promise.resolve(contextWindow === undefined ? undefined : { contextWindow })
   }
 

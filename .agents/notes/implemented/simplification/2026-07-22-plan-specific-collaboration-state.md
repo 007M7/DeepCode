@@ -14,7 +14,7 @@ The word “mode” also spans unrelated domains. Sandbox mode is an enforcing p
 
 Plan mode owns a plan-specific product package: `@deepseek-ai/dsh-plan-mode` at `packages/plan/plan-mode/`. The durable fact is `plan/mode: { active: boolean }`, folded by `foldPlanMode(events)` with `false` as the empty-log value. `ctx.planMode.get(agent)` returns `{ active, pending? }`, and `set(agent, active)` records the boundary-applied selection. The existing prompt-submit, continuation, retry, append-failure, and disposal fences remain unchanged in meaning.
 
-Configuration is exactly `{ section: string }`. The package registers the fixed `plan:policy` section, `/plan [message]`, and `exit_plan_mode` itself. Bare `/plan` selects the state; a non-empty argument selects it first and then sends the trimmed text through `agent.steer()`, making the text an ordinary logged user message in the affected step. The exit tool remains registered while plan mode is inactive so the request tool catalog stays stable.
+Configuration is exactly `{ section: string }`. The package registers the fixed `plan:policy` section, `/plan [message]`, the exact `/plan off` direct-exit form, and `exit_plan_mode` itself. Bare `/plan` selects active; another non-empty argument selects it first and then sends the trimmed text through `agent.steer()`, making the text an ordinary logged user message in the affected step. `/plan off` selects inactive without model input and can cancel an entry that is still pending at the boundary. The exit tool remains registered while plan mode is inactive so the request tool catalog stays stable.
 
 ACP keeps its protocol-level `default` and `plan` ids. The bridge maps those two ids to the boolean service, advertises only that fixed pair, rejects every other id at the adapter boundary, and maps committed `plan/mode` events back to `current_mode_update`. The protocol remains generic without forcing genericity into the product domain.
 
@@ -38,9 +38,9 @@ Sandbox mode and approval policy remain separate enforcement axes. Plan mode nei
 ## Verification
 
 - Package tests retain boundary ordering, retry, append-failure, HMR disposal, prompt assembly, stable native and Code Mode schemas, review outcomes, and invariant coverage through the boolean service.
-- Command tests cover bare `/plan`, `/plan <message>`, absence of `/mode` and `/review`, and effect-scoped removal.
+- Command tests cover bare `/plan`, `/plan <message>`, active `/plan off`, pending-entry cancellation, inactive idempotence, absence of `/mode` and `/review`, and effect-scoped removal.
 - ACP tests cover fixed advertisement, both ids, unknown-id rejection, optimistic updates, committed exits, and load replay.
-- The keyless TUI scenario enters through `/plan <message>` and proves `plan/mode` precedes the first request header and that the message is logged under plan guidance.
+- The keyless TUI scenarios enter through `/plan <message>`, leave through `/plan off`, and prove that each committed `plan/mode` precedes the request header it changes, the entry message is logged under plan guidance, and the post-exit request omits that guidance.
 
 ## Consequences
 

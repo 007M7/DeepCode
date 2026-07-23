@@ -9,12 +9,13 @@
 import { Context } from 'cordis'
 import z from 'schemastery'
 import { readdirSync } from 'node:fs'
-import { open, mkdir, readFile, readdir, link, rm, stat as fsStat, truncate } from 'node:fs/promises'
+import { open, mkdir, readFile, readdir, link, rm, stat, truncate } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import {
-  SessionPersistence, PersistenceCoordinator,
-  type PersistenceBackend, type SessionLocation, type StoredPrefix,
+  SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
+  type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
+  type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -130,6 +131,10 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     return this.coordinator.load(id)
   }
 
+  inspect(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.inspect(id)
+  }
+
   // One method serves both public `list` and the backend hook; delegating it to
   // the coordinator would call this hook recursively.
 
@@ -243,11 +248,38 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
 
   /** List valid unique stored sessions' metadata (header line only — no full-log parse). */
   async list(): Promise<SessionHeader[]> {
+    return (await this.listArtifacts()).map(artifact => artifact.header)
+  }
+
+  /** List metadata plus a stat-derived identity for each append-only log. */
+  async listSnapshots(): Promise<SessionPersistenceSnapshot[]> {
+    const snapshots: SessionPersistenceSnapshot[] = []
+    for (const artifact of await this.listArtifacts()) {
+      try {
+        const identity = await stat(artifact.path, { bigint: true })
+        snapshots.push({
+          header: artifact.header,
+          revision: SessionPersistenceRevision([
+            identity.dev,
+            identity.ino,
+            identity.size,
+            identity.mtimeNs,
+            identity.ctimeNs,
+          ].join(':')),
+        })
+      } catch (error: unknown) {
+        if (!isENOENT(error)) throw error
+      }
+    }
+    return snapshots
+  }
+
+  private async listArtifacts(): Promise<Array<{ header: SessionHeader; path: string }>> {
     await this.ensureRootEncoding()
-    const metas: SessionHeader[] = []
+    const artifacts: Array<{ header: SessionHeader; path: string }> = []
     const ids = new Set<SessionId>()
     for (const dir of await this.listCwdDirs()) {
-      for (const name of await this.listArtifacts(dir)) {
+      for (const name of await this.listArtifactNames(dir)) {
         const path = join(dir, name)
         // Read only headers so listing scales with session count, not log size.
         const first = this.compression === 'zstd'
@@ -261,10 +293,10 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
           throw new Error(`duplicate JSONL session id "${meta.id}" appears in multiple cwd buckets`)
         }
         ids.add(meta.id)
-        metas.push(meta)
+        artifacts.push({ header: meta, path })
       }
     }
-    return metas
+    return artifacts
   }
 
   // --- materialization / append / repair (file mechanics) ---
@@ -564,7 +596,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
     }
   }
 
-  private async listArtifacts(dir: string): Promise<string[]> {
+  private async listArtifactNames(dir: string): Promise<string[]> {
     const entries = await readdir(dir)
     const oppositeSuffix = logSuffix(this.oppositeCompression())
     const incompatible = entries.find(name => name.endsWith(oppositeSuffix))
@@ -629,7 +661,7 @@ export class SessionPersistenceJsonl extends SessionPersistence implements Persi
   private async assertLogParentAllowsAbsence(path: string): Promise<void> {
     try {
       const parent = dirname(path)
-      const info = await fsStat(parent)
+      const info = await stat(parent)
       if (info.isDirectory()) return
       const error = new Error(`ENOTDIR: parent path exists but is not a directory: ${parent}`) as NodeJS.ErrnoException
       error.code = 'ENOTDIR'
