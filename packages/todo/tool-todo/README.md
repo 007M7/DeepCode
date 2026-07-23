@@ -14,7 +14,7 @@ The list belongs to the ONE agent session that called the tool. There is no suba
 
 ## Validation
 
-Beyond the schema's type/required/enum checks, `execute` rejects an empty or duplicate `content` and more than one `in_progress` task (a coherent plan has at most one task active). Ordering and the discipline of keeping the list current are left to the model via the tool description.
+Beyond the schema's type/required/enum checks, `execute` rejects an empty or duplicate `content`, more than one `in_progress` task (a coherent plan has at most one task active), and any item key beyond `content`/`status` — an extended item shape (ids, nesting) fails loud instead of silently flattening, keeping the logged snapshot equal to what the model believes it wrote. Ordering and the discipline of keeping the list current are left to the model via the tool description.
 
 ## Rendering
 

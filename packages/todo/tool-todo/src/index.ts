@@ -28,14 +28,21 @@ const DESCRIPTION =
 
 /**
  * Validate the value constraints the ParameterSchemaSpec can't express and build the canonical {@link
- * TodoItem}[]: trimmed non-empty unique content and at most one in-progress item. The registry
- * has already enforced the status enum; the cast below records that guarantee.
+ * TodoItem}[]: known keys only, trimmed non-empty unique content, and at most one in-progress
+ * item. The registry has already enforced the status enum; the cast below records that
+ * guarantee. Unknown keys are rejected rather than dropped — the logged snapshot must equal
+ * what the model believes it wrote (model-visible ⟺ logged), so a nested/extended item shape
+ * fails loud instead of silently flattening.
  */
 function toTodoList(raw: { content: string; status: string }[]): TodoItem[] {
   const todos: TodoItem[] = []
   const seen = new Set<string>()
   let inProgress = 0
   for (const item of raw) {
+    const unknown = Object.keys(item).filter(key => key !== 'content' && key !== 'status')
+    if (unknown.length > 0) {
+      throw new Error(`invalid todo: unknown key(s) ${unknown.map(k => JSON.stringify(k)).join(', ')} — each item is exactly { content, status }`)
+    }
     const content = item.content.trim()
     if (content.length === 0) {
       throw new Error('invalid todo: `content` must be a non-empty string')
