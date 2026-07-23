@@ -8,15 +8,15 @@
 
 ## flush 检查点
 
-`session/event` 是一个*同步*通知；持久化插件会将其缓冲（write-behind）至 `session/flush`。循环会 await 普通 Turn（轮次）的检查点后再领取下一个队列项；同步的 idle `inject()` 会调度自己的检查点而不阻塞 `send()`，dispose 仍会将其排空。成功 flush 会把已关闭 Turn 作为一个单元持久提交；被拒绝的 flush 通过 `agent/error` 与 logger 报告——绝不会作为已关闭 Turn 之后的会话事件——而后端会保留已缓冲事件供下次 flush 使用。
+`session/event` 是一个*同步*通知；持久化插件会将其缓冲（write-behind）至 `session/flush`。循环会 await 普通轮次的检查点后再领取下一个队列项；同步的 idle `inject()` 会调度自己的检查点而不阻塞 `send()`，dispose 仍会将其排空。成功 flush 会把已关闭轮次作为一个单元持久提交；被拒绝的 flush 通过 `agent/error` 与 logger 报告——绝不会作为已关闭轮次之后的会话事件——而后端会保留已缓冲事件供下次 flush 使用。
 
-## 崩溃恢复保留被中断的 Turn
+## 崩溃恢复保留被中断的轮次
 
-后端重新加载一个在 Turn 中途崩溃的日志时，会发现一个已打开的 `turn/start` 却没有 `turn/end`。它**不会**截断日志：在长周期任务中，单个 Turn 可能非常庞大（许多 Step（步骤）、大量工具输出），而这些事件在崩溃前已被持久追加。后端改为用一个合成的 `turn/end { reason: { kind: 'interrupted' } }` 关闭这个遗留 Turn，保持日志平衡与 Turn 封闭不变式。`interrupted` 是唯一一个不由循环发出的 `TurnEndReason`（见 [session.md](session.md#why-a-turn-ended-turnendreasonmap)）。
+后端重新加载一个在轮次中途崩溃的日志时，会发现一个已打开的 `turn/start` 却没有 `turn/end`。它**不会**截断日志：在长周期任务中，单个轮次可能非常庞大（许多步骤、大量工具输出），而这些事件在崩溃前已被持久追加。后端改为用一个合成的 `turn/end { reason: { kind: 'interrupted' } }` 关闭这个遗留轮次，保持日志平衡与轮次闭合不变式。`interrupted` 是唯一一个不由循环发出的 `TurnEndReason`（见 [session.md](session.md#why-a-turn-ended-turnendreasonmap)）。
 
 ## `SessionLocation`——可选的逐会话制品目标
 
-`SessionPersistence.locate(meta)` 会同步解析一个归后端所有的独立制品，而不会读取、创建或 flush 它。JSONL 返回其绝对目标路径；SQLite 因各会话共享一个数据库而返回 `undefined`。因此，返回的路径可能指向尚不存在、或还不包含当前尚未 flush 的 Turn；它是位置提示，不是授权或新鲜度保证。
+`SessionPersistence.locate(meta)` 会同步解析一个归后端所有的独立制品，而不会读取、创建或 flush 它。JSONL 返回其绝对目标路径；SQLite 因各会话共享一个数据库而返回 `undefined`。因此，返回的路径可能指向尚不存在、或还不包含当前尚未 flush 的轮次；它是位置提示，不是授权或新鲜度保证。
 
 ```ts type-equiv
 /**
@@ -104,7 +104,7 @@ interface CreateSessionOptions {
 
 两者都实现同一个抽象 `SessionPersistence`（在 `SessionEvent` 上执行 locate/create/append/load/list），并通过 `runPersistenceContract`，证明该 seam 确实与后端无关：
 
-- **[dsh-session-persistence-jsonl](../../packages/session-persistence/session-persistence-jsonl)**——每个会话一份仅追加的逻辑 JSONL 日志，默认存储为带 checksum 的连续 Zstandard frame，也可配置为原始行；支持崩溃安全的原子写入、被中断 Turn 的恢复以及读取/回放路径。
+- **[dsh-session-persistence-jsonl](../../packages/session-persistence/session-persistence-jsonl)**——每个会话一份仅追加的逻辑 JSONL 日志，默认存储为带 checksum 的连续 Zstandard frame，也可配置为原始行；支持崩溃安全的原子写入、被中断轮次的恢复以及读取/回放路径。
 - **[dsh-session-persistence-sqlite](../../packages/session-persistence/session-persistence-sqlite)**：基于 `node:sqlite`，每个 `SessionEvent` 一行。行结构 `(session_id, seq, type, time, data, source_event_seqs, surface_op)` 与事件 1:1 映射（包含可选的 surface 元数据），因此没有需要保持同步的并行持久化 schema。
 
 共享同一磁盘会话的多个后端通过[共享持久化写入协调器](../../.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md)协调写入。
