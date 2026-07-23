@@ -121,6 +121,39 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('rechecks live ownership after a cold load enters the per-id chain', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const id = SessionId('queued-load-live-race')
+        const header = meta(id, WORK)
+        const start: SessionEvent = {
+          type: 'turn/start',
+          seq: 0,
+          time: 1,
+          data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        }
+        await ctx.sessionPersistence.create(header)
+        await ctx.sessionPersistence.append(id, [start])
+
+        const loading = ctx.sessionPersistence.load(id)
+        const live = ctx.sessions.create(id, { seed: [start], meta: header })
+        await expect(loading).rejects.toThrow(/live turn is open/)
+
+        live.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+        await ctx.sessions.flush(live)
+        const loaded = await ctx.sessionPersistence.load(id)
+        expect(loaded.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+        expect(loaded.events.at(-1)).toMatchObject({
+          type: 'turn/end',
+          data: { reason: { kind: 'completed' } },
+        })
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('does not load an unmaterialized empty live session', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)

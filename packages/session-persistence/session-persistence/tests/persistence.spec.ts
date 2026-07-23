@@ -354,6 +354,7 @@ describe('PersistenceCoordinator retirement', () => {
       coordinator = new PersistenceCoordinator(inner, backend)
     }, { inject: ['sessions'] }))
     const appendGate = Promise.withResolvers<boolean>()
+    const loadGate = Promise.withResolvers<boolean>()
 
     try {
       const id = SessionId('retiring-buffered-owner')
@@ -367,7 +368,12 @@ describe('PersistenceCoordinator retirement', () => {
       first.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       await vi.waitFor(() => { expect(backend.appendAttempts).toBe(1) })
       await firstFiber.dispose()
+      const baselineLoads = backend.loadAttempts
+      backend.beforeLoadStored = async () => { await loadGate.promise }
       const coldLoad = coordinator.load(id)
+
+      appendGate.resolve(true)
+      await vi.waitFor(() => { expect(backend.loadAttempts).toBe(baselineLoads + 1) })
 
       let reuse!: Session
       await ctx.plugin(Object.assign((inner: Context) => {
@@ -375,7 +381,7 @@ describe('PersistenceCoordinator retirement', () => {
       }, { inject: ['sessions'] }))
       const reuseFlush = ctx.sessions.flush(reuse)
 
-      appendGate.resolve(true)
+      loadGate.resolve(true)
       await expect(coldLoad).resolves.toMatchObject({
         events: [{ seq: 0 }, { seq: 1 }],
       })
@@ -385,6 +391,7 @@ describe('PersistenceCoordinator retirement', () => {
       })
     } finally {
       appendGate.resolve(true)
+      loadGate.resolve(true)
       await backendFiber.dispose()
       await ctx.fiber.dispose()
     }

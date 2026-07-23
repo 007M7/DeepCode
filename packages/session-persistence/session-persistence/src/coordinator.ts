@@ -255,10 +255,13 @@ export class PersistenceCoordinator<TornMarker = unknown> {
    * @param id - the persisted session to reload.
    * @returns the header plus the event log, ending on a balanced `turn/end`.
    */
-  load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const live = this.ctx.sessions.get(id)
-    if (live !== undefined) return this.loadLiveSnapshot(live)
-    return this.serialize(id, () => this.loadCore(id))
+  async load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const selected = await this.serialize(id, async () => {
+      const live = this.ctx.sessions.get(id)
+      if (live !== undefined) return { live }
+      return { loaded: await this.loadCore(id) }
+    })
+    return 'loaded' in selected ? selected.loaded : this.loadLiveSnapshot(selected.live)
   }
 
   private async loadCore(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
