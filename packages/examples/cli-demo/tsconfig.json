@@ -33,6 +33,9 @@
       "path": "../agent-spine-demo"
     },
     {
+      "path": "../../session-persistence/session-checkpoint-policy"
+    },
+    {
       "path": "../../session-persistence/session-persistence-jsonl"
     },
     {

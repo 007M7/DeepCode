@@ -64,7 +64,7 @@ export function apply(ctx: Context, config: Config): void {
     streamMinSize: resolved.readStreamMinSize,
   })
   // One escalation surface shared by both mutating tools: advertisement gating,
-  // per-call mode stamping, and denial-marker mapping, all keyed off whether
+  // per-call policy resolution, and denial-marker mapping, all keyed off whether
   // the mounted ctx.fs confines (ctx.fs.sandboxMode).
   const sandbox = new FsSandboxSurface(ctx)
   applyWriteTool(ctx, sandbox)
