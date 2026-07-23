@@ -1,8 +1,9 @@
 // AssistantMarkdown: renders assistant blocks in order — markdown text body,
 // reasoning as the figma Think summary row (expand = indented gray text),
 // other-block JSON fallback. Tool-call heads are NOT rendered here: the chat
-// view groups them into tool rows via the toolview outlet (figma step-summary
-// flow). Shared by finalized nodes and the streaming partial (pulse marker).
+// view groups them into tool rows through its keyed toolview slot (figma
+// step-summary flow). Shared by finalized nodes and the streaming partial
+// (pulse marker).
 
 import { memo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
