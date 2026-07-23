@@ -2,15 +2,15 @@
 
 [English](core.md) | 中文
 
-本目录编目 DeepSeek Harness 的**数据结构**：每个核心类型代表什么、它的字面形状，以及完整细节在哪里。它与 [architecture.md](../architecture.md) 互补——后者描述*行为*（服务映射、会话/轮次/步骤生命周期、事件分类体系）；本页描述行为所操作的*词汇*。
+本目录编目 DeepSeek Harness 的**数据结构**：每个核心类型代表什么、它的字面形状，以及完整细节在哪里。它与 [architecture.md](../architecture.md) 互补——后者描述*行为*（服务映射、会话/Turn（轮次）/Step（步骤）生命周期、事件分类体系）；本页描述行为所操作的*词汇*。
 
 ## 什么算"核心"
 
-harness 是一个微内核：一个极小的核心加上众多插件。大多数类型属于某一个插件或某一项能力。但有少数类型构成**主干**——agent loop（智能体循环）及其事件在*每一个*轮次中使用的语言，无论加载了哪些可选插件。这些就是"核心"。
+harness 是一个微内核：一个极小的核心加上众多插件。大多数类型属于某一个插件或某一项能力。但有少数类型构成**主干**——agent loop（智能体循环）及其事件在*每一个* Turn 中使用的语言，无论加载了哪些可选插件。这些就是"核心"。
 
 精确地说，一个数据结构是**核心**的，当且仅当满足以下条件之一：
 
-1. 它流经 agent loop 主干——循环在每个轮次中持有、派生、流式输出或记录它（`Message`、`StreamChunk`、`SessionEvent`、`Agent` 句柄本身），与当前加载了哪些插件无关；**或者**
+1. 它流经 agent loop 主干——循环在每个 Turn 中持有、派生、流式输出或记录它（`Message`、`StreamChunk`、`SessionEvent`、`Agent` 句柄本身），与当前加载了哪些插件无关；**或者**
 2. 它是插件作者面向某条流水线编写的唯一标题类型——`ToolDefinition`（每个工具*是什么*）。
 
 其他一切都记录在**子页面**上，而非本页。划线的规则是：*你编写、持有或接收的类型是核心；为它提供类型推导、渲染或持久化的机制是子页面细节*。因此 `ToolDefinition` 是核心，但为它提供类型推导的 `SchemaSpec`/`InferArgs` DSL、为它提供渲染意图的 `ToolCallView`/`ToolResultView` 词汇，以及存储事件日志的 `SessionPersistence` seam 都不是——它们分别在下列子页面中。
@@ -22,7 +22,7 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [scope.md](scope.md) | 作用域注册标识、dispatch 载体，以及拥有的 `Scope` 上下文 |
 | [goal.md](goal.md) | 持久 goal 标识、生命周期快照、激活、变更记录与 Round 归属 |
 | [commands.md](commands.md) | 人类命令 seam：定义、适配器发现、直接调用、结果与解析视图 |
-| [session.md](session.md) | 完整的 `SessionEventMap` 变体目录、`TurnTrigger`/`TurnEndReason`、`deriveMessages()`、轮次封闭不变式 |
+| [session.md](session.md) | 完整的 `SessionEventMap` 变体目录、`TurnTrigger`/`TurnEndReason`、`deriveMessages()`、Turn 封闭不变式 |
 | [persistence.md](persistence.md) | 持久性 seam：`SessionPersistence`、JSONL + SQLite 后端、`session/flush`、崩溃恢复、`SessionHeader` |
 | [session-query.md](session-query.md) | 逻辑记录、有界精确事件读取与关系追踪 |
 | [session-title.md](session-title.md) | 持久标题快照、来源 provenance 与异步提供方契约 |
@@ -269,7 +269,7 @@ interface FinishReasonMap {
 
 `FinishReason = FinishReasonMap[keyof FinishReasonMap]`。`TokenUsage`（逐调用计量，含不相交的缓存字段）详见 [llm-streaming.md](llm-streaming.md)。
 
-`GenerateOptions.tools` 携带 `ToolSchema`——工具的 JSON Schema 描述，发送给模型。它声明在 dsh-llm（而非 dsh-tools）中，正是因为它是循环每一步组装请求的一部分：
+`GenerateOptions.tools` 携带 `ToolSchema`——工具的 JSON Schema 描述，发送给模型。它声明在 dsh-llm（而非 dsh-tools）中，正是因为它是循环在每个 Step 中组装请求的一部分：
 
 ```ts type-equiv
 /**
@@ -295,7 +295,7 @@ interface ToolSchema {
 
 `agent/request` 接收冻结的调用配置种子，并可返回替代值以切换提供方、模型或采样参数。`agent/session-prefix` 为每个循环实例组合一次仅用于请求的 prefix 消息，header 记录实际使用的确切结果。到达 `llm/stream` 的请求会被深度冻结，因此变更会抛异常；请求还携带进程本地循环标识，使观察者不会把单独记录的冻结辅助调用误认成对话请求。
 
-在协议格式上，循环构建的请求按此顺序读取：`system` 槽位（渲染后的提示词组装）→ `messagePrefix`（冻结的会话前缀）→ 派生历史——边界快照，其尾部在轮次首步是最新的 `user/message`，在后续步骤是上一步的工具结果。前缀从不进入派生历史；它的持久记录是 header 事件，开发不变式针对每个循环构建的请求精确重算此等式。
+在协议格式上，循环构建的请求按此顺序读取：`system` 槽位（渲染后的提示词组装）→ `messagePrefix`（冻结的会话前缀）→ 派生历史——边界快照，其尾部在 Turn 的第一个 Step 是最新的 `user/message`，在后续 Step 是上一个 Step 的工具结果。前缀从不进入派生历史；它的持久记录是 header 事件，开发不变式针对每个循环构建的请求精确重算此等式。
 
 FIXME(call-config-shape)：重新审视此类型的精确定义——出于缓存目的，哪些字段确实属于 epoch 层级（`model` 肯定属于；采样标量目前出于谨慎放在这里），以及适配器需要时，提供方特有的额外项（推理选项、额外 body 参数）应归属何处。
 
@@ -357,7 +357,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-十四种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`prompt/blocked`、`context/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及轮次封闭不变量都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
+十四种事件变体（`turn/start`、`turn/end`、`step/start`、`step/end`、`user/message`、`prompt/blocked`、`context/message`、`assistant/chunk`、`assistant/message`、`tool/call`、`tool/result`、`steering/message`、`todo/write`、`request/header`）、`deriveMessages()` 投影规则、`TurnTrigger`/`TurnEndReason` 原因以及 Turn 封闭不变量都在 **[session.md](session.md)** 中。日志如何持久化——`SessionPersistence` seam、JSONL/SQLite 后端、`session/flush` 检查点、崩溃恢复与 `SessionHeader`——则在 **[persistence.md](persistence.md)** 中。
 
 ## Agent 句柄
 
@@ -454,11 +454,11 @@ interface Agent {
 }
 ```
 
-`AgentStatus` 为 `'idle' | 'running' | 'disposed'`，`SessionId` 是品牌类型。`running` 描述整个驱动器的排空区间，可能跨越轮次关闭、其持久化检查点以及连续的排队轮次；它不能证明某个轮次仍然打开。`AgentOptions` 可合并扩展：core 声明 `provider?` 与 `model?`（在 `agent/request` 后，分发要求两者都存在）。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
+`AgentStatus` 为 `'idle' | 'running' | 'disposed'`，`SessionId` 是品牌类型。`running` 描述整个驱动器的排空区间，可能跨越 Turn 关闭、其持久化检查点以及连续的排队 Turn；它不能证明某个 Turn 仍然打开。`AgentOptions` 可合并扩展：core 声明 `provider?` 与 `model?`（在 `agent/request` 后，分发要求两者都存在）。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
 
 cause 是由 TypeScript 强制约束的同进程输入。活跃持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`；该值在发布 `turn/end` 前退役。`agentInterruptReasonOf(signal)` 无需查询环境中的 initiator 状态，即可识别 `user`、`parent` 与仅用于生命周期的 `disposed`。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 
-[事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall 契约。轮次和步骤边界是持久会话事件，而不是 agent emit。
+[事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall 契约。Turn 和 Step 边界是持久会话事件，而不是 agent emit。
 
 ## 发起 Agent
 
@@ -486,7 +486,7 @@ interface HookContext {
 }
 ```
 
-`agent/prompt-submit` 返回 `PromptDecision`（允许该轮次已领取的排队消息——可选地改写其 `content` 或附加 `additionalContexts`——或者记录 `prompt/blocked` 并以 `rejected` 结束这个零步骤轮次）：
+`agent/prompt-submit` 返回 `PromptDecision`（允许该 Turn 已领取的排队消息——可选地改写其 `content` 或附加 `additionalContexts`——或者记录 `prompt/blocked` 并以 `rejected` 结束这个零 Step 的 Turn）：
 
 ```ts type-equiv
 /**
@@ -503,7 +503,7 @@ type PromptDecision =
   | { kind: 'block'; reason: string }
 ```
 
-`agent/turn-continuation` 返回 `ContinuationDecision`（步骤有工具调用或注入了 steering 时，循环默认为 `continue`，否则为 `stop`；`continue` 的 `reason` 会记录为同一轮次中下一个步骤的 steering，因此不携带上下文元数据——即类型化 `/goal` 模式）：
+`agent/turn-continuation` 返回 `ContinuationDecision`（Step 有工具调用或注入了 steering 时，循环默认为 `continue`，否则为 `stop`；`continue` 的 `reason` 会记录为同一 Turn 中下一个 Step 的 steering，因此不携带上下文元数据——即类型化 `/goal` 模式）：
 
 ```ts type-equiv
 /** Turn continuation override; a continue reason is recorded as next-step steering in the same turn. */
@@ -512,14 +512,14 @@ type ContinuationDecision =
   | { action: 'continue'; reason?: { content: ContentBlock[]; source: MessageSource } }
 ```
 
-`agent/request-error` 接收确切的原始 `RequestError`、其不可变 `LlmFailure`、在连续序列中已批准另一次请求的不可变失败列表、轮次信号以及 `next()`。恢复插件按 `failure.code` 路由，而不是按活跃错误的消息路由；每项策略只统计自身的 code，一次成功请求会清空历史：
+`agent/request-error` 接收确切的原始 `RequestError`、其不可变 `LlmFailure`、在连续序列中已批准另一次请求的不可变失败列表、Turn 信号以及 `next()`。恢复插件按 `failure.code` 路由，而不是按活跃错误的消息路由；每项策略只统计自身的 code，一次成功请求会清空历史：
 
 ```ts type-equiv
 /** Model-request failure with an optional machine-routable provider code. */
 type RequestError = Error & { code?: string }
 ```
 
-它返回 `RequestErrorDecision`；`retry` 在恢复 listener 的持久变更之后打开一个带新编号的步骤，而 `fail` 在 `turn/end` 上保留结构化失败：
+它返回 `RequestErrorDecision`；`retry` 在恢复 listener 的持久变更之后打开一个带新编号的 Step，而 `fail` 在 `turn/end` 上保留结构化失败：
 
 ```ts type-equiv
 /** Failed-request recovery decision; `retry` opens another numbered step while listeners delegate by calling `next()`. */
