@@ -141,6 +141,38 @@ describe('foldSurface tool-result rewrites', () => {
     ]
     expect(() => foldSurface(events)).toThrow(/may change only content/)
   })
+
+  it('compares array-valued rest fields structurally (meta arrays: equal accepted, drifted rejected)', () => {
+    const withMeta = (seq: number, meta: unknown, surfaceOp: SurfaceEvent['surfaceOp'] = 'append', sourceEventSeqs?: number[]): SessionEvent => {
+      const event = toolResultEvent(seq, 'c-meta', surfaceOp, sourceEventSeqs)
+      return { ...event, data: { ...(event.data as object), meta } } as SessionEvent
+    }
+    // Structurally equal arrays (fresh references) pass the rest-field equality.
+    expect(() => foldSurface([
+      withMeta(0, { tags: ['a', { n: 1 }] }),
+      withMeta(1, { tags: ['a', { n: 1 }] }, { op: 'replace', start: 0, end: 0 }, [0]),
+    ])).not.toThrow()
+    // Same length, drifted element: the array branch must reject.
+    expect(() => foldSurface([
+      withMeta(0, { tags: ['a'] }),
+      withMeta(1, { tags: ['b'] }, { op: 'replace', start: 0, end: 0 }, [0]),
+    ])).toThrow(/may change only content/)
+    // Array vs non-array on one side: the mixed-shape guard rejects.
+    expect(() => foldSurface([
+      withMeta(0, { tags: ['a'] }),
+      withMeta(1, { tags: 'a' }, { op: 'replace', start: 0, end: 0 }, [0]),
+    ])).toThrow(/may change only content/)
+    // Same key count, different key names: the hasOwn branch rejects.
+    expect(() => foldSurface([
+      withMeta(0, { left: 1 }),
+      withMeta(1, { right: 1 }, { op: 'replace', start: 0, end: 0 }, [0]),
+    ])).toThrow(/may change only content/)
+    // Different key counts: the key-length branch rejects.
+    expect(() => foldSurface([
+      withMeta(0, { one: 1 }),
+      withMeta(1, { one: 1, two: 2 }, { op: 'replace', start: 0, end: 0 }, [0]),
+    ])).toThrow(/may change only content/)
+  })
 })
 
 describe('SurfaceManager', () => {

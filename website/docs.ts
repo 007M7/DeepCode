@@ -206,6 +206,26 @@ const develop = pairedPages([
   },
 ])
 
+const cordisTutorial = mirroredPages(([
+  ['index.md', 'Cordis 教程', 'Cordis tutorial'],
+  ['01-first-plugin.md', '1. 第一个插件', '1. Your first plugin'],
+  ['02-lifecycle-and-effects.md', '2. 生命周期与副作用', '2. Lifecycle and effects'],
+  ['03-services.md', '3. 服务', '3. Services'],
+  ['04-events.md', '4. 事件', '4. Events'],
+  ['05-config.md', '5. 配置', '5. Configuration'],
+  ['06-composition-and-hmr.md', '6. 组合与热重载', '6. Composition and HMR'],
+  ['07-into-the-harness.md', '7. 进入 Harness', '7. Into the harness'],
+] as const).map(([file, rootLabel, enLabel], order): MirroredPage => ({
+  source: `docs/cordis-tutorial/${file}`,
+  route: `develop/cordis-tutorial/${file}`,
+  contentLocale: 'en-US',
+  label: { root: rootLabel, en: enLabel },
+  sidebar: { root: 'zh-develop', en: 'en-develop' },
+  section: { root: 'Cordis 教程', en: 'Cordis tutorial' },
+  order,
+  ...(file === 'index.md' ? { sourceAliases: ['docs/cordis-tutorial'] } : {}),
+})))
+
 const reference = mirroredPages([
   ...([
     ['docs/architecture.md', 'reference/index.md', '架构', 'Architecture'],
@@ -256,10 +276,12 @@ const reference = mirroredPages([
     ['core.md', '核心数据结构', 'Core data structures'],
     ['scope.md', '作用域', 'Scopes'],
     ['session.md', '会话', 'Sessions'],
+    ['goal.md', '目标', 'Goals'],
     ['system-prompt.md', '系统提示词', 'System prompts'],
     ['tools.md', '工具', 'Tools'],
     ['llm-streaming.md', 'LLM 流式响应', 'LLM streaming'],
     ['bash.md', 'Bash 执行', 'Bash execution'],
+    ['pty.md', 'PTY 会话', 'PTY sessions'],
     ['filesystem.md', '文件系统', 'Filesystem'],
     ['code-runtime.md', '代码运行时', 'Code runtime'],
     ['compaction.md', '上下文压缩', 'Compaction'],
@@ -268,6 +290,7 @@ const reference = mirroredPages([
     ['skills.md', '技能', 'Skills'],
     ['approval.md', '审批', 'Approvals'],
     ['user-interaction.md', '用户交互', 'User interaction'],
+    ['commands.md', '命令', 'Human commands'],
     ['sandbox.md', '沙箱', 'Sandboxing'],
     ['web.md', 'Web 访问', 'Web access'],
     ['persistence.md', '会话持久化', 'Session persistence'],
@@ -301,5 +324,6 @@ const reference = mirroredPages([
 export const docsPages: DocsPage[] = [
   ...homeAndGuide,
   ...develop,
+  ...cordisTutorial,
   ...reference,
 ]

@@ -1,73 +1,63 @@
 terminal 100x36 buffer=normal length=36 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive
 title "Use the bash tool to — DSH TUI snapshot"
-cursor hidden column=1 viewportRow=27 bufferRow=27
+cursor hidden column=1 viewportRow=25 bufferRow=25
 buffer
-0| "╭──────────────────────────────────────────────────────────────────────────────────────────────────╮"
-  style 0-99 fg=bright-blue
-1| "│ DEEPSEEK HARNESS                                                                                 │"
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Use the bash tool to"
+  style 1-20 fg=bright-black
+2| " deepseek-v4-flash  •  main-session"
+  style 1-34 dim
+3| <blank>
+4| "▌ "
   style 0-0 fg=bright-blue
-  style 2-9 fg=bright-blue bold
-  style 11-17 bold
-  style 99-99 fg=bright-blue
-2| "│ Use the bash tool to                                                                             │"
-  style 0-0 fg=bright-blue
-  style 2-21 fg=bright-black
-  style 99-99 fg=bright-blue
-3| "│ deepseek-v4-flash  •  main-session                                                               │"
-  style 0-0 fg=bright-blue
-  style 2-35 dim
-  style 99-99 fg=bright-blue
-4| "╰──────────────────────────────────────────────────────────────────────────────────────────────────╯"
-  style 0-99 fg=bright-blue
-5| <blank>
-6| "▌ "
-  style 0-0 fg=bright-blue
-7| "▌ You                                                                                               "
+5| "▌ You                                                                                               "
   style 0-0 fg=bright-blue
   style 2-4 fg=bright-blue bold
-8| "▌ Use the bash tool to run exactly: echo TERMINAL_OK. Then reply with the single word DONE and stop."
+6| "▌ Use the bash tool to run exactly: echo TERMINAL_OK. Then reply with the single word DONE and stop."
   style 0-0 fg=bright-blue
-9| "▌ "
+7| "▌ "
   style 0-0 fg=bright-blue
-10| <blank>
-11| " Reasoning                                                                                          "
+8| <blank>
+9| " Reasoning                                                                                          "
   style 1-9 fg=bright-black italic
-12| " The user wants me to run a simple bash command and then reply with \"DONE\".                         "
+10| " The user wants me to run a simple bash command and then reply with \"DONE\".                         "
   style 1-74 fg=bright-black italic
-13| <blank>
-14| "▌ "
+11| <blank>
+12| "▌ "
   style 0-0 fg=green
-15| "▌ ✓ echo TERMINAL_OK                                                                                "
+13| "▌ ✓ echo TERMINAL_OK                                                                                "
   style 0-0 fg=green
   style 2-2 fg=green bold
   style 3-19 bold
-16| "▌ Echo TERMINAL_OK to verify terminal access                                                        "
+14| "▌ Echo TERMINAL_OK to verify terminal access                                                        "
   style 0-0 fg=green
   style 2-43 fg=bright-black
-17| "▌ TERMINAL_OK                                                                                       "
+15| "▌ TERMINAL_OK                                                                                       "
   style 0-0 fg=green
-18| "▌ [exit 0]                                                                                          "
+16| "▌ [exit 0]                                                                                          "
   style 0-0 fg=green
   style 2-9 dim
-19| "▌ "
+17| "▌ "
   style 0-0 fg=green
-20| <blank>
-21| " Reasoning                                                                                          "
+18| <blank>
+19| " Reasoning                                                                                          "
   style 1-9 fg=bright-black italic
-22| " The command ran successfully and output \"TERMINAL_OK\". I should now reply with just \"DONE\".        "
+20| " The command ran successfully and output \"TERMINAL_OK\". I should now reply with just \"DONE\".        "
   style 1-91 fg=bright-black italic
-23| <blank>
-24| " Assistant                                                                                          "
+21| <blank>
+22| " Assistant                                                                                          "
   style 1-9 fg=bright-magenta bold
-25| " DONE                                                                                               "
+23| " DONE                                                                                               "
+24| "────────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-99 dim
+25| "                                                                                                    "
+  style 1-1 inverse
 26| "────────────────────────────────────────────────────────────────────────────────────────────────────"
   style 0-99 dim
-27| "                                                                                                    "
-  style 1-1 inverse
-28| "────────────────────────────────────────────────────────────────────────────────────────────────────"
-  style 0-99 dim
-29| "/tmp/dsh-tui-snapshot-bash-te  ↑3.0k ↓115 3% context  tools:compact  deepseek-v4-flash(reasoning:on)"
-  style 0-28 dim
-  style 42-99 dim
-30-35| <blank>
+27| "deepseek-v4-flash  /workspace/project  ↑3.0k ↓115  cache 48%  3% contex"
+  style 0-88 dim
+  style 91-99 dim
+28-35| <blank>

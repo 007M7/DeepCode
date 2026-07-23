@@ -5,7 +5,7 @@
  * @module @deepseek-ai/dsh-session-query/types
  */
 
-import type { SessionEvent, SessionEventType, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionEventType, SessionHeader, SessionId, SurfaceEvent } from '@deepseek-ai/dsh-session'
 
 /** Whether an event is current model context, replaced context, or raw-log-only. */
 export type SessionEventSurface = 'current' | 'shadowed' | 'log-only'
@@ -18,6 +18,16 @@ export interface SessionRecord {
   live: boolean
   /** Whether the active persistence backend currently materializes the id. */
   persisted: boolean
+}
+
+/** One atomic live-preferred observation of a session's current model surface. */
+export interface SessionSurfaceSnapshot {
+  /** Cloned session header selected from the same corpus observation as `events`. */
+  session: SessionHeader
+  /** Highest raw-log seq included in the observation, or `null` for an empty log. */
+  capturedThroughSeq: number | null
+  /** Cloned current surface events in model-history order. */
+  events: SurfaceEvent[]
 }
 
 /** Lightweight metadata for one event within a logical session. */

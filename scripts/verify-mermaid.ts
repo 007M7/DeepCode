@@ -79,7 +79,10 @@ Object.defineProperty(globalThis, 'window', { value: window })
 Object.defineProperty(globalThis, 'document', { value: window.document })
 Object.defineProperty(globalThis, 'navigator', { value: window.navigator })
 const mermaid = (await import('mermaid')).default
-mermaid.initialize({ startOnLoad: false })
+// maxEdges: mermaid's default 500-edge render guard; the module graph grows
+// with every package edge and crossed it legitimately. Raise the guard here
+// (a secure config settable only via initialize) rather than trimming edges.
+mermaid.initialize({ startOnLoad: false, maxEdges: 1000 })
 for (const block of blocks) {
   try {
     await mermaid.parse(block.source, { suppressErrors: false })

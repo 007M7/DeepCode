@@ -17,6 +17,7 @@ import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
+import PlanModeService from '@deepseek-ai/dsh-plan-mode'
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -30,6 +31,8 @@ import {
   type Stream,
 } from '@agentclientprotocol/sdk'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
+import SessionQueryService from '@deepseek-ai/dsh-session-query'
+import SessionReferenceService from '@deepseek-ai/dsh-session-reference'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as AcpPlugin from '../src/index.ts'
 import { type AcpConfig } from '../src/index.ts'
@@ -191,6 +194,10 @@ export async function makeBridgeHarness(options: {
    * tool + the bridge's own todo/write→plan mapping, not a stand-in.
    */
   withTodo?: boolean
+  /** Mount exact session reads and cross-session snapshot preparation before ACP. */
+  withSessionReferences?: boolean
+  /** Plug the REAL `dsh-plan-mode` plugin so a test can drive the session-mode picker. */
+  withModes?: boolean
   /**
    * Plug the REAL filesystem stack (`dsh-fs-local` + `dsh-fs-policy` +
    * `dsh-tool-fs`) so a test can drive `read`/`write`/`edit` through the bridge
@@ -214,6 +221,10 @@ export async function makeBridgeHarness(options: {
   await ctx.plugin(CommandService)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SessionPersistenceJsonl, { root: options.storageDir })
+  await ctx.plugin(SessionQueryService)
+  if (options.withSessionReferences) {
+    await ctx.plugin(SessionReferenceService)
+  }
   await ctx.plugin(UserInteractionService)
   if (options.withAskUser) {
     await ctx.plugin(ToolAskUser)
@@ -224,6 +235,9 @@ export async function makeBridgeHarness(options: {
   }
   if (options.withTodo) {
     await ctx.plugin(ToolTodo)
+  }
+  if (options.withModes) {
+    await ctx.plugin(PlanModeService, { section: 'Test plan mode instructions.' })
   }
   if (options.withFs) {
     await ctx.plugin(LocalFileSystem, { cwd: options.fsCwd ?? options.storageDir })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import { interruptedTurnClosers } from '../src/index.ts'
+import { interruptedTurnClosers, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '../src/index.ts'
 import type { SessionEvent, SurfaceEvent } from '../src/index.ts'
 
 /**
@@ -47,9 +47,7 @@ describe('interruptedTurnClosers', () => {
     expect(closers.map(e => e.seq)).toEqual([2, 3])
   })
 
-  it('synthesizes an error tool/result for a tool-call the crash left unanswered', () => {
-    // A step issued one tool call (in the assistant message) but crashed before
-    // the tool/result was logged — the classic mid-tool crash.
+  it('marks an assistant tool request with no recorded call as not started', () => {
     const events: SessionEvent[] = [
       userTurnStart(2, 0),
       { type: 'step/start', seq: 1, time: 1, data: { turn: 2, step: 1 } },
@@ -64,8 +62,11 @@ describe('interruptedTurnClosers', () => {
     expect(closers.map(e => e.seq)).toEqual([3, 4, 5])
     const result = closers[0]!
     expect(result.type === 'tool/result' && result.data).toMatchObject({
-      turn: 2, step: 1, callId: CallId('call-1'), isError: true, error: { code: 'interrupted' },
+      turn: 2, step: 1, callId: CallId('call-1'), isError: true, error: { code: TOOL_NOT_STARTED },
     })
+    expect(result.type === 'tool/result' && result.data.content).toEqual([{
+      type: 'text', text: 'The tool call was interrupted before the Harness recorded it as started. Retry it if it is still needed.',
+    }])
   })
 
   it('does NOT synthesize a result for a tool-call that already has one', () => {
@@ -152,6 +153,14 @@ describe('interruptedTurnClosers', () => {
     const result = closers[0]!
     expect((result as SurfaceEvent).surfaceOp).toBe('append')
     expect((result as SurfaceEvent).sourceEventSeqs).toEqual([3])
+    expect(result.type === 'tool/result' && result.data.error).toEqual({
+      name: 'ToolOutcomeUnknownError', code: TOOL_OUTCOME_UNKNOWN,
+    })
+    if (result.type !== 'tool/result' || result.data.content[0]?.type !== 'text') {
+      throw new Error('expected a text tool result')
+    }
+    expect(result.data.content[0].text).toContain('retry only if the operation is read-only or idempotent')
+    expect(result.data.content[0].text).toContain('first verify external state or ask the user')
   })
 
   it('handles tool/call without a matching assistant/message entry gracefully', () => {

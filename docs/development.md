@@ -33,15 +33,34 @@ Run typecheck once after a fresh clone:
 pnpm run typecheck
 ```
 
-That first typecheck runs the package/vendor build graph and the root no-emit `tsconfig.json` graph for examples, tests, and scripts. The root graph uses the same source `paths` map but relies on project references so vendored code is checked under its own tsconfig settings.
+That first typecheck runs the whole-repo `tsc -b` graph: it emits every package/vendor `lib/types` and checks examples, tests, and scripts through the two no-emit aggregates described below.
 
-If you are preparing to push from a fresh clone or worktree, also build once:
+## TypeScript project layout
+
+The repository's TypeScript configuration has exactly three roles; every tsconfig file plays one of them.
+
+| File | Role | Forms a program? |
+|---|---|---|
+| `tsconfig.json` | Solution root: `extends` base, `files: []`, references to the two aggregates. The whole-repo `tsc -b tsconfig.json` graph, the tsserver discovery entry, and — through the inherited `paths` — the resolution config for tsx running `examples/` and `scripts/` (their nearest tsconfig is this file). | No |
+| `tsconfig.host.json` | Host aggregate: host-side packages (via references), examples, tests, scripts, website. Excludes `packages/client`. | Yes |
+| `tsconfig.client.json` | Client aggregate: `packages/client/*` packages and their tests, `apps/web`. | Yes |
+| `tsconfig.base.json` | Shared compilerOptions and the source `paths` map. Also the resolution facade the vitest configs point vite-tsconfig-paths at: it has no `include`, so its `paths` apply to every importer. | No |
+| `tsconfig.base.client.json` | Browser compiler shape (`jsx`, DOM libs, `types: []`) extended by the client aggregate and every `packages/client/*` package. | No |
+
+Host and client stay two aggregate programs because both sides declaration-merge the cordis `Context` interface under the same keys with different services; one program seeing both merges reports a collision. The collision exists only inside a `ts.Program` — module resolution never triggers it — which is why the solution may reference both aggregates and one paths facade may span both sides. Two disciplines follow:
+
+- `tsconfig.base.json` never gains `include` or `files`: they would leak into every extending package project and narrow the facade's match-all scope.
+- A script that builds a repo-wide `ts.Program` seeds `tsconfig.host.json` or `tsconfig.client.json` explicitly — never the root solution, because flattening both aggregates into one program collides the `Context` merges. Program-backed generators and gates (`scripts/ts-project.ts` consumers, doc-typecheck standalone mode) are host-only by decision; the client side gains program-backed tooling only with a concrete need.
+
+Static analysis and tests resolve workspace imports through the base `paths` map to `src` and must pass on a clean tree; gates that consume built `lib/` output declare that dependency explicitly. Decision record: [solution-root note](../.agents/notes/implemented/process/2026-07-22-tsconfig-solution-root-two-aggregates.md); the tsc-first emit pipeline is the [ts-build-config note](../.agents/notes/implemented/process/2026-06-17-ts-build-config.md).
+
+If a relevant local check consumes built package output, build once first:
 
 ```sh
 pnpm run build
 ```
 
-`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs.
+`pnpm run hygiene` includes `publint`, which validates package entrypoints against the built `lib/*.js` files, and `verify-node-next-types`, which validates built declarations against a temporary NodeNext consumer. A fresh worktree has no bundled JS or declarations until `pnpm run build` runs; ordinary commits and pushes do not require that build unless their selected checks consume it.
 
 ## Environment variables
 
@@ -56,14 +75,16 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 ## Git hooks
 
-lefthook is configured in `lefthook.yml` as an early local checkpoint before review:
+lefthook is configured in `lefthook.yml` as a fast local checkpoint:
 
-- `pre-commit` runs staged-file ESLint fixes, `pnpm run typecheck`, and the vendor manifest guard.
-- `pre-push` runs `pnpm run check:pre-push`, whose scheduler runs runtime-closure verification, unit tests, duplication detection, snapshot tests, build, module-graph freshness, and the member gates of `pnpm run hygiene` and `pnpm run doc-sync` concurrently.
+- `pre-commit` runs staged-file ESLint fixes, checks the staged diff for whitespace errors, and runs the vendor manifest guard.
+- `pre-push` runs only the incremental repository typecheck (`tsc -b` over the root solution, covering both the host and client aggregates).
 
 The vendor manifest guard checks that changes under `vendor/*/src` are staged with the matching `vendor/README.md` manifest update. See `vendor/README.md` before editing vendored code.
 
-These hooks do not exactly mirror CI. Notably, `pre-push` runs unit tests without coverage, while CI runs `pnpm run test:coverage`; CI also runs built-bin smoke tests and exercises the compatibility matrix on Node 22.19, 24, and 26.
+The hooks intentionally do not run tests, snapshots, documentation checks, builds, or hygiene. Contributors run the [checks relevant to the changed behavior](../AGENTS.md#run-relevant-checks-locally) once; CI owns exhaustive coverage, built-artifact smokes, and the Node 22.19, 24, and 26 compatibility matrix.
+
+Contributors can opt into the comprehensive local gate set with `pnpm run check:all`. The command is independent of both Git hooks and is not an agent instruction.
 
 ## CI gates
 
@@ -77,7 +98,8 @@ Use these from the repo root:
 pnpm run test           # unit tests
 pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
-pnpm run typecheck      # build package/vendor outputs, then typecheck examples, tests, and scripts
+pnpm run check:all      # comprehensive opt-in gate set; not wired to Git hooks
+pnpm run typecheck      # tsc -b over the root solution: emits package/vendor lib/types, checks both aggregates
 pnpm run lint           # eslint .
 pnpm run lint:fix       # eslint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs

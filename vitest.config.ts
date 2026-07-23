@@ -1,6 +1,12 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
+// Resolution facade shared by every plugin instance below: tsconfig.base.json
+// has no include, which vite-tsconfig-paths treats as match-all, so its paths
+// map applies to every test file. paths must win over package exports so built
+// lib/ never loads a second module-singleton copy.
+const pathsPlugin = (): ReturnType<typeof tsconfigPaths> => tsconfigPaths({ projects: ['./tsconfig.base.json'] })
+
 const windowsUnsupportedPackages = process.platform === 'win32'
   ? [
       'packages/bash/*',
@@ -22,27 +28,81 @@ const windowsCoverageExclusions = process.platform === 'win32'
     ]
   : []
 
+const testIncludes = [
+  'packages/*/*/tests/**/*.spec.{ts,tsx}',
+  'examples/*/tests/**/*.spec.ts',
+  'scripts/**/*.spec.ts',
+]
+
+// These suites exercise process-global state, process APIs, or timing-sensitive process I/O
+// that worker threads cannot isolate reliably under aggregate gate contention.
+// Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
+const processBoundTests = [
+  'packages/bash/bash-local/tests/run.spec.ts',
+  'packages/context/time-context/tests/time-context.spec.ts',
+  'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
+  'packages/ui/app-boot/tests/app-boot.spec.ts',
+  'packages/workflow/workflow-workerthread/tests/session.spec.ts',
+]
+
 export default defineConfig({
-  // Native path resolution reads each package's nearest tsconfig, but only the root defines
-  // workspace paths. Keep this plugin pinned to the root map so unbuilt bare package imports resolve
-  // to source; native resolution would fall through to absent `lib/` outputs.
-  plugins: [tsconfigPaths({ projects: ['./tsconfig.json'] })],
+  plugins: [pathsPlugin()],
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
-    include: ['packages/*/*/tests/**/*.spec.ts', 'examples/*/tests/**/*.spec.ts', 'scripts/**/*.spec.ts'],
+    // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
+    include: testIncludes,
     exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+    // One coverage invocation aggregates both projects. Most suites use threads
+    // for lower startup/IPC overhead; only explicit process-bound suites fork.
+    projects: [
+      {
+        plugins: [pathsPlugin()],
+        test: {
+          name: 'thread-safe',
+          pool: 'threads',
+          setupFiles: ['./scripts/test-invariants.ts'],
+          include: testIncludes,
+          exclude: [
+            ...windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+            ...processBoundTests,
+          ],
+        },
+      },
+      {
+        plugins: [pathsPlugin()],
+        test: {
+          name: 'process-bound',
+          pool: 'forks',
+          setupFiles: ['./scripts/test-invariants.ts'],
+          include: processBoundTests,
+          exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+        },
+      },
+    ],
     coverage: {
       provider: 'v8',
       // Coverage measures OUR runtime source. Types-only files carry no
       // executable code; vendor/ and examples/ are out of scope (examples are
       // exercised by the demo smoke test instead).
-      include: ['packages/*/*/src/**/*.ts'],
+      // .tsx: client components are gated like everything else (jsdom lane).
+      include: ['packages/*/*/src/**/*.{ts,tsx}'],
       // Types-only files have no runtime coverage. Importing self-executing bins/workers would boot
       // them inside the unit process, so real subprocess/Worker tests cover their thin entry glue.
       exclude: [
         'packages/*/*/src/types.ts',
         'packages/*/*/src/bin.ts',
         'packages/*/*/src/worker.ts',
+        // GUI step-1 skeleton (PR #500): client/web UI files whose remaining
+        // branches need a browser-grade harness the jsdom lane doesn't cover
+        // yet. TODO(gui): cover and remove as the client test lane matures.
+        'packages/client/ui-trajectory/src/*',
+        'packages/client/web-react/src/*',
+        'packages/client/runtime/src/*',
+        'packages/client/ui-conversation/src/*',
+        'packages/client/ui-slots/src/*',
+        'packages/client/ui-layout/src/*',
+        'packages/client/web/src/*',
+        'packages/host/webserver/src/*',
         ...windowsUnsupportedPackages.map(path => `${path}/src/**/*.ts`),
         ...windowsCoverageExclusions,
       ],

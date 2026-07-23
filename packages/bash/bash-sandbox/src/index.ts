@@ -3,14 +3,15 @@
  * `ctx.sandbox`, inherits local process mechanics, and reports the selected
  * mode, enforcement, and denial facts. Runner failure means the command never
  * ran: foreground calls throw `SANDBOX_UNAVAILABLE`, while settled background
- * processes carry `runnerFailed`. The tool owns approval and passes per-call modes.
+ * processes carry `runnerFailed`. The tool owns approval and passes a complete
+ * per-call policy.
  * @module @deepseek-ai/dsh-bash-sandbox
  */
 
 import { Context } from 'cordis'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
-import type { ConfinedSandboxMode, SandboxEnforcement, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type { ConfinedSandboxMode, SandboxEnforcement, SandboxExecutionPolicy, SandboxMode, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-bash-local'
@@ -18,21 +19,19 @@ import { classifyDenial, classifyRunnerFailure, matchesSignature, shellQuote } f
 
 /**
  * Plugin config: the local executor's knobs, verbatim. The sandbox policy —
- * the default mode and the `workspace-write` boundary root — is NOT here: it
- * lives on `ctx.sandboxPolicy` (`@deepseek-ai/dsh-sandbox-policy`), the one
- * home both enforcing families read, so bash and fs can never confine to
- * different roots. The runner choice is likewise the `ctx.sandbox` provider's
- * config, not this executor's.
+ * the default mode and fallback `workspace-write` root — is NOT here: it lives
+ * on `ctx.sandboxPolicy` (`@deepseek-ai/dsh-sandbox-policy`), which resolves
+ * each calling session's mode and cwd for both enforcing families. The runner
+ * choice is likewise the `ctx.sandbox` provider's config, not this executor's.
  */
 export type Config = LocalConfig
 
 /**
  * Registers as `ctx.bash` in place of the local executor and requires a
  * `ctx.sandbox` provider plus `ctx.sandboxPolicy`; the tool layer is
- * unchanged. The policy default (mode + workspace root) is the fallback,
- * while a session override or approved one-shot escalation may select each
- * call's mode. The prompt does not state the standing mode; `result.sandbox`
- * reports the mode and enforcement actually used.
+ * unchanged. Tool calls pass the calling session's resolved policy; direct
+ * calls fall back to deployment policy. The prompt does not state the standing
+ * mode; `result.sandbox` reports the mode and enforcement actually used.
  */
 export class SandboxBashExecutor extends LocalBashExecutor {
   static inject = ['sandbox', 'sandboxPolicy']
@@ -42,7 +41,6 @@ export class SandboxBashExecutor extends LocalBashExecutor {
   // verbatim (the config catalog walks the inherited static).
 
   private readonly mode: SandboxMode
-  private readonly workspaceRoot: string
   /**
    * Per-process confinement facts retained until settlement. Providers may
    * vary enforcement and diagnostic dialect between overlapping calls, so a
@@ -58,11 +56,9 @@ export class SandboxBashExecutor extends LocalBashExecutor {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, config)
-    // The sandbox default (mode + workspaceRoot) is the one shared policy home
-    // both enforcing families read; injecting sandboxPolicy guarantees it is
-    // constructed first. workspaceRoot arrives already resolved absolute.
+    // The default mode is the capability fact used for schema advertisement;
+    // actual tool executions carry their resolved per-call policy.
     this.mode = ctx.sandboxPolicy.defaultMode
-    this.workspaceRoot = ctx.sandboxPolicy.workspaceRoot
   }
 
   /** The configured default mode — the capability fact the tool layer reads. */
@@ -71,24 +67,22 @@ export class SandboxBashExecutor extends LocalBashExecutor {
   }
 
   /**
-   * Stamp the effective mode onto the spec — the request's explicit override
-   * (an approved escalation), else this executor's configured default — so
-   * defaulting stays an explicit resolve step and `run()`/`start()` read the
-   * spec, never the config.
+   * Stamp a complete per-call policy onto the spec. Tool calls supply the
+   * calling session's resolved mode and root; lower-level callers fall back to
+   * the deployment policy.
    */
   override resolve(request: BashExecRequest): BashExecSpec {
-    return { ...super.resolve(request), sandboxMode: request.sandboxMode ?? this.mode }
+    return { ...super.resolve(request), sandboxPolicy: request.sandboxPolicy ?? this.ctx.sandboxPolicy.resolve() }
   }
 
   override async run(spec: BashExecSpec): Promise<BashRunResult> {
-    // resolve() always stamps the mode; the cast records that invariant
-    // (mirrors the constructor's config casts).
-    const mode = spec.sandboxMode as SandboxMode
+    const policy = spec.sandboxPolicy as SandboxExecutionPolicy
+    const { mode } = policy
     if (mode === 'danger-full-access') {
       const result = await super.run(spec)
       return { ...result, sandbox: { mode, denied: false } }
     }
-    const confined = this.confine(spec.command, mode)
+    const confined = this.confine(spec.command, { ...policy, mode })
     const result = await super.run({ ...spec, command: confined.command })
     // Runner failure outranks denial because the command did not run. Throw the
     // same fail-closed error as confine-time discovery with the first stderr line.
@@ -99,11 +93,11 @@ export class SandboxBashExecutor extends LocalBashExecutor {
   }
 
   override start(spec: BashExecSpec): BashProcess {
-    // Same stamped-by-resolve invariant as run().
-    const mode = spec.sandboxMode as SandboxMode
+    const policy = spec.sandboxPolicy as SandboxExecutionPolicy
+    const { mode } = policy
     if (mode === 'danger-full-access') return super.start(spec)
     // Install facts synchronously; promise settlement cannot run before start() returns.
-    const confined = this.confine(spec.command, mode)
+    const confined = this.confine(spec.command, { ...policy, mode })
     const proc = super.start({ ...spec, command: confined.command })
     const { enforcement, denialSignatures, runnerFailureSignatures } = confined
     this.processFacts.set(proc, { mode, enforcement, denialSignatures, runnerFailureSignatures })
@@ -138,13 +132,13 @@ export class SandboxBashExecutor extends LocalBashExecutor {
    * `exec`s into the runner, so no extra shell lingers). Provider errors
    * (fail-closed `SANDBOX_UNAVAILABLE`) propagate to the caller unchanged.
    */
-  private confine(command: string, mode: ConfinedSandboxMode): {
+  private confine(command: string, policy: SandboxPolicy): {
     command: string
     enforcement: SandboxEnforcement
     denialSignatures: readonly string[]
     runnerFailureSignatures: readonly string[]
   } {
-    const confined = this.ctx.sandbox.confine(['bash', '-c', command], { mode, workspaceRoot: this.workspaceRoot })
+    const confined = this.ctx.sandbox.confine(['bash', '-c', command], policy)
     return {
       command: `exec ${confined.argv.map(shellQuote).join(' ')}`,
       enforcement: confined.enforcement,
