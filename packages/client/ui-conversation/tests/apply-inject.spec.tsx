@@ -2,10 +2,12 @@
 // apply inject factories exercised end to end against the terminal thin
 // shape: the conversation surface (views triple, send choreography incl.
 // optimistic clear + failure restore THROUGH the declared store actions,
-// openDetails = select action + layout orchestration, watch-driven open,
-// sessions.open navigation), the injectless-but-closeDetails details surface,
-// and the one-callback empty surface. Complements chat-apply.spec.tsx
-// (registration) and selection-survival.spec.ts (store axis).
+// openDetails = select action + layout orchestration, sessions.open
+// navigation), the injectless-but-closeDetails details surface, and the
+// one-callback empty surface. Complements chat-apply.spec.tsx (registration)
+// and selection-survival.spec.ts (store axis). History opening is NOT an
+// inject concern anymore — the runtime sessions service opens on watch
+// (sessions-service.spec.ts owns that behavior).
 
 import { Context } from 'cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -13,10 +15,10 @@ import { cleanup } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlotsService, scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SlotRendererHost } from '@deepseek-ai/dsh-client-ui-slots'
-import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SlotRendererHost } from '@deepseek-ai/dsh-client-web-react'
+import { ConversationService, apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
-  ConversationInjected, DetailsInjected, EmptyStateInjected,
+  ChatViewInjected, ConversationInjected, DetailsInjected, EmptyStateInjected,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { createChatStore } from '../src/client/stores.ts'
 
@@ -103,7 +105,7 @@ async function bench() {
   slots.install({ renderRoot: (h) => { host = h; return null } })
   slots.renderSlot('root', {})
   const hostFace = host!
-  const entryOf = (key: 'conversation' | 'details' | 'conversation.empty') => hostFace.entriesOf(key)[0]!
+  const entryOf = (key: 'conversation' | 'conversation.view' | 'details' | 'conversation.empty') => hostFace.entriesOf(key)[0]!
   /** Resolve store instance + call the inject the way the outlet would. */
   const conversationSurface = (id: SessionId) => {
     const entry = entryOf('conversation')
@@ -112,18 +114,30 @@ async function bench() {
       id, instance.actions)
     return { instance, injected }
   }
-  return { ctx, slots, hostFace, entryOf, conversationSurface, sessionFake, sessionsFake, layoutFake, mint }
+  /** Same resolution for the chat entry riding the view ring. */
+  const chatViewSurface = (id: SessionId) => {
+    const entry = entryOf('conversation.view')
+    const instance = hostFace.storeOf(entry, id) as ChatInstance
+    const injected = (entry.inject as unknown as (sessionId: SessionId, actions: ChatActions) => ChatViewInjected)(
+      id, instance.actions)
+    return { instance, injected }
+  }
+  return { ctx, slots, hostFace, entryOf, conversationSurface, chatViewSurface, sessionFake, sessionsFake, layoutFake, mint }
 }
 
 describe('conversation slot inject surface', () => {
-  it('assembles the thin surface, pulls history through the watch signal, navigates via sessions.open', async () => {
+  it('assembles the thin surface side-effect-free, navigates via sessions.open', async () => {
     const b = await bench()
     const { injected } = b.conversationSurface(ROOT)
-    expect(b.sessionFake.open).toHaveBeenCalledTimes(1)
+    // Assembly has no session side effects: opening the event window belongs
+    // to the runtime watch path, not the inject factory.
+    expect(b.sessionFake.open).not.toHaveBeenCalled()
     expect(injected.views.list().map(v => v.id)).toEqual(['chat'])
     injected.open(ROOT)
     expect(b.sessionsFake.open).toHaveBeenCalledWith(ROOT)
-    injected.loadOlder()
+    // loadOlder moved to the chat view entry's face (the ring rider).
+    const chatView = b.chatViewSurface(ROOT)
+    chatView.injected.loadOlder()
     expect(b.sessionFake.loadOlder).toHaveBeenCalledTimes(1)
   })
 
@@ -161,27 +175,51 @@ describe('conversation slot inject surface', () => {
     expect(b.sessionFake.cancel).toHaveBeenCalledTimes(1)
   })
 
-  it('openDetails writes the selection through the store actions and opens the panel', async () => {
+  it('inject fails loud when the session resolves no scope or the scope lacks the service', async () => {
     const b = await bench()
-    const { instance, injected } = b.conversationSurface(ROOT)
+    const entry = b.entryOf('conversation')
+    const instance = b.hostFace.storeOf(entry, ROOT) as ChatInstance
+    const injectFn = entry.inject as unknown as (sessionId: SessionId, actions: ChatActions) => ConversationInjected
+    // Unknown session: sessions.scope answers nothing.
+    ;(b.sessionsFake.scope as unknown) = () => undefined
+    expect(() => injectFn(ROOT, instance.actions)).toThrow(/resolved no scope/)
+    // A scope minted outside the service tree: no conversation service on it.
+    const foreign = new Context()
+    ;(b.sessionsFake.scope as unknown) = () => foreign.plugin(() => {}).ctx.extend({})
+    expect(() => injectFn(ROOT, instance.actions)).toThrow(/unavailable through the session scope/)
+  })
+
+  it('openDetails (chat view face) writes the selection through the store actions and opens the panel', async () => {
+    const b = await bench()
+    const { instance, injected } = b.chatViewSurface(ROOT)
     injected.openDetails({ turnSeq: 2, callId: 'c1' })
     expect(instance.store.getSnapshot().selection).toEqual({ turnSeq: 2, callId: 'c1' })
     expect(b.layoutFake.openDetails).toHaveBeenCalledTimes(1)
+    // The chat view shares the conversation entry's store instance: selection
+    // writes land where the skeleton and details read.
+    const conv = b.conversationSurface(ROOT)
+    expect(conv.instance).toBe(instance)
   })
 
-  it('views read face forwards to the service registry (subscribe/version)', async () => {
+  it('views read face projects the ring ledger (subscribe/version through ctx.slots)', async () => {
     const b = await bench()
     const { injected } = b.conversationSurface(ROOT)
     const before = injected.views.version()
     const listener = vi.fn()
     const unsub = injected.views.subscribe(listener)
-    const conversation = b.ctx.get('conversation') as
-      import('@deepseek-ai/dsh-client-ui-conversation/client').ConversationService
-    const off = conversation.registerView({ id: 'chat2', label: 'X', component: () => null } as never)
+    // A second ring rider (what ui-trajectory does in production).
+    const off = b.slots.register(
+      { name: 'conversation.view', id: 'chat2', order: 5, label: 'X' } as never, (() => null) as never)
+    await Promise.resolve() // ledger notifications batch per microtask
     expect(listener).toHaveBeenCalled()
     expect(injected.views.version()).toBeGreaterThan(before)
     expect(injected.views.list().map(v => v.id)).toEqual(['chat', 'chat2'])
+    // Label falls back to the id when a rider declares none.
+    const off2 = b.slots.register(
+      { name: 'conversation.view', id: 'bare', order: 6 } as never, (() => null) as never)
+    expect(injected.views.list().map(v => v.label)).toEqual(['Chat', 'X', 'bare'])
     off()
+    off2()
     unsub()
   })
 })
@@ -210,5 +248,15 @@ describe('details and empty inject surfaces', () => {
     expect(b.sessionsFake.create).toHaveBeenCalled()
     expect(b.sessionsFake.open).toHaveBeenCalledWith(ROOT)
     expect(b.sessionFake.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'go' }], 'queue')
+  })
+
+  it('startSession fails loud on a torn boot (conversation service fiber gone)', async () => {
+    const b = await bench()
+    const injected = (b.entryOf('conversation.empty').inject as unknown as () => EmptyStateInjected)()
+    // Tear the service's own fiber (registry keyed by the class): the slot
+    // entries survive, so the gesture-time read hits the loud branch.
+    b.ctx.registry.delete(ConversationService)
+    await vi.waitFor(() => { expect(b.ctx.get('conversation')).toBeUndefined() })
+    expect(() => injected.startSession({ text: 'go', mode: 'queue' })).toThrow(/conversation service unavailable/)
   })
 })

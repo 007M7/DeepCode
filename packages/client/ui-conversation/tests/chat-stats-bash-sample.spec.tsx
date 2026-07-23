@@ -1,21 +1,19 @@
 // @vitest-environment jsdom
-// StatsLine (chrome.footer first consumer): totals derivation + the RFC hard
-// acceptance — zero renders during streaming. Bash sample: differential
-// registry hits per session, teardown reverts to the generic row.
+// StatsLine (rendered inside the chat view body): totals derivation + the RFC
+// hard acceptance — zero renders during streaming. Bash sample row: the
+// canonical sub-agent differential decided INSIDE the component off the
+// standard useSessions kit (no registry predicates — tool ring dissolved).
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
-  AssistantMessageNode, ConversationSnapshot, SessionId, ToolResultNode,
+  AssistantMessageNode, ConversationSnapshot, SessionId, SessionListState, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { hookOf } from './hook.ts'
-import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ChromeProps, ToolViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { StatsLine, deriveStats } from '../src/client/chat/StatsLine.tsx'
-import { BashRow, ScopedBashRow, registerBashSamples } from '../src/client/toolviews/bash-sample.tsx'
-import { ToolViewOutlet } from '../src/client/chat/ToolViewOutlet.tsx'
-import { childSessionScope } from '../src/client/chat/register.ts'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { StatsLine, deriveStats, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
+import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
 
 afterEach(cleanup)
 
@@ -77,8 +75,8 @@ describe('deriveStats', () => {
 })
 
 describe('StatsLine', () => {
-  function props(source: { getSnapshot(): ConversationSnapshot; subscribe(fn: () => void): () => void }): ChromeProps {
-    return { sessionId: SID, useSession: hookOf(source) as unknown as UseSession }
+  function props(source: { getSnapshot(): ConversationSnapshot; subscribe(fn: () => void): () => void }): StatsLineProps {
+    return { useSession: bindSnapshotSelector(source) }
   }
 
   it('renders the joined stats row and hides with zero steps', () => {
@@ -95,7 +93,7 @@ describe('StatsLine', () => {
   it('renders ZERO times during streaming chunk frames (RFC hard acceptance)', () => {
     const { set, source } = makeSource({ nodes: [assistant(1, 1)] })
     let renders = 0
-    function Counting(p: ChromeProps) {
+    function Counting(p: StatsLineProps) {
       renders += 1
       return <StatsLine {...p} />
     }
@@ -109,71 +107,79 @@ describe('StatsLine', () => {
   })
 })
 
-describe('bash toolview samples', () => {
+describe('bash sample row', () => {
+  const ROOT = 'root-1' as SessionId
+  const CHILD = 'child-1' as SessionId
+
   const result = (callId: string): ToolResultNode => ({
     kind: 'tool-result', seq: 3, callId,
     call: { name: 'bash', argsRaw: '{"command":"make build","description":"Build"}' },
     content: [], isError: false, callView: null, resultView: null,
   })
 
-  const viewProps = (openDetails = vi.fn()): ToolViewProps => ({
-    callId: 'c1', toolName: 'bash', block: result('c1'),
-    useSession: (() => { throw new Error('unused') }) as unknown as UseSession,
-    actions: { openDetails },
-    t: (k) => k,
-  })
-
-  function outlet(registry: ToolViewRegistry, sessionId: SessionId, p = viewProps()) {
-    return render(
-      <ToolViewOutlet registry={registry} sessionId={sessionId} toolName="bash" viewProps={p} />,
-    )
+  /** Real list-store engine: the family fixture the in-component parentId branch reads. */
+  function listStore() {
+    return createSnapshotStore<SessionListState>({
+      ids: [ROOT, CHILD],
+      byId: {
+        [ROOT]: { id: ROOT, title: 'r', running: false, updatedAt: 0 },
+        [CHILD]: { id: CHILD, title: 'c', parentId: ROOT, running: false, updatedAt: 0 },
+      },
+      current: undefined,
+    } as SessionListState)
   }
 
-  it('differential rendering: scoped row for the matching session, global elsewhere', () => {
-    const registry = new ToolViewRegistry()
-    registerBashSamples(registry, (id) => id === ('swarm' as SessionId))
-    const scoped = outlet(registry, 'swarm' as SessionId)
+  const rowProps = (sessionId: SessionId, over?: {
+    store?: ReturnType<typeof listStore>
+    openDetails?: () => void
+  }): ToolRowProps => ({
+    callId: 'c1', toolName: 'bash', block: result('c1'),
+    openDetails: over?.openDetails ?? vi.fn(),
+    sessionId,
+    useSessions: bindSnapshotSelector(over?.store ?? listStore()),
+  } as unknown as ToolRowProps)
+
+  it('differential rendering: the scoped variant in sub-sessions, global at roots', () => {
+    const scoped = render(<BashRow {...rowProps(CHILD)} />)
     expect(scoped.container.querySelector('[data-sample="bash-scoped"]')).not.toBeNull()
-    const plain = outlet(registry, SID)
+    expect(scoped.getByText('scoped')).toBeTruthy()
+    const plain = render(<BashRow {...rowProps(ROOT)} />)
     expect(plain.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
   })
 
-  it('teardown removes both registrations and falls back to the generic row', () => {
-    const registry = new ToolViewRegistry()
-    const off = registerBashSamples(registry, () => true)
-    const view = outlet(registry, SID)
-    expect(view.container.querySelector('[data-sample="bash-scoped"]')).not.toBeNull()
-    act(() => off())
-    expect(view.container.querySelector('[data-sample]')).toBeNull()
-    expect(view.getByText('Bash')).toBeTruthy()
+  it('a session outside the list renders the global arm (no parent known)', () => {
+    const view = render(<BashRow {...rowProps('gone' as SessionId)} />)
+    expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
   })
 
-  it('childSessionScope matches sub-sessions via the injected list read face', () => {
-    const child = 'child' as SessionId
-    const root = 'root' as SessionId
-    const scope = childSessionScope({
-      getSnapshot: () => ({
-        ids: [root, child],
-        current: undefined,
-        byId: {
-          [root]: { id: root, title: 'r', running: false, updatedAt: 0 },
-          [child]: { id: child, title: 'c', parentId: root, running: false, updatedAt: 0 },
-        },
-      }),
+  it('a live parentId write flips the row to the scoped variant (store subscription)', () => {
+    const store = listStore()
+    const orphan = 'late-child' as SessionId
+    store.update((d) => {
+      d.ids.push(orphan)
+      d.byId[orphan] = { id: orphan, title: 'l', running: false, updatedAt: 0 }
     })
-    expect(scope(child)).toBe(true)
-    expect(scope(root)).toBe(false)
-    expect(scope('gone' as SessionId)).toBe(false)
+    const view = render(<BashRow {...rowProps(orphan, { store })} />)
+    expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+    act(() => {
+      store.update((d) => { d.byId[orphan]!.parentId = ROOT })
+    })
+    expect(view.container.querySelector('[data-sample="bash-scoped"]')).not.toBeNull()
   })
 
-  it('sample rows summarize the command and hand clicks to openDetails', () => {
-    const open = vi.fn()
-    const p = viewProps(open)
-    const global = render(<BashRow {...p} />)
-    expect(global.getByText('Build')).toBeTruthy()
-    fireEvent.click(global.getByText('Build'))
-    expect(open).toHaveBeenCalledTimes(1)
-    const scoped = render(<ScopedBashRow {...p} />)
-    expect(scoped.getByText('scoped')).toBeTruthy()
+  it('summarizes the command and hands clicks to openDetails on both arms', () => {
+    const openGlobal = vi.fn()
+    const global = render(<BashRow {...rowProps(ROOT, { openDetails: openGlobal })} />)
+    // Two renders share document.body: query inside each container.
+    const globalRow = global.container.querySelector('[data-sample="bash-global"]')!
+    expect(globalRow.textContent).toContain('Build')
+    fireEvent.click(globalRow)
+    expect(openGlobal).toHaveBeenCalledTimes(1)
+    const openScoped = vi.fn()
+    const scoped = render(<BashRow {...rowProps(CHILD, { openDetails: openScoped })} />)
+    const scopedRow = scoped.container.querySelector('[data-sample="bash-scoped"]')!
+    expect(scopedRow.textContent).toContain('Build')
+    fireEvent.click(scopedRow)
+    expect(openScoped).toHaveBeenCalledTimes(1)
   })
 })

@@ -122,6 +122,7 @@ export interface RunningToolCall {
   callView: ToolCallView | null
 }
 
+
 /** In-progress assistant output (chunk accumulator product). */
 export interface PartialAssistant {
   turn: number

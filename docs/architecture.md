@@ -185,7 +185,7 @@ New behavior attaches to a documented extension point; a loop change updates thi
 | Confine spawned processes | a `ctx.sandbox` backend; consumers wrap their argv before spawning |
 | Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stop` is the serial terminal stop |
 | Add a session-stable prefix outside history | compose `agent/session-prefix`; the request header logs it |
-| Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
+| Add UI or editor integration | drive `ctx.agents` and render from `session/event`; terminal-only overlays use `ctx.tui` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
 | Add asynchronous session-title generation | register the sole provider on `ctx.sessionTitle` |
 | Manage a same-session objective | use `ctx.goals`; continue through `Agent` and `agent/*` |

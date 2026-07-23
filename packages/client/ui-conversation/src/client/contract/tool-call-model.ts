@@ -3,25 +3,29 @@
  * one-line summary and expanded-body text from the frozen call slice. No
  * inline output ever — full results live in the details panel.
  */
-import type { ToolCallBlock } from './toolview.ts'
+// The block union's defining home is runtime (fold-product types); this
+// contract only forwards it (type-definition authority stays with the layer
+// that produces the values).
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 
-export type { ToolCallBlock } from './toolview.ts'
+export type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 
 /** The frozen slice the chat view hands to toolview components as `block`
  *  (both members are cache-stable references off ConversationSnapshot). */
 
-/** The five figma row variants (think is fed by reasoning blocks, not tool calls). */
-export type ToolRowVariant = 'think' | 'search' | 'read' | 'bash' | 'others'
+/** The seven row variants (think is fed by reasoning blocks, not tool calls). */
+export type ToolRowVariant = 'think' | 'search' | 'read' | 'bash' | 'write' | 'edit' | 'others'
 
 /** Row state semantic; colors self-supplied via StateDot (design gives none). */
 export type ToolRowState = 'running' | 'ok' | 'error' | 'stopped'
 
 /** Figma row titles per variant (design literals, not translatable copy). */
 export const VARIANT_TITLES: Record<ToolRowVariant, string> = {
-  think: 'Think', search: 'Search', read: 'Read', bash: 'Bash', others: 'Tool call',
+  think: 'Think', search: 'Search', read: 'Read', bash: 'Bash',
+  write: 'Write', edit: 'Edit', others: 'Tool call',
 }
 
-/** Known tool name -> variant; fs write/edit intentionally fall to others (no figma form). */
+/** Known tool name -> variant. */
 const TOOL_VARIANTS: Record<string, ToolRowVariant> = {
   bash: 'bash',
   read: 'read',
@@ -29,6 +33,8 @@ const TOOL_VARIANTS: Record<string, ToolRowVariant> = {
   web_search: 'search',
   grep: 'search',
   glob: 'search',
+  write: 'write',
+  edit: 'edit',
 }
 
 /**
@@ -78,6 +84,8 @@ const SUMMARY_KEYS: Record<ToolRowVariant, readonly string[]> = {
   read: ['path', 'file_path', 'url'],
   search: ['query', 'pattern', 'url'],
   think: [],
+  write: ['path', 'file_path'],
+  edit: ['path', 'file_path'],
   others: [],
 }
 

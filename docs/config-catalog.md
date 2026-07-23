@@ -1590,7 +1590,7 @@ export interface TuiConfig {
 }
 ```
 
-Source: [`packages/ui/tui/src/index.ts:161`](../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:216`](../packages/ui/tui/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui-demo`
 

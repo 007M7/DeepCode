@@ -277,7 +277,7 @@ describe('pending interactions', () => {
     const wait = session.getSnapshot().pending[0]!
     session.handleMuxEnvelope('ry' as never, { type: 'question/resolved', sessionId: SID, questionRpcId: 'rq1' as never, outcome: 'answered' })
     expect(session.getSnapshot().pending).toEqual([])
-    expect(() => wait.respond({ ok: false, error: { code: 'cancelled', message: 'x', details: {} } }))
+    expect(() => wait.respond({ ok: false, error: { code: 'internal', message: 'x', details: {} } }))
       .toThrow('already settled')
     expect(api.callsOf('respond')).toEqual([])
   })
@@ -610,7 +610,7 @@ describe('resync', () => {
     expect(after).not.toBe(before)
     expect(after.key).toBe(before.key)
     // Superseded ≠ settled: an in-flight respond on the stale reference still reaches the host.
-    await before.respond({ ok: false, error: { code: 'cancelled', message: 'x', details: {} } })
+    await before.respond({ ok: false, error: { code: 'internal', message: 'x', details: {} } })
     expect(api.callsOf('respond')).toMatchObject([{ rpcId: 'rq-replay' }])
   })
 
