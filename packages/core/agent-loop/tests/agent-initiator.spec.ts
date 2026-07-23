@@ -6,7 +6,7 @@ import LlmService, { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 const testToolSignal = new AbortController().signal
@@ -189,7 +189,7 @@ describe('AgentLoop initiator scope', () => {
     ctx.on('agent/turn-stop', (subject, _turn, signal) => {
       if (subject === agent) capture(signal)
     })
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'observe',
       description: 'observe explicit turn state',
       parameters: {},
@@ -232,7 +232,7 @@ describe('AgentLoop initiator scope', () => {
     let parentWhileChildDriverActive: Agent | undefined
     let child: Agent | undefined
 
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'spawn-child',
       description: 'create one child agent',
       parameters: {},
@@ -244,7 +244,7 @@ describe('AgentLoop initiator scope', () => {
           setup: (agentCtx) => {
             parentDuringSetup = ctx.agents.requireInitiator()
             explicitChild = agentCtx.agent
-            agentCtx.tools.register(defineTool({
+            agentCtx.tools.register(defineContentToolFixture({
               name: 'observe-child',
               description: 'observe child execution identity',
               parameters: {},
@@ -292,7 +292,7 @@ describe('AgentLoop initiator scope', () => {
     let directAmbient: Agent | undefined
     let captured: Agent | undefined
 
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'agentless-probe',
       description: 'observe an agentless call',
       parameters: {},
@@ -302,7 +302,7 @@ describe('AgentLoop initiator scope', () => {
         return [{ type: 'text', text: 'ok' }]
       },
     }))
-    ctx.tools.register(defineTool({
+    ctx.tools.register(defineContentToolFixture({
       name: 'capability-request',
       description: 'call the test capability transport',
       parameters: { path: { type: 'string' } },

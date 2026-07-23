@@ -13,7 +13,7 @@ Model-facing `ask_user_question` tool over `ctx.userInteraction`. It lets the mo
 - `options` — optional choices with `label` and `description`. If recommending a choice, put it first and append `(Recommended)` to that label.
 - `multi_select` — whether that question may return more than one selected option.
 
-The tool calls `ctx.userInteraction.ask()` and returns JSON text shaped as `{ "answers": [{ "id": "...", "selected": ["..."], "custom": "..." }] }`. `selected` contains option labels; `custom` is present only for a free-form answer and overrides selected choices.
+The tool calls `ctx.userInteraction.ask()` and returns canonical `{ answers: [{ id, selected, custom? }] }`. `selected` contains option labels; `custom` is present only for a free-form answer and overrides selected choices. The Native renderer preserves the compact JSON text shape `{ "answers": [{ "id": "...", "selected": ["..."], "custom": "..." }] }`.
 
 ## Role
 
@@ -52,4 +52,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **A pending question blocks the tool call until the human answers** — the tool declares no `timeout-policy` budget; cancellation rides the turn's `exec.signal` only.
-- **Answers return as JSON text** — the seam's structured `AskUserQuestionAnswer` is serialized into the tool result rather than carried as typed content blocks.
+- **Native answers render as JSON text** — the canonical value remains structured, but the model-facing result uses compact JSON rather than a richer content-block vocabulary.

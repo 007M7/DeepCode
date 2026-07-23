@@ -5,7 +5,8 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { renderToolsSdk } from '@deepseek-ai/dsh-tools'
+import type { ToolSdkSchema } from '@deepseek-ai/dsh-tools/src/ts-types.ts'
 import PtyService, { PtySessionId } from '@deepseek-ai/dsh-pty'
 import type { PtyBackend, PtyBackendSession, PtySendOperation, PtySendRequest, PtySessionStatus, PtySignal } from '@deepseek-ai/dsh-pty'
 import TaskService from '@deepseek-ai/dsh-tasks'
@@ -104,6 +105,7 @@ async function setup(tasks: boolean) {
 }
 
 let callNumber = 0
+const TOOL_NAMES = ['terminal_open', 'terminal_send', 'terminal_read', 'terminal_signal', 'terminal_close', 'terminal_list'] as const
 const testToolSignal = new AbortController().signal
 function call(ctx: Context, name: string, args: unknown, agent?: Agent) {
   return ctx.tools.execute({ signal: testToolSignal, callId: CallId(`pty-call-${++callNumber}`), name, arguments: args, ...agent ? { agent } : {} })
@@ -120,17 +122,134 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 describe('tool-pty foreground surface', () => {
   it('registers exactly six schemas and drives the full owner-scoped lifecycle', async () => {
     const { ctx, agent } = await setup(false)
-    expect(['terminal_open', 'terminal_send', 'terminal_read', 'terminal_signal', 'terminal_close', 'terminal_list'].every(name => ctx.tools.get(name) !== undefined)).toBe(true)
+    expect(TOOL_NAMES.every(name => ctx.tools.get(name) !== undefined)).toBe(true)
 
     const spawned = await call(ctx, 'terminal_open', { type: 'stub', name: 'main' }, agent)
     expect(text(spawned)).toContain('started terminal session pty-1 (main)')
-    expect(text(await call(ctx, 'terminal_list', {}, agent))).toContain('pty-1 (main) [stub] running pid=42')
-    expect(text(await call(ctx, 'terminal_read', { sessionId: 'pty-1' }, agent))).toContain('history\n[lines: 0-1 of 1]')
-    expect(text(await call(ctx, 'terminal_signal', { sessionId: 'pty-1', signal: 'SIGINT' }, agent))).toBe('delivered SIGINT to foreground process group 10')
+    expect(spawned).toMatchObject({
+      isError: false,
+      value: {
+        sessionId: 'pty-1',
+        name: 'main',
+        type: 'stub',
+        pid: 42,
+        status: { kind: 'running' },
+        motd: 'stub prompt',
+      },
+    })
+    const listed = await call(ctx, 'terminal_list', {}, agent)
+    expect(text(listed)).toContain('pty-1 (main) [stub] running pid=42')
+    expect(listed).toMatchObject({ isError: false, value: [{ sessionId: 'pty-1', name: 'main', type: 'stub', pid: 42, status: { kind: 'running' } }] })
+    const read = await call(ctx, 'terminal_read', { sessionId: 'pty-1' }, agent)
+    expect(text(read)).toContain('history\n[lines: 0-1 of 1]')
+    expect(read).toMatchObject({ isError: false, value: { text: 'history', totalLines: 1, lineBegin: 0, lineEnd: 1, truncated: false } })
+    const signalled = await call(ctx, 'terminal_signal', { sessionId: 'pty-1', signal: 'SIGINT' }, agent)
+    expect(text(signalled)).toBe('delivered SIGINT to foreground process group 10')
+    expect(signalled).toMatchObject({ isError: false, value: { delivered: true, targetPgid: 10 } })
     const sent = await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'echo hi' }, agent)
     expect(text(sent)).toContain('command output\n[wait: stdin_read]\n[session: running]')
-    expect(text(await call(ctx, 'terminal_close', { sessionId: 'pty-1' }, agent))).toBe('closed terminal session pty-1')
-    expect(text(await call(ctx, 'terminal_list', {}, agent))).toBe('(no terminal sessions)')
+    expect(sent).toMatchObject({
+      isError: false,
+      value: {
+        kind: 'foreground',
+        viewport: 'command output',
+        waitReason: 'stdin_read',
+        sessionStatus: { kind: 'running' },
+        truncated: false,
+      },
+      meta: {
+        viewport: 'command output',
+        waitReason: 'stdin_read',
+        sessionStatus: { kind: 'running' },
+        truncated: false,
+      },
+    })
+    const closed = await call(ctx, 'terminal_close', { sessionId: 'pty-1' }, agent)
+    expect(text(closed)).toBe('closed terminal session pty-1')
+    expect(closed).toMatchObject({ isError: false, value: { sessionId: 'pty-1', outcome: 'closed' } })
+    const empty = await call(ctx, 'terminal_list', {}, agent)
+    expect(text(empty)).toBe('(no terminal sessions)')
+    expect(empty).toMatchObject({ isError: false, value: [] })
+  })
+
+  it('projects every terminal DTO into the generated Code Mode output map', async () => {
+    const { ctx } = await setup(false)
+    const schemas = TOOL_NAMES.map((toolName): ToolSdkSchema => {
+      const definition = ctx.tools.get(toolName)
+      if (definition === undefined) throw new Error(`missing terminal tool ${toolName}`)
+      return {
+        name: definition.name,
+        description: definition.description,
+        parameters: definition.parameters,
+        output: definition.output.schema,
+      }
+    })
+    const sdk = renderToolsSdk(schemas)
+    const outputMapStart = sdk.indexOf('interface ToolOutputMap')
+    const outputMapEnd = sdk.indexOf('\n\ntype ToolName', outputMapStart)
+
+    expect(sdk.slice(outputMapStart, outputMapEnd)).toMatchInlineSnapshot(`
+      "interface ToolOutputMap {
+        terminal_close: {
+          sessionId: string;
+          outcome: "closed" | "already-closing";
+        };
+        terminal_list: ({
+          sessionId: string;
+          name?: string;
+          type: string;
+          pid?: number;
+          status: {
+            kind: "running";
+          } | {
+            kind: "exited";
+            exitCode: number | null;
+            signal: string | null;
+          };
+        })[];
+        terminal_open: {
+          sessionId: string;
+          name?: string;
+          type: string;
+          pid?: number;
+          status: {
+            kind: "running";
+          } | {
+            kind: "exited";
+            exitCode: number | null;
+            signal: string | null;
+          };
+          motd: string;
+        };
+        terminal_read: {
+          text: string;
+          totalLines: number;
+          lineBegin: number;
+          lineEnd: number;
+          truncated: boolean;
+        };
+        terminal_send: {
+          kind: "background";
+          taskId: string;
+        } | {
+          kind: "foreground";
+          viewport: string;
+          waitReason: "stdin_read" | "inferred_idle" | "timeout" | "session_exit";
+          sessionStatus: {
+            kind: "running";
+          } | {
+            kind: "exited";
+            exitCode: number | null;
+            signal: string | null;
+          };
+          truncated: boolean;
+        };
+        terminal_signal: {
+          delivered: true;
+          targetPgid: number;
+        };
+      }"
+    `)
   })
 
   it('fails without an initiating agent and rejects background before writing', async () => {
@@ -178,7 +297,9 @@ describe('tool-pty task integration', () => {
   it('registers a generic task and exposes incremental output', async () => {
     const { ctx, agent } = await setup(true)
     await call(ctx, 'terminal_open', { type: 'stub' }, agent)
-    expect(text(await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'build', run_in_background: true }, agent))).toBe('started background task pty-send-1')
+    const started = await call(ctx, 'terminal_send', { sessionId: 'pty-1', text: 'build', run_in_background: true }, agent)
+    expect(text(started)).toBe('started background task pty-send-1')
+    expect(started).toMatchObject({ isError: false, value: { kind: 'background', taskId: 'pty-send-1' } })
     const output = await call(ctx, 'task_output', { task_id: 'pty-send-1', wait: true }, agent)
     expect(text(output)).toContain('live output')
     expect(text(output)).toContain('[status: completed, wait: stdin_read]')
@@ -224,7 +345,9 @@ describe('tool-pty task integration', () => {
     const second = call(ctx, 'terminal_close', { sessionId: 'pty-1' }, agent)
     stub.sessions[0]!.closeGate?.resolve(undefined)
     await first
-    expect(text(await second)).toBe('terminal session pty-1 was already closing')
+    const result = await second
+    expect(text(result)).toBe('terminal session pty-1 was already closing')
+    expect(result).toMatchObject({ isError: false, value: { sessionId: 'pty-1', outcome: 'already-closing' } })
   })
 
   it('renders an exited session detail for background completion', async () => {
