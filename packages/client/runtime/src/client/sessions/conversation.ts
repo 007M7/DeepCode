@@ -4,6 +4,7 @@
 // string here (narrow to real brands when convenient).
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { RpcError, RpcId, SessionId, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 
 /** Assistant content blocks sorted by what the UI cares about
@@ -11,6 +12,7 @@ import type { RpcError, RpcId, SessionId, ToolCallView, ToolResultView } from '@
 export type AssistantBlock =
   | { kind: 'text'; text: string }
   | { kind: 'reasoning'; text: string }
+  | { kind: 'image'; attachment: ImageAttachmentRef; alt?: string }
   | { kind: 'tool-call'; callId: string; name: string; argsRaw: string }
   | { kind: 'other'; block: unknown }
 
@@ -32,6 +34,10 @@ export function toAssistantBlock(block: ContentBlock): AssistantBlock {
   switch (block.type) {
     case 'text': return { kind: 'text', text: block.text }
     case 'reasoning': return { kind: 'reasoning', text: block.text }
+    case 'image': return {
+      kind: 'image', attachment: block.attachment,
+      ...block.alt === undefined ? {} : { alt: block.alt },
+    }
     case 'tool-call': return { kind: 'tool-call', callId: String(block.id), name: block.name, argsRaw: block.arguments }
     default: return { kind: 'other', block }
   }

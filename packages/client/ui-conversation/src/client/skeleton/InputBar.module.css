@@ -32,6 +32,7 @@
 }
 
 .card {
+  position: relative;
   display: flex;
   flex-direction: column;
   /* figma Input 34:11458: 12px between the text area and the button row. */
@@ -49,6 +50,25 @@
   line-height: 24px;
 }
 
+.dragActive {
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-business-primary) 24%, transparent), var(--dsw-shadow-lv2);
+}
+
+.dropHint {
+  position: absolute;
+  z-index: 2;
+  inset: 4px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--dsw-specific-input-major) 88%, var(--dsw-alias-state-business-primary));
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
 /* New-session state rounds up (figma: r24 and a taller box). */
 .hero .card {
   border-radius: 24px;
@@ -59,6 +79,57 @@
   align-items: center;
   gap: 8px;
   padding: 10px 12px 0;
+}
+
+.attachments {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 12px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.attachment {
+  position: relative;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+}
+
+.thumbnail {
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 12px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  cursor: zoom-in;
+}
+
+.thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--dsw-specific-input-major);
+  border-radius: 999px;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-specific-input-major);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
 }
 
 /* Mirror-div auto-grow wrapper: the hidden mirror is in normal flow and sets the height

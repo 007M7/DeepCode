@@ -116,6 +116,8 @@ export class DeepSeekAdapter extends LlmAdapter {
       id: model.id,
       name: model.name ?? model.id,
       ...model.description === undefined ? {} : { description: model.description },
+      inputModalities: ['text'],
+      outputModalities: ['text'],
     })))
   }
 

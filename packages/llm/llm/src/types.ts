@@ -5,6 +5,7 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { CallId, ProviderRequestId } from './brand.ts'
 
 /** Serializable provider-boundary facts; policy decides whether they are retryable. */
@@ -33,6 +34,15 @@ export interface ReasoningBlock {
   text: string
 }
 
+/** A durable raster image reference, valid in user or assistant content. */
+export interface ImageBlock {
+  type: 'image'
+  /** Immutable bytes and intrinsic display metadata owned by the attachment service. */
+  attachment: ImageAttachmentRef
+  /** Optional provider- and UI-facing alternative text. */
+  alt?: string
+}
+
 /** A tool invocation requested by the model. */
 export interface ToolCallBlock {
   type: 'tool-call'
@@ -58,6 +68,7 @@ export interface ToolResultBlock {
 export interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock
+  'image': ImageBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
 }
@@ -143,6 +154,15 @@ export interface LlmProviderInfo {
   name: string
 }
 
+/** Merge-extensible provider model modality vocabulary. */
+export interface ModelModalityMap {
+  text: 'text'
+  image: 'image'
+}
+
+/** Any declared provider model modality. */
+export type ModelModality = ModelModalityMap[keyof ModelModalityMap]
+
 /** One adapter-discovered model; catalog membership is advisory, not request validation. */
 export interface LlmModelInfo {
   /** Provider route that owns this model entry. */
@@ -153,6 +173,10 @@ export interface LlmModelInfo {
   name: string
   /** Optional user-facing distinction from otherwise similar models. */
   description?: string
+  /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
+  inputModalities?: readonly ModelModality[]
+  /** Structured response modalities; absent means unknown, while an explicit omission is negative capability. */
+  outputModalities?: readonly ModelModality[]
 }
 
 /** Provider-owned context capacity for one exact provider/model route. */

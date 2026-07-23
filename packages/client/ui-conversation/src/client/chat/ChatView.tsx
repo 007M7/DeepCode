@@ -11,8 +11,9 @@
 // map but only rows whose own selected bit flipped.
 
 import {
-  memo, useLayoutEffect, useMemo, useRef, useState, type FC, type ReactNode,
+  memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type FC, type ReactNode,
 } from 'react'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -24,6 +25,7 @@ import type { ToolViewResolver } from '../contract/toolview.ts'
 import { deriveChatFlow, type ChatFlowItem } from './chat-flow.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
 import { MessageItem } from './MessageItem.tsx'
+import type { ImageLoader } from './MessageImage.tsx'
 import { PendingCard } from './PendingCard.tsx'
 import { ToolViewOutlet } from './ToolViewOutlet.tsx'
 import css from './ChatView.module.css'
@@ -32,6 +34,7 @@ import css from './ChatView.module.css'
 export interface ChatViewDeps {
   toolviews: ToolViewResolver
   t: Translate
+  resolveImage?(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string>
 }
 
 const FOLLOW_THRESHOLD = 24
@@ -102,16 +105,17 @@ const ToolGroup = memo(function ToolGroup({ registry, sessionId, useSession, t, 
 
 /** The streaming partial, isolated so chunk batches re-render only this tail.
  *  onGrow lets the scroll owner follow content the parent never re-renders for. */
-function StreamingTail({ useSession, onGrow }: {
+function StreamingTail({ useSession, onGrow, loadImage }: {
   useSession: UseConversation
   onGrow: () => void
+  loadImage: ImageLoader
 }) {
   const partial = useSession((s) => s.partial)
   useLayoutEffect(() => {
     onGrow()
   })
   if (partial === null) return null
-  return <AssistantMarkdown blocks={partial.blocks} streaming />
+  return <AssistantMarkdown blocks={partial.blocks} streaming loadImage={loadImage} />
 }
 
 /**
@@ -120,7 +124,7 @@ function StreamingTail({ useSession, onGrow }: {
  * @returns the ConvViewProps component registered as the chat view.
  */
 export function createChatView(deps: ChatViewDeps): FC<ConvViewProps> {
-  const { toolviews, t } = deps
+  const { toolviews, t, resolveImage = unavailableImage } = deps
 
   return function ChatView({ sessionId, useSession: useSessionWide, useStore, actions }: ConvViewProps) {
     const useSession = useSessionWide as UseConversation
@@ -132,6 +136,10 @@ export function createChatView(deps: ChatViewDeps): FC<ConvViewProps> {
     const hasMore = useSession((s) => s.hasMore)
     const loadingOlder = useSession((s) => s.loadingOlder)
     const selectedCallId = useStore((s) => s.selection?.callId)
+    const loadImage = useCallback<ImageLoader>(
+      attachment => resolveImage(sessionId, attachment),
+      [resolveImage, sessionId],
+    )
 
     const items = useMemo(() => deriveChatFlow(nodes), [nodes])
 
@@ -229,11 +237,11 @@ export function createChatView(deps: ChatViewDeps): FC<ConvViewProps> {
       }
       const node: ConversationNode = item.node
       if (node.kind === 'assistant') {
-        return <AssistantMarkdown key={item.key} blocks={node.blocks} streaming={false} interrupted={node.interrupted} />
+        return <AssistantMarkdown key={item.key} blocks={node.blocks} streaming={false} interrupted={node.interrupted} loadImage={loadImage} />
       }
       /* v8 ignore next -- tool-result never reaches here: deriveChatFlow folds them into groups. */
       if (node.kind === 'tool-result') return null
-      return <MessageItem key={item.key} node={node} />
+      return <MessageItem key={item.key} node={node} loadImage={loadImage} />
     }
 
     return (
@@ -250,7 +258,7 @@ export function createChatView(deps: ChatViewDeps): FC<ConvViewProps> {
             </div>
           )}
           {items.map(renderItem)}
-          <StreamingTail useSession={useSession} onGrow={onGrow} />
+          <StreamingTail useSession={useSession} onGrow={onGrow} loadImage={loadImage} />
           {runningCalls.length > 0 && (
             <div className={css.toolGroup}>
               {runningCalls.map((call) => (
@@ -290,4 +298,8 @@ export function createChatView(deps: ChatViewDeps): FC<ConvViewProps> {
       </div>
     )
   }
+}
+
+function unavailableImage(): Promise<string> {
+  return Promise.reject(new Error('图片读取服务不可用'))
 }

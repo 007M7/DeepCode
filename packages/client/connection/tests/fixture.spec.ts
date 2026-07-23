@@ -167,7 +167,7 @@ describe('createFixtureApi', () => {
     expect(second[1]?.rpcId).toBe(first[1]?.rpcId) // stable rpcId across replays (host replay semantics)
   })
 
-  it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {
+  it('steer with no replay in flight promotes image bytes to a session-scoped reference', async () => {
     const api = createFixtureApi()
     const abort = new AbortController()
     const framesPromise = collect<MuxFrame>(api.events.mux(req({}), abort.signal), abort,
@@ -175,14 +175,36 @@ describe('createFixtureApi', () => {
     await new Promise(resolve => setTimeout(resolve, 10))
     const created = await api.sessions.create(req({}))
     if (!created.result.ok) throw new Error('create failed')
-    // steer while idle + a non-text content block (covers the '' arm of the text join).
+    // steer while idle + an image: the fixture mirrors the host's durable send boundary.
     await api.sessions.prompt(req({
       sessionId: created.result.value.sessionId, mode: 'steer' as const,
-      content: [{ type: 'text' as const, text: '短' }, { type: 'image', data: 'x' } as never],
+      content: [{ type: 'text' as const, text: '短' }, {
+        type: 'image' as const,
+        mediaType: 'image/png' as const,
+        data: 'iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAYAAAA/xl1SAAAAvklEQVR42u3SMQ0AAAjAMIyhELM4AAe8PD1qYFlk9cCXEAEDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGxIBCYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIAYEAyIAcGAGBAMiAHBgBgQDIgBwYAYEAyIAcGAGBAMiAHBgBgQDIgB4bYWLb6pnOb1xAAAAABJRU5ErkJggg==',
+        name: 'pixel.png',
+      }],
     }))
     const frames = await framesPromise
     const types = frames.filter((f): f is Extract<MuxFrame, { type: 'session/event' }> => f.type === 'session/event').map(f => f.event.type)
     expect(types[0]).toBe('turn/start') // idle steer degraded to a queued turn, not a steering insert
+    const user = frames.find((f): f is Extract<MuxFrame, { type: 'session/event' }> =>
+      f.type === 'session/event' && f.event.type === 'user/message')
+    const image = ((user?.event.data as { content?: { type: string; attachment?: { attachmentId: never } }[] } | undefined)?.content)
+      ?.find(block => block.type === 'image')
+    expect(image?.attachment).toBeDefined()
+    if (image?.attachment === undefined) throw new Error('fixture image missing')
+    const loaded = await api.sessions.attachment(req({
+      sessionId: created.result.value.sessionId,
+      attachmentId: image.attachment.attachmentId,
+    }))
+    expect(loaded.result).toMatchObject({ ok: true, value: { attachment: { name: 'pixel.png' } } })
+    const denied = await api.sessions.attachment(req({
+      sessionId: sid('fx-beta'), attachmentId: image.attachment.attachmentId,
+    }))
+    expect(denied.result).toMatchObject({
+      ok: false, error: { details: { reason: 'ATTACHMENT_NOT_REFERENCED' } },
+    })
   })
 
   it('gamma interval flip emits host/session-status and a running log-less session subscribes at lastSeq -1', async () => {
@@ -306,6 +328,7 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     const id = created.result.value.sessionId
     expect((await client.sessions.history({ sessionId: id })).result.ok).toBe(true)
     expect((await client.sessions.prompt({ sessionId: id, mode: 'queue', content: [{ type: 'text', text: '嗨' }] })).result.ok).toBe(true)
+    expect((await client.sessions.attachment({ sessionId: sid('fx-alpha'), attachmentId: 'fixture:image' as never })).result.ok).toBe(true)
     expect((await client.sessions.cancel({ sessionId: id })).result.ok).toBe(true)
     expect((await client.host.describe({})).result.ok).toBe(true)
   })

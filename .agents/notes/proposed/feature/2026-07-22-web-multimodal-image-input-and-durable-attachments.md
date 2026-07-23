@@ -1,0 +1,210 @@
+# Agent Note: Web multimodal image input and durable attachments
+
+Status: proposed
+
+English | [中文](2026-07-22-web-multimodal-image-input-and-durable-attachments.zh.md)
+
+## Problem
+
+The Web composer accepts only text: `InputBar` receives a string draft, `ConversationService.send()` creates text content, and the host forwards that content to the agent. Users cannot paste an image, inspect it before sending, submit an image-only prompt, or recover sent images from history.
+
+This is not only a composer gap. Core needs a durable image content block, providers need explicit modality handling, and the session log must reconstruct everything visible to a model. [The previous image-block removal](../../implemented/simplification/2026-07-04-drop-image-content-block.md) rejected a partial design that could silently lose or flatten images. A browser object URL, local path, provider URL, or base64 payload cannot be canonical session content.
+
+The [Web client architecture](../../implemented/architecture/2026-07-19-gui-web-client-architecture.md) keeps components pure and per-session composer state in `ctx.conversation`; the [GUI layering and RPC protocol](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md) makes durable events the source of truth for both live rendering and history replay. Image intake, persistence, provider conversion, and rendering therefore need one explicit lifecycle.
+
+Peer products converge on an attachment rail above the editor, but their storage choices differ. Codex-style paths such as `/var/folders/.../codex-clipboard-*.png` are reasonable intake staging locations, not durable message identities: the operating system may delete them, another host cannot read them, and a resumed session cannot rely on them.
+
+## Proposal
+
+Add pasted or dropped raster images to the Web composer as the first consumer of a durable attachment capability. Unsent files remain temporary client-owned draft state. The host validates and durably commits every accepted user image before appending its message event. A provider adapter that produces structured image output must durably commit the output before appending its assistant block. Canonical user and assistant content contains only role-neutral `ImageBlock` references.
+
+Version one supports PNG, JPEG, WebP, and GIF paste and drag-and-drop, image-only or mixed prompts, historical user and assistant image rendering, and original-image preview on double-click. File picking, generic files, PDF, audio, video, image copying, and a custom context menu are separate follow-ups.
+
+### Product behavior
+
+- Pasting or dropping one or more supported images adds ordered thumbnails above the textarea without inserting placeholder text. Dragging files over the composer highlights the drop target.
+- The rail is shared by the empty-state and resident composers, is hidden when empty, and scrolls horizontally instead of widening the composer.
+- Each approximately 72-by-72-pixel thumbnail has a remove action and opens its original draft image on double-click.
+- A prompt may contain text and images or images only. Pure text paste remains native browser behavior; the paste handler prevents the default only when it accepts an image file. File drops on the composer always prevent browser navigation, accept supported images, and report unsupported files locally.
+- A failed send restores the complete text and image draft. Removal, successful send, and session-scope disposal revoke obsolete object URLs.
+- Historical user and assistant images use one `MessageImage` control. Inline images preserve intrinsic aspect ratio, do not upscale, and stay within a 240-by-240-pixel box.
+- Double-clicking a message image opens the stored original in a viewport-bounded modal. Escape, the close control, and backdrop activation close it and restore focus.
+- Version one does not override the browser context menu and provides no explicit image-copy action.
+
+### Storage lifecycle and ownership
+
+The persistence boundary is message acceptance, not paste:
+
+| State | Allowed representation | Durability and ordering |
+| --- | --- | --- |
+| Unsent user draft | Browser `File` plus object URL; a native client may use an OS temporary file such as `/var/...` | Temporary and client-owned. It may disappear on reload or process exit and never appears in a session event. |
+| Accepted user image | Immutable object below `DSH_HOME` plus `ImageAttachmentRef` | The host commits every image before `agent.send()` or `agent.steer()` can append the owning user event. |
+| Structured model image output | Immutable object below `DSH_HOME` plus `ImageAttachmentRef` | The provider adapter commits the bytes before it emits a completed image block or assistant message event. Temporary URLs, paths, and base64 are forbidden in the event. |
+
+The framework-owned chat store keeps the per-session draft text and ordered attachment identifiers. `ConversationService` owns the corresponding browser-only `File` and object-URL registry:
+
+```ts
+export {}
+
+interface ChatStoreState {
+  selection: object | null
+  draft: string
+  imageIds: string[]
+  view: string | null
+}
+
+interface ComposerAttachment {
+  id: string
+  file: File
+  previewUrl: string
+}
+```
+
+This split uses the slots framework's store seat and bound actions as the single subscription path for UI state while keeping non-serializable browser objects out of persisted JSON. Draft text and ordered image identifiers continue to use `localStorage`; after a reload, `ConversationRoot` prunes identifiers whose runtime objects no longer exist. Unsent images therefore do not survive reload because browser `File` and object URLs are not durable. A native client may stage input in an OS temporary directory, but it must treat that path exactly like the browser object URL: delete it when no longer needed and copy the bytes into the durable store before message acceptance.
+
+The local attachment backend resolves an explicit `dshHome`, then `$DSH_HOME`, then `~/.dsh`. It stores content-addressed objects below `$DSH_HOME/attachments/v1/objects/<prefix>/<sha256>` with owner-only directory and file permissions. A temporary file is written, synchronized, and atomically published before the service returns a reference. The content digest is encoded in the opaque `sha256:<digest>` identifier, and every read verifies the digest, media type, byte length, width, and height.
+
+The store performs no automatic deletion in version one. Sent user images and model-generated images remain reachable for history, resume, and fork. Reference-aware garbage collection needs a separate design because an age-only rule can delete data still referenced by a durable session.
+
+### Durable content and prompt wire
+
+The attachment seam exposes immutable image write and verified read operations. The canonical metadata is deliberately narrower than a generic file record:
+
+```ts
+import type { Branded } from '@deepseek-ai/dsh-brand'
+
+type AttachmentId = Branded<'AttachmentId'>
+
+interface ImageAttachmentRef {
+  attachmentId: AttachmentId
+  mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+  bytes: number
+  width: number
+  height: number
+  name?: string
+}
+
+interface ImageBlock {
+  type: 'image'
+  attachment: ImageAttachmentRef
+}
+```
+
+`ImageBlock` joins the merge-extensible core `ContentBlockMap` and is valid in either user or assistant content. It never carries base64, an object URL, a filesystem path, or a provider-owned locator. This keeps the session event plus immutable object store sufficient to reconstruct the exact model-visible image.
+
+The browser cannot mint a durable reference, so `session.prompt` accepts a narrow intake union rather than canonical `ContentBlock[]`:
+
+```ts
+export {}
+
+type PromptInputPart =
+  | { type: 'text'; text: string }
+  | {
+      type: 'image'
+      mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+      data: string
+      name?: string
+    }
+```
+
+Base64 crosses JSON-RPC once and is discarded after persistence. The host validates canonical base64, image count, aggregate bytes, individual bytes, magic-byte MIME, intrinsic dimensions, and decoded-pixel count. Only after every image succeeds does it call the agent with normalized text and durable image blocks. A failure appends no user event and exposes no attachment path or raw bytes.
+
+`session.attachment` is a read-only, session-scoped endpoint. The host serves bytes only when a durable event in that session references the requested attachment identifier. The client caches the resulting object URL by session and attachment identifier for its service lifetime and revokes it on disposal.
+
+### Model capabilities and provider behavior
+
+Model catalog entries gain optional merge-extensible input and output modality declarations. A missing declaration means unknown; a present list without `image` is an explicit negative capability.
+
+The host is the authoritative preflight boundary. If the selected model explicitly excludes image input, it rejects the prompt before writing any attachment or event, and the client restores the draft. Unknown capability proceeds to the adapter guard so uncatalogued model identifiers remain usable. Immediate intake-time rejection in the UI may be added after model selection is exposed consistently across every Web entry path.
+
+The Pi-AI adapter is the first visual-input route: it resolves each durable reference through `ctx.attachments` and emits native image content only for models that declare image input. The hand-written DeepSeek adapter throws typed `UNSUPPORTED_CONTENT` for an image anywhere in the request, including nested tool results. No adapter may flatten or skip an image.
+
+Core supports structured assistant image blocks, but no current production provider route is certified for image output. Any future output-capable adapter must retrieve provider bytes under bounded size and time policy, validate them through the same attachment service, persist them, and only then publish the atomic `ImageBlock`. A URL in assistant Markdown remains text and is never downloaded automatically.
+
+Token estimation accounts for image dimensions without counting base64 or attachment locators as text. Provider-reported usage remains authoritative. ACP renders an explicit image marker until that protocol surface gains native image support rather than silently omitting the block.
+
+### History rendering and original preview
+
+History folding preserves `ImageBlock` in both user and assistant messages. User images align to the trailing edge above their text; assistant images align to the leading narration flow. `MessageImage` derives a stable inline box from recorded dimensions, resolves bytes through the session-authorized loader, uses `object-fit: contain`, and turns a missing or corrupt object into a retryable error control.
+
+Composer thumbnails and each `MessageImage` own ephemeral original-preview state and invoke the same pure `ImageLightbox`. The modal uses the already resolved original object URL, constrains only display size, focuses its close control, and restores the previous focus target when closed.
+
+### Limits and trust boundaries
+
+Version one accepts PNG, JPEG, WebP, and GIF only. SVG and remote URLs are excluded. Default limits are 5 MiB per image, 10 images and 20 MiB aggregate image bytes per message, and 40 million intrinsic pixels per image. These deployment-varying limits are validated backend configuration and are projected to the client for fast-path guidance; host validation remains authoritative.
+
+Malformed base64, unsupported or mismatched media, truncated headers, excess bytes, excess image count, excess pixels, missing objects, and integrity mismatches return stable structured failures. Original filenames are reduced to a display basename, control characters are removed, and no local path is logged or returned to the browser.
+
+### Package and surface changes
+
+| Surface | Responsibility |
+| --- | --- |
+| `packages/attachment/attachment` | Opaque attachment identifier, image reference, limits, failures, and `ctx.attachments` service. |
+| `packages/attachment/attachment-local` | Private content-addressed storage, image-header validation, integrity verification, and configuration. |
+| `packages/llm/llm` and `packages/llm/token-meter` | Role-neutral `ImageBlock`, modality metadata, and image cost estimation. |
+| `packages/llm/llm-pi-ai` | Resolve durable supported image input into native provider content. |
+| `packages/llm/llm-deepseek` | Reject image content explicitly. |
+| `packages/host/apiproxy` and `packages/host/runtime` | Narrow upload wire, persist-before-event ordering, session-authorized reads, limits, and model preflight. |
+| `packages/client/connection` and `packages/client/runtime` | Wire types, fixture images, prompt uploads, attachment reads, and durable-reference folding. |
+| `packages/client/ui-conversation` | Per-session draft images, attachment rail, user and assistant image controls, and original preview. |
+| `packages/ui/acp` | Explicit fallback rendering for image blocks. |
+
+The attachment packages form the interface/implementation side of one capability seam. Composer behavior stays in the conversation object layer, provider conversion stays in adapters, and no change is required in `agent-loop`.
+
+### Delivery
+
+1. Land the attachment seam, role-neutral image block, image-aware token estimation, Pi-AI input conversion, DeepSeek rejection, and durable host ordering.
+2. Land the Web upload/read protocol, in-memory draft images, paste/drop rail, user and assistant history rendering, double-click preview, and assembled keyless Web coverage.
+3. Add immediate intake-time capability feedback when active model selection is consistently available to the composer.
+4. Propose file picking, generic files/PDF, audio/video, durable draft staging, output-provider certification, and reference-aware garbage collection independently.
+
+No compatibility shim is required for the pre-release prompt wire; all call sites and fixtures change with the introducing slice.
+
+## Alternatives considered
+
+### Keep every intake image in `/var` or another temporary directory
+
+Temporary storage is appropriate before send, including for a native client that receives clipboard files through the operating system. It is not appropriate after acceptance: cleanup is outside the harness's control, paths are host-specific, and resume or fork can outlive the file. The proposal permits temporary staging but copies accepted bytes into `DSH_HOME` before the event.
+
+### Persist immediately on paste or drop
+
+Immediate persistence makes drafts reload-resistant but creates durable objects before a session or message owns them, which requires quota, orphan lifetime, and cleanup policy. Version one keeps the unsent draft temporary and makes send acceptance the durability boundary.
+
+### Inline base64 in messages and session logs
+
+This duplicates binary data across RPC, events, history pages, forks, compaction, and browser storage, and invites token accounting to treat encoding text as model text. One immutable object plus small references keeps the durable representation bounded.
+
+### Use browser object URLs, local paths, or provider URLs as canonical content
+
+Object URLs expire with the document, local paths are not portable, and provider URLs may expire, track viewers, or expose credentials. They remain temporary transport or preview details only.
+
+### Use one generic `AttachmentBlock` for images, files, audio, and video
+
+Composer presentation can use a generic attachment rail, but provider semantics are modality-specific. Images are native multimodal input; PDFs may be provider files or extracted text; video may be native, sampled, or unsupported. A specific `ImageBlock` forces every consumer to handle or reject the modality explicitly.
+
+### Rely on UI capability checks or silently filter images
+
+UI state can be stale and does not protect direct SDK, ACP, replay, or uncatalogued model paths. Silent filtering changes user intent. Provider enforcement remains mandatory, while UI checks are optional earlier feedback.
+
+## Acceptance criteria
+
+- Pasting or dropping one or more supported images shows ordered removable thumbnails above both composer variants without changing textarea text; drag-over highlights the target, unsupported drops cannot navigate away, and image-only send works.
+- Unsent browser images exist only as `File` and object URLs, survive session switches in memory, do not enter `localStorage`, and are revoked after removal, accepted send, or service disposal.
+- Every accepted user image is committed below resolved `DSH_HOME` before its `user/message` event. The event contains only `ImageBlock` references and never base64 or temporary paths.
+- Structured assistant images can be represented only by a durable `ImageBlock`; a future output adapter must persist bytes before emitting the assistant event, while Markdown image URLs remain text.
+- Cold history renders user and assistant image references through the same bounded control. Double-click opens the original; Escape, backdrop, and close control dismiss it without a custom context menu.
+- Session attachment reads fail unless the same session log references the identifier. Missing or corrupt objects fail explicitly and never return unverified bytes.
+- Pi-AI emits native input images for a compatible route. DeepSeek and every non-implementing consumer return an explicit unsupported-content failure rather than dropping the block.
+- An explicitly text-only active model rejects image send before attachment persistence or session event append; unknown metadata still reaches adapter enforcement and a failed send restores the draft.
+- Keyless unit, host integration, client integration, and assembled Chromium coverage exercise persistence ordering, absence of base64 in logs, authorization, paste and drop, image-only send, historical user and assistant images, original preview, and object-URL cleanup.
+- The current production adapter set declares text-only output; output-provider certification, file picking, non-image files, video, persistent drafts, and garbage collection remain outside version one.
+
+## Risks
+
+- Durable storage grows without garbage collection. Version one chooses replay safety over premature deletion.
+- A missing or corrupt object makes exact model reconstruction fail. Failing loud preserves integrity but may prevent that session from continuing until repaired.
+- JSON-RPC base64 adds upload memory and roughly one-third encoding overhead. Version-one limits bound it; larger media needs streaming or a binary transport.
+- Unsent images do not survive reload. Durable drafts need quota and orphan cleanup rather than reusing message storage implicitly.
+- Original preview decodes more pixels than the inline control displays. Pixel limits, one clicked preview, and object-URL disposal bound but do not eliminate transient browser memory.
+- Capability metadata may be missing or stale. Host preflight improves feedback, while adapter enforcement remains authoritative.
+- A future output provider may require authenticated retrieval before an assistant image can complete, adding latency and a new failure point. Persist-before-event ordering favors replay integrity.

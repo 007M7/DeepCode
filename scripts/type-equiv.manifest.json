@@ -610,6 +610,31 @@
       "source": "packages/ui/user-approval/src/index.ts"
     },
     {
+      "doc": "docs/core-data-structures/attachment.md",
+      "symbol": "ImageMediaType",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/attachment.md",
+      "symbol": "ImageAttachmentRef",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/attachment.md",
+      "symbol": "ImageAttachmentLimits",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/attachment.md",
+      "symbol": "SaveImageAttachment",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/attachment.md",
+      "symbol": "StoredImageAttachment",
+      "source": "packages/attachment/attachment/src/types.ts"
+    },
+    {
       "doc": "docs/core-data-structures/bash.md",
       "symbol": "DshEnvironmentKey",
       "source": "packages/bash/bash/src/types.ts"

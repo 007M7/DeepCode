@@ -18,7 +18,13 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../attachment/attachment-local"
+    },
+    {
       "path": "../../llm/llm-deepseek"
+    },
+    {
+      "path": "../../llm/llm-pi-ai"
     },
     {
       "path": "../../core/session"

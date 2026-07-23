@@ -46,7 +46,11 @@ export function registerChat(deps: RegisterChatDeps): () => void {
     id: 'chat',
     label: 'Chat',
     order: 0,
-    component: createChatView({ toolviews, t }),
+    component: createChatView({
+      toolviews,
+      t,
+      resolveImage: (sessionId, attachment) => conversation.resolveImage(sessionId, attachment),
+    }),
     chrome: { footer: StatsLine },
   })
 }

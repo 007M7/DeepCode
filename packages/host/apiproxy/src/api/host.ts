@@ -4,6 +4,8 @@
  */
 
 import type { RpcRequest, RpcResponse } from './rpc.ts'
+import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
+import type { LlmModelInfo } from '@deepseek-ai/dsh-llm/types'
 
 /** Host-level unary methods. */
 export interface HostApi {
@@ -20,6 +22,10 @@ export interface HostApi {
     cwd: string
     provider?: string
     model?: string
+    /** Catalog entry for the active route; absent means its capabilities are unknown. */
+    activeModel?: LlmModelInfo
+    /** Resolved authoritative image-upload limits. */
+    imageLimits?: ImageAttachmentLimits
     attachedSessions: number
   }>>
 }

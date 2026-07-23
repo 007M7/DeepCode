@@ -12,6 +12,9 @@
       "path": "../../util/brand"
     },
     {
+      "path": "../../attachment/attachment"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

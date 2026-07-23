@@ -93,6 +93,29 @@ describe('send / cancel', () => {
     await expect(s.send('x', 'queue')).rejects.toThrow(/send failed: agent-busy: busy/)
   })
 
+  it('uploads temporary browser files as base64 image parts at the send boundary', async () => {
+    const b = await bench()
+    const file = new File([Uint8Array.of(1, 2, 3)], 'pixel.png', { type: 'image/png' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: () => Promise.resolve(Uint8Array.of(1, 2, 3).buffer),
+    })
+    await b.scopedSvc(sid('s1')).send('describe', 'queue', [file])
+    expect(b.sessionDoubles.get(sid('s1'))!.prompt).toHaveBeenCalledWith([
+      { type: 'image', mediaType: 'image/png', data: 'AQID', name: 'pixel.png' },
+      { type: 'text', text: 'describe' },
+    ], 'queue')
+  })
+
+  it('rejects unsupported browser media before prompting the session', async () => {
+    const b = await bench()
+    const file = new File([Uint8Array.of(1)], 'clip.mp4', { type: 'video/mp4' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: () => Promise.resolve(Uint8Array.of(1).buffer),
+    })
+    await expect(b.scopedSvc(sid('s1')).send('', 'queue', [file])).rejects.toThrow(/不支持的图片格式/)
+    expect(b.sessionDoubles.get(sid('s1'))?.prompt).not.toHaveBeenCalled()
+  })
+
   it('cancel resolves on ok and throws the folded business error', async () => {
     const b = await bench()
     const s = b.scopedSvc(sid('s1'))

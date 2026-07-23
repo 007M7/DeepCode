@@ -32,6 +32,7 @@ export interface RpcErrorDetailsMap {
   'bad-request': { issues: ZodIssue[] }
   'session-not-found': { sessionId: SessionId }
   'agent-busy': { reason: string }
+  'attachment-error': { reason: string }
   'internal': {}
 }
 

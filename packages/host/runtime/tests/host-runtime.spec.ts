@@ -1,11 +1,11 @@
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, LlmModelInfo, ModelModality, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { HostFrame, MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -15,8 +15,18 @@ import { bootHost, startHost, type HostHandle, type RunningHost } from '../src/i
 
 /** Scripted adapter: each model call consumes the next chunk list; 'hang' streams then waits for abort. */
 class ScriptedAdapter extends LlmAdapter {
-  constructor(private script: (StreamChunk[] | 'hang')[]) {
+  constructor(
+    private script: (StreamChunk[] | 'hang')[],
+    private readonly inputModalities: readonly ModelModality[] = ['text', 'image'],
+  ) {
     super()
+  }
+
+  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    return Promise.resolve([{
+      provider, id: 'test-model', name: 'test-model',
+      inputModalities: this.inputModalities, outputModalities: ['text'],
+    }])
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -47,6 +57,8 @@ function request<P>(payload: P): RpcRequest<P> {
   return { rpcId: RpcId(`req-${String(nextRpc++)}`), payload }
 }
 let nextRpc = 1
+
+const PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 
 function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
   return new Promise((resolve) => {
@@ -171,12 +183,81 @@ describe('sessions.prompt / cancel', () => {
   })
 
   it('maps a synchronous send throw to agent-busy', async () => {
-    const { api } = await boot()
+    const { api, ctx } = await boot()
     const { sessionId } = expectOk(await api.sessions.create(request({})))
-    const poisoned = [{ type: 'text', text: 'x', bad: () => 1 }] as never
-    const response = await api.sessions.prompt(request({ sessionId, mode: 'queue' as const, content: poisoned }))
+    vi.spyOn(ctx.agents.get(sessionId) as Agent, 'send').mockImplementation(() => {
+      throw new Error('disposed during prompt')
+    })
+    const response = await api.sessions.prompt(request({
+      sessionId, mode: 'queue' as const, content: [{ type: 'text' as const, text: 'x' }],
+    }))
     expect(response.result.ok).toBe(false)
     if (!response.result.ok) expect(response.result.error.code).toBe('agent-busy')
+  })
+
+  it('persists uploaded bytes before the user event and serves them only through the owning session', async () => {
+    const persistenceRoot = mkdtempSync(join(tmpdir(), 'dsh-image-session-'))
+    const dshHome = mkdtempSync(join(tmpdir(), 'dsh-image-home-'))
+    host = await startHost({
+      boot: { persistenceRoot, dshHome, provider: 'scripted', model: 'test-model' },
+    })
+    host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([textResponse('seen')]))
+    const { sessionId } = expectOk(await host.api.sessions.create(request({})))
+    const agent = host.ctx.agents.get(sessionId) as Agent
+    const idle = waitForIdle(host.ctx, agent)
+    const response = await host.api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [
+        { type: 'text' as const, text: 'describe' },
+        { type: 'image' as const, mediaType: 'image/png' as const, data: PNG_BASE64, name: '/tmp/pixel.png' },
+      ],
+    }))
+    expectOk(response)
+    await idle
+
+    const user = agent.session.events.find(event => event.type === 'user/message')
+    const content = (user?.data as { content?: ContentBlock[] } | undefined)?.content ?? []
+    const image = content.find(block => block.type === 'image')
+    expect(image?.type).toBe('image')
+    if (image?.type !== 'image') throw new Error('image block missing')
+    expect(JSON.stringify(user)).not.toContain(PNG_BASE64)
+    expect(image.attachment.name).toBe('pixel.png')
+    const sha256 = String(image.attachment.attachmentId).slice('sha256:'.length)
+    const object = join(dshHome, 'attachments', 'v1', 'objects', sha256.slice(0, 2), sha256)
+    expect(existsSync(object)).toBe(true)
+    expect(readFileSync(object).toString('base64')).toBe(PNG_BASE64)
+
+    const loaded = expectOk(await host.api.sessions.attachment(request({
+      sessionId, attachmentId: image.attachment.attachmentId,
+    })))
+    expect(loaded).toEqual({ attachment: image.attachment, data: PNG_BASE64 })
+    const { sessionId: other } = expectOk(await host.api.sessions.create(request({})))
+    const denied = await host.api.sessions.attachment(request({
+      sessionId: other, attachmentId: image.attachment.attachmentId,
+    }))
+    expect(denied.result).toMatchObject({
+      ok: false, error: { code: 'attachment-error', details: { reason: 'ATTACHMENT_NOT_REFERENCED' } },
+    })
+  })
+
+  it('rejects images for an explicitly text-only model without creating a session event', async () => {
+    const persistenceRoot = mkdtempSync(join(tmpdir(), 'dsh-text-session-'))
+    const dshHome = mkdtempSync(join(tmpdir(), 'dsh-text-home-'))
+    host = await startHost({
+      boot: { persistenceRoot, dshHome, provider: 'scripted', model: 'test-model' },
+    })
+    host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([], ['text']))
+    const { sessionId } = expectOk(await host.api.sessions.create(request({})))
+    const response = await host.api.sessions.prompt(request({
+      sessionId, mode: 'queue' as const,
+      content: [{ type: 'image' as const, mediaType: 'image/png' as const, data: PNG_BASE64 }],
+    }))
+    expect(response.result).toMatchObject({
+      ok: false, error: { code: 'attachment-error', details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' } },
+    })
+    expect(host.ctx.agents.get(sessionId)?.session.events.some(event => event.type === 'user/message')).toBe(false)
+    expect(existsSync(join(dshHome, 'attachments'))).toBe(false)
   })
 
   it('cancels an attached agent and rejects an unattached one', async () => {

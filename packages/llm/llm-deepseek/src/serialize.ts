@@ -2,10 +2,12 @@
  * Serialize harness messages into DeepSeek chat completions. User text is joined; assistant text
  * becomes `content`, tool calls become `tool_calls`, and tool results become separate tool messages.
  * Assistant reasoning is replayed as `reasoning_content` only on tool-call turns, as required by
- * thinking-mode passback. Unknown declaration-merged block types are skipped rather than rejected.
+ * thinking-mode passback. Core image blocks are rejected explicitly because this wire route is text-only;
+ * unknown declaration-merged block types retain the adapter's documented extension fallback.
  * @module dsh-llm-deepseek/serialize
  */
 
+import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { WireMessage, WireRequest, WireTool } from './types.ts'
 
@@ -21,6 +23,16 @@ function flattenText(blocks: ContentBlock[]): string {
     .filter(block => block.type === 'text')
     .map(block => block.text)
     .join('')
+}
+
+/** Reject core image content before any text-flattening path can silently erase it. */
+function assertTextOnly(blocks: readonly ContentBlock[]): void {
+  for (const block of blocks) {
+    if (block.type === 'image') {
+      throw new LlmError('The DeepSeek chat-completions adapter does not support image content.', 'UNSUPPORTED_CONTENT')
+    }
+    if (block.type === 'tool-result') assertTextOnly(block.content)
+  }
 }
 
 /** Serialize one assistant message (text + reasoning + tool calls). */
@@ -68,6 +80,7 @@ function serializeAssistant(message: Message): WireMessage {
 export function serializeMessages(messages: Message[]): WireMessage[] {
   const wire: WireMessage[] = []
   for (const message of messages) {
+    assertTextOnly(message.content)
     if (message.role === 'system') {
       wire.push({ role: 'system', content: flattenText(message.content) })
       continue

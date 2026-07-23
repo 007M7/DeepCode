@@ -8,6 +8,7 @@ import { memo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconThinkOutline14, JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ToolRow } from './ToolRow.tsx'
+import { ImageGallery, type ImageLoader } from './MessageImage.tsx'
 import css from './AssistantMarkdown.module.css'
 
 export interface AssistantMarkdownProps {
@@ -15,6 +16,7 @@ export interface AssistantMarkdownProps {
   streaming: boolean
   /** Frozen partial of an aborted turn: rendered with a 已停止 marker, no pulse. */
   interrupted?: boolean | undefined
+  loadImage?: ImageLoader
 }
 
 function firstLine(text: string): string {
@@ -36,14 +38,17 @@ function ThinkRow({ text, running }: { text: string; running: boolean }) {
   )
 }
 
-export const AssistantMarkdown = memo(function AssistantMarkdown({ blocks, streaming, interrupted }: AssistantMarkdownProps) {
+export const AssistantMarkdown = memo(function AssistantMarkdown({ blocks, streaming, interrupted, loadImage = unavailableImage }: AssistantMarkdownProps) {
   const last = blocks.length - 1
+  const images = blocks.filter((block): block is Extract<AssistantBlock, { kind: 'image' }> => block.kind === 'image')
   return (
     <div className={css.root} data-streaming={streaming || undefined}>
+      <ImageGallery images={images} load={loadImage} align="start" />
       {blocks.map((block, i) => {
         switch (block.kind) {
           case 'text': return <MessageText key={i} text={block.text} />
           case 'reasoning': return <ThinkRow key={i} text={block.text} running={streaming && i === last} />
+          case 'image': return null
           // Tool-call heads render as tool rows in the chat view's grouping pass.
           case 'tool-call': return null
           default: return <JsonBlock key={i} label="未知内容块" payload={block.block} />
@@ -54,3 +59,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({ blocks, strea
     </div>
   )
 })
+
+function unavailableImage(): Promise<string> {
+  return Promise.reject(new Error('图片读取服务不可用'))
+}

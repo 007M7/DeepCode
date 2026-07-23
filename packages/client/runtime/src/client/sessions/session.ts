@@ -3,9 +3,9 @@
 // created, they keep consuming mux frames in the background; React connects directly via
 // subscribe/getSnapshot.
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult, SessionId, ToolEventView } from '@deepseek-ai/dsh-client-connection/client'
+import type { HistoryEntry, IApiClient, MuxFrame, PromptContentPart, RpcError, RpcId, RpcResult, SessionId, ToolEventView } from '@deepseek-ai/dsh-client-connection/client'
 import { transportError } from '@deepseek-ai/dsh-client-connection/client'
 import type { ObservableSnapshot } from '../contract/store.ts'
 import type {
@@ -82,11 +82,11 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 
   /**
    * Send (queue/steer passed through 1:1); failures land in the snapshot's promptError.
-   * @param content - core content blocks verbatim.
+   * @param content - text plus browser-owned temporary image uploads.
    * @param mode - queue appends after the current turn; steer interrupts it.
    * @returns the prompt result (also mirrored into promptError on failure).
    */
-  async prompt(content: ContentBlock[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>> {
+  async prompt(content: PromptContentPart[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>> {
     this.promptError = null
     this.lastAgentError = null
     this.notifier.markDirty()
@@ -101,6 +101,23 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       this.notifier.markDirty()
     }
     return result
+  }
+
+  /**
+   * Resolve one image referenced by this session into browser-consumable bytes.
+   * @param attachmentId - opaque id found in the folded session log.
+   * @returns the authenticated reference and decoded bytes.
+   */
+  async readAttachment(attachmentId: AttachmentIdType): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>> {
+    try {
+      const result = (await this.api.sessions.attachment({ sessionId: this.sessionId, attachmentId })).result
+      if (!result.ok) return result
+      const binary = atob(result.value.data)
+      const data = Uint8Array.from(binary, char => char.charCodeAt(0))
+      return { ok: true, value: { attachment: result.value.attachment, data } }
+    } catch (error) {
+      return transportError(error)
+    }
   }
 
   /**

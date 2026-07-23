@@ -56,6 +56,8 @@ export function harnessBlockToAcpContent(block: ContentBlock): AcpContentBlock |
   switch (block.type) {
     case 'text':
       return { type: 'text', text: block.text }
+    case 'image':
+      return { type: 'text', text: `[image attachment ${block.attachment.attachmentId}]` }
     // reasoning → streamed as agent_thought_chunk, not a message block
     // tool-call / tool-result → the tool_call / tool_call_update path
     // plugin-added block types → not surfaced

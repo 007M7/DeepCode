@@ -24,6 +24,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`tasks/`](tasks/README.md) | Generic background-task runtime and model-facing `task_*` control tools | Product — stable surface |
 | [`workflow/`](workflow/README.md) | Workflow capability family: the script-engine seam, worker-thread engine, and model-facing `workflow` and fresh-agent `ralph` tools | Product — stable surface |
 | [`web/`](web/README.md) | Web capability family: seam, search/fetch provider impls, and the model-facing web tools | Product — stable surface |
+| [`attachment/`](attachment/README.md) | Durable attachment seam and DSH_HOME backend | Product — stable surface |
 | [`spill/`](spill/README.md) | Spill capability family: storage seam, local impl, tool-result spill policy | Product — stable surface |
 | [`todo/`](todo/README.md) | Todo/planning family: the model-facing `todo_write` tool | Product — stable surface |
 | [`plan/`](plan/README.md) | Plan collaboration state with a direct entry command and reviewed exit | Product — stable surface |

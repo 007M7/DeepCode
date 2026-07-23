@@ -193,6 +193,26 @@ Depends on: [`AgentLoopConfig`](#deepseek-aidsh-agent-loop) · [`GoalDomainConfi
 
 Source: [`packages/examples/agent-spine-demo/src/index.ts:87`](../packages/examples/agent-spine-demo/src/index.ts)
 
+## `@deepseek-ai/dsh-attachment-local`
+
+```ts config-catalog
+/** Local attachment backend configuration. */
+export interface Config {
+  /** Explicit harness home; omitted follows `DSH_HOME`, then `~/.dsh`. */
+  dshHome?: string
+  /** Maximum encoded bytes accepted for one image. */
+  maxImageBytes?: number
+  /** Maximum image count accepted in one submitted message. */
+  maxImagesPerMessage?: number
+  /** Maximum aggregate encoded image bytes accepted in one submitted message. */
+  maxMessageImageBytes?: number
+  /** Maximum intrinsic width multiplied by height accepted for one image. */
+  maxImagePixels?: number
+}
+```
+
+Source: [`packages/attachment/attachment-local/src/index.ts:26`](../packages/attachment/attachment-local/src/index.ts)
+
 ## `@deepseek-ai/dsh-bash-local`
 
 ```ts config-catalog
@@ -1881,6 +1901,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 
 Abstract service classes — a deployment loads a concrete implementation package instead ([capability seams](../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)).
 
+- `@deepseek-ai/dsh-attachment` — abstract `AttachmentStore` ([`packages/attachment/attachment/src/index.ts`](../packages/attachment/attachment/src/index.ts))
 - `@deepseek-ai/dsh-bash` — abstract `BashExecutor` ([`packages/bash/bash/src/index.ts`](../packages/bash/bash/src/index.ts))
 - `@deepseek-ai/dsh-code-runtime` — abstract `CodeRuntime` ([`packages/code-runtime/code-runtime/src/index.ts`](../packages/code-runtime/code-runtime/src/index.ts))
 - `@deepseek-ai/dsh-compact` — abstract `CompactService` ([`packages/compact/compact/src/index.ts`](../packages/compact/compact/src/index.ts))

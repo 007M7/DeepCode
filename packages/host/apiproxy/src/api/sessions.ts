@@ -4,7 +4,7 @@
  * else references RequestPayload<'session.*'> / ResponseValue<'session.*'>.
  */
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { AttachmentIdType, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RpcId, RpcRequest, RpcResponse } from './rpc.ts'
 import type { ToolEventView } from './events.ts'
@@ -44,6 +44,11 @@ export interface SessionSummary {
   cwd?: string
 }
 
+/** Browser-submitted prompt content; image bytes are promoted to durable references by the host. */
+export type PromptContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; mediaType: ImageMediaType; data: string; name?: string }
+
 /** Session-domain unary methods (the map keys session.* of RpcMethodMap). */
 export interface SessionsApi {
   /** Lists persisted sessions (updatedAt descending). v1 returns everything; cursor is a reserved seat, unimplemented. */
@@ -64,9 +69,13 @@ export interface SessionsApi {
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
   Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean }>>
 
-  /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
-  prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
+  /** Sends text plus temporary base64 image uploads; the host persists images before calling the agent. */
+  prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: PromptContentPart[] }>):
   Promise<RpcResponse<{ accepted: true }>>
+
+  /** Reads one durable image after proving that this session's log references its id. */
+  attachment(request: RpcRequest<{ sessionId: SessionId; attachmentId: AttachmentIdType }> ):
+  Promise<RpcResponse<{ attachment: ImageAttachmentRef; data: string }>>
 
   /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>

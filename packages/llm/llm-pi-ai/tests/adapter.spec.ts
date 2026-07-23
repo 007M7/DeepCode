@@ -320,6 +320,7 @@ describe('provider profile lifecycle', () => {
     const models = await ctx.llm.listModels('openai')
     expect(models.find(model => model.id === 'gpt-4.1')).toEqual({
       provider: 'openai', id: 'gpt-4.1', name: 'GPT-4.1',
+      inputModalities: ['text', 'image'], outputModalities: ['text'],
     })
     expect(models.every(model => model.provider === 'openai')).toBe(true)
     const context = await ctx.llm.resolveModelContext('openai', 'gpt-4.1')

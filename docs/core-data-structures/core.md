@@ -28,6 +28,7 @@ Everything else is documented on a **sub-page**, not here. The rule that draws t
 | [tools.md](tools.md) | `ToolDefinition` full fields, the schema DSL, `ToolExecution`/`ToolResult`, tool-presentation UI types, and the guarded execution pipeline |
 | [user-interaction.md](user-interaction.md) | the UI-backed human question/answer seam: `AskUserQuestionRequest`, answer/options vocabulary, provider API, error taxonomy |
 | [approval.md](approval.md) | the one-shot user-approval seam: `ApprovalRequest`, `ApprovalOutcome`, per-session policy, audit and answerer contracts |
+| [attachment.md](attachment.md) | durable image identity and metadata, validation inputs, verified reads, and the `AttachmentStore` seam |
 | [bash.md](bash.md) | the bash executor seam: `BashExecRequest`/`Spec`, `BashRunResult`, background `BashProcess` handles |
 | [pty.md](pty.md) | persistent terminal ids, backend/session contracts, send readiness, bounded reads, and owner-visible snapshots |
 | [sandbox.md](sandbox.md) | per-session policy resolution and the process-confinement seam: file-effect modes, execution/provider policies, `ConfinedArgv`, enforcement and fail-closed errors |
@@ -106,12 +107,13 @@ Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock
+  'image': ImageBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
 }
 ```
 
-The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ToolCallBlock` (`id: CallId`, `name`, raw-JSON `arguments`), `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`). `ContentBlock = ContentBlockMap[ContentBlockType]`. The core set is limited to blocks every shipping path honors — multimodal content (images, audio, …) has no core block type; a feature that needs one adds it via the merge-extensible map together with the adapter/UI/compaction support that honors it.
+The block interfaces (full fields in source): `TextBlock` (`text`), `ReasoningBlock` (thinking, distinct from visible text), `ImageBlock` (a durable [image attachment](attachment.md) plus optional alternative text), `ToolCallBlock` (`id: CallId`, `name`, raw-JSON `arguments`), and `ToolResultBlock` (`toolCallId`, nested `content: ContentBlock[]`, `isError?`). `ContentBlock = ContentBlockMap[ContentBlockType]`. A new modality belongs in the merge-extensible map only when its adapter, UI, compaction, and durable replay paths honor it.
 
 A `Message` is a role plus blocks. Loop-derived assistant messages carry their durable provider/model identity and optional adapter-private replay metadata:
 
@@ -192,6 +194,10 @@ interface LlmModelInfo {
   name: string
   /** Optional user-facing distinction from otherwise similar models. */
   description?: string
+  /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
+  inputModalities?: readonly ModelModality[]
+  /** Structured response modalities; absent means unknown, while an explicit omission is negative capability. */
+  outputModalities?: readonly ModelModality[]
 }
 ```
 

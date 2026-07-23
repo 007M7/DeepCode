@@ -3,8 +3,8 @@
 // chromium. First describe: manifest injection + fail-loud half. Second
 // describe: the settled success pass — five REAL tsdown bundles (the
 // infrastructure four + layout) load through the DI chain in ?fixture mode
-// and the three-column frame appears in one flip. The full conversation
-// round lands in smoke-real under the W5 real-host standard.
+// and the three-column frame appears in one flip. The full eight-plugin pass
+// also exercises durable history images without a model key.
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
@@ -17,21 +17,24 @@ import { DIST_INDEX, probeFreePort, requireDist, saveFailureShot } from './suppo
 const bundlePath = (dir: string): string =>
   fileURLToPath(new URL(`../../../packages/client/${dir}/lib/client.js`, import.meta.url))
 
-/** id ↔ bundle table for the success pass (immediately four + layout). */
+/** id ↔ bundle table for the success pass (the production Web plugin chain). */
 const REAL_PLUGINS: { id: string; dir: string; inject: string[]; immediately?: boolean }[] = [
   { id: '@deepseek-ai/dsh-client-connection', dir: 'connection', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-runtime', dir: 'runtime', inject: ['@deepseek-ai/dsh-client-connection'], immediately: true },
   { id: '@deepseek-ai/dsh-client-ui-theme', dir: 'ui-theme', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-i18n', dir: 'i18n', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', inject: ['@deepseek-ai/dsh-client-runtime'] },
+  { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
 ]
 
 /** Manifest served by the fake registry: one live bundle row, one missing row. */
 const ROWS: WebPluginBootEntry[] = [
-  { id: '@deepseek-ai/dsh-client-ui-layout', url: '/plugins/@deepseek-ai/dsh-client-ui-layout/client.js', inject: [] },
+  { id: '@deepseek-ai/dsh-client-ui-theme', url: '/plugins/@deepseek-ai/dsh-client-ui-theme/client.js', inject: [] },
   { id: '@probe/absent', url: '/plugins/@probe/absent/client.js', inject: [] },
 ]
-const LAYOUT_BUNDLE = bundlePath('ui-layout')
+const LIVE_BUNDLE = bundlePath('ui-theme')
 
 describe('web boot chain (keyless, real carrier)', () => {
   let server: Awaited<ReturnType<typeof startWebServer>>
@@ -50,7 +53,7 @@ describe('web boot chain (keyless, real carrier)', () => {
       apiHandler,
       webPlugins: {
         snapshot: () => ROWS,
-        clientPath: id => (id === ROWS[0]!.id ? LAYOUT_BUNDLE : undefined),
+        clientPath: id => (id === ROWS[0]!.id ? LIVE_BUNDLE : undefined),
       },
     }, (err) => { pageErrors.push(`server: ${String(err)}`) })
     browser = await chromium.launch()
@@ -91,7 +94,7 @@ describe('web boot chain (keyless, real carrier)', () => {
   })
 })
 
-describe('web boot chain success pass (keyless, five real bundles, ?fixture)', () => {
+describe('web boot chain success pass (keyless, production plugin chain, ?fixture)', () => {
   const missing = REAL_PLUGINS.filter(p => !existsSync(bundlePath(p.dir)))
   let server: Awaited<ReturnType<typeof startWebServer>>
   let browser: Browser
@@ -141,6 +144,88 @@ describe('web boot chain success pass (keyless, five real bundles, ?fixture)', (
     const owners = await page.evaluate(() =>
       [...document.querySelectorAll('style[data-plugin]')].map(s => (s as HTMLElement).dataset['plugin']))
     expect(owners).toContain('@deepseek-ai/dsh-client-ui-layout')
+  })
+
+  it('renders historical user and assistant images and opens the original on double-click', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-fixture-images'))
+    await page.getByRole('treeitem', { name: /fixture 3 sessions/ }).click()
+    await page.locator('[role="treeitem"][aria-selected]').first().click()
+    await page.waitForSelector('text=历史用户图片', { timeout: 15_000 })
+    await page.waitForSelector('text=结构化模型图片', { timeout: 15_000 })
+    const images = page.getByTitle('双击查看原图')
+    await expect.poll(() => images.count()).toBeGreaterThanOrEqual(2)
+    const first = images.first()
+    const box = await first.boundingBox()
+    expect(box?.width).toBeLessThanOrEqual(240)
+    expect(box?.height).toBeLessThanOrEqual(240)
+    await first.dblclick()
+    const preview = page.getByRole('dialog', { name: '原图预览' })
+    await preview.waitFor({ state: 'visible' })
+    await page.keyboard.press('Escape')
+    await preview.waitFor({ state: 'detached' })
+  })
+
+  it('pastes and drops images into the composer, then sends them as durable history', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-fixture-image-paste'))
+    await page.getByRole('button', { name: '停止' }).click()
+    const textarea = page.locator('textarea')
+    await textarea.waitFor({ state: 'visible' })
+    await expect.poll(() => textarea.isEnabled()).toBe(true)
+    await textarea.evaluate((element) => {
+      const binary = atob('iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAYAAAA/xl1SAAAAvklEQVR42u3SMQ0AAAjAMIyhELM4AAe8PD1qYFlk9cCXEAEDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGxIBCYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIAYEAyIAcGAGBAMiAHBgBgQDIgBwYAYEAyIAcGAGBAMiAHBgBgQDIgB4bYWLb6pnOb1xAAAAABJRU5ErkJggg==')
+      const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
+      const transfer = new DataTransfer()
+      transfer.items.add(new File([bytes], 'clipboard.png', { type: 'image/png' }))
+      element.dispatchEvent(new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: transfer,
+      }))
+    })
+
+    const rail = page.getByLabel('待发送图片')
+    await rail.waitFor({ state: 'visible' })
+    const draftImage = rail.getByTitle('双击查看原图')
+    await draftImage.dblclick()
+    const preview = page.getByRole('dialog', { name: '原图预览' })
+    await preview.waitFor({ state: 'visible' })
+    await page.keyboard.press('Escape')
+    await preview.waitFor({ state: 'detached' })
+
+    await page.getByRole('button', { name: '发送' }).click()
+    await rail.waitFor({ state: 'detached' })
+    await expect.poll(() => page.getByTitle('双击查看原图').count()).toBeGreaterThanOrEqual(3)
+
+    await page.getByRole('button', { name: '停止' }).click()
+    await expect.poll(() => textarea.isEnabled()).toBe(true)
+    await textarea.evaluate((element) => {
+      const binary = atob('iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAYAAAA/xl1SAAAAvklEQVR42u3SMQ0AAAjAMIyhELM4AAe8PD1qYFlk9cCXEAEDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGxIBCYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIAYEAyIAcGAGBAMiAHBgBgQDIgBwYAYEAyIAcGAGBAMiAHBgBgQDIgB4bYWLb6pnOb1xAAAAABJRU5ErkJggg==')
+      const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
+      const transfer = new DataTransfer()
+      transfer.items.add(new File([bytes], 'dropped.png', { type: 'image/png' }))
+      element.closest('[class*="card"]')?.dispatchEvent(new DragEvent('dragenter', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      }))
+    })
+    await page.getByRole('status').filter({ hasText: '松开以添加图片' }).waitFor({ state: 'visible' })
+    await textarea.evaluate((element) => {
+      const binary = atob('iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAYAAAA/xl1SAAAAvklEQVR42u3SMQ0AAAjAMIyhELM4AAe8PD1qYFlk9cCXEAEDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGxIBCYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIAYEAyIAcGAGBAMiAHBgBgQDIgBwYAYEAyIAcGAGBAMiAHBgBgQDIgB4bYWLb6pnOb1xAAAAABJRU5ErkJggg==')
+      const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
+      const transfer = new DataTransfer()
+      transfer.items.add(new File([bytes], 'dropped.png', { type: 'image/png' }))
+      element.closest('[class*="card"]')?.dispatchEvent(new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: transfer,
+      }))
+    })
+    await rail.waitFor({ state: 'visible' })
+    await rail.getByAltText('dropped.png').waitFor({ state: 'visible' })
+    await page.getByRole('button', { name: '发送' }).click()
+    await rail.waitFor({ state: 'detached' })
+    await expect.poll(() => page.getByTitle('双击查看原图').count()).toBeGreaterThanOrEqual(4)
   })
 
   it('stayed clean: no page errors across the whole load chain', () => {

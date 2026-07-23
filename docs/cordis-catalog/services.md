@@ -248,6 +248,30 @@ Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalReques
 
 Source: [`packages/ui/user-approval/src/index.ts:213`](../../packages/ui/user-approval/src/index.ts)
 
+## `ctx.attachments` — `AttachmentStore` (abstract seam)
+
+Immutable binary attachment service. Implementations validate bytes before publishing a reference.
+
+```ts cordis-catalog
+/**
+ * Validate and durably commit one image before its owning session event is appended.
+ * @param input - encoded bytes, declared media type, and optional display name.
+ * @returns a durable content-addressed reference.
+ */
+abstract saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>
+
+/**
+ * Read one image and verify that bytes still match the recorded reference.
+ * @param ref - durable reference from the session log.
+ * @returns the verified bytes and canonical reference.
+ */
+abstract readImage(ref: ImageAttachmentRef): Promise<StoredImageAttachment>
+```
+
+Types: [ImageAttachmentRef](../core-data-structures/attachment.md) · [SaveImageAttachment](../core-data-structures/attachment.md) · [StoredImageAttachment](../core-data-structures/attachment.md)
+
+Source: [`packages/attachment/attachment/src/index.ts:28`](../../packages/attachment/attachment/src/index.ts)
+
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
 Abstract bash execution service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.bash` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
@@ -1493,7 +1517,7 @@ estimateMessage(message: Message): number
 
 Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
-Source: [`packages/llm/token-meter/src/index.ts:82`](../../packages/llm/token-meter/src/index.ts)
+Source: [`packages/llm/token-meter/src/index.ts:87`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.toolResultPrune` — `ToolResultPruneService`
 

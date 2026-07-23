@@ -121,6 +121,9 @@ describe('ConversationRoot', () => {
           subscribe: () => () => {},
           version: () => 1,
         }}
+        addImages={vi.fn()}
+        removeImage={vi.fn()}
+        draftImages={() => []}
         send={send}
         stop={stop}
         openDetails={openDetails}
@@ -183,7 +186,7 @@ describe('ConversationRoot', () => {
     // Typing goes through actions.setDraft into the shared store.
     expect(chat.store.getSnapshot().draft).toBe('hi')
     fireEvent.keyDown(box, { key: 'Enter' })
-    expect(send).toHaveBeenCalledWith('hi', 'queue')
+    expect(send).toHaveBeenCalledWith('hi', [], 'queue')
   })
 })
 

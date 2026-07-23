@@ -16,6 +16,7 @@ import { hostFrameSchema, muxFrameSchema } from '../api/events.schema.ts'
 import { hostDescribeValueSchema } from '../api/host.schema.ts'
 import {
   sessionCancelValueSchema,
+  sessionAttachmentValueSchema,
   sessionCreateValueSchema,
   sessionHistoryValueSchema,
   sessionListValueSchema,
@@ -43,6 +44,7 @@ export interface IApiClient {
     create(payload: RequestPayload<'session.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.create'>>>
     history(payload: RequestPayload<'session.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.history'>>>
     prompt(payload: RequestPayload<'session.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.prompt'>>>
+    attachment(payload: RequestPayload<'session.attachment'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.attachment'>>>
     cancel(payload: RequestPayload<'session.cancel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.cancel'>>>
   }
   host: {
@@ -65,6 +67,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.create': sessionCreateValueSchema,
   'session.history': sessionHistoryValueSchema,
   'session.prompt': sessionPromptValueSchema,
+  'session.attachment': sessionAttachmentValueSchema,
   'session.cancel': sessionCancelValueSchema,
   'host.describe': hostDescribeValueSchema,
 }
@@ -246,6 +249,7 @@ export abstract class AbstractApiClient implements IApiClient {
     create: (payload, signal) => this.callUnary('session.create', payload, signal),
     history: (payload, signal) => this.callUnary('session.history', payload, signal),
     prompt: (payload, signal) => this.callUnary('session.prompt', payload, signal),
+    attachment: (payload, signal) => this.callUnary('session.attachment', payload, signal),
     cancel: (payload, signal) => this.callUnary('session.cancel', payload, signal),
   }
 

@@ -30,6 +30,10 @@ function scriptedApi(overrides: {
       create: r => ok(r, { sessionId: sid('s-new') }),
       history: r => ok(r, { events: [], hasMore: false }),
       prompt: r => ok(r, { accepted: true as const }),
+      attachment: r => ok(r, {
+        attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
+        data: 'AA==',
+      }),
       cancel: r => ok(r, { accepted: true as const }),
       ...overrides.sessions,
     },

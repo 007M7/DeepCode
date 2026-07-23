@@ -235,6 +235,8 @@ export class LlmService extends Service {
         id: model.id,
         name: model.name,
         ...model.description === undefined ? {} : { description: model.description },
+        ...model.inputModalities === undefined ? {} : { inputModalities: [...model.inputModalities] },
+        ...model.outputModalities === undefined ? {} : { outputModalities: [...model.outputModalities] },
       }
     })
   }

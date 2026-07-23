@@ -1,0 +1,19 @@
+# @deepseek-ai/dsh-attachment-local
+
+The private local implementation of [`@deepseek-ai/dsh-attachment`](../attachment). Objects land at `<DSH_HOME>/attachments/v1/objects/<sha256-prefix>/<sha256>` and are addressed by an opaque `sha256:` id. Writes use a private staging directory, owner-only files, a synced temporary file, and an atomic exclusive hard-link publish; reads re-check the digest, media signature, dimensions, and logged metadata.
+
+`DSH_HOME` resolves through the shared path policy: explicit config, `$DSH_HOME`, then `~/.dsh`. Session logs contain only the reference and verified metadata, never this host path.
+
+## Model Experience
+
+Indirectly, through durable replay of historical user images and structured model image output after restart and fork.
+
+#### KV Cache effect
+
+None beyond the image block owned by the requesting adapter.
+
+## Known Limitations and Deferred Work
+
+- Objects are retained indefinitely; reference-aware garbage collection is deferred.
+- The local backend assumes the host and provider adapter share this filesystem service.
+- Animated GIF metadata is validated from the logical screen; frame-level decoding policy is provider-owned.

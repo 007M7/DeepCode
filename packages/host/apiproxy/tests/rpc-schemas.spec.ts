@@ -6,7 +6,8 @@ import {
 } from '../src/api/rpc.schema.ts'
 import { z } from 'zod'
 import {
-  contentBlockSchema, sessionCancelRequestSchema, sessionCancelValueSchema, sessionCreateRequestSchema,
+  promptContentPartSchema, sessionAttachmentRequestSchema, sessionAttachmentValueSchema,
+  sessionCancelRequestSchema, sessionCancelValueSchema, sessionCreateRequestSchema,
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
   sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionPromptRequestSchema,
   sessionPromptValueSchema, sessionSummarySchema,
@@ -31,6 +32,7 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'bad-request', message: 'm', details: { issues: [] } }).code).toBe('bad-request')
     expect(rpcErrorSchema.parse({ code: 'session-not-found', message: 'm', details: { sessionId: 's' } }).code).toBe('session-not-found')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
+    expect(rpcErrorSchema.parse({ code: 'attachment-error', message: 'm', details: { reason: 'r' } }).code).toBe('attachment-error')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
 
@@ -105,7 +107,20 @@ describe('sessions domain schemas', () => {
     expect(sessionPromptValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(sessionCancelRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)
-    expect(contentBlockSchema.parse({ type: 'text', text: 'x', extra: 1 })).toMatchObject({ extra: 1 })
+    expect(promptContentPartSchema.parse({ type: 'text', text: 'x', extra: 1 })).toEqual({ type: 'text', text: 'x' })
+    expect(promptContentPartSchema.parse({
+      type: 'image', mediaType: 'image/png', data: 'AA==', name: 'pixel.png',
+    })).toMatchObject({ type: 'image', mediaType: 'image/png', name: 'pixel.png' })
+    const attachment = {
+      attachmentId: `sha256:${'a'.repeat(64)}`,
+      mediaType: 'image/png' as const,
+      bytes: 1,
+      width: 1,
+      height: 1,
+    }
+    expect(sessionAttachmentRequestSchema.parse({ sessionId: 's1', attachmentId: attachment.attachmentId }))
+      .toMatchObject({ sessionId: 's1' })
+    expect(sessionAttachmentValueSchema.parse({ attachment, data: 'AA==' }).attachment).toEqual(attachment)
   })
 })
 

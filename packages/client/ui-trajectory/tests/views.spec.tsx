@@ -96,6 +96,9 @@ function mount(svc: ConversationService, nodes: ConversationSnapshot['nodes'] = 
         subscribe: (fn) => svc.subscribeViews(fn),
         version: () => svc.viewsVersion(),
       }}
+      addImages={vi.fn()}
+      removeImage={vi.fn()}
+      draftImages={() => []}
       send={vi.fn()}
       stop={vi.fn()}
       openDetails={vi.fn()}

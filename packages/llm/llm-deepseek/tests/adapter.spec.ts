@@ -528,8 +528,8 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmDeepSeek, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
     await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' },
-      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' },
+      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash', inputModalities: ['text'], outputModalities: ['text'] },
+      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro', inputModalities: ['text'], outputModalities: ['text'] },
     ])
     await expect(ctx.llm.resolveModelContext('deepseek', 'deepseek-v4-flash'))
       .resolves.toEqual({ contextWindow: 128_000 })
@@ -540,8 +540,8 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmService)
     LlmDeepSeek.apply(ctx, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
     await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' },
-      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' },
+      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'deepseek-v4-flash', inputModalities: ['text'], outputModalities: ['text'] },
+      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'deepseek-v4-pro', inputModalities: ['text'], outputModalities: ['text'] },
     ])
   })
 
@@ -562,8 +562,8 @@ describe('plugin registration and config', () => {
       ],
     })
     await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'private-fast', name: 'private-fast' },
-      { provider: 'deepseek', id: 'private-reasoner', name: 'Private Reasoner', description: 'Higher reasoning budget' },
+      { provider: 'deepseek', id: 'private-fast', name: 'private-fast', inputModalities: ['text'], outputModalities: ['text'] },
+      { provider: 'deepseek', id: 'private-reasoner', name: 'Private Reasoner', description: 'Higher reasoning budget', inputModalities: ['text'], outputModalities: ['text'] },
     ])
     await expect(ctx.llm.resolveModelContext('deepseek', 'private-fast'))
       .resolves.toEqual({ contextWindow: 32_000 })

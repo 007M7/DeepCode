@@ -5,10 +5,18 @@
 // LOCKS the input: textarea disabled with the draft visible, stop is the only
 // action; the turn ending re-enables and refocuses.
 
-import { useEffect, useRef } from 'react'
-import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ClipboardEvent, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
+import type { ComposerAttachment } from '../contract/slots.ts'
+import { ImageLightbox } from './ImageLightbox.tsx'
 import css from './InputBar.module.css'
+
+const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+
+function supportedImages(files: Iterable<File>): File[] {
+  return [...files].filter(file => IMAGE_MEDIA_TYPES.has(file.type))
+}
 
 /** Prompt failure surface (mirrors the session snapshot's promptError shape). */
 export interface InputBarError {
@@ -18,6 +26,7 @@ export interface InputBarError {
 
 export interface InputBarProps {
   draft: string
+  attachments?: readonly ComposerAttachment[]
   running: boolean
   disabled: boolean
   error: InputBarError | null
@@ -27,15 +36,22 @@ export interface InputBarProps {
   /** Optional leading accessory row content (the empty state mounts its cwd picker here). */
   accessory?: ReactNode
   onDraftChange: (text: string) => void
+  onAddImages?: (files: readonly File[]) => void
+  onRemoveAttachment?: (id: string) => void
   onSend: (mode: 'queue' | 'steer') => void
   onStop: () => void
 }
 
 export function InputBar({
-  draft, running, disabled, error, variant, placeholder, accessory, onDraftChange, onSend, onStop,
+  draft, attachments = [], running, disabled, error, variant, placeholder, accessory,
+  onDraftChange, onAddImages = () => {}, onRemoveAttachment = () => {}, onSend, onStop,
 }: InputBarProps) {
-  const empty = draft.trim() === ''
+  const empty = draft.trim() === '' && attachments.length === 0
+  const [preview, setPreview] = useState<ComposerAttachment | null>(null)
+  const [dragActive, setDragActive] = useState(false)
+  const [dropError, setDropError] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const dragDepthRef = useRef(0)
   // IME guard: composition Enter picks a candidate, it must not send. The ref outlives renders;
   // clearing is deferred one tick because Safari delivers the closing keydown AFTER compositionend.
   const composingRef = useRef(false)
@@ -72,6 +88,56 @@ export function InputBar({
     if (!empty && !locked) onSend('queue')
   }
 
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
+    const files = [...event.clipboardData.items]
+      .filter(item => item.kind === 'file' && IMAGE_MEDIA_TYPES.has(item.type))
+      .map(item => item.getAsFile())
+      .filter((file): file is File => file !== null)
+    if (files.length === 0) return
+    event.preventDefault()
+    setDropError(null)
+    onAddImages(files)
+  }
+
+  const onDragEnter = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    if (locked) return
+    dragDepthRef.current += 1
+    setDropError(null)
+    setDragActive(true)
+  }
+
+  const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = locked ? 'none' : 'copy'
+  }
+
+  const onDragLeave = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes('Files') || locked) return
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setDragActive(false)
+  }
+
+  const onDrop = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    dragDepthRef.current = 0
+    setDragActive(false)
+    if (locked) return
+    const dropped = [...event.dataTransfer.files]
+    const images = supportedImages(dropped)
+    if (images.length === 0) {
+      setDropError('暂仅支持 PNG、JPEG、WebP 和 GIF 图片')
+      return
+    }
+    setDropError(images.length === dropped.length ? null : '已忽略不受支持的非图片文件')
+    onAddImages(images)
+  }
+
+  const closePreview = useCallback(() => { setPreview(null) }, [])
+
   // Button presses steal focus from the textarea; suppress at mousedown so typing continues seamlessly.
   const keepFocus = (e: MouseEvent<HTMLButtonElement>): void => {
     e.preventDefault()
@@ -95,8 +161,38 @@ export function InputBar({
           {error.op === 'stop' ? '停止失败' : '发送失败'}：{error.message}
         </div>
       )}
-      <div className={css.card}>
+      {dropError !== null && <div className={css.error}>{dropError}</div>}
+      <div
+        className={clsx(css.card, dragActive && css.dragActive)}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
+        {dragActive && <div className={css.dropHint} role="status">松开以添加图片</div>}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
+        {attachments.length > 0 && (
+          <div className={css.attachments} aria-label="待发送图片">
+            {attachments.map(attachment => (
+              <div key={attachment.id} className={css.attachment}>
+                <button
+                  type="button"
+                  className={css.thumbnail}
+                  title="双击查看原图"
+                  onDoubleClick={() => { setPreview(attachment) }}
+                >
+                  <img src={attachment.previewUrl} alt={attachment.file.name || '待发送图片'} />
+                </button>
+                <button
+                  type="button"
+                  className={css.remove}
+                  aria-label={`移除图片 ${attachment.file.name || ''}`}
+                  onClick={() => { onRemoveAttachment(attachment.id) }}
+                >×</button>
+              </div>
+            ))}
+          </div>
+        )}
         {/* Mirror-div auto-grow: the hidden mirror renders draft+'\n' and stretches the wrapper
             (min/max capped in CSS); the absolutely-positioned textarea rides its height. Counting
             rows by '\n' cannot see soft wraps. */}
@@ -110,6 +206,7 @@ export function InputBar({
             rows={2}
             onChange={(e) => onDraftChange(e.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             onCompositionStart={onCompositionStart}
             onCompositionEnd={onCompositionEnd}
           />
@@ -137,6 +234,7 @@ export function InputBar({
           </button>
         </div>
       </div>
+      {preview !== null && <ImageLightbox src={preview.previewUrl} alt={preview.file.name || '原图'} onClose={closePreview} />}
     </div>
   )
 }

@@ -175,6 +175,6 @@ describe('selection survives on the store seat', () => {
     await flush()
     const reborn = storeFor(b, 'conversation', sid('s1'))
     expect(reborn).not.toBe(doomed)
-    expect(reborn.store.getSnapshot()).toEqual({ selection: null, draft: '', view: null })
+    expect(reborn.store.getSnapshot()).toEqual({ selection: null, draft: '', imageIds: [], view: null })
   })
 })

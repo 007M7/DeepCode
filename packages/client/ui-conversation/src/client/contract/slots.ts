@@ -12,6 +12,13 @@ import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { createChatStore } from '../stores.ts'
 import type { SelectionTarget, ViewEntry } from './views.ts'
 
+/** Browser-owned image that has not crossed the durable host boundary. */
+export interface ComposerAttachment {
+  id: string
+  file: File
+  previewUrl: string
+}
+
 /** The shared chat store handle type (apply constructs one; conversation and details both declare it). */
 export type ChatStore = ReturnType<typeof createChatStore>
 
@@ -29,8 +36,14 @@ export interface ConversationInjected {
     subscribe(fn: () => void): () => void
     version(): number
   }
+  /** Create browser previews and append their ids through the declared store action. */
+  addImages(files: readonly File[]): void
+  /** Release one browser preview and remove its id through the declared store action. */
+  removeImage(id: string): void
+  /** Resolve ordered store ids to the browser-owned draft attachments still available this runtime. */
+  draftImages(ids: readonly string[]): readonly ComposerAttachment[]
   /** Send choreography: trims, clears the draft optimistically, restores it on failure. */
-  send(text: string, mode: 'queue' | 'steer'): void
+  send(text: string, images: readonly ComposerAttachment[], mode: 'queue' | 'steer'): void
   /** Cancel the in-flight turn (failure surfaces via snapshot.promptError). */
   stop(): void
   /** Selection write + details panel opening in one gesture (store action + layout orchestration). */
@@ -60,7 +73,12 @@ export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> &
 /** Injected share of the no-session empty-state slot. */
 export interface EmptyStateInjected {
   /** The create → navigate → first-send chain, in one service call. */
-  startSession(opts: { cwd?: string; text: string; mode: 'queue' | 'steer' }): Promise<void>
+  startSession(opts: {
+    cwd?: string
+    text: string
+    images?: readonly File[]
+    mode: 'queue' | 'steer'
+  }): Promise<void>
 }
 
 /** Full empty-state component props (root slot: no store; cwd options derive from useSessions in-component). */

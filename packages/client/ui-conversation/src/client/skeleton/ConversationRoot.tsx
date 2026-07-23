@@ -5,7 +5,7 @@
 // Breadcrumbs derive from useSessions with a pure parentId walk; the active
 // view id lives in the chat store's `view` field (per-session by store scope).
 
-import { useMemo, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
@@ -36,7 +36,7 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 
 export function ConversationRoot({
   sessionId, useSession, useSessions, useStore, actions,
-  views, send, stop, openDetails, loadOlder, open,
+  views, addImages, removeImage, draftImages, send, stop, openDetails, loadOlder, open,
 }: ConversationRootProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const list = views.list()
@@ -47,10 +47,21 @@ export function ConversationRoot({
 
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), shallowEqual)
   const draft = useStore(s => s.draft)
+  const imageIds = useStore(s => s.imageIds)
+  const attachments = useMemo(() => draftImages(imageIds), [draftImages, imageIds])
   const running = useSession(s => s.running)
   const removed = useSession(s => s.removed)
   const promptError = useSession(s => s.promptError)
   const turns = useSession(s => countTurns(s))
+
+  // Browser File/object-URL values are intentionally runtime-only. A reload
+  // may rehydrate ids whose objects no longer exist; prune those ids through
+  // the declared store action after the first render.
+  useEffect(() => {
+    if (attachments.length !== imageIds.length) {
+      actions.pruneImages(attachments.map(attachment => attachment.id))
+    }
+  }, [actions, attachments, imageIds])
 
   const error: InputBarError | null = promptError === null
     ? null
@@ -128,12 +139,15 @@ export function ConversationRoot({
 
       <InputBar
         draft={draft}
+        attachments={attachments}
         running={running}
         disabled={removed}
         error={error}
         variant="composer"
         onDraftChange={actions.setDraft}
-        onSend={(mode) => { send(draft, mode) }}
+        onAddImages={addImages}
+        onRemoveAttachment={removeImage}
+        onSend={(mode) => { send(draft, attachments, mode) }}
         onStop={stop}
       />
     </div>

@@ -12,6 +12,7 @@ import type {
   Model,
   SimpleStreamOptions,
 } from '@earendil-works/pi-ai'
+import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { attributionHeaders, LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmModelContext, LlmModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
@@ -24,6 +25,8 @@ import { toStreamChunks } from './stream.ts'
 export interface PiAiAdapterOptions {
   /** Validated provider profiles this adapter instance owns. */
   profiles: readonly PiAiProviderProfile[]
+  /** Durable image resolver used only when a request contains image references. */
+  attachments?: AttachmentStore
 }
 
 /**
@@ -69,10 +72,12 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined): 
  */
 export class PiAiAdapter extends LlmAdapter {
   private readonly profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>
+  private readonly attachments: AttachmentStore | undefined
 
   constructor(options: PiAiAdapterOptions) {
     super()
     this.profiles = new Map(resolveProfiles(options.profiles).map(profile => [profile.provider, profile]))
+    this.attachments = options.attachments
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
@@ -84,6 +89,8 @@ export class PiAiAdapter extends LlmAdapter {
       provider,
       id: model.id,
       name: model.name,
+      inputModalities: [...model.input],
+      outputModalities: ['text'],
     })))
   }
 
@@ -112,7 +119,6 @@ export class PiAiAdapter extends LlmAdapter {
       throw new LlmError(`pi-ai adapter does not own provider "${options.provider}"`, 'NO_ADAPTER')
     }
     const model = resolveModel(profile, options.model)
-
     const consumer = new AbortController()
     const upstream = options.signal === undefined
       ? consumer.signal
@@ -121,7 +127,22 @@ export class PiAiAdapter extends LlmAdapter {
     using watchdog = idleWatchdog(upstream, streamIdleTimeoutMs, 'LLM_STREAM_IDLE_TIMEOUT')
 
     try {
-      const events = streamSimple(model, toPiContext(options), {
+      const containsImage = options.messages.some((message) => {
+        // The discriminant is part of same-process message validity and is read before content.
+        void message.role
+        return message.content.some(block => block.type === 'image'
+          || (block.type === 'tool-result' && block.content.some(piece => piece.type === 'image')))
+      })
+      if (containsImage && !model.input.includes('image')) {
+        throw new LlmError(`pi-ai model "${model.id}" does not support image input`, 'UNSUPPORTED_CONTENT')
+      }
+      if (containsImage && this.attachments === undefined) {
+        throw new LlmError('pi-ai image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+      }
+      const context = this.attachments === undefined
+        ? toPiContext(options)
+        : await toPiContext(options, this.attachments)
+      const events = streamSimple(model, context, {
         ...profileOptions(profile),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },

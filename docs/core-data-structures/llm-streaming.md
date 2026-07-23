@@ -208,6 +208,7 @@ declare abstract class LlmAdapter {
 interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock
+  'image': ImageBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
 }

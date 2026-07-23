@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CallId, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError } from '@deepseek-ai/dsh-llm'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AssistantMessage, AssistantMessageEvent, Usage } from '@earendil-works/pi-ai'
 import { toPiContext } from '../src/context.ts'
@@ -61,6 +63,48 @@ describe('toPiContext', () => {
     const context = toPiContext({ provider: 'deepseek', model: 'm', messages: [], tools: [] })
     expect(context.systemPrompt).toBeUndefined()
     expect(context.tools).toBeUndefined()
+  })
+
+  it('resolves durable image references into native pi-ai image content', async () => {
+    const attachment = {
+      attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+      mediaType: 'image/png' as const,
+      bytes: 3,
+      width: 1,
+      height: 1,
+    }
+    const readImage = vi.fn().mockResolvedValue({ ref: attachment, data: Uint8Array.of(1, 2, 3) })
+    const context = await toPiContext({
+      provider: 'openai',
+      model: 'gpt-4.1',
+      messages: [{
+        role: 'user',
+        content: [{ type: 'text', text: 'describe' }, { type: 'image', attachment }],
+      }],
+    }, { readImage } as unknown as AttachmentStore)
+
+    expect(readImage).toHaveBeenCalledWith(attachment)
+    expect(context.messages[0]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'describe' },
+        { type: 'image', data: 'AQID', mimeType: 'image/png' },
+      ],
+      timestamp: 0,
+    })
+  })
+
+  it('rejects structured image history when no durable resolver is supplied', () => {
+    expect(() => toPiContext({
+      provider: 'openai', model: 'gpt-4.1',
+      messages: [{ role: 'user', content: [{
+        type: 'image',
+        attachment: {
+          attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`),
+          mediaType: 'image/png', bytes: 1, width: 1, height: 1,
+        },
+      }] }],
+    })).toThrow(expect.objectContaining({ code: 'UNSUPPORTED_CONTENT' }))
   })
 
   it('maps assistant text/reasoning/tool-call blocks', () => {

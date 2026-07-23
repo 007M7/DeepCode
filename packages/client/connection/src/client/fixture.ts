@@ -6,6 +6,7 @@
 // approval (placeholder-card material, subscribed-baseline-replay semantics: stable rpcId reuse).
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
@@ -26,6 +27,16 @@ function text(t: string): ContentBlock[] {
 
 function sid(id: string): SessionId {
   return id as SessionId
+}
+
+const FIXTURE_IMAGE_DATA = 'iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAYAAAA/xl1SAAAAvklEQVR42u3SMQ0AAAjAMIyhELM4AAe8PD1qYFlk9cCXEAEDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGxIBCYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIAYEAyIAcGAGBAMiAHBgBgQDIgBwYAYEAyIAcGAGBAMiAHBgBgQDIgB4bYWLb6pnOb1xAAAAABJRU5ErkJggg=='
+const FIXTURE_IMAGE_REF: ImageAttachmentRef = {
+  attachmentId: 'fixture:image' as AttachmentIdType,
+  mediaType: 'image/png',
+  bytes: 68,
+  width: 160,
+  height: 90,
+  name: 'fixture-image.png',
 }
 
 /** fx-alpha history script: 60 turns (~130+ messages -> 3 pages at PAGE_MESSAGES=50),
@@ -88,6 +99,12 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(60, 'fx-bash', '{"command":"ls -la","cwd":"/tmp/fixture"}', 'total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt')
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'fx-note', '{"note":"三型卡验收样本"}', '已记录')
+  push({ type: 'turn/start', data: { turn: 63, trigger: { kind: 'message', source: { kind: 'user' } } } })
+  push({ type: 'user/message', surfaceOp: 'append', data: { content: [{ type: 'image', attachment: FIXTURE_IMAGE_REF }, ...text('历史用户图片')], source: { kind: 'user' } } })
+  push({ type: 'step/start', data: { turn: 63, step: 0 } })
+  push({ type: 'assistant/message', surfaceOp: 'append', data: { turn: 63, step: 0, content: [...text('结构化模型图片：'), { type: 'image', attachment: FIXTURE_IMAGE_REF }], provenance: { provider: 'fixture', model: 'fx-vision' } } })
+  push({ type: 'step/end', data: { turn: 63, step: 0 } })
+  push({ type: 'turn/end', data: { turn: 63, reason: { kind: 'completed' } } })
   return events as unknown as SessionEvent[]
 }
 
@@ -186,6 +203,18 @@ function pageOf(
   return { events, hasMore: start > 0 }
 }
 
+/** Fixture mirror of host session-scoped attachment authorization. */
+function logReferencesAttachment(log: readonly SessionEvent[], attachmentId: string): boolean {
+  const visit = (value: unknown): boolean => {
+    if (Array.isArray(value)) return value.some(visit)
+    if (typeof value !== 'object' || value === null) return false
+    const record = value as Record<string, unknown>
+    if (record.attachmentId === attachmentId) return true
+    return Object.values(record).some(visit)
+  }
+  return log.some(event => visit(event.data))
+}
+
 interface StreamConn<F> {
   push(envelope: RpcRequest<F>): void
 }
@@ -243,7 +272,11 @@ export function createFixtureApi(): ApiProxy {
     { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, cwd: '/tmp/fixture' },
   ]
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
-  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
+  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 64]])
+  const attachments = new Map<string, { attachment: ImageAttachmentRef; data: string }>([[
+    String(FIXTURE_IMAGE_REF.attachmentId),
+    { attachment: FIXTURE_IMAGE_REF, data: FIXTURE_IMAGE_DATA },
+  ]])
   let nextSession = 1
   let nextRpc = 1
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
@@ -394,20 +427,43 @@ export function createFixtureApi(): ApiProxy {
         }
         summary.updatedAt = Date.now()
         const userText = content.map(b => (b.type === 'text' ? b.text : '')).join('')
+        const durable: ContentBlock[] = content.map((block) => {
+          if (block.type === 'text') return block
+          const attachment: ImageAttachmentRef = {
+            attachmentId: `fixture:${crypto.randomUUID()}` as AttachmentIdType,
+            mediaType: block.mediaType,
+            bytes: Math.max(1, Math.floor(block.data.length * 3 / 4) - (block.data.endsWith('==') ? 2 : block.data.endsWith('=') ? 1 : 0)),
+            width: 160,
+            height: 90,
+            ...block.name === undefined ? {} : { name: block.name },
+          }
+          attachments.set(String(attachment.attachmentId), { attachment, data: block.data })
+          return { type: 'image', attachment }
+        })
         if (mode === 'steer' && replays.has(id)) {
           // Steering: insert a steering message into the current turn; the replay continues.
           /* v8 ignore next -- the ?? arm needs a missing counter, but a live replay implies a prior prompt already set it. */
           const turn = (nextTurn.get(id) ?? 1) - 1
-          append(id, { type: 'steering/message', surfaceOp: 'append', data: { turn, content, source: { kind: 'user' } } })
+          append(id, { type: 'steering/message', surfaceOp: 'append', data: { turn, content: durable, source: { kind: 'user' } } })
           return ok(request, { accepted: true as const })
         }
         const turn = nextTurn.get(id) ?? 0
         nextTurn.set(id, turn + 1)
         setRunning(id, true)
         append(id, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-        append(id, { type: 'user/message', surfaceOp: 'append', data: { content, source: { kind: 'user' } } })
+        append(id, { type: 'user/message', surfaceOp: 'append', data: { content: durable, source: { kind: 'user' } } })
         startReply(id, turn, `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`)
         return ok(request, { accepted: true as const })
+      },
+      attachment: (request) => {
+        const stored = attachments.get(String(request.payload.attachmentId))
+        if (stored === undefined) {
+          return err(request, { code: 'attachment-error', message: 'fixture attachment missing', details: { reason: 'ATTACHMENT_NOT_FOUND' } })
+        }
+        if (!logReferencesAttachment(logs.get(request.payload.sessionId) ?? [], String(request.payload.attachmentId))) {
+          return err(request, { code: 'attachment-error', message: 'fixture attachment is not referenced by this session', details: { reason: 'ATTACHMENT_NOT_REFERENCED' } })
+        }
+        return ok(request, stored)
       },
       cancel: (request) => {
         const replay = replays.get(request.payload.sessionId)
@@ -421,7 +477,24 @@ export function createFixtureApi(): ApiProxy {
       },
     },
     host: {
-      describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions: 1 }),
+      describe: request => ok(request, {
+        version: '0.0.0-fixture',
+        cwd: '/tmp/fixture',
+        provider: 'fixture',
+        model: 'fx-vision',
+        activeModel: {
+          provider: 'fixture', id: 'fx-vision', name: 'Fixture Vision',
+          inputModalities: ['text', 'image'], outputModalities: ['text', 'image'],
+        },
+        imageLimits: {
+          maxImageBytes: 5 * 1024 * 1024,
+          maxImagesPerMessage: 10,
+          maxMessageImageBytes: 20 * 1024 * 1024,
+          maxImagePixels: 40_000_000,
+          mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+        },
+        attachedSessions: 1,
+      }),
     },
     events: {
       async *mux(_request, signal) {
@@ -512,6 +585,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.create': return this.api.sessions.create(request)
       case 'session.history': return this.api.sessions.history(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
+      case 'session.attachment': return this.api.sessions.attachment(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
     }

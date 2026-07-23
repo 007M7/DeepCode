@@ -7,6 +7,7 @@
 import { Context } from 'cordis'
 import Timer from '@cordisjs/plugin-timer'
 import LlmService from '@deepseek-ai/dsh-llm'
+import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -14,6 +15,8 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import TaskService from '@deepseek-ai/dsh-tasks'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
+import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
+import type { PiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import * as toolBash from '@deepseek-ai/dsh-tool-bash'
@@ -42,10 +45,14 @@ import * as spillPolicy from '@deepseek-ai/dsh-spill-policy'
 export interface BootHostOptions {
   /** Root directory for JSONL session persistence. */
   persistenceRoot: string
+  /** Explicit harness home for durable attachments; omitted follows DSH_HOME then ~/.dsh. */
+  dshHome?: string
   /** Default provider route for created/resumed agents (defaults to 'deepseek', the only adapter bootHost registers). */
   provider?: string
   /** Default model id (defaults to 'deepseek-v4-flash', matching the demos). */
   model?: string
+  /** Additional pi-ai provider routes available to visual-capable Web sessions. */
+  piAiProviders?: PiAiProviderProfile[]
   /**
    * Default project directory for sessions created without an explicit cwd
    * (defaults to the host process working directory). A session's cwd is its
@@ -88,6 +95,9 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   const ctx = new Context()
   await ctx.plugin(Timer)
   await ctx.plugin(LlmService)
+  await ctx.plugin(LocalAttachmentStore, {
+    ...options.dshHome === undefined ? {} : { dshHome: options.dshHome },
+  })
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRegistry)
@@ -95,6 +105,9 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   await ctx.plugin(TaskService)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LlmDeepSeek, {})
+  if (options.piAiProviders !== undefined && options.piAiProviders.length > 0) {
+    await ctx.plugin(LlmPiAi, { providers: options.piAiProviders })
+  }
   await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot, compression: 'none' })
   await ctx.plugin(LocalBashExecutor, {})
   // Tool suite mirroring the demo:repl composition (repl-agent/cordis.yml +

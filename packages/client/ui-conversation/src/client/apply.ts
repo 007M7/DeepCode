@@ -12,7 +12,9 @@ import type { SessionId, SessionsService, SlotsService } from '@deepseek-ai/dsh-
 import type { LayoutService } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { I18nService } from '@deepseek-ai/dsh-client-i18n/client'
 import type { SelectionTarget } from './contract/views.ts'
-import type { ConversationInjected, DetailsInjected, EmptyStateInjected } from './contract/slots.ts'
+import type {
+  ComposerAttachment, ConversationInjected, DetailsInjected, EmptyStateInjected,
+} from './contract/slots.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
 import { ToolViewRegistry } from './toolviews/registry.ts'
@@ -92,15 +94,25 @@ export function apply(ctx: Context): void {
           subscribe: fn => conversation.subscribeViews(fn),
           version: () => conversation.viewsVersion(),
         },
-        send: (text, mode) => {
+        addImages: (files) => {
+          const images = conversation.createDraftImages(files)
+          actions.addImages(images.map(image => image.id))
+        },
+        removeImage: (id) => {
+          conversation.releaseDraftImage(id)
+          actions.removeImage(id)
+        },
+        draftImages: ids => conversation.draftImages(ids),
+        send: (text, images: readonly ComposerAttachment[], mode) => {
           const trimmed = text.trim()
-          if (trimmed === '') return
+          if (trimmed === '' && images.length === 0) return
           // Optimistic clear with failure restore (choreography lives with the
           // sender; the business failure also lands in snapshot.promptError).
-          // The store write path stays inside the declared actions set:
-          // restoreDraft itself no-ops once the user typed something new.
+          // The store write path stays inside the declared actions set.
           actions.clearDraft()
-          void scoped.send(trimmed, mode).catch(() => { actions.restoreDraft(trimmed) })
+          void scoped.send(trimmed, mode, images.map(image => image.file))
+            .then(() => { conversation.releaseDraftImages(images) })
+            .catch(() => { actions.restoreDraft(trimmed, images.map(image => image.id)) })
         },
         stop: () => {
           scoped.cancel().catch(() => {

@@ -9,10 +9,12 @@ import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import type { Context } from 'cordis'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import { AttachmentError } from '@deepseek-ai/dsh-attachment-local'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment-local'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import type { ApiProxy, HistoryEntry, HostFrame, MuxFrame, SessionSummary, ToolEventView } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { ApiProxy, HistoryEntry, HostFrame, MuxFrame, PromptContentPart, SessionSummary, ToolEventView } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 
@@ -21,6 +23,69 @@ const DEFAULT_MAX_MESSAGES = 50
 
 /** Surface message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
+
+function decodeBase64(data: string): Uint8Array {
+  if (data.length === 0 || data.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) {
+    throw new AttachmentError('Image upload is not canonical base64.', 'INVALID_IMAGE_BASE64')
+  }
+  const decoded = Buffer.from(data, 'base64')
+  if (decoded.toString('base64') !== data) throw new AttachmentError('Image upload is not canonical base64.', 'INVALID_IMAGE_BASE64')
+  return new Uint8Array(decoded)
+}
+
+async function durablePromptContent(ctx: Context, content: readonly PromptContentPart[]): Promise<ContentBlock[]> {
+  const limits = ctx.attachments.imageLimits
+  const prepared = content.map(part => part.type === 'text'
+    ? part
+    : { part, data: decodeBase64(part.data) })
+  const images = prepared.filter((part): part is Extract<typeof part, { data: Uint8Array }> => 'data' in part)
+  if (images.length > limits.maxImagesPerMessage) {
+    throw new AttachmentError('Prompt exceeds the configured image-count limit.', 'TOO_MANY_IMAGES')
+  }
+  const totalBytes = images.reduce((sum, image) => sum + image.data.byteLength, 0)
+  if (totalBytes > limits.maxMessageImageBytes) {
+    throw new AttachmentError('Prompt exceeds the configured aggregate image-byte limit.', 'IMAGES_TOO_LARGE')
+  }
+  return Promise.all(prepared.map(async (item): Promise<ContentBlock> => {
+    if (!('data' in item)) return { type: 'text', text: item.text }
+    const attachment = await ctx.attachments.saveImage({
+      data: item.data,
+      mediaType: item.part.mediaType,
+      ...item.part.name === undefined ? {} : { name: item.part.name },
+    })
+    return { type: 'image', attachment }
+  }))
+}
+
+function imageInContent(content: unknown, attachmentId: string): ImageAttachmentRef | undefined {
+  if (!Array.isArray(content)) return undefined
+  for (const value of content) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
+    const block = value as { type?: unknown; attachment?: unknown; content?: unknown }
+    if (block.type === 'image' && typeof block.attachment === 'object' && block.attachment !== null) {
+      const ref = block.attachment as ImageAttachmentRef
+      if (String(ref.attachmentId) === attachmentId) return ref
+    }
+    if (block.type === 'tool-result') {
+      const nested = imageInContent(block.content, attachmentId)
+      if (nested !== undefined) return nested
+    }
+  }
+  return undefined
+}
+
+function referencedImage(events: readonly SessionEvent[], attachmentId: string): ImageAttachmentRef | undefined {
+  for (const event of events) {
+    const data = event.data as { content?: unknown; chunk?: { type?: unknown; block?: unknown } }
+    const direct = imageInContent(data.content, attachmentId)
+    if (direct !== undefined) return direct
+    if (event.type === 'assistant/chunk' && data.chunk?.type === 'block-end') {
+      const streamed = imageInContent([data.chunk.block], attachmentId)
+      if (streamed !== undefined) return streamed
+    }
+  }
+  return undefined
+}
 
 /**
  * Message-boundary pagination: count maxMessages surface messages backwards from
@@ -321,13 +386,50 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
-          if (mode === 'steer') agent.steer(content, { source })
-          else agent.send(content, { source })
+          if (content.some(part => part.type === 'image')) {
+            const activeModel = (await ctx.llm.listModels(defaults.provider)).find(model => model.id === defaults.model)
+            if (activeModel?.inputModalities !== undefined && !activeModel.inputModalities.includes('image')) {
+              return err(request, {
+                code: 'attachment-error',
+                message: `Model "${defaults.model}" does not support image input.`,
+                details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
+              })
+            }
+          }
+          const durable = await durablePromptContent(ctx, content)
+          if (mode === 'steer') agent.steer(durable, { source })
+          else agent.send(durable, { source })
         } catch (error: unknown) {
+          if (error instanceof AttachmentError) {
+            return err(request, { code: 'attachment-error', message: error.message, details: { reason: error.code } })
+          }
           // A synchronous throw from send/steer means disposed or invalid input; surface as agent-busy with the reason attached.
           return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
         }
         return ok(request, { accepted: true as const })
+      },
+
+      async attachment(request) {
+        const { sessionId, attachmentId } = request.payload
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const ref = referencedImage(found.agent.session.events, String(attachmentId))
+        if (ref === undefined) {
+          return err(request, {
+            code: 'attachment-error',
+            message: 'Image is not referenced by this session.',
+            details: { reason: 'ATTACHMENT_NOT_REFERENCED' },
+          })
+        }
+        try {
+          const stored = await ctx.attachments.readImage(ref)
+          return ok(request, { attachment: stored.ref, data: Buffer.from(stored.data).toString('base64') })
+        } catch (error: unknown) {
+          if (error instanceof AttachmentError) {
+            return err(request, { code: 'attachment-error', message: error.message, details: { reason: error.code } })
+          }
+          return err(request, { code: 'internal', message: 'Unable to read image attachment.', details: {} })
+        }
       },
 
       cancel(request) {
@@ -346,15 +448,21 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     host: {
-      describe(request) {
+      async describe(request) {
+        const activeModel = (await ctx.llm.listModels(defaults.provider)).find(model => model.id === defaults.model)
         // TODO(step2): version should read apps/cli's package.json; placeholder for now.
-        return Promise.resolve(ok(request, {
+        return ok(request, {
           version: '0.0.1',
           cwd: process.cwd(),
           provider: defaults.provider,
           model: defaults.model,
+          ...activeModel === undefined ? {} : { activeModel },
+          imageLimits: {
+            ...ctx.attachments.imageLimits,
+            mediaTypes: [...ctx.attachments.imageLimits.mediaTypes],
+          },
           attachedSessions: ctx.agents.list().length,
-        }))
+        })
       },
     },
 

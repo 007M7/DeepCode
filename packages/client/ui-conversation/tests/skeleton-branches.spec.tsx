@@ -71,6 +71,9 @@ describe('ConversationRoot branches', () => {
         useStore={hookOf(chat)}
         actions={chat.actions}
         views={{ list: () => [chatEntry], subscribe: () => () => {}, version: () => 1 }}
+        addImages={vi.fn()}
+        removeImage={vi.fn()}
+        draftImages={() => []}
         send={vi.fn()}
         stop={vi.fn()}
         openDetails={vi.fn()}
@@ -129,6 +132,9 @@ describe('ConversationRoot branches', () => {
         useStore={hookOf(chat)}
         actions={chat.actions}
         views={{ list: () => [chatEntry], subscribe: () => () => {}, version: () => 1 }}
+        addImages={vi.fn()}
+        removeImage={vi.fn()}
+        draftImages={() => []}
         send={vi.fn()}
         stop={vi.fn()}
         openDetails={vi.fn()}

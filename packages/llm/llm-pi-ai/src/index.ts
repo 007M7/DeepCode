@@ -36,6 +36,10 @@ export const inject = ['llm']
 /** Register one generic pi-ai adapter for all configured provider routes. */
 export function apply(ctx: Context, config: Config): void {
   const profiles = resolveProfiles(config.providers)
-  const adapter = new PiAiAdapter({ profiles })
+  const attachments = ctx.get('attachments')
+  const adapter = new PiAiAdapter({
+    profiles,
+    ...(attachments === undefined ? {} : { attachments }),
+  })
   ctx.llm.registerAdapter(profiles.map(entry => entry.provider), adapter)
 }

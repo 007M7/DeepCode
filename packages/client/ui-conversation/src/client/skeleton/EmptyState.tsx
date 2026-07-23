@@ -6,10 +6,10 @@
 // §6) plus a free-form new-directory input; submit runs the startSession
 // chain (create → open → send) in one service call.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-import type { EmptyStateSlotProps } from '../contract/slots.ts'
+import type { ComposerAttachment, EmptyStateSlotProps } from '../contract/slots.ts'
 import { InputBar } from './InputBar.tsx'
 import type { InputBarError } from './InputBar.tsx'
 import css from './EmptyState.module.css'
@@ -36,6 +36,9 @@ export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
   // Local viewing state: the empty state owns no session, so its draft is
   // ephemeral by design (drafts are keyed by session id; there is none yet).
   const [draft, setDraft] = useState('')
+  const [attachments, setAttachments] = useState<readonly ComposerAttachment[]>([])
+  const attachmentsRef = useRef(attachments)
+  attachmentsRef.current = attachments
   const [cwd, setCwd] = useState<string>('')
   const [custom, setCustom] = useState(false)
   const [sending, setSending] = useState(false)
@@ -44,11 +47,16 @@ export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
   const submit = (mode: 'queue' | 'steer'): void => {
     const text = draft.trim()
     /* v8 ignore next -- defensive: InputBar disables send while empty. */
-    if (text === '' || sending) return
+    if ((text === '' && attachments.length === 0) || sending) return
     setSending(true)
     setError(null)
     const chosen = cwd.trim()
-    startSession({ text, mode, ...(chosen === '' ? {} : { cwd: chosen }) })
+    startSession({
+      text,
+      ...(attachments.length === 0 ? {} : { images: attachments.map(item => item.file) }),
+      mode,
+      ...(chosen === '' ? {} : { cwd: chosen }),
+    })
       .catch((reason: unknown) => {
         // The empty state survives failure with the draft intact (no session
         // exists to carry promptError; this is the only local error surface).
@@ -56,6 +64,24 @@ export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
         setSending(false)
       })
     // Success needs no cleanup: the session selection swaps this slot out for the session body.
+  }
+
+  useEffect(() => () => {
+    for (const attachment of attachmentsRef.current) URL.revokeObjectURL(attachment.previewUrl)
+  }, [])
+
+  const addImages = (files: readonly File[]): void => {
+    setAttachments(current => [...current, ...files.map(file => ({
+      id: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file),
+    }))])
+  }
+
+  const removeImage = (id: string): void => {
+    setAttachments((current) => {
+      const removed = current.find(item => item.id === id)
+      if (removed !== undefined) URL.revokeObjectURL(removed.previewUrl)
+      return current.filter(item => item.id !== id)
+    })
   }
 
   const picker = (
@@ -102,6 +128,7 @@ export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
         </div>
         <InputBar
           draft={draft}
+          attachments={attachments}
           running={false}
           disabled={sending}
           error={error}
@@ -109,6 +136,8 @@ export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
           placeholder="Message to run task, plan and build"
           accessory={picker}
           onDraftChange={setDraft}
+          onAddImages={addImages}
+          onRemoveAttachment={removeImage}
           onSend={submit}
           /* v8 ignore next -- structural noop: hero never passes running=true, so stop is unreachable. */
           onStop={() => {}}

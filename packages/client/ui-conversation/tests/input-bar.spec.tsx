@@ -129,3 +129,89 @@ describe('error strip and variants', () => {
     expect(view.container.querySelector('[class*="hero"]')).not.toBeNull()
   })
 })
+
+describe('image draft rail', () => {
+  it('collects supported clipboard images and leaves non-image clipboard data to the browser', () => {
+    const onAddImages = vi.fn()
+    const { textarea } = setup({ draft: '', onAddImages })
+    const image = new File([Uint8Array.of(1, 2, 3)], 'pixel.png', { type: 'image/png' })
+    const prevented = fireEvent.paste(textarea, {
+      clipboardData: {
+        items: [
+          { kind: 'string', type: 'text/plain', getAsFile: () => null },
+          { kind: 'file', type: 'image/png', getAsFile: () => image },
+        ],
+      },
+    })
+    expect(prevented).toBe(false)
+    expect(onAddImages).toHaveBeenCalledWith([image])
+
+    fireEvent.paste(textarea, {
+      clipboardData: { items: [{ kind: 'file', type: 'video/mp4', getAsFile: () => image }] },
+    })
+    expect(onAddImages).toHaveBeenCalledTimes(1)
+  })
+
+  it('accepts supported image drops, highlights the target, and prevents browser navigation', () => {
+    const onAddImages = vi.fn()
+    const { view } = setup({ draft: '', onAddImages })
+    const card = view.container.querySelector('[class*="card"]')!
+    const image = new File([Uint8Array.of(1, 2, 3)], 'dropped.png', { type: 'image/png' })
+    const dataTransfer = {
+      types: ['Files'],
+      files: [image],
+      dropEffect: 'none',
+    }
+    expect(fireEvent.dragEnter(card, { dataTransfer })).toBe(false)
+    expect(view.getByRole('status').textContent).toContain('松开以添加图片')
+    expect(fireEvent.dragOver(card, { dataTransfer })).toBe(false)
+    expect(dataTransfer.dropEffect).toBe('copy')
+    expect(fireEvent.drop(card, { dataTransfer })).toBe(false)
+    expect(view.queryByRole('status')).toBeNull()
+    expect(onAddImages).toHaveBeenCalledWith([image])
+  })
+
+  it('ignores unsupported dropped files and refuses drops while locked', () => {
+    const onAddImages = vi.fn()
+    const { view } = setup({ draft: '', onAddImages })
+    const card = view.container.querySelector('[class*="card"]')!
+    const documentFile = new File(['hello'], 'notes.txt', { type: 'text/plain' })
+    fireEvent.drop(card, {
+      dataTransfer: { types: ['Files'], files: [documentFile], dropEffect: 'none' },
+    })
+    expect(view.getByText(/暂仅支持 PNG/)).toBeTruthy()
+    expect(onAddImages).not.toHaveBeenCalled()
+
+    const image = new File([Uint8Array.of(1)], 'locked.png', { type: 'image/png' })
+    const locked = setup({ draft: '', disabled: true, onAddImages })
+    const lockedCard = locked.view.container.querySelector('[class*="card"]')!
+    const dataTransfer = { types: ['Files'], files: [image], dropEffect: 'copy' }
+    fireEvent.dragEnter(lockedCard, { dataTransfer })
+    expect(locked.view.queryByRole('status')).toBeNull()
+    fireEvent.dragOver(lockedCard, { dataTransfer })
+    expect(dataTransfer.dropEffect).toBe('none')
+    fireEvent.drop(lockedCard, { dataTransfer })
+    expect(onAddImages).not.toHaveBeenCalled()
+  })
+
+  it('allows image-only send, removes a thumbnail, and opens original preview on double-click', () => {
+    const file = new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' })
+    const attachment = { id: 'draft-1', file, previewUrl: 'blob:draft-1' }
+    const onRemoveAttachment = vi.fn()
+    const { view, textarea, props } = setup({
+      draft: '', attachments: [attachment], onRemoveAttachment,
+    })
+    const send = view.getByRole('button', { name: '发送' }) as HTMLButtonElement
+    expect(send.disabled).toBe(false)
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(props.onSend).toHaveBeenCalledWith('queue')
+
+    fireEvent.click(view.getByRole('button', { name: '移除图片 pixel.png' }))
+    expect(onRemoveAttachment).toHaveBeenCalledWith('draft-1')
+    fireEvent.doubleClick(view.getByTitle('双击查看原图'))
+    expect(view.getByRole('dialog', { name: '原图预览' })).toBeTruthy()
+    expect(view.getAllByAltText('pixel.png').every(node => (node as HTMLImageElement).src.includes('blob:draft-1'))).toBe(true)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(view.queryByRole('dialog', { name: '原图预览' })).toBeNull()
+  })
+})
