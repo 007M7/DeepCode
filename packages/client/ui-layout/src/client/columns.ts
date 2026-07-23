@@ -4,7 +4,9 @@
  * details first, then sidebar, then auto-closing details (derived zero width —
  * persisted width preferences are never rewritten, so widening the window
  * restores them). Center absorbs any remaining deficit as the last resort.
- * Inputs are the layout store's plain width preferences (0 = closed).
+ * Inputs are the layout store's plain width preferences (0 = closed); a
+ * closed sidebar resolves to the fixed SIDEBAR_COLLAPSED control rail while
+ * closed details resolve to zero width.
  */
 
 /** Resolved widths for one frame; center may drop below CENTER_MIN only at the final fallback. */
@@ -19,6 +21,8 @@ export const SIDEBAR_MIN = 240
 export const SIDEBAR_MAX = 420
 /** Sidebar width before any user drag. */
 export const SIDEBAR_DEFAULT = 300
+/** Closed-sidebar rail: a 24px icon column between 16px horizontal paddings. */
+export const SIDEBAR_COLLAPSED = 56
 /** Details drag clamp floor. */
 export const DETAILS_MIN = 300
 /** Details drag clamp ceiling. */
@@ -47,10 +51,10 @@ export function clampWidth(px: number, min: number, max: number): number {
  * @param viewport - available frame width in px.
  * @param sidebar - sidebar width preference in px (0 = closed).
  * @param details - details width preference in px (0 = closed).
- * @returns resolved widths; details 0 means visually closed (never unmounted).
+ * @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
  */
 export function computeColumns(viewport: number, sidebar: number, details: number): Columns {
-  const s0 = sidebar === 0 ? 0 : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
+  const s0 = sidebar === 0 ? SIDEBAR_COLLAPSED : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
   const d0 = details === 0 ? 0 : clampWidth(details, DETAILS_MIN, DETAILS_MAX)
 
   // Step 1: everything fits at preferred widths.
@@ -60,15 +64,15 @@ export function computeColumns(viewport: number, sidebar: number, details: numbe
   const d1 = d0 === 0 ? 0 : Math.max(DETAILS_MIN, viewport - s0 - CENTER_MIN)
   if (s0 + d1 + CENTER_MIN <= viewport) return { sidebar: s0, center: CENTER_MIN, details: d1 }
 
-  // Step 3: shrink sidebar toward its minimum.
-  const s1 = s0 === 0 ? 0 : Math.max(SIDEBAR_MIN, viewport - d1 - CENTER_MIN)
+  // Step 3: shrink sidebar toward its minimum (the collapsed rail never shrinks).
+  const s1 = sidebar === 0 ? SIDEBAR_COLLAPSED : Math.max(SIDEBAR_MIN, viewport - d1 - CENTER_MIN)
   if (s1 + d1 + CENTER_MIN <= viewport) return { sidebar: s1, center: CENTER_MIN, details: d1 }
 
   // Step 4: auto-close details (derived — preferences untouched). With the
   // details pressure gone the sidebar concession is re-solved from preference.
   if (d1 > 0) {
     if (s0 + CENTER_MIN <= viewport) return { sidebar: s0, center: viewport - s0, details: 0 }
-    const s2 = s0 === 0 ? 0 : Math.max(SIDEBAR_MIN, viewport - CENTER_MIN)
+    const s2 = sidebar === 0 ? SIDEBAR_COLLAPSED : Math.max(SIDEBAR_MIN, viewport - CENTER_MIN)
     return { sidebar: s2, center: Math.max(0, viewport - s2), details: 0 }
   }
 
