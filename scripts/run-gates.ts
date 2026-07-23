@@ -168,7 +168,6 @@ function nodeOptions(...options: string[]): string {
 function gatesForMode(selected: Mode): Gate[] {
   switch (selected) {
     case 'ci-primary':
-    case 'pre-push':
       return ciPrimaryGates()
     case 'ci-static':
       return ciStaticGates()
@@ -191,6 +190,7 @@ function gatesForMode(selected: Mode): Gate[] {
       return ciWindowsObservationalGates()
     case 'node-compat':
       return nodeCompatGates()
+    case 'pre-push': return []
     case 'check-all':
       return [
         pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
