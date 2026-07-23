@@ -114,11 +114,11 @@ def stream_int(stream: dict[str, object], key: str, path: Path) -> int:
 
 
 def ffconcat_quote(path: Path) -> str:
-    """Quote an absolute path for the ffconcat file directive."""
+    """Quote an ffconcat path while preserving literal backslashes."""
     value = str(path)
     if "\n" in value or "\r" in value:
         fail(f"frame path contains a newline: {path}")
-    return "'" + value.replace("\\", "\\\\").replace("'", "'\\''") + "'"
+    return "'" + value.replace("'", "'\\''") + "'"
 
 
 def write_concat_manifest(path: Path, frames: list[Path], durations: list[float]) -> None:
@@ -153,7 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--colors",
         type=positive_int,
         default=128,
-        help="palette colors, from 2 through 256",
+        help="palette colors, from 4 through 256",
     )
     parser.add_argument(
         "--max-bytes",
@@ -177,8 +177,8 @@ def main() -> None:
         fail(f"output must end in .gif: {output}")
     if output.exists() and not args.force:
         fail(f"output already exists (pass --force to replace it): {output}")
-    if not 2 <= args.colors <= 256:
-        fail("--colors must be between 2 and 256")
+    if not 4 <= args.colors <= 256:
+        fail("--colors must be between 4 and 256")
     if args.fps > 30:
         fail("--fps must not exceed 30")
 
@@ -206,7 +206,7 @@ def main() -> None:
         manifest = Path(temporary) / "frames.ffconcat"
         write_concat_manifest(manifest, frames, durations)
         scale = f"scale='min({args.max_width},iw)':-2:flags=lanczos"
-        palette = f"palettegen=max_colors={args.colors}:stats_mode=diff"
+        palette = f"palettegen=max_colors={args.colors}:stats_mode=full"
         filters = (
             f"fps={args.fps},{scale},split[base][palette_input];"
             f"[palette_input]{palette}[palette];"
