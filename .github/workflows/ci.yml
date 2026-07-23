@@ -27,9 +27,9 @@ env:
 
 jobs:
 
-  # Two enterprise runners split the two longest primary Node paths. The
-  # static lane starts snapshot and artifact validation as soon as its build
-  # completes, while exhaustive coverage runs alone on the other runner.
+  # Three enterprise jobs isolate coverage, static analysis, and the
+  # build-backed consumer tail so setup and build variance cannot serialize
+  # otherwise independent primary Node paths.
   node-24:
     if: github.event_name == 'pull_request'
     runs-on: ${{ matrix.runner }}
@@ -46,8 +46,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - lane: static-snapshots-artifacts
-            name: node 24 / static, snapshots, and artifacts
+          - lane: static
+            name: node 24 / static
+            runner: dsh-enterprise-ubuntu-latest-32core-test
+          - lane: snapshots-artifacts
+            name: node 24 / snapshots and artifacts
             runner: dsh-enterprise-ubuntu-latest-32core-test
           - lane: coverage
             name: node 24 / coverage
@@ -67,7 +70,7 @@ jobs:
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
       - uses: actions/cache/restore@v4
-        if: matrix.lane == 'static-snapshots-artifacts'
+        if: matrix.lane == 'snapshots-artifacts'
         with:
           path: .cache/eslint
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.base.client.json', 'tsconfig.host.json', 'tsconfig.client.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
@@ -92,25 +95,14 @@ jobs:
           if (( install_status != 0 )); then exit "$install_status"; fi
           exit "$sandbox_status"
 
-      - name: Run static, compatibility, snapshot, and artifact gates
-        if: matrix.lane == 'static-snapshots-artifacts'
-        run: |
-          static_log="$RUNNER_TEMP/static-gates.log"
-          : > "$static_log"
-          pnpm run check:ci:static > >(tee "$static_log") 2>&1 &
-          static_pid=$!
+      - name: Run static gates
+        if: matrix.lane == 'static'
+        run: pnpm run check:ci:static
 
-          until grep -Fq 'run-gates: PASS build ' "$static_log"; do
-            if ! kill -0 "$static_pid" 2>/dev/null; then
-              static_status=0
-              wait "$static_pid" || static_status=$?
-              if grep -Fq 'run-gates: PASS build ' "$static_log"; then break; fi
-              if (( static_status != 0 )); then exit "$static_status"; fi
-              echo '::error::Static gates exited without completing the build.'
-              exit 1
-            fi
-            sleep 0.2
-          done
+      - name: Build and run compatibility, snapshot, and artifact gates
+        if: matrix.lane == 'snapshots-artifacts'
+        run: |
+          pnpm run build
 
           pnpm run check:ci:lint &
           lint_pid=$!
@@ -143,7 +135,7 @@ jobs:
             fi
           }
           for child_pid in \
-            "$static_pid" "$lint_pid" "$compat_pid" "$snapshot_pid" \
+            "$lint_pid" "$compat_pid" "$snapshot_pid" \
             "$publint_pid" "$node_next_pid" "$built_invariants_pid" "$built_bin_pid"
           do
             capture_status "$child_pid"
