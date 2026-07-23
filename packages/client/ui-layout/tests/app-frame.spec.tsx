@@ -15,6 +15,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
+import { SIDEBAR_COLLAPSED } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
 import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
 
 // Session-mode switch for the SessionProvider stub prop.
@@ -173,6 +174,16 @@ describe('AppFrame', () => {
     expect(tracks(frame)).toEqual([300, 0])
     expect(getByTestId('details-content')).toBeTruthy()
     expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
+  })
+
+  it('closed sidebar keeps its compact rail with mounted slot content and collapsed owner props', () => {
+    const { frame, instance, slotCalls, getByTestId } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 360])
+    expect(getByTestId('sidebar-content')).toBeTruthy()
+    expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
+    const lastSidebarCall = slotCalls.filter((c) => c.key === 'sidebar').at(-1)!
+    expect(lastSidebarCall.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
   })
 
   it('viewport shrink triggers the concession chain via ResizeObserver', () => {
