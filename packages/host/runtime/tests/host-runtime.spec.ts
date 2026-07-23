@@ -9,6 +9,7 @@ import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { Config as SessionTitleConfig } from '@deepseek-ai/dsh-session-title'
+import type { Config as SessionTitleLlmConfig } from '@deepseek-ai/dsh-session-title-first-message-llm'
 import type { HostFrame, MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -21,6 +22,10 @@ class ScriptedAdapter extends LlmAdapter {
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    if ((options.tools?.length ?? 0) === 0) {
+      yield * textResponse('Durable append-only session titles')
+      return
+    }
     const entry = this.script.shift()
     if (!entry) throw new Error('ScriptedAdapter: script exhausted')
     if (entry === 'hang') {
@@ -96,6 +101,7 @@ afterEach(async () => {
 async function boot(
   script: (StreamChunk[] | 'hang')[] = [],
   sessionTitle?: SessionTitleConfig,
+  sessionTitleLlm?: SessionTitleLlmConfig,
 ): Promise<RunningHost> {
   host = await startHost({
     boot: {
@@ -103,6 +109,7 @@ async function boot(
       provider: 'scripted',
       model: 'test-model',
       ...(sessionTitle === undefined ? {} : { sessionTitle }),
+      ...(sessionTitleLlm === undefined ? {} : { sessionTitleLlm }),
     },
   })
   host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter(script))
@@ -158,6 +165,63 @@ describe('sessions.create / list', () => {
 })
 
 describe('sessions.prompt / cancel', () => {
+  it.each([
+    { name: 'host default', config: undefined, target: '5 words', maxTokens: 64 },
+    {
+      name: 'configured policy',
+      config: {
+        targetWords: 3,
+        targetCjkCharacters: 8,
+        maxInputBytes: 2_048,
+        maxOutputTokens: 24,
+        timeoutMs: 2_000,
+      },
+      target: '3 words',
+      maxTokens: 24,
+    },
+  ] satisfies {
+    name: string
+    config: SessionTitleLlmConfig | undefined
+    target: string
+    maxTokens: number
+  }[])('replaces the fallback with a model-backed first-message title using the $name', async ({ config, target, maxTokens }) => {
+    const modelTitle = 'Durable append-only session titles'
+    const running = await boot([textResponse('pong')], undefined, config)
+    const { api, ctx } = running
+    const { sessionId } = expectOk(await api.sessions.create(request({})))
+    const agent = ctx.agents.get(sessionId) as Agent
+    const idle = waitForIdle(ctx, agent)
+    expectOk(await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'Explain why append-only logs make session titles durable.' }],
+    })))
+    await idle
+
+    await vi.waitFor(() => {
+      expect(agent.session.events.filter(event => event.type === 'session/title').map(event => event.data))
+        .toEqual([
+          {
+            title: 'Explain why append-only logs make',
+            messageSeqs: [1],
+            source: { kind: 'fallback' },
+          },
+          {
+            title: modelTitle,
+            messageSeqs: [1],
+            source: {
+              kind: 'provider',
+              provider: 'session-title-first-message-llm',
+              model: { provider: 'scripted', model: 'test-model' },
+            },
+          },
+        ])
+    })
+    const titleRequest = agent.session.events.find(event => event.type === 'session/title-llm-request')
+    expect(titleRequest?.data.system).toContain(target)
+    expect(titleRequest?.data.maxTokens).toBe(maxTokens)
+  })
+
   it.each([
     { name: 'host default', config: undefined, expected: 'Show the Web UI durable' },
     {

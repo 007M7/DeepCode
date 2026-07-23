@@ -79,6 +79,7 @@ async function detailsTrack(page: Page): Promise<number> {
 // plugin's client bundle exists and exports apply, the loader fail-louds and
 // the frame never appears.
 const UI_PLUGIN_DIRS = ['connection', 'runtime', 'ui-theme', 'i18n', 'ui-layout', 'ui-sidebar', 'ui-conversation', 'ui-trajectory']
+const ROUND_DONE_MARKER = 'WEB_ROUND_DONE'
 const notReady = UI_PLUGIN_DIRS.filter((dir) => {
   const bundle = join(REPO_ROOT, 'packages/client', dir, 'lib/client.js')
   return !existsSync(bundle) || !readFileSync(bundle, 'utf8').includes('exports.apply')
@@ -175,7 +176,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
     await screen(page, '02-empty-state')
-    await input.fill('请简单介绍事件溯源，两句话即可，最后以「介绍完毕」结尾')
+    const prompt = `Please answer this request carefully: explain event sourcing in two sentences, ending with exactly ${ROUND_DONE_MARKER}.`
+    const fallbackTitle = 'Please answer this request carefully:'
+    await input.fill(prompt)
     await input.press('Enter')
     // startSession chain: session mounts, composer moves to the bottom.
     // Regression pin (P0, 585671106): this send used to white-screen the tree
@@ -188,7 +191,14 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
       undefined,
       { timeout: 15_000 },
     )
+    await page.waitForFunction(
+      expected => document.title !== `${expected} — DeepSeek Harness`
+        && document.title.endsWith(' — DeepSeek Harness'),
+      fallbackTitle,
+      { timeout: 90_000 },
+    )
     const durableTitle = (await page.title()).replace(/ — DeepSeek Harness$/, '')
+    expect(durableTitle).not.toBe(fallbackTitle)
     const sessionTree = page.getByRole('tree', { name: 'Sessions' })
     const projectRow = sessionTree.getByRole('treeitem').first()
     if (await projectRow.getAttribute('aria-expanded') === 'false') await projectRow.click()
@@ -196,7 +206,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
       sessionTree.getByText(durableTitle, { exact: true }).waitFor({ timeout: 10_000 }),
       page.getByRole('navigation').getByText(durableTitle, { exact: true }).waitFor({ timeout: 10_000 }),
     ])
-    await page.waitForFunction(() => document.body.innerText.includes('介绍完毕'), undefined, { timeout: 120_000 })
+    await page.waitForFunction(marker => document.body.innerText.includes(marker), ROUND_DONE_MARKER, { timeout: 120_000 })
     await screen(page, '04-round-complete')
   }, 150_000)
 
@@ -271,7 +281,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     onTestFailed(() => saveFailureShot(page, 'w5-reload'))
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    await page.waitForFunction(() => document.body.innerText.includes('介绍完毕'), undefined, { timeout: 30_000 })
+    await page.waitForFunction(marker => document.body.innerText.includes(marker), ROUND_DONE_MARKER, { timeout: 30_000 })
     await screen(page, '12-reload-recovery')
   })
 

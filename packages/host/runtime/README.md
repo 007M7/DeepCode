@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-host-runtime
 
-Host runtime assembly for `dsh`: `bootHost` composes the core plugin spine (LLM service + DeepSeek adapter, sessions with JSONL persistence and deterministic fallback titles, system prompt, tools, agents, agent loop, local bash), `createApiProxy` implements the [`dsh-host-apiproxy`](../apiproxy/README.md) contract over that composition, and `startHost` is the one-step shell seam returning `{ api, handler, defaults, ctx, dispose }`.
+Host runtime assembly for `dsh`: `bootHost` composes the core plugin spine (LLM service + DeepSeek adapter, sessions with JSONL persistence, immediate fallback titles and first-message model summaries, system prompt, tools, agents, agent loop, local bash), `createApiProxy` implements the [`dsh-host-apiproxy`](../apiproxy/README.md) contract over that composition, and `startHost` is the one-step shell seam returning `{ api, handler, defaults, ctx, dispose }`.
 
 Which plugins mount and with what defaults is decided only here — shells must not `ctx.plugin` to alter the assembly. `RunningHost.ctx` is a formal seam with exactly two sanctioned uses: mounting protocol front-door plugins (e.g. a future `dsh acp`) and headless session-event subscription; consuming clients must not bypass `api` through it.
 
@@ -12,7 +12,8 @@ Which plugins mount and with what defaults is decided only here — shells must 
 | `provider` | `'deepseek'` | Default provider route injected as agentOptions on create/resume and reported by `host.describe`. |
 | `model` | `'deepseek-v4-flash'` | Default model id, same single source as `provider`. |
 | `cwd` | `process.cwd()` | Default project directory for a session whose create request omits `cwd`. |
-| `sessionTitle` | 5 words / 40 fallback bytes / 80 accepted bytes | Deterministic fallback-title limits. The host mounts no asynchronous title provider, so title creation adds no model call. |
+| `sessionTitle` | 5 words / 40 fallback bytes / 80 accepted bytes | Deterministic fallback and accepted-title limits. |
+| `sessionTitleLlm` | 5 words / 10 CJK chars / 4,096 input bytes / 64 output tokens / 60 s | First-message model-title policy. An omitted route inherits the logged main-request provider and model. |
 
 ## ApiProxy implementation notes
 
@@ -20,11 +21,11 @@ Unary methods take the narrow `RpcRequest<P>` and echo `request.rpcId`; a prompt
 
 ## Model Experience
 
-Indirectly, through the model-facing plugins bootHost mounts and the provider/model defaults injected into created and resumed agents.
+Indirectly, through the non-blocking first-message title request owned by [`dsh-session-title-llm`](../../session-title/session-title-llm/README.md) and the other model-facing plugins `bootHost` mounts.
 
 #### KV Cache effect
 
-No direct invalidation; the mounted model-facing plugins own their request-prefix changes.
+No main-request invalidation; the auxiliary title request has its own cache behavior and the conversation prefix remains unchanged.
 
 ## Known Limitations and Deferred Work
 

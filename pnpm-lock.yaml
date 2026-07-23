@@ -2035,6 +2035,9 @@ importers:
       '@deepseek-ai/dsh-session-title':
         specifier: workspace:^
         version: link:../../session-title/session-title
+      '@deepseek-ai/dsh-session-title-first-message-llm':
+        specifier: workspace:^
+        version: link:../../session-title/session-title-first-message-llm
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../../skill/skill
