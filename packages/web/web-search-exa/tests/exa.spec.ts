@@ -96,6 +96,7 @@ describe('ExaSearchProvider request mapping', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://api.exa.test/search')
+    expect(init).toMatchObject({ method: 'POST', redirect: 'error' })
     expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer exa-key')
     expect(JSON.parse(init.body as string)).toEqual({
       query: 'hello',

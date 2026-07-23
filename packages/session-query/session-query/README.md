@@ -1,16 +1,20 @@
 # @deepseek-ai/dsh-session-query
 
-Session-history query contracts and provider-independent helpers. The concrete `ctx.sessionQuery` service presents live `ctx.sessions` and an optional, dynamically mounted `ctx.sessionPersistence` as one logical corpus for exact reads and semantic scans. The abstract `ctx.sessionSearch` service defines full-text search without introducing a provider registry.
+Exact session-history retrieval, relationship tracing, and provider-independent filtering through `ctx.sessionQuery`. The service presents live `ctx.sessions` and an optional, dynamically mounted `ctx.sessionPersistence` as one logical corpus. Matching ids produce one record: live events win, while `live` and `persisted` report both source availabilities. Conflicting immutable headers fail with `SESSION_QUERY_SOURCE_CONFLICT`. The abstract `ctx.sessionSearch` service defines full-text search without introducing a provider registry.
 
 ## Reads
 
 - `listSessions()` reads current persistence metadata, merges live records with live precedence, and returns cloned records in deterministic newest-first order.
 - `filterSessions(filters)` applies provider-independent session metadata and availability predicates to that same cloned logical corpus.
-- `listEvents(sessionId)` loads the live-preferred raw log and classifies each event as `current`, `shadowed`, or `log-only` with the shared `dsh-session` surface fold.
 - `filterEvents(sessionId, filters)` extracts first-party semantic documents and applies provider-independent metadata and literal-text predicates in ascending seq order.
+- `readTitle(sessionId)` loads one live-preferred or persisted log and folds its latest `session/title` event into a `SessionTitleSnapshot`; it returns `undefined` when the known session has no title.
+- `listEvents(sessionId)` loads the live-preferred raw log and classifies each event as `current`, `shadowed`, or `log-only` with the shared `dsh-session` surface fold.
+- `readSurface(sessionId)` returns one cloned header, raw-log capture boundary, and the complete folded current surface in model-history order. A live session wins over persistence; compaction is observed before or after its replacement append, never as a synthetic mixture.
 - `readEvent(request)` returns a cloned header, the full target event, and a bounded raw-seq window. `before` and `after` default to zero and may not exceed `readWindowMax`.
+- `traceSession(sessionId)` reads the corpus once and returns immediate-to-outward ancestors plus deterministic recursive descendant trees. `complete: false` identifies the first missing parent; a target-connected cycle fails with `SESSION_QUERY_INVALID_LINEAGE`.
+- `traceEvent(request)` loads the logical log once and returns direct positional replacements and direct logged provenance. `replacementChain` follows positional replacers to the final replacement; provenance links remain non-transitive.
 
-Persistence is optional and may mount or unmount dynamically. A cross-corpus list fails with `SESSION_QUERY_PERSISTENCE_FAILED` while mounted persistence is unreadable. A read targeting a known live session does not consult persistence, so durable backend health cannot make current in-memory history unreadable. Persisted exact reads list before loading, and reject a metadata mismatch rather than combining inconsistent observations.
+Persistence is optional and may mount or unmount dynamically. Cross-corpus listing and lineage tracing fail with `SESSION_QUERY_PERSISTENCE_FAILED` while mounted persistence is unreadable. A title, event read, or trace targeting a known live session does not consult persistence, so durable backend health cannot make current in-memory state unreadable. Persisted title and event operations list before loading and reject a metadata mismatch rather than combining inconsistent observations. `listSessions()` remains lightweight and does not load logs or index titles.
 
 ## Filtering and extraction
 
@@ -26,6 +30,8 @@ The package has no provider coordinator or registration protocol. A concrete bac
 
 `SessionQueryError.code` is a closed union covering request validation, missing targets, malformed surfaces, source conflicts, persistence/index failures, cancellation, and invalid or stale cursors; the exact literals are defined in [`src/config.ts`](src/config.ts).
 
+`listEvents()`, `readSurface()`, and `traceEvent()` run the same one-pass `dsh-session` surface fold. A loaded log is valid only when event seqs are zero-based and contiguous, surface markers obey event-type eligibility, provenance arrays are nonempty and duplicate-free, references name earlier events, and each positional replacement names and cites every surface node it removes; every violation fails with `SESSION_QUERY_INVALID_SURFACE`.
+
 ## Configuration
 
 | Key | Default | Contract |
@@ -36,7 +42,11 @@ The package has no provider coordinator or registration protocol. A concrete bac
 
 None, as this trusted query service returns cloned session records only to its callers and registers no model-facing prompt, schema, tool, or message.
 
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
 ## Known Limitations and Deferred Work
 
 - **No caller authorization** — this is trusted context-wide infrastructure; a future model tool or UI must constrain which sessions its caller may inspect.
-- **No traversal or provider registry** — lineage/provenance traversal, extractor and search-provider registries, index synchronization, and a model-facing tool are absent. SQLite ownership and tokenizer decisions are recorded in the [implemented search RFC](../../../docs/rfc/implemented/feature/2026-07-10-sqlite-session-query-provider.md).
+- **No registries or model-facing tool** — extractor and search-provider registries, recursive event-provenance traversal, and a model-facing tool are absent. The [tracing decision](../../../.agents/notes/implemented/feature/2026-07-13-session-query-tracing.md) owns relationship semantics; SQLite ownership and tokenizer decisions live in the [implemented search note](../../../.agents/notes/implemented/feature/2026-07-10-sqlite-session-query-provider.md).

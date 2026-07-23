@@ -3,7 +3,12 @@ import { Context } from './context.ts'
 import { Fiber, FiberState } from './fiber.ts'
 import { DisposableList, symbols } from './utils.ts'
 
-/** Return whether an event result should stop a bail-style dispatch. */
+/**
+ * Return whether an event result should stop a bail-style dispatch.
+ *
+ * @param value — a listener's return value.
+ * @returns `true` unless `value` is `null`, `false`, or `undefined`.
+ */
 export function isBailed(value: any) {
   return value !== null && value !== false && value !== undefined
 }
@@ -28,17 +33,75 @@ export type DispatchMode = 'emit' | 'parallel' | 'serial' | 'bail' | 'waterfall'
 declare module './context.ts' {
   export interface Context {
     /* eslint-disable max-len */
+    /**
+     * Dispatch an event, running all listeners concurrently.
+     *
+     * @param name — the event name.
+     * @param args — arguments passed to every listener.
+     * @returns a promise resolving once every listener has settled.
+     */
     parallel<K extends keyof Events>(name: K, ...args: Parameters<Events[K]>): Promise<void>
+    /** Same as above, with an explicit `this` for listeners (also used for filtering). */
     parallel<K extends keyof Events>(thisArg: NoInfer<ThisType<Events[K]>>, name: K, ...args: Parameters<Events[K]>): Promise<void>
+    /**
+     * Dispatch an event synchronously, ignoring listener return values.
+     *
+     * @param name — the event name.
+     * @param args — arguments passed to every listener.
+     */
     emit<K extends keyof Events>(name: K, ...args: Parameters<Events[K]>): void
+    /** Same as above, with an explicit `this` for listeners (also used for filtering). */
     emit<K extends keyof Events>(thisArg: NoInfer<ThisType<Events[K]>>, name: K, ...args: Parameters<Events[K]>): void
+    /**
+     * Dispatch an event, awaiting listeners in order until one bails.
+     *
+     * @param name — the event name.
+     * @param args — arguments passed to each listener.
+     * @returns the first bail value (non-null, non-false, non-undefined), if any.
+     */
     serial<K extends keyof Events>(name: K, ...args: Parameters<Events[K]>): Promisify<ReturnType<Events[K]>>
+    /** Same as above, with an explicit `this` for listeners (also used for filtering). */
     serial<K extends keyof Events>(thisArg: NoInfer<ThisType<Events[K]>>, name: K, ...args: Parameters<Events[K]>): Promisify<ReturnType<Events[K]>>
+    /**
+     * Dispatch an event, calling listeners in order until one bails.
+     *
+     * @param name — the event name.
+     * @param args — arguments passed to each listener.
+     * @returns the first bail value (non-null, non-false, non-undefined), if any.
+     */
     bail<K extends keyof Events>(name: K, ...args: Parameters<Events[K]>): ReturnType<Events[K]>
+    /** Same as above, with an explicit `this` for listeners (also used for filtering). */
     bail<K extends keyof Events>(thisArg: NoInfer<ThisType<Events[K]>>, name: K, ...args: Parameters<Events[K]>): ReturnType<Events[K]>
+    /**
+     * Dispatch an event whose last argument is a `next` continuation.
+     *
+     * Each listener wraps the rest of the chain: calling `next()` invokes the
+     * next listener (finally the built-in behavior); not calling it vetoes.
+     *
+     * @param name — the event name.
+     * @param args — listener arguments; the final one is the innermost `next`.
+     * @returns the outermost listener's return value.
+     */
     waterfall<K extends keyof Events>(name: K, ...args: Parameters<Events[K]>): ReturnType<Events[K]>
+    /** Same as above, with an explicit `this` for listeners (also used for filtering). */
     waterfall<K extends keyof Events>(thisArg: NoInfer<ThisType<Events[K]>>, name: K, ...args: Parameters<Events[K]>): ReturnType<Events[K]>
+    /**
+     * Register an event listener owned by the current fiber.
+     *
+     * @param name — the event name to listen for.
+     * @param listener — called with the dispatch arguments.
+     * @param options — listener options; a boolean is shorthand for `prepend`.
+     * @returns a disposer removing the listener; `true` if it was still registered.
+     */
     on<K extends keyof Events>(name: K, listener: Events[K], options?: boolean | EventOptions): () => boolean
+    /**
+     * Same as `on()`, but the listener disposes itself after its first call.
+     *
+     * @param name — the event name to listen for.
+     * @param listener — called at most once with the dispatch arguments.
+     * @param options — listener options; a boolean is shorthand for `prepend`.
+     * @returns a disposer removing the listener; `true` if it was still registered.
+     */
     once<K extends keyof Events>(name: K, listener: Events[K], options?: boolean | EventOptions): () => boolean
     /* eslint-enable max-len */
   }
@@ -91,7 +154,13 @@ export class EventsService {
     }, { global: true, prepend: true })
   }
 
-  /** Resolve listeners for one dispatch and apply context filtering. */
+  /**
+   * Resolve listeners for one dispatch and apply context filtering.
+   *
+   * @param type — the dispatch mode, reported on `internal/dispatch`.
+   * @param args — the raw dispatch arguments; consumed up to the event name.
+   * @returns the matching listener callbacks, bound to the dispatch `this`.
+   */
   dispatch(type: string, args: any[]) {
     const thisArg = typeof args[0] === 'object' || typeof args[0] === 'function' ? args.shift() : null
     const name: string = args.shift()
@@ -104,19 +173,33 @@ export class EventsService {
       .map(hook => hook.callback.bind(thisArg))
   }
 
-  /** Run listeners concurrently and wait for all of them. */
+  /**
+   * Run listeners concurrently and wait for all of them.
+   *
+   * @param args — optional `this`, the event name, then listener arguments.
+   * @returns a promise resolving once every listener has settled.
+   */
   async parallel(...args: any[]) {
     const results = await Promise.allSettled(this.dispatch('emit', args).map(async cb => cb(...args)))
     const errors = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
     if (errors.length) throw new AggregateError(errors.map(error => error.reason))
   }
 
-  /** Run listeners synchronously without waiting for returned promises. */
+  /**
+   * Run listeners synchronously without waiting for returned promises.
+   *
+   * @param args — optional `this`, the event name, then listener arguments.
+   */
   emit(...args: any[]) {
     this.dispatch('emit', args).map(cb => cb(...args))
   }
 
-  /** Run listeners in order until one returns a bail value. */
+  /**
+   * Run listeners in order, awaiting each, until one returns a bail value.
+   *
+   * @param args — optional `this`, the event name, then listener arguments.
+   * @returns the first bail value (see {@link isBailed}), if any.
+   */
   async serial(...args: any[]) {
     for (const cb of this.dispatch('serial', args)) {
       const result = await cb(...args)
@@ -124,7 +207,12 @@ export class EventsService {
     }
   }
 
-  /** Run listeners synchronously until one returns a bail value. */
+  /**
+   * Run listeners synchronously until one returns a bail value.
+   *
+   * @param args — optional `this`, the event name, then listener arguments.
+   * @returns the first bail value (see {@link isBailed}), if any.
+   */
   bail(...args: any[]) {
     for (const cb of this.dispatch('bail', args)) {
       const result = cb(...args)
@@ -132,7 +220,16 @@ export class EventsService {
     }
   }
 
-  /** Compose listeners around the final `next` callback. */
+  /**
+   * Compose listeners around the final `next` callback.
+   *
+   * The last dispatch argument is treated as the innermost `next`. Listeners
+   * run outermost-first; a listener that does not call `next()` vetoes the
+   * rest of the chain, including the built-in behavior.
+   *
+   * @param args — optional `this`, the event name, listener arguments, then `next`.
+   * @returns the outermost listener's return value.
+   */
   waterfall(...args: any[]) {
     const cbs = this.dispatch('waterfall', args)
     const inner = args.pop()
@@ -144,6 +241,15 @@ export class EventsService {
     return next()
   }
 
+  /**
+   * Store a listener record as an effect on the current fiber.
+   *
+   * @param label — effect label shown in fiber diagnostics.
+   * @param hooks — the listener list for one event.
+   * @param callback — the listener to store.
+   * @param options — placement and filtering options.
+   * @returns a disposer that unregisters the listener.
+   */
   register(label: string, hooks: Hook[], callback: any, options: EventOptions): () => void {
     const method = options.prepend ? 'unshift' : 'push'
     return this.ctx.fiber.effect(() => {
@@ -152,6 +258,13 @@ export class EventsService {
     }, label)
   }
 
+  /**
+   * Remove a stored listener record.
+   *
+   * @param hooks — the listener list for one event.
+   * @param callback — the listener to remove.
+   * @returns `true` if the listener was found and removed.
+   */
   unregister(hooks: Hook[], callback: any) {
     const index = hooks.findIndex(hook => hook.callback === callback)
     if (index >= 0) {
@@ -160,7 +273,17 @@ export class EventsService {
     }
   }
 
-  /** Register an event listener owned by the current fiber. */
+  /**
+   * Register an event listener owned by the current fiber.
+   *
+   * The listener is removed automatically when the fiber unloads. Throws
+   * `CordisError('INACTIVE_EFFECT')` if the fiber is already disposed.
+   *
+   * @param name — the event name to listen for.
+   * @param listener — called with the dispatch arguments.
+   * @param options — listener options; a boolean is shorthand for `prepend`.
+   * @returns a disposer removing the listener; `true` if it was still registered.
+   */
   on(name: string | symbol, listener: (...args: any) => any, options?: boolean | EventOptions) {
     if (typeof options !== 'object') {
       options = { prepend: options }
@@ -177,7 +300,14 @@ export class EventsService {
     return this.register(label, hooks, listener, options)
   }
 
-  /** Register an event listener that disposes itself after the first call. */
+  /**
+   * Register an event listener that disposes itself after the first call.
+   *
+   * @param name — the event name to listen for.
+   * @param listener — called at most once with the dispatch arguments.
+   * @param options — listener options; a boolean is shorthand for `prepend`.
+   * @returns a disposer removing the listener; `true` if it was still registered.
+   */
   once(name: string, listener: (...args: any) => any, options?: boolean | EventOptions) {
     const dispose = this.on(name, function (...args: any[]) {
       dispose()
@@ -196,12 +326,20 @@ export class EventsService {
  * diagnostics before public events are delivered.
  */
 export interface Events {
+  /** A plugin fiber was created or its uid was cleared on disposal. */
   'internal/plugin'(fiber: Fiber): void
+  /** A fiber changed lifecycle state; receives the fiber and its previous state. */
   'internal/status'(fiber: Fiber, oldValue: FiberState): void
+  /** Interception hook for a service binding (no core producer). */
   'internal/service'(this: Context, name: string, value: any): void
+  /** Waterfall: a fiber config update is being applied; skip `next()` to veto. */
   'internal/update'(this: Fiber, config: any, noSave: boolean, next: () => void): void
+  /** Waterfall: a service is being read through the context proxy. */
   'internal/get'(ctx: Context, name: string, error: Error, next: () => any): any
+  /** Waterfall: a service is being written through the context proxy. */
   'internal/set'(ctx: Context, name: string, value: any, error: Error, next: () => boolean): boolean
+  /** Bail: a listener is being registered; a non-null result replaces registration. */
   'internal/listener'(this: Context, name: string, listener: any, prepend: boolean): void
+  /** An event is being dispatched to listeners (fired for non-internal events only). */
   'internal/dispatch'(mode: DispatchMode, name: string, args: any[], thisArg: any): void
 }

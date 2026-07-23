@@ -49,7 +49,7 @@ describe('session-query semantic extraction', () => {
     ]
     const events: SessionEvent[] = [
       { type: 'user/message', seq: 0, time: 1, data: { content: messageContent, source: { kind: 'user' } }, surfaceOp: 'append' },
-      { type: 'assistant/message', seq: 1, time: 2, data: { turn: 1, step: 1, content: messageContent }, surfaceOp: 'append' },
+      { type: 'assistant/message', seq: 1, time: 2, data: { turn: 1, step: 1, content: messageContent, provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: 'append' },
       { type: 'context/message', seq: 2, time: 3, data: { content: messageContent, source: { kind: 'plugin', plugin: 'test' } }, surfaceOp: 'append' },
       { type: 'steering/message', seq: 3, time: 4, data: { turn: 1, content: messageContent, source: { kind: 'user' } }, surfaceOp: 'append' },
       { type: 'prompt/blocked', seq: 4, time: 5, data: { content: [{ type: 'text', text: 'unsafe' }], source: { kind: 'user' }, reason: 'policy' } },
@@ -73,7 +73,7 @@ describe('session-query semantic extraction', () => {
     const reasons: Array<[SessionEvent<'turn/end'>['data']['reason'], string]> = [
       [{ kind: 'error', step: 2, message: 'boom', code: 'E' }, 'error\nboom\nE'],
       [{ kind: 'error', step: 2, message: 'boom' }, 'error\nboom'],
-      [{ kind: 'aborted', reason: 'cancelled' }, 'aborted\ncancelled'],
+      [{ kind: 'error', step: 2, failure: { message: 'provider boom', code: 'SERVER' } }, 'error\nprovider boom\nSERVER'],
       [{ kind: 'aborted' }, 'aborted'],
       [{ kind: 'rejected', reason: 'denied' }, 'rejected\ndenied'],
       [{ kind: 'disposed' }, 'disposed'],
@@ -90,11 +90,10 @@ describe('session-query semantic extraction', () => {
       { type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 } },
       { type: 'step/end', seq: 2, time: 1, data: { turn: 1, step: 1 } },
       { type: 'assistant/chunk', seq: 3, time: 1, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'raw' } } },
-      { type: 'request/header', seq: 4, time: 1, data: { header: { config: { model: 'test' } }, reason: 'initial' } },
-      { type: 'request/header-delta', seq: 5, time: 1, data: {} },
-      { type: 'future/event', seq: 6, time: 1, data: { text: 'hidden' } } as never,
+      { type: 'request/header', seq: 4, time: 1, data: { header: { config: { provider: 'test', model: 'test' } }, reason: 'initial' } },
+      { type: 'future/event', seq: 5, time: 1, data: { text: 'hidden' } } as never,
     ]
-    expect(structural.map(extractSessionEventText)).toEqual(['', '', '', '', '', '', ''])
+    expect(structural.map(extractSessionEventText)).toEqual(['', '', '', '', '', ''])
   })
 })
 
@@ -102,7 +101,7 @@ describe('session-query document and filter helpers', () => {
   const events: SessionEvent[] = [
     { type: 'user/message', seq: 0, time: 10, data: { content: [{ type: 'text', text: 'Hello\n(AI)+' }], source: { kind: 'user' } }, surfaceOp: 'append' },
     { type: 'assistant/chunk', seq: 1, time: 11, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'raw' } } },
-    { type: 'assistant/message', seq: 2, time: 12, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'replacement' }] }, surfaceOp: { op: 'replace', start: 0, end: 0 } },
+    { type: 'assistant/message', seq: 2, time: 12, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'replacement' }], provenance: { provider: 'mock', model: 'mock' } }, surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
     { type: 'turn/end', seq: 3, time: 13, data: { turn: 1, reason: { kind: 'interrupted' } } },
   ]
 
@@ -173,7 +172,7 @@ describe('session-query document and filter helpers', () => {
       type: 'assistant/message',
       seq: 0,
       time: 1,
-      data: { turn: 1, step: 1, content: [{ type: 'text', text: 'bad' }] },
+      data: { turn: 1, step: 1, content: [{ type: 'text', text: 'bad' }], provenance: { provider: 'mock', model: 'mock' } },
       surfaceOp: { op: 'replace', start: 9, end: 9 },
     }]
     expect(() => buildSessionEventRecords(id, malformed)).toThrow(expectCode('SESSION_QUERY_INVALID_SURFACE'))

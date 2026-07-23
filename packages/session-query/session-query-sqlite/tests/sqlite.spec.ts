@@ -75,6 +75,10 @@ class TestPersistence extends SessionPersistence {
   static snapshotOverride: (() => SessionPersistenceSnapshot[]) | undefined
   static failure: unknown
 
+  locate(_meta: SessionHeader): undefined {
+    return undefined
+  }
+
   static reset(entries: readonly { meta: SessionHeader; events: SessionEvent[] }[] = []): void {
     this.entries = new Map()
     this.revisions = new Map()
@@ -152,7 +156,9 @@ async function liveContext(config: ConstructorParameters<typeof SessionSearchSql
 describe('SQLite session search', () => {
   it('searches two-character Unicode61 tokens in live-only sessions', async () => {
     const ctx = await liveContext({ path: ':memory:', snippetChars: 20 })
-    const session = ctx.sessions.create(SessionId('live'), { meta: { cwd: '/work', createdAt: 10, seedLength: 1 } })
+    const session = ctx.sessions.create(SessionId('live'), {
+      meta: { cwd: '/work', createdAt: 10, seedLength: 1, delegationDepth: 2 },
+    })
     session.append(
       'user/message',
       { content: [{ type: 'text', text: 'An AI helper' }], source: { kind: 'user' } },
@@ -171,7 +177,7 @@ describe('SQLite session search', () => {
     const events: SessionEvent[] = [
       { type: 'user/message', seq: 0, time: 10, data: { content: [{ type: 'text', text: 'needle original' }], source: { kind: 'user' } }, surfaceOp: 'append' },
       { type: 'assistant/chunk', seq: 1, time: 11, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'needle raw' } } },
-      { type: 'user/message', seq: 2, time: 12, data: { content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'plugin', plugin: 'test' } }, surfaceOp: { op: 'replace', start: 0, end: 0 } },
+      { type: 'user/message', seq: 2, time: 12, data: { content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'plugin', plugin: 'test' } }, surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
       { type: 'turn/end', seq: 3, time: 13, data: { turn: 1, reason: { kind: 'error', step: 1, message: 'needle failure' } } },
     ]
     ctx.sessions.create(SessionId('a'), { seed: events, meta: { cwd: '/a', parentSession: parent, createdAt: 20 } })
@@ -779,11 +785,14 @@ describe('SQLite reconciliation and source lifecycle', () => {
   })
 
   it('rejects immutable header conflicts between live and persisted sources', async () => {
-    const shared = header('conflict', 10)
+    const shared = header('conflict', 10, { delegationDepth: 1 })
     TestPersistence.reset([{ meta: shared, events: messageEvents('persisted needle') }])
     const ctx = await liveContext()
     await ctx.plugin(TestPersistence)
-    ctx.sessions.create(shared.id, { seed: messageEvents('live needle'), meta: { createdAt: 11 } })
+    ctx.sessions.create(shared.id, {
+      seed: messageEvents('live needle'),
+      meta: { createdAt: 10, delegationDepth: 2 },
+    })
 
     await expect(ctx.sessionSearch.searchSessions({ query: 'needle' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_SOURCE_CONFLICT'))

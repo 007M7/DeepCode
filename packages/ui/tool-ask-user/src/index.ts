@@ -63,7 +63,7 @@ export function apply(ctx: Context): void {
           ...question.multi_select !== undefined ? { multiSelect: question.multi_select } : {},
         })),
         ...exec.agent !== undefined ? { agent: exec.agent } : {},
-        ...exec.signal !== undefined ? { signal: exec.signal } : {},
+        signal: exec.signal,
       })
       return [{ type: 'text', text: JSON.stringify(result) }]
     },

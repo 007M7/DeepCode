@@ -1,0 +1,42 @@
+terminal 96x36 buffer=normal length=36 base=0 viewport=0
+lifecycle started=1 stopped=0 progress=inactive
+title "DSH snapshot"
+cursor hidden column=1 viewportRow=13 bufferRow=13
+buffer
+0| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-blue bold
+  style 10-16 bold
+1| " Snapshot agent ready."
+  style 1-21 fg=bright-black
+2| " deepseek-v4-flash  •  main-session"
+  style 1-34 dim
+3| <blank>
+4| "▌ "
+  style 0-0 fg=yellow
+5| "▌ ◌ const first = await tools.bash({ command: 'echo CODE_ONE' })                                "
+  style 0-0 fg=yellow
+  style 2-2 fg=yellow bold
+  style 3-95 bold
+6| "▌ const second = await tools.bas                                                                "
+  style 0-0 fg=yellow
+  style 2-31 bold
+7| "▌ const first = await tools.bash({ command: 'echo CODE_ONE' })                                  "
+  style 0-0 fg=yellow
+8| "▌ const second = await tools.bash({ command: 'echo CODE_TWO' })                                 "
+  style 0-0 fg=yellow
+9| "▌ console.log(first, second)                                                                    "
+  style 0-0 fg=yellow
+10| "▌ return `${first}+${second}`                                                                   "
+  style 0-0 fg=yellow
+11| "▌ "
+  style 0-0 fg=yellow
+12| "────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-95 dim
+13| "                                                                                                "
+  style 1-1 inverse
+14| "────────────────────────────────────────────────────────────────────────────────────────────────"
+  style 0-95 dim
+15| "deepseek-v4-flash  /workspace/project  ↑0 ↓0                         0% context  tools:collapsed"
+  style 0-43 dim
+  style 69-95 dim
+16-35| <blank>

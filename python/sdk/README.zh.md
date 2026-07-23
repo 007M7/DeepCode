@@ -15,17 +15,20 @@ with DeepSeekHarness() as harness:
 
 `DeepSeekHarness` 会保留延迟启动的运行时子进程，以供多次调用复用。请像上例一样将其用作上下文管理器，或在用完后显式调用 `close()`。
 
-默认情况下，SDK 启动 `deepseek-harness-runtime-bin` 包内置的单文件 `dsh-jsonrpc-agent` 可执行程序，并通过 `DSH_CORDIS_CONFIG` 注入该包的默认配置（stdio JSON-RPC 服务器、`agent-core`、预载的 DeepSeek 适配器、JSONL 会话持久化、本地 bash）。要运行自己的插件组合，请在配置里保留 `@deepseek-ai/dsh-jsonrpc` 条目，并传入 Cordis 配置路径。
+默认情况下，SDK 启动 `deepseek-harness-runtime-bin` 包内置的单文件 `dsh-jsonrpc-agent` 可执行程序，并通过 `DSH_CORDIS_CONFIG` 注入该包的默认配置（stdio JSON-RPC 服务器、`agent-core`、预载的 DeepSeek 适配器、配有显式组合语义检查点策略的 JSONL 会话持久化、本地 bash）。要运行自己的插件组合，请在配置里保留 `@deepseek-ai/dsh-jsonrpc` 条目，并传入 Cordis 配置路径。
 
 ```py
 from deepseek_harness import DeepSeekHarness
 
 with DeepSeekHarness(
+    provider="deepseek",
     model="deepseek-v4-flash",
-    cordis="examples/dsbench-coding-agent/cordis.yml",
+    cordis="examples/jsonrpc-agent/cordis.yml",
 ) as harness:
     result = harness.run("Make the requested code change.")
 ```
+
+`provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。内置默认组合注册 `deepseek`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
 
 `TurnResult.final_response` 是本轮次最后一个 `assistant/message` 事件的文本内容。完整的事件流（包括中间的助手消息与工具活动）用 `TurnResult.events` 获取。
 

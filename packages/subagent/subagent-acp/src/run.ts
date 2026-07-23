@@ -23,8 +23,8 @@ import {
   type SessionNotification,
   type StopReason,
 } from '@agentclientprotocol/sdk'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
 import { buildChildEnv, disposeChildProcess, spawnFailure } from '@deepseek-ai/dsh-subagent-subprocess'
 
@@ -37,7 +37,11 @@ export interface AcpRunSpec {
   command: string
   /** Arguments passed to {@link command}. */
   args: string[]
-  /** Working directory for the child process AND its ACP session `cwd`. */
+  /**
+   * Absolute working directory for the child process AND its ACP session
+   * `cwd`. The provider resolves it before this spec exists: config override,
+   * else the delegating parent session's workspace.
+   */
   cwd: string
   /** How to auto-answer the child's permission prompts. */
   permission: PermissionPolicy
@@ -56,9 +60,9 @@ export interface AcpRunSpec {
    */
   disposeEofGraceMs: number
   /**
-   * Grace period (ms) between `SIGTERM` and the `SIGKILL` escalation in
-   * {@link SubagentRun.dispose}. The plugin fills this from its
-   * `disposeGraceMs` config.
+   * Termination confirmation window (ms) in {@link SubagentRun.dispose}; POSIX applies it after
+   * `SIGTERM` and `SIGKILL`, while Windows applies it after direct forced termination. The plugin
+   * fills this from its `disposeGraceMs` config.
    */
   disposeGraceMs: number
   /**
@@ -75,7 +79,7 @@ export interface AcpRunSpec {
 /** EOF grace for child flush and nested-process teardown; wider than the signal grace below. */
 export const DEFAULT_DISPOSE_EOF_GRACE_MS = 6_000
 
-/** Default grace between SIGTERM and SIGKILL on dispose (the `disposeGraceMs` config; mirrors the bash executor). */
+/** Default POSIX grace between SIGTERM and SIGKILL on dispose (the `disposeGraceMs` config). */
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 
 /**
@@ -149,9 +153,11 @@ function toError(value: unknown): Error {
  * @returns the ready run handle for the child subprocess.
  */
 export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpec): Promise<SubagentRun> {
-  const id = AgentId(randomUUID())
-
   if (request.signal.aborted) throw new Error('subagent request was aborted before the ACP child started')
+  // ACP session ids are unique only within the child server. The lifecycle id
+  // is minted in the parent namespace so fresh processes cannot collide with
+  // each other or with a local agent that happens to use the same session id.
+  const id = SessionId(randomUUID())
 
   // Keep diagnostics on parent stderr; only ACP output contributes to the result.
   const child = spawn(spec.command, spec.args, {
@@ -241,7 +247,9 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
           clientCapabilities: {},
         })
         const session = await conn.newSession({ cwd: spec.cwd, mcpServers: [] })
-        sessionId = session.sessionId
+        const returnedSessionId: unknown = Reflect.get(session, 'sessionId')
+        if (typeof returnedSessionId !== 'string') throw new Error('ACP child published without a session id')
+        sessionId = returnedSessionId
         if (flags.cancelled) throw new Error('subagent cancelled before the ACP session started')
       })(),
       spawnFailed.then((err): never => { throw err }),
@@ -253,13 +261,18 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
     if (flags.cancelled) throw new Error('subagent request was aborted before the ACP child started')
     throw toError(error)
   }
+  // The startup transaction validates the returned id before it can fulfill.
+  // This assertion carries that cross-closure invariant into TypeScript.
+  /* v8 ignore next */
+  if (sessionId === undefined) throw new Error('unreachable: ACP startup fulfilled without a session id')
+  const remoteSessionId = sessionId
 
   const result: Promise<SubagentResult> = (async (): Promise<SubagentResult> => {
     try {
       // Race the remote turn against local cancellation.
       const prompt = async (): Promise<SubagentResult> => {
         // The startup phase cannot fulfill without assigning the session id.
-        const promptResult = await conn.prompt({ sessionId: sessionId as string, prompt: toAcpPrompt(request.prompt) })
+        const promptResult = await conn.prompt({ sessionId: remoteSessionId, prompt: toAcpPrompt(request.prompt) })
         return { output: collectOutput(), stopReason: acpStopReason(promptResult.stopReason) }
       }
       return await Promise.race([
@@ -285,14 +298,15 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   let disposal: Promise<void> | undefined
   return {
     id,
+    localAgent: undefined,
     result,
     dispose(): Promise<void> {
       if (disposal !== undefined) return disposal
       request.signal.removeEventListener('abort', onAbort)
       requestCancel()
-      // The shared EOF → TERM → KILL ladder awaits exit. ACP normally quiesces
-      // from stdin EOF, including the final flush, so this backend uses a wider
-      // EOF grace before signals escalate.
+      // The shared platform-aware ladder awaits exit. ACP normally quiesces from
+      // stdin EOF, including the final flush, so this backend uses a wider EOF
+      // grace before process termination escalates.
       disposal = disposeProcess()
       return disposal
     },

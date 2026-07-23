@@ -16,7 +16,7 @@ packages/<group>/<pkg>/
   src/index.ts     # service default export or plugin (name/inject/apply/Config)
   tests/<x>.spec.ts
   README.md        # service API, events, extension points, design notes,
-                   # + gated Model Experience context blocks or short sentence
+                   # + gated Model Experience context blocks or short form
                    # + the gated "Known Limitations and Deferred Work" section
                    # (or a whitelist entry in scripts/verify-package-readme-limitations.ts)
 ```
@@ -32,9 +32,10 @@ package.json 不变式（由 `pnpm run constraints` / `scripts/check-workspace-c
 | 文件 | 变更 |
 |---|---|
 | `tsconfig.base.json` | 已有分组无需编辑；新分组需为 `@deepseek-ai/dsh-*` 通配符添加 `./packages/<group>/*/src` 候选路径 |
-| `tsconfig.json` | 在 `references` 中添加 `{ "path": "./packages/<group>/<pkg>" }` |
-| `tsconfig.build.json` | 在 `references` 中添加 `{ "path": "./packages/<group>/<pkg>" }` |
+| `tsconfig.host.json`（host 侧包）或 `tsconfig.client.json`（client 侧包） | 在 `references` 中添加 `{ "path": "./packages/<group>/<pkg>" }`——恰好一个聚合，绝不两个都加（[布局](../development.md#typescript-project-layout)） |
 | `knip.json` | 仅当包有非 `*.spec.ts` 入口时需要（如 `*.e2e.ts` → 添加 per-workspace override，参照 `packages/llm/llm-deepseek`） |
+
+`packages/client/*` 包改为 extends `tsconfig.base.client.json`（而非 `tsconfig.base.json`）；client 插件包还需在 package.json 声明 `dshClient`、导出 `./client`、调用共享 tsdown preset（`packages/client/tsdown.client.ts`）——client 侧见 [packages/client/AGENTS.md](../../packages/client/AGENTS.md)。
 
 以下内容由 glob 或包 manifest 发现机制自动覆盖，无需手动编辑：根 `package.json` workspaces、`scripts/publint-all.ts`、`tsdown.config.ts`、`vitest.config.ts`、`eslint.config.mjs`、`scripts/check-workspace-constraints.ts`。
 
@@ -44,31 +45,39 @@ package.json 不变式（由 `pnpm run constraints` / `scripts/check-workspace-c
 
 ## 4. 编写包 README
 
-将包特有的服务 API、配置、事件、扩展点和设计说明放在前面。limitations 部分记录持久的消费方缺口和本包拥有的非显而易见的维护者约束；日常清理事项留在源码 TODO 或 RFC 中。间接的 Model Experience 语句可以点名暴露本包贡献的消费方，但不重述该消费方的实现。包 README 以如下规范序列结尾：
+将包特有的服务 API、配置、事件、扩展点和设计说明放在前面。limitations 部分记录持久的消费方缺口和本包拥有的非显而易见的维护者约束；日常清理事项留在源码 TODO 或 Agent Note 中。间接的 Model Experience 语句可以点名暴露本包贡献的消费方，但不重述该消费方的实现。包 README 以如下规范序列结尾：
 
 ````markdown
 ## Model Experience
 
 ### Request surface and condition
 
-**What the model sees**: An exact data-dependent shape, an anchored generated-catalog link, or an introduction to the verbatim literal below.
+#### What the model sees
 
-**Token effect**: Fixed, conditional, retained, replaced, capped, or zero-direct token effect.
+An exact data-dependent shape, an anchored generated-catalog link, or an introduction to the verbatim literal below.
 
-#### Verbatim text for this context surface, when needed
+##### Verbatim text for this field, when needed
 
 ```markdown
 Stable system-prompt prose of any length, or another long non-generated literal, copied exactly from source.
 ```
+
+#### Token effect
+
+Fixed, conditional, retained, replaced, capped, or zero-direct token effect.
+
+#### KV Cache effect
+
+Append-only, prefix-stable, replacing, or independent behavior, including the exact conditions that may invalidate reuse.
 
 ## Known Limitations and Deferred Work
 
 - **Consumer-visible gap** — exact boundary, consequence, or maintainer constraint.
 ````
 
-根据实现填写 Model Experience。每个直接、条件、上限、生命周期或辅助模型的 surface 使用一个 H3，包含上述两个字段。引用包拥有的稳定文本：系统提示词放在带标题的 H4 加 `markdown` 围栏中，其他短文本以命名占位符内联，其他长文本使用相同的嵌套形式。仅概述数据依赖或提供方拥有的文本。tool-schema surface 链接到生成的[工具目录](../tool-catalog.md)中对应的锚定章节，仅说明该处缺失的差异。当作用域可以隐藏 prompt 或 schema 其中之一而不影响另一个时，将二者分开。[行文标准](../../.agents/skills/dsh-prose-standard/SKILL.md)约束完整性与归属；验证器强制执行机械形状。
+根据实现填写 Model Experience。每个直接、条件、上限、生命周期或辅助模型的 surface 使用一个 H3，包含上述三个有序 H4 字段，每个字段下有一个正文段落。引用包拥有的稳定文本：系统提示词放在引出它的字段下，用带标题的 H5 加 `markdown` 围栏表示，通常归入 `What the model sees`；其他短文本以命名占位符内联，其他长文本使用相同的嵌套形式。仅概述数据依赖或提供方拥有的文本。tool-schema surface 链接到生成的[工具目录](../tool-catalog.md)中对应的锚定章节，仅说明该处缺失的差异。当作用域可以隐藏 prompt 或 schema 其中之一而不影响另一个时，将二者分开。填写 `KV Cache effect` 时，应区分仅追加增长、稳定重复的前缀、替换既有请求 token 和独立模型请求，并列出会使缓存复用失效、且由本包拥有的变化。“不使缓存失效”仅表示本包保留了已有的可复用前缀；缓存是否可用以及何时淘汰不属于本包契约。[行文标准](../../.agents/skills/dsh-prose-standard/SKILL.md)约束完整性与归属；验证器强制执行机械形状。
 
-没有上下文效果或仅有消费方拥有路径的包使用 [`SENTENCE_MODEL_EXPERIENCE`](../../scripts/verify-package-readme-model-experience.ts) 中经过审计的 `None, as ` 或 `Indirectly, through ` 语句；与模型无关的通用包可以改为加入 `NO_MODEL_EXPERIENCE_SECTION`。两种情况都不要展开为对另一个包工作的描述。limitations [allowlist](../../scripts/verify-package-readme-limitations.ts) 独立管理。[Model Experience RFC](../rfc/implemented/process/2026-07-12-package-model-experience-contract.md) 记录了设计动机。
+没有上下文效果或仅有消费方拥有路径的包使用 [`SENTENCE_MODEL_EXPERIENCE`](../../scripts/verify-package-readme-model-experience.ts) 中经过审计的 `None, as ` 或 `Indirectly, through ` 语句，随后添加 `KV Cache effect` H4 和一个非空正文段落；与模型无关的通用包可以改为加入 `NO_MODEL_EXPERIENCE_SECTION`。两种情况都不要展开为对另一个包工作的描述。limitations [allowlist](../../scripts/verify-package-readme-limitations.ts) 独立管理。[Model Experience Agent Note](../../.agents/notes/implemented/process/2026-07-12-package-model-experience-contract.md) 记录了设计动机。
 
 ## 5. 验证
 

@@ -1,7 +1,8 @@
 /**
  * SQLite durable session-persistence backend. It maps each session header and
  * event to rows, and delegates write-path orchestration to
- * {@link PersistenceCoordinator}.
+ * {@link PersistenceCoordinator}. It has no independent per-session artifact,
+ * so its locator returns `undefined`.
  * @module @deepseek-ai/dsh-session-persistence-sqlite
  */
 
@@ -10,11 +11,12 @@ import z from 'schemastery'
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
-  type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix,
+  type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
+  type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -36,12 +38,32 @@ function surfaceBindings(event: SessionEvent): [string | null, string | null] {
   ]
 }
 
+/**
+ * Exclusively create a missing database file with owner-only permissions.
+ * Existing files retain their modes, and errors other than `EEXIST` propagate.
+ * `DatabaseSync` reopens by path, so this does not protect confidentiality or
+ * integrity when another principal can replace the database entry in its parent
+ * directory.
+ */
+async function createDatabaseFile(path: string): Promise<void> {
+  try {
+    const handle = await open(path, 'wx', 0o600)
+    await handle.close()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
+}
+
 /** Plugin configuration. */
 export interface Config {
   /**
    * Filesystem path to the SQLite database file. The special value `:memory:`
-   * opens an in-process database (tests); a file path is created (with parent
-   * dirs) on construction.
+   * opens an in-process database (tests). On filesystems with POSIX modes,
+   * missing directories and databases are created owner-only; existing path
+   * modes are preserved. Filesystem setup errors other than an existing database
+   * fail initialization. The backend does not protect confidentiality or
+   * integrity when another principal can replace the database entry in its
+   * parent directory.
    */
   path: string
   /**
@@ -88,7 +110,10 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
 
   private async openDb(path: string, journalMode: JournalMode): Promise<void> {
     const actual = path === ':memory:' ? path : resolve(path)
-    if (actual !== ':memory:') await mkdir(dirname(actual), { recursive: true, mode: 0o700 })
+    if (actual !== ':memory:') {
+      await mkdir(dirname(actual), { recursive: true, mode: 0o700 })
+      await createDatabaseFile(actual)
+    }
     this.db = openDatabase(actual, journalMode)
     try {
       const row = this.db.prepare(
@@ -114,6 +139,11 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   }
 
   // --- SessionPersistence service surface (delegated to the coordinator) ---
+
+  /** SQLite has one database, not an independent local artifact per session. */
+  locate(_meta: SessionHeader): SessionLocation | undefined {
+    return undefined
+  }
 
   create(meta: SessionHeader): Promise<void> {
     return this.coordinator.create(meta)
@@ -263,14 +293,15 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   private writeRow(meta: SessionHeader): void {
     this.db.prepare(`
       INSERT INTO sessions
-        (id, version, created_at, cwd, parent_session, seed_length, incarnation, revision)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, incarnation, revision)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
       ON CONFLICT(id) DO UPDATE SET
         version = excluded.version,
         created_at = excluded.created_at,
         cwd = excluded.cwd,
         parent_session = excluded.parent_session,
-        seed_length = excluded.seed_length
+        seed_length = excluded.seed_length,
+        delegation_depth = excluded.delegation_depth
     `).run(
       meta.id,
       meta.version,
@@ -278,6 +309,7 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
       meta.cwd ?? null,
       meta.parentSession ?? null,
       meta.seedLength ?? null,
+      meta.delegationDepth ?? null,
       randomUUID(),
     )
   }

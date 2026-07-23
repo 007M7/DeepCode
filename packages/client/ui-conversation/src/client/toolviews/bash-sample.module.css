@@ -1,0 +1,48 @@
+/* Sample bash rows: deliberately distinct from ToolRow so the differential
+   registry hit is visible at a glance. */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  min-width: 0;
+  cursor: pointer;
+  border-radius: 6px;
+  font-family: var(--ds-font-family-code);
+  font-size: 13px;
+}
+
+.row:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.prompt {
+  flex: none;
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.scopeBadge {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary-foreground);
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.command {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.err {
+  flex: none;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 11px;
+}

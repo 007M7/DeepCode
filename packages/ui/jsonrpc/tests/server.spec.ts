@@ -5,12 +5,13 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { AgentId, type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
+
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import SubagentService, { type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
+import SubagentService, { type SubagentResult, type SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import { HarnessSdkServer, type JsonRpcTransportPeer } from '../src/index.ts'
 
 class FakeTransport implements JsonRpcTransportPeer {
@@ -58,7 +59,7 @@ async function mockCompletionServer(): Promise<{ url: string; requests: unknown[
 
 async function makeHarness(storageDir: string) {
   const ctx = new Context()
-  await ctx.plugin(agentCore)
+  await ctx.plugin(agentCore, { workspaceContext: false })
   await ctx.plugin(SubagentService)
   await ctx.plugin(SessionPersistenceJsonl, { root: storageDir })
   await new Promise(resolve => setTimeout(resolve, 50))
@@ -66,7 +67,13 @@ async function makeHarness(storageDir: string) {
 }
 
 /** Drive the owning service so test lifecycle events carry the real parent scope. */
-async function settleSubagent(ctx: Context, parent: Agent, info: SubagentRunEndInfo): Promise<void> {
+async function settleSubagent(
+  ctx: Context,
+  parent: Agent,
+  info: Omit<SubagentRunEndInfo, 'runId' | 'local'> & { localAgent: Agent | undefined },
+  beforeSettle?: () => Promise<void>,
+): Promise<void> {
+  const result = Promise.withResolvers<SubagentResult>()
   const disposeProvider = ctx.subagents.registerProvider({
     name: info.provider,
     capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
@@ -74,9 +81,8 @@ async function settleSubagent(ctx: Context, parent: Agent, info: SubagentRunEndI
     async start() {
       return {
         id: info.id,
-        result: info.lastAssistantMessage === undefined
-          ? Promise.reject(new Error('synthetic infrastructure failure'))
-          : Promise.resolve({ output: info.lastAssistantMessage, stopReason: info.stopReason }),
+        localAgent: info.localAgent,
+        result: result.promise,
         dispose: () => Promise.resolve(),
       }
     },
@@ -87,6 +93,12 @@ async function settleSubagent(ctx: Context, parent: Agent, info: SubagentRunEndI
       prompt: [],
       signal: new AbortController().signal,
     })
+    await beforeSettle?.()
+    if (info.lastAssistantMessage === undefined) {
+      result.reject(new Error('synthetic infrastructure failure'))
+    } else {
+      result.resolve({ output: info.lastAssistantMessage, stopReason: info.stopReason })
+    }
     await run.result.then(() => undefined, () => undefined)
     await run.dispose()
   } finally {
@@ -107,6 +119,7 @@ describe('HarnessSdkServer', () => {
 
       const init = await server.handleRequest('initialize', {
         cwd: storageDir,
+        provider: 'deepseek',
         model: 'dsagent-model',
       }) as { serverInfo: { name: string } }
       expect(init.serverInfo.name).toBe('deepseek-harness-sdk-runtime')
@@ -135,10 +148,9 @@ describe('HarnessSdkServer', () => {
       expect(llmServer.requests).toHaveLength(2)
 
       const orphanHandle = await ctx.agents.create({
-        agentId: AgentId('orphan-agent'),
         sessionId: SessionId('orphan-session'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'dsagent-model' },
+        agentOptions: { provider: 'deepseek', model: 'dsagent-model' },
       })
       orphanHandle.agent.send([{ type: 'text', text: 'outside the sdk session map' }])
       await orphanHandle.agent.whenIdle()
@@ -170,8 +182,8 @@ describe('HarnessSdkServer', () => {
     } as unknown as Agent
     const mainHandle = { agent: mainAgent, dispose: vi.fn(() => Promise.resolve()) }
     const otherHandle = { agent: otherAgent, dispose: vi.fn(() => Promise.resolve()) }
-    const create = vi.fn(async (options: { agentId: AgentId }) =>
-      String(options.agentId) === 'main' ? mainHandle : otherHandle)
+    const create = vi.fn(async (options: { sessionId: SessionId }) =>
+      String(options.sessionId) === 'main' ? mainHandle : otherHandle)
     const ctx = {
       on: vi.fn(() => () => undefined),
       agents: { create, get: () => undefined },
@@ -201,6 +213,64 @@ describe('HarnessSdkServer', () => {
     await server.shutdown()
     expect(mainHandle.dispose).toHaveBeenCalledOnce()
     expect(otherHandle.dispose).toHaveBeenCalledOnce()
+  })
+
+  it('reports the message-turn outcome when a later non-message turn settles before idle', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const transport = new FakeTransport()
+    const server = new HarnessSdkServer(ctx, transport) as unknown as {
+      prompt(params: { sessionId: string; contentBlocks: { type: 'text'; text: string }[] }): Promise<unknown>
+      sessions: Map<string, { handle: AgentHandle; lastTurnEnd: undefined; activePrompt: boolean }>
+      shutdown(): Promise<Record<string, never>>
+    }
+    const session = ctx.sessions.create(SessionId('message-outcome'))
+    const agent = {
+      session,
+      send(content: { type: 'text'; text: string }[]) {
+        session.append('turn/start', {
+          turn: 1,
+          trigger: { kind: 'message', source: { kind: 'user' } },
+        })
+        session.append('user/message', {
+          content,
+          source: { kind: 'user' },
+        }, { surfaceOp: 'append' })
+        session.append('turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+        session.append('turn/start', {
+          turn: 2,
+          trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
+        })
+        session.append('context/message', {
+          content: [{ type: 'text', text: 'late metadata' }],
+          source: { kind: 'plugin', plugin: 'late-metadata' },
+        }, { surfaceOp: 'append' })
+        session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+      },
+      whenIdle: () => Promise.resolve(),
+    } as unknown as Agent
+    server.sessions.set('message-outcome', {
+      handle: { agent, dispose: () => Promise.resolve() },
+      lastTurnEnd: undefined,
+      activePrompt: false,
+    })
+
+    await server.prompt({
+      sessionId: 'message-outcome',
+      contentBlocks: [{ type: 'text', text: 'bounded prompt' }],
+    })
+
+    expect(transport.notifications.findLast(notification => notification.method === 'session.finished'))
+      .toEqual({
+        method: 'session.finished',
+        params: {
+          sessionId: 'message-outcome',
+          status: 'error',
+          reason: { kind: 'max-tokens' },
+        },
+      })
+    await server.shutdown()
+    await ctx.fiber.dispose()
   })
 
   it('notifies the host when a child session is created with parent lineage', async () => {
@@ -241,7 +311,7 @@ describe('HarnessSdkServer', () => {
     try {
       const server = new HarnessSdkServer(ctx, new FakeTransport())
 
-      await server.initialize({ cwd: storageDir, model: 'plain-model' })
+      await server.initialize({ cwd: storageDir, provider: 'deepseek', model: 'plain-model' })
       await server.prompt({
         sessionId: 'plain',
         contentBlocks: [{ type: 'text', text: 'hello' }],
@@ -263,29 +333,42 @@ describe('HarnessSdkServer', () => {
       const server = new HarnessSdkServer(ctx, transport)
 
       const parentHandle = await ctx.agents.create({
-        agentId: AgentId('parent-agent'),
         sessionId: SessionId('main'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { provider: 'deepseek', model: 'deepseek' },
       })
+      // A custom in-process provider may own its child at the provider/root
+      // scope while preserving durable parent lineage.
       const handle = await ctx.agents.create({
-        agentId: AgentId('child-agent'),
         sessionId: SessionId('child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('main') },
+        agentOptions: { provider: 'deepseek', model: 'deepseek' },
+      })
+      expect(ctx.agents.roots()).toContain(handle.agent)
+      const parentlessHandle = await parentHandle.agent.ctx.agents.create({
+        sessionId: SessionId('parentless-child-session'),
+        meta: { cwd: storageDir },
         agentOptions: { model: 'deepseek' },
       })
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'spawn',
-        id: AgentId('child-agent'),
+        id: SessionId('child-session'),
+        localAgent: handle.agent,
         stopReason: 'completed',
         lastAssistantMessage: [{ type: 'text', text: 'child done' }],
-      })
+      }, () => handle.dispose())
+      await settleSubagent(ctx, parentHandle.agent, {
+        provider: 'spawn',
+        id: SessionId('parentless-child-session'),
+        localAgent: parentlessHandle.agent,
+        stopReason: 'error',
+      }, () => parentlessHandle.dispose())
 
       expect(transport.notifications).toContainEqual({
         method: 'subagent.finished',
         params: {
           provider: 'spawn',
-          agentId: 'child-agent',
+          agentId: 'child-session',
           parentSessionId: 'main',
           childSessionId: 'child-session',
           status: 'ok',
@@ -293,8 +376,18 @@ describe('HarnessSdkServer', () => {
           lastAssistantMessage: [{ type: 'text', text: 'child done' }],
         },
       })
+      expect(transport.notifications).toContainEqual({
+        method: 'subagent.finished',
+        params: {
+          provider: 'spawn',
+          agentId: 'parentless-child-session',
+          parentSessionId: 'main',
+          childSessionId: 'parentless-child-session',
+          status: 'error',
+          stopReason: 'error',
+        },
+      })
 
-      await handle.dispose()
       await parentHandle.dispose()
       await server.shutdown()
     } finally {
@@ -303,7 +396,282 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('falls back to live agent lineage for uncached subagent end events', async () => {
+  it('ignores a remote run id that collides with a local child of the same parent', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-remote-collision-'))
+    const ctx = await makeHarness(storageDir)
+    try {
+      const transport = new FakeTransport()
+      const server = new HarnessSdkServer(ctx, transport)
+      const parentHandle = await ctx.agents.create({
+        sessionId: SessionId('collision-parent'),
+        meta: { cwd: storageDir },
+        agentOptions: { model: 'deepseek' },
+      })
+      const collidingChild = await parentHandle.agent.ctx.agents.create({
+        sessionId: SessionId('remote-run-id'),
+        meta: { cwd: storageDir, parentSession: SessionId('collision-parent') },
+        agentOptions: { model: 'deepseek' },
+      })
+
+      await settleSubagent(ctx, parentHandle.agent, {
+        provider: 'remote',
+        id: SessionId('remote-run-id'),
+        localAgent: undefined,
+        stopReason: 'completed',
+        lastAssistantMessage: [],
+      })
+
+      expect(transport.notifications.some(notification =>
+        notification.method === 'subagent.finished'
+        && notification.params?.agentId === 'remote-run-id',
+      )).toBe(false)
+
+      await collidingChild.dispose()
+      await parentHandle.dispose()
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('retains locality across continuation runs on one live child', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-continuation-'))
+    const ctx = await makeHarness(storageDir)
+    try {
+      const transport = new FakeTransport()
+      const server = new HarnessSdkServer(ctx, transport)
+      const parentHandle = await ctx.agents.create({
+        sessionId: SessionId('continuation-parent'),
+        meta: { cwd: storageDir },
+        agentOptions: { model: 'deepseek' },
+      })
+      const childHandle = await parentHandle.agent.ctx.agents.create({
+        sessionId: SessionId('continuation-child'),
+        meta: { cwd: storageDir, parentSession: SessionId('continuation-parent') },
+        agentOptions: { model: 'deepseek' },
+      })
+
+      await settleSubagent(ctx, parentHandle.agent, {
+        provider: 'continuation',
+        id: SessionId('continuation-child'),
+        localAgent: childHandle.agent,
+        stopReason: 'completed',
+        lastAssistantMessage: [{ type: 'text', text: 'first' }],
+      })
+      await settleSubagent(ctx, parentHandle.agent, {
+        provider: 'continuation',
+        id: SessionId('continuation-child'),
+        localAgent: childHandle.agent,
+        stopReason: 'completed',
+        lastAssistantMessage: [{ type: 'text', text: 'second' }],
+      }, () => childHandle.dispose())
+
+      expect(transport.notifications.filter(notification =>
+        notification.method === 'subagent.finished'
+        && notification.params?.childSessionId === 'continuation-child',
+      )).toHaveLength(2)
+
+      await parentHandle.dispose()
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('correlates reused local ids by parent scope when runs settle out of order', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-reuse-'))
+    const ctx = await makeHarness(storageDir)
+    try {
+      const transport = new FakeTransport()
+      const server = new HarnessSdkServer(ctx, transport)
+      const oldParent = await ctx.agents.create({
+        sessionId: SessionId('old-parent'),
+        meta: { cwd: storageDir },
+        agentOptions: { model: 'deepseek' },
+      })
+      const oldChild = await oldParent.agent.ctx.agents.create({
+        sessionId: SessionId('reused-child'),
+        meta: { cwd: storageDir, parentSession: SessionId('old-parent') },
+        agentOptions: { model: 'deepseek' },
+      })
+      const first = Promise.withResolvers<SubagentResult>()
+      const sameLifetime = Promise.withResolvers<SubagentResult>()
+      const replacement = Promise.withResolvers<SubagentResult>()
+      const results = [first.promise, sameLifetime.promise, replacement.promise]
+      let starts = 0
+      let currentLocalAgent = oldChild.agent
+      const disposeProvider = ctx.subagents.registerProvider({
+        name: 'reused',
+        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        inheritsParentContext: false,
+        start() {
+          const result = results[starts]
+          starts += 1
+          if (result === undefined) throw new Error('unexpected fourth reused-id run')
+          return Promise.resolve({ id: SessionId('reused-child'), localAgent: currentLocalAgent, result, dispose: () => Promise.resolve() })
+        },
+      })
+
+      const firstRun = await ctx.subagents.start('reused', {
+        parent: oldParent.agent,
+        prompt: [],
+        signal: new AbortController().signal,
+      })
+      const sameLifetimeRun = await ctx.subagents.start('reused', {
+        parent: oldParent.agent,
+        prompt: [],
+        signal: new AbortController().signal,
+      })
+      sameLifetime.resolve({ output: [{ type: 'text', text: 'same lifetime' }], stopReason: 'completed' })
+      await sameLifetimeRun.result
+      await oldChild.dispose()
+      const newParent = await ctx.agents.create({
+        sessionId: SessionId('new-parent'),
+        meta: { cwd: storageDir },
+        agentOptions: { model: 'deepseek' },
+      })
+      const newChild = await newParent.agent.ctx.agents.create({
+        sessionId: SessionId('reused-child'),
+        meta: { cwd: storageDir, parentSession: SessionId('new-parent') },
+        agentOptions: { model: 'deepseek' },
+      })
+      currentLocalAgent = newChild.agent
+      const secondRun = await ctx.subagents.start('reused', {
+        parent: newParent.agent,
+        prompt: [],
+        signal: new AbortController().signal,
+      })
+
+      replacement.resolve({ output: [{ type: 'text', text: 'new lifetime' }], stopReason: 'completed' })
+      await secondRun.result
+      first.resolve({ output: [{ type: 'text', text: 'old lifetime' }], stopReason: 'completed' })
+      await firstRun.result
+      await Promise.resolve()
+
+      const finished = transport.notifications.filter(notification =>
+        notification.method === 'subagent.finished'
+        && notification.params?.childSessionId === 'reused-child',
+      )
+      expect(finished.map(notification => notification.params?.lastAssistantMessage)).toEqual([
+        [{ type: 'text', text: 'same lifetime' }],
+        [{ type: 'text', text: 'new lifetime' }],
+        [{ type: 'text', text: 'old lifetime' }],
+      ])
+      expect(finished.map(notification => notification.params?.parentSessionId)).toEqual([
+        'old-parent',
+        'new-parent',
+        'old-parent',
+      ])
+
+      await firstRun.dispose()
+      await sameLifetimeRun.dispose()
+      await secondRun.dispose()
+      disposeProvider()
+      await newChild.dispose()
+      await oldParent.dispose()
+      await newParent.dispose()
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps locality bound to the accepted run across provider re-registration', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-provider-reuse-'))
+    const ctx = await makeHarness(storageDir)
+    try {
+      const transport = new FakeTransport()
+      const server = new HarnessSdkServer(ctx, transport)
+      const parent = await ctx.agents.create({
+        sessionId: SessionId('provider-reuse-parent'),
+        meta: { cwd: storageDir },
+        agentOptions: { model: 'deepseek' },
+      })
+      const child = await parent.agent.ctx.agents.create({
+        sessionId: SessionId('provider-reuse-child'),
+        meta: { cwd: storageDir, parentSession: SessionId('provider-reuse-parent') },
+        agentOptions: { model: 'deepseek' },
+      })
+      const localResult = Promise.withResolvers<SubagentResult>()
+      const remoteResult = Promise.withResolvers<SubagentResult>()
+      const unregisterLocal = ctx.subagents.registerProvider({
+        name: 'reused-provider',
+        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        inheritsParentContext: false,
+        start: () => Promise.resolve({
+          id: SessionId('provider-reuse-child'),
+          localAgent: child.agent,
+          result: localResult.promise,
+          dispose: () => Promise.resolve(),
+        }),
+      })
+      const localRun = await ctx.subagents.start('reused-provider', {
+        parent: parent.agent,
+        prompt: [],
+        signal: new AbortController().signal,
+      })
+      unregisterLocal()
+
+      const unregisterRemote = ctx.subagents.registerProvider({
+        name: 'reused-provider',
+        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        inheritsParentContext: false,
+        start: () => Promise.resolve({
+          id: SessionId('provider-reuse-child'),
+          localAgent: undefined,
+          result: remoteResult.promise,
+          dispose: () => Promise.resolve(),
+        }),
+      })
+      const remoteRun = await ctx.subagents.start('reused-provider', {
+        parent: parent.agent,
+        prompt: [],
+        signal: new AbortController().signal,
+      })
+
+      remoteResult.resolve({ output: [{ type: 'text', text: 'remote' }], stopReason: 'completed' })
+      await remoteRun.result
+      await Promise.resolve()
+      expect(transport.notifications.some(notification =>
+        notification.method === 'subagent.finished'
+        && notification.params?.lastAssistantMessage !== undefined,
+      )).toBe(false)
+
+      await child.dispose()
+      localResult.resolve({ output: [{ type: 'text', text: 'local' }], stopReason: 'completed' })
+      await localRun.result
+      await Promise.resolve()
+      expect(transport.notifications.filter(notification =>
+        notification.method === 'subagent.finished'
+        && notification.params?.childSessionId === 'provider-reuse-child',
+      )).toEqual([{
+        method: 'subagent.finished',
+        params: {
+          provider: 'reused-provider',
+          agentId: 'provider-reuse-child',
+          parentSessionId: 'provider-reuse-parent',
+          childSessionId: 'provider-reuse-child',
+          status: 'ok',
+          stopReason: 'completed',
+          lastAssistantMessage: [{ type: 'text', text: 'local' }],
+        },
+      }])
+
+      await localRun.dispose()
+      await remoteRun.dispose()
+      unregisterRemote()
+      await parent.dispose()
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('uses explicit local provenance when start was missed and ignores remote runs', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-subagent-fallback-'))
     const ctx = await makeHarness(storageDir)
     let parentHandle: AgentHandle | undefined
@@ -311,40 +679,67 @@ describe('HarnessSdkServer', () => {
     let failedHandle: AgentHandle | undefined
     try {
       parentHandle = await ctx.agents.create({
-        agentId: AgentId('fallback-parent-agent'),
         sessionId: SessionId('fallback-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { provider: 'deepseek', model: 'deepseek' },
       })
-      handle = await ctx.agents.create({
-        agentId: AgentId('fallback-child-agent'),
+      handle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('fallback-child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('fallback-parent') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { provider: 'deepseek', model: 'deepseek' },
       })
-      failedHandle = await ctx.agents.create({
-        agentId: AgentId('failed-child-agent'),
+      const fallbackChild = handle.agent
+      failedHandle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('failed-child-session'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { provider: 'deepseek', model: 'deepseek' },
+      })
+      const missedStartResult = Promise.withResolvers<SubagentResult>()
+      const disposeMissedStartProvider = ctx.subagents.registerProvider({
+        name: 'fork',
+        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        inheritsParentContext: true,
+        start: () => Promise.resolve({
+          id: SessionId('fallback-child-session'),
+          localAgent: fallbackChild,
+          result: missedStartResult.promise,
+          dispose: () => Promise.resolve(),
+        }),
+      })
+      // Start before the server subscribes. The terminal payload still carries
+      // this run's exact local child without reconstructing it from ids.
+      const missedStartRun = await ctx.subagents.start('fork', {
+        parent: parentHandle.agent,
+        prompt: [],
+        signal: new AbortController().signal,
       })
       const transport = new FakeTransport()
-      const server = new HarnessSdkServer(ctx, transport)
+      const server = new HarnessSdkServer(ctx, transport, { maxTokensAsSuccess: true })
 
+      missedStartResult.resolve({ output: [], stopReason: 'max-tokens' })
+      await missedStartRun.result
+      await Promise.resolve()
+      await missedStartRun.dispose()
+      disposeMissedStartProvider()
+      // The server also missed this agent's creation but sees the exact child
+      // on the run lifecycle payload.
       await settleSubagent(ctx, parentHandle.agent, {
-        provider: 'fork',
-        id: AgentId('fallback-child-agent'),
-        stopReason: 'max-tokens',
+        provider: 'fork-live-fallback',
+        id: SessionId('fallback-child-session'),
+        localAgent: fallbackChild,
+        stopReason: 'completed',
         lastAssistantMessage: [],
       })
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'fork',
-        id: AgentId('failed-child-agent'),
+        id: SessionId('failed-child-session'),
+        localAgent: failedHandle.agent,
         stopReason: 'error',
       })
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'fork',
-        id: AgentId('missing-child-agent'),
+        id: SessionId('missing-child-agent'),
+        localAgent: undefined,
         stopReason: 'error',
       })
 
@@ -352,10 +747,10 @@ describe('HarnessSdkServer', () => {
         method: 'subagent.finished',
         params: {
           provider: 'fork',
-          agentId: 'fallback-child-agent',
+          agentId: 'fallback-child-session',
           parentSessionId: 'fallback-parent',
           childSessionId: 'fallback-child-session',
-          status: 'error',
+          status: 'ok',
           stopReason: 'max-tokens',
           lastAssistantMessage: [],
         },
@@ -364,7 +759,8 @@ describe('HarnessSdkServer', () => {
         method: 'subagent.finished',
         params: {
           provider: 'fork',
-          agentId: 'failed-child-agent',
+          agentId: 'failed-child-session',
+          parentSessionId: 'fallback-parent',
           childSessionId: 'failed-child-session',
           status: 'error',
           stopReason: 'error',
@@ -385,20 +781,20 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('does not re-register an LLM adapter that already exists', async () => {
+  it('does not re-register an LLM adapter whose provider already has an owner', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-existing-llm-'))
     const ctx = await makeHarness(storageDir)
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
-    await ctx.plugin(LlmDeepSeek, { models: ['preinstalled-model'] })
+    await ctx.plugin(LlmDeepSeek)
     try {
       const server = new HarnessSdkServer(ctx, new FakeTransport())
-      const inspect = server as unknown as { hasAdapterFor(model: string): boolean }
+      const inspect = server as unknown as { hasAdapterFor(provider: string): boolean }
 
-      expect(inspect.hasAdapterFor('preinstalled-model')).toBe(true)
-      expect(inspect.hasAdapterFor('missing-model')).toBe(false)
-      await server.initialize({ cwd: storageDir, model: 'preinstalled-model' })
+      expect(inspect.hasAdapterFor('deepseek')).toBe(true)
+      expect(inspect.hasAdapterFor('missing-provider')).toBe(false)
+      await server.initialize({ cwd: storageDir, provider: 'deepseek', model: 'preinstalled-model' })
 
-      expect(ctx.get('llm')?.models().filter(model => model === 'preinstalled-model')).toEqual(['preinstalled-model'])
+      expect(ctx.get('llm')?.listProviders().filter(provider => provider.id === 'deepseek')).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
       await server.shutdown()
     } finally {
       await ctx.fiber.dispose()
@@ -406,17 +802,18 @@ describe('HarnessSdkServer', () => {
     }
   })
 
-  it('registers a missing model when an LLM service already exists', async () => {
+  it('rejects a missing non-DeepSeek provider when an LLM service already exists', async () => {
     const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-new-llm-'))
     const ctx = await makeHarness(storageDir)
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-key')
-    await ctx.plugin(LlmDeepSeek, { models: ['other-model'] })
+    await ctx.plugin(LlmDeepSeek)
     try {
       const server = new HarnessSdkServer(ctx, new FakeTransport())
 
-      await server.initialize({ cwd: storageDir, model: 'new-model' })
+      await expect(server.initialize({ cwd: storageDir, provider: 'private', model: 'new-model' }))
+        .rejects.toThrow('no adapter registered for provider "private"')
 
-      expect(ctx.get('llm')?.models()).toEqual(expect.arrayContaining(['other-model', 'new-model']))
+      expect(ctx.get('llm')?.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
       await server.shutdown()
     } finally {
       await ctx.fiber.dispose()
@@ -435,6 +832,24 @@ describe('HarnessSdkServer', () => {
 
       expect(server.finishedStatus(undefined)).toBe('error')
       expect(server.finishedStatus({ kind: 'max-tokens' })).toBe('error')
+      expect(server.finishedStatus({ kind: 'error' })).toBe('error')
+      await server.shutdown()
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(storageDir, { recursive: true, force: true })
+    }
+  })
+
+  it('can report max-token turn termination as an accepted evaluation result', async () => {
+    const storageDir = await mkdtemp(join(tmpdir(), 'dsh-jsonrpc-max-tokens-success-'))
+    const ctx = await makeHarness(storageDir)
+    try {
+      const server = new HarnessSdkServer(ctx, new FakeTransport(), { maxTokensAsSuccess: true }) as unknown as {
+        finishedStatus(reason: unknown): 'ok' | 'error'
+        shutdown(): Promise<Record<string, never>>
+      }
+
+      expect(server.finishedStatus({ kind: 'max-tokens' })).toBe('ok')
       expect(server.finishedStatus({ kind: 'error' })).toBe('error')
       await server.shutdown()
     } finally {
@@ -517,15 +932,15 @@ describe('HarnessSdkServer', () => {
     const ctx = {
       on: vi.fn(() => () => undefined),
       agents: { create, get: () => undefined },
-      get: () => ({ models: () => ['model'] }),
+      get: () => ({ listProviders: () => [{ id: 'mock', name: 'Mock' }] }),
     } as unknown as Context
     const server = new HarnessSdkServer(ctx, new FakeTransport()) as unknown as {
-      initialize(params: { cwd: string; model: string }): Promise<unknown>
+      initialize(params: { cwd: string; provider: string; model: string }): Promise<unknown>
       getOrCreateSession(sessionId: string): Promise<unknown>
       shutdown(): Promise<Record<string, never>>
     }
 
-    await server.initialize({ cwd: '.', model: 'model' })
+    await server.initialize({ cwd: '.', provider: 'mock', model: 'model' })
     await server.getOrCreateSession('relative')
 
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ meta: { cwd: process.cwd() } }))
@@ -567,6 +982,6 @@ describe('HarnessSdkServer', () => {
     const server = new HarnessSdkServer(ctx, new FakeTransport())
 
     await expect(server.shutdown()).rejects.toBe(listenerFailure)
-    expect(on).toHaveBeenCalledTimes(4)
+    expect(on).toHaveBeenCalledTimes(3)
   })
 })

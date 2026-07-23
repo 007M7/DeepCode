@@ -3,18 +3,18 @@ import { fileURLToPath } from 'node:url'
 import type { Worker } from 'node:worker_threads'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentCapabilities, SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import type { WorkflowMeta, WorkflowResult, WorkflowResultInfo, WorkflowRunInfo } from '@deepseek-ai/dsh-workflow'
+import type { WorkflowMeta, WorkflowResult, WorkflowResultInfo, WorkflowRun, WorkflowRunInfo } from '@deepseek-ai/dsh-workflow'
 import * as workerEngineModule from '../src/index.ts'
 import WorkerWorkflowEngine, { type Config } from '../src/index.ts'
 import { HostToWorkerType, WorkerToHostType } from '../src/protocol.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /** A minimal parent stand-in: the engine only threads it through to the provider. */
 function fakeParent(): Agent {
-  return { id: AgentId('workflow-parent'), options: {} } as unknown as Agent
+  return { id: SessionId('workflow-parent'), options: {} } as unknown as Agent
 }
 
 // Allow cold worker startup on contended CI runners.
@@ -104,7 +104,8 @@ class StubProvider implements SubagentProvider {
     }
     if (request.signal.aborted) throw new Error('child start aborted before publication')
     return {
-      id: AgentId(`stub-child-${index}`),
+      id: SessionId(`stub-child-${index}`),
+      localAgent: undefined,
       result: terminal.promise,
       dispose: () => {
         controlled.disposeCalls += 1
@@ -223,6 +224,105 @@ describe('dsh-workflow-workerthread', () => {
       expect(provider.runs[0]!.request.parent).toBeDefined()
     })
 
+    it('agent({provider}) forwards provider-only agentOptions across the thread', async () => {
+      const { ctx, parent, provider } = await setup()
+      const result = await run(ctx, parent, scripted("return await agent('route me', { provider: 'openai' })"))
+
+      expect(result.value).toBe('stub reply')
+      expect(provider.runs[0]!.request.agentOptions).toEqual({ provider: 'openai' })
+    })
+
+    it('a start-request provider override selects every child without changing the engine default', async () => {
+      const { ctx, parent, provider } = await setup()
+      const selected = new StubProvider('selected', () => text('selected reply'))
+      ctx.subagents.registerProvider(selected)
+
+      const overridden = ctx.workflows.start({
+        ...scripted("return await agent('route this run')"),
+        parent,
+        subagentProvider: 'selected',
+      })
+      expect((await overridden.result).value).toBe('selected reply')
+      await overridden.dispose()
+      expect(selected.runs).toHaveLength(1)
+      expect(provider.runs).toHaveLength(0)
+
+      const ordinary = await run(ctx, parent, scripted("return await agent('use the default')"))
+      expect(ordinary.value).toBe('stub reply')
+      expect(provider.runs).toHaveLength(1)
+    })
+
+    it('rejects invalid start-request provider routes before publishing a run', async () => {
+      const { ctx, parent } = await setup()
+      let starts = 0
+      ctx.on('workflow/start', () => { starts += 1 })
+      const messages: string[] = []
+      for (const subagentProvider of ['', 'missing']) {
+        let run: WorkflowRun | undefined
+        let thrown: unknown
+        try {
+          run = ctx.workflows.start({
+            ...scripted("return 'must not start'"),
+            parent,
+            subagentProvider,
+          })
+        } catch (error: unknown) {
+          thrown = error
+        }
+        await run?.dispose()
+        messages.push(thrown instanceof Error ? thrown.message : '')
+      }
+
+      expect(messages).toEqual([
+        'workflow subagentProvider must be a non-empty normalized string',
+        'no subagent provider registered for "missing"',
+      ])
+      expect(starts).toBe(0)
+    })
+
+    it('rejects invalid per-run total-agent caps before publishing a run', async () => {
+      const { ctx, parent } = await setup({ config: { maxTotalAgents: 2 } })
+      let starts = 0
+      ctx.on('workflow/start', () => { starts += 1 })
+      const errors: unknown[] = []
+      for (const maxTotalAgents of [0, 1.5, Number.NaN, 3]) {
+        try {
+          const handle = ctx.workflows.start({
+            ...scripted("return 'must not start'"),
+            parent,
+            maxTotalAgents,
+          })
+          await handle.dispose()
+        } catch (error: unknown) {
+          errors.push(error)
+        }
+      }
+
+      expect(errors.slice(0, 3)).toEqual(Array(3).fill(expect.objectContaining({
+        code: 'INVALID_ARGUMENT',
+        message: 'workflow maxTotalAgents must be a positive safe integer',
+      })))
+      expect(errors[3]).toMatchObject({
+        code: 'INVALID_ARGUMENT',
+        message: 'workflow maxTotalAgents 3 exceeds the engine ceiling 2',
+      })
+      expect(starts).toBe(0)
+    })
+
+    it('enforces a per-run total-agent cap below the engine ceiling', async () => {
+      const { ctx, parent } = await setup({ config: { maxTotalAgents: 2 } })
+      const handle = ctx.workflows.start({
+        ...scripted("await agent('first'); await agent('second'); return 'unreachable'"),
+        parent,
+        maxTotalAgents: 1,
+      })
+      const result = await handle.result
+      expect(result.stopReason).toBe('error')
+      expect(result.agentsStarted).toBe(1)
+      expect(result.error).toContain('total agent cap (1)')
+      await handle.dispose()
+    })
+
     it('a fatal hook error inside the worker kills the script and reports the error', async () => {
       const { ctx, parent } = await setup()
       const result = await run(ctx, parent, scripted("return await parallel([() => agent('x', { isolation: 'worktree' })])"))
@@ -230,11 +330,18 @@ describe('dsh-workflow-workerthread', () => {
       expect(result.error).toContain('"isolation" is deferred')
     })
 
-    it('a provider start failure crosses back as a fatal AGENT_START error', async () => {
+    it('rejects an unregistered configured provider before publishing a run', async () => {
       const { ctx, parent } = await setup({ config: { provider: 'nonexistent' } })
-      const result = await run(ctx, parent, scripted("return await pipeline([1], () => agent('p'))"))
-      expect(result.stopReason).toBe('error')
-      expect(result.error).toContain('agent() could not start a child')
+      let thrown: unknown
+      try {
+        ctx.workflows.start({ ...scripted("return 'must not start'"), parent })
+      } catch (error: unknown) {
+        thrown = error
+      }
+      expect(thrown).toMatchObject({
+        code: 'AGENT_START',
+        message: 'no subagent provider registered for "nonexistent"',
+      })
     })
 
     it('waits for async provider start before announcing a result that settled early', async () => {
@@ -353,7 +460,8 @@ describe('dsh-workflow-workerthread', () => {
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
         inheritsParentContext: false,
         start: async () => ({
-          id: AgentId('reject-child'),
+          id: SessionId('reject-child'),
+          localAgent: undefined,
           result: Promise.reject(new Error('backend exploded')),
           dispose: () => Promise.resolve(),
         }),
@@ -387,7 +495,8 @@ describe('dsh-workflow-workerthread', () => {
         stopReason: 'completed',
       } as unknown as SubagentResult
       const start = vi.spyOn(ctx.subagents, 'start').mockResolvedValue({
-        id: AgentId('raw-invalid-child'),
+        id: SessionId('raw-invalid-child'),
+        localAgent: undefined,
         result: Promise.resolve(invalid),
         dispose: () => Promise.resolve(),
       })
@@ -410,7 +519,8 @@ describe('dsh-workflow-workerthread', () => {
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
         inheritsParentContext: false,
         start: async () => ({
-          id: AgentId('bad-dispose-child'),
+          id: SessionId('bad-dispose-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
           cancel: () => { /* settled already */ },
           dispose: () => { throw new Error('dispose exploded') },
@@ -431,7 +541,8 @@ describe('dsh-workflow-workerthread', () => {
         capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: false },
         inheritsParentContext: false,
         start: async () => ({
-          id: AgentId('trap-child'),
+          id: SessionId('trap-child'),
+          localAgent: undefined,
           result: Promise.resolve({ output: [{ type: 'text', text: 'fine' }], stopReason: 'completed' }),
           cancel: () => { /* settled already */ },
           // The rejection VALUE's own coercion throws: a warn built with bare
@@ -758,7 +869,8 @@ describe('dsh-workflow-workerthread', () => {
             settle({ output: [], stopReason: 'aborted' })
           }, { once: true })
           return {
-            id: AgentId('signal-only-child'),
+            id: SessionId('signal-only-child'),
+            localAgent: undefined,
             result,
             dispose: () => Promise.resolve(),
           }
@@ -1079,7 +1191,8 @@ describe('dsh-workflow-workerthread', () => {
       expect(request.signal.reason).toBe('workflow worker gone')
 
       ready.resolve({
-        id: AgentId('late-ready-child'),
+        id: SessionId('late-ready-child'),
+        localAgent: undefined,
         result: Promise.resolve({ output: [], stopReason: 'aborted' }),
         dispose: () => {
           disposeCalls += 1
@@ -1115,7 +1228,8 @@ describe('dsh-workflow-workerthread', () => {
             handle.cancel('reentered from worker-death signal cleanup')
           }, { once: true })
           return {
-            id: AgentId('doomed-child'),
+            id: SessionId('doomed-child'),
+            localAgent: undefined,
             result: new Promise(() => { /* never settles; the reap is the teardown */ }),
             dispose: () => Promise.reject(new Error('dispose exploded during reap')),
           }

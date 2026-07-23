@@ -36,7 +36,6 @@ export function extractSessionEventText(event: SessionEvent): string {
     case 'step/end':
     case 'assistant/chunk':
     case 'request/header':
-    case 'request/header-delta':
       return ''
     // SessionEventMap is merge-extensible. Unknown events remain
     // non-searchable until a concrete first-party consumer defines semantics.
@@ -48,9 +47,11 @@ export function extractSessionEventText(event: SessionEvent): string {
 function turnEndText(reason: SessionEvent<'turn/end'>['data']['reason']): string {
   switch (reason.kind) {
     case 'error':
-      return joinText(['error', reason.message, reason.code ?? ''])
+      return 'failure' in reason
+        ? joinText(['error', reason.failure.message, reason.failure.code])
+        : joinText(['error', reason.message, reason.code ?? ''])
     case 'aborted':
-      return joinText(['aborted', reason.reason ?? ''])
+      return 'aborted'
     case 'rejected':
       return joinText(['rejected', reason.reason])
     case 'disposed':

@@ -30,6 +30,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session-persistence/session-persistence"
+    },
+    {
       "path": "../../subagent/subagent"
     },
     {
@@ -37,6 +40,9 @@
     },
     {
       "path": "../../bash/bash"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

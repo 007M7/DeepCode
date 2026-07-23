@@ -27,7 +27,13 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session-title/session-title"
+    },
+    {
       "path": "../../session-persistence/session-persistence"
+    },
+    {
+      "path": "../../support/invariants"
     }
   ]
 }

@@ -1,5 +1,5 @@
 /**
- * Exact session-history reads over live and optionally persisted logs.
+ * Exact session-history reads and traces over live and optionally persisted logs.
  *
  * @module @deepseek-ai/dsh-session-query
  */
@@ -7,6 +7,8 @@
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
+import type { SessionTitleSnapshot } from '@deepseek-ai/dsh-session-title'
 import type {
   SessionEventResultFilter,
   SessionEventReadRequest,
@@ -14,13 +16,17 @@ import type {
   SessionEventSearchHit,
   SessionEventSearchDocument,
   SessionEventSearchRequest,
+  SessionEventTrace,
+  SessionEventTraceRequest,
   SessionEventWindow,
+  SessionLineageTrace,
   SessionRecord,
   SessionResultFilter,
   SessionSearchExecContext,
   SessionSearchHit,
   SessionSearchPage,
   SessionSearchRequest,
+  SessionSurfaceSnapshot,
 } from './types.ts'
 import {
   SESSION_QUERY_READ_WINDOW_MAX,
@@ -28,13 +34,14 @@ import {
   type Config,
 } from './config.ts'
 import { SessionCorpus } from './corpus.ts'
-import { buildSessionEventRecords, buildSessionEventSearchDocuments } from './documents.ts'
+import { buildSessionEventSearchDocuments } from './documents.ts'
 import {
   filterSessionEventDocuments,
   filterSessionResults,
   materializeSessionEventResultFilters,
   materializeSessionResultFilters,
 } from './filters.ts'
+import * as tracing from './tracing.ts'
 
 export type * from './types.ts'
 export { SessionSearchCursor } from './cursor.ts'
@@ -92,7 +99,7 @@ export abstract class SessionSearchService extends Service {
   ): Promise<SessionSearchPage<SessionEventSearchHit>>
 }
 
-/** Live-preferred logical-corpus and exact-event read service. */
+/** Live-preferred logical-corpus read, filtering, and relationship-tracing service. */
 export class SessionQueryService extends Service {
   static inject = ['sessions']
   static Config: z<Config> = z.object({
@@ -133,13 +140,23 @@ export class SessionQueryService extends Service {
   }
 
   /**
+   * Fold the latest log-backed title from one live-preferred logical session.
+   * @param sessionId - live or persisted session id to read.
+   * @returns latest title snapshot, or `undefined` when the log has no title event.
+   */
+  async readTitle(sessionId: SessionId): Promise<SessionTitleSnapshot | undefined> {
+    const loaded = await this._corpus.load(sessionId)
+    return foldSessionTitle(loaded.events)
+  }
+
+  /**
    * List lightweight raw-log event records for one logical session.
    * @param sessionId - live-preferred session id to read.
    * @returns event records in ascending seq order.
    */
   async listEvents(sessionId: SessionId): Promise<SessionEventRecord[]> {
     const loaded = await this._corpus.load(sessionId)
-    return buildSessionEventRecords(sessionId, loaded.events)
+    return tracing.eventRecords(sessionId, loaded.events)
   }
 
   /**
@@ -167,6 +184,43 @@ export class SessionQueryService extends Service {
     const loaded = await this._corpus.load(sessionId)
     const documents = buildSessionEventSearchDocuments(sessionId, loaded.events)
     return filterSessionEventDocuments(documents, filters)
+  }
+
+  /**
+   * Read one session's complete current model surface from one corpus observation.
+   * @param sessionId - live-preferred session id to read.
+   * @returns cloned header, current surface, and raw-log capture boundary.
+   * @throws when source resolution fails or the session surface is invalid.
+   */
+  async readSurface(sessionId: SessionId): Promise<SessionSurfaceSnapshot> {
+    const loaded = await this._corpus.load(sessionId)
+    return {
+      session: structuredClone(loaded.header),
+      capturedThroughSeq: loaded.events.at(-1)?.seq ?? null,
+      events: tracing.currentSurfaceEvents(sessionId, loaded.events),
+    }
+  }
+
+  /**
+   * Trace known ancestry and descendants from one corpus observation.
+   * @param sessionId - logical session id to trace.
+   * @returns a complete lineage or an explicit unresolved parent boundary.
+   * @throws when corpus resolution fails, the target is absent, or its known ancestry cycles.
+   */
+  async traceSession(sessionId: SessionId): Promise<SessionLineageTrace> {
+    const records = await this._corpus.listSessions()
+    return tracing.traceSession(records, sessionId)
+  }
+
+  /**
+   * Trace one event's direct positional and provenance relationships.
+   * @param request - target session id and event seq.
+   * @returns direct links plus the target's positional replacement chain.
+   * @throws when source resolution fails, the target is absent, or surface/provenance validation fails.
+   */
+  async traceEvent(request: SessionEventTraceRequest): Promise<SessionEventTrace> {
+    const loaded = await this._corpus.load(request.sessionId)
+    return tracing.traceEvent(request.sessionId, loaded.events, request.seq)
   }
 
   /**

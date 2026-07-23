@@ -5,6 +5,7 @@
  * @module @deepseek-ai/dsh-tools/src/code-mode
  */
 
+import { parse } from 'node:path'
 import { inspect } from 'node:util'
 import { CallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -16,11 +17,19 @@ import type { ToolDefinition, ToolRegistry } from './index.ts'
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     /**
-     * One bridged sub-dispatch from a `run_code` program: the parent `run_code` call id, the
-     * deterministic sub-call id (`<parent>:code:<n>`), the tool `name` with its
-     * JSON-normalized `arguments` — the exact value dispatched, normalized before dispatch, so
-     * this append can never fail on payload shape — whether the sub-call errored, and a
-     * bounded `resultSummary` of its model-facing text.
+     * One bridged sub-dispatch from a `run_code` program: the parent
+     * `run_code` call id, the deterministic sub-call id
+     * (`<parent>:code:<n>`), the tool `name` with its JSON-normalized
+     * `arguments` — the exact value dispatched, normalized BEFORE dispatch,
+     * so this append can never fail on payload shape — whether the sub-call
+     * errored, and a bounded `resultSummary` of its model-facing text. Before
+     * bounding, occurrences of a non-root session workspace path are
+     * normalized to `.` so host-specific absolute path lengths cannot change
+     * the summary.
+     * Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter
+     * model context; persistence and UIs get every call. Appended inside the
+     * parent `run_code`'s execution (the bridge drains its queue before
+     * returning), so the turn-enclosure invariant holds by construction.
      */
     'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; resultSummary: string }
   }
@@ -70,9 +79,12 @@ function textOf(content: ContentBlock[]): string {
     .join('\n')
 }
 
-/** Bound a sub-call's model-facing text for the log event's `resultSummary`. */
-function summarize(text: string): string {
-  return text.length > SUMMARY_MAX_CHARS ? `${text.slice(0, SUMMARY_MAX_CHARS)}…` : text
+/** Normalize workspace paths, then bound a sub-call's model-facing text for its durable log summary. */
+function summarize(text: string, cwd: string | undefined): string {
+  const stableText = cwd === undefined || cwd === parse(cwd).root
+    ? text
+    : text.replaceAll(cwd, '.')
+  return stableText.length > SUMMARY_MAX_CHARS ? `${stableText.slice(0, SUMMARY_MAX_CHARS)}…` : stableText
 }
 
 /**
@@ -148,9 +160,8 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
       // (its executor kills on this signal) instead of orphaned, and
       // queued-unstarted dispatches are abandoned.
       const runController = new AbortController()
-      const onOuterAbort = (): void => { runController.abort(exec.signal?.reason) }
-      if (exec.signal?.aborted) onOuterAbort()
-      exec.signal?.addEventListener('abort', onOuterAbort, { once: true })
+      const onOuterAbort = (): void => { runController.abort(exec.signal.reason) }
+      exec.signal.addEventListener('abort', onOuterAbort, { once: true })
 
       let dispatches = 0
       // The per-run serialization queue: every binding call chains onto the tail, so even
@@ -189,10 +200,10 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             parent: exec.token,
             signal: runController.signal,
           })
+          for (const context of result.additionalContexts ?? []) {
+            exec.deferContext(context)
+          }
           const text = textOf(result.content)
-          // Sub-call `additionalContext` is deliberately DROPPED here: the loop's buffering
-          // (append after the step's tool/results) has no safe analogue from inside a running
-          // run_code — injecting now would break tool-call/result adjacency.
           exec.agent?.session.append('tool/code-dispatch', {
             parentCallId: exec.callId,
             subCallId,
@@ -202,7 +213,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
             // this record from what it actually received.
             arguments: normalized.logged,
             isError: result.isError,
-            resultSummary: summarize(text),
+            resultSummary: summarize(text, exec.agent.session.header.cwd),
           })
           return { text, isError: result.isError }
         })
@@ -261,7 +272,7 @@ export function createRunCodeTool(registry: ToolRegistry, requireRuntime: () => 
           meta,
         }
       } finally {
-        exec.signal?.removeEventListener('abort', onOuterAbort)
+        exec.signal.removeEventListener('abort', onOuterAbort)
       }
     },
     // ACP execute cards use the program as their visible title.

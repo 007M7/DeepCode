@@ -133,6 +133,7 @@ interface SearchRow {
   cwd: string | null
   parent_session: string | null
   seed_length: number | null
+  delegation_depth: number | null
   live: number
   persisted: number
   seq: number
@@ -486,8 +487,8 @@ export class SessionSearchSqlite extends SessionSearchService {
     const db = this._requireDb()
     db.prepare(`
       INSERT INTO persisted_sessions
-        (id, version, created_at, cwd, parent_session, seed_length, revision, generation)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, revision, generation)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       entry.header.id,
       entry.header.version,
@@ -495,6 +496,7 @@ export class SessionSearchSqlite extends SessionSearchService {
       entry.header.cwd ?? null,
       entry.header.parentSession ?? null,
       entry.header.seedLength ?? null,
+      entry.header.delegationDepth ?? null,
       revision,
       generation,
     )
@@ -521,8 +523,8 @@ export class SessionSearchSqlite extends SessionSearchService {
     const db = this._requireDb()
     db.prepare(`
       INSERT INTO temp.live_sessions
-        (id, version, created_at, cwd, parent_session, seed_length, fingerprint, generation)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, fingerprint, generation)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       entry.header.id,
       entry.header.version,
@@ -530,6 +532,7 @@ export class SessionSearchSqlite extends SessionSearchService {
       entry.header.cwd ?? null,
       entry.header.parentSession ?? null,
       entry.header.seedLength ?? null,
+      entry.header.delegationDepth ?? null,
       entry.fingerprint,
       generation,
     )
@@ -673,6 +676,7 @@ function selectedDocumentsSql(): { sql: string } {
         ps.cwd AS cwd,
         ps.parent_session AS parent_session,
         ps.seed_length AS seed_length,
+        ps.delegation_depth AS delegation_depth,
         0 AS live,
         1 AS persisted,
         CAST(pd.seq AS INTEGER) AS seq,
@@ -694,6 +698,7 @@ function selectedDocumentsSql(): { sql: string } {
         ls.cwd AS cwd,
         ls.parent_session AS parent_session,
         ls.seed_length AS seed_length,
+        ls.delegation_depth AS delegation_depth,
         1 AS live,
         CASE WHEN ? = 1 AND EXISTS (
           SELECT 1 FROM persisted_sessions AS ps WHERE ps.id = ld.session_id
@@ -792,6 +797,7 @@ function sameHeader(a: SessionHeader, b: SessionHeader): boolean {
     && a.cwd === b.cwd
     && a.parentSession === b.parentSession
     && a.seedLength === b.seedLength
+    && (a.delegationDepth ?? 0) === (b.delegationDepth ?? 0)
 }
 
 function rowHeader(row: SearchRow): SessionHeader {
@@ -802,6 +808,7 @@ function rowHeader(row: SearchRow): SessionHeader {
     ...row.cwd === null ? {} : { cwd: row.cwd },
     ...row.parent_session === null ? {} : { parentSession: row.parent_session as SessionId },
     ...row.seed_length === null ? {} : { seedLength: row.seed_length },
+    ...row.delegation_depth === null ? {} : { delegationDepth: row.delegation_depth },
   }
 }
 

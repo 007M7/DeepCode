@@ -38,6 +38,10 @@ Abort signals stop queued work and caller waits around asynchronous source obser
 
 None, as this trusted search backend returns hits only to callers and registers no model-facing prompt, schema, tool, or message.
 
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
 ## Known Limitations and Deferred Work
 
 - **No caller authorization** — this is a trusted context-wide service; a model tool or UI must enforce its own access policy.

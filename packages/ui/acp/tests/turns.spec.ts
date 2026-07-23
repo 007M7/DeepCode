@@ -3,7 +3,6 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { AgentId } from '@deepseek-ai/dsh-agent'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import {
   errorResponse,
@@ -13,6 +12,7 @@ import {
   toolCallResponse,
   type BridgeHarness,
 } from './harness.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 /** Boilerplate: initialize + create one session, returning its id. */
 async function newSession(h: BridgeHarness, clientCapabilities: Record<string, unknown> = {}): Promise<string> {
@@ -47,6 +47,15 @@ describe('acp bridge — turn outcomes', () => {
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
       .rejects.toThrow(/turn failed: provider boom/)
+  })
+
+  it('rejects an ordinary plugin turn failure through the same ACP boundary', async () => {
+    harness = await makeBridgeHarness({ storageDir, script: [textResponse('must not run')] })
+    harness.ctx.on('agent/pre-step', () => { throw new Error('plugin pre-step failed') })
+    const sessionId = await newSession(harness)
+
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
+      .rejects.toThrow(/turn failed: plugin pre-step failed/)
   })
 
   it('streams a tool call as tool_call then tool_call_update', async () => {
@@ -274,7 +283,7 @@ describe('acp bridge — turn outcomes', () => {
     // OWN turn with the real model answer.
     harness = await makeBridgeHarness({ storageDir, script: [textResponse('real answer')] })
     const sessionId = await newSession(harness)
-    const agent = harness.ctx.agents.get(AgentId(sessionId))!
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
     // On the queued prompt, synchronously inject a one-shot context turn (idle
     // inject writes turn/start{injection} → context/message → turn/end). Fire
     // once so it lands between install and the prompt turn.
@@ -316,6 +325,10 @@ describe('acp bridge — turn outcomes', () => {
     await harness.client.cancel({ sessionId })
     const res = await promptDone
     expect(res.stopReason).toBe('cancelled')
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+    await agent.whenIdle()
+    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
   })
 
   it('cancel right after prompt settles cancelled and leaves the agent idle, no leaked turn', async () => {
@@ -328,7 +341,7 @@ describe('acp bridge — turn outcomes', () => {
     await harness.client.cancel({ sessionId })
     const res = await promptDone
     expect(res.stopReason).toBe('cancelled')
-    const agent = harness.ctx.agents.get(AgentId(sessionId))!
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
     await agent.whenIdle()
     const turnStarts = agent.session.events.filter(e => e.type === 'turn/start').length
     expect(turnStarts).toBeLessThanOrEqual(1)
