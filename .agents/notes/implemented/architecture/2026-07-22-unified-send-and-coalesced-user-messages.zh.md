@@ -20,7 +20,9 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 **goal 回放靠轮次而非类型来区分。** 一次 goal 状态变更是一条第 0 轮、来源为 goal 的 `user/message`，携带 `goal/change` 元数据；正数轮次则是一条已准入的继续执行提示词。`decodeGoalEvent` 现在接收一条 `user/message`，并仍会在非 goal 来源携带 goal 元数据、或 goal 来源缺少元数据时立即报错。
 
-**三个 inbox 事件取代 agent/queued。** `agent/inbox/enqueue`（一个队列项进入某个 FIFO；在 `InboxItemInfo` 上携带 `target`/`wakeup`）、`agent/inbox/dequeue`（驱动器认领了一个）和 `agent/inbox/discard`（`cancel()` 丢弃了待处理项）。注入从不触及 FIFO，也不发出这些事件中的任何一个。每一次 FIFO 入队都会发布一个 enqueue 事件，包括由 loop 生成的携带继续原因的 steer（`agent/turn-continuation` 返回 `{ action: 'continue', reason }`），因此账目会与其后的 dequeue 或 discard 保持平衡。`dsh-agent` 的不变量配套断言 FIFO 守恒：一个按 agent 计的未结算计数，dequeue 和 discard 永远无法把它压到负数。
+**`send` 返回一个 id。** `send`（以及其别名）为被接受的消息返回一个不透明的 branded `AgentMessageId`；`send` 此前的返回值是 `void`。
+
+**三个 inbox 事件取代 agent/queued。** `agent/inbox/enqueue`（一个队列项进入某个 FIFO）、`agent/inbox/dequeue`（驱动器认领了一个）和 `agent/inbox/discard`（`cancel()` 丢弃了待处理项）都携带一条 `AgentMessage`——即被接受的消息，包含其返回的 `id`、`target`/`wakeup`、来源和上下文——因此调用方可以把一个排队项与其生命周期关联起来。注入从不触及 FIFO，也不发出这些事件中的任何一个。每一次 FIFO 入队都会发布一个 enqueue 事件，包括由 loop 生成的携带继续原因的 steer（`agent/turn-continuation` 返回 `{ action: 'continue', reason }`），因此账目会与其后的 dequeue 或 discard 保持平衡。`dsh-agent` 的不变量配套断言 FIFO 守恒：一个按 agent 计的未结算计数，dequeue 和 discard 永远无法把它压到负数。
 
 **cancel 新增 keepInbox。** `cancel(cause?, { keepInbox? })`；当其为 true 时，它中止活跃轮次，但保留排队项和 steering 项（不发出 discard 事件，尚未启动的工作也不会被丢弃）。
 

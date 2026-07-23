@@ -488,7 +488,7 @@ describe('same-session goal driving', () => {
       if (options?.source?.kind === 'goal' && (options.target ?? 'next-turn') === 'next-turn') {
         throw new Error('queue rejected')
       }
-      realSend(content, options)
+      return realSend(content, options)
     })
     test.ctx.goals.create(test.agent, { objective: 'handle queue failure' })
 
@@ -510,7 +510,7 @@ describe('same-session goal driving', () => {
         test.ctx.goals.disarm(test.agent)
         throw new Error('queue rejected after disarm')
       }
-      realSend(content, options)
+      return realSend(content, options)
     })
     test.ctx.goals.create(test.agent, { objective: 'preserve the newer activation state' })
 

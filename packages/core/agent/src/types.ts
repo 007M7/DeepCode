@@ -6,6 +6,7 @@
  */
 
 import type { Context } from 'cordis'
+import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, LlmCallConfig, LlmFailure, Message, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -68,12 +69,31 @@ export interface SendOptions {
 export type AliasSendOptions = Omit<SendOptions, 'target' | 'wakeup'>
 
 /**
- * The resolved facts of one inbox FIFO item, carried by the `agent/inbox/*`
- * live events. Source defaults are already applied, so these are the exact
- * values the item was accepted with. `steering` is true for a `next-step`
- * item drained between steps; a `next-turn` item is claimed at a turn boundary.
+ * Opaque id assigned to one accepted {@link Agent.send} message; returned by
+ * `send` and carried on its `agent/inbox/*` events for correlation.
  */
-export interface InboxItemInfo {
+export type AgentMessageId = Branded<'AgentMessageId'>
+
+/**
+ * Brand a string as an {@link AgentMessageId}.
+ * @param id - the generated message id.
+ * @returns the same string, branded; no validation is performed.
+ */
+export function AgentMessageId(id: string): AgentMessageId {
+  return id as AgentMessageId
+}
+
+/**
+ * One accepted {@link Agent.send} message, carried by the `agent/inbox/*` live
+ * events. `id` is the value `send` returned to the caller, stable across this
+ * message's enqueue, dequeue, and discard events. Source defaults are already
+ * applied, so these are the exact values the item was accepted with. `steering`
+ * is true for a `next-step` item drained between steps; a `next-turn` item is
+ * claimed at a turn boundary.
+ */
+export interface AgentMessage {
+  /** The id `send` returned for this message. */
+  id: AgentMessageId
   content: ContentBlock[]
   source: MessageSource
   contexts: HookContext[]
@@ -194,8 +214,9 @@ export abstract class Agent {
    * input throws synchronously before any notification, enqueue, or append.
    * @param content - the model-facing content blocks to deliver.
    * @param options - target queue, wakeup decision, source, contexts, and meta.
+   * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  abstract send(content: ContentBlock[], options?: SendOptions): void
+  abstract send(content: ContentBlock[], options?: SendOptions): AgentMessageId
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
@@ -218,9 +239,10 @@ export abstract class Agent {
    * ordinary message of its own turn.
    * @param content - the prompt content blocks.
    * @param options - source and attached contexts.
+   * @returns the accepted message's {@link AgentMessageId}.
    */
-  followup(content: ContentBlock[], options?: AliasSendOptions): void {
-    this.send(content, { ...options, target: 'next-turn', wakeup: true })
+  followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
+    return this.send(content, { ...options, target: 'next-turn', wakeup: true })
   }
 
   /**
@@ -232,9 +254,10 @@ export abstract class Agent {
    * Idle steering falls back to a woken follow-up turn.
    * @param content - the steering content blocks.
    * @param options - source and attached contexts.
+   * @returns the accepted message's {@link AgentMessageId}.
    */
-  steer(content: ContentBlock[], options?: AliasSendOptions): void {
-    this.send(content, { ...options, target: 'next-step', wakeup: true })
+  steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
+    return this.send(content, { ...options, target: 'next-step', wakeup: true })
   }
 
   /**
@@ -247,9 +270,10 @@ export abstract class Agent {
    * `agent/error`. An omitted source defaults to `{ kind: 'plugin', plugin: '' }`.
    * @param content - the injected context content blocks.
    * @param options - source and durable model-hidden meta.
+   * @returns the accepted message's {@link AgentMessageId}.
    */
-  inject(content: ContentBlock[], options?: AliasSendOptions): void {
-    this.send(content, { ...options, target: 'next-step', wakeup: false })
+  inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
+    return this.send(content, { ...options, target: 'next-step', wakeup: false })
   }
 }
 
@@ -292,31 +316,31 @@ declare module 'cordis' {
      * is the eventual `user/message`/`steering/message`. Injection
      * (`next-step`/no-wakeup) bypasses the FIFOs and does not emit this.
      * @param agent - the agent whose inbox received the item.
-     * @param info - the accepted content, source, contexts, steering, and wakeup facts.
+     * @param message - the accepted message (its returned `id`, content, source, contexts, steering, and wakeup facts).
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, info: InboxItemInfo): void
+    'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void
     /**
      * The driver claimed one item out of the inbox: a queued item at a turn
      * boundary, or steering drained between steps. Fires after the item leaves
      * its FIFO and before it becomes a durable message.
      * @param agent - the agent whose inbox item was claimed.
-     * @param info - the claimed item's accepted content, source, contexts, steering, and wakeup facts.
+     * @param message - the claimed message (matching the `id` from its `agent/inbox/enqueue`).
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/inbox/dequeue'(this: Scoped<Agent>, agent: Agent, info: InboxItemInfo): void
+    'agent/inbox/dequeue'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void
     /**
      * `cancel()` (without `keepInbox`) dropped pending inbox items without
      * delivering them. Fires once per effective clearing call with every
      * discarded item, after `agent/cancel-requested` and before the abort.
      * @param agent - the agent whose inbox was cleared.
-     * @param items - the discarded items in FIFO order (queued then steering); empty when nothing was pending.
+     * @param messages - the discarded messages in FIFO order (queued then steering); empty when nothing was pending.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode emit
      */
-    'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, items: InboxItemInfo[]): void
+    'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, messages: AgentMessage[]): void
     /**
      * Effective broad cancellation was requested, before queued/steering work
      * is cleared or the active turn is aborted. This observe-only notification

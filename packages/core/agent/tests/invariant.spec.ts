@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -58,7 +58,7 @@ describe('agent status invariants', () => {
 })
 
 describe('agent inbox invariants', () => {
-  const info = (steering: boolean) => ({ content: [], source: { kind: 'user' as const }, contexts: [], steering, wakeup: true })
+  const info = (steering: boolean) => ({ id: AgentMessageId('m'), content: [], source: { kind: 'user' as const }, contexts: [], steering, wakeup: true })
 
   it('accepts a dequeue and a discard covered by prior enqueues', async () => {
     const ctx = await setup()

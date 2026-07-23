@@ -846,22 +846,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
   {
     name: 'agent/inbox/dequeue',
     mode: 'emit',
-    signature: '\'agent/inbox/dequeue\'(this: Scoped<Agent>, agent: Agent, info: InboxItemInfo): void',
-    jsDoc: '/**\n * The driver claimed one item out of the inbox: a queued item at a turn\n * boundary, or steering drained between steps. Fires after the item leaves\n * its FIFO and before it becomes a durable message.\n * @param agent - the agent whose inbox item was claimed.\n * @param info - the claimed item\'s accepted content, source, contexts, steering, and wakeup facts.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/inbox/dequeue\'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void',
+    jsDoc: '/**\n * The driver claimed one item out of the inbox: a queued item at a turn\n * boundary, or steering drained between steps. Fires after the item leaves\n * its FIFO and before it becomes a durable message.\n * @param agent - the agent whose inbox item was claimed.\n * @param message - the claimed message (matching the `id` from its `agent/inbox/enqueue`).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'The driver claimed one item out of the inbox: a queued item at a turn boundary, or steering drained between steps.',
   },
   {
     name: 'agent/inbox/discard',
     mode: 'emit',
-    signature: '\'agent/inbox/discard\'(this: Scoped<Agent>, agent: Agent, items: InboxItemInfo[]): void',
-    jsDoc: '/**\n * `cancel()` (without `keepInbox`) dropped pending inbox items without\n * delivering them. Fires once per effective clearing call with every\n * discarded item, after `agent/cancel-requested` and before the abort.\n * @param agent - the agent whose inbox was cleared.\n * @param items - the discarded items in FIFO order (queued then steering); empty when nothing was pending.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/inbox/discard\'(this: Scoped<Agent>, agent: Agent, messages: AgentMessage[]): void',
+    jsDoc: '/**\n * `cancel()` (without `keepInbox`) dropped pending inbox items without\n * delivering them. Fires once per effective clearing call with every\n * discarded item, after `agent/cancel-requested` and before the abort.\n * @param agent - the agent whose inbox was cleared.\n * @param messages - the discarded messages in FIFO order (queued then steering); empty when nothing was pending.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: '`cancel()` (without `keepInbox`) dropped pending inbox items without delivering them.',
   },
   {
     name: 'agent/inbox/enqueue',
     mode: 'emit',
-    signature: '\'agent/inbox/enqueue\'(this: Scoped<Agent>, agent: Agent, info: InboxItemInfo): void',
-    jsDoc: '/**\n * A detached, frozen item entered the agent\'s inbox (queued or steering\n * FIFO). Source defaults are already applied, so `info` holds the exact\n * accepted values. This is the enqueue-time live signal; the durable record\n * is the eventual `user/message`/`steering/message`. Injection\n * (`next-step`/no-wakeup) bypasses the FIFOs and does not emit this.\n * @param agent - the agent whose inbox received the item.\n * @param info - the accepted content, source, contexts, steering, and wakeup facts.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    signature: '\'agent/inbox/enqueue\'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void',
+    jsDoc: '/**\n * A detached, frozen item entered the agent\'s inbox (queued or steering\n * FIFO). Source defaults are already applied, so `info` holds the exact\n * accepted values. This is the enqueue-time live signal; the durable record\n * is the eventual `user/message`/`steering/message`. Injection\n * (`next-step`/no-wakeup) bypasses the FIFOs and does not emit this.\n * @param agent - the agent whose inbox received the item.\n * @param message - the accepted message (its returned `id`, content, source, contexts, steering, and wakeup facts).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'A detached, frozen item entered the agent\'s inbox (queued or steering FIFO).',
   },
   {

@@ -5,11 +5,12 @@
  * @module dsh-agent-loop/loop
  */
 
+import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
 import type { ContentBlock, FinishReason, GenerateOptions, LlmCallConfig, LlmFailure, Message } from '@deepseek-ai/dsh-llm'
 import { isDeepStrictEqual } from 'node:util'
 import { BlockAssembler, HarnessError, LlmError, assertNever, deepFreeze, errorChain, llmFailureOf, markAgentLoopRequest } from '@deepseek-ai/dsh-llm'
-import { agentEvents, agentInterruptReasonOf, assembleContextFor } from '@deepseek-ai/dsh-agent'
+import { agentEvents, agentInterruptReasonOf, assembleContextFor, AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { AgentEventDispatch, ContinuationDecision, HookContext, PromptDecision, RequestError, RequestErrorDecision } from '@deepseek-ai/dsh-agent'
 import { canonicalHeader } from '@deepseek-ai/dsh-session'
 import type { PromptMessageData, Session, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
@@ -19,7 +20,7 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
-import { inboxInfo, type Inbox, type InboxMessage } from './inbox.ts'
+import { agentMessage, type Inbox, type InboxMessage } from './inbox.ts'
 import type { TurnCancellation } from './cancellation.ts'
 
 /** Normalize thrown values while preserving an existing error code. */
@@ -279,7 +280,7 @@ async function runTurn(
   const drainSteering = (): boolean => {
     const messages = handle.inbox.drainSteering()
     for (const message of messages) {
-      events.emit('agent/inbox/dequeue', inboxInfo(message, true))
+      events.emit('agent/inbox/dequeue', agentMessage(message, true))
       const prepared = preparePromptMessage(message.content, message.source, message.contexts)
       session.append('steering/message', { turn, ...prepared.data }, { surfaceOp: 'append' })
       for (const context of prepared.separateContexts) {
@@ -297,7 +298,7 @@ async function runTurn(
   const message = handle.inbox.dequeueQueued()
   /* v8 ignore next 3 -- invariant guard: runLoop only calls runTurn when hasQueued */
   if (!message) throw new Error('runTurn invariant violated: no queued message at turn start')
-  events.emit('agent/inbox/dequeue', inboxInfo(message, false))
+  events.emit('agent/inbox/dequeue', agentMessage(message, false))
   const trigger: TurnTrigger = { kind: 'message', source: message.source }
 
   let reason: TurnEndReason = { kind: 'completed' }
@@ -542,9 +543,12 @@ async function runTurn(
       // enqueue event a public steer would, so the inbox ledger stays balanced
       // (every FIFO entry has a matching enqueue before its dequeue/discard).
       if (decision.action === 'continue' && decision.reason) {
-        const item: InboxMessage = { content: decision.reason.content, source: decision.reason.source, contexts: [], wakeup: true }
+        const item: InboxMessage = {
+          id: AgentMessageId(randomUUID()), content: decision.reason.content,
+          source: decision.reason.source, contexts: [], wakeup: true,
+        }
         handle.inbox.steer(item)
-        events.emit('agent/inbox/enqueue', inboxInfo(item, true))
+        events.emit('agent/inbox/enqueue', agentMessage(item, true))
       }
       let shouldContinue = decision.action === 'continue'
 

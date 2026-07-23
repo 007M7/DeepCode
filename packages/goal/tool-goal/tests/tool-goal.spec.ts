@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus, AliasSendOptions } from '@deepseek-ai/dsh-agent'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalRef } from '@deepseek-ai/dsh-goal'
@@ -31,9 +31,9 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     session,
     get status() { return status },
     ctx: new Context(),
-    send() {},
-    followup() {},
-    steer() {},
+    send: () => AgentMessageId('stub'),
+    followup: () => AgentMessageId('stub'),
+    steer: () => AgentMessageId('stub'),
     inject(content: ContentBlock[], options?: AliasSendOptions) {
       const source = options?.source ?? { kind: 'plugin', plugin: '' }
       session.append('user/message', {
@@ -41,6 +41,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
         source,
         ...options?.meta === undefined ? {} : { meta: options.meta },
       }, { surfaceOp: 'append' })
+      return AgentMessageId('stub')
     },
     cancel() {},
     whenIdle() { return Promise.resolve() },

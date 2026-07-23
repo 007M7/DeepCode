@@ -3,7 +3,7 @@ import type { IPty, IPtyForkOptions } from 'node-pty'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
@@ -42,7 +42,7 @@ function agent(ctx: Context): Agent {
   const id = SessionId('agent')
   return {
     id, options: {}, session: new Session(id), status: 'idle', ctx,
-    send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+    send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
 

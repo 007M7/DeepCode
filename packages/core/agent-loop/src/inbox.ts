@@ -7,10 +7,11 @@
  */
 
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { HookContext, InboxItemInfo } from '@deepseek-ai/dsh-agent'
+import type { AgentMessage, AgentMessageId, HookContext } from '@deepseek-ai/dsh-agent'
 
-/** One message waiting in an agent's inbox. */
+/** One message waiting in an agent's inbox; `id` is the value `send` returned. */
 export interface InboxMessage {
+  id: AgentMessageId
   content: ContentBlock[]
   source: MessageSource
   contexts: HookContext[]
@@ -22,10 +23,10 @@ export interface InboxMessage {
  * Build the `agent/inbox/*` event payload for one inbox item.
  * @param message - the accepted inbox record.
  * @param steering - whether the item is in the steering FIFO (`next-step`).
- * @returns the live-event facts for enqueue/dequeue/discard.
+ * @returns the live-event message for enqueue/dequeue/discard.
  */
-export function inboxInfo(message: InboxMessage, steering: boolean): InboxItemInfo {
-  return { content: message.content, source: message.source, contexts: message.contexts, steering, wakeup: message.wakeup }
+export function agentMessage(message: InboxMessage, steering: boolean): AgentMessage {
+  return { id: message.id, content: message.content, source: message.source, contexts: message.contexts, steering, wakeup: message.wakeup }
 }
 
 /**

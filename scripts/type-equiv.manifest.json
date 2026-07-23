@@ -83,7 +83,12 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "InboxItemInfo",
+      "symbol": "AgentMessageId",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "AgentMessage",
       "source": "packages/core/agent/src/types.ts"
     },
     {

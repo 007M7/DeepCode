@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus, AliasSendOptions } from '@deepseek-ai/dsh-agent'
 import CommandService from '@deepseek-ai/dsh-commands'
 import GoalService from '@deepseek-ai/dsh-goal'
@@ -48,10 +48,10 @@ function stubAgent(id: string): { agent: Agent; session: Session } {
     session,
     ctx: new Context(),
     get status() { return status },
-    send() {},
-    followup() {},
-    steer() {},
-    inject(content, options) { appendInjection(session, content, options) },
+    send: () => AgentMessageId('stub'),
+    followup: () => AgentMessageId('stub'),
+    steer: () => AgentMessageId('stub'),
+    inject(content, options) { appendInjection(session, content, options); return AgentMessageId('stub') },
     cancel() { status = 'idle' },
     whenIdle() { return Promise.resolve() },
   }

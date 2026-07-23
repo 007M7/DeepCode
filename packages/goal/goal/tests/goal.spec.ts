@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, AgentMessageId } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus, AliasSendOptions } from '@deepseek-ai/dsh-agent'
 import { HarnessError, type ContentBlock, type MessageSource } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -64,12 +64,13 @@ function stubAgentForSession(session: Session): StubAgent {
     session,
     ctx: new Context(),
     get status() { return status },
-    send() {},
-    followup() {},
-    steer() {},
+    send: () => AgentMessageId('stub'),
+    followup: () => AgentMessageId('stub'),
+    steer: () => AgentMessageId('stub'),
     inject(content, options) {
       if (shouldDefer) deferred.push({ content, options })
       else appendInjection(session, content, options)
+      return AgentMessageId('stub')
     },
     cancel() {},
     whenIdle() { return Promise.resolve() },
@@ -476,7 +477,7 @@ describe('GoalService mutations', () => {
     let reject = true
     stub.agent.inject = (content, options) => {
       if (reject) throw new Error('injection rejected')
-      append(content, options)
+      return append(content, options)
     }
     ctx.agents.register(stub.agent)
 

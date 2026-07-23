@@ -4,6 +4,7 @@ import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
   Agent,
+  AgentMessageId,
   agentEvents,
   agentInterruptReasonOf,
 } from '@deepseek-ai/dsh-agent'
@@ -20,7 +21,7 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     session: new Session(id),
     status: 'idle',
     ctx: new Context(),
-    send() {},
+    send: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle() { return Promise.resolve() },
     ...overrides,

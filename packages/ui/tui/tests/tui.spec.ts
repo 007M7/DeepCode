@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CombinedAutocompleteProvider, type Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, assembleContextFor, AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
 import { type LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type JsonValue, type SessionHeader } from '@deepseek-ai/dsh-session'
@@ -552,7 +552,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).not.toContain('queued')
 
     const queueSteering = (text: string): void => {
-      result.ctx.emit('agent/inbox/enqueue', result.agent, { content: [{ type: 'text', text }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
+      result.ctx.emit('agent/inbox/enqueue', result.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
     }
     const drainSteering = (text: string): void => {
       result.session.append('steering/message', { turn: 1, content: [{ type: 'text', text }], source: { kind: 'user' } }, { surfaceOp: 'append' })
@@ -561,7 +561,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A steering queue for a different agent never touches this status line.
     const other = { ...result.agent, id: SessionId('other') } as unknown as Agent
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/enqueue', other, { content: [{ type: 'text', text: 'elsewhere' }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
+    result.ctx.emit('agent/inbox/enqueue', other, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'elsewhere' }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
@@ -574,7 +574,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     // A non-steering queue (an idle-style send) leaves the badge untouched.
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/enqueue', result.agent, { content: [{ type: 'text', text: 'sent' }], source: { kind: 'user' }, contexts: [], steering: false, wakeup: true })
+    result.ctx.emit('agent/inbox/enqueue', result.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'sent' }], source: { kind: 'user' }, contexts: [], steering: false, wakeup: true })
     drainSteering('first')
     await tick()
     expect(result.terminal.output).toContain('1 queued')
@@ -628,7 +628,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const idle = await setup()
     // A steering queue arriving while idle has no status line to badge, so the
     // refresh is a no-op beyond requesting a render.
-    idle.ctx.emit('agent/inbox/enqueue', idle.agent, { content: [{ type: 'text', text: 'early' }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
+    idle.ctx.emit('agent/inbox/enqueue', idle.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'early' }], source: { kind: 'user' }, contexts: [], steering: true, wakeup: true })
     idle.session.append('tool/call', { turn: 1, step: 0, callId: 'pre' as never, name: 'bash', arguments: '{}' })
     await tick()
     expect(idle.terminal.output).not.toContain('Executing tools')
@@ -2208,7 +2208,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     mountTui(ctx, { color: false }, { terminal, exit: vi.fn() })
@@ -2232,7 +2232,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
@@ -2266,14 +2266,14 @@ describe('terminal mounting', () => {
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
       id: otherSession.id, options: {}, session: otherSession, status: 'idle', ctx,
-      send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
     await tick()
@@ -2303,7 +2303,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', ctx,
-      send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
     expect(terminal.started).toBe(0)
@@ -2345,7 +2345,7 @@ describe('terminal mounting', () => {
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'running', ctx,
-      send() {}, followup() {}, steer() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      send: () => AgentMessageId('stub'), followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }

@@ -409,16 +409,30 @@ The fixed-preset aliases own `target` and `wakeup`, so they accept only the rema
 type AliasSendOptions = Omit<SendOptions, 'target' | 'wakeup'>
 ```
 
-The `agent/inbox/*` live events carry the resolved facts of one FIFO item; injection bypasses the FIFOs and never appears on them:
+`send` returns the accepted message's opaque `AgentMessageId`, stable across that message's `agent/inbox/*` events:
 
 ```ts type-equiv
 /**
- * The resolved facts of one inbox FIFO item, carried by the `agent/inbox/*`
- * live events. Source defaults are already applied, so these are the exact
- * values the item was accepted with. `steering` is true for a `next-step`
- * item drained between steps; a `next-turn` item is claimed at a turn boundary.
+ * Opaque id assigned to one accepted {@link Agent.send} message; returned by
+ * `send` and carried on its `agent/inbox/*` events for correlation.
  */
-interface InboxItemInfo {
+type AgentMessageId = Branded<'AgentMessageId'>
+```
+
+The `agent/inbox/*` live events carry one accepted message; injection bypasses the FIFOs and never appears on them:
+
+```ts type-equiv
+/**
+ * One accepted {@link Agent.send} message, carried by the `agent/inbox/*` live
+ * events. `id` is the value `send` returned to the caller, stable across this
+ * message's enqueue, dequeue, and discard events. Source defaults are already
+ * applied, so these are the exact values the item was accepted with. `steering`
+ * is true for a `next-step` item drained between steps; a `next-turn` item is
+ * claimed at a turn boundary.
+ */
+interface AgentMessage {
+  /** The id `send` returned for this message. */
+  id: AgentMessageId
   content: ContentBlock[]
   source: MessageSource
   contexts: HookContext[]
@@ -488,8 +502,9 @@ abstract class Agent {
    * input throws synchronously before any notification, enqueue, or append.
    * @param content - the model-facing content blocks to deliver.
    * @param options - target queue, wakeup decision, source, contexts, and meta.
+   * @returns the accepted message's {@link AgentMessageId}, stable across its `agent/inbox/*` events.
    */
-  abstract send(content: ContentBlock[], options?: SendOptions): void
+  abstract send(content: ContentBlock[], options?: SendOptions): AgentMessageId
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
@@ -512,9 +527,10 @@ abstract class Agent {
    * ordinary message of its own turn.
    * @param content - the prompt content blocks.
    * @param options - source and attached contexts.
+   * @returns the accepted message's {@link AgentMessageId}.
    */
-  followup(content: ContentBlock[], options?: AliasSendOptions): void {
-    this.send(content, { ...options, target: 'next-turn', wakeup: true })
+  followup(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
+    return this.send(content, { ...options, target: 'next-turn', wakeup: true })
   }
 
   /**
@@ -526,9 +542,10 @@ abstract class Agent {
    * Idle steering falls back to a woken follow-up turn.
    * @param content - the steering content blocks.
    * @param options - source and attached contexts.
+   * @returns the accepted message's {@link AgentMessageId}.
    */
-  steer(content: ContentBlock[], options?: AliasSendOptions): void {
-    this.send(content, { ...options, target: 'next-step', wakeup: true })
+  steer(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
+    return this.send(content, { ...options, target: 'next-step', wakeup: true })
   }
 
   /**
@@ -541,9 +558,10 @@ abstract class Agent {
    * `agent/error`. An omitted source defaults to `{ kind: 'plugin', plugin: '' }`.
    * @param content - the injected context content blocks.
    * @param options - source and durable model-hidden meta.
+   * @returns the accepted message's {@link AgentMessageId}.
    */
-  inject(content: ContentBlock[], options?: AliasSendOptions): void {
-    this.send(content, { ...options, target: 'next-step', wakeup: false })
+  inject(content: ContentBlock[], options?: AliasSendOptions): AgentMessageId {
+    return this.send(content, { ...options, target: 'next-step', wakeup: false })
   }
 }
 ```

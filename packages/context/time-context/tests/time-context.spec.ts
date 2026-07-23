@@ -4,7 +4,7 @@ import Loader from '@cordisjs/plugin-loader'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -42,14 +42,15 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     session,
     status: 'running',
     ctx: new Context(),
-    send() {},
-    followup() {},
-    steer() {},
+    send: () => AgentMessageId('stub'),
+    followup: () => AgentMessageId('stub'),
+    steer: () => AgentMessageId('stub'),
     inject(content, options) {
       session.append('user/message', {
         content,
         source: options?.source ?? { kind: 'user' },
       }, { surfaceOp: 'append' })
+      return AgentMessageId('stub')
     },
     cancel() {},
     whenIdle: () => Promise.resolve(),
