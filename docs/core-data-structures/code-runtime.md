@@ -1,6 +1,6 @@
 # Code Runtime
 
-The code-execution seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) whose interface ([dsh-code-runtime](../../packages/code-runtime/code-runtime), `ctx.codeRuntime`) runs one model-written program against host-provided async bindings and reports what it printed and returned. Code execution is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). Backends differ by execution substrate and source language, both readonly descriptors on the service; the worker-thread backend and the tool-registry consumer (Code Mode) are specified in the [Code Mode Agent Note](../../.agents/notes/implemented/feature/2026-06-15-code-mode.md).
+The code-execution seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) whose interface ([dsh-code-runtime](../../packages/code-runtime/code-runtime), `ctx.codeRuntime`) runs one model-written program against host-provided async bindings and reports what it printed and returned. Code execution is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). Backends differ by execution substrate and source language, both readonly descriptors on the service; the worker-thread backend and tool-registry consumer are specified by the [Code Mode foundation](../../.agents/notes/implemented/feature/2026-06-15-code-mode.md) and [typed-return contract](../../.agents/notes/implemented/feature/2026-07-20-code-mode-typed-tool-returns.md).
 
 Source: [`packages/code-runtime/code-runtime/src/types.ts`](../../packages/code-runtime/code-runtime/src/types.ts)
 
@@ -45,12 +45,12 @@ The result reports an error as a **field**, never a rejection of `run()` — rep
 interface CodeRunResult {
   /**
    * The program's completion value (its top-level `return`), when it ran to
-   * completion and the value survived the runtime's serialization boundary;
-   * a non-transferable value is replaced by a string rendering, and a failed
-   * or value-less run leaves this absent.
+   * completion and the value crossed the runtime's lossless-JSON boundary.
+   * Invalid or over-limit completions fail the run instead of substituting a
+   * rendered string; a failed or value-less run leaves this absent.
    */
-  value?: unknown
-  /** Text the program emitted, in order (capped by the implementation). */
+  value?: CodeJsonValue
+  /** Text the program emitted, in order, bounded only as part of the outer result. */
   logs: string[]
   /** Present iff the run failed; see {@link CodeRunFailure} for the taxonomy. */
   error?: CodeRunFailure
@@ -59,7 +59,23 @@ interface CodeRunResult {
 
 ## Bindings: host functions as program globals
 
-Each `CodeBindingNamespace` becomes one global object of async callables inside the program (the Code Mode consumer passes one: `tools`). Arguments and resolutions must be structured-cloneable — a runtime may bridge calls across a serialization boundary — and a runtime treats binding names as hostile input (`__proto__` is an ordinary own property, never a prototype collision):
+Each `CodeBindingNamespace` becomes one global object of async callables inside the program (the Code Mode consumer passes one: `tools`). Arguments and resolutions must be lossless JSON and cross without a seam-level byte cap; the runtime may bridge them through structured clone. A namespace may declare a program-visible error class without making the runtime know the consumer's names: the runtime injects the real constructor and turns rejected calls into its instances. A runtime also treats binding names as hostile input (`__proto__` is an ordinary own property, never a prototype collision):
+
+```ts type-equiv
+/**
+ * Program-visible typed rejection for one binding namespace. The runtime
+ * injects a real error constructor under `name`; rejected member calls become
+ * its instances and expose the exact member name through
+ * `memberNameProperty`. Both strings are runtime data rather than knowledge
+ * of a particular consumer such as Code Mode.
+ */
+interface CodeBindingErrorClass {
+  /** Constructor global and resulting `Error.name` (must be a usable JS identifier). */
+  name: string
+  /** Non-empty own property for the member name; cannot replace `name`, `message`, or `stack`. */
+  memberNameProperty: string
+}
+```
 
 ```ts type-equiv
 /**
@@ -74,24 +90,32 @@ interface CodeBindingNamespace {
   global: string
   /** The callable members, keyed by the exact name the program calls. */
   functions: Record<string, CodeBindingFunction>
+  /** Optional program-visible typed rejection contract for this namespace. */
+  errorClass?: CodeBindingErrorClass
 }
+```
+
+```ts type-equiv
+/** A lossless JSON value transferable across the dependency-light code-runtime seam. */
+type CodeJsonValue = null | boolean | number | string | CodeJsonValue[] | { [key: string]: CodeJsonValue }
 ```
 
 ```ts type-equiv
 /**
  * One host-side function exposed to the program as an async callable. The
  * runtime bridges calls to it (possibly across a serialization boundary), so
- * `args` and the resolution value MUST be structured-cloneable; a runtime
- * rejects a non-cloneable value with a descriptive error rather than
- * corrupting the run. A rejection of this function surfaces inside the
- * program as a rejection of the corresponding call.
+ * `args` and the resolution value MUST be lossless JSON. A runtime rejects a
+ * lossy or non-cloneable value with a descriptive error rather than corrupting
+ * the run. No seam-level byte cap applies to a binding resolution. A rejection
+ * of this function surfaces inside the program as a rejection of the
+ * corresponding call.
  */
-type CodeBindingFunction = (args: unknown) => Promise<unknown>
+type CodeBindingFunction = (args: unknown) => Promise<CodeJsonValue>
 ```
 
 ## Captured output and the failure taxonomy
 
-Logs are plain strings in emission order. The runtime captures the program's console and stream output, but channel and console-method metadata are not part of the seam because consumers render only the text. Implementations cap the aggregate output and mark truncation in-band.
+Logs are plain strings in emission order. The runtime captures the program's console and stream output, but channel and console-method metadata are not part of the seam because consumers render only the text. Implementations cap the serialized outer log-array plus completion-value or failure-message payload; fixed result-envelope syntax and consumer presentation whitespace are not part of that variable-payload ledger. Overflow is an explicit failure rather than in-band value substitution.
 
 Failure kinds are **orthogonal outcomes reported independently** (per [defensive-patterns](../defensive-patterns.md)): a budget expiry is not an exception, an abort is not a timeout, and a substrate death (e.g. OOM) is neither:
 
@@ -105,10 +129,12 @@ Failure kinds are **orthogonal outcomes reported independently** (per [defensive
  * - `'timeout'` — an implementation-owned budget expired; the message says which.
  * - `'abort'` — {@link CodeRunRequest.signal} fired.
  * - `'worker-exit'` — the execution substrate died without settling (e.g. OOM).
+ * - `'invalid-output'` — the completion value was not lossless JSON.
+ * - `'output-limit'` — the serialized outer logs/value/diagnostic exceeded the configured cap.
  */
 interface CodeRunFailure {
   /** The failure class (see the interface doc for each kind's meaning). */
-  kind: 'exception' | 'timeout' | 'abort' | 'worker-exit'
+  kind: 'exception' | 'timeout' | 'abort' | 'worker-exit' | 'invalid-output' | 'output-limit'
   /** Human-readable detail, suitable for feeding back to a model to self-correct. */
   message: string
 }

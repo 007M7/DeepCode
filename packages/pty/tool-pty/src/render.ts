@@ -1,13 +1,55 @@
 /** Model and ACP rendering for persistent terminal tool results. */
 
-import type { PtyReadResult, PtySendRead, PtySendResult, PtySessionSnapshot, PtySpawnResult } from '@deepseek-ai/dsh-pty'
+interface RenderedSessionStatusRunning {
+  kind: 'running'
+}
+
+interface RenderedSessionStatusExited {
+  kind: 'exited'
+  exitCode: number | null
+  signal: string | null
+}
+
+type RenderedSessionStatus = RenderedSessionStatusRunning | RenderedSessionStatusExited
+
+interface RenderedSessionSnapshot {
+  sessionId: string
+  name?: string
+  type: string
+  pid?: number
+  status: RenderedSessionStatus
+}
+
+interface RenderedSpawnResult extends RenderedSessionSnapshot {
+  motd: string
+}
+
+interface RenderedSendResult {
+  viewport: string
+  waitReason: 'stdin_read' | 'inferred_idle' | 'timeout' | 'session_exit'
+  sessionStatus: RenderedSessionStatus
+  truncated: boolean
+}
+
+interface RenderedSendRead {
+  delta: string
+  truncated: boolean
+}
+
+interface RenderedReadResult {
+  text: string
+  totalLines: number
+  lineBegin: number
+  lineEnd: number
+  truncated: boolean
+}
 
 /**
  * Render one created session and its bounded MOTD.
  * @param result - published spawn result.
  * @returns Model-facing session acknowledgement.
  */
-export function renderSpawn(result: PtySpawnResult): string {
+export function renderSpawn(result: RenderedSpawnResult): string {
   const label = result.name === undefined ? result.sessionId : `${result.sessionId} (${result.name})`
   return `started terminal session ${label} [type: ${result.type}]\n${result.motd || '(no startup output)'}`
 }
@@ -17,7 +59,7 @@ export function renderSpawn(result: PtySpawnResult): string {
  * @param result - settled send outcome.
  * @returns Terminal output plus wait/session markers.
  */
-export function renderSend(result: PtySendResult): string {
+export function renderSend(result: RenderedSendResult): string {
   const output = result.viewport || '(no new output)'
   const status = result.sessionStatus.kind === 'running'
     ? 'running'
@@ -30,7 +72,7 @@ export function renderSend(result: PtySendResult): string {
  * @param read - consuming operation delta.
  * @returns Delta plus truncation marker when needed.
  */
-export function renderSendRead(read: PtySendRead): string {
+export function renderSendRead(read: RenderedSendRead): string {
   return `${read.delta}${read.truncated ? `${read.delta.endsWith('\n') || read.delta.length === 0 ? '' : '\n'}[output truncated]` : ''}`
 }
 
@@ -39,7 +81,7 @@ export function renderSendRead(read: PtySendRead): string {
  * @param result - retained scrollback page.
  * @returns Page text plus pagination and truncation markers.
  */
-export function renderRead(result: PtyReadResult): string {
+export function renderRead(result: RenderedReadResult): string {
   const output = result.text || '(no retained output)'
   return `${output}\n[lines: ${result.lineBegin}-${result.lineEnd} of ${result.totalLines}]${result.truncated ? '\n[output truncated]' : ''}`
 }
@@ -49,7 +91,7 @@ export function renderRead(result: PtyReadResult): string {
  * @param sessions - fresh owner-scoped snapshots.
  * @returns One line per session or the empty marker.
  */
-export function renderList(sessions: PtySessionSnapshot[]): string {
+export function renderList(sessions: readonly RenderedSessionSnapshot[]): string {
   if (sessions.length === 0) return '(no terminal sessions)'
   return sessions.map((session) => {
     const name = session.name === undefined ? '' : ` (${session.name})`

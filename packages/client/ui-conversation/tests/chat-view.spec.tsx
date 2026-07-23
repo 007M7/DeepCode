@@ -7,14 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Profiler } from 'react'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
-  AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, ToolResultNode, UserMessageNode,
+  AssistantMessageNode, ConversationNode, ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { hookOf } from './hook.ts'
-import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ConvViewProps, SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ChatViewSlotProps, SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createChatStore } from '../src/client/stores.ts'
-import { createChatView } from '../src/client/chat/ChatView.tsx'
+import { ChatView } from '../src/client/chat/ChatView.tsx'
 import { deriveChatFlow, flowKeys } from '../src/client/chat/chat-flow.ts'
 
 afterEach(cleanup)
@@ -68,23 +67,41 @@ const runningCall = (callId: string, name = 'bash'): RunningToolCall => ({
   callId, name, argsRaw: `{"command":"cmd-${callId}"}`, turn: 2, step: 1, callView: null,
 })
 
+/** Empty sessions-list hook stub (the global standard-kit seat; engines carry no hook since the store migration — bind here). */
+function emptySessions() {
+  const store = createSnapshotStore<SessionListState>(
+    { ids: [], byId: {}, current: undefined } as SessionListState)
+  return bindSnapshotSelector(store)
+}
+
 function makeHarness(init?: Partial<ConversationSnapshot>) {
   const { set, source } = makeSource(init)
-  const registry = new ToolViewRegistry()
-  const ChatView = createChatView({ toolviews: registry, t: (k) => k })
   const openDetails = vi.fn<(t: SelectionTarget) => void>()
   const loadOlder = vi.fn()
   // Selection rides the REAL chat store (same construction path as
-  // production; the view reads it through the ConvViewProps useStore share).
+  // production; the view reads it through the PropsStore useStore share).
+  // renderSlot stub renders the render-site fallback (an empty keyed ledger:
+  // every tool lands on GenericToolCard); keyed dispatch to registered rows
+  // is the slot machinery's behavior, covered by its own specs.
   const chat = createChatStore().create()
-  const props: ConvViewProps = {
+  const renderSlot = ((_key: string, _owner: object, opts?: { fallback?: React.ReactNode }) =>
+    opts?.fallback ?? null) as unknown as ChatViewSlotProps['renderSlot']
+  // SessionProvider seat arrives with the session-scope child declaration;
+  // ChatView never invokes it (render-prop pass-through stub).
+  const SessionProviderStub: ChatViewSlotProps['SessionProvider'] = ({ children }) => <>{children(SID)}</>
+  const props: ChatViewSlotProps = {
     sessionId: SID,
-    useSession: hookOf(source) as unknown as UseSession,
-    useStore: hookOf(chat),
-    actions: { openDetails, loadOlder },
+    useSession: bindSnapshotSelector(source),
+    useSessions: emptySessions(),
+    useStore: bindSnapshotSelector(chat),
+    actions: chat.actions,
+    renderSlot,
+    SessionProvider: SessionProviderStub,
+    openDetails,
+    loadOlder,
   }
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
-  return { set, registry, ChatView, props, openDetails, loadOlder, setSelection }
+  return { set, ChatView, props, openDetails, loadOlder, setSelection }
 }
 
 describe('chat-flow derivation', () => {
@@ -169,11 +186,13 @@ describe('ChatView', () => {
     const h = makeHarness({
       nodes: [user(1, 'q'), assistant(2, 'old'), toolResult(3, 'a')],
     })
+    // Count renderSlot invocations: the memo boundary holds when CallRow does
+    // not re-render, so the row's renderSlot call count freezes during chunks.
     let rowRenders = 0
-    h.registry.register('bash', () => {
+    h.props.renderSlot = (((_key: string, _owner: object) => {
       rowRenders += 1
       return <div data-testid="counting-row" />
-    })
+    }) as unknown as ChatViewSlotProps['renderSlot'])
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByTestId('counting-row')).toBeTruthy()
     const afterMount = rowRenders
@@ -211,21 +230,19 @@ describe('ChatView', () => {
     expect(view.getByText('cmd-r1')).toBeTruthy()
   })
 
-  it('a scoped toolview registration takes over rendering for its session only', () => {
+  it('dispatches each tool row through the keyed slot with the tool name as entryKey', () => {
     const h = makeHarness({ nodes: [toolResult(3, 'a')] })
-    h.registry.register('bash', () => <div data-testid="custom-bash" />, { scope: (id) => id === SID })
-    const view = render(<h.ChatView {...h.props} />)
-    expect(view.getByTestId('custom-bash')).toBeTruthy()
-  })
-
-  it('unregistering a toolview falls back to the generic row live', () => {
-    const h = makeHarness({ nodes: [toolResult(3, 'a')] })
-    const off = h.registry.register('bash', () => <div data-testid="custom-bash" />)
-    const view = render(<h.ChatView {...h.props} />)
-    expect(view.getByTestId('custom-bash')).toBeTruthy()
-    act(() => off())
-    expect(view.queryByTestId('custom-bash')).toBeNull()
-    expect(view.getByText('Bash')).toBeTruthy()
+    const calls: { key: string; entryKey?: string }[] = []
+    h.props.renderSlot = (((key: string, _owner: object, opts?: { entryKey?: string; fallback?: React.ReactNode }) => {
+      calls.push({ key, ...(opts?.entryKey !== undefined ? { entryKey: opts.entryKey } : {}) })
+      return opts?.fallback ?? null
+    }) as unknown as ChatViewSlotProps['renderSlot'])
+    render(<h.ChatView {...h.props} />)
+    // Keyed dispatch: slot name is the declared hole, entryKey the wire tool
+    // name, and the fallback (GenericToolCard) renders on an empty ledger.
+    // (Registered-row takeover and live unload are slot machinery behavior,
+    // owned by the slot system's own specs.)
+    expect(calls).toEqual([{ key: 'conversation.chat.toolview', entryKey: 'bash' }])
   })
 
   it('prepend compensates scrollTop by the height delta; a trailing user node force-scrolls', () => {
