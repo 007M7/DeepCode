@@ -36,7 +36,7 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [code-runtime.md](code-runtime.md) | 代码执行 seam：`CodeRunRequest`/`Result`、绑定命名空间、捕获日志、`CodeRunFailure` 分类体系 |
 | [filesystem.md](filesystem.md) | 文件系统 seam：`FsTarget`、读/写/编辑结果、观测到的文件状态、`FsErrorCode` |
 | [lsp.md](lsp.md) | LSP 导航 seam：`LspQueryRequest`/`Result`、`LspProvider`/`Service`、四种操作、`LspError` |
-| [skills.md](skills.md) | skill 服务：发现优先级、`SkillSummary`/`SkillDefinition`、会话前缀目录、面向模型的 `skill` 加载 |
+| [skills.md](skills.md) | skill（技能）服务：发现优先级、`SkillSummary`/`SkillDefinition`、会话前缀目录、面向模型的 `skill` 加载 |
 | [compaction.md](compaction.md) | 压缩（compaction）seam：`compact/*` 会话事件、`CompactionResult`、`CompactService` 接口 |
 | [subagent.md](subagent.md) | subagent seam：命名提供方注册表、`SubagentStartRequest`/`Result`/`Run`、启动时与运行时能力拆分 |
 | [web.md](web.md) | Web 访问 seam：`WebSearchRequest`/`Result`、`WebFetchRequest`/`Result`、`WebFetchBody`、提供方可用性、`WebError` |
@@ -47,7 +47,7 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 
 ## `…Map → derived-union` 模式
 
-harness 中几乎所有可扩展的和类型都遵循同一形状：一个以判别标签为键的接口（`…Map`），联合类型由 `keyof` 派生。插件通过**声明合并**添加变体——无需修改拥有该类型的包。
+harness 中几乎所有可扩展的和类型都遵循同一形状：一个以判别标签为键的接口（`…Map`），联合类型由 `keyof` 派生。插件通过**声明合并**添加变体——无需修改拥有该类型的包（package）。
 
 ```ts ignore-check
 // The pattern, schematically:
@@ -68,7 +68,7 @@ declare module '@deepseek-ai/dsh-llm' {
 
 六个规范 map 使用此模式；插件作者扩展它们：
 
-| Map | 包（package） | 派生 | 目录 |
+| Map | 包 | 派生 | 目录 |
 |---|---|---|---|
 | `ContentBlockMap` | dsh-llm | `ContentBlock` | [下文](#content-blocks-and-messages) |
 | `MessageSourceMap` | dsh-llm | `MessageSource` | [下文](#content-blocks-and-messages) |
@@ -175,7 +175,7 @@ interface MessageSourceMap {
 
 源码：[`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
-提供方与模型发现使用小型、提供方中立的描述符。模型目录仅供参考：路由仍以已注册提供方为键，适配器也可以接受未列出的模型 id。
+提供方与模型发现使用小型、提供方无关的描述符。模型目录仅供参考：路由仍以已注册提供方为键，适配器也可以接受未列出的模型 id。
 
 ```ts type-equiv
 /** Display metadata for one registered provider route. */
@@ -381,7 +381,7 @@ interface SendOptions {
 }
 ```
 
-`InjectOptions` 接受普通消息归属信息和对模型隐藏的持久 JSON 元数据。附加上下文只属于排队输入或 steering 输入，因此合成注入不接受这类上下文：
+`InjectOptions` 接受普通消息归属信息和对模型隐藏的持久 JSON 元数据。附加上下文只属于排队输入或 steering（中途引导）输入，因此合成注入不接受这类上下文：
 
 ```ts type-equiv
 /** Options specific to durable synthetic context injection. */
@@ -458,7 +458,7 @@ interface Agent {
 
 cause 是由 TypeScript 强制约束的同进程输入。活跃持有者会把其判别字段复制到仅运行时的 `AbortSignal.reason`；该值在发布 `turn/end` 前退役。`agentInterruptReasonOf(signal)` 无需查询环境中的 initiator 状态，即可识别 `user`、`parent` 与仅用于生命周期的 `disposed`。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 
-[事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall 契约。轮次和步骤边界是持久会话事件，而不是 agent emit。
+[事件分类](../architecture.md#event)拥有 `agent/*` 生命周期、检查点与 waterfall（瀑布式事件）契约。轮次和步骤边界是持久会话事件，而不是 agent emit。
 
 ## 发起 Agent
 

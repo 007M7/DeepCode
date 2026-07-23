@@ -8,7 +8,7 @@
 
 ## 标识与结果
 
-每个请求都会获得一个全新的 `ApprovalRequestId`。该品牌类型将 `approval/asked` 与 `approval/decided` 审计事件配对，同时不会让审批 id 与工具调用 id 或 agent/会话 id 互换。
+每个请求都会获得一个全新的 `ApprovalRequestId`。该品牌类型将 `approval/asked` 与 `approval/decided` 审计事件配对，同时不会让审批 id 与工具调用 id 或 agent（智能体）/会话 id 互换。
 
 ```ts type-equiv
 /**
@@ -48,7 +48,7 @@ type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 type ApprovalPolicy = 'ask' | 'never'
 ```
 
-提示词段落会声明 `never` 的确定性行为，并以服务自有的标记记录当前策略。重启后，步骤前叙述器从已记录的请求头中读取该标记，而非从部署 persona 行文中推断状态。ACP 空闲切换会在 bridge 中保持，直到下一个 `turn/start`，因为审批审计和策略事件必须保持在轮次内，以确保持久回放的正确性。
+提示词段落会声明 `never` 的确定性行为，并以服务自有的标记记录当前策略。重启后，步骤前叙述器从已记录的请求头中读取该标记，而非从部署 persona 行文中推断状态。ACP（Agent Client Protocol）空闲切换会在 bridge 中保持，直到下一个 `turn/start`，因为审批审计和策略事件必须保持在轮次内，以确保持久回放的正确性。
 
 ## 审批请求
 

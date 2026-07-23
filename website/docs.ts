@@ -226,14 +226,24 @@ const cordisTutorial = mirroredPages(([
   ...(file === 'index.md' ? { sourceAliases: ['docs/cordis-tutorial'] } : {}),
 })))
 
+const cordisPrimerReference = pairedPages([
+  {
+    source: 'docs/cordis-primer.md',
+    route: 'reference/cordis-primer.md',
+    label: { root: 'Cordis 入门', en: 'Cordis primer' },
+    sidebar: { root: 'zh-reference', en: 'en-reference' },
+    section: { root: '概念', en: 'Concepts' },
+    order: 1,
+  },
+])
+
 const reference = mirroredPages([
   ...([
-    ['docs/architecture.md', 'reference/index.md', '架构', 'Architecture'],
-    ['docs/cordis-primer.md', 'reference/cordis-primer.md', 'Cordis 入门', 'Cordis primer'],
-    ['docs/capability-seams.md', 'reference/capability-seams.md', '能力服务', 'Capability services'],
-    ['docs/agent-lifecycle.md', 'reference/agent-lifecycle.md', 'Agent 生命周期', 'Agent lifecycle'],
-    ['docs/tool-execution-pipeline.md', 'reference/tool-execution-pipeline.md', 'Tool 执行', 'Tool execution'],
-  ] as const).map(([source, route, rootLabel, enLabel], order): MirroredPage => ({
+    ['docs/architecture.md', 'reference/index.md', '架构', 'Architecture', 0],
+    ['docs/capability-seams.md', 'reference/capability-seams.md', '能力服务', 'Capability services', 2],
+    ['docs/agent-lifecycle.md', 'reference/agent-lifecycle.md', 'Agent 生命周期', 'Agent lifecycle', 3],
+    ['docs/tool-execution-pipeline.md', 'reference/tool-execution-pipeline.md', 'Tool 执行', 'Tool execution', 4],
+  ] as const).map(([source, route, rootLabel, enLabel, order]): MirroredPage => ({
     source,
     route,
     contentLocale: 'en-US',
@@ -325,5 +335,6 @@ export const docsPages: DocsPage[] = [
   ...homeAndGuide,
   ...develop,
   ...cordisTutorial,
+  ...cordisPrimerReference,
   ...reference,
 ]

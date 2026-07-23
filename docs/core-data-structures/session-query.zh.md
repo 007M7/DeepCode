@@ -2,7 +2,7 @@
 
 [English](session-query.md) | 中文
 
-对优先使用 live 数据的逻辑会话集合执行精确读取与关系追踪。[包契约](../../packages/session-query/session-query)拥有来源优先级、动态可选持久化、克隆、surface 分类、有界窗口、追踪校验与类型化失败。全文搜索属于另一个拟议的 SQLite 包。
+对优先使用 live 数据的逻辑会话集合执行精确读取与关系追踪。[包（package）契约](../../packages/session-query/session-query)拥有来源优先级、动态可选持久化、克隆、surface 分类、有界窗口、追踪校验与类型化失败。全文搜索属于另一个拟议的 SQLite 包。
 
 源码：[`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 

@@ -112,7 +112,7 @@ interface SessionEventMap {
 
 ### `OutOfBandSessionEventMap`：受限的带外追加显式准入
 
-仅属于 `SessionEventMap` 并不表示事件可以脱离 agent loop 的常规生命周期追加。事件所有方必须通过声明合并将同一键加入这个空标记映射，`ctx.sessions.appendOutOfBand()` 才会接受该事件；派生类型还会排除所有 surface 事件。被接受的更新会并入已打开的轮次；如果没有打开的轮次，系统则为它创建一个边界配平且已刷新完成的零步骤轮次。
+仅属于 `SessionEventMap` 并不表示事件可以脱离 agent loop（智能体循环）的常规生命周期追加。事件所有方必须通过声明合并将同一键加入这个空标记映射，`ctx.sessions.appendOutOfBand()` 才会接受该事件；派生类型还会排除所有 surface 事件。被接受的更新会并入已打开的轮次；如果没有打开的轮次，系统则为它创建一个边界配平且已刷新完成的零步骤轮次。
 
 ```ts type-equiv
 /**
@@ -176,7 +176,7 @@ interface EpochHeader {
 }
 ```
 
-规范形式：空系统提示词、空工具列表和空会话前缀都表示为字段缺失，与请求构建方式一致。`messagePrefix` 是 `agent/session-prefix` waterfall（瀑布式事件）产物的持久记录（请求 = `messagePrefix + derived history`）；每个 agent loop（智能体循环）实例只组合一次，并包含在该实例记录的每份完整快照中。包含已移除的 `request/header-delta` 事件或完整快照原因为 `fallback` 的旧版 v0 日志，会在 seed、append 和持久化加载边界被拒绝，而不会以不完整方式回放。
+规范形式：空系统提示词、空工具列表和空会话前缀都表示为字段缺失，与请求构建方式一致。`messagePrefix` 是 `agent/session-prefix` waterfall（瀑布式事件）产物的持久记录（请求 = `messagePrefix + derived history`）；每个 agent loop 实例只组合一次，并包含在该实例记录的每份完整快照中。包含已移除的 `request/header-delta` 事件或完整快照原因为 `fallback` 的旧版 v0 日志，会在 seed、append 和持久化加载边界被拒绝，而不会以不完整方式回放。
 
 ## `SessionEvent<T>`：一条日志条目
 
@@ -530,7 +530,7 @@ interface TurnEndReasonMap {
 }
 ```
 
-`max-tokens` 与模型调用中同名的 `FinishReason` 对应：只要轮次内有任何步骤以 `max-tokens` 结束，整个轮次就以 `max-tokens` 而不是 `completed` 结束（即使之后继续执行，截断事实仍优先），让消费方能够区分正常停止和截断停止；但它只优先于 `completed`，`disposed`/`aborted`/`error` 结果的优先级更高。`rejected` 表示一个零步骤轮次，其已认领的提示词被 `agent/prompt-submit` 钩子阻止（ACP 桥接层将其映射为 `cancelled`）。`interrupted` 是唯一不会由任何 loop 发出的原因：它由崩溃恢复合成（见 [persistence.md](persistence.md)）。两个 map 均可通过合并扩展。
+`max-tokens` 与模型调用中同名的 `FinishReason` 对应：只要轮次内有任何步骤以 `max-tokens` 结束，整个轮次就以 `max-tokens` 而不是 `completed` 结束（即使之后继续执行，截断事实仍优先），让消费方能够区分正常停止和截断停止；但它只优先于 `completed`，`disposed`/`aborted`/`error` 结果的优先级更高。`rejected` 表示一个零步骤轮次，其已认领的提示词被 `agent/prompt-submit` 钩子阻止（ACP（Agent Client Protocol）桥接层将其映射为 `cancelled`）。`interrupted` 是唯一不会由任何 loop 发出的原因：它由崩溃恢复合成（见 [persistence.md](persistence.md)）。两个 map 均可通过合并扩展。
 
 ## 轮次封闭不变式
 

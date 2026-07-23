@@ -1,12 +1,12 @@
-# 事故复盘（postmortem） 0001：ACP 服务器在连接时崩溃——`export default` 丢弃了插件的 `inject`
+# 事故复盘（postmortem） 0001：ACP（Agent Client Protocol）服务器在连接时崩溃——`export default` 丢弃了插件的 `inject`
 
 [English](0001-acp-default-export-drops-inject.md) | 中文
 
-Status: resolved (fix in PR #41 `feat/acp-2-bridge`)
+Status: resolved (fix in PR（Pull Request） #41 `feat/acp-2-bridge`)
 
 ## 摘要
 
-两个集成错误在单元测试全覆盖的情况下仍然导致 ACP（Agent Client Protocol）崩溃：一个 default export 使 Loader 丢弃了 `inject`，一个经 traceable 代理的可选服务查找在 shadow 边界上失败。手动挂载的测试绕过了这两条路径。修复方案增加了无需 API key 的真实 Loader 覆盖率，并为插件导出和可选服务访问制定了包（package）级规则。
+两个集成错误在单元测试全覆盖的情况下仍然导致 ACP 崩溃：一个 default export 使 Loader 丢弃了 `inject`，一个经 traceable 代理的可选服务查找在 shadow 边界上失败。手动挂载的测试绕过了这两条路径。修复方案增加了无需 API key 的真实 Loader 覆盖率，并为插件导出和可选服务访问制定了包（package）级规则。
 
 ## 概述
 

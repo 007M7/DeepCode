@@ -2,9 +2,9 @@
 
 [English](subagent.md) | 中文
 
-subagent seam：一个 agent（智能体）将工作委派给子 agent。与 [bash](bash.md) 一样，它是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。但它在一个维度上与其他所有 seam 不同：**同一上下文中可共存多个提供方实现**，按名称注册（`ctx.subagents`），而 bash 只允许一个执行器。注册表的形状参照 [LLM 适配器注册表](llm-streaming.md)，而非单服务的 bash 执行器。
+subagent seam：一个 agent（智能体）将工作委派给子 agent。与 [bash](bash.md) 一样，它是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。但它在一个维度上与其他所有 seam 不同：**同一上下文中可共存多个提供方实现**，按名称注册（`ctx.subagents`），而 bash 只允许一个执行器。注册表的形状参照 [LLM（大语言模型）适配器注册表](llm-streaming.md)，而非单服务的 bash 执行器。
 
-接口：[dsh-subagent](../../packages/subagent/subagent)（`ctx.subagents` + 下文词汇）。实现为兄弟包（`dsh-subagent-spawn`、`-fork`、`-acp`）；面向模型的消费方是 [dsh-tool-subagent](../../packages/subagent/tool-subagent)。提案与设计理由见 [subagent Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)。
+接口：[dsh-subagent](../../packages/subagent/subagent)（`ctx.subagents` + 下文词汇）。实现为三个兄弟包（package）：`dsh-subagent-spawn`、`-fork`、`-acp`；面向模型的消费方是 [dsh-tool-subagent](../../packages/subagent/tool-subagent)。提案与设计理由见 [subagent Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)。
 
 源码：[`packages/subagent/subagent/src/types.ts`](../../packages/subagent/subagent/src/types.ts)
 

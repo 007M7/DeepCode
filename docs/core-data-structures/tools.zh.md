@@ -310,7 +310,7 @@ type PostToolDecision =
 
 调用 `next()` 获取默认决策，或直接返回一个决策以短路。前置策略可以 deny 或 ask；只有 `allowed-once` 才继续执行，而未授权、缺少审批通道或服务、或无 agent 的请求都会变为拒绝。Guard 仍可施加最终拒绝。参数不可被改写，因为历史记录、审计、UI 和执行必须保持一致。
 
-后置策略可以替换内容；块会变为包含纠正反馈的 `isError` 结果。`tools/result` 在归一化后接收冻结的执行和结果；观察者无法对其进行变换，观察者的失败也会被隔离。未知工具和抛出异常的工具都会变为结构化错误（`ToolNotFoundError` 映射为 `UNKNOWN_TOOL`），调用失败但不终止当前轮次。
+后置策略可以替换内容；阻止决策会变为包含纠正反馈的 `isError` 结果。`tools/result` 在归一化后接收冻结的执行和结果；观察者无法对其进行变换，观察者的失败也会被隔离。未知工具和抛出异常的工具都会变为结构化错误（`ToolNotFoundError` 映射为 `UNKNOWN_TOOL`），调用失败但不终止当前轮次。
 
 ## 结构化输出 schema 子集
 
@@ -365,11 +365,11 @@ type StructuredOutputSchema = StructuredSchemaNode & { type: 'object' }
 
 ## 工具展示 UI 词汇
 
-工具希望其调用在 UI 中如何呈现（编辑器工具调用卡片、CLI 日志行），提供方无关，使工具在不依赖任何客户端协议的情况下描述自身。`presentCall`/`presentResult` 返回一个 **`card` 标签的渲染意图**——一个可辨识联合类型，UI 桥接层据此分发：
+工具希望其调用在 UI 中如何呈现（编辑器工具调用卡片、CLI（命令行界面）日志行），提供方无关，使工具在不依赖任何客户端协议的情况下描述自身。`presentCall`/`presentResult` 返回一个 **`card` 标签的渲染意图**——一个可辨识联合类型，UI 桥接层据此分发：
 
 - `ToolCallView`（待执行）：`{ card: 'generic', title, kind?, rawInput?, content?, locations? }`（默认卡片；`locations` 是 `{ path, line? }[]`，表示调用读取/修改的文件，供编辑器跟随）、`{ card: 'terminal', title, description?, cwd? }`（shell 命令→终端卡片）、或 `{ card: 'diff', title, diffs, locations? }`（文件创建/修改→行内 diff 卡片；`diffs` 是 `{ path, oldText, newText }[]`，新文件时 `oldText: null`）。
 - `ToolResultView`（已完成）：`{ card: 'generic', title?, content? }`、`{ card: 'terminal', title?, output?, exitCode?, signal? }`（捕获的运行输出 + 退出状态；有能力的 UI 显示退出状态标签，无能力的 UI 获得桥接层从 `output` 派生的围栏 ` ```console ` 回退）、或 `{ card: 'diff', title?, diffs }`（已完成的文件变更→要展示的变更，通常是从变更前后内容计算出带上下文行的已应用 hunk，或在没有前像时的整文件 diff——例如文件创建。`tool_call_update` 的内容会替换调用的内容，因此变更工具即使与调用时的片段重复也要返回此卡片，以防结果文本覆盖 diff）。
 
-`ToolCallKind`（`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`）用于为通用卡片选择图标。`FileLocation`（`{ path, line? }`）与 `FileDiff`（`{ path, oldText, newText }`）是共享的文件卡片词汇。该设计由[渲染意图联合类型 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)固定；ACP 桥接层将 `diff` 卡片映射为 `{ type: 'diff' }` 内容块，将 `terminal` 卡片映射为 `_meta` 终端约定，并根据会话 cwd 将文件卡片标题转换为相对路径。
+`ToolCallKind`（`'read' | 'edit' | 'delete' | 'move' | 'search' | 'execute' | 'fetch' | 'other'`）用于为通用卡片选择图标。`FileLocation`（`{ path, line? }`）与 `FileDiff`（`{ path, oldText, newText }`）是共享的文件卡片词汇。该设计由[渲染意图联合类型 Agent Note（agent 决策记录）](../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md)固定；ACP（Agent Client Protocol）桥接层将 `diff` 卡片映射为 `{ type: 'diff' }` 内容块，将 `terminal` 卡片映射为 `_meta` 终端约定，并根据会话 cwd 将文件卡片标题转换为相对路径。
 
 完整的展示字段文档见 [`packages/core/tools/src/presentation.ts`](../../packages/core/tools/src/presentation.ts)。`bash` schema 与执行器见 [bash.md](bash.md)；通用后台控制见 [tasks.md](tasks.md)。
