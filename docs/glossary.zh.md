@@ -21,7 +21,7 @@ FIXME(glossary-completeness): 首次发布前扩充本术语表，使其覆盖 S
 ## 目标
 
 - **目标**：附着在现有会话上的单个持久完成目标，带有按修订号演进的 `active` / `paused` / `blocked` / `complete` 阶段和 Goal Round 上限；`blocked` 保留策略代码与说明。目标是一种状态，不是调度器，也不是一段独立对话；会话日志仍是其真源。
-- **Goal Round**：为当前目标接纳的一次续行周期。同会话驱动器将 Goal Round 具体化为一个来源为目标的[轮次](#turn)，其中包含一个或多个步骤；同一会话中无关的人类轮次不消耗 Goal Round 上限。<a id="goal-round"></a>
+- **Goal Round**：为当前目标接纳的一次续行周期。同会话驱动器将 Goal Round 具体化为一个来源为目标的[轮次](#turn)，其中可包含零个或多个步骤；同一会话中无关的人类轮次不消耗 Goal Round 上限。<a id="goal-round"></a>
 - **目标激活**：续行消费方接纳下一个 Goal Round 的进程本地权限。激活态为 `armed` 或 `disarmed`；它有意不参与持久回放，因此恢复和 fork 后，必须由人类随后通过 `/goal` 或模型工具授权恢复变更，自动工作才可开始。
 
 ## 人类命令
