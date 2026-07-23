@@ -1,10 +1,10 @@
 // Keyless boot-chain smoke over the REAL carrier: startWebServer + web-plugins
 // registry surface + __DSH_BOOT__ injection + built shell dist in a real
 // chromium. First describe: manifest injection + fail-loud half. Second
-// describe: the settled success pass — five REAL tsdown bundles (the
-// infrastructure four + layout) load through the DI chain in ?fixture mode
-// and the three-column frame appears in one flip. The full conversation
-// round lands in smoke-real under the W5 real-host standard.
+// describe: the settled success pass — seven REAL tsdown bundles (the
+// infrastructure four + layout/sidebar/conversation) load through the DI
+// chain in ?fixture mode and the three-column frame appears in one flip. The
+// full conversation round lands in smoke-real under the W5 real-host standard.
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
@@ -24,6 +24,8 @@ const REAL_PLUGINS: { id: string; dir: string; inject: string[]; immediately?: b
   { id: '@deepseek-ai/dsh-client-ui-theme', dir: 'ui-theme', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-i18n', dir: 'i18n', inject: [], immediately: true },
   { id: '@deepseek-ai/dsh-client-ui-layout', dir: 'ui-layout', inject: ['@deepseek-ai/dsh-client-runtime'] },
+  { id: '@deepseek-ai/dsh-client-ui-sidebar', dir: 'ui-sidebar', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
+  { id: '@deepseek-ai/dsh-client-ui-conversation', dir: 'ui-conversation', inject: ['@deepseek-ai/dsh-client-ui-layout'] },
 ]
 
 /** Manifest served by the fake registry: one live bundle row, one missing row. */
@@ -91,7 +93,7 @@ describe('web boot chain (keyless, real carrier)', () => {
   })
 })
 
-describe('web boot chain success pass (keyless, five real bundles, ?fixture)', () => {
+describe('web boot chain success pass (keyless, seven real bundles, ?fixture)', () => {
   const missing = REAL_PLUGINS.filter(p => !existsSync(bundlePath(p.dir)))
   let server: Awaited<ReturnType<typeof startWebServer>>
   let browser: Browser
@@ -141,6 +143,24 @@ describe('web boot chain success pass (keyless, five real bundles, ?fixture)', (
     const owners = await page.evaluate(() =>
       [...document.querySelectorAll('style[data-plugin]')].map(s => (s as HTMLElement).dataset['plugin']))
     expect(owners).toContain('@deepseek-ai/dsh-client-ui-layout')
+  })
+
+  it('expands fixture reasoning from either its summary or Think title', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-think-disclosure'))
+    await page.locator('[role="treeitem"]').first().click()
+    await page.locator('[role="treeitem"][aria-selected]').first().click()
+
+    const thinkRoot = page.locator('[data-variant="think"]').first()
+    const think = thinkRoot.getByRole('button')
+    await think.waitFor({ state: 'visible', timeout: 10_000 })
+    expect(await think.getAttribute('aria-expanded')).toBe('false')
+
+    await thinkRoot.getByText(/^思考过程 .*reasoning 内容。$/).click()
+    expect(await think.getAttribute('aria-expanded')).toBe('true')
+    expect(await thinkRoot.locator(':scope > div').count()).toBe(2)
+
+    await think.getByText('Think', { exact: true }).click()
+    expect(await think.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('stayed clean: no page errors across the whole load chain', () => {
