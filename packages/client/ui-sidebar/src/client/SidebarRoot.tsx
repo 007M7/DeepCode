@@ -5,6 +5,8 @@
  * standard useSessions hook, viewing state (expansion, search) is local
  * component state, and rows are derived in render via useMemo (slot design
  * section 6: derived data is a pure function, no materializing store).
+ * The collapsed render keeps only the rail controls (expand toggle +
+ * Settings); the body unmounts, dropping its sessions subscription.
  */
 import { Fragment, useMemo, useState } from 'react'
 import clsx from 'clsx'
@@ -31,12 +33,10 @@ function toggled(list: readonly string[], key: string): string[] {
   return list.includes(key) ? list.filter((k) => k !== key) : [...list, key]
 }
 
-/**
- * Render the sidebar column.
- * @param props - composed slot props (runtime share + injected callbacks, contract/slots.ts).
- * @returns the sidebar element tree.
- */
-export function SidebarRoot({ useSessions, onOpen, onCreate, onToggleSidebar }: SidebarRootComponentProps) {
+type SidebarBodyProps = Pick<SidebarRootComponentProps, 'useSessions' | 'onOpen' | 'onCreate'>
+
+/** Expanded-only content; unmounting drops the sessions subscription and viewing state while the rail is collapsed. */
+function SidebarBody({ useSessions, onOpen, onCreate }: SidebarBodyProps) {
   const list = useSessions((s) => s)
   // Wave-2 seam: row highlight expects `current` on the sessions list
   // snapshot (sessions.current lives with the runtime sessions service).
@@ -61,32 +61,7 @@ export function SidebarRoot({ useSessions, onOpen, onCreate, onToggleSidebar }: 
   }
 
   return (
-    <div className={css.root}>
-      <div className={css.headerBlock}>
-        <div className={css.logoRow}>
-          <span className={css.brand}>
-            {/* Wordmark svg not extracted yet (figma 88:8932) — text stands in at the same ink. */}
-            <FishLogo size={23} />
-            <span className={css.wordmark}>deepseek</span>
-            <span className={css.badge}>HARNESS</span>
-          </span>
-          <button
-            type="button"
-            className={css.iconButton}
-            aria-label="Collapse sidebar"
-            onClick={() => { onToggleSidebar() }}
-          >
-            <IconPanelLeftOutline16 />
-          </button>
-        </div>
-
-        <button type="button" className={css.newSession} onClick={() => { onCreate() }}>
-          <IconNewChatOutline16 size={14} />
-          New Session
-        </button>
-      </div>
-
-      <div className={css.listArea}>
+    <div className={css.listArea}>
       <div className={css.sectionHeader}>
         <span className={css.sectionLabel}>WorkSpace</span>
         <Menu
@@ -167,11 +142,51 @@ export function SidebarRoot({ useSessions, onOpen, onCreate, onToggleSidebar }: 
             ))}
       </div>
       <span className={css.fade} />
+    </div>
+  )
+}
+
+/**
+ * Render the sidebar column.
+ * @param props - composed slot props (runtime share + injected callbacks, contract/slots.ts).
+ * @returns the sidebar element tree.
+ */
+export function SidebarRoot({ collapsed, useSessions, onOpen, onCreate, onToggleSidebar }: SidebarRootComponentProps) {
+  return (
+    <div className={clsx(css.root, collapsed && css.collapsed)}>
+      <div className={css.headerBlock}>
+        <div className={css.logoRow}>
+          {!collapsed && (
+            <span className={css.brand}>
+              {/* Wordmark svg not extracted yet (figma 88:8932) — text stands in at the same ink. */}
+              <FishLogo size={23} />
+              <span className={css.wordmark}>deepseek</span>
+              <span className={css.badge}>HARNESS</span>
+            </span>
+          )}
+          <button
+            type="button"
+            className={css.iconButton}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={() => { onToggleSidebar() }}
+          >
+            <IconPanelLeftOutline16 />
+          </button>
+        </div>
+
+        {!collapsed && (
+          <button type="button" className={css.newSession} onClick={() => { onCreate() }}>
+            <IconNewChatOutline16 size={14} />
+            New Session
+          </button>
+        )}
       </div>
 
-      <div className={clsx(css.foot)} role="button" tabIndex={0} aria-label="Settings">
+      {!collapsed && <SidebarBody useSessions={useSessions} onOpen={onOpen} onCreate={onCreate} />}
+
+      <div className={css.foot} role="button" tabIndex={0} aria-label="Settings">
         <IconSettingsOutline14 />
-        Settings
+        {!collapsed && <span>Settings</span>}
       </div>
     </div>
   )

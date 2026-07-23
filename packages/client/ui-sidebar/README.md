@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-ui-sidebar
 
-Sidebar plugin: session multi-level tree (cwd grouping + parentId nesting), search, by-workspace grouping, state dots, three creation entries. Contract: the [slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md).
+Sidebar plugin: session multi-level tree (cwd grouping + parentId nesting), search, by-workspace grouping, state dots, three creation entries. The collapsed render keeps the expand control and settings entry in the layout-owned compact rail. Contract: the [slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md).
 
 `src/client/contract/slots.ts` is the single-domain contract file: `SidebarRootInjected` (the registrant's own injected share — plain service callbacks: onOpen/onCreate/onToggleSidebar) and `SidebarRootComponentProps = PropsRuntime<'sidebar'> & SidebarRootInjected` (owner `{collapsed,width}` plus the standard `useSessions` hook, resolved off ui-layout's SlotMap declaration, never re-stated). `apply` registers SidebarRoot cast-free against that composition; the inject factory closes over the plugin's own ctx.
 

@@ -50,9 +50,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Sidebar owner share: live column state from the frame's concession solve. */
 export interface SidebarOwnerProps {
-  /** True when the concession chain rendered the column at zero width. */
+  /** True when the sidebar is closed (the column renders the compact control rail). */
   collapsed: boolean
-  /** Rendered column width in px (0 when collapsed). */
+  /** Rendered column width in px (SIDEBAR_COLLAPSED when collapsed). */
   width: number
 }
 

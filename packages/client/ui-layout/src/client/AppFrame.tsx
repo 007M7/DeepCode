@@ -128,14 +128,15 @@ export function AppFrame({ useStore, actions, renderSlot, SessionProvider }: App
       ref={frameRef}
       className={css.frame}
       style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
-      data-sidebar-collapsed={cols.sidebar === 0 || undefined}
+      data-sidebar-collapsed={panels.sidebar === 0 || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
     >
       <div className={css.sidebarCol}>
-        {/* Render-site slot call with live concession output: the sidebar
-            stays mounted at zero width (CSS hides it), and sees its rendered
-            state as owner params decided here, not precomputed upstream. */}
-        {renderSlot('sidebar', { collapsed: cols.sidebar === 0, width: cols.sidebar })}
+        {/* Render-site slot call with live concession output: a closed
+            sidebar keeps the mounted slot at the compact-rail width, and the
+            component sees its rendered state as owner params decided here
+            (collapsed follows the preference, not the resolved width). */}
+        {renderSlot('sidebar', { collapsed: panels.sidebar === 0, width: cols.sidebar })}
       </div>
       <SessionProvider
         empty={() => (
@@ -153,7 +154,8 @@ export function AppFrame({ useStore, actions, renderSlot, SessionProvider }: App
           </>
         )}
       </SessionProvider>
-      {cols.sidebar > 0 && <DragHandle left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} />}
+      {/* The collapsed rail is fixed-width: no resize handle while closed. */}
+      {panels.sidebar > 0 && <DragHandle left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} />}
       {cols.details > 0 && <DragHandle left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} />}
     </div>
   )
