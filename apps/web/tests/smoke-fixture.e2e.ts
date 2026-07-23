@@ -145,7 +145,7 @@ describe('web boot chain success pass (keyless, seven real bundles, ?fixture)', 
     expect(owners).toContain('@deepseek-ai/dsh-client-ui-layout')
   })
 
-  it('expands fixture reasoning from either its summary or Think title', async () => {
+  it('renders edit and expands fixture reasoning from either click target', async () => {
     onTestFailed(() => saveFailureShot(page, 'smoke-think-disclosure'))
     await page.locator('[role="treeitem"]').first().click()
     await page.locator('[role="treeitem"][aria-selected]').first().click()
@@ -161,6 +161,11 @@ describe('web boot chain success pass (keyless, seven real bundles, ?fixture)', 
 
     await think.getByText('Think', { exact: true }).click()
     expect(await think.getAttribute('aria-expanded')).toBe('false')
+
+    const editRoot = page.locator('[data-variant="edit"]').first()
+    await editRoot.waitFor({ state: 'visible', timeout: 10_000 })
+    expect(await editRoot.getByText('Edit', { exact: true }).count()).toBe(1)
+    expect(await editRoot.getByText('notes/demo.txt', { exact: true }).count()).toBe(1)
   })
 
   it('stayed clean: no page errors across the whole load chain', () => {

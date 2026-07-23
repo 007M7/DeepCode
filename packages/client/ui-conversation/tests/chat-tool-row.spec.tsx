@@ -29,6 +29,7 @@ describe('tool-call-model', () => {
     expect(classifyTool('web_fetch')).toBe('read')
     expect(classifyTool('web_search')).toBe('search')
     expect(classifyTool('grep')).toBe('search')
+    expect(classifyTool('edit')).toBe('edit')
     expect(classifyTool('todo_write')).toBe('others')
   })
 
@@ -49,6 +50,7 @@ describe('tool-call-model', () => {
   it('keeps summaries single-line and falls back for opaque args', () => {
     expect(toolRowModel('bash', running({ argsRaw: '{"command":"a\\nb"}' })).summary).toBe('a')
     expect(toolRowModel('read', running({ name: 'read', argsRaw: '{"path":"/tmp/x.ts"}' })).summary).toBe('/tmp/x.ts')
+    expect(toolRowModel('edit', running({ name: 'edit', argsRaw: '{"file_path":"src/x.ts"}' })).summary).toBe('src/x.ts')
     // Others rows prefix the real tool name into the summary slot (figma-flows
     // ruling: static "Tool call" title, name rides the mutable summary).
     expect(toolRowModel('x', running({ argsRaw: '{"n":1}' })).summary).toBe('x · {"n":1}')
@@ -156,6 +158,19 @@ describe('GenericToolCard', () => {
     expect(view.getByText('Tool call')).toBeTruthy()
     expect(view.container.querySelector('[data-variant="others"]')).not.toBeNull()
     expect(view.container.querySelector('[data-state="running"]')).not.toBeNull()
+  })
+
+  it('renders edit with its dedicated title, icon variant, and path summary', () => {
+    const view = render(
+      <GenericToolCard {...props('edit', running({
+        name: 'edit',
+        argsRaw: '{"file_path":"src/x.ts","old_string":"before","new_string":"after"}',
+      }))} />,
+    )
+    expect(view.getByText('Edit')).toBeTruthy()
+    expect(view.getByText('src/x.ts')).toBeTruthy()
+    expect(view.container.querySelector('[data-variant="edit"]')).not.toBeNull()
+    expect(view.container.querySelector('svg')).not.toBeNull()
   })
 
   it('row click reaches actions.openDetails', () => {
