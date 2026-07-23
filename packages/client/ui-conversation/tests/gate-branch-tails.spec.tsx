@@ -1,18 +1,16 @@
 // @vitest-environment jsdom
-// Final branch tails for the coverage gate, terminal slot form: apply's
-// need() throw, AssistantMarkdown non-final reasoning, StatsLine usage-less
-// node, DetailsPanel titleless selection, registry disposer after a foreign
-// removal emptied the list. (The old cwd WeakMap-cache account retired with
-// the mechanism — derivation lives in EmptyState now, covered by the
-// skeleton specs.)
+// Final branch tails for the coverage gate, terminal slot form:
+// AssistantMarkdown non-final reasoning, StatsLine usage-less node,
+// DetailsPanel titleless selection. (The old cwd WeakMap-cache account
+// retired with the mechanism — derivation lives in EmptyState now, covered
+// by the skeleton specs.)
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
-import { hookOf } from './hook.ts'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { UseSession } from '@deepseek-ai/dsh-client-ui-slots'
+import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import type { ConversationSnapshot, SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-import { ToolViewRegistry } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createChatStore } from '../src/client/stores.ts'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
@@ -54,7 +52,7 @@ describe('render branch tails', () => {
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
-      <StatsLine sessionId={SID} useSession={hookOf(source) as unknown as UseSession<ConversationSnapshot>} />,
+      <StatsLine useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>} />,
     )
     expect(view.getByText('cache hit 0% · 15 tokens · 2 turns · 3 steps')).toBeTruthy()
   })
@@ -76,25 +74,14 @@ describe('render branch tails', () => {
     const view = render(
       <DetailsPanel
         sessionId={SID}
-        useSession={hookOf({ getSnapshot: () => snap, subscribe: () => () => {} }) as unknown as UseSession<ConversationSnapshot>}
-        useSessions={hookOf(emptyList)}
-        useStore={hookOf(chat)}
+        useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} }) as unknown as UseSession<ConversationSnapshot>}
+        useSessions={bindSnapshotSelector(emptyList)}
+        useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
       />,
     )
     expect(view.getByText('详情')).toBeTruthy()
     expect(view.getByText('该调用不在当前窗口内')).toBeTruthy()
-  })
-
-  it('registry disposer tolerates the list already emptied by a sibling disposer', () => {
-    const registry = new ToolViewRegistry()
-    const offA = registry.register('bash', () => null)
-    const offB = registry.register('bash', () => null)
-    offA()
-    offB()
-    // Both entries gone; a re-register works from a fresh list.
-    registry.register('bash', () => null)
-    expect(registry.resolve('bash', SID)).toBeDefined()
   })
 })

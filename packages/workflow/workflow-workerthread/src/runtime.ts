@@ -15,8 +15,8 @@
 import * as vm from 'node:vm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { assertSupportedOutputSchema, OutputSchemaError } from '@deepseek-ai/dsh-tools'
-import type { StructuredOutputSchema } from '@deepseek-ai/dsh-tools'
+import { assertObjectJsonSchema, JsonSchemaError } from '@deepseek-ai/dsh-tools'
+import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { isFatalWorkflowError, WorkflowError } from '@deepseek-ai/dsh-workflow'
 import type {
   WorkflowAgentEndInfo,
@@ -350,7 +350,7 @@ export class WorkflowExecution {
     phase?: string
     provider?: string
     model?: string
-    schema?: StructuredOutputSchema
+    schema?: ObjectJsonSchema
   } {
     if (rawOpts === undefined) return {}
     let opts: unknown
@@ -377,14 +377,14 @@ export class WorkflowExecution {
         throw new WorkflowError(`agent() option "${key}" must be a string`, 'INVALID_ARGUMENT')
       }
     }
-    let schema: StructuredOutputSchema | undefined
+    let schema: ObjectJsonSchema | undefined
     if (record.schema !== undefined) {
       try {
-        assertSupportedOutputSchema(record.schema)
+        assertObjectJsonSchema(record.schema)
         schema = record.schema
       } catch (error: unknown) {
-        /* v8 ignore next -- defensive rethrow arm: assertSupportedOutputSchema only throws OutputSchemaError */
-        if (!(error instanceof OutputSchemaError)) throw error
+        /* v8 ignore next -- defensive rethrow arm: assertObjectJsonSchema only throws JsonSchemaError */
+        if (!(error instanceof JsonSchemaError)) throw error
         throw new WorkflowError(`agent() schema is outside the supported subset — ${error.message}`, 'UNSUPPORTED_SCHEMA', { cause: error })
       }
     }

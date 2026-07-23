@@ -33,10 +33,11 @@ export const inject = ['tools']
  * @returns the `isError` {@link ToolExecutionResult} with a `TOOL_TIMEOUT` error.
  */
 function toolTimeoutResult(timeoutMs: number): ToolExecutionResult {
+  const message = `tool call timed out after ${timeoutMs}ms`
   return {
-    content: [{ type: 'text', text: `Error: tool call timed out after ${timeoutMs}ms` }],
+    content: [{ type: 'text', text: `Error: ${message}` }],
     isError: true,
-    error: { name: 'ToolTimeoutError', code: TOOL_TIMEOUT },
+    error: { message, info: { name: 'ToolTimeoutError', code: TOOL_TIMEOUT } },
   }
 }
 

@@ -31,13 +31,12 @@ import {
   type EditorTheme,
   type Focusable,
   type MarkdownTheme,
-  type OverlayHandle,
   type SelectListTheme,
   type SlashCommand,
   type Terminal,
   type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
-import type { Context } from 'cordis'
+import { Service, type Context, type Fiber } from 'cordis'
 import z from 'schemastery'
 import {
   installAgentLlmTarget,
@@ -61,6 +60,7 @@ import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   displayPromptContent,
   SessionId,
+  type JsonValue,
   type Session,
   type SessionEvent,
   type SessionHeader,
@@ -90,11 +90,84 @@ import {
   type AskUserQuestionItem,
   type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
+import {
+  TuiExtensionServiceImpl,
+  TuiOverlayManager,
+} from './overlay-manager.ts'
+import type {
+  TuiOverlayRequest,
+  TuiOverlaySession,
+  TuiTheme,
+} from './extension.ts'
+
+export type {
+  TuiComponent,
+  TuiFocusable,
+  TuiOverlayAnchor,
+  TuiOverlayCloseReason,
+  TuiOverlayHost,
+  TuiOverlayMargin,
+  TuiOverlayOptions,
+  TuiOverlayOutcome,
+  TuiOverlayRequest,
+  TuiOverlaySession,
+  TuiOverlayState,
+  TuiTheme,
+  TuiViewport,
+} from './extension.ts'
+
+declare module 'cordis' {
+  interface Context {
+    /** Terminal-only interaction service, available only while a TUI is mounted. */
+    tui: TuiExtensionService
+  }
+}
+
+/**
+ * Optional terminal-local interaction service provided by one mounted TUI.
+ *
+ * The concrete provider retains pi-tui, focus, and terminal lifecycle state.
+ * Plugins receive only effect-owned overlay sessions.
+ */
+export abstract class TuiExtensionService extends Service {
+  /** Exact agent driven by this terminal instance. */
+  abstract readonly agent: Agent
+
+  /**
+   * Queue an interactive overlay owned by the calling plugin fiber.
+   *
+   * The TUI displays one overlay at a time in FIFO order. Disposing the caller
+   * removes a queued overlay or closes an active one before plugin teardown
+   * settles. This live presentation is neither logged nor replayed.
+   *
+   * @param request - component factory, layout constraints, and cancellation.
+   * @returns the effect-owned overlay session.
+   * @throws when the TUI has begun shutting down.
+   */
+  abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
+}
+import {
+  activeAtToken,
+  DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES,
+  DEFAULT_FILE_SEARCH_MAX_ENTRIES,
+  DEFAULT_FILE_SEARCH_MAX_RESULTS,
+  formatFileMention,
+  WorkspaceFileSearch,
+} from './file-autocomplete.ts'
+
+export {
+  DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES,
+  DEFAULT_FILE_SEARCH_MAX_ENTRIES,
+  DEFAULT_FILE_SEARCH_MAX_RESULTS,
+} from './file-autocomplete.ts'
 
 export const name = 'ui-tui'
 export const inject = ['agents', 'commands', 'userInteraction', 'tools', 'llm', 'systemPrompt', 'tokenMeter']
 
-/** Presentation settings for the pi-tui terminal mode. */
+/** Model guidance for path-only file references selected through the TUI. */
+export const FILE_REFERENCE_PROMPT = 'Paths prefixed with @ are files explicitly referenced by the user. Use the read tool when their contents are needed; do not claim to have inspected a file before reading it.'
+
+/** Interaction and presentation settings for the pi-tui terminal mode. */
 export interface TuiConfig {
   /** Render model reasoning blocks. */
   showReasoning?: boolean
@@ -112,6 +185,12 @@ export interface TuiConfig {
   modelDialogWidth?: number
   /** Model-selector maximum height in terminal rows. */
   modelDialogMaxHeight?: number
+  /** Maximum fuzzy file candidates displayed for one `@` query. */
+  fileSearchMaxResults?: number
+  /** Maximum paths retained in one `@` workspace index. */
+  fileSearchMaxEntries?: number
+  /** Directory basenames excluded from `@` traversal and completion. */
+  fileSearchExcludedDirectories?: string[]
   /** Show the terminal's hardware cursor at the pi editor's IME marker. */
   showHardwareCursor?: boolean
   /** Apply the built-in ANSI color palette. */
@@ -135,14 +214,16 @@ const questionDialogWidthSchema = z.number().step(1).min(20).default(200)
 const questionDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
 const modelDialogWidthSchema = z.number().step(1).min(20).default(72)
 const modelDialogMaxHeightSchema = z.number().step(1).min(6).default(20)
+const fileSearchMaxResultsSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_RESULTS)
+const fileSearchMaxEntriesSchema = z.number().step(1).min(1).default(DEFAULT_FILE_SEARCH_MAX_ENTRIES)
+const fileSearchExcludedDirectoriesSchema = z.array(z.string()).default([...DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES])
 const showHardwareCursorSchema = z.boolean().default(false)
 const colorSchema = z.boolean().default(true)
 // No default: an unset value auto-detects truecolor from COLORTERM in `apply`.
 const truecolorSchema = z.boolean()
 const titleSchema = z.string().default('DeepSeek Harness')
 
-/** Schemastery schema for presentation settings embedded by app bundles. */
-export const TuiConfigSchema: z<TuiConfig> = z.object({
+const tuiConfigSchemaFields = {
   showReasoning: showReasoningSchema,
   maxToolOutputLines: maxToolOutputLinesSchema,
   maxQuestionOptions: maxQuestionOptionsSchema,
@@ -151,11 +232,17 @@ export const TuiConfigSchema: z<TuiConfig> = z.object({
   questionDialogMaxHeight: questionDialogMaxHeightSchema,
   modelDialogWidth: modelDialogWidthSchema,
   modelDialogMaxHeight: modelDialogMaxHeightSchema,
+  fileSearchMaxResults: fileSearchMaxResultsSchema,
+  fileSearchMaxEntries: fileSearchMaxEntriesSchema,
+  fileSearchExcludedDirectories: fileSearchExcludedDirectoriesSchema,
   showHardwareCursor: showHardwareCursorSchema,
   color: colorSchema,
   truecolor: truecolorSchema,
   title: titleSchema,
-})
+}
+
+/** Schemastery schema for presentation settings embedded by app bundles. */
+export const TuiConfigSchema: z<TuiConfig> = z.object(tuiConfigSchemaFields)
 
 /** Serializable plugin configuration. */
 export interface Config extends TuiConfig {
@@ -177,18 +264,21 @@ export const Config: z<Config> = z.object({
   welcome: z.string(),
   sessionId: z.string().default('main'),
   resumeCommand: z.string(),
-  showReasoning: showReasoningSchema,
-  maxToolOutputLines: maxToolOutputLinesSchema,
-  maxQuestionOptions: maxQuestionOptionsSchema,
-  maxModelOptions: maxModelOptionsSchema,
-  questionDialogWidth: questionDialogWidthSchema,
-  questionDialogMaxHeight: questionDialogMaxHeightSchema,
-  modelDialogWidth: modelDialogWidthSchema,
-  modelDialogMaxHeight: modelDialogMaxHeightSchema,
-  showHardwareCursor: showHardwareCursorSchema,
-  color: colorSchema,
-  truecolor: truecolorSchema,
-  title: titleSchema,
+  showReasoning: tuiConfigSchemaFields.showReasoning,
+  maxToolOutputLines: tuiConfigSchemaFields.maxToolOutputLines,
+  maxQuestionOptions: tuiConfigSchemaFields.maxQuestionOptions,
+  maxModelOptions: tuiConfigSchemaFields.maxModelOptions,
+  questionDialogWidth: tuiConfigSchemaFields.questionDialogWidth,
+  questionDialogMaxHeight: tuiConfigSchemaFields.questionDialogMaxHeight,
+  modelDialogWidth: tuiConfigSchemaFields.modelDialogWidth,
+  modelDialogMaxHeight: tuiConfigSchemaFields.modelDialogMaxHeight,
+  fileSearchMaxResults: tuiConfigSchemaFields.fileSearchMaxResults,
+  fileSearchMaxEntries: tuiConfigSchemaFields.fileSearchMaxEntries,
+  fileSearchExcludedDirectories: tuiConfigSchemaFields.fileSearchExcludedDirectories,
+  showHardwareCursor: tuiConfigSchemaFields.showHardwareCursor,
+  color: tuiConfigSchemaFields.color,
+  truecolor: tuiConfigSchemaFields.truecolor,
+  title: tuiConfigSchemaFields.title,
 })
 
 /** Fully defaulted TUI presentation settings. */
@@ -201,6 +291,9 @@ export interface ResolvedTuiConfig {
   questionDialogMaxHeight: number
   modelDialogWidth: number
   modelDialogMaxHeight: number
+  fileSearchMaxResults: number
+  fileSearchMaxEntries: number
+  fileSearchExcludedDirectories: string[]
   showHardwareCursor: boolean
   color: boolean
   truecolor: boolean
@@ -239,6 +332,9 @@ export function resolveTuiConfig(config: TuiConfig | undefined): ResolvedTuiConf
     questionDialogMaxHeight: config?.questionDialogMaxHeight ?? 20,
     modelDialogWidth: config?.modelDialogWidth ?? 72,
     modelDialogMaxHeight: config?.modelDialogMaxHeight ?? 20,
+    fileSearchMaxResults: config?.fileSearchMaxResults ?? DEFAULT_FILE_SEARCH_MAX_RESULTS,
+    fileSearchMaxEntries: config?.fileSearchMaxEntries ?? DEFAULT_FILE_SEARCH_MAX_ENTRIES,
+    fileSearchExcludedDirectories: [...(config?.fileSearchExcludedDirectories ?? DEFAULT_FILE_SEARCH_EXCLUDED_DIRECTORIES)],
     showHardwareCursor: config?.showHardwareCursor ?? false,
     color: config?.color ?? true,
     truecolor: config?.truecolor ?? false,
@@ -745,7 +841,7 @@ function diffLines(diff: FileDiff, palette: Palette): string[] {
 }
 
 class ToolCardComponent implements Component {
-  private result: { content: ContentBlock[]; isError: boolean; meta?: unknown } | undefined
+  private result: { content: ContentBlock[]; isError: boolean; meta?: JsonValue } | undefined
   private expanded = false
   private callView: ToolCallView
   private resultView: ToolResultView | undefined
@@ -1290,14 +1386,15 @@ interface PendingQuestion {
   resolve(answer: AskUserQuestionAnswer): void
   reject(error: unknown): void
   onAbort: () => void
-  overlay: OverlayHandle | undefined
+  overlay: TuiOverlaySession | undefined
 }
 
-/** Add session candidates to pi-tui's existing command/file provider. */
-class SessionAutocompleteProvider implements AutocompleteProvider {
+/** Merge path-only file candidates and optional session snapshots with commands. */
+class ReferenceAutocompleteProvider implements AutocompleteProvider {
   constructor(
     private readonly base: CombinedAutocompleteProvider,
-    private readonly sessions: SessionReferenceService,
+    private readonly files: WorkspaceFileSearch,
+    private readonly sessions: SessionReferenceService | undefined,
     private readonly agent: Agent,
   ) {}
 
@@ -1311,17 +1408,33 @@ class SessionAutocompleteProvider implements AutocompleteProvider {
     const currentLine = lines[cursorLine]
     /* v8 ignore next -- Editor always supplies its current state line. */
     if (currentLine === undefined) return basePromise
-    const token = /(?:^|\s)(@[^\s]*)$/u.exec(currentLine.slice(0, cursorCol))?.[1]
-    if (token === undefined) return basePromise
-    let candidates
-    try {
-      candidates = await this.sessions.listCandidates(this.agent, token.slice(1), undefined, options.signal)
-    } catch {
+    const token = activeAtToken(currentLine, cursorCol)
+    if (token === undefined) {
+      this.files.invalidate()
       return basePromise
     }
-    const base = await basePromise
+    const filePromise = this.files.list(token.query, options.signal).catch(() => [])
+    const sessionPromise = this.sessions === undefined || token.quoted
+      ? Promise.resolve([])
+      : this.sessions.listCandidates(this.agent, token.query, undefined, options.signal).catch(() => [])
+    const [base, fileCandidates, sessionCandidates] = await Promise.all([
+      basePromise,
+      filePromise,
+      sessionPromise,
+    ])
     if (options.signal.aborted) return base
-    const items: AutocompleteItem[] = candidates.map((candidate) => {
+    const fileItems: AutocompleteItem[] = fileCandidates.flatMap((candidate) => {
+      const value = formatFileMention(candidate, token.quoted)
+      if (value === undefined) return []
+      const name = candidate.path.slice(candidate.path.lastIndexOf('/') + 1)
+      const directory = candidate.kind === 'directory'
+      return [{
+        value,
+        label: `${directory ? 'Folder' : 'File'} · ${displayInlineText(name)}${directory ? '/' : ''}`,
+        description: displayInlineText(candidate.path),
+      }]
+    })
+    const sessionItems: AutocompleteItem[] = sessionCandidates.map((candidate) => {
       const mentionLabel = displayInlineText(candidate.label)
       const sessionId = displayInlineText(candidate.sessionId)
       const location = candidate.cwd === undefined ? '(no cwd)' : displayInlineText(candidate.cwd)
@@ -1332,8 +1445,9 @@ class SessionAutocompleteProvider implements AutocompleteProvider {
         description,
       }
     })
+    const items = [...fileItems, ...sessionItems]
     if (items.length === 0) return base
-    return { items: [...items, ...(base?.items ?? [])], prefix: token }
+    return { items: [...items, ...(base?.items ?? [])], prefix: token.prefix }
   }
 
   applyCompletion(
@@ -1502,6 +1616,11 @@ export function createTuiChat(
   // rather than declaring an injection that would make the TUI require them.
   const skills = ctx.get('skills')
   const cwd = agent.session.header.cwd ?? process.cwd()
+  const fileSearch = new WorkspaceFileSearch(cwd, {
+    maxResults: resolved.fileSearchMaxResults,
+    maxEntries: resolved.fileSearchMaxEntries,
+    excludedDirectories: resolved.fileSearchExcludedDirectories,
+  })
   const skillAbort = new AbortController()
   const tokens = sessionTokens(agent.session)
   const toolCards = new Map<string, ToolCardComponent>()
@@ -1511,7 +1630,8 @@ export function createTuiChat(
   const commandControllers = new Set<AbortController>()
   const referenceControllers = new Set<AbortController>()
   let activeQuestion: PendingQuestion | undefined
-  let modelOverlay: OverlayHandle | undefined
+  let modelOverlay: TuiOverlaySession | undefined
+  let tuiServiceFiber: Fiber | undefined
   const target: AgentLlmTargetRef = { current: initialTarget(agent), assembled: undefined }
   let contextWindow: number | undefined
   let contextResolution: Promise<
@@ -1569,6 +1689,41 @@ export function createTuiChat(
     requestRender()
   }
 
+  const extensionTheme: TuiTheme = Object.freeze({
+    text: (value: string) => palette.text(value),
+    muted: (value: string) => palette.muted(value),
+    dim: (value: string) => palette.dim(value),
+    accent: (value: string) => palette.accent(value),
+    success: (value: string) => palette.success(value),
+    warning: (value: string) => palette.warning(value),
+    error: (value: string) => palette.error(value),
+    bold: (value: string) => palette.bold(value),
+  })
+  const overlayManager = new TuiOverlayManager({
+    viewport: () => Object.freeze({
+      columns: runtime.terminal.columns,
+      rows: runtime.terminal.rows,
+    }),
+    theme: () => extensionTheme,
+    display: displayText,
+    show: (component, options) => ui.showOverlay(component, options === undefined
+      ? undefined
+      : {
+        ...options,
+        ...typeof options.margin === 'object'
+          ? { margin: { ...options.margin } }
+          : {},
+      }),
+    invalidate: requestRender,
+    reportError: (error) => {
+      const message = errorChain(error)
+      ctx.logger.warn(`ui-tui: overlay failed: ${message}`)
+      /* v8 ignore next -- shutdown removes overlays before the terminal stops */
+      if (disposed) return
+      appendNotice(`TUI overlay failed: ${message}`, 'error')
+    },
+  })
+
   const disposeTargetListeners = installAgentLlmTarget(agent.ctx, target)
 
   const resolveContextWindow = (selected: AgentLlmTarget | undefined): void => {
@@ -1608,29 +1763,29 @@ export function createTuiChat(
       appendNotice(`Current model: ${current}\nNo models are advertised by registered providers.`, 'warning')
       return
     }
-    modelOverlay?.hide()
-    modelOverlay = undefined
-    const close = (): void => {
-      modelOverlay?.hide()
-      modelOverlay = undefined
-      requestRender()
-    }
-    const dialog = new ModelDialog(
-      choices,
-      target.current,
-      resolved.maxModelOptions,
-      palette,
-      (selected) => {
-        close()
-        selectModel(selected)
+    void modelOverlay?.close()
+    const session = overlayManager.open({
+      create: () => new ModelDialog(
+        choices,
+        target.current,
+        resolved.maxModelOptions,
+        palette,
+        (selected) => {
+          void session.close()
+          selectModel(selected)
+        },
+        () => { void session.close() },
+      ),
+      options: {
+        width: resolved.modelDialogWidth,
+        maxHeight: resolved.modelDialogMaxHeight,
+        anchor: 'center',
+        margin: 1,
       },
-      close,
-    )
-    modelOverlay = ui.showOverlay(dialog, {
-      width: resolved.modelDialogWidth,
-      maxHeight: resolved.modelDialogMaxHeight,
-      anchor: 'center',
-      margin: 1,
+    })
+    modelOverlay = session
+    void session.closed.then(() => {
+      if (modelOverlay === session) modelOverlay = undefined
     })
     requestRender()
   }
@@ -1933,7 +2088,7 @@ export function createTuiChat(
   }
 
   const rejectQuestion = (pending: PendingQuestion): void => {
-    pending.overlay?.hide()
+    void pending.overlay?.close()
     pending.overlay = undefined
     removeAbortListener(pending)
     pending.reject(new UserInteractionError(
@@ -1956,31 +2111,48 @@ export function createTuiChat(
         startNextQuestion()
         return
       }
-      const dialog = new QuestionDialog(
-        question,
-        pending.index + 1,
-        pending.request.questions.length,
-        pending.request.questions.length - pending.answers.length,
-        resolved.maxQuestionOptions,
-        palette,
-        (selection) => {
-          pending.overlay?.hide()
-          pending.overlay = undefined
-          pending.answers.push({ id: question.id, ...selection })
-          pending.index += 1
-          show()
+      const session = overlayManager.open({
+        ...pending.request.signal === undefined ? {} : { signal: pending.request.signal },
+        create: () => new QuestionDialog(
+          question,
+          pending.index + 1,
+          pending.request.questions.length,
+          pending.request.questions.length - pending.answers.length,
+          resolved.maxQuestionOptions,
+          palette,
+          (selection) => {
+            pending.overlay = undefined
+            void session.close()
+            pending.answers.push({ id: question.id, ...selection })
+            pending.index += 1
+            show()
+          },
+          () => {
+            activeQuestion = undefined
+            rejectQuestion(pending)
+            startNextQuestion()
+          },
+        ),
+        options: {
+          width: resolved.questionDialogWidth,
+          maxHeight: resolved.questionDialogMaxHeight,
+          anchor: 'bottom-left',
+          margin: { bottom: 1 },
         },
-        () => {
-          activeQuestion = undefined
-          rejectQuestion(pending)
-          startNextQuestion()
-        },
-      )
-      pending.overlay = ui.showOverlay(dialog, {
-        width: resolved.questionDialogWidth,
-        maxHeight: resolved.questionDialogMaxHeight,
-        anchor: 'bottom-left',
-        margin: { bottom: 1 },
+      })
+      pending.overlay = session
+      void session.closed.then((result) => {
+        if (pending.overlay !== session) return
+        pending.overlay = undefined
+        /* v8 ignore next 2 -- close, abort, and shutdown settle the owner before this callback */
+        if (result.reason !== 'error') return
+        activeQuestion = undefined
+        removeAbortListener(pending)
+        pending.reject(new UserInteractionError(
+          `ask_user_question TUI failed: ${errorChain(result.error)}`,
+          'ASK_ABORTED',
+        ))
+        startNextQuestion()
       })
       requestRender()
     }
@@ -2051,20 +2223,23 @@ export function createTuiChat(
   const shutdown = (exitProcess: boolean): Promise<void> => {
     shuttingDown ??= (async () => {
       disposed = true
+      overlayManager.beginShutdown()
       contextResolution = undefined
       clearStatus()
-      modelOverlay?.hide()
-      modelOverlay = undefined
       for (const controller of commandControllers) controller.abort(new Error('TUI disposed'))
       commandControllers.clear()
       for (const controller of referenceControllers) controller.abort(new Error('TUI disposed'))
       referenceControllers.clear()
+      await tuiServiceFiber?.dispose()
+      tuiServiceFiber = undefined
       if (activeQuestion !== undefined) {
         const pending = activeQuestion
         activeQuestion = undefined
         rejectQuestion(pending)
       }
       for (const pending of questionQueue.splice(0)) rejectQuestion(pending)
+      await overlayManager.dispose()
+      modelOverlay = undefined
       disposeUserInteraction()
       await runtime.terminal.drainInput(100, 20)
       ui.stop()
@@ -2209,15 +2384,19 @@ export function createTuiChat(
         ...ctx.commands.list(agent).map(command => ({
           name: command.name,
           description: command.description,
+          ...(command.input === undefined ? {} : { argumentHint: command.input.hint }),
         })),
         ...skillCommands,
       ],
       agent.session.header.cwd ?? process.cwd(),
     )
     const sessionReferences = ctx.get('sessionReferences')
-    editor.setAutocompleteProvider(sessionReferences === undefined
-      ? base
-      : new SessionAutocompleteProvider(base, sessionReferences, agent))
+    editor.setAutocompleteProvider(new ReferenceAutocompleteProvider(
+      base,
+      fileSearch,
+      sessionReferences,
+      agent,
+    ))
   }
   const disposeCommandChanges = ctx.on('commands/change', refreshCommandAutocomplete)
   refreshCommandAutocomplete()
@@ -2299,6 +2478,16 @@ export function createTuiChat(
       name: 'exit',
       description: 'Exit after the active turn reaches idle',
       handler: () => { requestExit(); return { kind: 'success' } },
+    })
+  })
+  const fileReferencePromptFiber = agent.ctx.inject(['systemPrompt'], (promptCtx) => {
+    promptCtx.systemPrompt.section({
+      name: 'ui:tui-file-reference',
+      order: 99,
+      // Tool visibility can change dynamically or by agent scope. Empty
+      // sections are omitted by renderPrompt, so guidance never names a tool
+      // that this agent cannot call.
+      text: () => agent.ctx.tools.get('read', agent) === undefined ? '' : FILE_REFERENCE_PROMPT,
     })
   })
 
@@ -2510,7 +2699,7 @@ export function createTuiChat(
   }
 
   const removeInputListener = ui.addInputListener((data) => {
-    if (activeQuestion !== undefined || modelOverlay !== undefined) return undefined
+    if (overlayManager.hasActiveOverlay()) return undefined
     if (matchesKey(data, Key.ctrl('o'))) {
       toggleTools()
       return { consume: true }
@@ -2548,6 +2737,7 @@ export function createTuiChat(
 
   const disposeSessionEvents = ctx.on('session/event', (session, event) => {
     if (session !== agent.session) return
+    if (event.type === 'tool/result') fileSearch.invalidate()
     recordEventUsage(tokens, event)
     advanceTurnPhase(event)
     if (event.type === 'steering/message') {
@@ -2596,6 +2786,7 @@ export function createTuiChat(
 
   const detachListeners = (): void => {
     skillAbort.abort()
+    fileSearch.dispose()
     removeInputListener()
     disposeCommandChanges()
     stopBannerReveal()
@@ -2643,10 +2834,13 @@ export function createTuiChat(
   } catch (error: unknown) {
     disposed = true
     detachListeners()
-    void commandFiber.dispose().catch(
+    void Promise.all([
+      commandFiber.dispose(),
+      fileReferencePromptFiber.dispose(),
+    ]).catch(
       /* v8 ignore next 2 -- command registration cleanup is non-throwing; this guards a future disposer regression */
       (cleanupError: unknown) => {
-        ctx.logger.warn(`ui-tui: command cleanup after startup failure failed: ${errorChain(cleanupError)}`)
+        ctx.logger.warn(`ui-tui: scoped cleanup after startup failure failed: ${errorChain(cleanupError)}`)
       },
     )
     clearStatus()
@@ -2654,13 +2848,19 @@ export function createTuiChat(
     ui.stop()
     throw error
   }
+  tuiServiceFiber = ctx.inject([], (serviceCtx) => {
+    new TuiExtensionServiceImpl(serviceCtx, agent, overlayManager)
+  })
   startBannerReveal()
 
   return {
     async dispose(): Promise<void> {
       detachListeners()
       await shutdown(false)
-      await commandFiber.dispose()
+      await Promise.all([
+        commandFiber.dispose(),
+        fileReferencePromptFiber.dispose(),
+      ])
     },
   }
 }

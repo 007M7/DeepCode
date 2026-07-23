@@ -15,7 +15,7 @@ import { Context } from 'cordis'
 import { join } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH, type ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { BashExecutor } from '@deepseek-ai/dsh-bash'
 import type { BashExecRequest, BashExecSpec, BashProcess, BashRunResult } from '@deepseek-ai/dsh-bash'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
@@ -148,7 +148,12 @@ async function expectSetupRejects(options: SetupOptions, message: RegExp): Promi
 const agent = (cwd?: string) => ({ session: { header: { id: 'session-1', ...cwd !== undefined ? { cwd } : {} } } })
 
 let callCounter = 0
-function call(ctx: Context, name: string, args: unknown, options: { agent?: object; signal?: AbortSignal } = {}) {
+function call(
+  ctx: Context,
+  name: string,
+  args: unknown,
+  options: { agent?: object; signal?: AbortSignal; parent?: ToolExecutionToken } = {},
+) {
   return ctx.tools.execute({
     signal: testToolSignal,
     callId: CallId(`call-${++callCounter}`),
@@ -156,6 +161,7 @@ function call(ctx: Context, name: string, args: unknown, options: { agent?: obje
     arguments: args,
     ...options.agent ? { agent: options.agent as never } : {},
     ...options.signal ? { signal: options.signal } : {},
+    ...options.parent ? { parent: options.parent } : {},
   })
 }
 
@@ -320,7 +326,7 @@ describe('workdir derivation and signal forwarding', () => {
     bash.handler = () => runResult('', { timedOut: true, timeoutMs: 1234, exitCode: null, signal: 'SIGTERM' })
     const result = await call(ctx, 'glob', { pattern: '*' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ code: 'SEARCH_ABORTED' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_ABORTED' } })
     expect(text(result)).toContain('timed out after 1234ms')
   })
 
@@ -331,7 +337,7 @@ describe('workdir derivation and signal forwarding', () => {
     bash.handler = () => { throw new Error('aborted before spawn') }
     const result = await call(ctx, 'grep', { pattern: 'x' }, { signal: controller.signal })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH })
+    expect(result.error).toMatchObject({ info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } })
     expect(bash.specs).toHaveLength(0)
   })
 
@@ -346,7 +352,7 @@ describe('workdir derivation and signal forwarding', () => {
     const result = await call(ctx, 'grep', { pattern: 'x' }, { signal: controller.signal })
 
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_ABORTED' })
+    expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_ABORTED' } })
     expect(text(result)).toContain('aborted before completion')
   })
 
@@ -357,7 +363,7 @@ describe('workdir derivation and signal forwarding', () => {
     const result = await call(ctx, 'glob', { pattern: '*' })
 
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_ABORTED' })
+    expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_ABORTED' } })
     expect(text(result)).toContain('aborted before completion')
   })
 
@@ -367,7 +373,7 @@ describe('workdir derivation and signal forwarding', () => {
     bash.handler = () => { throw new Error('spawn bash ENOENT') }
     const result = await call(ctx, 'glob', { pattern: '*' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_FAILED' })
+    expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })
     expect(text(result)).toContain('could not start')
   })
 })
@@ -388,7 +394,7 @@ describe('exit semantics and failure classification', () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('', { exitCode: 2, stderr: { text: 'rg: regex parse error:\n    (\nerror: unclosed group', truncated: false } })
     const result = await call(ctx, 'grep', { pattern: '(' })
-    expect(result.error).toMatchObject({ code: 'SEARCH_INVALID_PATTERN' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_INVALID_PATTERN' } })
     expect(text(result)).toContain('regex parse error')
   })
 
@@ -396,14 +402,14 @@ describe('exit semantics and failure classification', () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('', { exitCode: 2, stderr: { text: 'rg: error parsing glob \'[\': unclosed character class', truncated: false } })
     const result = await call(ctx, 'glob', { pattern: '[' })
-    expect(result.error).toMatchObject({ code: 'SEARCH_INVALID_PATTERN' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_INVALID_PATTERN' } })
   })
 
   it('a missing rg binary classifies as SEARCH_FAILED naming ripgrep', async () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('', { exitCode: 127, stderr: { text: 'bash: line 1: rg: command not found', truncated: false } })
     const result = await call(ctx, 'glob', { pattern: '*' })
-    expect(result.error).toMatchObject({ code: 'SEARCH_FAILED' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
     expect(text(result)).toContain('requires ripgrep (rg)')
     // The same classification holds from either evidence alone: the 127 exit
     // with silent stderr, or a shell's command-not-found text on another exit.
@@ -417,7 +423,7 @@ describe('exit semantics and failure classification', () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('', { exitCode: 2, stderr: { text: 'rg: missing.dir: IO error: no such file or directory', truncated: false } })
     const result = await call(ctx, 'grep', { pattern: 'x', path: 'missing.dir' })
-    expect(result.error).toMatchObject({ code: 'SEARCH_FAILED' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
     expect(text(result)).toContain('IO error')
   })
 
@@ -425,7 +431,7 @@ describe('exit semantics and failure classification', () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('', { exitCode: 3 })
     const result = await call(ctx, 'glob', { pattern: '*' })
-    expect(result.error).toMatchObject({ code: 'SEARCH_FAILED' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
     expect(text(result)).toContain('exit 3')
   })
 
@@ -443,7 +449,7 @@ describe('exit semantics and failure classification', () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('', { exitCode: null, signal: 'SIGKILL' })
     const result = await call(ctx, 'grep', { pattern: 'x' })
-    expect(result.error).toMatchObject({ code: 'SEARCH_FAILED' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
     expect(text(result)).toContain('SIGKILL')
   })
 
@@ -451,7 +457,7 @@ describe('exit semantics and failure classification', () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('', { exitCode: null, signal: null })
     const result = await call(ctx, 'glob', { pattern: '*' })
-    expect(result.error).toMatchObject({ code: 'SEARCH_FAILED' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
   })
 })
 
@@ -469,7 +475,7 @@ describe('raw output acquisition', () => {
     const { ctx, bash } = await setup({ config: { rawOutputMaxBytes: 16 } })
     bash.handler = () => runResult('', { stdout: { text: 'x', truncated: true, spillPath: '/does/not/get-read' } })
     const result = await call(ctx, 'glob', { pattern: '*' })
-    expect(result.error).toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_RAW_OUTPUT_OVERFLOW' } })
     expect(text(result)).toContain('narrow pattern, path, or include')
   })
 
@@ -480,7 +486,7 @@ describe('raw output acquisition', () => {
     const { ctx, bash } = await setup({ config: { rawOutputMaxBytes: 16 } })
     bash.handler = () => runResult(`${'x'.repeat(64)}\n`)
     const result = await call(ctx, 'grep', { pattern: 'x' })
-    expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
+    expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_RAW_OUTPUT_OVERFLOW' } })
     expect(text(result)).toContain('narrow pattern, path, or include')
   })
 
@@ -488,7 +494,7 @@ describe('raw output acquisition', () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('', { stdout: { text: 'partial', truncated: true } })
     const result = await call(ctx, 'grep', { pattern: 'x' })
-    expect(result.error).toMatchObject({ code: 'SEARCH_RAW_OUTPUT_OVERFLOW' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_RAW_OUTPUT_OVERFLOW' } })
   })
 })
 
@@ -497,6 +503,8 @@ describe('glob results', () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('/sessions/s1/src/a.ts\n/elsewhere/b.ts\nrel/c.ts\n')
     const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/sessions/s1') })
+    if (result.isError) throw new Error('expected glob success')
+    expect(result.value).toEqual({ paths: [join('src', 'a.ts'), '/elsewhere/b.ts', 'rel/c.ts'] })
     expect(text(result)).toBe(`${join('src', 'a.ts')}\n/elsewhere/b.ts\nrel/c.ts`)
   })
 
@@ -516,9 +524,15 @@ describe('glob results', () => {
 
   it('caps at globMaxResults and saves the FULL sorted list through spillStore', async () => {
     const { ctx, bash, spill } = await setup({ config: { globMaxResults: 2 }, spill: true })
+    ctx.on('tools/post-execute', async () => ({
+      kind: 'accept',
+      additionalContexts: [{ content: [{ type: 'text', text: 'glob context' }], source: { kind: 'plugin', plugin: 'test' } }],
+    }))
     bash.handler = () => runResult('a.ts\nb.ts\nc.ts\nd.ts\n')
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected glob success')
+    expect(result.value).toEqual({ paths: ['a.ts', 'b.ts', 'c.ts', 'd.ts'] })
     expect(text(result)).toBe('a.ts\nb.ts\n\n(Showing 2 of 4 paths. Full sorted result stored at: /spill/glob-results.txt. Use the fake retrieval hint.)')
     expect(spill?.saves).toHaveLength(1)
     expect(spill?.saves[0]).toMatchObject({
@@ -528,6 +542,7 @@ describe('glob results', () => {
       content: 'a.ts\nb.ts\nc.ts\nd.ts',
     })
     expect(spill?.saves[0]?.source.callId).toBeDefined()
+    expect(result.additionalContexts?.[0]?.content).toEqual([{ type: 'text', text: 'glob context' }])
   })
 
   it('does not create a spill file when the result fits inline', async () => {
@@ -535,6 +550,36 @@ describe('glob results', () => {
     bash.handler = () => runResult('a.ts\nb.ts\n')
     const result = await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })
     expect(text(result)).toBe('a.ts\nb.ts')
+    expect(spill?.saves).toHaveLength(0)
+  })
+
+  it('preserves a downstream canonical value replacement instead of spilling the old value', async () => {
+    const { ctx, bash, spill } = await setup({ config: { globMaxResults: 1 }, spill: true })
+    ctx.on('tools/post-execute', async () => ({
+      kind: 'accept' as const,
+      value: { paths: ['replacement-a.ts', 'replacement-b.ts'] },
+    }))
+    bash.handler = () => runResult('old-a.ts\nold-b.ts\n')
+
+    const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
+
+    if (result.isError) throw new Error('expected glob replacement success')
+    expect(result.value).toEqual({ paths: ['replacement-a.ts', 'replacement-b.ts'] })
+    expect(text(result)).toContain('replacement-a.ts')
+    expect(text(result)).not.toContain('old-a.ts')
+    expect(spill?.saves).toHaveLength(0)
+  })
+
+  it('keeps the full nested Code value without creating a surface spill', async () => {
+    const { ctx, bash, spill } = await setup({ config: { globMaxResults: 2 }, spill: true })
+    bash.handler = () => runResult('a.ts\nb.ts\nc.ts\nd.ts\n')
+    const result = await call(ctx, 'glob', { pattern: '*.ts' }, {
+      agent: agent('/w'),
+      parent: Symbol('run_code') as ToolExecutionToken,
+    })
+    if (result.isError) throw new Error('expected glob success')
+    expect(result.value).toEqual({ paths: ['a.ts', 'b.ts', 'c.ts', 'd.ts'] })
+    expect(text(result)).toBe('a.ts\nb.ts\n\n(Showing 2 of 4 paths. The complete result could not be saved; narrow pattern or path to see more.)')
     expect(spill?.saves).toHaveLength(0)
   })
 
@@ -566,6 +611,14 @@ describe('grep results', () => {
     ].join('\n'))
     const result = await call(ctx, 'grep', { pattern: 'const' })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected grep success')
+    expect(result.value).toEqual({
+      matches: [
+        { path: 'a.ts', lineNumber: 3, line: 'const x = 1' },
+        { path: 'a.ts', lineNumber: 9, line: 'const y = 2' },
+        { path: 'b.ts', lineNumber: 1, line: 'const z = 3' },
+      ],
+    })
     expect(text(result)).toBe('Found 3 matches\n\na.ts\nLine 3: const x = 1\nLine 9: const y = 2\n\nb.ts\nLine 1: const z = 3')
   })
 
@@ -588,6 +641,8 @@ describe('grep results', () => {
     // Use a multibyte straddle instead: 'aé' repeated — cut at 7 bytes: a(1)é(2)a(1)é(2)=6 +a(1)=7 → next é straddles: trimmed.
     bash.handler = () => runResult(`${matchLine('a.txt', 1, 'aéaéaéaé')}\n`)
     const result = await call(ctx, 'grep', { pattern: 'a' })
+    if (result.isError) throw new Error('expected grep success')
+    expect(result.value).toEqual({ matches: [{ path: 'a.txt', lineNumber: 1, line: 'aéaéaéaé' }] })
     expect(text(result)).toContain('Line 1: aéaéa (line truncated)')
   })
 
@@ -605,6 +660,10 @@ describe('grep results', () => {
 
   it('caps at grepMaxMatches and spills the full formatted match list', async () => {
     const { ctx, bash, spill } = await setup({ config: { grepMaxMatches: 2 }, spill: true })
+    ctx.on('tools/post-execute', async () => ({
+      kind: 'accept',
+      additionalContexts: [{ content: [{ type: 'text', text: 'grep context' }], source: { kind: 'plugin', plugin: 'test' } }],
+    }))
     bash.handler = () => runResult([
       matchLine('a.ts', 1, 'one'),
       matchLine('a.ts', 2, 'two'),
@@ -612,12 +671,66 @@ describe('grep results', () => {
       '',
     ].join('\n'))
     const result = await call(ctx, 'grep', { pattern: 'e' }, { agent: agent('/w') })
+    if (result.isError) throw new Error('expected grep success')
+    expect(result.value).toEqual({
+      matches: [
+        { path: 'a.ts', lineNumber: 1, line: 'one' },
+        { path: 'a.ts', lineNumber: 2, line: 'two' },
+        { path: 'b.ts', lineNumber: 3, line: 'three' },
+      ],
+    })
     expect(text(result)).toBe('Found 2 of 3 matches\n\na.ts\nLine 1: one\nLine 2: two\n\n(Full grep result stored at: /spill/grep-results.txt. Use the fake retrieval hint.)')
     expect(spill?.saves[0]).toMatchObject({
       source: { toolName: 'grep', label: 'result' },
       suggestedName: 'grep-results.txt',
       content: 'Found 3 matches\n\na.ts\nLine 1: one\nLine 2: two\n\nb.ts\nLine 3: three',
     })
+    expect(result.additionalContexts?.[0]?.content).toEqual([{ type: 'text', text: 'grep context' }])
+  })
+
+  it('preserves a downstream canonical value replacement instead of spilling the old matches', async () => {
+    const { ctx, bash, spill } = await setup({ config: { grepMaxMatches: 1 }, spill: true })
+    ctx.on('tools/post-execute', async () => ({
+      kind: 'accept' as const,
+      value: {
+        matches: [
+          { path: 'replacement.ts', lineNumber: 7, line: 'first' },
+          { path: 'replacement.ts', lineNumber: 8, line: 'second' },
+        ],
+      },
+    }))
+    bash.handler = () => runResult(`${matchLine('old.ts', 1, 'old')}\n`)
+
+    const result = await call(ctx, 'grep', { pattern: 'old' }, { agent: agent('/w') })
+
+    if (result.isError) throw new Error('expected grep replacement success')
+    expect(result.value).toEqual({
+      matches: [
+        { path: 'replacement.ts', lineNumber: 7, line: 'first' },
+        { path: 'replacement.ts', lineNumber: 8, line: 'second' },
+      ],
+    })
+    expect(text(result)).toContain('replacement.ts')
+    expect(text(result)).not.toContain('old.ts')
+    expect(spill?.saves).toHaveLength(0)
+  })
+
+  it('keeps every nested Code match in the value without creating a surface spill', async () => {
+    const { ctx, bash, spill } = await setup({ config: { grepMaxMatches: 1 }, spill: true })
+    bash.handler = () => runResult(`${matchLine('a.ts', 1, 'one')}\n${matchLine('b.ts', 2, 'two')}\n`)
+    const result = await call(ctx, 'grep', { pattern: 'o' }, {
+      agent: agent('/w'),
+      parent: Symbol('run_code') as ToolExecutionToken,
+    })
+    if (result.isError) throw new Error('expected grep success')
+    expect(result.value).toEqual({
+      matches: [
+        { path: 'a.ts', lineNumber: 1, line: 'one' },
+        { path: 'b.ts', lineNumber: 2, line: 'two' },
+      ],
+    })
+    expect(text(result)).toBe('Found 1 of 2 matches\n\na.ts\nLine 1: one\n\n(The complete result could not be saved; narrow pattern, path, or include to see more.)')
+    expect(spill?.saves).toHaveLength(0)
   })
 
   it('reports the unsaved remainder when capped with no spill backend', async () => {
@@ -660,7 +773,7 @@ describe('rg --json transport failures (SEARCH_FAILED)', () => {
     bash.handler = () => runResult(`${line}\n`)
     const result = await call(ctx, 'grep', { pattern: 'x' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ name: 'SearchError', code: 'SEARCH_FAILED' })
+    expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })
   })
 })
 

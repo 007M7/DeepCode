@@ -3,7 +3,8 @@ import { Context } from 'cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId as SessionIdType } from '@deepseek-ai/dsh-session'
 import SessionPersistence from '@deepseek-ai/dsh-session-persistence'
-import SessionQueryService, { type SessionQueryErrorCode } from '@deepseek-ai/dsh-session-query'
+import { type SessionQueryErrorCode } from '@deepseek-ai/dsh-session-query'
+import { TestSessionQueryService } from './test-service.ts'
 
 type MutableSessionHeader = { -readonly [K in keyof SessionHeader]: SessionHeader[K] }
 
@@ -30,17 +31,17 @@ function appendEvent(seq: number, sources?: number[]): SessionEvent {
 class TracePersistence extends SessionPersistence {
   static entries = new Map<SessionIdType, { meta: SessionHeader; events: SessionEvent[] }>()
   static listCalls = 0
-  static loadCalls = 0
+  static inspectCalls = 0
   static listFailure: Error | undefined
-  static loadFailure: Error | undefined
+  static inspectFailure: Error | undefined
   static afterList: (() => void) | undefined
 
   static reset(entries: readonly { meta: SessionHeader; events: SessionEvent[] }[] = []): void {
     this.entries = new Map(entries.map(entry => [entry.meta.id, structuredClone(entry)]))
     this.listCalls = 0
-    this.loadCalls = 0
+    this.inspectCalls = 0
     this.listFailure = undefined
-    this.loadFailure = undefined
+    this.inspectFailure = undefined
     this.afterList = undefined
   }
 
@@ -61,8 +62,12 @@ class TracePersistence extends SessionPersistence {
   }
 
   load(id: SessionIdType): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    TracePersistence.loadCalls += 1
-    if (TracePersistence.loadFailure !== undefined) return Promise.reject(TracePersistence.loadFailure)
+    return this.inspect(id)
+  }
+
+  inspect(id: SessionIdType): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    TracePersistence.inspectCalls += 1
+    if (TracePersistence.inspectFailure !== undefined) return Promise.reject(TracePersistence.inspectFailure)
     const entry = TracePersistence.entries.get(id)
     if (entry === undefined) return Promise.reject(new Error('missing test session'))
     return Promise.resolve(structuredClone(entry))
@@ -75,12 +80,16 @@ class TracePersistence extends SessionPersistence {
     TracePersistence.afterList?.()
     return Promise.resolve(result)
   }
+
+  listSnapshots(): Promise<never[]> {
+    return Promise.resolve([])
+  }
 }
 
 async function queryContext(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionQueryService)
+  await ctx.plugin(TestSessionQueryService)
   return ctx
 }
 
@@ -204,7 +213,7 @@ describe('session lineage tracing', () => {
       complete: true,
     })
     expect(TracePersistence.listCalls).toBe(1)
-    expect(TracePersistence.loadCalls).toBe(0)
+    expect(TracePersistence.inspectCalls).toBe(0)
 
     TracePersistence.listFailure = new Error('unavailable')
     await expect(ctx.sessionQuery.traceSession(durable.id))
@@ -296,7 +305,7 @@ describe('session event tracing', () => {
     expect(repeated.derivedEventSeqs).toEqual([8])
   })
 
-  it('loads persisted logs once, prefers live logs, and preserves failures and conflicts', async () => {
+  it('inspects persisted logs once, prefers live logs, and preserves failures and conflicts', async () => {
     const durable = header('shared', 1, { cwd: '/same' })
     TracePersistence.reset([{ meta: durable, events: [appendEvent(0)] }])
     const ctx = await queryContext()
@@ -304,7 +313,7 @@ describe('session event tracing', () => {
 
     await expect(ctx.sessionQuery.traceEvent({ sessionId: durable.id, seq: 0 }))
       .resolves.toMatchObject({ target: { type: 'user/message', surface: 'current' } })
-    expect([TracePersistence.listCalls, TracePersistence.loadCalls]).toEqual([1, 1])
+    expect([TracePersistence.listCalls, TracePersistence.inspectCalls]).toEqual([1, 1])
 
     const live = ctx.sessions.create(durable.id, { meta: { createdAt: 1, cwd: '/same' } })
     live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
@@ -314,10 +323,10 @@ describe('session event tracing', () => {
       { surfaceOp: 'append' },
     )
     TracePersistence.listFailure = new Error('list unavailable')
-    TracePersistence.loadFailure = new Error('load unavailable')
+    TracePersistence.inspectFailure = new Error('inspect unavailable')
     await expect(ctx.sessionQuery.traceEvent({ sessionId: durable.id, seq: 1 }))
       .resolves.toMatchObject({ target: { type: 'context/message' } })
-    expect([TracePersistence.listCalls, TracePersistence.loadCalls]).toEqual([1, 1])
+    expect([TracePersistence.listCalls, TracePersistence.inspectCalls]).toEqual([1, 1])
 
     TracePersistence.reset([{ meta: durable, events: [appendEvent(0)] }])
     const failedCtx = await queryContext()
@@ -326,10 +335,10 @@ describe('session event tracing', () => {
     await expect(failedCtx.sessionQuery.traceEvent({ sessionId: durable.id, seq: 0 }))
       .rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
     TracePersistence.listFailure = undefined
-    TracePersistence.loadFailure = new Error('load unavailable')
+    TracePersistence.inspectFailure = new Error('inspect unavailable')
     await expect(failedCtx.sessionQuery.traceEvent({ sessionId: durable.id, seq: 0 }))
       .rejects.toThrow(expectCode('SESSION_QUERY_PERSISTENCE_FAILED'))
-    TracePersistence.loadFailure = undefined
+    TracePersistence.inspectFailure = undefined
     TracePersistence.afterList = () => {
       mutableHeader(TracePersistence.entries.get(durable.id)!.meta).cwd = '/changed'
     }

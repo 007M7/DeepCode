@@ -6,7 +6,6 @@
  */
 
 import type { Context } from 'cordis'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TodoItem } from '@deepseek-ai/dsh-session'
 
@@ -28,7 +27,7 @@ const DESCRIPTION =
   + '(not started), `in_progress` (being worked on now), `completed` (finished).'
 
 /**
- * Validate the value constraints the SchemaSpec can't express and build the canonical {@link
+ * Validate the value constraints the ParameterSchemaSpec can't express and build the canonical {@link
  * TodoItem}[]: trimmed non-empty unique content and at most one in-progress item. The registry
  * has already enforced the status enum; the cast below records that guarantee.
  */
@@ -67,6 +66,7 @@ export function apply(ctx: Context): void {
         description: 'The COMPLETE task list, replacing any previous list.',
         items: {
           type: 'object',
+          additionalProperties: true,
           properties: {
             content: { type: 'string', required: true, description: 'What the task is — a short imperative line.' },
             status: {
@@ -79,7 +79,41 @@ export function apply(ctx: Context): void {
         },
       },
     },
-    execute(args, exec): Promise<ContentBlock[]> {
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          todos: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                content: { type: 'string', required: true },
+                status: { type: 'string', required: true, enum: [...STATUSES] },
+              },
+            },
+          },
+          counts: {
+            type: 'object',
+            additionalProperties: false,
+            required: true,
+            properties: {
+              pending: { type: 'integer', required: true },
+              inProgress: { type: 'integer', required: true },
+              completed: { type: 'integer', required: true },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `Updated todo list: ${value.counts.pending} pending, ${value.counts.inProgress} in progress, ${value.counts.completed} completed.`,
+      }],
+    },
+    execute(args, exec) {
       const todos = toTodoList(args.todos)
       if (!exec.agent) {
         // The list is per-agent-session state; a non-agent caller (no owning
@@ -88,10 +122,14 @@ export function apply(ctx: Context): void {
       }
       exec.agent.session.append('todo/write', { todos })
       const count = (status: TodoItem['status']): number => todos.filter(t => t.status === status).length
-      return Promise.resolve([{
-        type: 'text',
-        text: `Updated todo list: ${count('pending')} pending, ${count('in_progress')} in progress, ${count('completed')} completed.`,
-      }])
+      return Promise.resolve({
+        todos: todos.map(todo => ({ content: todo.content, status: todo.status })),
+        counts: {
+          pending: count('pending'),
+          inProgress: count('in_progress'),
+          completed: count('completed'),
+        },
+      })
     },
     presentCall: args => ({ card: 'generic', title: 'Update todo list', kind: 'other', rawInput: args.todos }),
   }))

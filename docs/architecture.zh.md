@@ -42,10 +42,10 @@
 | `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | 后台任务注册表和通用 `task_*` 控制工具 |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | 脚本驱动的多 agent 编排 |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | 持久化的同会话目标 |
-| `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | 会话日志的持久存储 |
-| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | 实时优先的逻辑语料精确读取和关系追踪 |
-| `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | 基于日志的回退标题和单个可选异步提供方 |
-| `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | 按包名选择包自有运行时检查的注册表 |
+| `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | 会话日志的持久化存储 |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | `session-query` 接口：精确检索、过滤与追踪采用实时优先的具体实现；恰有两个全文搜索方法为抽象方法，由 `session-query-sqlite` 实现 |
+| `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | 基于日志的回退标题，以及单个可选的异步提供方 |
+| `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | 按包名筛选包自有运行时检查的注册表 |
 
 ## 事件
 
@@ -185,7 +185,7 @@ forever:
 | 限制生成的进程 | 使用 `ctx.sandbox` 后端；消费方在生成进程前包装 argv |
 | 拦截请求、工具或轮次 | 使用相应的 `agent/*` 或 `tools/*` 事件；`agent/turn-stop` 是串行终止判定点 |
 | 添加历史记录之外的会话稳定前缀 | 组合 `agent/session-prefix`；请求头会记录该前缀 |
-| 添加 UI 或编辑器集成 | 驱动 `ctx.agents` 并从 `session/event` 渲染 |
+| 添加 UI 或编辑器集成 | 驱动 `ctx.agents` 并从 `session/event` 渲染；仅终端可用的浮层使用 `ctx.tui` |
 | 添加持久会话状态 | 添加一个 `SessionEventMap` 成员，并从日志渲染和回放 |
 | 添加异步会话标题生成 | 在 `ctx.sessionTitle` 上注册唯一提供方 |
 | 管理同会话目标 | 使用 `ctx.goals`；通过 `Agent` 和 `agent/*` 续跑 |

@@ -195,6 +195,13 @@ describe('read tool', () => {
     fs.files.set('key:a.txt', 'hello\nworld')
     const result = await call(ctx, 'read', { file_path: 'a.txt' })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected read success')
+    expect(result.value).toEqual({
+      path: '/abs/a.txt',
+      offset: 1,
+      lines: [{ number: 1, text: 'hello' }, { number: 2, text: 'world' }],
+      totalLines: 2,
+    })
     expect(text(result)).toBe(`<path>/abs/a.txt</path>
 <type>file</type>
 <content>
@@ -203,6 +210,15 @@ describe('read tool', () => {
 
 (End of file - total 2 lines)
 </content>`)
+  })
+
+  it('returns an explicit empty canonical line window for an empty file', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:empty.txt', '')
+    const result = await call(ctx, 'read', { file_path: 'empty.txt' })
+    if (result.isError) throw new Error('expected empty read success')
+    expect(result.value).toEqual({ path: '/abs/empty.txt', offset: 1, lines: [], totalLines: 0 })
+    expect(text(result)).toContain('(End of file - total 0 lines)')
   })
 
   it('rejects a non-positive offset via arg validation', async () => {
@@ -260,7 +276,7 @@ describe('read tool', () => {
     const { ctx } = await setup()
     const result = await call(ctx, 'read', { file_path: 'missing.txt' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ code: 'FS_NOT_FOUND' })
+    expect(result.error).toMatchObject({ info: { code: 'FS_NOT_FOUND' } })
   })
 
   it('rejects a non-regular target', async () => {
@@ -269,7 +285,7 @@ describe('read tool', () => {
     fs.stat = async () => ({ version: FsVersion('v1'), type: 'directory' })
     const result = await call(ctx, 'read', { file_path: 'd' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })
+    expect(result.error).toMatchObject({ info: { code: 'FS_NOT_REGULAR_FILE' } })
   })
 
   it('streams a large file (size at/above the cap) instead of reading whole', async () => {
@@ -335,6 +351,8 @@ describe('write tool', () => {
     const { ctx, fs } = await setup()
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' }, { session: { header: {} } })
     expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected write success')
+    expect(result.value).toEqual({ path: '/abs/a.txt', operation: 'create', before: null, after: 'hi' })
     expect(text(result)).toContain('Created file')
     expect(fs.writeIntents).toEqual([{ kind: 'createIfAbsent' }])
   })
@@ -351,7 +369,7 @@ describe('write tool', () => {
     fs.rejectWith = new FsError('blocked', 'FS_STALE_VERSION')
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ name: 'FsError', code: 'FS_STALE_VERSION' })
+    expect(result.error).toMatchObject({ info: { name: 'FsError', code: 'FS_STALE_VERSION' } })
   })
 })
 
@@ -362,6 +380,8 @@ describe('edit tool', () => {
     fs.files.set('key:a.txt', 'a')
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }, { session })
+    if (result.isError) throw new Error('expected edit success')
+    expect(result.value).toEqual({ path: '/abs/a.txt', before: 'a', after: 'b' })
     expect(text(result)).toBe('The file /abs/a.txt has been updated successfully.')
   })
 
@@ -400,7 +420,7 @@ describe('edit tool', () => {
     fs.files.set('key:a.txt', 'hello')
     const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }, { session: { header: {} } })
     expect(result.isError).toBe(true)
-    expect(result.error).toMatchObject({ code: 'FS_NOT_OBSERVED' })
+    expect(result.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
   })
 })
 
@@ -498,27 +518,27 @@ describe('result-time contextual diff (meta + presentResult)', () => {
     expect(view).toEqual({ card: 'diff', title: 'Write a.txt', diffs: [{ path: 'a.txt', oldText: 'a\nb\nc\nOLD\nd\ne\nf', newText: 'a\nb\nc\nNEW\nd\ne\nf' }] })
   })
 
-  it('write CREATE: no before-version → no meta, but presentResult still renders a whole-file diff card', async () => {
-    // A create has no prior content (no `meta`), yet the completed card must be a `diff` — an
+  it('write CREATE: an empty applied-diff projection still falls back to the whole-file diff card', async () => {
+    // A create has no prior content, yet the completed card must be a `diff` — an
     // ACP tool_call_update.content REPLACES the call's content, so a non-diff result would
     // clobber the pending new-file diff.
     const { ctx } = await setup()
     const session = { header: {} }
     const result = await call(ctx, 'write', { file_path: 'new.txt', content: 'fresh\n' }, { session })
     expect(result.isError).toBe(false)
-    expect(result.meta).toBeUndefined()
+    expect(result.meta).toEqual({ diffs: [] })
     const view = ctx.tools.get('write')?.presentResult?.({ file_path: 'new.txt', content: 'fresh\n' }, result)
     expect(view).toEqual({ card: 'diff', title: 'Write new.txt', diffs: [{ path: 'new.txt', oldText: null, newText: 'fresh\n' }] })
   })
 
-  it('write OVERWRITE with identical content: a before exists but yields no hunk → no meta, presentResult falls back to a whole-file diff', async () => {
+  it('write OVERWRITE with identical content: an empty applied-diff projection falls back to a whole-file diff', async () => {
     const { ctx, fs } = await setup()
     const session = { header: {} }
     fs.files.set('key:a.txt', 'same\n')
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'same\n' }, { session })
     expect(result.isError).toBe(false)
-    expect(result.meta).toBeUndefined()
+    expect(result.meta).toEqual({ diffs: [] })
     const view = ctx.tools.get('write')?.presentResult?.({ file_path: 'a.txt', content: 'same\n' }, result)
     expect(view).toEqual({ card: 'diff', title: 'Write a.txt', diffs: [{ path: 'a.txt', oldText: null, newText: 'same\n' }] })
   })
@@ -583,6 +603,9 @@ describe('read caps are plugin config', () => {
     const { ctx, fs } = await setupWith({ readMaxBytes: 9 })
     fs.files.set('key:a.txt', 'aaaa\nbbbb\ncccc')
     const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected read success')
+    expect(result.value).toMatchObject({ totalLines: 3 })
     expect(text(result)).toContain('Output capped.')
     expect(text(result)).not.toContain('cccc')
   })

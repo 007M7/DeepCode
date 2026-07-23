@@ -118,14 +118,18 @@ export function serializeRequest(options: GenerateOptions, defaults: RequestDefa
       parameters: tool.parameters,
     },
   }))
+  // A short title budget must produce visible text; conversation and
+  // compaction calls continue to inherit the adapter's thinking defaults.
+  const thinking = options.purpose === 'session-title' ? 'disabled' : defaults.thinking
+  const reasoningEffort = options.purpose === 'session-title' ? undefined : defaults.reasoningEffort
 
   return {
     model: options.model,
     messages,
     stream: true,
     stream_options: { include_usage: true },
-    ...defaults.thinking !== undefined ? { thinking: { type: defaults.thinking } } : {},
-    ...defaults.reasoningEffort !== undefined ? { reasoning_effort: defaults.reasoningEffort } : {},
+    ...thinking !== undefined ? { thinking: { type: thinking } } : {},
+    ...reasoningEffort !== undefined ? { reasoning_effort: reasoningEffort } : {},
     ...tools !== undefined && tools.length > 0 ? { tools } : {},
     ...options.temperature !== undefined ? { temperature: options.temperature } : {},
     ...options.maxTokens !== undefined ? { max_tokens: options.maxTokens } : {},

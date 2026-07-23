@@ -27,6 +27,7 @@ const execution = (overrides: Partial<ToolExecution> = {}): ToolExecution => ({
 const outcome = (): ToolExecutionResult => Object.freeze({
   content: Object.freeze([{ type: 'text' as const, text: 'ok' }]) as never,
   isError: false,
+  value: null,
 })
 
 function emitResult(ctx: Context, exec: ToolExecution, result: ToolExecutionResult): void {
@@ -78,7 +79,7 @@ describe('tool-pipeline invariants', () => {
     expect(() => { emitResult(ctx, execution(), outcome()) }).toThrow(/execution must be frozen/)
 
     const exec = Object.freeze(execution())
-    expect(() => { emitResult(ctx, exec, { content: [], isError: false }) })
+    expect(() => { emitResult(ctx, exec, { content: [], isError: false, value: null }) })
       .toThrow(/outcome and content must be frozen/)
 
     const anonymous = Object.freeze(execution({ name: '' }))

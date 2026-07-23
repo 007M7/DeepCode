@@ -38,6 +38,7 @@ function summary(init: SummaryInit): SessionSummary {
   const s: SessionSummary = {
     id: sid(init.id),
     title: init.title ?? init.id,
+    displayTitle: init.title ?? init.id,
     running: init.running ?? false,
     updatedAt: init.updatedAt ?? 0,
   }
@@ -211,6 +212,14 @@ describe('SidebarRoot', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('expanded search focuses without toggling the sidebar', () => {
+    const { onToggleSidebar } = mount(...projectData())
+    const input = screen.getByPlaceholderText('Search name, keywords...')
+    act(() => { fireEvent.click(screen.getByLabelText('Search sessions')) })
+    expect(document.activeElement).toBe(input)
+    expect(onToggleSidebar).not.toHaveBeenCalled()
   })
 
   it('the search query survives a collapse/expand round trip', () => {

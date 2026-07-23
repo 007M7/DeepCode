@@ -24,6 +24,12 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session-title/session-title"
+    },
+    {
+      "path": "../../session-title/session-title-first-message-llm"
+    },
+    {
       "path": "../../core/system-prompt"
     },
     {
@@ -61,6 +67,9 @@
     },
     {
       "path": "../../fs/tool-fs-search"
+    },
+    {
+      "path": "../../context/workspace-context"
     },
     {
       "path": "../../llm/token-meter"
@@ -136,6 +145,9 @@
     },
     {
       "path": "../../client/ui-conversation"
+    },
+    {
+      "path": "../../client/ui-question"
     },
     {
       "path": "../../client/ui-trajectory"

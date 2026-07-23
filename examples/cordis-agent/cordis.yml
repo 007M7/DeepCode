@@ -7,7 +7,7 @@
 # such as `ctx.bash`. Grant this toolset like bash access. See
 # ../../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md.
 
-# Hot-module reload for the dev/demo loop (needs `node --expose-internals`).
+# Development-only hot reload; production assemblies omit it.
 - id: hmr
   name: '@cordisjs/plugin-hmr'
   config:

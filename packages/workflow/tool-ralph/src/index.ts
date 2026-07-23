@@ -8,6 +8,7 @@
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
@@ -374,6 +375,13 @@ function renderResult(result: RalphRunResult, maxChars: number): string {
   return boundResult(text, maxChars)
 }
 
+/** Canonical Ralph result fields shared by schema inference and rendering. */
+const RALPH_OUTPUT_PROPERTIES = {
+  runId: { type: 'string', required: true },
+  agentsStarted: { type: 'integer', required: true },
+  result: { type: 'json', required: true },
+} as const
+
 /** Render an ordinary child failure with the most recent durable handoff. */
 function renderRoundFailure(result: RalphRoundFailure, maxChars: number): string {
   const header = `Ralph round ${result.roundsStarted} child failed before producing a structured report.`
@@ -415,7 +423,18 @@ export function apply(ctx: Context, config: Config): void {
         description: 'Optional positive safe-integer round cap, bounded by the deployment ceiling.',
       },
     },
-    async execute(args, exec): Promise<ContentBlock[]> {
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: RALPH_OUTPUT_PROPERTIES,
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: renderResult(value.result as unknown as RalphRunResult, resolved.maxResultChars),
+      }],
+    },
+    async execute(args, exec) {
       const parent = exec.agent
       if (parent === undefined) {
         throw new Error('Ralph tool requires a calling agent (exec.agent was undefined)')
@@ -444,7 +463,11 @@ export function apply(ctx: Context, config: Config): void {
         if (error !== undefined) throw new Error(error)
         const value = readRunResult(settled.value, maxRounds, resolved.maxHandoffChars)
         if (value.status === 'round-failed') throw new Error(renderRoundFailure(value, resolved.maxResultChars))
-        return [{ type: 'text', text: renderResult(value, resolved.maxResultChars) }]
+        return {
+          runId: run.id,
+          agentsStarted: settled.agentsStarted,
+          result: value as unknown as JsonValue,
+        }
       } finally {
         exec.signal.removeEventListener('abort', onAbort)
         await run.dispose()
