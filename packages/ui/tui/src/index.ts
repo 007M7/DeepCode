@@ -424,6 +424,9 @@ function contentText(content: readonly ContentBlock[]): string {
       case 'tool-result':
         parts.push(contentText(block.content))
         break
+      case 'image':
+        parts.push(`[image attachment ${block.attachment.attachmentId}]`)
+        break
       default: {
         const rawType = (block as { type?: unknown }).type
         parts.push(`[${typeof rawType === 'string' ? rawType : 'content'}]`)
@@ -648,7 +651,14 @@ class AssistantMessageComponent extends Container {
   constructor(content: readonly ContentBlock[], showReasoning: boolean, palette: Palette, mdTheme: MarkdownTheme) {
     super()
     const reasoning = displayText(textBlocks(content, 'reasoning').trim())
-    const text = displayText(textBlocks(content, 'text').trim())
+    const text = displayText(content
+      .flatMap(block => block.type === 'text'
+        ? [block.text]
+        : block.type === 'image'
+          ? [`[image attachment ${block.attachment.attachmentId}]`]
+          : [])
+      .join('\n\n')
+      .trim())
     if (reasoning && showReasoning) {
       this.addChild(new Spacer(1))
       this.addChild(new Text(palette.italic(palette.muted('Reasoning')), 1, 0))
@@ -668,6 +678,7 @@ class AssistantMessageComponent extends Container {
 interface StreamingBlock {
   type: string
   text: string
+  block?: ContentBlock
 }
 
 class StreamingAssistantComponent extends Container {
@@ -691,6 +702,8 @@ class StreamingAssistantComponent extends Container {
       this.blocks.set(chunk.index, block)
     } else if (chunk.type === 'block-end' && (chunk.block.type === 'text' || chunk.block.type === 'reasoning')) {
       this.blocks.set(chunk.index, { type: chunk.block.type, text: chunk.block.text })
+    } else if (chunk.type === 'block-end' && chunk.block.type === 'image') {
+      this.blocks.set(chunk.index, { type: 'image', text: '', block: chunk.block })
     }
     this.rebuild()
   }
@@ -707,6 +720,7 @@ class StreamingAssistantComponent extends Container {
       .flatMap<ContentBlock>(([, block]) => {
         if (block.type === 'text') return [{ type: 'text', text: block.text }]
         if (block.type === 'reasoning') return [{ type: 'reasoning', text: block.text }]
+        if (block.type === 'image' && block.block?.type === 'image') return [block.block]
         return []
       })
     const component = new AssistantMessageComponent(content, this.showReasoning, this.palette, this.mdTheme)

@@ -14,7 +14,7 @@
  * read-only view).
  */
 import type { Context, Fiber } from 'cordis'
-import type { IApiClient, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { HostDescription, IApiClient, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionCell } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
@@ -101,6 +101,7 @@ export class SessionsService {
   private watched: SessionId | undefined
   /** Removed-while-watched sessions whose teardown waits for the watch to move away. */
   private readonly deferredRemovals = new Set<SessionId>()
+  private description: HostDescription | undefined
 
   /**
    * @param ctx - client root context (scope fibers mount under it).
@@ -116,6 +117,22 @@ export class SessionsService {
     // notifications are already microtask-batched.
     this.manager.subscribe(() => { this.projectList() })
     rootCtx.reflect.provide('sessions', this, undefined)
+  }
+
+  /**
+   * Store the latest successful connection-generation host description.
+   * @param description - capability and deployment snapshot from `host.describe`.
+   */
+  handleDescription(description: HostDescription): void {
+    this.description = description
+  }
+
+  /**
+   * Read the latest host capability snapshot.
+   * @returns the last successful description, or undefined before connection.
+   */
+  hostDescription(): HostDescription | undefined {
+    return this.description
   }
 
   /**

@@ -387,11 +387,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
           if (content.some(part => part.type === 'image')) {
-            const activeModel = (await ctx.llm.listModels(defaults.provider)).find(model => model.id === defaults.model)
+            const routed = agent.session.requestHeader()?.config
+            const provider = routed?.provider ?? agent.options.provider ?? defaults.provider
+            const model = routed?.model ?? agent.options.model ?? defaults.model
+            const activeModel = (await ctx.llm.listModels(provider)).find(candidate => candidate.id === model)
             if (activeModel?.inputModalities !== undefined && !activeModel.inputModalities.includes('image')) {
               return err(request, {
                 code: 'attachment-error',
-                message: `Model "${defaults.model}" does not support image input.`,
+                message: `Model "${model}" does not support image input.`,
                 details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
               })
             }

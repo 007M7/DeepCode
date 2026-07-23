@@ -8,6 +8,7 @@
 export type {
   ApiProxy, SessionsApi, SessionSummary, PromptContentPart, HostApi, EventsApi, MuxFrame, HostFrame,
   ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
+  ResponseValue,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 export type {
@@ -19,6 +20,9 @@ export { AbstractApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 export type { IApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 export type { SessionId, SessionEvent } from '@deepseek-ai/dsh-session/types'
 export type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm/types'
+
+/** Successful value returned by the connection-generation host handshake. */
+export type HostDescription = import('@deepseek-ai/dsh-host-apiproxy/api').ResponseValue<'host.describe'>
 
 import type { RpcResponse, RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 

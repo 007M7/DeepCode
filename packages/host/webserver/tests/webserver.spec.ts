@@ -1,9 +1,12 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { request as httpRequest } from 'node:http'
 import { createServer as createNetServer, Server as NetServer, type AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { startWebServer, type RunningWebServer } from '../src/index.ts'
+
+const MAX_REQUEST_BODY_BYTES = 64 * 1024
 
 /** Reserve a loopback port for tests that need to address a second server. */
 function freePort(): Promise<number> {
@@ -104,17 +107,35 @@ afterEach(async () => {
   server = undefined
 })
 
-async function boot(onError: (err: Error) => void = () => undefined): Promise<string> {
+async function boot(
+  onError: (err: Error) => void = () => undefined,
+  maxRequestBodyBytes = MAX_REQUEST_BODY_BYTES,
+): Promise<string> {
   const { distIndex } = makeDist()
   const port = await freePort()
-  server = await startWebServer({ host: '127.0.0.1', port, distIndex, apiHandler: echoingApi }, onError)
+  server = await startWebServer({
+    host: '127.0.0.1', port, distIndex, apiHandler: echoingApi, maxRequestBodyBytes,
+  }, onError)
   return `http://127.0.0.1:${String(server.port)}`
 }
 
 describe('startWebServer', () => {
+  it('rejects an invalid request-body cap before listening', () => {
+    const { distIndex } = makeDist()
+    expect(() => startWebServer({
+      host: '127.0.0.1',
+      port: 0,
+      distIndex,
+      apiHandler: echoingApi,
+      maxRequestBodyBytes: 0,
+    }, () => undefined)).toThrow(/positive integer/)
+  })
+
   it('reports the listening port and closes idempotently', async () => {
     const { distIndex } = makeDist()
-    server = await startWebServer({ host: '127.0.0.1', port: 0, distIndex, apiHandler: echoingApi }, () => undefined)
+    server = await startWebServer({
+      host: '127.0.0.1', port: 0, distIndex, apiHandler: echoingApi, maxRequestBodyBytes: MAX_REQUEST_BODY_BYTES,
+    }, () => undefined)
     expect(server.port).toBeGreaterThan(0)
     const first = server.close()
     const second = server.close()
@@ -136,7 +157,9 @@ describe('startWebServer', () => {
     })
     const address = vi.spyOn(NetServer.prototype, 'address').mockReturnValue({ address: host, family: 'IPv4', port })
     try {
-      const inertServer = await startWebServer({ host, port, distIndex, apiHandler: echoingApi }, () => undefined)
+      const inertServer = await startWebServer({
+        host, port, distIndex, apiHandler: echoingApi, maxRequestBodyBytes: MAX_REQUEST_BODY_BYTES,
+      }, () => undefined)
       expect(listen).toHaveBeenCalledWith(port, host, expect.any(Function))
       await inertServer.close()
     } finally {
@@ -148,8 +171,12 @@ describe('startWebServer', () => {
   it('rejects when the port is already taken', async () => {
     const { distIndex } = makeDist()
     const port = await freePort()
-    server = await startWebServer({ host: '127.0.0.1', port, distIndex, apiHandler: echoingApi }, () => undefined)
-    await expect(startWebServer({ host: '127.0.0.1', port, distIndex, apiHandler: echoingApi }, () => undefined))
+    server = await startWebServer({
+      host: '127.0.0.1', port, distIndex, apiHandler: echoingApi, maxRequestBodyBytes: MAX_REQUEST_BODY_BYTES,
+    }, () => undefined)
+    await expect(startWebServer({
+      host: '127.0.0.1', port, distIndex, apiHandler: echoingApi, maxRequestBodyBytes: MAX_REQUEST_BODY_BYTES,
+    }, () => undefined))
       .rejects.toMatchObject({ code: 'EADDRINUSE' })
   })
 })
@@ -207,7 +234,10 @@ describe.skipIf(process.platform === 'win32')('web plugin surfaces (boot injecti
     }
     const port = await freePort()
     server = await startWebServer(
-      { host: '127.0.0.1', port, distIndex, apiHandler: echoingApi, webPlugins }, () => undefined,
+      {
+        host: '127.0.0.1', port, distIndex, apiHandler: echoingApi,
+        maxRequestBodyBytes: MAX_REQUEST_BODY_BYTES, webPlugins,
+      }, () => undefined,
     )
     return `http://127.0.0.1:${String(server.port)}`
   }
@@ -245,7 +275,10 @@ describe.skipIf(process.platform === 'win32')('web plugin surfaces (boot injecti
     }
     const port = await freePort()
     server = await startWebServer(
-      { host: '127.0.0.1', port, distIndex, apiHandler: echoingApi, webPlugins }, () => undefined,
+      {
+        host: '127.0.0.1', port, distIndex, apiHandler: echoingApi,
+        maxRequestBodyBytes: MAX_REQUEST_BODY_BYTES, webPlugins,
+      }, () => undefined,
     )
     const res = await fetch(`http://127.0.0.1:${String(server.port)}/plugins/@deepseek-ai/dsh-client-connection/client.js`)
     expect(res.status).toBe(404)
@@ -303,6 +336,35 @@ describe('/api bridge', () => {
     })
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ method: 'POST', body: '{"n":1}', header: 'p1' })
+  })
+
+  it('returns 413 before buffering a declared oversized body', async () => {
+    const base = await boot()
+    const response = await fetch(`${base}/api/echo`, {
+      method: 'POST',
+      body: 'x'.repeat(MAX_REQUEST_BODY_BYTES + 1),
+    })
+    expect(response.status).toBe(413)
+  })
+
+  it('bounds chunked request buffering when no content length is declared', async () => {
+    const base = await boot(() => undefined, 8)
+    const target = new URL(`${base}/api/echo`)
+    const status = await new Promise<number | undefined>((resolve, reject) => {
+      const request = httpRequest({
+        hostname: target.hostname,
+        port: target.port,
+        path: target.pathname,
+        method: 'POST',
+      }, (response) => {
+        response.resume()
+        response.on('end', () => { resolve(response.statusCode) })
+      })
+      request.on('error', reject)
+      request.write('12345')
+      request.end('67890')
+    })
+    expect(status).toBe(413)
   })
 
   it('relays a bodyless response', async () => {

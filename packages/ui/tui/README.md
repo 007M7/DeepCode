@@ -124,6 +124,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **One configured session owns the transcript and editor** — questions from other agents can still use the shared overlay provider, but session rendering and prompt input remain bound to `sessionId`.
-- **Tool cards are text terminal presentations** — terminal, diff, and generic cards use tool-owned titles/content, but session content currently has no image block for inline image rendering.
+- **Images use explicit text markers** — the terminal cannot render inline raster images, so user, assistant, tool-result, and streaming image blocks render as `[image attachment <id>]` instead of disappearing.
 - **Non-TTY operation is intentionally unsupported** — app bundles that need automation must compose a one-shot or server front door (`dsh-cli-demo`, `dsh-acp`) rather than expecting an internal fallback.
 - **Manual `/skill:` invocation always reloads the full skill body** — the TUI does not detect a skill already present in the conversation, so repeated invocations append its instructions again.

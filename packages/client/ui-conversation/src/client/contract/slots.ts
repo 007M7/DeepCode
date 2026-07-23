@@ -14,6 +14,7 @@ import type { SelectionTarget, ViewEntry } from './views.ts'
 
 /** Browser-owned image that has not crossed the durable host boundary. */
 export interface ComposerAttachment {
+  kind: 'image'
   id: string
   file: File
   previewUrl: string
@@ -37,11 +38,13 @@ export interface ConversationInjected {
     version(): number
   }
   /** Create browser previews and append their ids through the declared store action. */
-  addImages(files: readonly File[]): void
+  addImages(files: readonly File[], current: readonly ComposerAttachment[]): string | null
   /** Release one browser preview and remove its id through the declared store action. */
   removeImage(id: string): void
   /** Resolve ordered store ids to the browser-owned draft attachments still available this runtime. */
   draftImages(ids: readonly string[]): readonly ComposerAttachment[]
+  /** Release historical image URLs when this rendered session scope unmounts. */
+  releaseSessionImages(sessionId: SessionId): void
   /** Send choreography: trims, clears the draft optimistically, restores it on failure. */
   send(text: string, images: readonly ComposerAttachment[], mode: 'queue' | 'steer'): void
   /** Cancel the in-flight turn (failure surfaces via snapshot.promptError). */
@@ -72,6 +75,12 @@ export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> &
 
 /** Injected share of the no-session empty-state slot. */
 export interface EmptyStateInjected {
+  /** Create service-owned image previews after host-capability preflight. */
+  createDraftImages(files: readonly File[], current: readonly ComposerAttachment[]): readonly ComposerAttachment[]
+  /** Release one service-owned image preview. */
+  releaseDraftImage(id: string): void
+  /** Release all service-owned image previews held by the empty state. */
+  releaseDraftImages(attachments: readonly ComposerAttachment[]): void
   /** The create → navigate → first-send chain, in one service call. */
   startSession(opts: {
     cwd?: string

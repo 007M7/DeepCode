@@ -148,6 +148,7 @@ export function apply(ctx: Context): void {
   const loop = connection.start({
     onMuxEnvelope: (envelope) => { sessions.manager.handleMuxEnvelope(envelope) },
     onHostEnvelope: (envelope) => { sessions.manager.handleHostEnvelope(envelope) },
+    onDescription: (description) => { sessions.handleDescription(description) },
     onConnected: () => { sessions.manager.handleConnected() },
   })
   ctx.effect(() => () => { loop.stop() }, 'runtime: connection stream loop')

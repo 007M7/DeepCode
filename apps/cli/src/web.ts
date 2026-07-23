@@ -12,6 +12,7 @@ import { createHostWebPluginRegistry, startWebServer } from '@deepseek-ai/dsh-ho
 
 const LOOPBACK_HOST = '127.0.0.1'
 const ALL_INTERFACES_HOST = '0.0.0.0'
+const REQUEST_ENVELOPE_HEADROOM_BYTES = 1024 * 1024
 
 export async function runWeb(argv: string[]): Promise<void> {
   const { values } = parseArgs({
@@ -19,6 +20,7 @@ export async function runWeb(argv: string[]): Promise<void> {
     options: {
       host: { type: 'string', default: LOOPBACK_HOST },
       port: { type: 'string', default: '3080' },
+      'max-request-body-bytes': { type: 'string' },
     },
     allowPositionals: false,
   })
@@ -34,9 +36,21 @@ export async function runWeb(argv: string[]): Promise<void> {
     process.stderr.write(`dsh web: invalid --port ${values.port}\n`)
     process.exit(1)
   }
+  const configuredMaxRequestBodyBytes = values['max-request-body-bytes'] === undefined
+    ? undefined
+    : Number(values['max-request-body-bytes'])
+  if (configuredMaxRequestBodyBytes !== undefined
+    && (!Number.isInteger(configuredMaxRequestBodyBytes) || configuredMaxRequestBodyBytes < 1)) {
+    process.stderr.write(`dsh web: invalid --max-request-body-bytes ${values['max-request-body-bytes']}\n`)
+    process.exit(1)
+  }
 
   // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught by design).
   const host = await startHost({ boot: { persistenceRoot: './.sessions' } })
+  const attachments = host.ctx.get('attachments')
+  if (attachments === undefined) throw new Error('dsh web: attachment service unavailable')
+  const maxRequestBodyBytes = configuredMaxRequestBodyBytes
+    ?? Math.ceil(attachments.imageLimits.maxMessageImageBytes * 4 / 3) + REQUEST_ENVELOPE_HEADROOM_BYTES
 
   // Web UI plugin chain: in-memory Loader tree over the eight UI packages,
   // then the registry that feeds __DSH_BOOT__ and /plugins/<id>/client.js.
@@ -78,7 +92,7 @@ export async function runWeb(argv: string[]): Promise<void> {
   let server: Awaited<ReturnType<typeof startWebServer>>
   try {
     server = await startWebServer(
-      { host: hostAddress, port, distIndex, apiHandler: host.handler, webPlugins },
+      { host: hostAddress, port, distIndex, apiHandler: host.handler, maxRequestBodyBytes, webPlugins },
       (err: Error) => {
         process.stderr.write(`dsh web: ${String(err)}\n`)
         void shutdown(1)

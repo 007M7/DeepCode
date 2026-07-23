@@ -23,9 +23,11 @@ describe('connection lifecycle', () => {
   it('announces connected after describe + both streams open, then pumps frames to sinks', async () => {
     const api = new FakeApiClient()
     const muxSeen: string[] = []
+    const descriptions: string[] = []
     let connected = 0
     const controller = new ConnectionController(api, {
       onMuxEnvelope: envelope => muxSeen.push(envelope.payload.type),
+      onDescription: description => descriptions.push(description.version),
       onConnected: () => { connected++ },
     }, FAST)
     controller.start()
@@ -34,6 +36,7 @@ describe('connection lifecycle', () => {
       api.pushMux(subscribedFrame())
       await vi.waitFor(() => { expect(muxSeen).toEqual(['session/subscribed']) })
       expect(api.callsOf('host.describe')).toHaveLength(1)
+      expect(descriptions).toEqual(['0-fake'])
     } finally {
       controller.stop()
     }
@@ -76,6 +79,35 @@ describe('connection lifecycle', () => {
       await vi.waitFor(() => { expect(describeCalls).toBe(2) }) // retried after backoff
       expect(connected).toBe(0) // never announced during the failed generation
       gate.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0 }))
+      await vi.waitFor(() => { expect(connected).toBe(1) })
+    } finally {
+      controller.stop()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('treats a host.describe business error as generation failure', async () => {
+    const api = new FakeApiClient()
+    let describeCalls = 0
+    api.onDescribe = () => {
+      describeCalls += 1
+      if (describeCalls === 1) {
+        return Promise.resolve({
+          rpcId: 'bad-describe' as never,
+          result: {
+            ok: false as const,
+            error: { code: 'internal' as const, message: 'not ready', details: {} },
+          },
+        })
+      }
+      return Promise.resolve(ok({ version: '0', cwd: '/f', attachedSessions: 0 }))
+    }
+    let connected = 0
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const controller = new ConnectionController(api, { onConnected: () => { connected++ } }, FAST)
+    controller.start()
+    try {
+      await vi.waitFor(() => { expect(describeCalls).toBe(2) })
       await vi.waitFor(() => { expect(connected).toBe(1) })
     } finally {
       controller.stop()

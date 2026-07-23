@@ -99,6 +99,7 @@ function mount(svc: ConversationService, nodes: ConversationSnapshot['nodes'] = 
       addImages={vi.fn()}
       removeImage={vi.fn()}
       draftImages={() => []}
+      releaseSessionImages={vi.fn()}
       send={vi.fn()}
       stop={vi.fn()}
       openDetails={vi.fn()}

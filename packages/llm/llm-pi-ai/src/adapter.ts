@@ -25,8 +25,8 @@ import { toStreamChunks } from './stream.ts'
 export interface PiAiAdapterOptions {
   /** Validated provider profiles this adapter instance owns. */
   profiles: readonly PiAiProviderProfile[]
-  /** Durable image resolver used only when a request contains image references. */
-  attachments?: AttachmentStore
+  /** Resolve durable image storage at request time so plugin load order does not become capability state. */
+  resolveAttachments?: () => AttachmentStore | undefined
 }
 
 /**
@@ -72,12 +72,12 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined): 
  */
 export class PiAiAdapter extends LlmAdapter {
   private readonly profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>
-  private readonly attachments: AttachmentStore | undefined
+  private readonly resolveAttachments: () => AttachmentStore | undefined
 
   constructor(options: PiAiAdapterOptions) {
     super()
     this.profiles = new Map(resolveProfiles(options.profiles).map(profile => [profile.provider, profile]))
-    this.attachments = options.attachments
+    this.resolveAttachments = options.resolveAttachments ?? (() => undefined)
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
@@ -136,12 +136,13 @@ export class PiAiAdapter extends LlmAdapter {
       if (containsImage && !model.input.includes('image')) {
         throw new LlmError(`pi-ai model "${model.id}" does not support image input`, 'UNSUPPORTED_CONTENT')
       }
-      if (containsImage && this.attachments === undefined) {
+      const attachments = containsImage ? this.resolveAttachments() : undefined
+      if (containsImage && attachments === undefined) {
         throw new LlmError('pi-ai image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
       }
-      const context = this.attachments === undefined
+      const context = attachments === undefined
         ? toPiContext(options)
-        : await toPiContext(options, this.attachments)
+        : await toPiContext(options, attachments)
       const events = streamSimple(model, context, {
         ...profileOptions(profile),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },

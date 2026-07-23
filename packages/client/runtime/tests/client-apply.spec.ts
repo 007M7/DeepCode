@@ -53,6 +53,8 @@ describe('runtime client apply', () => {
     expect((sessions as { list: { getSnapshot(): { ids: string[] } } }).list.getSnapshot().ids).toContain('s-new')
     // Mux sink and onConnected route without throwing (manager semantics own the behavior).
     bench.sinks?.onMuxEnvelope?.({ rpcId: 'r2' as never, payload: { type: 'stream/error', message: 'x' } as never })
+    bench.sinks?.onDescription?.({ version: '0', cwd: '/f', attachedSessions: 0 })
+    expect(sessions?.hostDescription()).toEqual({ version: '0', cwd: '/f', attachedSessions: 0 })
     bench.sinks?.onConnected?.()
   })
 

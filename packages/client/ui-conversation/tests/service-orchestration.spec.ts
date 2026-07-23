@@ -7,7 +7,9 @@
  * for the declared chat store (chat-store.spec.ts / selection-survival.spec.ts).
  */
 import { Context } from 'cordis'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -32,9 +34,17 @@ const SCOPE_TAG: symbol = (() => {
 interface SessionDouble {
   prompt: ReturnType<typeof vi.fn>
   cancel: ReturnType<typeof vi.fn>
+  readAttachment: ReturnType<typeof vi.fn>
 }
 
-async function bench(opts?: { sessions?: boolean }) {
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+async function bench(opts?: {
+  sessions?: boolean
+  description?: ReturnType<SessionsService['hostDescription']>
+}) {
   const ctx = new Context()
   const sessionDoubles = new Map<SessionId, SessionDouble>()
   const scopes = new Map<SessionId, Context>()
@@ -57,6 +67,7 @@ async function bench(opts?: { sessions?: boolean }) {
           s = {
             prompt: vi.fn(() => Promise.resolve({ ok: true, value: { accepted: true } })),
             cancel: vi.fn(() => Promise.resolve({ ok: true, value: { accepted: true } })),
+            readAttachment: vi.fn(() => Promise.reject(new Error('attachment response not configured'))),
           }
           sessionDoubles.set(id, s)
         }
@@ -66,6 +77,7 @@ async function bench(opts?: { sessions?: boolean }) {
     create: createMock,
     open: openMock,
     scope: (id: SessionId) => (id === sid('new-1') ? mint(id) : scopes.get(id)),
+    hostDescription: () => opts?.description,
   } as unknown as SessionsService
   if (opts?.sessions !== false) ctx.provide('sessions', sessionsFake)
   const fiber = ctx.plugin((pluginCtx) => { void new ConversationService(pluginCtx) })
@@ -130,6 +142,127 @@ describe('send / cancel', () => {
     const b = await bench()
     await expect(b.svc.send('x', 'queue')).rejects.toThrow(/requires a session scope/)
     await expect(b.svc.cancel()).rejects.toThrow(/requires a session scope/)
+  })
+})
+
+describe('image admission and URL lifecycle', () => {
+  const description: NonNullable<ReturnType<SessionsService['hostDescription']>> = {
+    version: '0',
+    cwd: '/f',
+    attachedSessions: 0,
+    activeModel: {
+      provider: 'anthropic',
+      id: 'claude-opus-4-8',
+      name: 'Opus',
+      inputModalities: ['text', 'image'],
+      outputModalities: ['text'],
+    },
+    imageLimits: {
+      maxImageBytes: 3,
+      maxImagesPerMessage: 2,
+      maxMessageImageBytes: 4,
+      maxImagePixels: 100,
+      mediaTypes: ['image/png'],
+    },
+  }
+
+  it('preflights host limits before allocating previews and releases draft URLs', async () => {
+    const createObjectURL = vi.fn(() => 'blob:draft')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
+    const b = await bench({ description })
+    const first = new File([Uint8Array.of(1, 2, 3)], 'first.png', { type: 'image/png' })
+    const second = new File([Uint8Array.of(4, 5)], 'second.png', { type: 'image/png' })
+
+    const attachments = b.svc.createDraftImages([first])
+    expect(attachments[0]).toMatchObject({ kind: 'image', file: first, previewUrl: 'blob:draft' })
+    expect(() => b.svc.createDraftImages([second], attachments)).toThrow(/总大小/)
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+
+    b.svc.releaseDraftImages(attachments)
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:draft')
+  })
+
+  it('rejects unsupported model capability, media type, count, and per-image bytes', async () => {
+    const createObjectURL = vi.fn(() => 'blob:unexpected')
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL: vi.fn() })
+    const textOnly = await bench({
+      description: {
+        ...description,
+        activeModel: { ...description.activeModel!, inputModalities: ['text'] },
+      },
+    })
+    const png = new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' })
+    expect(() => textOnly.svc.createDraftImages([png], [], true)).toThrow(/当前模型不支持图片/)
+
+    const b = await bench({ description })
+    const video = new File([Uint8Array.of(1)], 'clip.mp4', { type: 'video/mp4' })
+    expect(() => b.svc.createDraftImages([video])).toThrow(/不支持的图片格式/)
+    const large = new File([Uint8Array.of(1, 2, 3, 4)], 'large.png', { type: 'image/png' })
+    expect(() => b.svc.createDraftImages([large])).toThrow(/单张大小限制/)
+    const existing = b.svc.createDraftImages([png, png])
+    expect(() => b.svc.createDraftImages([png], existing)).toThrow(/最多添加 2 张/)
+    expect(createObjectURL).toHaveBeenCalledTimes(2)
+  })
+
+  it('deduplicates historical loads and revokes their URLs when the session scope ends', async () => {
+    const createObjectURL = vi.fn()
+      .mockReturnValueOnce('blob:history-1')
+      .mockReturnValueOnce('blob:history-2')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
+    const b = await bench()
+    const ref: ImageAttachmentRef = {
+      attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+      mediaType: 'image/png',
+      bytes: 1,
+      width: 1,
+      height: 1,
+    }
+    b.sessionsFake.manager.get(sid('s1'))
+    const session = b.sessionDoubles.get(sid('s1'))!
+    session.readAttachment.mockResolvedValue({
+      ok: true,
+      value: { attachment: ref, data: [1] },
+    })
+
+    await expect(Promise.all([
+      b.svc.resolveImage(sid('s1'), ref),
+      b.svc.resolveImage(sid('s1'), ref),
+    ])).resolves.toEqual(['blob:history-1', 'blob:history-1'])
+    expect(session.readAttachment).toHaveBeenCalledTimes(1)
+
+    b.svc.releaseSessionImages(sid('s1'))
+    await vi.waitFor(() => { expect(revokeObjectURL).toHaveBeenCalledWith('blob:history-1') })
+    await expect(b.svc.resolveImage(sid('s1'), ref)).resolves.toBe('blob:history-2')
+    expect(session.readAttachment).toHaveBeenCalledTimes(2)
+  })
+
+  it('revokes a historical URL whose load completes after its session scope was released', async () => {
+    const createObjectURL = vi.fn(() => 'blob:late')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
+    const b = await bench()
+    const ref: ImageAttachmentRef = {
+      attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`),
+      mediaType: 'image/png',
+      bytes: 1,
+      width: 1,
+      height: 1,
+    }
+    const response = Promise.withResolvers<{
+      ok: true
+      value: { attachment: ImageAttachmentRef; data: number[] }
+    }>()
+    b.sessionsFake.manager.get(sid('s1'))
+    b.sessionDoubles.get(sid('s1'))!.readAttachment.mockReturnValue(response.promise)
+
+    const pending = b.svc.resolveImage(sid('s1'), ref)
+    b.svc.releaseSessionImages(sid('s1'))
+    response.resolve({ ok: true, value: { attachment: ref, data: [1] } })
+
+    await expect(pending).rejects.toThrow(/scope was released/)
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:late')
   })
 })
 

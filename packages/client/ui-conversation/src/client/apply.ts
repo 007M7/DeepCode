@@ -94,15 +94,21 @@ export function apply(ctx: Context): void {
           subscribe: fn => conversation.subscribeViews(fn),
           version: () => conversation.viewsVersion(),
         },
-        addImages: (files) => {
-          const images = conversation.createDraftImages(files)
-          actions.addImages(images.map(image => image.id))
+        addImages: (files, current) => {
+          try {
+            const images = conversation.createDraftImages(files, current)
+            actions.addImages(images.map(image => image.id))
+            return null
+          } catch (error: unknown) {
+            return error instanceof Error ? error.message : String(error)
+          }
         },
         removeImage: (id) => {
           conversation.releaseDraftImage(id)
           actions.removeImage(id)
         },
         draftImages: ids => conversation.draftImages(ids),
+        releaseSessionImages: (id) => { conversation.releaseSessionImages(id) },
         send: (text, images: readonly ComposerAttachment[], mode) => {
           const trimmed = text.trim()
           if (trimmed === '' && images.length === 0) return
@@ -140,6 +146,9 @@ export function apply(ctx: Context): void {
   slots.register({
     name: 'conversation.empty',
     inject: (): EmptyStateInjected => ({
+      createDraftImages: (files, current) => conversation.createDraftImages(files, current, true),
+      releaseDraftImage: (id) => { conversation.releaseDraftImage(id) },
+      releaseDraftImages: (attachments) => { conversation.releaseDraftImages(attachments) },
       startSession: opts => conversation.startSession(opts),
     }),
   }, EmptyState)

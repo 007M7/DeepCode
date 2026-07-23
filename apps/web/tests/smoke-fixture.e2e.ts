@@ -50,6 +50,7 @@ describe('web boot chain (keyless, real carrier)', () => {
       port,
       distIndex: DIST_INDEX,
       apiHandler,
+      maxRequestBodyBytes: 32 * 1024 * 1024,
       webPlugins: {
         snapshot: () => ROWS,
         clientPath: id => (id === ROWS[0]!.id ? LIVE_BUNDLE : undefined),
@@ -108,6 +109,7 @@ describe('web boot chain success pass (keyless, production plugin chain, ?fixtur
       port,
       distIndex: DIST_INDEX,
       apiHandler,
+      maxRequestBodyBytes: 32 * 1024 * 1024,
       webPlugins: { snapshot: () => rows, clientPath: id => byId.get(id) },
     }, (err) => { pageErrors.push(`server: ${String(err)}`) })
     browser = await chromium.launch()

@@ -40,15 +40,13 @@ function ThinkRow({ text, running }: { text: string; running: boolean }) {
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({ blocks, streaming, interrupted, loadImage = unavailableImage }: AssistantMarkdownProps) {
   const last = blocks.length - 1
-  const images = blocks.filter((block): block is Extract<AssistantBlock, { kind: 'image' }> => block.kind === 'image')
   return (
     <div className={css.root} data-streaming={streaming || undefined}>
-      <ImageGallery images={images} load={loadImage} align="start" />
       {blocks.map((block, i) => {
         switch (block.kind) {
           case 'text': return <MessageText key={i} text={block.text} />
           case 'reasoning': return <ThinkRow key={i} text={block.text} running={streaming && i === last} />
-          case 'image': return null
+          case 'image': return <ImageGallery key={i} images={[block]} load={loadImage} align="start" />
           // Tool-call heads render as tool rows in the chat view's grouping pass.
           case 'tool-call': return null
           default: return <JsonBlock key={i} label="未知内容块" payload={block.block} />

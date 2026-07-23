@@ -74,6 +74,7 @@ async function bench() {
     manager: { get: () => sessionFake },
     scope: (id: SessionId) => mint(id),
     cell: () => undefined,
+    hostDescription: () => undefined,
     create: vi.fn(() => Promise.resolve(ROOT)),
     open: vi.fn(),
   }
@@ -200,12 +201,17 @@ describe('details and empty inject surfaces', () => {
     expect(details).toBe(conv)
   })
 
-  it('empty injects the startSession chain only (no store, cwds derive in-component)', async () => {
+  it('empty injects draft-image lifecycle and the startSession chain without a store', async () => {
     const b = await bench()
     const entry = b.entryOf('conversation.empty')
     expect(entry.store).toBeUndefined()
     const injected = (entry.inject as unknown as () => EmptyStateInjected)()
-    expect(Object.keys(injected)).toEqual(['startSession'])
+    expect(Object.keys(injected)).toEqual([
+      'createDraftImages',
+      'releaseDraftImage',
+      'releaseDraftImages',
+      'startSession',
+    ])
     await injected.startSession({ text: 'go', mode: 'queue' })
     expect(b.sessionsFake.create).toHaveBeenCalled()
     expect(b.sessionsFake.open).toHaveBeenCalledWith(ROOT)

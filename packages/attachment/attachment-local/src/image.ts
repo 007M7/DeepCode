@@ -11,31 +11,31 @@ export interface DetectedImage {
 }
 
 function ascii(data: Uint8Array, start: number, value: string): boolean {
+  /* v8 ignore next -- Every call site establishes the fixed header span before comparing it. */
   if (data.length < start + value.length) return false
   for (let i = 0; i < value.length; i++) if (data[start + i] !== value.charCodeAt(i)) return false
   return true
 }
 
 function u16be(data: Uint8Array, offset: number): number {
-  return ((data[offset] ?? 0) << 8) | (data[offset + 1] ?? 0)
+  return new DataView(data.buffer, data.byteOffset, data.byteLength).getUint16(offset)
 }
 
 function u16le(data: Uint8Array, offset: number): number {
-  return (data[offset] ?? 0) | ((data[offset + 1] ?? 0) << 8)
+  return new DataView(data.buffer, data.byteOffset, data.byteLength).getUint16(offset, true)
 }
 
 function u24le(data: Uint8Array, offset: number): number {
-  return (data[offset] ?? 0) | ((data[offset + 1] ?? 0) << 8) | ((data[offset + 2] ?? 0) << 16)
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+  return view.getUint8(offset) | (view.getUint8(offset + 1) << 8) | (view.getUint8(offset + 2) << 16)
 }
 
 function u32be(data: Uint8Array, offset: number): number {
-  return (((data[offset] ?? 0) * 0x1000000) + ((data[offset + 1] ?? 0) << 16)
-    + ((data[offset + 2] ?? 0) << 8) + (data[offset + 3] ?? 0)) >>> 0
+  return new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(offset)
 }
 
 function u32le(data: Uint8Array, offset: number): number {
-  return ((data[offset] ?? 0) + ((data[offset + 1] ?? 0) << 8)
-    + ((data[offset + 2] ?? 0) << 16) + ((data[offset + 3] ?? 0) * 0x1000000)) >>> 0
+  return new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(offset, true)
 }
 
 function dimensions(width: number, height: number, mediaType: ImageMediaType): DetectedImage {
@@ -86,10 +86,11 @@ export function detectImage(data: Uint8Array): DetectedImage {
     if (declaredLength > data.length) throw new AttachmentError('WebP data is truncated.', 'INVALID_IMAGE')
     if (ascii(data, 12, 'VP8X')) return dimensions(u24le(data, 24) + 1, u24le(data, 27) + 1, 'image/webp')
     if (ascii(data, 12, 'VP8L') && data[20] === 0x2f) {
-      const b0 = data[21] ?? 0
-      const b1 = data[22] ?? 0
-      const b2 = data[23] ?? 0
-      const b3 = data[24] ?? 0
+      const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
+      const b0 = view.getUint8(21)
+      const b1 = view.getUint8(22)
+      const b2 = view.getUint8(23)
+      const b3 = view.getUint8(24)
       return dimensions(1 + b0 + ((b1 & 0x3f) << 8), 1 + (b1 >> 6) + (b2 << 2) + ((b3 & 0x0f) << 10), 'image/webp')
     }
     if (ascii(data, 12, 'VP8 ') && data[23] === 0x9d && data[24] === 0x01 && data[25] === 0x2a) {

@@ -132,8 +132,9 @@ describe('error strip and variants', () => {
 
 describe('image draft rail', () => {
   it('collects supported clipboard images and leaves non-image clipboard data to the browser', () => {
-    const onAddImages = vi.fn()
-    const { textarea } = setup({ draft: '', onAddImages })
+    const onAddImages = vi.fn((files: readonly File[]) =>
+      files.some(file => file.type === 'video/mp4') ? '不支持的图片格式：video/mp4' : null)
+    const { view, textarea } = setup({ draft: '', onAddImages })
     const image = new File([Uint8Array.of(1, 2, 3)], 'pixel.png', { type: 'image/png' })
     const prevented = fireEvent.paste(textarea, {
       clipboardData: {
@@ -141,19 +142,25 @@ describe('image draft rail', () => {
           { kind: 'string', type: 'text/plain', getAsFile: () => null },
           { kind: 'file', type: 'image/png', getAsFile: () => image },
         ],
+        getData: () => '同时粘贴的文字',
       },
     })
-    expect(prevented).toBe(false)
+    expect(prevented).toBe(true)
     expect(onAddImages).toHaveBeenCalledWith([image])
 
+    const video = new File([Uint8Array.of(1)], 'clip.mp4', { type: 'video/mp4' })
     fireEvent.paste(textarea, {
-      clipboardData: { items: [{ kind: 'file', type: 'video/mp4', getAsFile: () => image }] },
+      clipboardData: {
+        items: [{ kind: 'file', type: 'video/mp4', getAsFile: () => video }],
+        getData: () => '',
+      },
     })
-    expect(onAddImages).toHaveBeenCalledTimes(1)
+    expect(onAddImages).toHaveBeenCalledTimes(2)
+    expect(view.getByText(/不支持的图片格式/)).toBeTruthy()
   })
 
   it('accepts supported image drops, highlights the target, and prevents browser navigation', () => {
-    const onAddImages = vi.fn()
+    const onAddImages = vi.fn(() => null)
     const { view } = setup({ draft: '', onAddImages })
     const card = view.container.querySelector('[class*="card"]')!
     const image = new File([Uint8Array.of(1, 2, 3)], 'dropped.png', { type: 'image/png' })
@@ -172,15 +179,16 @@ describe('image draft rail', () => {
   })
 
   it('ignores unsupported dropped files and refuses drops while locked', () => {
-    const onAddImages = vi.fn()
+    const onAddImages = vi.fn((files: readonly File[]) =>
+      files.some(file => file.type === 'text/plain') ? '不支持的图片格式：text/plain' : null)
     const { view } = setup({ draft: '', onAddImages })
     const card = view.container.querySelector('[class*="card"]')!
     const documentFile = new File(['hello'], 'notes.txt', { type: 'text/plain' })
     fireEvent.drop(card, {
       dataTransfer: { types: ['Files'], files: [documentFile], dropEffect: 'none' },
     })
-    expect(view.getByText(/暂仅支持 PNG/)).toBeTruthy()
-    expect(onAddImages).not.toHaveBeenCalled()
+    expect(view.getByText(/不支持的图片格式/)).toBeTruthy()
+    expect(onAddImages).toHaveBeenCalledWith([documentFile])
 
     const image = new File([Uint8Array.of(1)], 'locked.png', { type: 'image/png' })
     const locked = setup({ draft: '', disabled: true, onAddImages })
@@ -191,12 +199,12 @@ describe('image draft rail', () => {
     fireEvent.dragOver(lockedCard, { dataTransfer })
     expect(dataTransfer.dropEffect).toBe('none')
     fireEvent.drop(lockedCard, { dataTransfer })
-    expect(onAddImages).not.toHaveBeenCalled()
+    expect(onAddImages).toHaveBeenCalledTimes(1)
   })
 
   it('allows image-only send, removes a thumbnail, and opens original preview on double-click', () => {
     const file = new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' })
-    const attachment = { id: 'draft-1', file, previewUrl: 'blob:draft-1' }
+    const attachment = { kind: 'image' as const, id: 'draft-1', file, previewUrl: 'blob:draft-1' }
     const onRemoveAttachment = vi.fn()
     const { view, textarea, props } = setup({
       draft: '', attachments: [attachment], onRemoveAttachment,

@@ -143,7 +143,7 @@ Each agent owns a scoped `agent.ctx`; shared storage overlays global tool, promp
 
 The session log is authoritative. `deriveMessages()` projects model history; raw `assistant/chunk` events remain for replay and UI fidelity. Fork, resume, transcript rendering, telemetry, and persistence derive from the same stream.
 
-**Model-visible ⟺ logged**: the log reconstructs every request — messages at `step/start` fronted by the header's session prefix, and headers by folding `request/header` — and the package-owned `dsh-agent-loop/invariant` can assert it through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible ⟺ durably recorded**: the log reconstructs request envelopes from `step/start`, the header's session prefix, and folded `request/header` events; logged attachment references resolve through integrity-checked immutable objects. `dsh-agent-loop/invariant` asserts envelope reconstruction through `ctx.invariants`; attachment backends assert byte integrity ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
 Durability is a plugin concern. Backends buffer synchronous `session/event` notifications. The semantic checkpoint policy drains requests before adapter dispatch, recorded top-level calls before tool dispatch, and complete response/result batches at `agent/post-step`; the loop retains the final turn-end checkpoint. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, with SQLite under one contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
 

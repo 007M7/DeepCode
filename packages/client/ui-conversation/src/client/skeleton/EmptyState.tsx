@@ -30,7 +30,13 @@ function deriveCwds(state: SessionListState): readonly string[] {
   return [...seen]
 }
 
-export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
+export function EmptyState({
+  useSessions,
+  createDraftImages,
+  releaseDraftImage,
+  releaseDraftImages,
+  startSession,
+}: EmptyStateProps) {
   const list = useSessions(s => s)
   const cwds = useMemo(() => deriveCwds(list), [list])
   // Local viewing state: the empty state owns no session, so its draft is
@@ -67,21 +73,22 @@ export function EmptyState({ useSessions, startSession }: EmptyStateProps) {
   }
 
   useEffect(() => () => {
-    for (const attachment of attachmentsRef.current) URL.revokeObjectURL(attachment.previewUrl)
-  }, [])
+    releaseDraftImages(attachmentsRef.current)
+  }, [releaseDraftImages])
 
-  const addImages = (files: readonly File[]): void => {
-    setAttachments(current => [...current, ...files.map(file => ({
-      id: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file),
-    }))])
+  const addImages = (files: readonly File[]): string | null => {
+    try {
+      const added = createDraftImages(files, attachments)
+      setAttachments(current => [...current, ...added])
+      return null
+    } catch (reason: unknown) {
+      return reason instanceof Error ? reason.message : String(reason)
+    }
   }
 
   const removeImage = (id: string): void => {
-    setAttachments((current) => {
-      const removed = current.find(item => item.id === id)
-      if (removed !== undefined) URL.revokeObjectURL(removed.previewUrl)
-      return current.filter(item => item.id !== id)
-    })
+    releaseDraftImage(id)
+    setAttachments(current => current.filter(item => item.id !== id))
   }
 
   const picker = (

@@ -34,6 +34,8 @@ Supported profile fields are `provider`, `apiKey`, `baseURL`, `headers`, `reason
 
 The adapter forces pi-ai's SDK `maxRetries` to zero so one `stream()` call makes one provider request. The removed profile fields `maxRetries` and `maxRetryDelayMs` fail load instead of silently multiplying or hiding the separately composed agent-level retry budget. Idle expiry aborts the SDK's stable request signal and surfaces `TIMEOUT`; an earlier caller abort remains `ABORTED`.
 
+Image requests resolve the optional `ctx.attachments` service when the request is dispatched, so Cordis plugin load order does not freeze attachment availability. A visual request still fails explicitly with `UNSUPPORTED_CONTENT` when the service or the selected model's image capability is absent.
+
 ## Provider/model routing and replay
 
 The selected pi-ai catalog descriptor supplies the protocol implementation. This includes native API differences such as OpenAI models whose descriptor uses the Responses API rather than Chat Completions; the harness adapter does not hardcode endpoint selection by model name.

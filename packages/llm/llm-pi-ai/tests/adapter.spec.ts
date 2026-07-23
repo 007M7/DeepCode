@@ -2,6 +2,13 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import { AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import type {
+  ImageAttachmentLimits,
+  ImageAttachmentRef,
+  SaveImageAttachment,
+  StoredImageAttachment,
+} from '@deepseek-ai/dsh-attachment'
 import LlmService, { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
@@ -87,6 +94,14 @@ const textEvents = [
   '{"choices":[{"delta":{},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
   '[DONE]',
 ]
+
+const IMAGE_REF: ImageAttachmentRef = {
+  attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
+  mediaType: 'image/png',
+  bytes: 1,
+  width: 1,
+  height: 1,
+}
 
 async function harness(baseURL: string, overrides: Record<string, unknown> = {}): Promise<Context> {
   const ctx = new Context()
@@ -186,6 +201,55 @@ describe('PiAiAdapter provider routing', () => {
     })
     const result = await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
     expect(result.finish.kind).toBe('error')
+    expect(server.paths).toEqual(['/v1/responses'])
+  })
+
+  it('resolves an attachment service mounted after the adapter when dispatching an image', async () => {
+    const server = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'expected mock failure' } }) }])
+    const attachmentId = AttachmentId(`sha256:${'a'.repeat(64)}`)
+    const ref: ImageAttachmentRef = {
+      attachmentId,
+      mediaType: 'image/png',
+      bytes: 1,
+      width: 1,
+      height: 1,
+    }
+    const readImage = vi.fn((_ref: ImageAttachmentRef): Promise<StoredImageAttachment> =>
+      Promise.resolve({ ref, data: Uint8Array.of(1) }))
+
+    class LateAttachmentStore extends AttachmentStore {
+      readonly imageLimits: ImageAttachmentLimits = {
+        maxImageBytes: 1,
+        maxImagesPerMessage: 1,
+        maxMessageImageBytes: 1,
+        maxImagePixels: 1,
+        mediaTypes: ['image/png'],
+      }
+
+      saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
+        return Promise.reject(new Error('not used'))
+      }
+
+      readImage(value: ImageAttachmentRef): Promise<StoredImageAttachment> {
+        return readImage(value)
+      }
+    }
+
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmPiAi, {
+      providers: [{ provider: 'openai', apiKey: 'test-key', baseURL: `${server.url}/v1` }],
+    })
+    await ctx.plugin(LateAttachmentStore)
+
+    const result = await assemble(ctx, {
+      provider: 'openai',
+      model: 'gpt-4.1',
+      messages: [{ role: 'user', content: [{ type: 'image', attachment: ref }] }],
+    })
+
+    expect(result.finish.kind).toBe('error')
+    expect(readImage).toHaveBeenCalledWith(ref)
     expect(server.paths).toEqual(['/v1/responses'])
   })
 
@@ -385,6 +449,38 @@ describe('provider profile lifecycle', () => {
       for await (const _chunk of adapter.stream({ provider: 'anthropic', model: 'claude-sonnet-4', messages: [] })) { /* drain */ }
     })()).rejects.toMatchObject({ code: 'NO_ADAPTER' })
     expect(new LlmError('x', 'X')).toBeInstanceOf(Error)
+  })
+
+  it('rejects unsupported or unresolved image input before provider I/O', async () => {
+    const adapter = new PiAiAdapter({
+      profiles: [{ provider: 'openai' }, { provider: 'deepseek' }],
+    })
+    const drain = async (options: Parameters<PiAiAdapter['stream']>[0]): Promise<void> => {
+      for await (const _chunk of adapter.stream(options)) { /* drain */ }
+    }
+
+    await expect(drain({
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      messages: [{ role: 'user', content: [{ type: 'image', attachment: IMAGE_REF }] }],
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+    await expect(drain({
+      provider: 'openai',
+      model: 'gpt-4.1',
+      messages: [{ role: 'user', content: [{ type: 'image', attachment: IMAGE_REF }] }],
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+    await expect(drain({
+      provider: 'openai',
+      model: 'gpt-4.1',
+      messages: [{
+        role: 'user',
+        content: [{
+          type: 'tool-result',
+          toolCallId: 'call-image' as never,
+          content: [{ type: 'image', attachment: IMAGE_REF }],
+        }],
+      }],
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
   })
 
   it('validates direct-constructor profiles at the embedding boundary', () => {

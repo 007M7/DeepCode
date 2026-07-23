@@ -207,6 +207,31 @@ describe('createFixtureApi', () => {
     })
   })
 
+  it('accounts for every base64 padding form and reports a missing fixture attachment', async () => {
+    const api = createFixtureApi()
+    const created = await api.sessions.create(req({}))
+    if (!created.result.ok) throw new Error('create failed')
+    const sessionId = created.result.value.sessionId
+    const prompted = await api.sessions.prompt(req({
+      sessionId,
+      mode: 'queue' as const,
+      content: ['YQ==', 'YWI=', 'YWJj'].map(data => ({
+        type: 'image' as const,
+        mediaType: 'image/png' as const,
+        data,
+      })),
+    }))
+    expect(prompted.result.ok).toBe(true)
+    const missing = await api.sessions.attachment(req({
+      sessionId,
+      attachmentId: 'fixture:missing' as never,
+    }))
+    expect(missing.result).toMatchObject({
+      ok: false, error: { details: { reason: 'ATTACHMENT_NOT_FOUND' } },
+    })
+    await api.sessions.cancel(req({ sessionId }))
+  })
+
   it('gamma interval flip emits host/session-status and a running log-less session subscribes at lastSeq -1', async () => {
     vi.useFakeTimers()
     try {

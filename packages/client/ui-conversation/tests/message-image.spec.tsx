@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { MessageImage } from '../src/client/chat/MessageImage.tsx'
+import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 
 afterEach(cleanup)
 
@@ -40,5 +41,24 @@ describe('MessageImage', () => {
     fireEvent.click(retry)
     await waitFor(() => { expect(view.getByAltText('history.png')).toBeTruthy() })
     expect(load).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps assistant images at their original position between text blocks', async () => {
+    const view = render(
+      <AssistantMarkdown
+        blocks={[
+          { kind: 'text', text: 'before' },
+          { kind: 'image', attachment, alt: 'middle' },
+          { kind: 'text', text: 'after' },
+        ]}
+        streaming={false}
+        loadImage={() => Promise.resolve('blob:middle')}
+      />,
+    )
+    const image = await view.findByAltText('middle')
+    const before = view.getByText('before')
+    const after = view.getByText('after')
+    expect(before.compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    expect(image.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
   })
 })

@@ -54,11 +54,21 @@ describe('local attachment store', () => {
     expect(new Uint8Array(await readFile(object))).toEqual(PNG)
     expect((await stat(object)).mode & 0o777).toBe(0o600)
     expect((await stat(join(storageRoot, 'objects', sha256.slice(0, 2)))).mode & 0o777).toBe(0o700)
-    await expect(readImageFile(storageRoot, first, LIMITS)).resolves.toEqual({ ref: first, data: PNG })
+    await expect(readImageFile(storageRoot, first)).resolves.toEqual({ ref: first, data: PNG })
+  })
+
+  it('keeps admitted history readable after deployment limits become stricter', async () => {
+    const storageRoot = await root()
+    const ref = await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS)
+
+    await expect(readImageFile(storageRoot, ref)).resolves.toEqual({ ref, data: PNG })
   })
 
   it('rejects malformed bytes, mismatched declarations, byte limits, and decoded-pixel limits', async () => {
     const storageRoot = await root()
+    await expect(saveImageFile(storageRoot, {
+      data: new Uint8Array(0), mediaType: 'image/png',
+    }, LIMITS)).rejects.toMatchObject({ code: 'INVALID_IMAGE' })
     await expect(saveImageFile(storageRoot, {
       data: Uint8Array.of(1, 2, 3), mediaType: 'image/png',
     }, LIMITS)).rejects.toMatchObject({ code: 'INVALID_IMAGE' })
@@ -74,6 +84,10 @@ describe('local attachment store', () => {
     await expect(saveImageFile(storageRoot, {
       data: wide, mediaType: 'image/png',
     }, LIMITS)).rejects.toMatchObject({ code: 'IMAGE_TOO_MANY_PIXELS' })
+    const unnamed = await saveImageFile(storageRoot, {
+      data: PNG, mediaType: 'image/png', name: '\u0000',
+    }, LIMITS)
+    expect(unnamed).not.toHaveProperty('name')
   })
 
   it('fails closed when an object is missing, corrupted, or addressed by an invalid reference', async () => {
@@ -83,14 +97,45 @@ describe('local attachment store', () => {
     const object = join(storageRoot, 'objects', sha256.slice(0, 2), sha256)
     await chmod(object, 0o600)
     await writeFile(object, Uint8Array.of(1, 2, 3))
-    await expect(readImageFile(storageRoot, ref, LIMITS))
+    await expect(readImageFile(storageRoot, ref))
       .rejects.toMatchObject({ code: 'ATTACHMENT_CORRUPT' })
-    await expect(readImageFile(storageRoot, { ...ref, attachmentId: 'bad' as never }, LIMITS))
+    await expect(readImageFile(storageRoot, { ...ref, attachmentId: 'bad' as never }))
       .rejects.toMatchObject({ code: 'INVALID_ATTACHMENT_REF' })
 
     const missingRoot = await root()
     await mkdir(missingRoot, { recursive: true })
-    await expect(readImageFile(missingRoot, ref, LIMITS))
+    await expect(readImageFile(missingRoot, ref))
       .rejects.toMatchObject({ code: 'ATTACHMENT_NOT_FOUND' })
+
+    const unreadableRoot = await root()
+    const target = join(unreadableRoot, 'objects', sha256.slice(0, 2), sha256)
+    await mkdir(target, { recursive: true })
+    await expect(readImageFile(unreadableRoot, ref))
+      .rejects.toMatchObject({ code: 'ATTACHMENT_READ_FAILED' })
+  })
+
+  it('rejects conflicting existing objects and reference metadata mismatches', async () => {
+    const storageRoot = await root()
+    const sha256 = createHash('sha256').update(PNG).digest('hex')
+    const target = join(storageRoot, 'objects', sha256.slice(0, 2), sha256)
+    await mkdir(join(storageRoot, 'objects', sha256.slice(0, 2)), { recursive: true })
+    await writeFile(target, Uint8Array.of(1, 2, 3))
+    await expect(saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS))
+      .rejects.toMatchObject({ code: 'ATTACHMENT_CORRUPT' })
+
+    await writeFile(target, PNG)
+    const ref = await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS)
+    await expect(readImageFile(storageRoot, { ...ref, width: ref.width + 1 }))
+      .rejects.toMatchObject({ code: 'ATTACHMENT_CORRUPT' })
+  })
+
+  it('maps unexpected publication failures to a stable storage error', async () => {
+    const storageRoot = await root()
+    const sha256 = createHash('sha256').update(PNG).digest('hex')
+    const target = join(storageRoot, 'objects', sha256.slice(0, 2), sha256)
+    await mkdir(target, { recursive: true })
+
+    await expect(saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS))
+      .rejects.toMatchObject({ code: 'ATTACHMENT_WRITE_FAILED' })
   })
 })

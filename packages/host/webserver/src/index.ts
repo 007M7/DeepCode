@@ -33,6 +33,8 @@ export interface WebServerOptions {
   distIndex: string
   /** Fetch-shaped API carrier; /api/*-prefixed requests are bridged to it. */
   apiHandler: { fetch: typeof fetch }
+  /** Maximum buffered bytes accepted for one `/api/*` request body. */
+  maxRequestBodyBytes: number
   /**
    * Web plugin table. When present, every index.html response carries a
    * `window.__DSH_BOOT__` manifest script and `/plugins/<id>/client.js` serves
@@ -66,7 +68,10 @@ export interface RunningWebServer {
  * @returns the running server handle once listening.
  */
 export function startWebServer(options: WebServerOptions, onError: (err: Error) => void): Promise<RunningWebServer> {
-  const { host, port, distIndex, apiHandler, webPlugins } = options
+  const { host, port, distIndex, apiHandler, maxRequestBodyBytes, webPlugins } = options
+  if (!Number.isInteger(maxRequestBodyBytes) || maxRequestBodyBytes < 1) {
+    throw new RangeError('host webserver: maxRequestBodyBytes must be a positive integer')
+  }
   const distRoot = dirname(distIndex)
   const renderIndex = webPlugins === undefined ? undefined : async (): Promise<string> => {
     const html = await readFile(distIndex, 'utf8')
@@ -78,7 +83,7 @@ export function startWebServer(options: WebServerOptions, onError: (err: Error) 
     requests; the field is only optional on the client-side IncomingMessage type */
     const rawPath = new URL(req.url ?? '/', 'http://x').pathname
     if (rawPath.startsWith('/api/')) {
-      await bridge(req, res, apiHandler)
+      await bridge(req, res, apiHandler, maxRequestBodyBytes)
       return
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -163,8 +168,13 @@ async function servePluginBundle(
   }
 }
 
-/** Bridge one node:http request to the WHATWG fetch handler (client close aborts; SSE bodies stream out chunk by chunk). */
-async function bridge(req: IncomingMessage, res: ServerResponse, apiHandler: { fetch: typeof fetch }): Promise<void> {
+/** Bridge one bounded node:http request to the WHATWG fetch handler. */
+async function bridge(
+  req: IncomingMessage,
+  res: ServerResponse,
+  apiHandler: { fetch: typeof fetch },
+  maxRequestBodyBytes: number,
+): Promise<void> {
   const abort = new AbortController()
   // Client-disconnect detection MUST hang off the response, not the request:
   // since Node 16, IncomingMessage 'close' fires as soon as the request body is
@@ -174,8 +184,31 @@ async function bridge(req: IncomingMessage, res: ServerResponse, apiHandler: { f
   res.on('close', () => {
     if (!res.writableEnded) abort.abort()
   })
+  const declaredLength = req.headers['content-length']
+  if (declaredLength !== undefined && Number(declaredLength) > maxRequestBodyBytes) {
+    res.writeHead(413)
+    res.end()
+    req.resume()
+    return
+  }
   const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
+  let received = 0
+  let oversized = false
+  for await (const chunk of req) {
+    const buffer = chunk as Buffer
+    received += buffer.byteLength
+    if (received > maxRequestBodyBytes) {
+      oversized = true
+      chunks.length = 0
+      continue
+    }
+    if (!oversized) chunks.push(buffer)
+  }
+  if (oversized) {
+    res.writeHead(413)
+    res.end()
+    return
+  }
   /* v8 ignore next 3 -- `??` arms: node:http always sets url/method on server
   requests; the fields are only optional on the client-side IncomingMessage type */
   const request = new Request(new URL(req.url ?? '/', 'http://dsh.internal'), {

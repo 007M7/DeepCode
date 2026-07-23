@@ -38,13 +38,18 @@ function ensureReference(ref: ImageAttachmentRef): string {
   return match[1]
 }
 
-function validateMetadata(data: Uint8Array, declaredMediaType: ImageAttachmentRef['mediaType'], limits: ImageAttachmentLimits): Omit<ImageAttachmentRef, 'attachmentId' | 'name'> {
+function inspectMetadata(data: Uint8Array, declaredMediaType: ImageAttachmentRef['mediaType']): Omit<ImageAttachmentRef, 'attachmentId' | 'name'> {
   if (data.byteLength === 0) throw new AttachmentError('Image is empty.', 'INVALID_IMAGE')
-  if (data.byteLength > limits.maxImageBytes) throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE')
   const detected = detectImage(data)
   if (detected.mediaType !== declaredMediaType) throw new AttachmentError('Declared image type does not match its bytes.', 'IMAGE_TYPE_MISMATCH')
-  if (detected.width * detected.height > limits.maxImagePixels) throw new AttachmentError('Image exceeds the configured decoded-pixel limit.', 'IMAGE_TOO_MANY_PIXELS')
   return { ...detected, bytes: data.byteLength }
+}
+
+function validateAdmission(metadata: Omit<ImageAttachmentRef, 'attachmentId' | 'name'>, limits: ImageAttachmentLimits): void {
+  if (metadata.bytes > limits.maxImageBytes) throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE')
+  if (metadata.width * metadata.height > limits.maxImagePixels) {
+    throw new AttachmentError('Image exceeds the configured decoded-pixel limit.', 'IMAGE_TOO_MANY_PIXELS')
+  }
 }
 
 /**
@@ -55,7 +60,8 @@ function validateMetadata(data: Uint8Array, declaredMediaType: ImageAttachmentRe
  * @returns durable content-addressed reference.
  */
 export async function saveImageFile(root: string, input: SaveImageAttachment, limits: ImageAttachmentLimits): Promise<ImageAttachmentRef> {
-  const metadata = validateMetadata(input.data, input.mediaType, limits)
+  const metadata = inspectMetadata(input.data, input.mediaType)
+  validateAdmission(metadata, limits)
   const sha256 = digest(input.data)
   const bucket = join(root, 'objects', sha256.slice(0, 2))
   const staging = join(root, 'tmp')
@@ -75,16 +81,25 @@ export async function saveImageFile(root: string, input: SaveImageAttachment, li
     try {
       await link(temporary, target)
     } catch (error) {
+      /* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */
       if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
       const existing = new Uint8Array(await readFile(target))
       if (digest(existing) !== sha256) throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
     }
     await unlink(temporary)
   } catch (error) {
-    if (handle !== undefined) await handle.close().catch(() => { /* close failure is superseded by the storage failure */ })
-    await unlink(temporary).catch((cleanupError: unknown) => {
-      if (!(cleanupError instanceof Error && 'code' in cleanupError && cleanupError.code === 'ENOENT')) throw cleanupError
-    })
+    /* v8 ignore next -- A descriptor can remain open only when the underlying write/sync/close operation fails. */
+    if (handle !== undefined) await handle.close().catch(
+      /* v8 ignore next -- Close failure is superseded by the storage operation that entered cleanup. */
+      () => {},
+    )
+    await unlink(temporary).catch(
+      /* v8 ignore next -- The callback requires a second independent staging-unlink failure. */
+      (cleanupError: unknown) => {
+        /* v8 ignore next -- Cleanup is best-effort only for a staging file already removed by a failed operation. */
+        if (!(cleanupError instanceof Error && 'code' in cleanupError && cleanupError.code === 'ENOENT')) throw cleanupError
+      },
+    )
     if (error instanceof AttachmentError) throw error
     throw new AttachmentError('Unable to persist image attachment.', 'ATTACHMENT_WRITE_FAILED', { cause: error })
   }
@@ -100,10 +115,9 @@ export async function saveImageFile(root: string, input: SaveImageAttachment, li
  * Read and verify one content-addressed image.
  * @param root - absolute `DSH_HOME/attachments/v1` root.
  * @param ref - reference recorded in the session log.
- * @param limits - resolved storage policy.
  * @returns verified bytes and reference.
  */
-export async function readImageFile(root: string, ref: ImageAttachmentRef, limits: ImageAttachmentLimits): Promise<StoredImageAttachment> {
+export async function readImageFile(root: string, ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
   const sha256 = ensureReference(ref)
   let data: Uint8Array
   try {
@@ -113,7 +127,7 @@ export async function readImageFile(root: string, ref: ImageAttachmentRef, limit
     throw new AttachmentError('Unable to read image attachment.', 'ATTACHMENT_READ_FAILED', { cause: error })
   }
   if (digest(data) !== sha256) throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
-  const metadata = validateMetadata(data, ref.mediaType, limits)
+  const metadata = inspectMetadata(data, ref.mediaType)
   if (metadata.bytes !== ref.bytes || metadata.width !== ref.width || metadata.height !== ref.height) {
     throw new AttachmentError('Stored attachment metadata does not match its reference.', 'ATTACHMENT_CORRUPT')
   }

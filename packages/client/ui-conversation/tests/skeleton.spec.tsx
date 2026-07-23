@@ -68,7 +68,15 @@ describe('EmptyState', () => {
     ])
     let reject!: (e: Error) => void
     const startSession = vi.fn(() => new Promise<void>((_res, rej) => { reject = rej }))
-    render(<EmptyState useSessions={useSessions} startSession={startSession} />)
+    render(
+      <EmptyState
+        useSessions={useSessions}
+        createDraftImages={() => []}
+        releaseDraftImage={() => {}}
+        releaseDraftImages={() => {}}
+        startSession={startSession}
+      />,
+    )
 
     const select = screen.getByRole('combobox', { name: '项目目录' })
     expect([...(select as HTMLSelectElement).options].map(o => o.value))
@@ -87,11 +95,58 @@ describe('EmptyState', () => {
 
   it('new-directory option swaps the select for a free-form input', () => {
     const { useSessions } = fakeSessions([])
-    render(<EmptyState useSessions={useSessions} startSession={() => Promise.resolve()} />)
+    render(
+      <EmptyState
+        useSessions={useSessions}
+        createDraftImages={() => []}
+        releaseDraftImage={() => {}}
+        releaseDraftImages={() => {}}
+        startSession={() => Promise.resolve()}
+      />,
+    )
     fireEvent.change(screen.getByRole('combobox'), { target: { value: '::new-directory' } })
     const custom = screen.getByPlaceholderText(/目录路径/)
     fireEvent.change(custom, { target: { value: '/tmp/fresh' } })
     expect((custom as HTMLInputElement).value).toBe('/tmp/fresh')
+  })
+
+  it('routes empty-state draft image creation and release through the injected lifecycle', () => {
+    const { useSessions } = fakeSessions([])
+    const file = new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' })
+    const attachment = {
+      kind: 'image' as const,
+      id: 'draft-1',
+      file,
+      previewUrl: 'blob:draft-1',
+    }
+    const createDraftImages = vi.fn()
+      .mockReturnValueOnce([attachment])
+      .mockImplementationOnce(() => { throw new Error('图片过大') })
+    const releaseDraftImage = vi.fn()
+    const releaseDraftImages = vi.fn()
+    const view = render(
+      <EmptyState
+        useSessions={useSessions}
+        createDraftImages={createDraftImages}
+        releaseDraftImage={releaseDraftImage}
+        releaseDraftImages={releaseDraftImages}
+        startSession={() => Promise.resolve()}
+      />,
+    )
+    const textarea = view.container.querySelector('textarea')!
+    const clipboardData = {
+      items: [{ kind: 'file', type: 'image/png', getAsFile: () => file }],
+      getData: () => '',
+    }
+    fireEvent.paste(textarea, { clipboardData })
+    expect(createDraftImages).toHaveBeenCalledWith([file], [])
+    fireEvent.click(view.getByRole('button', { name: '移除图片 pixel.png' }))
+    expect(releaseDraftImage).toHaveBeenCalledWith('draft-1')
+
+    fireEvent.paste(textarea, { clipboardData })
+    expect(view.getByText('图片过大')).toBeTruthy()
+    view.unmount()
+    expect(releaseDraftImages).toHaveBeenCalledWith([])
   })
 })
 
@@ -121,9 +176,10 @@ describe('ConversationRoot', () => {
           subscribe: () => () => {},
           version: () => 1,
         }}
-        addImages={vi.fn()}
+        addImages={vi.fn(() => null)}
         removeImage={vi.fn()}
         draftImages={() => []}
+        releaseSessionImages={vi.fn()}
         send={send}
         stop={stop}
         openDetails={openDetails}

@@ -71,9 +71,10 @@ describe('ConversationRoot branches', () => {
         useStore={hookOf(chat)}
         actions={chat.actions}
         views={{ list: () => [chatEntry], subscribe: () => () => {}, version: () => 1 }}
-        addImages={vi.fn()}
+        addImages={vi.fn(() => null)}
         removeImage={vi.fn()}
         draftImages={() => []}
+        releaseSessionImages={vi.fn()}
         send={vi.fn()}
         stop={vi.fn()}
         openDetails={vi.fn()}
@@ -132,9 +133,10 @@ describe('ConversationRoot branches', () => {
         useStore={hookOf(chat)}
         actions={chat.actions}
         views={{ list: () => [chatEntry], subscribe: () => () => {}, version: () => 1 }}
-        addImages={vi.fn()}
+        addImages={vi.fn(() => null)}
         removeImage={vi.fn()}
         draftImages={() => []}
+        releaseSessionImages={vi.fn()}
         send={vi.fn()}
         stop={vi.fn()}
         openDetails={vi.fn()}
@@ -240,7 +242,13 @@ describe('EmptyState branches', () => {
   it('keeps the draft and surfaces a local error strip when startSession rejects', async () => {
     const startSession = vi.fn(() => Promise.reject(new Error('create down')))
     const view = render(
-      <EmptyState useSessions={listHook([{ id: 'a', title: 'a', cwd: '/proj' }])} startSession={startSession} />,
+      <EmptyState
+        useSessions={listHook([{ id: 'a', title: 'a', cwd: '/proj' }])}
+        createDraftImages={() => []}
+        releaseDraftImage={() => {}}
+        releaseDraftImages={() => {}}
+        startSession={startSession}
+      />,
     )
     const textarea = view.container.querySelector('textarea')!
     fireEvent.change(textarea, { target: { value: 'first task' } })
@@ -252,7 +260,13 @@ describe('EmptyState branches', () => {
   it('non-Error rejection reasons stringify into the error strip', async () => {
     const startSession = vi.fn(() => Promise.reject('plain-string'))
     const view = render(
-      <EmptyState useSessions={listHook([])} startSession={startSession} />,
+      <EmptyState
+        useSessions={listHook([])}
+        createDraftImages={() => []}
+        releaseDraftImage={() => {}}
+        releaseDraftImages={() => {}}
+        startSession={startSession}
+      />,
     )
     const textarea = view.container.querySelector('textarea')!
     fireEvent.change(textarea, { target: { value: 'go' } })
@@ -268,6 +282,9 @@ describe('EmptyState branches', () => {
           { id: 'a', title: 'a', cwd: '/proj' },
           { id: 'b', title: 'b' }, // no cwd: filtered from the option set
         ])}
+        createDraftImages={() => []}
+        releaseDraftImage={() => {}}
+        releaseDraftImages={() => {}}
         startSession={startSession}
       />,
     )

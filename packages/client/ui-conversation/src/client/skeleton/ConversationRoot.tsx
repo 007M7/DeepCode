@@ -36,7 +36,8 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 
 export function ConversationRoot({
   sessionId, useSession, useSessions, useStore, actions,
-  views, addImages, removeImage, draftImages, send, stop, openDetails, loadOlder, open,
+  views, addImages, removeImage, draftImages, releaseSessionImages,
+  send, stop, openDetails, loadOlder, open,
 }: ConversationRootProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const list = views.list()
@@ -62,6 +63,10 @@ export function ConversationRoot({
       actions.pruneImages(attachments.map(attachment => attachment.id))
     }
   }, [actions, attachments, imageIds])
+
+  useEffect(() => () => {
+    releaseSessionImages(sessionId)
+  }, [releaseSessionImages, sessionId])
 
   const error: InputBarError | null = promptError === null
     ? null
@@ -145,7 +150,7 @@ export function ConversationRoot({
         error={error}
         variant="composer"
         onDraftChange={actions.setDraft}
-        onAddImages={addImages}
+        onAddImages={files => addImages(files, attachments)}
         onRemoveAttachment={removeImage}
         onSend={(mode) => { send(draft, attachments, mode) }}
         onStop={stop}

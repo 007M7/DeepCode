@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { TurnEndReason } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -35,6 +36,17 @@ describe('turnEndToStopReason', () => {
 describe('harnessBlockToAcpContent', () => {
   it('maps a text block to ACP text content', () => {
     expect(harnessBlockToAcpContent({ type: 'text', text: 'hi' })).toEqual({ type: 'text', text: 'hi' })
+    const attachmentId = AttachmentId(`sha256:${'a'.repeat(64)}`)
+    expect(harnessBlockToAcpContent({
+      type: 'image',
+      attachment: {
+        attachmentId,
+        mediaType: 'image/png',
+        bytes: 1,
+        width: 1,
+        height: 1,
+      },
+    })).toEqual({ type: 'text', text: `[image attachment ${attachmentId}]` })
   })
 
   it('returns undefined for non-text blocks (reasoning / plugin-added)', () => {

@@ -12,12 +12,6 @@ import type { ComposerAttachment } from '../contract/slots.ts'
 import { ImageLightbox } from './ImageLightbox.tsx'
 import css from './InputBar.module.css'
 
-const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
-
-function supportedImages(files: Iterable<File>): File[] {
-  return [...files].filter(file => IMAGE_MEDIA_TYPES.has(file.type))
-}
-
 /** Prompt failure surface (mirrors the session snapshot's promptError shape). */
 export interface InputBarError {
   op: 'send' | 'stop'
@@ -36,7 +30,7 @@ export interface InputBarProps {
   /** Optional leading accessory row content (the empty state mounts its cwd picker here). */
   accessory?: ReactNode
   onDraftChange: (text: string) => void
-  onAddImages?: (files: readonly File[]) => void
+  onAddImages?: (files: readonly File[]) => string | null
   onRemoveAttachment?: (id: string) => void
   onSend: (mode: 'queue' | 'steer') => void
   onStop: () => void
@@ -44,7 +38,7 @@ export interface InputBarProps {
 
 export function InputBar({
   draft, attachments = [], running, disabled, error, variant, placeholder, accessory,
-  onDraftChange, onAddImages = () => {}, onRemoveAttachment = () => {}, onSend, onStop,
+  onDraftChange, onAddImages = () => null, onRemoveAttachment = () => {}, onSend, onStop,
 }: InputBarProps) {
   const empty = draft.trim() === '' && attachments.length === 0
   const [preview, setPreview] = useState<ComposerAttachment | null>(null)
@@ -90,13 +84,12 @@ export function InputBar({
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
     const files = [...event.clipboardData.items]
-      .filter(item => item.kind === 'file' && IMAGE_MEDIA_TYPES.has(item.type))
+      .filter(item => item.kind === 'file')
       .map(item => item.getAsFile())
       .filter((file): file is File => file !== null)
     if (files.length === 0) return
-    event.preventDefault()
-    setDropError(null)
-    onAddImages(files)
+    if (event.clipboardData.getData('text/plain') === '') event.preventDefault()
+    setDropError(onAddImages(files))
   }
 
   const onDragEnter = (event: DragEvent<HTMLDivElement>): void => {
@@ -127,13 +120,8 @@ export function InputBar({
     setDragActive(false)
     if (locked) return
     const dropped = [...event.dataTransfer.files]
-    const images = supportedImages(dropped)
-    if (images.length === 0) {
-      setDropError('暂仅支持 PNG、JPEG、WebP 和 GIF 图片')
-      return
-    }
-    setDropError(images.length === dropped.length ? null : '已忽略不受支持的非图片文件')
-    onAddImages(images)
+    if (dropped.length === 0) return
+    setDropError(onAddImages(dropped))
   }
 
   const closePreview = useCallback(() => { setPreview(null) }, [])
@@ -187,7 +175,10 @@ export function InputBar({
                   type="button"
                   className={css.remove}
                   aria-label={`移除图片 ${attachment.file.name || ''}`}
-                  onClick={() => { onRemoveAttachment(attachment.id) }}
+                  onClick={() => {
+                    setDropError(null)
+                    onRemoveAttachment(attachment.id)
+                  }}
                 >×</button>
               </div>
             ))}
@@ -204,7 +195,10 @@ export function InputBar({
             disabled={locked}
             placeholder={placeholder ?? (disabled ? '会话不可用' : running ? '回复生成中，可停止后再输入' : '输入消息，Enter 发送，Shift+Enter 换行')}
             rows={2}
-            onChange={(e) => onDraftChange(e.target.value)}
+            onChange={(e) => {
+              setDropError(null)
+              onDraftChange(e.target.value)
+            }}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             onCompositionStart={onCompositionStart}

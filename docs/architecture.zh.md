@@ -143,7 +143,7 @@ forever:
 
 会话日志是权威依据。`deriveMessages()` 投影出模型历史；原始 `assistant/chunk` 事件留在日志中，以保证回放和 UI 保真。fork、恢复、transcript（文本记录）渲染、遥测和持久化均派生自同一个事件流。
 
-**模型可见 ⟺ 已记录**：日志可以重建每个请求，包括由请求头会话前缀置于开头的 `step/start` 时消息，以及通过折叠 `request/header` 得到的请求头；开发期不变量会断言这一点（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
+**模型可见 ⟺ 已持久记录**：日志根据 `step/start`、请求头的会话前缀和折叠后的 `request/header` 事件重建请求封装；日志中记录的附件引用通过经过完整性校验的不可变对象解析。`dsh-agent-loop/invariant` 通过 `ctx.invariants` 断言请求封装重建；附件后端断言字节完整性（[可重建性](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)）。
 
 持久性由插件负责。后端会缓冲同步的 `session/event` 通知。语义检查点策略会在适配器分发前刷写请求，在工具分发前刷写已记录的顶层调用，并在 `agent/post-step` 刷写完整的响应与结果批次；循环仍保留最终的轮次结束检查点。`SessionPersistence` 直接存储 `SessionEvent`，并将元数据存入 `SessionHeader`；JSONL 默认采用带校验和的 Zstandard，SQLite 则遵循同一契约（[决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)）。
 

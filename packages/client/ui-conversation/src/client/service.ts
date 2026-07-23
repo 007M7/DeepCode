@@ -29,6 +29,7 @@ import type { ComposerAttachment } from './contract/slots.ts'
 
 /** Opaque wrapper keeps browser `File` internals outside persisted store state. */
 class BrowserDraftAttachment implements ComposerAttachment {
+  readonly kind = 'image' as const
   readonly id: string
   readonly previewUrl: string
   readonly #file: File
@@ -53,10 +54,17 @@ interface ViewsState {
   listeners: Set<() => void>
 }
 
+interface ImageUrlEntry {
+  readonly sessionId: SessionId
+  readonly generation: number
+  readonly pending: Promise<string>
+}
+
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
 export class ConversationService extends Service {
   private readonly draftAttachments = new Map<string, BrowserDraftAttachment>()
-  private readonly imageUrls = new Map<string, Promise<string>>()
+  private readonly imageUrls = new Map<string, ImageUrlEntry>()
+  private readonly imageGenerations = new Map<SessionId, number>()
   private readonly createdImageUrls = new Set<string>()
   private readonly viewsState: ViewsState = {
     entries: new Map(), cache: null, tick: 0, listeners: new Set(),
@@ -73,6 +81,7 @@ export class ConversationService extends Service {
       this.createdImageUrls.clear()
       this.draftAttachments.clear()
       this.imageUrls.clear()
+      this.imageGenerations.clear()
     }, 'conversation attachment URL cache')
   }
 
@@ -86,6 +95,7 @@ export class ConversationService extends Service {
    */
   async send(text: string, mode: 'queue' | 'steer', images: readonly File[] = []): Promise<void> {
     const session = this.scopedSession('send')
+    this.validateImages(images, [])
     const uploaded = await Promise.all(images.map(async file => ({
       type: 'image' as const,
       mediaType: imageMediaType(file.type),
@@ -100,9 +110,16 @@ export class ConversationService extends Service {
   /**
    * Create runtime-only draft attachments and their object URLs.
    * @param files - browser-owned image files.
+   * @param current - images already present in the same composer.
+   * @param checkDefaultModel - whether to apply `host.describe`'s default-model capability, used only before a session exists.
    * @returns ordered attachment descriptors whose ids may enter the chat store.
    */
-  createDraftImages(files: readonly File[]): readonly ComposerAttachment[] {
+  createDraftImages(
+    files: readonly File[],
+    current: readonly ComposerAttachment[] = [],
+    checkDefaultModel = false,
+  ): readonly ComposerAttachment[] {
+    this.validateImages(files, current, checkDefaultModel)
     return files.map((file) => {
       const attachment = new BrowserDraftAttachment(file)
       this.draftAttachments.set(attachment.id, attachment)
@@ -154,7 +171,8 @@ export class ConversationService extends Service {
   resolveImage(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string> {
     const key = `${sessionId}:${attachment.attachmentId}`
     const cached = this.imageUrls.get(key)
-    if (cached !== undefined) return cached
+    if (cached !== undefined) return cached.pending
+    const generation = this.imageGenerations.get(sessionId) ?? 0
     const pending = this.requireSessions().manager.get(sessionId).readAttachment(attachment.attachmentId)
       .then((result) => {
         if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
@@ -163,15 +181,37 @@ export class ConversationService extends Service {
         }
         const bytes = Uint8Array.from(result.value.data)
         const url = URL.createObjectURL(new Blob([bytes.buffer], { type: result.value.attachment.mediaType }))
+        if ((this.imageGenerations.get(sessionId) ?? 0) !== generation) {
+          revokePreview(url)
+          throw new Error('historical image scope was released before loading completed')
+        }
         this.createdImageUrls.add(url)
         return url
       })
       .catch((error: unknown) => {
-        this.imageUrls.delete(key)
+        if (this.imageUrls.get(key)?.generation === generation) this.imageUrls.delete(key)
         throw error
       })
-    this.imageUrls.set(key, pending)
+    this.imageUrls.set(key, { sessionId, generation, pending })
     return pending
+  }
+
+  /**
+   * Release every historical image URL owned by one rendered session.
+   * @param sessionId - session whose rendered image scope is ending.
+   */
+  releaseSessionImages(sessionId: SessionId): void {
+    this.imageGenerations.set(sessionId, (this.imageGenerations.get(sessionId) ?? 0) + 1)
+    for (const [key, entry] of this.imageUrls) {
+      if (entry.sessionId !== sessionId) continue
+      this.imageUrls.delete(key)
+      void entry.pending.then((url) => {
+        if (!this.createdImageUrls.delete(url)) return
+        revokePreview(url)
+      }, () => {
+        // A failed or generation-invalidated load owns no cached object URL.
+      })
+    }
   }
 
   /** Cancel the scoped session's in-flight turn (failures land in promptError and reject, as in send). */
@@ -283,6 +323,38 @@ export class ConversationService extends Service {
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) throw new Error('conversation: sessions service unavailable')
     return sessions
+  }
+
+  /** Apply host-advertised fast-path checks before any object URL or base64 allocation. */
+  private validateImages(
+    files: readonly File[],
+    current: readonly ComposerAttachment[],
+    checkDefaultModel = false,
+  ): void {
+    const description = this.requireSessions().hostDescription()
+    const modalities = description?.activeModel?.inputModalities
+    if (checkDefaultModel && modalities !== undefined && !modalities.includes('image')) {
+      throw new Error('当前模型不支持图片输入')
+    }
+    const limits = description?.imageLimits
+    const all = [...current.map(attachment => attachment.file), ...files]
+    if (limits !== undefined && all.length > limits.maxImagesPerMessage) {
+      throw new Error(`每条消息最多添加 ${limits.maxImagesPerMessage} 张图片`)
+    }
+    let totalBytes = 0
+    for (const file of all) {
+      const mediaType = imageMediaType(file.type)
+      if (limits !== undefined && !limits.mediaTypes.includes(mediaType)) {
+        throw new Error(`当前部署不支持 ${mediaType} 图片`)
+      }
+      if (limits !== undefined && file.size > limits.maxImageBytes) {
+        throw new Error(`图片 ${file.name || '未命名图片'} 超过单张大小限制`)
+      }
+      totalBytes += file.size
+    }
+    if (limits !== undefined && totalBytes > limits.maxMessageImageBytes) {
+      throw new Error('图片总大小超过单条消息限制')
+    }
   }
 }
 

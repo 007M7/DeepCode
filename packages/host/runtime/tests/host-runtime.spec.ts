@@ -18,13 +18,14 @@ class ScriptedAdapter extends LlmAdapter {
   constructor(
     private script: (StreamChunk[] | 'hang')[],
     private readonly inputModalities: readonly ModelModality[] = ['text', 'image'],
+    private readonly model = 'test-model',
   ) {
     super()
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
     return Promise.resolve([{
-      provider, id: 'test-model', name: 'test-model',
+      provider, id: this.model, name: this.model,
       inputModalities: this.inputModalities, outputModalities: ['text'],
     }])
   }
@@ -112,10 +113,37 @@ describe('bootHost / startHost', () => {
     const response = await running.handler.fetch(new Request('http://x/api/host.describe', { method: 'POST', body }))
     const parsed = await response.json() as { result: { ok: boolean; value: { provider: string } } }
     expect(parsed.result.value.provider).toBe('scripted')
+    const attachmentBody = JSON.stringify({
+      type: 'client-request',
+      rpcId: 'r-attachment',
+      method: 'session.attachment',
+      payload: { sessionId: 'session-missing', attachmentId: 'sha256:missing' },
+    })
+    const attachmentResponse = await running.handler.fetch(new Request('http://x/api/session.attachment', {
+      method: 'POST',
+      body: attachmentBody,
+    }))
+    expect((await attachmentResponse.json() as { result: { ok: boolean } }).result.ok).toBe(false)
     const first = running.dispose()
     expect(running.dispose()).toBe(first)
     await first
     host = undefined
+  })
+
+  it('mounts configured pi-ai providers while accepting an explicit empty list', async () => {
+    const empty = await bootHost({
+      persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-boot-pi-empty-')),
+      piAiProviders: [],
+    })
+    expect(empty.ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
+    await empty.dispose()
+
+    const configured = await bootHost({
+      persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-boot-pi-')),
+      piAiProviders: [{ provider: 'openai' }],
+    })
+    expect(configured.ctx.llm.listProviders()).toContainEqual({ id: 'openai', name: 'openai' })
+    await configured.dispose()
   })
 })
 
@@ -124,6 +152,18 @@ describe('host.describe', () => {
     const { api } = await boot()
     const value = expectOk(await api.host.describe(request({})))
     expect(value).toMatchObject({ version: '0.0.1', cwd: process.cwd(), provider: 'scripted', model: 'test-model', attachedSessions: 0 })
+  })
+
+  it('omits activeModel when the configured model is absent from the provider catalog', async () => {
+    host = await startHost({
+      boot: {
+        persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-host-describe-missing-model-')),
+        provider: 'scripted',
+        model: 'missing-model',
+      },
+    })
+    host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([], ['text'], 'other-model'))
+    expect(expectOk(await host.api.host.describe(request({})))).not.toHaveProperty('activeModel')
   })
 })
 
@@ -239,6 +279,125 @@ describe('sessions.prompt / cancel', () => {
     expect(denied.result).toMatchObject({
       ok: false, error: { code: 'attachment-error', details: { reason: 'ATTACHMENT_NOT_REFERENCED' } },
     })
+
+    const { sessionId: nestedSession } = expectOk(await host.api.sessions.create(request({})))
+    const nestedAgent = host.ctx.agents.get(nestedSession) as Agent
+    nestedAgent.session.append('context/message', {
+      content: [
+        null,
+        [],
+        {
+          type: 'tool-result',
+          toolCallId: 'nested-text' as never,
+          content: [{ type: 'text', text: 'no image here' }],
+        },
+        {
+          type: 'tool-result',
+          toolCallId: 'nested-image' as never,
+          content: [{ type: 'image', attachment: image.attachment }],
+        },
+      ] as never,
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    expectOk(await host.api.sessions.attachment(request({
+      sessionId: nestedSession,
+      attachmentId: image.attachment.attachmentId,
+    })))
+
+    const { sessionId: streamedSession } = expectOk(await host.api.sessions.create(request({})))
+    const streamedAgent = host.ctx.agents.get(streamedSession) as Agent
+    streamedAgent.session.append('assistant/chunk', {
+      turn: 1,
+      step: 1,
+      chunk: { type: 'block-end', index: 0, block: { type: 'image', attachment: image.attachment } },
+    })
+    expectOk(await host.api.sessions.attachment(request({
+      sessionId: streamedSession,
+      attachmentId: image.attachment.attachmentId,
+    })))
+
+    const missingRef = {
+      ...image.attachment,
+      attachmentId: `sha256:${'b'.repeat(64)}` as never,
+    }
+    streamedAgent.session.append('context/message', {
+      content: [{ type: 'image', attachment: missingRef }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+    const missing = await host.api.sessions.attachment(request({
+      sessionId: streamedSession,
+      attachmentId: missingRef.attachmentId,
+    }))
+    expect(missing.result).toMatchObject({
+      ok: false, error: { details: { reason: 'ATTACHMENT_NOT_FOUND' } },
+    })
+
+    const read = vi.spyOn(host.ctx.attachments, 'readImage').mockRejectedValueOnce(new Error('read failed'))
+    const internal = await host.api.sessions.attachment(request({
+      sessionId: nestedSession,
+      attachmentId: image.attachment.attachmentId,
+    }))
+    expect(internal.result).toMatchObject({ ok: false, error: { code: 'internal' } })
+    read.mockRestore()
+
+    const ghost = await host.api.sessions.attachment(request({
+      sessionId: 'session-ghost' as SessionId,
+      attachmentId: image.attachment.attachmentId,
+    }))
+    expect(ghost.result).toMatchObject({ ok: false, error: { code: 'session-not-found' } })
+  })
+
+  it('rejects non-canonical, excessive-count, and excessive-byte image prompts', async () => {
+    const running = await boot()
+    const { sessionId } = expectOk(await running.api.sessions.create(request({})))
+    for (const data of ['', 'AB==']) {
+      const invalid = await running.api.sessions.prompt(request({
+        sessionId,
+        mode: 'queue' as const,
+        content: [{ type: 'image' as const, mediaType: 'image/png' as const, data }],
+      }))
+      expect(invalid.result).toMatchObject({
+        ok: false, error: { details: { reason: 'INVALID_IMAGE_BASE64' } },
+      })
+    }
+
+    const attachmentService = running.ctx.attachments as unknown as {
+      imageLimits: typeof running.ctx.attachments.imageLimits
+    }
+    attachmentService.imageLimits = {
+      ...running.ctx.attachments.imageLimits,
+      maxImagesPerMessage: 1,
+    }
+    const tooMany = await running.api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: Array.from({ length: 2 }, () => ({
+        type: 'image' as const,
+        mediaType: 'image/png' as const,
+        data: PNG_BASE64,
+      })),
+    }))
+    expect(tooMany.result).toMatchObject({
+      ok: false, error: { details: { reason: 'TOO_MANY_IMAGES' } },
+    })
+
+    attachmentService.imageLimits = {
+      ...running.ctx.attachments.imageLimits,
+      maxImagesPerMessage: 10,
+      maxMessageImageBytes: 100,
+    }
+    const excessiveBytes = await running.api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: Array.from({ length: 2 }, () => ({
+        type: 'image' as const,
+        mediaType: 'image/png' as const,
+        data: PNG_BASE64,
+      })),
+    }))
+    expect(excessiveBytes.result).toMatchObject({
+      ok: false, error: { details: { reason: 'IMAGES_TOO_LARGE' } },
+    })
   })
 
   it('rejects images for an explicitly text-only model without creating a session event', async () => {
@@ -258,6 +417,57 @@ describe('sessions.prompt / cancel', () => {
     })
     expect(host.ctx.agents.get(sessionId)?.session.events.some(event => event.type === 'user/message')).toBe(false)
     expect(existsSync(join(dshHome, 'attachments'))).toBe(false)
+  })
+
+  it('preflights the session route instead of the host default model', async () => {
+    const persistenceRoot = mkdtempSync(join(tmpdir(), 'dsh-routed-session-'))
+    const dshHome = mkdtempSync(join(tmpdir(), 'dsh-routed-home-'))
+    host = await startHost({
+      boot: { persistenceRoot, dshHome, provider: 'scripted', model: 'test-model' },
+    })
+    host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([], ['text']))
+    host.ctx.llm.registerAdapter(
+      ['visual'],
+      new ScriptedAdapter([textResponse('seen')], ['text', 'image'], 'visual-model'),
+    )
+    const { sessionId } = expectOk(await host.api.sessions.create(request({})))
+    const agent = host.ctx.agents.get(sessionId) as Agent
+    agent.options.provider = 'visual'
+    agent.options.model = 'visual-model'
+    const idle = waitForIdle(host.ctx, agent)
+
+    expectOk(await host.api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'image' as const, mediaType: 'image/png' as const, data: PNG_BASE64 }],
+    })))
+    await idle
+
+    expect(agent.session.events.some(event => event.type === 'user/message')).toBe(true)
+    expect(existsSync(join(dshHome, 'attachments'))).toBe(true)
+  })
+
+  it('falls back to host routing when a session has no routed or agent model options', async () => {
+    host = await startHost({
+      boot: {
+        persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-host-route-default-')),
+        provider: 'scripted',
+        model: 'test-model',
+      },
+    })
+    host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([], ['text']))
+    const { sessionId } = expectOk(await host.api.sessions.create(request({})))
+    const agent = host.ctx.agents.get(sessionId) as Agent
+    agent.options.provider = undefined as never
+    agent.options.model = undefined as never
+    const response = await host.api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'image' as const, mediaType: 'image/png' as const, data: PNG_BASE64 }],
+    }))
+    expect(response.result).toMatchObject({
+      ok: false, error: { details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' } },
+    })
   })
 
   it('cancels an attached agent and rejects an unattached one', async () => {

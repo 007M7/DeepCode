@@ -437,10 +437,34 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.session.append('assistant/chunk', {
       turn: 3,
       step: 1,
+      chunk: { type: 'block-start', index: 3, blockType: 'image' },
+    })
+    result.session.append('assistant/chunk', {
+      turn: 3,
+      step: 1,
+      chunk: {
+        type: 'block-end',
+        index: 3,
+        block: {
+          type: 'image',
+          attachment: {
+            attachmentId: 'sha256:stream-image' as never,
+            mediaType: 'image/png',
+            bytes: 1,
+            width: 1,
+            height: 1,
+          },
+        },
+      },
+    })
+    result.session.append('assistant/chunk', {
+      turn: 3,
+      step: 1,
       chunk: { type: 'usage', usage: { inputTokens: 1, outputTokens: 2 } },
     })
     await tick()
     expect(result.terminal.output).toContain('live thought')
+    expect(result.terminal.output).toContain('sha256:stream-image]')
     result.terminal.send('\x12')
     await tick()
     appendAssistant(
@@ -729,6 +753,16 @@ describe('pi-tui chat lifecycle and transcript', () => {
             { type: 'text', text: '# Heading\n\n[link](https://example.com) `code`\n\n```ts\nconst x = 1\n```\n\n> quote\n\n---\n\n- item\n\n**bold** *italic* ~~strike~~' },
             { type: 'tool-call', id: 'nested' as never, name: 'nested_tool', arguments: '{}' },
             { type: 'tool-result', toolCallId: 'nested' as never, content: [{ type: 'reasoning', text: 'nested result' }] },
+            {
+              type: 'image',
+              attachment: {
+                attachmentId: 'sha256:user-image' as never,
+                mediaType: 'image/png',
+                bytes: 1,
+                width: 1,
+                height: 1,
+              },
+            },
             { type: 'future-block' } as never,
             {} as never,
           ],
@@ -737,6 +771,16 @@ describe('pi-tui chat lifecycle and transcript', () => {
         appendAssistant(session, [
           { type: 'reasoning', text: 'styled reasoning' },
           { type: 'text', text: 'styled answer' },
+          {
+            type: 'image',
+            attachment: {
+              attachmentId: 'sha256:assistant-image' as never,
+              mediaType: 'image/png',
+              bytes: 1,
+              width: 1,
+              height: 1,
+            },
+          },
         ], { inputTokens: 2_000_000, outputTokens: 1_500_000 })
         session.append('todo/write', { todos: [
           { content: 'done', status: 'completed' },
@@ -756,6 +800,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Heading')
     expect(result.terminal.output).toContain('nested_tool({})')
     expect(result.terminal.output).toContain('nested result')
+    expect(result.terminal.output).toContain('sha256:user-image]')
+    expect(result.terminal.output).toContain('[image attachment sha256:assistant-image]')
     expect(result.terminal.output).toContain('[future-block]')
     expect(result.terminal.output).toContain('[content]')
     expect(result.terminal.output).toContain('↑2.0m ↓1.5m')

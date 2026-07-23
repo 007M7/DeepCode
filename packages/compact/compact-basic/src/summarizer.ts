@@ -5,7 +5,7 @@
  */
 
 import type { Context } from 'cordis'
-import { BlockAssembler } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, FinishReason, GenerateOptions, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
@@ -145,7 +145,7 @@ export async function summarizeWithLlm(
   const error = finishError(assembler.finish)
   if (error !== undefined) throw error
 
-  const summary = textOnly(assembler.message().content)
+  const summary = summaryText(assembler.message().content)
   if (!summary.some(block => block.text.trim().length > 0)) {
     throw new Error('summarization produced no text summary content')
   }
@@ -189,9 +189,18 @@ function finishError(finish: FinishReason): Error | undefined {
   }
 }
 
-/** Keep only text blocks before synthesizing a user message. */
-function textOnly(
+/** Reject visual output and keep only text before synthesizing a user message. */
+function summaryText(
   blocks: readonly ContentBlock[],
 ): Array<Extract<ContentBlock, { type: 'text' }>> {
+  if (containsImage(blocks)) {
+    throw new LlmError('compaction summary cannot contain image output', 'UNSUPPORTED_CONTENT')
+  }
   return blocks.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+}
+
+/** Detect images recursively so no structured result can hide a silent visual drop. */
+function containsImage(blocks: readonly ContentBlock[]): boolean {
+  return blocks.some(block => block.type === 'image'
+    || (block.type === 'tool-result' && containsImage(block.content)))
 }
