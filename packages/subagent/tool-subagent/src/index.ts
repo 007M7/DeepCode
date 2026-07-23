@@ -1,20 +1,23 @@
 /**
  * Model-facing delegation through one configured `ctx.subagents` provider.
  * Provider lifecycle controls tool registration and context-sensitive schema
- * wording. Foreground calls always dispose the run after collection; background
- * calls use an independent cancellation signal and settle a final-output task
- * only after child disposal.
+ * wording. Foreground calls always dispose the run after collection. A
+ * background call's route follows the provider's continuation capability:
+ * a provider with `resume` delegates to `ctx.subagentControl`, which owns the
+ * durable child id, its descriptor, and the Task-backed activation lifecycle;
+ * a provider without it (ACP) keeps the one-shot background task.
  * @module @deepseek-ai/dsh-tool-subagent
  */
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import { assertSubagentMaxDepth } from '@deepseek-ai/dsh-subagent'
-import type { SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
+import { settleRun } from '@deepseek-ai/dsh-subagent-control'
 import type { TaskOutcome } from '@deepseek-ai/dsh-tasks'
 
 export const name = 'tool-subagent'
@@ -85,18 +88,6 @@ export const Config: z<Config> = z.object({
   maxDepth: z.union([z.natural().max(Number.MAX_SAFE_INTEGER), z.const('provider-managed' as const)]).default(3),
 })
 
-/**
- * Flatten a child's final output blocks to text for the tool result. The child
- * may return non-text blocks; this path returns only text. Structured results
- * use `outputSchema`.
- */
-function outputText(blocks: ContentBlock[]): string {
-  return blocks
-    .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
-    .map(b => b.text)
-    .join('')
-}
-
 /** Render text blocks from the canonical JSON block array without trusting arbitrary values. */
 function outputValueText(values: JsonValue[]): string {
   return values
@@ -105,6 +96,17 @@ function outputValueText(values: JsonValue[]): string {
       && value.type === 'text' && typeof value.text === 'string')
     .map(value => value.text)
     .join('')
+}
+
+/** Settle pending startup without rejecting the task producer contract. */
+async function settleStart(start: Promise<SubagentRun>, signal: AbortSignal): Promise<TaskOutcome> {
+  try {
+    return await settleRun(await start)
+  } catch (error: unknown) {
+    return signal.aborted
+      ? { status: 'killed' }
+      : { status: 'failed', detail: String(error) }
+  }
 }
 
 /** A non-`completed` stop reason means the child did not finish cleanly. */
@@ -125,50 +127,6 @@ function stopReasonError(result: SubagentResult): string | undefined {
     default:
       return `subagent run ended abnormally (${String(result.stopReason)})`
   }
-}
-
-/**
- * Map a child result to the task outcome: completed carries final text,
- * aborted is killed, and every other reason is failed without partial output.
- * @param result - child terminal result.
- * @returns outcome for the `ctx.tasks` registration.
- */
-export function runOutcome(result: SubagentResult): TaskOutcome {
-  switch (result.stopReason) {
-    case 'completed':
-      return { status: 'completed', output: outputText(result.output) }
-    case 'aborted':
-      return { status: 'killed' }
-    case 'error':
-    case 'max-tokens':
-    case 'refusal':
-      return { status: 'failed', detail: result.stopReason }
-    // Merge-extensible reasons remain failures with their raw detail.
-    default:
-      return { status: 'failed', detail: String(result.stopReason) }
-  }
-}
-
-/**
- * Await the child result, dispose the run, then return its task outcome. Result
- * and disposal failures become `failed`; when both fail, both details survive.
- * @param run - live run to settle and release.
- * @returns outcome after child resources are released.
- */
-export async function settleRun(run: SubagentRun): Promise<TaskOutcome> {
-  let outcome: TaskOutcome
-  try {
-    outcome = runOutcome(await run.result)
-  } catch (error: unknown) {
-    outcome = { status: 'failed', detail: String(error) }
-  }
-  try {
-    await run.dispose()
-  } catch (error: unknown) {
-    const prefix = outcome.detail === undefined ? '' : `${outcome.detail}; `
-    return { status: 'failed', detail: `${prefix}dispose failed: ${String(error)}` }
-  }
-  return outcome
 }
 
 /**
@@ -210,30 +168,6 @@ function providerWording(inheritsConversation: boolean): { description: string; 
   }
 }
 
-function startRequest(config: Config, prompt: string, parent: Agent, signal: AbortSignal): SubagentStartRequest {
-  const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined
-  return {
-    prompt: [{ type: 'text', text: prompt }],
-    parent,
-    signal,
-    ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
-    ...config.persona !== undefined ? { persona: config.persona } : {},
-    ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
-    ...maxDepth !== undefined ? { maxDepth } : {},
-  }
-}
-
-/** Settle pending startup without rejecting the task producer contract. */
-async function settleStart(start: Promise<SubagentRun>, signal: AbortSignal): Promise<TaskOutcome> {
-  try {
-    return await settleRun(await start)
-  } catch (error: unknown) {
-    return signal.aborted
-      ? { status: 'killed' }
-      : { status: 'failed', detail: String(error) }
-  }
-}
-
 export function apply(ctx: Context, config: Config): void {
   // Direct apply() bypasses Schemastery's numeric constraints. A direct-apply
   // omission stays capless (the schema default only runs through the loader).
@@ -257,10 +191,18 @@ export function apply(ctx: Context, config: Config): void {
     }
     const wording = providerWording(provider.inheritsParentContext)
     const backgroundEnabled = config.enableRunInBackground !== false
+    // The provider's continuation capability decides the background route: a
+    // resumable provider starts durable, follow-up-able children through the
+    // control service, while a one-shot provider (ACP) keeps the plain task.
+    const continuable = provider.resume !== undefined
     disposeTool = ctx.tools.register(defineTool({
       name: config.toolName ?? 'subagent',
       description: wording.description + (backgroundEnabled
-        ? ' Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.'
+        ? continuable
+          ? ' Set `run_in_background: true` to start a continuable background subagent: you receive its'
+          + ' subagent id and a task id; collect the result with `task_output`, stop it with `task_kill`,'
+          + ' and send follow-up messages with `send_message`.'
+          : ' Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.'
         : ''),
       parameters: {
         description: {
@@ -276,7 +218,10 @@ export function apply(ctx: Context, config: Config): void {
         ...backgroundEnabled ? {
           run_in_background: {
             type: 'boolean' as const,
-            description: 'Run as a background task and return its id; collect with task_output or stop with task_kill.',
+            description: continuable
+              ? 'Run as a continuable background subagent and return its subagent and task ids; '
+              + 'collect with task_output, stop with task_kill, follow up with send_message.'
+              : 'Run as a background task and return its id; collect with task_output or stop with task_kill.',
           },
         } : {},
       },
@@ -289,6 +234,7 @@ export function apply(ctx: Context, config: Config): void {
               properties: {
                 kind: { type: 'string', required: true, const: 'background' },
                 taskId: { type: 'string', required: true },
+                subagentId: { type: 'string' },
               },
             },
             {
@@ -305,7 +251,9 @@ export function apply(ctx: Context, config: Config): void {
         render: (_args, value) => [{
           type: 'text',
           text: value.kind === 'background'
-            ? `started background subagent task ${value.taskId}`
+            ? value.subagentId === undefined
+              ? `started background subagent task ${value.taskId}`
+              : `started subagent ${value.subagentId} as task ${value.taskId}`
             : outputValueText(value.output),
         }],
       },
@@ -316,27 +264,54 @@ export function apply(ctx: Context, config: Config): void {
           throw new Error('subagent tool requires a calling agent (exec.agent was undefined)')
         }
 
+        const maxDepth = typeof config.maxDepth === 'number' ? config.maxDepth : undefined
+        const request = {
+          prompt: [{ type: 'text', text: args.prompt }] as ContentBlock[],
+          parent,
+          ...config.agentOptions !== undefined ? { agentOptions: config.agentOptions } : {},
+          ...config.persona !== undefined ? { persona: config.persona } : {},
+          ...config.toolFilter !== undefined ? { toolFilter: config.toolFilter } : {},
+          ...maxDepth !== undefined ? { maxDepth } : {},
+        }
+
         if (args.run_in_background === true) {
           // The validator permits undeclared keys, so schema omission also needs
           // execution-time enforcement.
           if (!backgroundEnabled) {
             throw new Error('run_in_background is disabled for this tool instance (enableRunInBackground: false)')
           }
+          if (continuable) {
+            const control = ctx.get('subagentControl')
+            if (control === undefined) {
+              throw new Error('continuable background subagents unavailable: load @deepseek-ai/dsh-subagent-control and @deepseek-ai/dsh-tool-tasks')
+            }
+            // The control service owns the durable child id, descriptor
+            // snapshot, Task registration, and settle-then-dispose ordering; a
+            // synchronous validation failure rejects the call with no Task.
+            const started = control.startContinuable({
+              provider: config.provider,
+              label: args.description,
+              request,
+            })
+            return {
+              kind: 'background' as const,
+              taskId: started.taskId,
+              subagentId: started.childId,
+            }
+          }
           const tasks = ctx.get('tasks')
           if (tasks === undefined) {
             throw new Error('background tasks unavailable: load @deepseek-ai/dsh-tasks and @deepseek-ai/dsh-tool-tasks')
           }
-          // Task preflight finishes before the starter can spawn a child.
+          // One-shot background child: task preflight finishes before the
+          // starter can spawn, and the task-owned signal covers startup.
           const id = tasks.start({
             kind: 'subagent',
             label: args.description,
             owner: parent,
             run: () => {
               const controller = new AbortController()
-              const start = ctx.subagents.start(
-                config.provider,
-                startRequest(config, args.prompt, parent, controller.signal),
-              )
+              const start = ctx.subagents.start(config.provider, { ...request, signal: controller.signal })
               return {
                 cancel: (reason?: string) => {
                   controller.abort(reason ?? 'background subagent task killed')
@@ -349,14 +324,10 @@ export function apply(ctx: Context, config: Config): void {
           return { kind: 'background' as const, taskId: id }
         }
 
-        const request = startRequest(
-          config,
-          args.prompt,
-          parent,
-          exec.signal,
-        )
-
-        const run: SubagentRun = await ctx.subagents.start(config.provider, request)
+        const run: SubagentRun = await ctx.subagents.start(config.provider, {
+          ...request,
+          signal: exec.signal,
+        })
 
         try {
           const result = await run.result

@@ -96,6 +96,15 @@
   config:
     providerName: fork
 
+# Continuable background children: the control service owns durable child ids
+# and Task-backed activations; the separately loaded control tool registers the
+# one global `send_message` shared by both delegation tools.
+- id: subagent-control
+  name: '@deepseek-ai/dsh-subagent-control'
+
+- id: tool-subagent-control
+  name: '@deepseek-ai/dsh-tool-subagent-control'
+
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'
   config:

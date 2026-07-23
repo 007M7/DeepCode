@@ -10,7 +10,7 @@ Each plugin instance binds one `provider` to one `toolName`; the model receives 
 
 A foreground call passes the execution signal through startup and execution, awaits `run.result`, and always awaits `run.dispose()` before returning. Only `completed` returns the canonical `{ kind: 'foreground', runId, output: JsonValue[] }`, rendered as the same final text; abort, refusal, token limit, and other failures become errored tool results without partial output.
 
-With `run_in_background: true`, the tool registers the parent-owned task before starting the provider and returns canonical `{ kind: 'background', taskId }`, rendered as `started background subagent task <id>`. A task-owned signal covers pending startup and the child after the starting call returns. `task_kill` and owner disposal abort it. Settlement awaits startup rollback or child disposal, then maps completed final text, abort to `killed`, and other failures to `failed`. The task has no incremental read; generic task tools own later status, collection, cancellation, and notices. See the [background subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md).
+With `run_in_background: true`, the route follows the provider's continuation capability and returns canonical `{ kind: 'background', taskId, subagentId? }`. A resumable provider (spawn, fork) delegates to `ctx.subagentControl.startContinuable()`, which owns the durable child id, descriptor snapshot, Task registration, and settle-then-dispose ordering; the result includes `subagentId`, renders as `started subagent <childId> as task <taskId>`, and accepts follow-up messages through the global `send_message` tool. A one-shot provider (ACP) keeps the plain parent-owned task, omits `subagentId`, and renders as `started background subagent task <id>`. Either way a task-owned signal covers pending startup and the child after the starting call returns; `task_kill` and owner disposal abort it, settlement awaits startup rollback or child disposal, and completed final text, abort to `killed`, and other failures to `failed` map identically. The task has no incremental read; generic task tools own later status, collection, cancellation, and notices. See the [background subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md) and the [continuable background subagents Agent Note](../../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md).
 
 `toolFilter` changes the child's global tool layer but is not a parent-derived authority ceiling. See the [agent-scope security non-goal](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals).
 
@@ -64,7 +64,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-Start returns exactly `started background subagent task <id>`. The generic task surface provides later status, final output, cancellation responses, and notices.
+Start returns exactly `started subagent <childId> as task <taskId>` on a resumable provider, or `started background subagent task <id>` on a one-shot provider. The generic task surface provides later status, final output, cancellation responses, and notices; `send_message` (from `dsh-tool-subagent-control`) delivers follow-ups to a continuable child.
 
 #### Token effect
 

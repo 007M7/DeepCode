@@ -213,6 +213,11 @@ const SCENARIOS: Scenario[] = [
   { name: 'subagent-multi', hasModelTurn: true, recorded: true },
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
+  // Authored continuable-subagent transcript: a background delegation returns
+  // both the durable subagent id and its task id, task_output collects the
+  // child result after settlement, and send_message to an unknown subagent id
+  // starts a follow-up task that settles failed with the id unavailable.
+  { name: 'subagent-continuable', hasModelTurn: true, recorded: false },
   {
     name: 'subagent-depth-two-rejection',
     hasModelTurn: true,

@@ -30,6 +30,9 @@
       "path": "../subagent"
     },
     {
+      "path": "../subagent-control"
+    },
+    {
       "path": "../../tasks/tasks"
     },
     {

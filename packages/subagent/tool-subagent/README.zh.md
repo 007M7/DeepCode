@@ -10,7 +10,7 @@
 
 前台调用会让执行信号贯穿启动和执行，等待 `run.result`，并且在返回前总会等待 `run.dispose()`。只有 `completed` 会返回规范值 `{ kind: 'foreground', runId, output: JsonValue[] }`，并渲染为相同的最终文本；中止、拒绝、token 上限和其他失败都会变成出错的工具结果，不包含局部输出。
 
-设置 `run_in_background: true` 后，工具会在启动提供方前注册父级拥有的任务，并返回规范值 `{ kind: 'background', taskId }`，渲染为 `started background subagent task <id>`。任务拥有的信号覆盖待处理的启动阶段，以及启动调用返回后的子 agent。`task_kill` 和所有者 dispose（资源释放）会中止它。结算会等待启动回滚或子 agent dispose，然后把完成的最终文本映射为完成、中止映射为 `killed`、其他失败映射为 `failed`。任务不提供增量读取；通用任务工具负责后续状态、收集、取消和通知。见[后台 subagent Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md)。
+设置 `run_in_background: true` 后，路由遵循提供方的继续功能，并返回规范值 `{ kind: 'background', taskId, subagentId? }`。可恢复提供方（spawn、fork）会委派给 `ctx.subagentControl.startContinuable()`，由它拥有持久化子 agent ID、描述符快照、Task 注册和先结算后 dispose（资源释放）的顺序；结果包含 `subagentId`，渲染为 `started subagent <childId> as task <taskId>`，并通过全局 `send_message` 工具接收后续消息。一次性提供方 ACP（Agent Client Protocol）保留普通的父级所有任务，省略 `subagentId`，并渲染为 `started background subagent task <id>`。两条路径中，任务拥有的信号都会覆盖待处理的启动阶段和启动调用返回后的子 agent；`task_kill` 和所有者 dispose 会中止它，结算会等待启动回滚或子 agent dispose，然后把完成的最终文本映射为完成、中止映射为 `killed`、其他失败映射为 `failed`。任务不提供增量读取；通用任务工具负责后续状态、收集、取消和通知。见[后台 subagent Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md)和[可继续后台 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md)。
 
 `toolFilter` 会改变子 agent 的全局工具层，但不是从父级派生的权限上限。见 [agent 作用域的安全非目标](../../../.agents/notes/implemented/architecture/2026-07-08-agent-scope-contexts.md#security-and-authority-are-non-goals)。
 
@@ -64,7 +64,7 @@
 
 #### 模型看到的内容
 
-启动时原样返回 `started background subagent task <id>`。通用任务接口提供后续状态、最终输出、取消响应和通知。
+对于可恢复提供方，启动时精确返回 `started subagent <childId> as task <taskId>`；对于一次性提供方，则返回 `started background subagent task <id>`。通用任务接口提供后续状态、最终输出、取消响应和通知；`send_message`（来自 `dsh-tool-subagent-control`）会把后续消息交付给可继续子 agent。
 
 #### Token 影响
 

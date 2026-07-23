@@ -13,12 +13,13 @@
  * (`@deepseek-ai/dsh-subagent-spawn`, `-fork`, `-acp`) and the model-facing
  * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
  *
- * Scope: the seam stays collection-agnostic — a run is started and its
- * `result` awaited, whether the consumer blocks on it (foreground) or
- * registers it as a `ctx.tasks` background task (the generic runtime owns
- * ids/polling/stop; this seam gains nothing task-shaped). Steering
- * ({@link SubagentRun.sendMessage}) is part of the contract but intentionally
- * unused.
+ * Scope: the seam stays collection-, Task-, and persistence-agnostic — a run
+ * is started or resumed and its `result` awaited, whether the consumer blocks
+ * on it (foreground) or registers it as a `ctx.tasks` background task (the
+ * generic runtime owns ids/polling/stop; this seam gains nothing task-shaped).
+ * Durable continuable-child ids, descriptor lookup, and Task association
+ * belong to `@deepseek-ai/dsh-subagent-control`; this service only validates
+ * and dispatches `start`/`resume` and observes run lifecycle.
  *
  * Same-process providers are trusted typed collaborators. Requests, provider
  * descriptors, results, and lifecycle payloads are borrowed immutable values;
@@ -41,6 +42,7 @@ import type {
   SubagentCapabilities,
   SubagentProvider,
   SubagentResult,
+  SubagentResumeRequest,
   SubagentRun,
   SubagentStartRequest,
 } from './types.ts'
@@ -50,13 +52,21 @@ export * from './out-of-process.ts'
 export { SubagentRunId } from './types.ts'
 export type {
   SubagentCapabilities,
+  SubagentContinuation,
   SubagentProvider,
   SubagentResult,
+  SubagentResumeRequest,
   SubagentRun,
   SubagentStartRequest,
   SubagentStopReason,
   SubagentStopReasonMap,
 } from './types.ts'
+export {
+  foldSubagentDescriptor,
+  snapshotSubagentDescriptor,
+  SUBAGENT_DESCRIPTOR_VERSION,
+} from './descriptor.ts'
+export type { SubagentDescriptorData, SubagentDescriptorInput } from './descriptor.ts'
 
 declare module '@deepseek-ai/dsh-agent' {
   interface AgentOptions {
@@ -237,16 +247,52 @@ export class SubagentService extends Service {
    * @returns the ready holder-owned run.
    */
   async start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
+    const provider = this.expectProvider(name)
+    this.assertCapabilities(provider, request)
+    assertSubagentMaxDepth(request.maxDepth)
+    if (request.outputSchema !== undefined) assertObjectJsonSchema(request.outputSchema)
+    if (request.continuation !== undefined && provider.resume === undefined) {
+      throw new SubagentError(
+        `subagent provider "${provider.name}" does not support continuable children (no resume capability)`,
+        'UNSUPPORTED_CAPABILITY',
+      )
+    }
+
+    return this.observeRun(name, request.parent, await provider.start(request))
+  }
+
+  /**
+   * Resume a persisted continuable child through the named provider's
+   * `resume` capability, with the same run lifecycle observation as
+   * {@link start}. The caller (the control service) has already loaded the
+   * child, folded its descriptor, and authorized the parent; this method owns
+   * only capability-checked dispatch.
+   * @param name - the provider recorded in the child's descriptor.
+   * @param request - the fully resolved resume request.
+   * @returns the fresh holder-owned run for the resumed activation.
+   */
+  async resume(name: string, request: SubagentResumeRequest): Promise<SubagentRun> {
+    const provider = this.expectProvider(name)
+    if (provider.resume === undefined) {
+      throw new SubagentError(
+        `subagent provider "${provider.name}" does not support resuming persisted children (no resume capability)`,
+        'UNSUPPORTED_CAPABILITY',
+      )
+    }
+    return this.observeRun(name, request.parent, await provider.resume(request))
+  }
+
+  /** Look up a provider for dispatch or fail loud. */
+  private expectProvider(name: string): SubagentProvider {
     const provider = this.providers.get(name)
     if (provider === undefined) {
       throw new SubagentError(`no subagent provider registered for "${name}"`, 'NO_PROVIDER')
     }
-    this.assertCapabilities(provider, request)
-    assertSubagentMaxDepth(request.maxDepth)
-    if (request.outputSchema !== undefined) assertObjectJsonSchema(request.outputSchema)
+    return provider
+  }
 
-    const parent = request.parent
-    const run = await provider.start(request)
+  /** Emit the start/end lifecycle pair for one accepted run and return it. */
+  private observeRun(name: string, parent: Agent, run: SubagentRun): SubagentRun {
     const runId = SubagentRunId(randomUUID())
     const lifecycleIdentity = {
       runId,

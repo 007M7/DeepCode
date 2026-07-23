@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-本包是两个进程内提供方共用的运行驱动器。spawn 不传入会话初始内容；fork 传入父 agent（智能体）已完成轮次的前缀。其余机制，包括深度、子 agent 创建、可选的子 agent 定制、结果读取、取消和 dispose（资源释放），都在此共用同一套实现。
+本包是两个进程内提供方共用的运行驱动器。spawn 不传入会话初始内容；fork 传入父 agent（智能体）已完成轮次的前缀。其余机制，包括深度、子 agent 创建与冷恢复、可选的子 agent 定制、结果读取、取消、严格 steering（中途引导）和 dispose（资源释放），都在此共用同一套实现。
 
 ## 启动契约
 
@@ -11,20 +11,26 @@
 驱动器按以下顺序运行：
 
 1. 校验父 agent 深度和可选的绝对 `maxDepth`，然后把子 agent 深度推导为父 agent 深度加一，并将其持久化到子 agent 会话 header。
-2. 直接调用 `parent.ctx.agents.create`，把必需的请求信号传入工厂的创建事务。
-3. 在该事务未发布的设置窗口中，安装请求的 persona、工具限制和结构化输出运行时。
+2. 直接调用 `parent.ctx.agents.create`，把必需的请求信号传入工厂的创建事务。可继续请求会精确发布 `request.continuation.sessionId`，而不是内部生成的 ID。
+3. 在该事务未发布的设置窗口中，安装请求的 persona、工具限制和结构化输出运行时；对于可继续请求，还会安装一次性的 `agent/pre-step` 贡献，在初始 `turn/start` 之后、首次请求之前追加 `subagent/descriptor` 事件，使描述符随该轮次的 flush 到达持久化层。
 4. 发布子 agent，保留返回的 `AgentHandle`，并通过先调用 `child.followup(prompt)`、再调用 `child.whenIdle()` 来驱动一项任务。
-5. 读取子 agent 自身最后一条 assistant 消息，以及由消息触发的最新轮次原因；排除任何 fork 初始内容和后续轮次间记录。
+5. 读取子 agent 自身最后一条 assistant 消息，以及由消息触发的最新轮次原因；排除任何 fork 初始内容和后续由插件拥有的零步骤轮次。
 
 子 agent 会获得父 agent 的工作目录／会话谱系；除非 `request.agentOptions` 覆盖，否则还会继承父 agent 的提供方、模型和输出 token 上限。它获得全新的扁平注册作用域：父级所有权不会导入父 agent 的工具限制，也不会建立权限子集。
 
 当组合中挂载了可选的沙箱策略或审批服务时，驱动器会在创建子 agent 前对父级的显式会话覆盖项获取快照，并在未发布的设置阶段追加一条带来源标记的事件，使其位于所有 fork 历史之后、会话发布之前。它绝不复制部署默认值或一次性授权；子 agent 后续的切换仍然优先。参见[策略继承决策](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md)。
+
+## 冷恢复
+
+`resumeInProcessRun(request): Promise<SubagentRun>` 会在当前父级作用域下重建持久化的可继续子 agent：`parent.ctx.agents.resume` 通过持久化层加载子 agent 自身的 transcript（文本记录；fork 子 agent 的日志已经包含初始前缀，因此恢复绝不会再次 fork 当前父级历史），在未发布的设置窗口中重新应用描述符中的 persona 和工具过滤器，并把描述符中的 `agentProvider` / `agentModel` 作为运行时选项。持久化 header 对谱系和委派深度下限保持权威性。activation 的结果边界是恢复后日志的长度：只有此次后续轮次的输出会成为运行结果。发布、中止交接和 dispose 遵循与启动相同的契约。
 
 ## 取消与所有权
 
 必需的请求信号同时覆盖启动阶段和实时运行。发布前，`AgentCreationTransaction` 会观察该信号、回滚并拒绝。工厂返回前会移除仅用于创建阶段的监听器；驱动器随即再次检查信号，然后安装最小化的实时运行监听器，从而消除交接竞态。发布后，中止会取消子 agent。
 
 兑现后，调用方拥有该运行。提供方插件卸载不会撤销它。`dispose()` 会移除实时中止监听器、记录取消，并委托给返回的 `AgentHandle.dispose()`；后者通过可复用的完全停稳事务停止循环、移除 agent 和会话，并展开有作用域的注册。取消决定所有尚未完成的进行中结果，并将其报告为 `aborted`；已经完成的轮次仍保持完成状态。
+
+运行公开严格的 `steer` 功能：同步的 `AgentStatus.running` 检查与 `Agent.steer()` 调用位于同一个调用栈帧中，因此消息要么加入观察到的轮次，要么抛错。运行不会触达 Agent 层在空闲时排队并启动新轮次的 fallback；否则会在运行结果读取后启动一个未被跟踪的轮次。
 
 ## Spawn 与 fork 输入
 
@@ -110,5 +116,4 @@ When you have your final answer, you MUST report it by calling the `structured_o
 
 ## 已知限制与延期工作
 
-- **运行不公开 `sendMessage`/`resume`**：进程内运行不具备这些可选运行时能力。
 - **结构化捕获只接受 `defineTool` schema 子集**：不支持的 JSON Schema 构造会在子 agent 创建前失败；需要更广 schema 词汇的提供方必须采用不同的运行时。

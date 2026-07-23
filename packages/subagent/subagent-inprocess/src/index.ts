@@ -9,11 +9,18 @@
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
-import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { findLastMessageTurnEnd, SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertSubagentMaxDepth, delegationDepthOf } from '@deepseek-ai/dsh-subagent'
-import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
+import type {
+  SubagentDescriptorData,
+  SubagentResult,
+  SubagentResumeRequest,
+  SubagentRun,
+  SubagentStartRequest,
+  SubagentStopReason,
+} from '@deepseek-ai/dsh-subagent'
 // Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
 // to the policy services when composed — the driver consumes both
 // opportunistically (the documented `ctx.get` pattern), never as a hard dep.
@@ -66,9 +73,26 @@ function prePublicationAbort(): Error {
 }
 
 /**
+ * Register the one-shot child-scoped contribution that appends the durable
+ * `subagent/descriptor` event. `agent/step` is the first serial seam
+ * inside the child's initial turn, so the append lands after `turn/start` and
+ * before the first request, and reaches persistence with that turn's flush.
+ */
+function attachDescriptorAppend(childCtx: Context, descriptor: SubagentDescriptorData): void {
+  let appended = false
+  childCtx.on('agent/step', (agent) => {
+    if (appended) return
+    appended = true
+    agent.session.append('subagent/descriptor', descriptor)
+  })
+}
+
+/**
  * Establish and drive one in-process child. Fulfillment means the agent is
  * already published in the registry; rejection means the agent factory's
  * creation transaction and any partially-created child have reached quiescence.
+ * A `request.continuation` publishes exactly its stable child id and appends
+ * its descriptor inside the child's initial turn.
  * @param request - the trusted typed start request, including its required signal.
  * @param options - the optional fork seed.
  * @returns a ready holder-owned run.
@@ -88,7 +112,9 @@ export async function startInProcessRun(
     throw new SubagentDepthError(childDepth, request.maxDepth)
   }
 
-  const childId = SessionId(randomUUID())
+  // A continuable delegation names the durable conversation up front; the
+  // provider publishes exactly that id instead of allocating one internally.
+  const childId = request.continuation?.sessionId ?? SessionId(randomUUID())
   const seedLength = options.seed?.length ?? 0
   const parentHeader = parent.session.header
   const parentProvider = parent.options.provider
@@ -123,9 +149,11 @@ export async function startInProcessRun(
     if (request.outputSchema !== undefined) {
       structured = attachStructuredRuntime(childCtx, request.outputSchema)
     }
+    if (request.continuation !== undefined) {
+      attachDescriptorAppend(childCtx, request.continuation.descriptor)
+    }
   }
 
-  const flags = { cancelled: false }
   const handle = await parent.ctx.agents.create({
     sessionId: childId,
     meta: {
@@ -140,36 +168,84 @@ export async function startInProcessRun(
     signal: request.signal,
     setup,
   })
+  return driveTurn(handle, request.signal, request.prompt, childId, seedLength, structured)
+}
+
+/**
+ * Reconstruct a persisted continuable child under the live parent's scope and
+ * drive one follow-up turn. The resumed session's own transcript is the seed
+ * (loaded through the parent's persistence-backed registry `resume`), so a
+ * fork child never re-forks current parent history; the persisted header
+ * remains authoritative for lineage and the delegation-depth floor.
+ * @param request - the fully resolved resume request from the low-level service.
+ * @returns a fresh ready holder-owned run for this activation.
+ */
+export async function resumeInProcessRun(request: SubagentResumeRequest): Promise<SubagentRun> {
+  if (request.signal.aborted) throw prePublicationAbort()
+  const descriptor = request.descriptor
+  const agentOptions: AgentOptions = {
+    ...descriptor.agentProvider !== undefined ? { provider: descriptor.agentProvider } : {},
+    ...descriptor.agentModel !== undefined ? { model: descriptor.agentModel } : {},
+  }
+  const setup = (childCtx: Context): void => {
+    if (descriptor.persona !== undefined) {
+      childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: descriptor.persona })
+    }
+    if (descriptor.toolFilter !== undefined) childCtx.tools.restrict(descriptor.toolFilter)
+  }
+
+  const handle = await request.parent.ctx.agents.resume({
+    resumeSessionId: request.sessionId,
+    agentOptions,
+    signal: request.signal,
+    setup,
+  })
+  // The result boundary is this activation's own work: everything already in
+  // the resumed transcript belongs to earlier turns.
+  const resumePoint = handle.agent.session.events.length
+  return driveTurn(handle, request.signal, request.prompt, request.sessionId, resumePoint)
+}
+
+/**
+ * Drive one activation turn on a published child and wrap it as a run. The
+ * caller has already created or resumed the agent; this owns the
+ * signal-handoff race, the live abort listener, result collection past
+ * `boundary`, strict steering, and disposal.
+ */
+function driveTurn(
+  handle: AgentHandle,
+  signal: AbortSignal,
+  prompt: ContentBlock[],
+  childId: SessionId,
+  boundary: number,
+  structured?: StructuredAttachment,
+): SubagentRun | Promise<never> {
   const child = handle.agent
   // Agent creation detaches its creation-only abort listener before returning.
   // Close the narrow handoff race before installing the live-run listener.
-  // Static analysis does not model the abort that may land between the
-  // factory's listener detachment and this continuation.
-  // oxlint-disable-next-line typescript/no-unnecessary-condition
-  if (request.signal.aborted) {
-    flags.cancelled = true
-    await handle.dispose()
-    throw prePublicationAbort()
+  if (signal.aborted) {
+    return handle.dispose().then(() => { throw prePublicationAbort() })
   }
 
+  const flags = { cancelled: false }
   const onAbort = (): void => {
     flags.cancelled = true
     child.cancel({ kind: 'parent' })
   }
-  request.signal.addEventListener('abort', onAbort, { once: true })
+  signal.addEventListener('abort', onAbort, { once: true })
 
   const result: Promise<SubagentResult> = (async () => {
     try {
-      child.followup(createUserMessage({ content: request.prompt, source: { kind: 'user' } }))
+      child.followup(createUserMessage({ content: prompt, source: { kind: 'user' } }))
       await child.whenIdle()
       return readResult(
         child,
-        seedLength,
+        boundary,
         flags.cancelled,
         structured ? { captured: structured.captured() } : undefined,
       )
     } finally {
-      request.signal.removeEventListener('abort', onAbort)
+      signal.removeEventListener('abort', onAbort)
     }
   })()
 
@@ -178,21 +254,31 @@ export async function startInProcessRun(
     localAgent: child,
     result,
     dispose(): Promise<void> {
-      request.signal.removeEventListener('abort', onAbort)
+      signal.removeEventListener('abort', onAbort)
       flags.cancelled = true
       return handle.dispose()
+    },
+    steer(content: ContentBlock[]): void {
+      // Strict live delivery: the synchronous running check and Agent.steer()
+      // call share one frame, so delivery joins the observed turn or throws.
+      // Agent.steer()'s own idle fallback would instead QUEUE the message and
+      // start a new, untracked turn after this run's result was read.
+      if (child.status !== 'running') {
+        throw new Error(`subagent child "${childId}" is not running; the message was not delivered`)
+      }
+      child.steer(createUserMessage({ content, source: { kind: 'user' } }))
     },
   }
 }
 
-/** Read one settled child's result from events after its optional fork seed. */
+/** Read one settled child's result from events after its activation boundary. */
 function readResult(
   child: Agent,
-  seedLength: number,
+  boundary: number,
   cancelled: boolean,
   structured?: { captured?: { value: unknown } | undefined },
 ): SubagentResult {
-  const own = child.session.events.slice(seedLength)
+  const own = child.session.events.slice(boundary)
   const lastMessage = own.findLast((event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message')
   const lastEnd = findLastMessageTurnEnd(own)
   const output: ContentBlock[] = lastMessage?.data.message.content ?? []

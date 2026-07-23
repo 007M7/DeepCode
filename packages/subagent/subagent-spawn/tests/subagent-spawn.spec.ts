@@ -235,12 +235,19 @@ describe('dsh-subagent-spawn', () => {
     expect(result.stopReason).toBe('aborted')
   })
 
-  it('does not expose the optional runtime methods (sendMessage/resume) in this cut', async () => {
+  it('exposes strict steer (no run-level resume): a settled child throws instead of queueing', async () => {
     const { ctx, parent } = await setup([textResponse('x')])
     const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent })
-    expect('sendMessage' in run).toBe(false)
+    // A run represents one disposable activation: cold resume is a provider
+    // method, never a run method.
     expect('resume' in run).toBe(false)
+    expect(typeof run.steer).toBe('function')
     await run.result
+    // Strict live-only contract: after the child settles, delivery fails loud
+    // rather than falling back to Agent.steer()'s idle queue (which would
+    // start an untracked turn).
+    expect(() => { run.steer!([{ type: 'text', text: 'late' }]) })
+      .toThrow(/not running; the message was not delivered/)
     await run.dispose()
   })
 

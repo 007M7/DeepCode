@@ -431,6 +431,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Providers implement transports; tool-subagent exposes configured delegation while tool-ralph requires one fresh structured-output route.',
   },
   {
+    key: 'subagentControl',
+    pkg: 'subagent',
+    title: 'Continuable-subagent control service',
+    mode: 'core',
+    consumers: ['tool-subagent', 'tool-subagent-control'],
+    note: 'Binds one durable child session to Task-backed activations over ctx.subagents; tool-subagent starts continuable background children and tool-subagent-control delivers follow-up messages.',
+  },
+  {
     key: 'tasks',
     pkg: 'tasks',
     title: 'Background task registry',

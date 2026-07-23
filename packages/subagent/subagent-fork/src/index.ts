@@ -11,8 +11,8 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SubagentCapabilities, SubagentProvider, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import { startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
+import type { SubagentCapabilities, SubagentProvider, SubagentResumeRequest, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
+import { resumeInProcessRun, startInProcessRun } from '@deepseek-ai/dsh-subagent-inprocess'
 
 export const name = 'subagent-fork'
 // `tools` is deliberately NOT injected — same rationale as subagent-spawn: the
@@ -66,6 +66,13 @@ class ForkProvider implements SubagentProvider {
       // is equivalent to a fresh child, so omit it to keep the session unseeded.
       ...seed.length > 0 ? { seed } : {},
     })
+  }
+
+  resume(request: SubagentResumeRequest) {
+    // Cold resume loads the child's OWN persisted transcript, which already
+    // contains the completed-turn prefix captured at initial creation; it
+    // never forks the parent's newer history again.
+    return resumeInProcessRun(request)
   }
 }
 

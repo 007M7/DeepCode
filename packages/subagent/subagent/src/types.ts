@@ -9,6 +9,7 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
+import type { SubagentDescriptorData } from './descriptor.ts'
 
 /** Identifies one accepted subagent run across its lifecycle event pair. */
 export type SubagentRunId = Branded<'SubagentRunId'>
@@ -27,9 +28,10 @@ export function SubagentRunId(id: string): SubagentRunId {
  * {@link SubagentProvider.start}: a request that needs a capability the chosen provider lacks
  * is rejected with a typed error rather than accepted-then-ignored (the "fail loud, no silent
  * degradation" rule). These static flags cover features needed before a run exists; runtime
- * capabilities such as steering and resume are optional {@link SubagentRun} methods whose presence
- * is the capability. Each flag corresponds one-to-one to a {@link SubagentStartRequest} option:
- * `depthLimit` to `maxDepth`; the other names match.
+ * capabilities are optional methods whose presence is the capability — strict live steering
+ * is {@link SubagentRun.steer} and persisted cold resume is {@link SubagentProvider.resume}. Each
+ * flag corresponds one-to-one to a {@link SubagentStartRequest} option: `depthLimit` to
+ * `maxDepth`; the other names match.
  */
 export interface SubagentCapabilities {
   readonly outputSchema: boolean
@@ -91,6 +93,56 @@ export interface SubagentStartRequest {
    * persona (strict `{{…}}` interpolation against the registered variables).
    */
   readonly persona?: string
+  /**
+   * Continuable-child intent, resolved by the control service before start.
+   * The provider MUST publish exactly `sessionId` as the child identity
+   * instead of allocating one internally, and MUST append the snapshotted
+   * `descriptor` as the child's turn-enclosed `subagent/descriptor` event
+   * before its first request. Requires {@link SubagentProvider.resume} (the
+   * continuation capability); the service rejects the request otherwise.
+   */
+  readonly continuation?: SubagentContinuation
+}
+
+/**
+ * The resolved continuable-child identity and durable composition record a
+ * control-service caller attaches to a start request.
+ */
+export interface SubagentContinuation {
+  /** Control-allocated stable child session id, published verbatim. */
+  readonly sessionId: SessionId
+  /** Snapshotted descriptor persisted in the child log for cold resume. */
+  readonly descriptor: SubagentDescriptorData
+}
+
+/**
+ * What a caller asks for when resuming a persisted continuable child. The
+ * control service loads the child log, folds and authorizes its descriptor,
+ * and passes this fully resolved request to
+ * {@link SubagentService.resume}, which dispatches to
+ * {@link SubagentProvider.resume}. The provider reconstructs the declared
+ * composition under the live parent's scope and drives one turn with `prompt`.
+ */
+export interface SubagentResumeRequest {
+  /** The persisted child session id to resume. */
+  readonly sessionId: SessionId
+  /** The follow-up message that starts the resumed activation's turn. */
+  readonly prompt: ContentBlock[]
+  /**
+   * The live parent agent — the direct parent recorded in the persisted child
+   * header. In-process backends reconstruct the child under this agent's
+   * currently loaded scope.
+   */
+  readonly parent: Agent
+  /**
+   * Activation-owned cancellation signal, created before descriptor lookup.
+   * Same pre/post-publication contract as {@link SubagentStartRequest.signal}:
+   * an abort before publication rejects after rollback quiescence, and an
+   * abort afterward cancels the published child turn.
+   */
+  readonly signal: AbortSignal
+  /** The folded durable descriptor whose composition the provider reconstructs. */
+  readonly descriptor: SubagentDescriptorData
 }
 
 /**
@@ -165,15 +217,16 @@ export interface SubagentRun {
    */
   dispose(): Promise<void>
   /**
-   * OPTIONAL (steering capability): send additional content to the running
-   * child between steps. Present only on providers that support live steering.
+   * OPTIONAL (strict live-steering capability): deliver additional content to
+   * the actively running child turn. STRICT means delivery joins the observed
+   * turn or fails — the implementation must synchronously require the child to
+   * be running with no asynchronous boundary before delivery, and must not
+   * fall back to a queue path that could start a new, untracked turn after
+   * this run has settled. Throws when the child is not running. A run
+   * represents one disposable activation, so it has no cold-resume operation;
+   * resuming a settled child goes through {@link SubagentProvider.resume}.
    */
-  sendMessage?(content: ContentBlock[]): void
-  /**
-   * OPTIONAL (resume capability): send a follow-up task to a settled child,
-   * continuing its session, and return a fresh run for the continuation.
-   */
-  resume?(content: ContentBlock[]): Promise<SubagentRun>
+  steer?(content: ContentBlock[]): void
 }
 
 /**
@@ -201,4 +254,15 @@ export interface SubagentProvider {
    * promise rejects. Ownership transfers to the caller only on fulfillment.
    */
   start(request: SubagentStartRequest): Promise<SubagentRun>
+  /**
+   * OPTIONAL (continuation capability): reconstruct a persisted continuable
+   * child from its own transcript and declared descriptor, drive one
+   * follow-up turn, and return a fresh run. Method presence is the capability
+   * — the service rejects `resume` dispatch and continuable starts on
+   * providers without it. Same publication contract as {@link start}: if
+   * reconstruction fails or `request.signal` aborts before fulfillment, the
+   * provider rolls its creation transaction back to quiescence before
+   * rejecting; after fulfillment the same signal cancels the published run.
+   */
+  resume?(request: SubagentResumeRequest): Promise<SubagentRun>
 }
