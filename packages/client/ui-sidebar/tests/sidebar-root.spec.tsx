@@ -38,6 +38,7 @@ function summary(init: SummaryInit): SessionSummary {
   const s: SessionSummary = {
     id: sid(init.id),
     title: init.title ?? init.id,
+    displayTitle: init.title ?? init.id,
     running: init.running ?? false,
     updatedAt: init.updatedAt ?? 0,
   }

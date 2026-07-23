@@ -220,9 +220,11 @@ describe('web boot chain success pass (keyless, nine real bundles, ?fixture)', (
 
   it('renders and completes the resident question through the composer slot', async () => {
     onTestFailed(() => saveFailureShot(page, 'smoke-question-composer'))
-    await page.getByText('fixture', { exact: true }).click()
-    await page.locator('[role="treeitem"]').nth(1).click()
-    const composer = page.locator('[data-question-rpc-id]')
+    const sessionTree = page.getByRole('tree', { name: 'Sessions' })
+    const projectRow = sessionTree.getByRole('treeitem').filter({ hasText: '3 sessions' })
+    if (await projectRow.getAttribute('aria-expanded') === 'false') await projectRow.click()
+    await sessionTree.getByText('Fixture 历史会话', { exact: true }).click()
+    const composer = page.locator('[data-question-key]')
     await composer.waitFor({ timeout: 15_000 })
     expect({
       question: await composer.getByRole('heading').innerText(),

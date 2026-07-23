@@ -18,6 +18,7 @@ interface TimingHooks {
   setHistoryDelay(ms: number): void
   failNextHistory(): void
   appendUser(id: string, msg: string): void
+  appendTitle(id: string, title: string): void
   appendSilent(id: string, msg: string): void
   breakStreams(): void
 }
@@ -155,7 +156,7 @@ describe('createFixtureApi', () => {
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 3) abort.abort()
+        if (envelopes.length >= 4) abort.abort()
       }
       return envelopes
     }
@@ -163,10 +164,11 @@ describe('createFixtureApi', () => {
     const second = await openOnce()
     expect(first[0]?.payload).toMatchObject({ type: 'session/subscribed', sessionId: 'fx-alpha' })
     expect((first[0]?.payload as { lastSeq: number }).lastSeq).toBeGreaterThan(0)
-    expect(first[1]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[1]?.rpcId).toBe(first[1]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[2]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[2]?.rpcId).toBe(first[2]?.rpcId)
+    expect(first[1]?.payload).toMatchObject({ type: 'session/title', sessionId: 'fx-alpha', title: 'Fixture 历史会话' })
+    expect(first[2]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[2]?.rpcId).toBe(first[2]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[3]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[3]?.rpcId).toBe(first[3]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {
@@ -279,10 +281,15 @@ describe('createFixtureApi', () => {
     await new Promise(resolve => setTimeout(resolve, 10))
     hooks.appendSilent('fx-alpha', '静默丢帧')
     hooks.appendUser('fx-alpha', '正常直播')
+    hooks.appendTitle('fx-alpha', 'Fixture 修订标题')
     await vi.waitFor(() => {
       expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('正常直播'))).toBe(true)
+      expect(seen.some(f => f.type === 'session/title' && f.title === 'Fixture 修订标题')).toBe(true)
     })
     expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('静默丢帧'))).toBe(false)
+    const rawTitleIndex = seen.findIndex(f => f.type === 'session/event' && (f.event as { type: string }).type === 'session/title')
+    const titleControlIndex = seen.findIndex(f => f.type === 'session/title' && f.title === 'Fixture 修订标题')
+    expect(titleControlIndex).toBe(rawTitleIndex + 1)
     // But history serves the silent event (the client's repull finds it).
     const repull = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 5 }))
     if (!repull.result.ok) throw new Error('repull failed')
