@@ -78,7 +78,7 @@ describe('cordis_inspect', () => {
     expect(report).toContain('- tools — Tool registry and execution pipeline.')
     expect(report).toContain('/**')
     expect(report).toContain('Register globally or in the calling agent scope.')
-    expect(report).toContain('@param definition - the tool schema')
+    expect(report).toContain('@param definition - tool schema, execution, and optional finalization/presentation callbacks')
     expect(report).toContain('@returns the exact disposer')
     expect(report).toContain('register(definition: ToolDefinition)')
     expect(report).toContain('type shapes (referenced by the signatures above')

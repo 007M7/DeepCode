@@ -170,6 +170,18 @@ export interface ToolDefinition extends ToolSchema {
    */
   execute(args: unknown, exec: ToolRunContext): Promise<unknown>
   /**
+   * Synchronous last-mile transform for model-facing content. The registry
+   * snapshots this callback when execution starts and invokes it exactly once
+   * for every normalized outcome, including pipeline failures that bypass
+   * `tools/post-execute`, immediately before lossless materialization.
+   * Returning `undefined` preserves the content; every other result field
+   * remains registry-owned. The callback must be total and must not throw.
+   * @param exec - immutable execution identity and arguments.
+   * @param result - complete normalized outcome before materialization.
+   * @returns replacement content, or `undefined` to preserve it.
+   */
+  finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined
+  /**
    * Cooperative tool-call timeout budget in milliseconds. Omit for no deadline.
    * Enforced by `@deepseek-ai/dsh-timeout-policy` (a `tools/execute` wrapper); it
    * is NEVER sent to the model — `schemas()` whitelists only name/description/
@@ -330,9 +342,9 @@ export interface ToolRegistryScheduler {
   prepare(exec: ToolExecutionInput): Promise<ScheduledToolPreparation>
   /** Run only the around-dispatch/body stage. */
   dispatch(exec: ToolRunContext): Promise<ScheduledToolDispatch>
-  /** Run ordered post-execute finalization, then materialize and notify the final outcome. */
+  /** Run post-execute and definition-owned content finalization, then materialize and notify. */
   finalize(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>
-  /** Materialize and notify a final outcome that must bypass post-execute. */
+  /** Run definition-owned content finalization, then materialize and notify without post-execute. */
   finish(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult
 }
 
@@ -638,6 +650,8 @@ export class ToolRegistry extends Service {
   private deferredContexts = new WeakMap<ToolRunContext, HookContext[]>()
   /** Original caller cancellation, kept outside the wrapper-mutable execution object. */
   private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
+  /** Definition-owned final content transform snapshotted before policy begins. */
+  private contentFinalizers = new WeakMap<ToolRunContext, ToolDefinition['finalizeContent']>()
   private readonly layers = new ScopedLayers(
     scope => new ToolLayer(scope),
     () => { this.ctx.emit('tools/change') },
@@ -715,7 +729,7 @@ export class ToolRegistry extends Service {
   /**
    * Register globally or in the calling agent scope. Scoped tools shadow
    * globals; duplicates within one layer and the reserved `run_code` name fail.
-   * @param definition - the tool schema, execution, and optional presentation functions.
+   * @param definition - tool schema, execution, and optional finalization/presentation callbacks.
    * @returns the exact disposer that unregisters the tool.
    */
   register(definition: ToolDefinition): () => void {
@@ -910,10 +924,11 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Execute through pre-policy, guards, around-dispatch, post-policy, and final
-   * notification. Tool and listener failures resolve as materialized error
-   * results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is
-   * the same lossless, frozen snapshot final observers receive. Cancellation
+   * Execute through pre-policy, guards, around-dispatch, post-policy,
+   * definition-owned content finalization, and final notification. Tool and
+   * listener failures resolve as materialized error results; an invisible tool
+   * reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen
+   * snapshot final observers receive. Cancellation
    * arriving after entry and before final result materialization skips a
    * not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a
    * successful started outcome with `ABORTED`; already-started work is still
@@ -952,6 +967,8 @@ export class ToolRegistry extends Service {
     const agent = exec.agent
     const parent = exec.parent
     const signal = exec.signal
+    const definition = this.get(name, agent)
+    const finalizeContent = definition?.finalizeContent?.bind(definition)
     const base = {
       token,
       callId,
@@ -970,6 +987,7 @@ export class ToolRegistry extends Service {
       }
       const execution: MutableToolRunContext = { ...base, arguments: deepFreeze(detached) }
       this.deferredContexts.set(execution, deferredContexts)
+      this.contentFinalizers.set(execution, finalizeContent)
       this.cancellationStates.set(execution, {
         callerSignal: signal,
         bodyInvoked: false,
@@ -977,6 +995,7 @@ export class ToolRegistry extends Service {
       return { kind: 'ready', exec: execution }
     } catch (error: unknown) {
       const execution: MutableToolRunContext = { ...base, arguments: undefined }
+      this.contentFinalizers.set(execution, finalizeContent)
       return { kind: 'final-result', exec: execution, result: toolErrorResult(error) }
     }
   }
@@ -1130,7 +1149,8 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Run ordered post-execute, then materialize and notify the final outcome.
+   * Run ordered post-execute, then apply definition-owned content finalization,
+   * materialize, and notify the final outcome.
    * @param exec - the prepared execution.
    * @param result - dispatch/pre result that still needs post-execute.
    * @returns the materialized final result.
@@ -1151,21 +1171,36 @@ export class ToolRegistry extends Service {
   }
 
   /**
-   * Materialize and notify a final result that must bypass post-execute.
+   * Materialize the candidate, apply definition-owned content finalization,
+   * then materialize and notify the authoritative result.
    * @param exec - the prepared execution.
    * @param result - final result.
    * @returns the materialized final result.
    * @internal
    */
   private finishScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
+    let materializedResult: ToolExecutionResult
+    try {
+      materializedResult = this.materializeFinalResult(result)
+    } catch (error: unknown) {
+      materializedResult = this.materializeFinalResult(toolErrorResult(error))
+    }
     let finalResult: ToolExecutionResult
     try {
-      finalResult = this.materializeFinalResult(result)
+      finalResult = this.materializeFinalResult(this.applyFinalContent(exec, materializedResult))
     } catch (error: unknown) {
       finalResult = this.materializeFinalResult(toolErrorResult(error))
     }
     this.notifyResult(exec, finalResult)
     return finalResult
+  }
+
+  /** Apply the snapshotted tool-owned content transform without exposing other result fields. */
+  private applyFinalContent(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
+    const finalizeContent = this.contentFinalizers.get(exec)
+    if (finalizeContent === undefined) return result
+    const content = finalizeContent(exec, result)
+    return content === undefined ? result : { ...result, content }
   }
 
   /** Notify observers without exposing a mutation or error channel into the outcome. */

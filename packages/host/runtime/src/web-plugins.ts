@@ -1,16 +1,16 @@
 /**
  * Web UI plugin assembly: mounts @cordisjs/plugin-loader with an in-memory
- * entry tree listing the eight UI plugin packages (the P-I config-source bar —
+ * entry tree listing the nine UI plugin packages (the P-I config-source bar —
  * a cordis.yml file form comes later; install/remove currently means editing
  * this list and restarting). The web plugin registry discovers the entries by
- * their package.json dshClient declarations; node halves are empty applies,
- * so mounting them here costs nothing beyond Loader governance.
+ * their package.json dshClient declarations; feature packages may also mount
+ * their interface-specific host half through the same lifecycle.
  */
 import { createRequire } from 'node:module'
 import type { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 
-/** The eight UI plugin packages served to the browser (order = manifest order). */
+/** The nine UI plugin packages served to the browser (order = manifest order). */
 export const WEB_UI_PLUGINS = [
   '@deepseek-ai/dsh-client-connection',
   '@deepseek-ai/dsh-client-runtime',
@@ -19,6 +19,7 @@ export const WEB_UI_PLUGINS = [
   '@deepseek-ai/dsh-client-ui-layout',
   '@deepseek-ai/dsh-client-ui-sidebar',
   '@deepseek-ai/dsh-client-ui-conversation',
+  '@deepseek-ai/dsh-client-ui-question',
   '@deepseek-ai/dsh-client-ui-trajectory',
 ] as const
 
@@ -41,7 +42,7 @@ export interface MountedWebPlugins {
 export async function mountWebPlugins(ctx: Context): Promise<MountedWebPlugins> {
   // The Loader resolves bare specifiers against ctx.baseUrl; without one the
   // import silently fails and every entry stays fiber-less. This package
-  // depends on all eight UI plugins, so its own URL is the right anchor.
+  // depends on all nine UI plugins, so its own URL is the right anchor.
   ctx.baseUrl ??= import.meta.url
   if (ctx.get('loader') === undefined) await ctx.plugin(Loader)
   const existing = new Set([...ctx.loader.entries()].map(entry => entry.options.name))

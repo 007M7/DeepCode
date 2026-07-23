@@ -38,6 +38,7 @@ import * as toolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 import * as timeoutPolicy from '@deepseek-ai/dsh-timeout-policy'
 import SpillLocal from '@deepseek-ai/dsh-spill-local'
 import * as spillPolicy from '@deepseek-ai/dsh-spill-policy'
+import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 
 /** Options for bootHost — the assembly-layer composition knobs. */
 export interface BootHostOptions {
@@ -94,6 +95,7 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   await ctx.plugin(SessionStore)
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRegistry)
+  await ctx.plugin(UserInteractionService)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(TaskService)
   await ctx.plugin(AgentLoop, { agents: [] })

@@ -1,8 +1,6 @@
 /**
- * Host-side ApiProxy implementation (minimal-first —
- * describe/list/create/history/prompt/cancel and both streams are real,
- * respond is a stub). Signature discipline: unary takes the narrow
- * RpcRequest<P> and echoes request.rpcId on the RpcResponse<T>.
+ * Host-side ApiProxy implementation. Signature discipline: unary takes the
+ * narrow RpcRequest<P> and echoes request.rpcId on the RpcResponse<T>.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -12,9 +10,16 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import type { ApiProxy, HistoryEntry, HostFrame, MuxFrame, SessionSummary, ToolEventView } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type {
+  ApiProxy, HistoryEntry, HostFrame, MuxFrame, QuestionResponsePayload, SessionSummary, ToolEventView,
+} from '@deepseek-ai/dsh-host-apiproxy/api'
+import { questionResponsePayloadSchema } from '@deepseek-ai/dsh-host-apiproxy/api/questions.schema'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
+import type {
+  AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
+} from '@deepseek-ai/dsh-user-interaction'
+import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -155,6 +160,35 @@ interface ToolCallData { callId: string; name: string; arguments: string }
 /** The tool/result payload fields the presenter path reads. */
 interface ToolResultData { callId: string; content: ContentBlock[]; isError: boolean; meta?: JsonValue }
 
+/** One host-owned question wait, addressed by the stable server-request id. */
+interface PendingQuestion {
+  rpcId: RpcId
+  sessionId: SessionId
+  questions: AskUserQuestionItem[]
+  resolve: (answer: AskUserQuestionAnswer) => void
+  reject: (error: UserInteractionError) => void
+  signal?: AbortSignal
+  onAbort?: () => void
+}
+
+/** Validate one answer batch against the exact question request it resolves. */
+function matchesQuestions(payload: QuestionResponsePayload, pending: PendingQuestion): boolean {
+  if (payload.sessionId !== pending.sessionId) return false
+  const answers = payload.answer.answers
+  if (answers.length !== pending.questions.length) return false
+  return answers.every((answer, index) => {
+    const question = pending.questions[index] as AskUserQuestionItem
+    if (answer.id !== question.id) return false
+    if (new Set(answer.selected).size !== answer.selected.length) return false
+    const custom = answer.custom?.trim()
+    if (custom !== undefined && custom === '') return false
+    if (custom !== undefined && answer.selected.length > 0) return false
+    if (question.multiSelect !== true && answer.selected.length > 1) return false
+    const labels = new Set(question.options?.map(option => option.label) ?? [])
+    return answer.selected.every(label => labels.has(label))
+  })
+}
+
 /**
  * Compute the render intent for a tool/call or tool/result event through the
  * presenters registered at this moment; every other event type gets none. A
@@ -219,12 +253,70 @@ class SessionNotFound extends Error {}
  * @param ctx - the root context returned by bootHost (sessions/agents services mounted).
  * @param defaults - host-level default provider/model: injected as
  * agentOptions on create/resume, reported by describe from the same source.
- * @returns the ApiProxy implementation (minimal-first; stubs noted per method).
+ * @returns the ApiProxy implementation.
  */
 export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiProxy {
   const agentOptions = { provider: defaults.provider, model: defaults.model }
   /** Implicit resume of cold sessions, deduplicating concurrent calls (follows the jsonrpc sessionCreations precedent). */
   const resumes = new Map<SessionId, Promise<Agent>>()
+  const pendingQuestions = new Map<RpcId, PendingQuestion>()
+  const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
+
+  /** Send one transient frame to every connected mux consumer. */
+  function broadcast(payload: MuxFrame): void {
+    const envelope = frame(payload)
+    for (const queue of muxQueues) queue.push(envelope)
+  }
+
+  /** Remove a wait before settling it: synchronous deletion makes the first claimant win. */
+  function claimQuestion(pending: PendingQuestion, outcome: 'answered' | 'cancelled'): void {
+    pendingQuestions.delete(pending.rpcId)
+    if (pending.signal !== undefined && pending.onAbort !== undefined) {
+      pending.signal.removeEventListener('abort', pending.onAbort)
+    }
+    broadcast({
+      type: 'question/resolved', sessionId: pending.sessionId,
+      questionRpcId: pending.rpcId, outcome,
+    })
+  }
+
+  const disposeProvider = ctx.userInteraction.registerProvider({
+    ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer> {
+      const sessionId = request.agent?.id
+      if (sessionId === undefined) {
+        return Promise.reject(new UserInteractionError(
+          'web user interaction requires an agent-owned session', 'ASK_MISSING_AGENT'))
+      }
+      return new Promise<AskUserQuestionAnswer>((resolve, reject) => {
+        const rpcId = RpcId(randomUUID())
+        const pending: PendingQuestion = {
+          rpcId, sessionId, questions: request.questions, resolve, reject,
+          ...(request.signal === undefined ? {} : { signal: request.signal }),
+        }
+        const onAbort = (): void => {
+          claimQuestion(pending, 'cancelled')
+          reject(new UserInteractionError(
+            'ask_user_question was aborted before the user answered', 'ASK_ABORTED'))
+        }
+        pending.onAbort = onAbort
+        pendingQuestions.set(rpcId, pending)
+        request.signal?.addEventListener('abort', onAbort, { once: true })
+        const envelope: RpcRequest<MuxFrame> = {
+          rpcId,
+          payload: { type: 'question/requested', sessionId, questions: request.questions },
+        }
+        for (const queue of muxQueues) queue.push(envelope)
+      })
+    },
+  })
+  ctx.effect(() => () => {
+    disposeProvider()
+    for (const pending of [...pendingQuestions.values()]) {
+      claimQuestion(pending, 'cancelled')
+      pending.reject(new UserInteractionError(
+        'web user-interaction provider was disposed', 'ASK_ABORTED'))
+    }
+  }, 'api-proxy: user-interaction provider')
 
   /**
    * Gate the cold path on the store: an id absent from it, or naming a legacy
@@ -361,8 +453,18 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     events: {
       mux(_request, signal) {
         const queue = new FrameQueue<RpcRequest<MuxFrame>>()
+        muxQueues.add(queue)
         for (const session of ctx.sessions.list()) {
           queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
+        }
+        for (const pending of pendingQuestions.values()) {
+          queue.push({
+            rpcId: pending.rpcId,
+            payload: {
+              type: 'question/requested', sessionId: pending.sessionId,
+              questions: pending.questions,
+            },
+          })
         }
         // Per-session open-call table for result-view pairing. Bounded by the
         // per-turn call count: entries clear on turn/end; a table miss (stream
@@ -393,7 +495,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             openCalls.delete(session.id)
           }),
         ]
-        return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })
+        return queue.iterate(signal, () => {
+          muxQueues.delete(queue)
+          for (const dispose of disposers) dispose()
+        })
       },
 
       host(_request, signal) {
@@ -421,9 +526,38 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
     },
 
-    // TODO(step2): approval/question pending registry (wire answerer + proxy provider).
-    respond(_message: ClientResponse): Promise<RpcReceipt> {
-      return Promise.resolve({ accepted: false, reason: 'not-pending' })
+    respond(message: ClientResponse): Promise<RpcReceipt> {
+      const pending = pendingQuestions.get(message.rpcId)
+      if (pending === undefined) return Promise.resolve({ accepted: false, reason: 'not-pending' })
+      if (!message.result.ok) {
+        if (message.result.error.code !== 'cancelled') {
+          return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        }
+        claimQuestion(pending, 'cancelled')
+        pending.reject(new UserInteractionError(
+          'the user cancelled ask_user_question', 'ASK_CANCELLED'))
+        return Promise.resolve({ accepted: true })
+      }
+      const parsed = questionResponsePayloadSchema.safeParse(message.result.value)
+      if (!parsed.success) {
+        return Promise.resolve({ accepted: false, reason: 'bad-response' })
+      }
+      const payload: QuestionResponsePayload = {
+        sessionId: parsed.data.sessionId,
+        answer: {
+          answers: parsed.data.answer.answers.map(answer => ({
+            id: answer.id,
+            selected: answer.selected,
+            ...(answer.custom === undefined ? {} : { custom: answer.custom }),
+          })),
+        },
+      }
+      if (!matchesQuestions(payload, pending)) {
+        return Promise.resolve({ accepted: false, reason: 'bad-response' })
+      }
+      claimQuestion(pending, 'answered')
+      pending.resolve(payload.answer)
+      return Promise.resolve({ accepted: true })
     },
   }
 }

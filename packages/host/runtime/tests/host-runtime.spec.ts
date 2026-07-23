@@ -418,10 +418,175 @@ describe('events streams', () => {
   })
 })
 
-describe('respond stub', () => {
-  it('always reports not-pending (step2 registry pending)', async () => {
-    const { api } = await boot()
-    const receipt = await api.respond({ type: 'client-response', rpcId: RpcId('r'), result: { ok: true, value: null } })
-    expect(receipt).toEqual({ accepted: false, reason: 'not-pending' })
+describe('question request / response', () => {
+  const questions = [{
+    id: 'mode', question: 'Choose a mode',
+    options: [
+      { label: 'Fast (Recommended)', description: 'Move quickly.' },
+      { label: 'Careful', description: 'Review first.' },
+    ],
+  }]
+
+  it('waits, replays the same rpcId on reconnect, validates, and resolves first-wins', async () => {
+    const running = await boot()
+    const { api, ctx } = running
+    const { sessionId } = expectOk(await api.sessions.create(request({})))
+    const agent = ctx.agents.get(sessionId) as Agent
+    const ac = new AbortController()
+    const stream = api.events.mux(request({}), ac.signal)[Symbol.asyncIterator]()
+    await stream.next() // subscribed baseline starts the generator and installs the queue
+
+    const answerPromise = ctx.userInteraction.ask({ questions, agent })
+    const requested = (await stream.next()).value as RpcRequest<MuxFrame>
+    expect(requested.payload).toMatchObject({ type: 'question/requested', sessionId, questions })
+
+    const wrongSession = await api.respond({
+      type: 'client-response', rpcId: requested.rpcId,
+      result: {
+        ok: true,
+        value: { sessionId: 'session-other', answer: { answers: [{ id: 'mode', selected: ['Fast (Recommended)'] }] } },
+      },
+    })
+    expect(wrongSession).toEqual({ accepted: false, reason: 'bad-response' })
+    const badChoice = await api.respond({
+      type: 'client-response', rpcId: requested.rpcId,
+      result: {
+        ok: true,
+        value: { sessionId, answer: { answers: [{ id: 'mode', selected: ['Unknown'] }] } },
+      },
+    })
+    expect(badChoice).toEqual({ accepted: false, reason: 'bad-response' })
+    const invalidResults = [
+      { ok: true as const, value: null },
+      { ok: true as const, value: { sessionId, answer: { answers: [] } } },
+      { ok: true as const, value: { sessionId, answer: { answers: [{ id: 'wrong', selected: ['Fast (Recommended)'] }] } } },
+      { ok: true as const, value: { sessionId, answer: { answers: [{ id: 'mode', selected: ['Fast (Recommended)', 'Fast (Recommended)'] }] } } },
+      { ok: true as const, value: { sessionId, answer: { answers: [{ id: 'mode', selected: ['Fast (Recommended)', 'Careful'] }] } } },
+      { ok: true as const, value: { sessionId, answer: { answers: [{ id: 'mode', selected: [], custom: '   ' }] } } },
+      { ok: true as const, value: { sessionId, answer: { answers: [{ id: 'mode', selected: ['Careful'], custom: 'Other' }] } } },
+      { ok: false as const, error: { code: 'internal' as const, message: 'wrong error', details: {} } },
+    ]
+    for (const result of invalidResults) {
+      expect(await api.respond({
+        type: 'client-response', rpcId: requested.rpcId, result,
+      })).toEqual({ accepted: false, reason: 'bad-response' })
+    }
+
+    const reconnectAbort = new AbortController()
+    const replay = api.events.mux(request({}), reconnectAbort.signal)[Symbol.asyncIterator]()
+    await replay.next()
+    const replayed = (await replay.next()).value as RpcRequest<MuxFrame>
+    expect(replayed.rpcId).toBe(requested.rpcId)
+    expect(replayed.payload).toEqual(requested.payload)
+
+    const response = {
+      type: 'client-response' as const,
+      rpcId: requested.rpcId,
+      result: {
+        ok: true as const,
+        value: { sessionId, answer: { answers: [{ id: 'mode', selected: ['Fast (Recommended)'] }] } },
+      },
+    }
+    const [first, duplicate] = await Promise.all([api.respond(response), api.respond(response)])
+    expect([first, duplicate]).toContainEqual({ accepted: true })
+    expect([first, duplicate]).toContainEqual({ accepted: false, reason: 'not-pending' })
+    await expect(answerPromise).resolves.toEqual({
+      answers: [{ id: 'mode', selected: ['Fast (Recommended)'] }],
+    })
+
+    const resolved = (await stream.next()).value as RpcRequest<MuxFrame>
+    expect(resolved.payload).toMatchObject({
+      type: 'question/resolved', sessionId, questionRpcId: requested.rpcId, outcome: 'answered',
+    })
+    expect(await api.respond(response)).toEqual({ accepted: false, reason: 'not-pending' })
+
+    const customQuestions = [{ id: 'detail', question: 'What else?' }]
+    const customAnswer = ctx.userInteraction.ask({ questions: customQuestions, agent })
+    const customRequested = (await stream.next()).value as RpcRequest<MuxFrame>
+    expect(await api.respond({
+      type: 'client-response', rpcId: customRequested.rpcId,
+      result: {
+        ok: true,
+        value: { sessionId, answer: { answers: [{ id: 'detail', selected: [], custom: 'Keep traces' }] } },
+      },
+    })).toEqual({ accepted: true })
+    await expect(customAnswer).resolves.toEqual({
+      answers: [{ id: 'detail', selected: [], custom: 'Keep traces' }],
+    })
+    expect(((await stream.next()).value as RpcRequest<MuxFrame>).payload).toMatchObject({
+      type: 'question/resolved', questionRpcId: customRequested.rpcId, outcome: 'answered',
+    })
+
+    const blankAnswer = ctx.userInteraction.ask({ questions, agent })
+    const blankRequested = (await stream.next()).value as RpcRequest<MuxFrame>
+    expect(await api.respond({
+      type: 'client-response', rpcId: blankRequested.rpcId,
+      result: {
+        ok: true,
+        value: { sessionId, answer: { answers: [{ id: 'mode', selected: [] }] } },
+      },
+    })).toEqual({ accepted: true })
+    await expect(blankAnswer).resolves.toEqual({
+      answers: [{ id: 'mode', selected: [] }],
+    })
+    expect(((await stream.next()).value as RpcRequest<MuxFrame>).payload).toMatchObject({
+      type: 'question/resolved', questionRpcId: blankRequested.rpcId, outcome: 'answered',
+    })
+    ac.abort()
+    reconnectAbort.abort()
+  })
+
+  it('distinguishes user cancellation from owner abort and rejects late responses', async () => {
+    const running = await boot()
+    const { api, ctx } = running
+    const { sessionId } = expectOk(await api.sessions.create(request({})))
+    const agent = ctx.agents.get(sessionId) as Agent
+    const streamAbort = new AbortController()
+    const stream = api.events.mux(request({}), streamAbort.signal)[Symbol.asyncIterator]()
+    await stream.next()
+
+    const cancelled = ctx.userInteraction.ask({ questions, agent }).catch((error: unknown) => error)
+    const requested = (await stream.next()).value as RpcRequest<MuxFrame>
+    expect(await api.respond({
+      type: 'client-response', rpcId: requested.rpcId,
+      result: { ok: false, error: { code: 'cancelled', message: 'skip', details: {} } },
+    })).toEqual({ accepted: true })
+    await expect(cancelled).resolves.toMatchObject({ code: 'ASK_CANCELLED' })
+    expect(((await stream.next()).value as RpcRequest<MuxFrame>).payload).toMatchObject({
+      type: 'question/resolved', outcome: 'cancelled',
+    })
+
+    const ownerAbort = new AbortController()
+    const aborted = ctx.userInteraction.ask({ questions, agent, signal: ownerAbort.signal })
+      .catch((error: unknown) => error)
+    const abortRequest = (await stream.next()).value as RpcRequest<MuxFrame>
+    ownerAbort.abort()
+    await expect(aborted).resolves.toMatchObject({ code: 'ASK_ABORTED' })
+    expect(((await stream.next()).value as RpcRequest<MuxFrame>).payload).toMatchObject({
+      type: 'question/resolved', questionRpcId: abortRequest.rpcId, outcome: 'cancelled',
+    })
+    expect(await api.respond({
+      type: 'client-response', rpcId: abortRequest.rpcId,
+      result: { ok: false, error: { code: 'cancelled', message: 'late', details: {} } },
+    })).toEqual({ accepted: false, reason: 'not-pending' })
+    streamAbort.abort()
+  })
+
+  it('rejects missing routing and pre-abort, then aborts outstanding waits on disposal', async () => {
+    const running = await boot()
+    const { ctx } = running
+    await expect(ctx.userInteraction.ask({ questions })).rejects.toMatchObject({ code: 'ASK_MISSING_AGENT' })
+    const { sessionId } = expectOk(await running.api.sessions.create(request({})))
+    const agent = ctx.agents.get(sessionId) as Agent
+    const alreadyAborted = new AbortController()
+    alreadyAborted.abort()
+    await expect(ctx.userInteraction.ask({ questions, agent, signal: alreadyAborted.signal }))
+      .rejects.toMatchObject({ code: 'ASK_ABORTED' })
+
+    const outstanding = ctx.userInteraction.ask({ questions, agent })
+    const disposed = running.dispose()
+    host = undefined
+    await expect(outstanding).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    await disposed
   })
 })
