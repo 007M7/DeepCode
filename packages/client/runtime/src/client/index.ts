@@ -51,7 +51,7 @@ export type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
  */
 export type ClientContext = Context
 
-/** The conversation-snapshot selector hook (ConvViewProps/ToolViewProps take this). */
+/** The conversation-snapshot selector hook (ConvViewProps/ToolRowProps take this). */
 export type UseConversationSession = SnapshotSelectorHook<ConversationSnapshot>
 
 /**

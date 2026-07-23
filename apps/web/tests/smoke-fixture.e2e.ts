@@ -30,10 +30,10 @@ const REAL_PLUGINS: { id: string; dir: string; inject: string[]; immediately?: b
 
 /** Manifest served by the fake registry: one live bundle row, one missing row. */
 const ROWS: WebPluginBootEntry[] = [
-  { id: '@deepseek-ai/dsh-client-ui-theme', url: '/plugins/@deepseek-ai/dsh-client-ui-theme/client.js', inject: [] },
+  { id: '@deepseek-ai/dsh-client-ui-layout', url: '/plugins/@deepseek-ai/dsh-client-ui-layout/client.js', inject: [] },
   { id: '@probe/absent', url: '/plugins/@probe/absent/client.js', inject: [] },
 ]
-const LIVE_BUNDLE = bundlePath('ui-theme')
+const LAYOUT_BUNDLE = bundlePath('ui-layout')
 
 describe('web boot chain (keyless, real carrier)', () => {
   let server: Awaited<ReturnType<typeof startWebServer>>
@@ -53,7 +53,7 @@ describe('web boot chain (keyless, real carrier)', () => {
       maxRequestBodyBytes: 32 * 1024 * 1024,
       webPlugins: {
         snapshot: () => ROWS,
-        clientPath: id => (id === ROWS[0]!.id ? LIVE_BUNDLE : undefined),
+        clientPath: id => (id === ROWS[0]!.id ? LAYOUT_BUNDLE : undefined),
       },
     }, (err) => { pageErrors.push(`server: ${String(err)}`) })
     browser = await chromium.launch()
@@ -170,9 +170,38 @@ describe('web boot chain success pass (keyless, production plugin chain, ?fixtur
     expect(focused).toContain('Search')
   })
 
+  it('renders file tool rows and expands fixture reasoning from either click target', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-think-disclosure'))
+    await page.locator('[role="treeitem"]').first().click()
+    await page.locator('[role="treeitem"][aria-selected]').first().click()
+
+    const thinkRoot = page.locator('[data-variant="think"]').first()
+    const think = thinkRoot.getByRole('button')
+    await think.waitFor({ state: 'visible', timeout: 10_000 })
+    expect(await think.getAttribute('aria-expanded')).toBe('false')
+
+    await thinkRoot.getByText(/^思考过程 .*reasoning 内容。$/).click()
+    expect(await think.getAttribute('aria-expanded')).toBe('true')
+    expect(await thinkRoot.locator(':scope > div').count()).toBe(2)
+
+    await think.getByText('Think', { exact: true }).click()
+    expect(await think.getAttribute('aria-expanded')).toBe('false')
+
+    const editRoot = page.locator('[data-variant="edit"]').first()
+    await editRoot.waitFor({ state: 'visible', timeout: 10_000 })
+    expect(await editRoot.getByText('Edit', { exact: true }).count()).toBe(1)
+    expect(await editRoot.getByText('notes/demo.txt', { exact: true }).count()).toBe(1)
+
+    const writeRoot = page.locator('[data-variant="write"]').first()
+    await writeRoot.waitFor({ state: 'visible', timeout: 10_000 })
+    expect(await writeRoot.getByText('Write', { exact: true }).count()).toBe(1)
+    expect(await writeRoot.getByText('notes/new-demo.txt', { exact: true }).count()).toBe(1)
+  })
+
   it('renders historical user and assistant images and opens the original on double-click', async () => {
     onTestFailed(() => saveFailureShot(page, 'smoke-fixture-images'))
-    await page.getByRole('treeitem', { name: /fixture 3 sessions/ }).click()
+    const workspace = page.getByRole('treeitem', { name: /fixture 3 sessions/ })
+    if (await workspace.getAttribute('aria-expanded') !== 'true') await workspace.click()
     await page.locator('[role="treeitem"][aria-selected]').first().click()
     await page.waitForSelector('text=历史用户图片', { timeout: 15_000 })
     await page.waitForSelector('text=结构化模型图片', { timeout: 15_000 })

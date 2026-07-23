@@ -45,7 +45,7 @@ describe('CodeRuntime service seam', () => {
     const calls: unknown[] = []
     const result = await runtime.run({
       program: 'return 1',
-      bindings: [{ global: 'tools', functions: { probe: async args => void calls.push(args) } }],
+      bindings: [{ global: 'tools', functions: { probe: async (args) => { calls.push(args); return null } } }],
     })
     expect(result).toEqual({ logs: [] })
     expect(calls).toEqual([{ from: 'stub' }])

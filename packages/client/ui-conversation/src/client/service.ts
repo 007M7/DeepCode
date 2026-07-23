@@ -1,10 +1,10 @@
 /**
- * ConversationService implementation: scope-addressed send/cancel, view
- * registry with a uSES read face, and the empty-state startSession chain.
- * Contract: api-contracts v3 section 7. Selection/draft state moved to the
- * declared chat store (slot terminal design §4) — the per-scope store maps,
- * lazy construction, and prune bookkeeping this service used to carry are
- * retired; what remains is the send/stop orchestration face.
+ * ConversationService implementation: scope-addressed send/cancel and the
+ * empty-state startSession chain. Contract: api-contracts v3 section 7.
+ * Selection/draft state moved to the declared chat store (slot terminal
+ * design §4); the view registry moved to the 'conversation.view' slot (slot
+ * ledger owns registration, ordering, and disposal) — what remains is the
+ * send/stop orchestration face.
  *
  * Scope addressing rides the cordis Service tracker: property access through
  * `ctx.conversation` rebinds `this.ctx` to the caller's context, so methods
@@ -24,7 +24,6 @@ import type { Context } from 'cordis'
 import { scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
 import type { Session, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
-import type { ViewEntry, ViewId } from './index.ts'
 import type { ComposerAttachment } from './contract/slots.ts'
 
 /** Opaque wrapper keeps browser `File` internals outside persisted store state. */
@@ -45,15 +44,6 @@ class BrowserDraftAttachment implements ComposerAttachment {
   }
 }
 
-/** Mutable view-registry cell (plain object: mutation never crosses the tracker proxy). */
-interface ViewsState {
-  entries: Map<string, ViewEntry>
-  /** Sorted projection cache; null = rebuild on next read. */
-  cache: readonly ViewEntry[] | null
-  tick: number
-  listeners: Set<() => void>
-}
-
 interface ImageUrlEntry {
   readonly sessionId: SessionId
   readonly generation: number
@@ -66,9 +56,6 @@ export class ConversationService extends Service {
   private readonly imageUrls = new Map<string, ImageUrlEntry>()
   private readonly imageGenerations = new Map<SessionId, number>()
   private readonly createdImageUrls = new Set<string>()
-  private readonly viewsState: ViewsState = {
-    entries: new Map(), cache: null, tick: 0, listeners: new Set(),
-  }
 
   /**
    * @param ctx - owning root context (the plugin apply context; the service
@@ -89,7 +76,7 @@ export class ConversationService extends Service {
    * Send a prompt into the scoped session. Business failures also land in the
    * session snapshot's promptError (object-layer surface); the rejection here
    * exists for caller choreography (the composer restores the draft on it).
-   * @param text - prompt text, sent verbatim as one text block.
+   * @param text - prompt text, sent verbatim as one text block when non-empty.
    * @param mode - queue after the current turn, or steer into it.
    * @param images - browser-owned temporary images promoted by the host during this call.
    */
@@ -111,7 +98,7 @@ export class ConversationService extends Service {
    * Create runtime-only draft attachments and their object URLs.
    * @param files - browser-owned image files.
    * @param current - images already present in the same composer.
-   * @param checkDefaultModel - whether to apply `host.describe`'s default-model capability, used only before a session exists.
+   * @param checkDefaultModel - whether to apply the host default-model capability before a session exists.
    * @returns ordered attachment descriptors whose ids may enter the chat store.
    */
   createDraftImages(
@@ -222,60 +209,6 @@ export class ConversationService extends Service {
   }
 
   /**
-   * Register a conversation view. Duplicate ids throw; the registration is an
-   * effect on the caller's fiber (plugin unload collects it).
-   * @param entry - the view entry.
-   * @returns disposer removing the view.
-   */
-  registerView<Id extends ViewId>(entry: ViewEntry<Id>): () => void {
-    const views = this.viewsState
-    const dispose = this.ctx.effect(() => {
-      if (views.entries.has(entry.id)) {
-        throw new Error(`conversation view "${entry.id}" is already registered`)
-      }
-      views.entries.set(entry.id, entry)
-      bumpViews(views)
-      return () => {
-        views.entries.delete(entry.id)
-        bumpViews(views)
-      }
-    }, 'conversation.registerView()')
-    // The effect disposer settles asynchronously; the registry face stays a
-    // synchronous fire-and-forget disposer.
-    return () => { void dispose() }
-  }
-
-  /**
-   * Registered views ordered by `order` (ties keep registration sequence).
-   * Stable array reference between mutations (uSES getSnapshot source).
-   * @returns the view entries.
-   */
-  views(): readonly ViewEntry[] {
-    const state = this.viewsState
-    state.cache ??= [...state.entries.values()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    return state.cache
-  }
-
-  /**
-   * Subscribe to view registry changes (synchronous, like the toolview registry).
-   * @param fn - change callback.
-   * @returns unsubscribe.
-   */
-  subscribeViews(fn: () => void): () => void {
-    const { listeners } = this.viewsState
-    listeners.add(fn)
-    return () => { listeners.delete(fn) }
-  }
-
-  /**
-   * Monotonic view registry version for uSES pairing.
-   * @returns current version.
-   */
-  viewsVersion(): number {
-    return this.viewsState.tick
-  }
-
-  /**
    * Empty-state first-send chain (root-context method; does not read scope):
    * create the session, navigate to it, then send through the new scope.
    * The create → open ordering is safe: the manager merges the new summary
@@ -283,7 +216,7 @@ export class ConversationService extends Service {
    * the time open() validates against it (manager notification batching is
    * microtask-based; SessionsService projects on the same flush that create
    * awaited through the RPC round trip).
-   * @param opts - project directory, prompt text, and send mode.
+   * @param opts - project directory, prompt text, images, and send mode.
    */
   async startSession(opts: {
     cwd?: string
@@ -356,12 +289,6 @@ export class ConversationService extends Service {
       throw new Error('图片总大小超过单条消息限制')
     }
   }
-}
-
-function bumpViews(state: ViewsState): void {
-  state.cache = null
-  state.tick += 1
-  for (const fn of [...state.listeners]) fn()
 }
 
 function imageMediaType(value: string): ImageMediaType {

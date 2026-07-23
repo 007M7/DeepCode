@@ -6,9 +6,21 @@
  */
 
 import { inspect } from 'node:util'
-import { serialize } from 'node:v8'
-import { logTruncationMarker } from './protocol.ts'
 import type { DoneMessage, ReplyMessage, WorkerBootData, WorkerToHost } from './protocol.ts'
+import { jsonStringBytesUpTo, jsonValueBytesUpTo, truncateJsonStringBytes } from './output-json.ts'
+import { decodeWorkerJson, encodeWorkerJson, snapshotCodeJsonValue } from './worker-json.ts'
+
+const CapturedError = Error
+const capturedObjectCreate = Object.create
+const capturedObjectDefineProperty = Object.defineProperty
+
+/** Define one public binding-error field without consulting mutable globals or descriptor prototypes. */
+function defineBindingErrorField(error: Error, key: string, value: string): void {
+  const attributes = capturedObjectCreate(null) as PropertyDescriptor
+  attributes.enumerable = true
+  attributes.value = value
+  capturedObjectDefineProperty(error, key, attributes)
+}
 
 /** The port surface the bootstrap needs — satisfied by `parentPort` and by the tests' fake. */
 export interface BootstrapPort {
@@ -27,26 +39,28 @@ export interface PatchableStream {
 }
 
 /**
- * Ordered text capture under one shared byte budget, delivered to a sink as
- * each item lands (the real sink streams text over the port eagerly, so
- * captured output survives a mid-run termination). Once the budget is
- * exhausted it emits exactly one in-band marker and silently drops everything
- * after. The cap is a blast-radius bound, so "how much was lost" intentionally
- * stays unmeasured.
+ * Ordered text capture under the shared outer JSON-byte budget, delivered to
+ * a sink as each item lands (the real sink streams text over the port eagerly,
+ * so captured output survives a mid-run termination). It includes the log
+ * array syntax and string escaping in its accounting. Once exhausted it emits
+ * the fitting prefix and reports the limit once; the host turns that condition
+ * into an explicit `output-limit` run failure.
  */
 export class LogBuffer {
-  private remaining: number
+  private bytes = 2 // JSON serialization of the empty logs array: []
+  private entries = 0
   private truncated = false
   // Explicit fields, not constructor parameter properties: this module loads
   // under Node's native strip-only mode, which rejects non-erasable syntax —
   // and parameter properties are non-erasable.
-  private readonly maxBytes: number
   private readonly sink: (text: string) => void
+  private readonly onLimit: () => void
+  private readonly maxBytes: number
 
-  constructor(maxBytes: number, sink: (text: string) => void) {
+  constructor(maxBytes: number, sink: (text: string) => void, onLimit: () => void = () => {}) {
     this.maxBytes = maxBytes
     this.sink = sink
-    this.remaining = maxBytes
+    this.onLimit = onLimit
   }
 
   /**
@@ -55,14 +69,31 @@ export class LogBuffer {
    */
   push(text: string): void {
     if (this.truncated) return
-    const cost = Buffer.byteLength(text, 'utf8')
-    if (cost > this.remaining) {
+    const separatorBytes = this.entries > 0 ? 1 : 0
+    const availableBytes = this.maxBytes - this.bytes - separatorBytes
+    const stringBytes = jsonStringBytesUpTo(text, availableBytes)
+    if (stringBytes === undefined) {
       this.truncated = true
-      this.sink(logTruncationMarker(this.maxBytes))
+      const prefix = truncateJsonStringBytes(text, availableBytes)
+      if (prefix.length > 0) {
+        const prefixBytes = jsonStringBytesUpTo(prefix, availableBytes)
+        /* v8 ignore next -- truncateJsonStringBytes guarantees the returned prefix fits. */
+        if (prefixBytes === undefined) throw new CapturedError('worker output ledger produced an oversized log prefix')
+        this.bytes += prefixBytes + separatorBytes
+        this.entries += 1
+        this.sink(prefix)
+      }
+      this.onLimit()
       return
     }
-    this.remaining -= cost
+    this.bytes += stringBytes + separatorBytes
+    this.entries += 1
     this.sink(text)
+  }
+
+  /** Remaining exact JSON-byte budget for the completion value or failure message. */
+  remainingOutputBytes(): number {
+    return this.maxBytes - this.bytes
   }
 }
 
@@ -122,65 +153,125 @@ export function captureStreamWrites(logs: LogBuffer, stream: PatchableStream): (
 const INSPECT_OPTIONS = { depth: 4, maxArrayLength: 100, maxStringLength: 10_000 } as const
 
 /**
- * The longest prefix of `text` whose UTF-8 encoding fits `maxBytes`, cut at
- * a code-point boundary (never mid-surrogate-pair). The byte caps are BYTE
- * caps — `String.prototype.slice` counts UTF-16 code units, up to 3× smaller
- * than what a multibyte string actually costs across the boundary.
- * @param text - the string to bound.
- * @param maxBytes - the UTF-8 byte budget the prefix must fit.
- * @returns the prefix (all of `text` when it already fits).
+ * Prepare the program's completion value for the done message. Only lossless
+ * JSON crosses, and a value that does not fit the remaining combined outer
+ * budget reports `output-limit`; the host revalidates hostile traffic and
+ * remains authoritative for native pipe writes the worker cannot observe.
+ *
+ * @param value - the program's completion value.
+ * @param remainingOutputBytes - exact bytes left after captured logs.
+ * @param maxOutputBytes - the configured cap named in an overflow diagnostic.
+ * @returns the done-message fragment: `{}` for `undefined`, else a flat wire `{ value }`.
  */
-export function truncateUtf8Bytes(text: string, maxBytes: number): string {
-  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text
-  let bytes = 0
-  let end = 0
-  for (const char of text) {
-    const cost = Buffer.byteLength(char, 'utf8')
-    if (bytes + cost > maxBytes) break
-    bytes += cost
-    end += char.length
+export function prepareCompletion(
+  value: unknown,
+  remainingOutputBytes: number,
+  maxOutputBytes: number = remainingOutputBytes,
+): Omit<DoneMessage, 'type'> {
+  if (value === undefined) return {}
+  let snapshot: ReturnType<typeof snapshotCodeJsonValue>
+  try {
+    snapshot = snapshotCodeJsonValue(value)
+  } catch {
+    snapshot = undefined
   }
-  return text.slice(0, end)
+  if (snapshot === undefined) {
+    return prepareFailure(
+      'invalid-output',
+      'program completion must be lossless JSON',
+      remainingOutputBytes,
+      maxOutputBytes,
+    )
+  }
+  if (jsonValueBytesUpTo(snapshot, remainingOutputBytes) === undefined) {
+    return outputLimit(maxOutputBytes)
+  }
+  return { value: encodeWorkerJson(snapshot) }
+}
+
+/** Build the fixed overflow fragment without carrying rejected variable bytes. */
+function outputLimit(maxOutputBytes: number): Omit<DoneMessage, 'type'> {
+  return { error: { kind: 'output-limit', message: `outer output exceeded ${maxOutputBytes} bytes` } }
+}
+
+/** Admit one bounded failure message or replace it with the fixed overflow diagnostic. */
+function prepareFailure(
+  kind: 'exception' | 'invalid-output',
+  message: string,
+  remainingOutputBytes: number,
+  maxOutputBytes: number,
+): Omit<DoneMessage, 'type'> {
+  if (jsonStringBytesUpTo(message, remainingOutputBytes) === undefined) return outputLimit(maxOutputBytes)
+  return { error: { kind, message } }
 }
 
 /**
- * Prepare the program's completion value for the done message: a value whose MEASURED
- * cross-boundary size fits `maxValueBytes` crosses raw — exact bytes for a string, the
- * structured-clone wire size (`v8.serialize`) for everything else, so a huge container whose
- * bounded inspect rendering happens to be small cannot smuggle itself past the cap. Oversized
- * or non-cloneable values are replaced by a bounded string rendering with an in-band marker.
- *
- * @param value - the program's completion value.
- * @param maxValueBytes - the byte cap for the value.
- * @returns the done-message fragment: `{}` for `undefined`, else `{ value }`.
+ * Prepare a thrown program value without sending an unbounded stack or
+ * string across the worker port.
+ * @param error - the value thrown by the program.
+ * @param remainingOutputBytes - exact bytes left after captured logs.
+ * @param maxOutputBytes - the configured cap named in an overflow diagnostic.
+ * @returns a bounded exception or fixed output-limit fragment.
  */
-export function prepareValue(value: unknown, maxValueBytes: number): { value?: unknown } {
-  if (value === undefined) return {}
-  if (typeof value === 'string') {
-    if (Buffer.byteLength(value, 'utf8') <= maxValueBytes) return { value }
-  } else {
-    let size: number | undefined
-    try {
-      size = serialize(value).byteLength
-    } catch {
-      // Only the verdict matters: the value has parts the structured-clone
-      // algorithm rejects (functions, classes, …) and must cross as its
-      // rendering instead.
-      size = undefined
-    }
-    if (size !== undefined && size <= maxValueBytes) return { value }
+export function prepareException(
+  error: unknown,
+  remainingOutputBytes: number,
+  maxOutputBytes: number = remainingOutputBytes,
+): Omit<DoneMessage, 'type'> {
+  let message: string
+  try {
+    const detail: unknown = error instanceof CapturedError ? error.stack ?? error.message : error
+    message = typeof detail === 'string' ? detail : String(detail)
+  } catch {
+    message = 'program threw an unrenderable value'
   }
-  const rendered = typeof value === 'string' ? value : inspect(value, INSPECT_OPTIONS)
-  const capped = Buffer.byteLength(rendered, 'utf8') > maxValueBytes
-    ? `${truncateUtf8Bytes(rendered, maxValueBytes)}… [truncated]`
-    : rendered
-  return { value: capped }
+  return prepareFailure('exception', message, remainingOutputBytes, maxOutputBytes)
 }
 
 /** One awaited binding call's settlement handles, keyed by call id in the pending map. */
 export interface PendingCall {
   resolve(value: unknown): void
   reject(error: Error): void
+}
+
+/** Constructor shape for one program-visible binding rejection class. */
+export type BindingErrorConstructor = new (memberName: string, message: string) => Error
+
+/**
+ * Materialize the real error constructor declared by one namespace.
+ * @param descriptor - program-global class name and member-name property.
+ * @returns the constructor injected into the program and used for rejections.
+ */
+function makeBindingErrorClass(
+  descriptor: { name: string; memberNameProperty: string },
+): BindingErrorConstructor {
+  return class BindingCallError extends CapturedError {
+    constructor(memberName: string, message: string) {
+      super(message)
+      defineBindingErrorField(this, 'name', descriptor.name)
+      defineBindingErrorField(this, descriptor.memberNameProperty, memberName)
+    }
+  }
+}
+
+/** Create the namespace-specific rejection for one failed binding call. */
+function bindingFailure(errorClass: BindingErrorConstructor | undefined, memberName: string, message: string): Error {
+  return errorClass ? new errorClass(memberName, message) : new CapturedError(message)
+}
+
+/**
+ * Build each declared error class once so calls and `instanceof` share constructor identity.
+ * @param data - binding namespace declarations from the boot payload.
+ * @returns constructors keyed by their owning namespace global.
+ */
+export function makeBindingErrorClasses(
+  data: Pick<WorkerBootData, 'namespaces'>,
+): Map<string, BindingErrorConstructor> {
+  const classes = new Map<string, BindingErrorConstructor>()
+  for (const namespace of data.namespaces) {
+    if (namespace.errorClass) classes.set(namespace.global, makeBindingErrorClass(namespace.errorClass))
+  }
+  return classes
 }
 
 /**
@@ -197,8 +288,13 @@ export function wireReplies(port: BootstrapPort, pending: Map<number, PendingCal
     const entry = pending.get(message.id)
     if (!entry) return
     pending.delete(message.id)
-    if (message.ok) entry.resolve(message.value)
-    else entry.reject(new Error(message.message))
+    if (message.ok) {
+      const value = decodeWorkerJson(message.value)
+      if (value === undefined) entry.reject(new CapturedError('binding resolution must be lossless JSON'))
+      else entry.resolve(value)
+    } else {
+      entry.reject(new CapturedError(message.message))
+    }
   })
 }
 
@@ -206,12 +302,14 @@ export function wireReplies(port: BootstrapPort, pending: Map<number, PendingCal
  * Build the binding namespace objects the program sees: one null-prototype global per
  * namespace, each declared name an own enumerable async function that bridges over the port
  * (`__proto__`/`constructor`/`toString` are ordinary keys, never prototype collisions).
- * Non-cloneable arguments and host failure replies reject only the corresponding call.
+ * Lossy arguments reject before posting; clone failures and host failure
+ * replies reject only the corresponding call.
  *
  * @param data - the boot payload's namespace declarations (globals + names).
  * @param port - the port binding calls are posted to.
  * @param pending - the id-keyed map each posted call parks its handles in.
  * @param nextId - the shared mutable id counter (worker-issued correlation ids).
+ * @param errorClasses - per-namespace constructors shared with program globals.
  * @returns one namespace object per declaration, in declaration order.
  */
 export function makeNamespaces(
@@ -219,22 +317,41 @@ export function makeNamespaces(
   port: BootstrapPort,
   pending: Map<number, PendingCall>,
   nextId: { value: number },
+  errorClasses: Map<string, BindingErrorConstructor> = makeBindingErrorClasses(data),
 ): Record<string, unknown>[] {
   return data.namespaces.map(({ global, names }) => {
+    const errorClass = errorClasses.get(global)
     const namespace = Object.create(null) as Record<string, unknown>
     for (const name of names) {
       Object.defineProperty(namespace, name, {
         enumerable: true,
-        value: (args: unknown): Promise<unknown> => new Promise((resolve, reject) => {
-          const id = nextId.value++
-          pending.set(id, { resolve, reject })
+        value: (args: unknown): Promise<unknown> => {
+          let detached: ReturnType<typeof snapshotCodeJsonValue>
           try {
-            port.postMessage({ type: 'call', id, global, name, args })
-          } catch (error: unknown) {
-            pending.delete(id)
-            reject(new Error(`binding arguments must be structured-cloneable: ${error instanceof Error ? error.message : String(error)}`))
+            detached = snapshotCodeJsonValue(args)
+          } catch {
+            detached = undefined
           }
-        }),
+          if (detached === undefined) {
+            return Promise.reject(bindingFailure(errorClass, name, 'binding arguments must be lossless JSON'))
+          }
+          return new Promise((resolve, reject) => {
+            const id = nextId.value++
+            pending.set(id, {
+              resolve,
+              reject: (error) => {
+                reject(bindingFailure(errorClass, name, error.message))
+              },
+            })
+            try {
+              port.postMessage({ type: 'call', id, global, name, args: encodeWorkerJson(detached) })
+            } catch (error: unknown) {
+              pending.delete(id)
+              const message = `binding arguments must be structured-cloneable: ${error instanceof CapturedError ? error.message : String(error)}`
+              reject(bindingFailure(errorClass, name, message))
+            }
+          })
+        },
       })
     }
     return namespace
@@ -254,7 +371,11 @@ export async function runWorkerMain(
   data: WorkerBootData,
   streams: { stdout: PatchableStream; stderr: PatchableStream },
 ): Promise<void> {
-  const logs = new LogBuffer(data.maxLogBytes, (text) => { port.postMessage({ type: 'log', text }) })
+  const logs = new LogBuffer(
+    data.maxOutputBytes,
+    (text) => { port.postMessage({ type: 'log', text }) },
+    () => { port.postMessage({ type: 'output-limit' }) },
+  )
   captureStreamWrites(logs, streams.stdout)
   captureStreamWrites(logs, streams.stderr)
 
@@ -262,7 +383,18 @@ export async function runWorkerMain(
   wireReplies(port, pending)
 
   const nextId = { value: 1 }
-  const namespaces = makeNamespaces(data, port, pending, nextId)
+  const errorClasses = makeBindingErrorClasses(data)
+  const namespaces = makeNamespaces(data, port, pending, nextId, errorClasses)
+  const errorClassParameters: string[] = []
+  const errorClassValues: BindingErrorConstructor[] = []
+  for (const namespace of data.namespaces) {
+    if (!namespace.errorClass) continue
+    errorClassParameters.push(namespace.errorClass.name)
+    const errorClass = errorClasses.get(namespace.global)
+    /* v8 ignore next -- makeBindingErrorClasses covers every declaration in the same data. */
+    if (!errorClass) throw new CapturedError(`missing binding error class for ${namespace.global}`)
+    errorClassValues.push(errorClass)
+  }
   const consoleShim = makeConsoleShim(logs)
 
   let done: DoneMessage
@@ -271,12 +403,22 @@ export async function runWorkerMain(
     // `AsyncFunction` is not a global. The program body is strict-mode.
     /* v8 ignore next -- the arrow exists only to reach the AsyncFunction constructor; it is never invoked. */
     const AsyncFunction = (async () => {}).constructor as new (...args: string[]) => (...fnArgs: unknown[]) => Promise<unknown>
-    const fn = new AsyncFunction(...data.namespaces.map(namespace => namespace.global), 'console', `'use strict';\n${data.code}`)
-    const value = await fn(...namespaces, consoleShim)
-    done = { type: 'done', ...prepareValue(value, data.maxValueBytes) }
+    const fn = new AsyncFunction(
+      ...data.namespaces.map(namespace => namespace.global),
+      ...errorClassParameters,
+      'console',
+      `'use strict';\n${data.code}`,
+    )
+    const value = await fn(...namespaces, ...errorClassValues, consoleShim)
+    done = {
+      type: 'done',
+      ...prepareCompletion(value, logs.remainingOutputBytes(), data.maxOutputBytes),
+    }
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error)
-    done = { type: 'done', error: { message } }
+    done = {
+      type: 'done',
+      ...prepareException(error, logs.remainingOutputBytes(), data.maxOutputBytes),
+    }
   }
   port.postMessage(done)
 }

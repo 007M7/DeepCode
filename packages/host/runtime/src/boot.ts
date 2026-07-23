@@ -26,6 +26,7 @@ import FsLocal from '@deepseek-ai/dsh-fs-local'
 import * as fsPolicy from '@deepseek-ai/dsh-fs-policy'
 import * as toolFs from '@deepseek-ai/dsh-tool-fs'
 import * as toolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -45,6 +46,8 @@ import * as spillPolicy from '@deepseek-ai/dsh-spill-policy'
 export interface BootHostOptions {
   /** Root directory for JSONL session persistence. */
   persistenceRoot: string
+  /** Workspace-instruction byte budget/config, or false to disable AGENTS.md/CLAUDE.md loading. */
+  workspaceContext: workspaceContext.Config | false
   /** Explicit harness home for durable attachments; omitted follows DSH_HOME then ~/.dsh. */
   dshHome?: string
   /** Default provider route for created/resumed agents (defaults to 'deepseek', the only adapter bootHost registers). */
@@ -83,7 +86,7 @@ export interface HostHandle {
 /**
  * Compose the harness host plugin assembly (the one place deciding which plugins mount and
  * with what defaults — shells must not alter the assembly).
- * @param options - persistence root and optional default provider/model.
+ * @param options - persistence, workspace instructions, attachment storage, and optional default routing.
  * @returns the booted handle (ctx + defaults + dispose).
  */
 export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
@@ -108,7 +111,7 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   if (options.piAiProviders !== undefined && options.piAiProviders.length > 0) {
     await ctx.plugin(LlmPiAi, { providers: options.piAiProviders })
   }
-  await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot, compression: 'none' })
+  await ctx.plugin(SessionPersistenceJsonl, { root: options.persistenceRoot })
   await ctx.plugin(LocalBashExecutor, {})
   // Tool suite mirroring the demo:repl composition (repl-agent/cordis.yml +
   // the agent-spine bundle) so web sessions get the same coding-agent tool
@@ -122,6 +125,9 @@ export async function bootHost(options: BootHostOptions): Promise<HostHandle> {
   await ctx.plugin(fsPolicy)
   await ctx.plugin(toolFs, {})
   await ctx.plugin(toolFsSearch, {})
+  if (options.workspaceContext !== false) {
+    await ctx.plugin(workspaceContext, options.workspaceContext)
+  }
   // Skill stack with the demo default dshHome (~/.dsh via resolveDshHome).
   await ctx.plugin(SkillService, {})
   await ctx.plugin(SkillLocal, {})

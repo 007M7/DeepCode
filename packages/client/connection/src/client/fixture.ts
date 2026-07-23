@@ -80,8 +80,9 @@ function buildAlphaLog(): SessionEvent[] {
     }
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Three view-sample turns (60-62) for the tool-card wire acceptance: one per built-in card
-  // type. `echo` above stays presenter-less on purpose — it is the no-view fallback sample.
+  // Three view-sample turns (60-62) cover the built-in card types. The real filesystem names in
+  // turns 62-63 also exercise their dedicated generic-row icon/title/path summaries. `echo` above
+  // stays presenter-less as the unknown fallback.
   const toolTurn = (turn: number, name: string, args: string, resultText: string): void => {
     const callId = `fx-call-${turn}`
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
@@ -98,13 +99,14 @@ function buildAlphaLog(): SessionEvent[] {
   }
   toolTurn(60, 'fx-bash', '{"command":"ls -la","cwd":"/tmp/fixture"}', 'total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt')
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
-  toolTurn(62, 'fx-note', '{"note":"三型卡验收样本"}', '已记录')
-  push({ type: 'turn/start', data: { turn: 63, trigger: { kind: 'message', source: { kind: 'user' } } } })
+  toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
+  toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
+  push({ type: 'turn/start', data: { turn: 64, trigger: { kind: 'message', source: { kind: 'user' } } } })
   push({ type: 'user/message', surfaceOp: 'append', data: { content: [{ type: 'image', attachment: FIXTURE_IMAGE_REF }, ...text('历史用户图片')], source: { kind: 'user' } } })
-  push({ type: 'step/start', data: { turn: 63, step: 0 } })
-  push({ type: 'assistant/message', surfaceOp: 'append', data: { turn: 63, step: 0, content: [...text('结构化模型图片：'), { type: 'image', attachment: FIXTURE_IMAGE_REF }], provenance: { provider: 'fixture', model: 'fx-vision' } } })
-  push({ type: 'step/end', data: { turn: 63, step: 0 } })
-  push({ type: 'turn/end', data: { turn: 63, reason: { kind: 'completed' } } })
+  push({ type: 'step/start', data: { turn: 64, step: 0 } })
+  push({ type: 'assistant/message', surfaceOp: 'append', data: { turn: 64, step: 0, content: [...text('结构化模型图片：'), { type: 'image', attachment: FIXTURE_IMAGE_REF }], provenance: { provider: 'fixture', model: 'fx-vision' } } })
+  push({ type: 'step/end', data: { turn: 64, step: 0 } })
+  push({ type: 'turn/end', data: { turn: 64, reason: { kind: 'completed' } } })
   return events as unknown as SessionEvent[]
 }
 
@@ -129,8 +131,10 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
         card: 'diff', title: `Write ${str(args.path)}`,
         diffs: [{ path: str(args.path), oldText: null, newText: str(args.content) }],
       }
-    case 'fx-note':
-      return { card: 'generic', title: '记录笔记', kind: 'edit', rawInput: args }
+    case 'edit':
+      return { card: 'generic', title: `Edit ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+    case 'write':
+      return { card: 'generic', title: `Write ${str(args.file_path)}`, kind: 'edit', rawInput: args }
     default:
       return undefined // echo et al: the documented no-view fallback path
   }
@@ -272,7 +276,7 @@ export function createFixtureApi(): ApiProxy {
     { sessionId: sid('fx-gamma'), updatedAt: Date.now() - 120_000, running: false, cwd: '/tmp/fixture' },
   ]
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
-  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 64]])
+  const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 65]])
   const attachments = new Map<string, { attachment: ImageAttachmentRef; data: string }>([[
     String(FIXTURE_IMAGE_REF.attachmentId),
     { attachment: FIXTURE_IMAGE_REF, data: FIXTURE_IMAGE_DATA },

@@ -12,7 +12,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment-local'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment-local'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { ApiProxy, HistoryEntry, HostFrame, MuxFrame, PromptContentPart, SessionSummary, ToolEventView } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -218,7 +218,7 @@ export interface ApiProxyDefaults {
 /** The tool/call payload fields the presenter path reads. */
 interface ToolCallData { callId: string; name: string; arguments: string }
 /** The tool/result payload fields the presenter path reads. */
-interface ToolResultData { callId: string; content: ContentBlock[]; isError: boolean; meta?: unknown }
+interface ToolResultData { callId: string; content: ContentBlock[]; isError: boolean; meta?: JsonValue }
 
 /**
  * Compute the render intent for a tool/call or tool/result event through the

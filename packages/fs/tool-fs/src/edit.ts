@@ -8,10 +8,9 @@
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { DiffCallView, DiffResultView, ToolResult } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { computeHunkDiffs, diffsFromMeta, type FsDiffMeta } from './diff.ts'
+import { computeHunkDiffs, diffsFromMeta } from './diff.ts'
 import { sessionResolveOptions } from './session-cwd.ts'
 import type { FsSandboxSurface } from './sandbox.ts'
 
@@ -90,7 +89,26 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxSurface): void {
       replace_all: { type: 'boolean', description: 'Replace all matches. Defaults to false; when false, old_string must appear exactly once.' },
       ...sandbox.escalationModes.length > 0 ? sandbox.schemaFields() : {},
     },
-    async execute(args: EditToolArgs, exec): Promise<{ content: ContentBlock[]; meta?: FsDiffMeta }> {
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          path: { type: 'string', required: true },
+          before: { type: 'string', required: true },
+          after: { type: 'string', required: true },
+        },
+      },
+      render: (args, value) => [{
+        type: 'text',
+        text: formatEditOutput(value.path, args.replace_all ?? false),
+      }],
+      presentationMeta: (args, value) => ({
+        diffs: computeHunkDiffs(args.file_path, value.before, value.after)
+          .map(({ path, oldText, newText }) => ({ path, oldText, newText })),
+      }),
+    },
+    async execute(args: EditToolArgs, exec) {
       const input = parseEditArgs(args)
       // Resolve the per-call sandbox policy (approved mode > session override
       // > backend default, plus the session cwd root) BEFORE anything executes.
@@ -115,11 +133,10 @@ export function applyEditTool(ctx: Context, sandbox: FsSandboxSurface): void {
       }
       // Record the observed version (a no-op when no policy plugin listens).
       ctx.emit('fs/observed', target, outcome.version, exec)
-      // An edit necessarily changes content, so result metadata carries at least one applied hunk.
-      const diffs = computeHunkDiffs(input.filePath, outcome.before, outcome.after)
       return {
-        content: [{ type: 'text', text: formatEditOutput(target.displayPath, input.replaceAll) }],
-        meta: { diffs },
+        path: target.displayPath,
+        before: outcome.before,
+        after: outcome.after,
       }
     },
     // Pure display: a diff card of the literal replacement (old_string → new_string), derived

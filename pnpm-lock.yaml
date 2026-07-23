@@ -595,9 +595,6 @@ importers:
       '@deepseek-ai/dsh-attachment':
         specifier: workspace:^
         version: link:../../attachment/attachment
-      '@deepseek-ai/dsh-client-i18n':
-        specifier: workspace:^
-        version: link:../i18n
       '@deepseek-ai/dsh-client-runtime':
         specifier: workspace:^
         version: link:../runtime
@@ -828,6 +825,9 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
@@ -2126,6 +2126,9 @@ importers:
       '@deepseek-ai/dsh-workflow-workerthread':
         specifier: workspace:^
         version: link:../../workflow/workflow-workerthread
+      '@deepseek-ai/dsh-workspace-context':
+        specifier: workspace:^
+        version: link:../../context/workspace-context
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -2364,6 +2367,9 @@ importers:
       schemastery:
         specifier: ^3.18.0
         version: 3.18.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
@@ -2383,9 +2389,6 @@ importers:
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
 
   packages/plan/plan-mode:
     devDependencies:
@@ -3038,6 +3041,9 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:^
         version: link:../../core/agent
+      '@deepseek-ai/dsh-code-runtime-worker':
+        specifier: workspace:^
+        version: link:../../code-runtime/code-runtime-worker
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants

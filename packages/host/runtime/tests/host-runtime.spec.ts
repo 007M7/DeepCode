@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -15,6 +15,8 @@ import { bootHost, startHost, type HostHandle, type RunningHost } from '../src/i
 
 /** Scripted adapter: each model call consumes the next chunk list; 'hang' streams then waits for abort. */
 class ScriptedAdapter extends LlmAdapter {
+  readonly requests: GenerateOptions[] = []
+
   constructor(
     private script: (StreamChunk[] | 'hang')[],
     private readonly inputModalities: readonly ModelModality[] = ['text', 'image'],
@@ -31,6 +33,7 @@ class ScriptedAdapter extends LlmAdapter {
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.requests.push(options)
     const entry = this.script.shift()
     if (!entry) throw new Error('ScriptedAdapter: script exhausted')
     if (entry === 'hang') {
@@ -92,7 +95,12 @@ afterEach(async () => {
 
 async function boot(script: (StreamChunk[] | 'hang')[] = []): Promise<RunningHost> {
   host = await startHost({
-    boot: { persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-host-runtime-')), provider: 'scripted', model: 'test-model' },
+    boot: {
+      persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-host-runtime-')),
+      workspaceContext: false,
+      provider: 'scripted',
+      model: 'test-model',
+    },
   })
   host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter(script))
   return host
@@ -100,9 +108,22 @@ async function boot(script: (StreamChunk[] | 'hang')[] = []): Promise<RunningHos
 
 describe('bootHost / startHost', () => {
   it('falls back to the deepseek defaults and disposes idempotently', async () => {
-    const handle: HostHandle = await bootHost({ persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-boot-')) })
+    const handle: HostHandle = await bootHost({
+      persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-boot-')),
+      workspaceContext: false,
+    })
     expect(handle.defaults).toMatchObject({ provider: 'deepseek', model: 'deepseek-v4-flash' })
     expect(typeof handle.defaults.cwd).toBe('string')
+    await handle.dispose()
+  })
+
+  it('uses the JSONL backend compressed default', async () => {
+    const handle: HostHandle = await bootHost({
+      persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-boot-zstd-')),
+      workspaceContext: false,
+    })
+    const session = handle.ctx.sessions.create()
+    expect(handle.ctx.sessionPersistence.locate(session.header)?.path).toMatch(/\.jsonl\.zstd$/)
     await handle.dispose()
   })
 
@@ -133,6 +154,7 @@ describe('bootHost / startHost', () => {
   it('mounts configured pi-ai providers while accepting an explicit empty list', async () => {
     const empty = await bootHost({
       persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-boot-pi-empty-')),
+      workspaceContext: false,
       piAiProviders: [],
     })
     expect(empty.ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
@@ -140,10 +162,46 @@ describe('bootHost / startHost', () => {
 
     const configured = await bootHost({
       persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-boot-pi-')),
+      workspaceContext: false,
       piAiProviders: [{ provider: 'openai' }],
     })
     expect(configured.ctx.llm.listProviders()).toContainEqual({ id: 'openai', name: 'openai' })
     await configured.dispose()
+  })
+
+  it('routes workspace instructions through the assembled agent request prefix', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'dsh-host-workspace-'))
+    mkdirSync(join(workspace, '.git'))
+    writeFileSync(join(workspace, 'AGENTS.md'), 'host-workspace-context-probe\n')
+    const adapter = new ScriptedAdapter([textResponse('done')])
+    host = await startHost({
+      boot: {
+        persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-host-workspace-sessions-')),
+        workspaceContext: { dshHome: join(workspace, '.dsh'), maxBytes: 65_536 },
+        provider: 'scripted',
+        model: 'test-model',
+        cwd: workspace,
+      },
+    })
+    host.ctx.llm.registerAdapter(['scripted'], adapter)
+    const { sessionId } = expectOk(await host.api.sessions.create(request({})))
+    const agent = host.ctx.agents.get(sessionId) as Agent
+    const idle = waitForIdle(host.ctx, agent)
+
+    expectOk(await host.api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'text' as const, text: 'go' }],
+    })))
+    await idle
+
+    const requestText = adapter.requests[0]?.messages
+      .flatMap(message => message.content)
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('\n') ?? ''
+    expect(requestText).toContain('Instructions from: AGENTS.md')
+    expect(requestText).toContain('host-workspace-context-probe')
   })
 })
 
@@ -158,6 +216,7 @@ describe('host.describe', () => {
     host = await startHost({
       boot: {
         persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-host-describe-missing-model-')),
+        workspaceContext: false,
         provider: 'scripted',
         model: 'missing-model',
       },
@@ -239,7 +298,7 @@ describe('sessions.prompt / cancel', () => {
     const persistenceRoot = mkdtempSync(join(tmpdir(), 'dsh-image-session-'))
     const dshHome = mkdtempSync(join(tmpdir(), 'dsh-image-home-'))
     host = await startHost({
-      boot: { persistenceRoot, dshHome, provider: 'scripted', model: 'test-model' },
+      boot: { persistenceRoot, workspaceContext: false, dshHome, provider: 'scripted', model: 'test-model' },
     })
     host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([textResponse('seen')]))
     const { sessionId } = expectOk(await host.api.sessions.create(request({})))
@@ -404,7 +463,7 @@ describe('sessions.prompt / cancel', () => {
     const persistenceRoot = mkdtempSync(join(tmpdir(), 'dsh-text-session-'))
     const dshHome = mkdtempSync(join(tmpdir(), 'dsh-text-home-'))
     host = await startHost({
-      boot: { persistenceRoot, dshHome, provider: 'scripted', model: 'test-model' },
+      boot: { persistenceRoot, workspaceContext: false, dshHome, provider: 'scripted', model: 'test-model' },
     })
     host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([], ['text']))
     const { sessionId } = expectOk(await host.api.sessions.create(request({})))
@@ -423,7 +482,7 @@ describe('sessions.prompt / cancel', () => {
     const persistenceRoot = mkdtempSync(join(tmpdir(), 'dsh-routed-session-'))
     const dshHome = mkdtempSync(join(tmpdir(), 'dsh-routed-home-'))
     host = await startHost({
-      boot: { persistenceRoot, dshHome, provider: 'scripted', model: 'test-model' },
+      boot: { persistenceRoot, workspaceContext: false, dshHome, provider: 'scripted', model: 'test-model' },
     })
     host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([], ['text']))
     host.ctx.llm.registerAdapter(
@@ -451,6 +510,7 @@ describe('sessions.prompt / cancel', () => {
     host = await startHost({
       boot: {
         persistenceRoot: mkdtempSync(join(tmpdir(), 'dsh-host-route-default-')),
+        workspaceContext: false,
         provider: 'scripted',
         model: 'test-model',
       },
@@ -487,7 +547,9 @@ describe('sessions.prompt / cancel', () => {
 describe('sessions.history', () => {
   it('implicitly resumes a cold session, deduplicating concurrent calls to one attach', async () => {
     const persistenceRoot = mkdtempSync(join(tmpdir(), 'dsh-host-resume-'))
-    const first = await startHost({ boot: { persistenceRoot, provider: 'scripted', model: 'test-model' } })
+    const first = await startHost({
+      boot: { persistenceRoot, workspaceContext: false, provider: 'scripted', model: 'test-model' },
+    })
     first.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([textResponse('persisted')]))
     const { sessionId } = expectOk(await first.api.sessions.create(request({})))
     const agent = first.ctx.agents.get(sessionId) as Agent
@@ -496,7 +558,9 @@ describe('sessions.history', () => {
     await idle
     await first.dispose()
 
-    host = await startHost({ boot: { persistenceRoot, provider: 'scripted', model: 'test-model' } })
+    host = await startHost({
+      boot: { persistenceRoot, workspaceContext: false, provider: 'scripted', model: 'test-model' },
+    })
     host.ctx.llm.registerAdapter(['scripted'], new ScriptedAdapter([]))
     expect(host.ctx.agents.get(sessionId)).toBeUndefined()
     const [a, b] = await Promise.all([

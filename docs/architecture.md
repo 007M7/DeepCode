@@ -65,7 +65,7 @@ Waterfall events behave like around-middleware: a listener delegates by calling 
 
 The shipped loop runs prompt-to-checkpoint work through plugin services and events.
 
-A **session** is append-only. Each ordinary **turn** claims one queued `send()` item; injection claims none. A successor awaits the preceding claimed turn's checkpoint but may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)). A turn ends when model and plugins stop it; a **step** is one model request plus tools. In the [sequence below](agent-lifecycle.md), quotes mark durable events.
+A **session** is append-only. Each ordinary **turn** claims one queued `send()` item; injection claims none. A successor awaits the preceding claimed turn's checkpoint but may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)). Model and plugins stop a turn; a **step** is one model request plus tools. In the [sequence](agent-lifecycle.md), quotes mark durable events.
 
 Without an id, creation mints `<config-id>-session-<uuid>`; `sessionId` resumes or creates, while `resumeSessionId` requires history. Resume restores lineage and delegation depth before publication. Setup failures emit `agent-loop/config-start-failed`; teardown is silent.
 
@@ -185,7 +185,7 @@ New behavior attaches to a documented extension point; a loop change updates thi
 | Confine spawned processes | a `ctx.sandbox` backend; consumers wrap their argv before spawning |
 | Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stop` is the serial terminal stop |
 | Add a session-stable prefix outside history | compose `agent/session-prefix`; the request header logs it |
-| Add UI or editor integration | drive `ctx.agents` and render from `session/event` |
+| Add UI or editor integration | drive `ctx.agents` and render from `session/event`; terminal-only overlays use `ctx.tui` |
 | Add durable session state | add a `SessionEventMap` member and render/replay from the log |
 | Add asynchronous session-title generation | register the sole provider on `ctx.sessionTitle` |
 | Manage a same-session objective | use `ctx.goals`; continue through `Agent` and `agent/*` |

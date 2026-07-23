@@ -46,7 +46,12 @@ export async function runWeb(argv: string[]): Promise<void> {
   }
 
   // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught by design).
-  const host = await startHost({ boot: { persistenceRoot: './.sessions' } })
+  const host = await startHost({
+    boot: {
+      persistenceRoot: './.sessions',
+      workspaceContext: { maxBytes: 65_536 },
+    },
+  })
   const attachments = host.ctx.get('attachments')
   if (attachments === undefined) throw new Error('dsh web: attachment service unavailable')
   const maxRequestBodyBytes = configuredMaxRequestBodyBytes
