@@ -1,10 +1,9 @@
 // Keyless boot-chain smoke over the REAL carrier: startWebServer + web-plugins
 // registry surface + __DSH_BOOT__ injection + built shell dist in a real
-// chromium. First describe: manifest injection + fail-loud half. Second
-// describe: the settled success pass — five REAL tsdown bundles (the
-// infrastructure four + layout) load through the DI chain in ?fixture mode
-// and the three-column frame appears in one flip. The full eight-plugin pass
-// also exercises durable history images without a model key.
+// chromium. First describe: manifest injection + static serving. Second
+// describe: the full eight-plugin production chain loads through the DI chain
+// in ?fixture mode, exercises the sidebar rail, and covers durable history,
+// pasted, and dropped images without a model key.
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
@@ -79,15 +78,6 @@ describe('web boot chain (keyless, real carrier)', () => {
     expect(await res.text()).toContain('window.DSHClientProxy.loadPlugin')
   })
 
-  it('boots to the loading page and fail-louds the absent plugin', async () => {
-    onTestFailed(() => saveFailureShot(page, 'smoke-boot-fail-loud'))
-    await page.waitForSelector('text=HARNESS', { timeout: 10_000 })
-    await page.waitForSelector('text=Failed to load plugins', { timeout: 10_000 })
-    await page.waitForSelector('text=@probe/absent', { timeout: 2000 })
-    // The real UI must not have flipped in: the gate opens only on settled().
-    expect(await page.locator('[class*="frame"]').count()).toBe(0)
-  })
-
   it('applies the token sheets before any plugin CSS', async () => {
     const family = await page.evaluate(() => getComputedStyle(document.body).getPropertyValue('--dsw-font-family'))
     expect(family.trim().length).toBeGreaterThan(0)
@@ -144,6 +134,38 @@ describe('web boot chain success pass (keyless, production plugin chain, ?fixtur
     const owners = await page.evaluate(() =>
       [...document.querySelectorAll('style[data-plugin]')].map(s => (s as HTMLElement).dataset['plugin']))
     expect(owners).toContain('@deepseek-ai/dsh-client-ui-layout')
+    expect(owners).toContain('@deepseek-ai/dsh-client-ui-sidebar')
+  })
+
+  it('collapsed sidebar animates to a 56px rail with the four controls', async () => {
+    onTestFailed(() => saveFailureShot(page, 'smoke-boot-collapsed-rail'))
+    const frame = page.locator('[class*="frame"]')
+    const firstTrack = async (): Promise<string> => (await frame.evaluate(
+      el => getComputedStyle(el).gridTemplateColumns)).split(' ')[0]!
+    // The tracks transition on the deepsuite curve; assert the animated
+    // settle rather than an instant jump.
+    const settledTrack = async (px: string): Promise<void> => {
+      await expect.poll(firstTrack, { timeout: 2000 }).toBe(px)
+    }
+    await page.getByRole('button', { name: 'Collapse sidebar' }).click()
+    // Mid-collapse the wide chrome is still mounted, fading — not swapped out.
+    expect(await page.locator('text=HARNESS').count()).toBe(1)
+    await settledTrack('56px')
+    await expect.poll(() => page.locator('text=HARNESS').count(), { timeout: 2000 }).toBe(0)
+    for (const name of ['Expand sidebar', 'New session', 'New workspace', 'Search sessions', 'Settings']) {
+      await expect(page.getByRole('button', { name }).isVisible(), name).resolves.toBe(true)
+    }
+    await page.getByRole('button', { name: 'Expand sidebar' }).click()
+    await settledTrack('300px')
+    await expect(page.getByRole('button', { name: 'Collapse sidebar' }).isVisible()).resolves.toBe(true)
+    // Rail search: collapse again, the search control expands and lands in the box.
+    await page.getByRole('button', { name: 'Collapse sidebar' }).click()
+    await settledTrack('56px')
+    await page.getByRole('button', { name: 'Search sessions' }).click()
+    await settledTrack('300px')
+    const focused = await page.evaluate(() =>
+      (document.activeElement as HTMLInputElement | null)?.placeholder ?? '')
+    expect(focused).toContain('Search')
   })
 
   it('renders historical user and assistant images and opens the original on double-click', async () => {

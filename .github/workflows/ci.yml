@@ -27,20 +27,19 @@ env:
 
 jobs:
 
-  # One large runner pays hosted setup once, then the repository scheduler
-  # overlaps the complete unsharded primary Node inventory. Build starts eagerly;
-  # only consumers of emitted output wait for it.
+  # One portable hosted runner pays setup once, then executes the complete
+  # unsharded primary Node inventory without organization-owned capacity.
   node-24:
     if: github.event_name == 'pull_request'
-    runs-on: dsh-ubuntu-24-04-96core
+    runs-on: ubuntu-latest
     name: node 24 / complete
     env:
-      DSH_COVERAGE_MAX_WORKERS: '16'
+      DSH_COVERAGE_MAX_WORKERS: '1'
       DSH_ESLINT_CACHE: '1'
-      DSH_ESLINT_CONCURRENCY: '16'
-      DSH_GATE_CONCURRENCY: '10'
-      DSH_PUBLINT_CONCURRENCY: '16'
-      DSH_SNAPSHOT_MAX_CONCURRENCY: '8'
+      DSH_ESLINT_CONCURRENCY: '1'
+      DSH_GATE_CONCURRENCY: '1'
+      DSH_PUBLINT_CONCURRENCY: '1'
+      DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -62,16 +61,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
-      - name: Select preinstalled Node, install dependencies, and prepare bubblewrap
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Enable corepack, install dependencies, and prepare bubblewrap
         run: |
-          node_root="$(printf '%s\n' "$RUNNER_TOOL_CACHE"/node/"${PRIMARY_NODE_VERSION}".*/x64 | sort -V | tail -n 1)"
-          if [[ ! -d "$node_root" ]]; then
-            echo "preinstalled Node ${PRIMARY_NODE_VERSION}.x not found in $RUNNER_TOOL_CACHE" >&2
-            exit 1
-          fi
-          echo "$node_root/bin" >> "$GITHUB_PATH"
-          export PATH="$node_root/bin:$PATH"
-          [[ "$(node --version)" == "v${PRIMARY_NODE_VERSION}."* ]]
           corepack enable
           pnpm install --frozen-lockfile &
           install_pid=$!
@@ -90,8 +85,7 @@ jobs:
 
   node-compat:
     if: github.event_name == 'pull_request'
-    # Distinct larger-runner pools avoid both standard-runner setup outliers and
-    # delayed allocation when independent environment contracts share one pool.
+    # Each compatibility contract receives an independent standard hosted job.
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.name }}
     env:
@@ -103,12 +97,12 @@ jobs:
         include:
           - node: '22.19'
             name: node 22.19
-            runner: dsh-ubuntu-24-04-4core
-            gate_concurrency: '2'
+            runner: ubuntu-latest
+            gate_concurrency: '1'
           - node: 26
             name: node 26
-            runner: dsh-ubuntu-24-04-32core
-            gate_concurrency: '2'
+            runner: ubuntu-latest
+            gate_concurrency: '1'
     steps:
       - uses: actions/checkout@v6
 
@@ -137,7 +131,7 @@ jobs:
 
   python-sdk:
     if: github.event_name == 'pull_request'
-    runs-on: dsh-ubuntu-24-04-8core
+    runs-on: ubuntu-latest
     name: python 3.10 / keyless SDK
     steps:
       - uses: actions/checkout@v6
@@ -158,15 +152,13 @@ jobs:
   # from observational gates without allowing them to fail the required job.
   windows:
     if: github.event_name == 'pull_request'
-    runs-on: dsh-windows-2025-32core
+    runs-on: windows-2025
     name: windows node 24 / complete
     env:
-      # Keep ESLint itself single-threaded: 16 ESLint workers took 174 seconds on
-      # this image. The outer scheduler still overlaps lint with the other gates.
-      DSH_COVERAGE_MAX_WORKERS: '12'
+      DSH_COVERAGE_MAX_WORKERS: '1'
       DSH_ESLINT_CACHE: '1'
-      DSH_GATE_CONCURRENCY: '16'
-      DSH_PUBLINT_CONCURRENCY: '16'
+      DSH_GATE_CONCURRENCY: '1'
+      DSH_PUBLINT_CONCURRENCY: '1'
     steps:
       - uses: actions/checkout@v6
 
@@ -177,27 +169,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
-      # Extracting the many-file pnpm store cache is slower on this image than
-      # a clean parallel install, and saving it adds more latency after gates.
-      - name: Select preinstalled Node and install (immutable)
+      - name: Enable Developer Mode (symlink support)
+        shell: pwsh
+        run: >-
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
+          /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      # Extracting the many-file pnpm store cache is slower than a clean install,
+      # and saving it adds more latency after gates.
+      - name: Enable corepack and install (immutable)
         shell: pwsh
         run: |
-          $nodeRoot = Get-ChildItem -Path "$env:RUNNER_TOOL_CACHE\node" -Directory |
-            Where-Object { $_.Name -like "$env:PRIMARY_NODE_VERSION.*" } |
-            Sort-Object { [version]$_.Name } |
-            Select-Object -Last 1
-          if ($null -eq $nodeRoot) {
-            throw "preinstalled Node $env:PRIMARY_NODE_VERSION.x not found in $env:RUNNER_TOOL_CACHE"
-          }
-          $nodeBin = Join-Path $nodeRoot.FullName 'x64'
-          if (-not (Test-Path $nodeBin -PathType Container)) {
-            throw "preinstalled Node x64 directory not found at $nodeBin"
-          }
-          Add-Content -Path $env:GITHUB_PATH -Value $nodeBin
-          $env:PATH = "$nodeBin;$env:PATH"
-          if ((node --version) -notlike "v$env:PRIMARY_NODE_VERSION.*") {
-            throw "selected unexpected Node version $(node --version)"
-          }
           corepack enable
           pnpm install --frozen-lockfile
 
