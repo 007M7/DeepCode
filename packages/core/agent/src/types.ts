@@ -311,7 +311,7 @@ declare module 'cordis' {
     'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
     /**
      * A detached, frozen item entered the agent's inbox (queued or steering
-     * FIFO). Source defaults are already applied, so `info` holds the exact
+     * FIFO). Source defaults are already applied, so `message` holds the exact
      * accepted values. This is the enqueue-time live signal; the durable record
      * is the eventual `user/message`/`steering/message`. Injection
      * (`next-step`/no-wakeup) bypasses the FIFOs and does not emit this.
