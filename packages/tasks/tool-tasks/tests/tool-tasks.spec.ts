@@ -158,6 +158,37 @@ describe('task_output', () => {
     expect(output).toContain('[status: running]')
   })
 
+  it('preserves empty and newline-terminated output under a producer limit', async () => {
+    const { ctx } = await setup()
+    const chunks = ['', 'line\n']
+    ctx.tasks.start(producer({
+      outputLimitBytes: 64,
+      readOutput: () => chunks.shift() ?? '',
+    }).spec)
+
+    expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' })))
+      .toBe('(no new output)\n[status: running]')
+    expect(text(await call(ctx, 'task_output', { task_id: 'bash-1' })))
+      .toBe('line\n[status: running]')
+  })
+
+  it('bounds post-policy output without restoring the canonical status rendering', async () => {
+    const { ctx } = await setup()
+    ctx.tasks.start(producer({
+      outputLimitBytes: 64,
+      readOutput: () => 'canonical output',
+    }).spec)
+    ctx.on('tools/post-execute', (exec, _result, next) => {
+      if (exec.name !== 'task_output') return next()
+      return Promise.resolve({ kind: 'accept', content: [{ type: 'text', text: 'p'.repeat(1_000) }] })
+    })
+
+    const result = await call(ctx, 'task_output', { task_id: 'bash-1' })
+    expect(Buffer.byteLength(text(result))).toBeLessThanOrEqual(64)
+    expect(text(result)).toContain('[result truncated]')
+    expect(text(result)).not.toContain('[status: running]')
+  })
+
   it('applies a producer limit to a normalized read failure', async () => {
     const { ctx } = await setup()
     ctx.tasks.start(producer({
