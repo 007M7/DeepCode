@@ -135,6 +135,10 @@ describe('events frame schemas', () => {
     expect(askUserQuestionItemSchema.parse({ id: 'q', question: 'Q?' }).id).toBe('q')
   })
 
+  it('rejects an empty question batch (ask() guarantees at least one, so an empty frame is host breakage)', () => {
+    expect(() => muxFrameSchema.parse({ type: 'question/requested', sessionId: 's', questions: [] })).toThrow()
+  })
+
   it('accepts every host frame branch', () => {
     const frames = [
       { type: 'host/session-added', sessionId: 's', parentSessionId: 'p' },
