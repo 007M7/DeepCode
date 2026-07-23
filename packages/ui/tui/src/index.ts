@@ -31,13 +31,12 @@ import {
   type EditorTheme,
   type Focusable,
   type MarkdownTheme,
-  type OverlayHandle,
   type SelectListTheme,
   type SlashCommand,
   type Terminal,
   type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
-import type { Context } from 'cordis'
+import { Service, type Context, type Fiber } from 'cordis'
 import z from 'schemastery'
 import {
   installAgentLlmTarget,
@@ -90,6 +89,62 @@ import {
   type AskUserQuestionItem,
   type AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
+import {
+  TuiExtensionServiceImpl,
+  TuiOverlayManager,
+} from './overlay-manager.ts'
+import type {
+  TuiOverlayRequest,
+  TuiOverlaySession,
+  TuiTheme,
+} from './extension.ts'
+
+export type {
+  TuiComponent,
+  TuiFocusable,
+  TuiOverlayAnchor,
+  TuiOverlayCloseReason,
+  TuiOverlayHost,
+  TuiOverlayMargin,
+  TuiOverlayOptions,
+  TuiOverlayOutcome,
+  TuiOverlayRequest,
+  TuiOverlaySession,
+  TuiOverlayState,
+  TuiTheme,
+  TuiViewport,
+} from './extension.ts'
+
+declare module 'cordis' {
+  interface Context {
+    /** Terminal-only interaction service, available only while a TUI is mounted. */
+    tui: TuiExtensionService
+  }
+}
+
+/**
+ * Optional terminal-local interaction service provided by one mounted TUI.
+ *
+ * The concrete provider retains pi-tui, focus, and terminal lifecycle state.
+ * Plugins receive only effect-owned overlay sessions.
+ */
+export abstract class TuiExtensionService extends Service {
+  /** Exact agent driven by this terminal instance. */
+  abstract readonly agent: Agent
+
+  /**
+   * Queue an interactive overlay owned by the calling plugin fiber.
+   *
+   * The TUI displays one overlay at a time in FIFO order. Disposing the caller
+   * removes a queued overlay or closes an active one before plugin teardown
+   * settles. This live presentation is neither logged nor replayed.
+   *
+   * @param request - component factory, layout constraints, and cancellation.
+   * @returns the effect-owned overlay session.
+   * @throws when the TUI has begun shutting down.
+   */
+  abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
+}
 
 export const name = 'ui-tui'
 export const inject = ['agents', 'commands', 'userInteraction', 'tools', 'llm', 'systemPrompt', 'tokenMeter']
@@ -1290,7 +1345,7 @@ interface PendingQuestion {
   resolve(answer: AskUserQuestionAnswer): void
   reject(error: unknown): void
   onAbort: () => void
-  overlay: OverlayHandle | undefined
+  overlay: TuiOverlaySession | undefined
 }
 
 /** Add session candidates to pi-tui's existing command/file provider. */
@@ -1511,7 +1566,8 @@ export function createTuiChat(
   const commandControllers = new Set<AbortController>()
   const referenceControllers = new Set<AbortController>()
   let activeQuestion: PendingQuestion | undefined
-  let modelOverlay: OverlayHandle | undefined
+  let modelOverlay: TuiOverlaySession | undefined
+  let tuiServiceFiber: Fiber | undefined
   const target: AgentLlmTargetRef = { current: initialTarget(agent), assembled: undefined }
   let contextWindow: number | undefined
   let contextResolution: Promise<
@@ -1569,6 +1625,41 @@ export function createTuiChat(
     requestRender()
   }
 
+  const extensionTheme: TuiTheme = Object.freeze({
+    text: (value: string) => palette.text(value),
+    muted: (value: string) => palette.muted(value),
+    dim: (value: string) => palette.dim(value),
+    accent: (value: string) => palette.accent(value),
+    success: (value: string) => palette.success(value),
+    warning: (value: string) => palette.warning(value),
+    error: (value: string) => palette.error(value),
+    bold: (value: string) => palette.bold(value),
+  })
+  const overlayManager = new TuiOverlayManager({
+    viewport: () => Object.freeze({
+      columns: runtime.terminal.columns,
+      rows: runtime.terminal.rows,
+    }),
+    theme: () => extensionTheme,
+    display: displayText,
+    show: (component, options) => ui.showOverlay(component, options === undefined
+      ? undefined
+      : {
+        ...options,
+        ...typeof options.margin === 'object'
+          ? { margin: { ...options.margin } }
+          : {},
+      }),
+    invalidate: requestRender,
+    reportError: (error) => {
+      const message = errorChain(error)
+      ctx.logger.warn(`ui-tui: overlay failed: ${message}`)
+      /* v8 ignore next -- shutdown removes overlays before the terminal stops */
+      if (disposed) return
+      appendNotice(`TUI overlay failed: ${message}`, 'error')
+    },
+  })
+
   const disposeTargetListeners = installAgentLlmTarget(agent.ctx, target)
 
   const resolveContextWindow = (selected: AgentLlmTarget | undefined): void => {
@@ -1608,29 +1699,29 @@ export function createTuiChat(
       appendNotice(`Current model: ${current}\nNo models are advertised by registered providers.`, 'warning')
       return
     }
-    modelOverlay?.hide()
-    modelOverlay = undefined
-    const close = (): void => {
-      modelOverlay?.hide()
-      modelOverlay = undefined
-      requestRender()
-    }
-    const dialog = new ModelDialog(
-      choices,
-      target.current,
-      resolved.maxModelOptions,
-      palette,
-      (selected) => {
-        close()
-        selectModel(selected)
+    void modelOverlay?.close()
+    const session = overlayManager.open({
+      create: () => new ModelDialog(
+        choices,
+        target.current,
+        resolved.maxModelOptions,
+        palette,
+        (selected) => {
+          void session.close()
+          selectModel(selected)
+        },
+        () => { void session.close() },
+      ),
+      options: {
+        width: resolved.modelDialogWidth,
+        maxHeight: resolved.modelDialogMaxHeight,
+        anchor: 'center',
+        margin: 1,
       },
-      close,
-    )
-    modelOverlay = ui.showOverlay(dialog, {
-      width: resolved.modelDialogWidth,
-      maxHeight: resolved.modelDialogMaxHeight,
-      anchor: 'center',
-      margin: 1,
+    })
+    modelOverlay = session
+    void session.closed.then(() => {
+      if (modelOverlay === session) modelOverlay = undefined
     })
     requestRender()
   }
@@ -1933,7 +2024,7 @@ export function createTuiChat(
   }
 
   const rejectQuestion = (pending: PendingQuestion): void => {
-    pending.overlay?.hide()
+    void pending.overlay?.close()
     pending.overlay = undefined
     removeAbortListener(pending)
     pending.reject(new UserInteractionError(
@@ -1956,31 +2047,48 @@ export function createTuiChat(
         startNextQuestion()
         return
       }
-      const dialog = new QuestionDialog(
-        question,
-        pending.index + 1,
-        pending.request.questions.length,
-        pending.request.questions.length - pending.answers.length,
-        resolved.maxQuestionOptions,
-        palette,
-        (selection) => {
-          pending.overlay?.hide()
-          pending.overlay = undefined
-          pending.answers.push({ id: question.id, ...selection })
-          pending.index += 1
-          show()
+      const session = overlayManager.open({
+        ...pending.request.signal === undefined ? {} : { signal: pending.request.signal },
+        create: () => new QuestionDialog(
+          question,
+          pending.index + 1,
+          pending.request.questions.length,
+          pending.request.questions.length - pending.answers.length,
+          resolved.maxQuestionOptions,
+          palette,
+          (selection) => {
+            pending.overlay = undefined
+            void session.close()
+            pending.answers.push({ id: question.id, ...selection })
+            pending.index += 1
+            show()
+          },
+          () => {
+            activeQuestion = undefined
+            rejectQuestion(pending)
+            startNextQuestion()
+          },
+        ),
+        options: {
+          width: resolved.questionDialogWidth,
+          maxHeight: resolved.questionDialogMaxHeight,
+          anchor: 'bottom-left',
+          margin: { bottom: 1 },
         },
-        () => {
-          activeQuestion = undefined
-          rejectQuestion(pending)
-          startNextQuestion()
-        },
-      )
-      pending.overlay = ui.showOverlay(dialog, {
-        width: resolved.questionDialogWidth,
-        maxHeight: resolved.questionDialogMaxHeight,
-        anchor: 'bottom-left',
-        margin: { bottom: 1 },
+      })
+      pending.overlay = session
+      void session.closed.then((result) => {
+        if (pending.overlay !== session) return
+        pending.overlay = undefined
+        /* v8 ignore next 2 -- close, abort, and shutdown settle the owner before this callback */
+        if (result.reason !== 'error') return
+        activeQuestion = undefined
+        removeAbortListener(pending)
+        pending.reject(new UserInteractionError(
+          `ask_user_question TUI failed: ${errorChain(result.error)}`,
+          'ASK_ABORTED',
+        ))
+        startNextQuestion()
       })
       requestRender()
     }
@@ -2051,20 +2159,23 @@ export function createTuiChat(
   const shutdown = (exitProcess: boolean): Promise<void> => {
     shuttingDown ??= (async () => {
       disposed = true
+      overlayManager.beginShutdown()
       contextResolution = undefined
       clearStatus()
-      modelOverlay?.hide()
-      modelOverlay = undefined
       for (const controller of commandControllers) controller.abort(new Error('TUI disposed'))
       commandControllers.clear()
       for (const controller of referenceControllers) controller.abort(new Error('TUI disposed'))
       referenceControllers.clear()
+      await tuiServiceFiber?.dispose()
+      tuiServiceFiber = undefined
       if (activeQuestion !== undefined) {
         const pending = activeQuestion
         activeQuestion = undefined
         rejectQuestion(pending)
       }
       for (const pending of questionQueue.splice(0)) rejectQuestion(pending)
+      await overlayManager.dispose()
+      modelOverlay = undefined
       disposeUserInteraction()
       await runtime.terminal.drainInput(100, 20)
       ui.stop()
@@ -2510,7 +2621,7 @@ export function createTuiChat(
   }
 
   const removeInputListener = ui.addInputListener((data) => {
-    if (activeQuestion !== undefined || modelOverlay !== undefined) return undefined
+    if (overlayManager.hasActiveOverlay()) return undefined
     if (matchesKey(data, Key.ctrl('o'))) {
       toggleTools()
       return { consume: true }
@@ -2654,6 +2765,9 @@ export function createTuiChat(
     ui.stop()
     throw error
   }
+  tuiServiceFiber = ctx.inject([], (serviceCtx) => {
+    new TuiExtensionServiceImpl(serviceCtx, agent, overlayManager)
+  })
   startBannerReveal()
 
   return {
