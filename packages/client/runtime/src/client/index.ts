@@ -12,7 +12,7 @@
 import type { Context } from 'cordis'
 import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SnapshotStore } from './store/index.ts'
+import type { SnapshotStore } from './contract/store.ts'
 import { SlotsService } from './slots.ts'
 import { SessionsService } from './sessions/service.ts'
 import type { SessionListState } from './sessions/service.ts'
@@ -28,10 +28,10 @@ export type { SessionBinding, SessionListState, SessionSummary } from './session
 // The snapshot-store engine lives here since the store migration (the data
 // layer owns its substrate; web-react is React glue only). The './client'
 // main export is the single serving door — no store subpath.
-export { createSnapshotStore, defineStore, shallowEqual } from './store/index.ts'
+export { createSnapshotStore, defineStore, shallowEqual } from './contract/store.ts'
 export type {
   EngineStoreHandle, EngineStoreInstance, ObservableSnapshot, SnapshotStore,
-} from './store/index.ts'
+} from './contract/store.ts'
 export type {
   AssistantBlock, AssistantMessageNode, ContextMessageNode, ConversationNode, ConversationSnapshot,
   PendingInteraction, RunningToolCall, SteeringMessageNode,
