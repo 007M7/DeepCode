@@ -17,6 +17,7 @@ import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import SubagentControlService from '@deepseek-ai/dsh-subagent-control'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn'
+import * as ToolSubagentControl from '@deepseek-ai/dsh-tool-subagent-control'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-tasks'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as mock from './scripted-provider.ts'
@@ -825,7 +826,7 @@ describe('dsh-tool-subagent continuable background mode', () => {
   })
 
   /** Boot the real continuable stack: loop, persistence, spawn, tasks, control. */
-  async function continuableSetup() {
+  async function continuableSetup(options: { controlTool?: boolean } = {}) {
     const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
     const root = mkdtempSync(path.join(tmpdir(), 'dsh-tool-subagent-continuable-'))
@@ -837,6 +838,7 @@ describe('dsh-tool-subagent continuable background mode', () => {
     await ctx.plugin(LocalTaskService)
     await ctx.plugin(ToolTasks, {})
     await ctx.plugin(SubagentControlService)
+    if (options.controlTool !== false) await ctx.plugin(ToolSubagentControl)
     await ctx.plugin(tool, { provider: 'spawn' })
     ctx.llm.registerAdapter(['mock'], new MockAdapter([
       textResponse('continuable answer'),
@@ -885,6 +887,21 @@ describe('dsh-tool-subagent continuable background mode', () => {
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('load @deepseek-ai/dsh-subagent-control')
+  })
+
+  it('fails loud when the advertised send_message tool is not registered', async () => {
+    // The schema tells the model to follow up with send_message; starting a
+    // durable child the model cannot continue would make that false.
+    const { ctx, parent } = await continuableSetup({ controlTool: false })
+    const result = await callSubagent(
+      ctx,
+      { description: 'd', prompt: 'p', run_in_background: true },
+      { agent: parent },
+    )
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('load @deepseek-ai/dsh-tool-subagent-control')
+    // Nothing was started: no Task exists for the parent.
+    expect(ctx.tasks.list(parent)).toEqual([])
   })
 })
 

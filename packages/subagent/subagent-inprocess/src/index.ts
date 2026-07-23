@@ -259,12 +259,29 @@ function driveTurn(
       return handle.dispose()
     },
     steer(content: ContentBlock[]): void {
-      // Strict live delivery: the synchronous running check and Agent.steer()
+      // Strict live delivery: the synchronous checks and the Agent.steer()
       // call share one frame, so delivery joins the observed turn or throws.
       // Agent.steer()'s own idle fallback would instead QUEUE the message and
       // start a new, untracked turn after this run's result was read.
       if (child.status !== 'running') {
         throw new Error(`subagent child "${childId}" is not running; the message was not delivered`)
+      }
+      // The status stays `running` through the closed turn's durability flush,
+      // and the loop DISCARDS terminal-stopped steering drained after turn
+      // close instead of recording it. Requiring an open turn keeps
+      // acknowledged delivery honest.
+      const lastBoundary = child.session.events.findLast(
+        event => event.type === 'turn/start' || event.type === 'turn/end',
+      )
+      if (lastBoundary?.type !== 'turn/start') {
+        throw new Error(`subagent child "${childId}" turn has already closed; the message was not delivered`)
+      }
+      // A committed structured capture makes the pending `agent/turn-stop`
+      // checkpoint terminal, and the loop then discards late steering. The
+      // capture is synchronously observable, so reject rather than
+      // acknowledge a message the run is about to drop.
+      if (structured?.captured() !== undefined) {
+        throw new Error(`subagent child "${childId}" already reported its structured result; the message was not delivered`)
       }
       child.steer(createUserMessage({ content, source: { kind: 'user' } }))
     },

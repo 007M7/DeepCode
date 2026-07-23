@@ -120,6 +120,33 @@ describe('in-process structured output', () => {
     await run.dispose()
   })
 
+  it('strict steer rejects delivery once the structured result is captured', async () => {
+    // Hold the capture's tool result open so the child is observably running
+    // with a committed capture: the pending agent/turn-stop checkpoint is
+    // terminal, and the loop would DISCARD a steering message, so an
+    // acknowledged delivery here would be a lie.
+    let releaseResult: (() => void) | undefined
+    const { ctx, parent } = await setup([
+      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 7 }),
+    ])
+    ctx.on('agent/post-step', (agent) => {
+      if (agent.session.header.parentSession === undefined || releaseResult !== undefined) return
+      return new Promise<void>((resolve) => { releaseResult = resolve })
+    })
+    const run = await ctx.subagents.start('spawn', structuredRequest(parent))
+    await new Promise<void>((resolve) => {
+      const timer = setInterval(() => {
+        if (releaseResult !== undefined) { clearInterval(timer); resolve() }
+      }, 5)
+    })
+    expect(() => { run.steer!([{ type: 'text', text: 'one more thing' }]) })
+      .toThrow(/already reported its structured result; the message was not delivered/)
+    releaseResult!()
+    const result = await run.result
+    expect(result.structured).toEqual({ answer: 7 })
+    await run.dispose()
+  })
+
   it('denies tool calls that FOLLOW the capture in the same response — terminal means terminal', async () => {
     // One model response carrying structured_output FIRST and a side-effecting
     // call after it: the continuation veto only fires at step end, so without

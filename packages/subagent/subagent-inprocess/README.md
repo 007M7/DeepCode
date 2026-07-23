@@ -30,7 +30,7 @@ The required request signal covers both startup and the live run. Before publica
 
 After fulfillment, the caller owns the run. Provider-plugin unload does not revoke it. `dispose()` removes the live abort listener, records cancellation, and delegates to the returned `AgentHandle.dispose()`, whose memoized quiescence transaction stops the loop, removes the agent and session, and unwinds scoped registrations. Cancellation owns every non-completed in-flight outcome and reports `aborted`; an already-completed turn remains completed.
 
-Runs expose the strict `steer` capability: a synchronous `AgentStatus.running` check and `Agent.steer()` call share one frame, so delivery joins the observed turn or throws. The Agent-level idle fallback (queue and start a new turn) is deliberately not reachable through the run — that would start an untracked turn after the run's result was read.
+Runs expose the strict `steer` capability: the synchronous checks and the `Agent.steer()` call share one frame, so delivery joins the observed turn or throws. Delivery requires `AgentStatus.running`, an open turn in the child log (status stays `running` through a closed turn's durability flush, where the loop would strand the message), and no committed structured capture (whose terminal stop makes the loop discard late steering). The Agent-level idle fallback (queue and start a new turn) is deliberately not reachable through the run — that would start an untracked turn after the run's result was read.
 
 ## Spawn and fork inputs
 

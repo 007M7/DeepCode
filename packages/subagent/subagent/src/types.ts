@@ -219,10 +219,11 @@ export interface SubagentRun {
   /**
    * OPTIONAL (strict live-steering capability): deliver additional content to
    * the actively running child turn. STRICT means delivery joins the observed
-   * turn or fails — the implementation must synchronously require the child to
-   * be running with no asynchronous boundary before delivery, and must not
-   * fall back to a queue path that could start a new, untracked turn after
-   * this run has settled. Throws when the child is not running. A run
+   * turn or fails — the implementation must synchronously verify, with no
+   * asynchronous boundary before delivery, that the child is running and its
+   * turn can still record the message, and must not fall back to a queue path
+   * that could start a new, untracked turn or silently drop the message after
+   * this run has settled. Throws when delivery cannot join the turn. A run
    * represents one disposable activation, so it has no cold-resume operation;
    * resuming a settled child goes through {@link SubagentProvider.resume}.
    */

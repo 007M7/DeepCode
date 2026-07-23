@@ -285,6 +285,13 @@ export function apply(ctx: Context, config: Config): void {
             if (control === undefined) {
               throw new Error('continuable background subagents unavailable: load @deepseek-ai/dsh-subagent-control and @deepseek-ai/dsh-tool-tasks')
             }
+            // The schema above tells the model to follow up with
+            // `send_message`; starting a durable child the model cannot
+            // continue would make that advertisement false. Sibling load order
+            // is undetermined at mount, so the check lives at the operation.
+            if (ctx.tools.get('send_message') === undefined) {
+              throw new Error('continuable background subagents unavailable: load @deepseek-ai/dsh-tool-subagent-control (the advertised send_message tool is not registered)')
+            }
             // The control service owns the durable child id, descriptor
             // snapshot, Task registration, and settle-then-dispose ordering; a
             // synchronous validation failure rejects the call with no Task.

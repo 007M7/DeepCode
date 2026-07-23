@@ -245,4 +245,45 @@ describe('startInProcessRun', () => {
     expect(ctx.agents.list()).toHaveLength(beforeAgents)
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })
+
+  it('strict steer rejects a settled child instead of queueing an untracked turn', async () => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    const run = await startInProcessRun(request(parent), {})
+    await run.result
+    // The child is idle after its turn: Agent.steer() would silently QUEUE.
+    expect(() => { run.steer!([{ type: 'text', text: 'late' }]) })
+      .toThrow(/not running; the message was not delivered/)
+    const child = ctx.agents.get(run.id)!
+    expect(child.session.events.some(event => event.type === 'steering/message')).toBe(false)
+    await run.dispose()
+  })
+
+  it('strict steer rejects the closed-turn flush window where the loop discards steering', async () => {
+    // Hold the turn-end durability flush open: the turn has closed in the log
+    // and status is still `running`, exactly the window where the loop would
+    // discard a drained steering message instead of recording it.
+    const { ctx, parent } = await setup([textResponse('quick')])
+    let releaseFlush: (() => void) | undefined
+    ctx.on('session/flush', (session) => {
+      if (session.header.parentSession === undefined || releaseFlush !== undefined) return
+      const lastEnd = session.events.findLast(event => event.type === 'turn/end')
+      if (lastEnd === undefined) return
+      return new Promise<void>((resolve) => { releaseFlush = resolve })
+    })
+    const run = await startInProcessRun(request(parent), {})
+    const child = ctx.agents.get(run.id)!
+    // Wait until the child's turn has closed while the flush keeps it running.
+    await new Promise<void>((resolve) => {
+      const timer = setInterval(() => {
+        if (releaseFlush !== undefined) { clearInterval(timer); resolve() }
+      }, 5)
+    })
+    expect(child.status).toBe('running')
+    expect(() => { run.steer!([{ type: 'text', text: 'into the void' }]) })
+      .toThrow(/turn has already closed; the message was not delivered/)
+    releaseFlush!()
+    await run.result
+    expect(child.session.events.some(event => event.type === 'steering/message')).toBe(false)
+    await run.dispose()
+  })
 })
