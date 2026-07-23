@@ -2,7 +2,9 @@
 
 English | [中文](README.zh.md)
 
-DeepSeek Harness (`dsh`) is an open-source coding agent built on the DeepSeek Harness SDK, where **everything is a plugin**.
+DeepSeek Harness (`dsh`) is an open-source coding agent built on the DeepSeek Harness SDK.
+
+It uses an architecture where **everything is a plugin**.
 
 ## Install
 
