@@ -20,10 +20,11 @@ const snapshotMaxConcurrency = positiveIntFromEnv(
   Math.min(DEFAULT_SNAPSHOT_MAX_CONCURRENCY, availableParallelism()),
 )
 
-// Replay is the keyless default: boot real example subprocesses from recorded model scripts and diff
-// normalized protocol or transcript output plus persisted-log expected outputs. `record` calls the real API
-// and updates fixtures and expected outputs; `refresh` replays committed scripts and updates current expected outputs.
-// Replay/refresh never load `.env`; only record reads a key from the environment or root `.env`.
+// Replay is the keyless default: boot real subprocess paths from recorded model responses and diff
+// assembled requests, normalized protocol or transcript output, and persisted-log expected outputs.
+// `record` calls the real API and updates fixtures and expected outputs; `refresh` replays committed scripts
+// and updates current expected outputs. Replay/refresh never load `.env`; only record reads a key from the
+// environment or root `.env`.
 if (process.env.DSH_SNAPSHOT === 'record') {
   try {
     process.loadEnvFile(new URL('.env', import.meta.url).pathname)
@@ -42,6 +43,7 @@ export default defineConfig({
   test: {
     setupFiles: ['./scripts/test-invariants.ts'],
     include: [
+      'scripts/**/*.snapshot.ts',
       // The assembled Web snapshot executes generated client bundles; source
       // mode remains the zero-build path, while lib mode requires a prior build.
       ...(process.env.DSH_EXAMPLE_MODE === 'lib' ? ['apps/web/tests/**/*.snapshot.ts'] : []),
