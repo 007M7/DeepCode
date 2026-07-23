@@ -29,7 +29,6 @@ function selectQuestion({ interactions }: ComposerChainProps): QuestionWait | nu
  */
 export function apply(ctx: ClientContext): void {
   const slots = ctx.slots
-  if (slots === undefined) throw new Error('ui-question: slots service unavailable')
   ctx.effect(
     () => slots.register({ name: 'conversation.composer', select: selectQuestion }, QuestionComposer),
     'ui-question: composer chain registration',

@@ -31,10 +31,6 @@ describe('apply', () => {
     expect(inject).toEqual(['slots'])
   })
 
-  it('fails loud when the slots service is missing', () => {
-    expect(() => { apply(new Context()) }).toThrow(/slots service unavailable/)
-  })
-
   it('fails loud when no live entry has declared the composer slot', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotsService).await()
