@@ -133,8 +133,12 @@ function buildAlphaLog(): SessionEvent[] {
   ]
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
   toolTurn(64, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
-  // The tool appends the snapshot event inside its own turn; splice it before the trailing turn/end.
-  events.splice(events.length - 1, 0, { type: 'todo/write', time: time += 800, data: { todos: fixtureTodos } })
+  // The real tool appends the snapshot mid-execution — between tool/call and
+  // tool/result — so the fixture reproduces that exact ordering (the last
+  // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
+  const callIndex = events.length - 4
+  const callTime = events[callIndex]?.time as number
+  events.splice(callIndex + 1, 0, { type: 'todo/write', time: callTime + 400, data: { todos: fixtureTodos } })
   events.forEach((e, i) => { e.seq = i })
   return events as unknown as SessionEvent[]
 }
