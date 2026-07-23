@@ -171,6 +171,7 @@ function QuestionFlow({ pending }: { pending: PendingQuestion }) {
                 : question.question}</span>
               {question.multiSelect === true && <span className={css.multiSelectHint}>可多选</span>}
             </h2>
+            {question.detail !== undefined && <p className={css.detail}>{question.detail}</p>}
           </div>
           <div className={css.headerActions}>
             <span className={css.progress}>{index + 1} / {questions.length}</span>

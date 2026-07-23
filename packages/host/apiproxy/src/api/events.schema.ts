@@ -17,6 +17,7 @@ export const askUserQuestionItemSchema = z.object({
   id: z.string(),
   question: z.string(),
   header: z.string().optional(),
+  detail: z.string().optional(),
   options: z.array(z.object({ label: z.string(), description: z.string().optional() })).optional(),
   multiSelect: z.boolean().optional(),
 }) satisfies z.ZodType<Wire<AskUserQuestionItem>>

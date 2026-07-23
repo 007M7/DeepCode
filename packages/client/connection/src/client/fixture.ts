@@ -307,6 +307,7 @@ export function createFixtureApi(): ApiProxy {
       id: 'signals',
       header: '信号',
       question: '哪些面试信号最重要？',
+      detail: '按当前招聘目标选择；跳过则视为不设偏好。',
       multiSelect: true,
       options: [
         { label: '系统设计' },

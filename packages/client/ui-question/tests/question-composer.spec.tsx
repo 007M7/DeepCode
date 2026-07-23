@@ -27,6 +27,7 @@ const kit = {
 const QUESTIONS = [
   {
     id: 'profile', header: '偏好', question: '选择候选人类型',
+    detail: '按当前空缺岗位的优先级选择。',
     options: [
       { label: '工程落地型 (Recommended)', description: '优先工程交付。' },
       { label: '研究潜力型', description: '优先研究能力。' },
@@ -64,11 +65,14 @@ describe('QuestionComposer', () => {
     expect(screen.getByText('1 / 3')).toBeTruthy()
     expect(screen.getByText('推荐')).toBeTruthy()
     expect(screen.getByText('工程落地型')).toBeTruthy()
+    expect(screen.getByText('按当前空缺岗位的优先级选择。')).toBeTruthy()
     fireEvent.keyDown(screen.getByRole('radio', { name: /工程落地型/ }), { key: 'Enter' })
     expect(respond).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('radio', { name: /工程落地型/ }))
 
     expect(screen.getByText('2 / 3')).toBeTruthy()
+    // detail is per-question: the second question carries none.
+    expect(screen.queryByText('按当前空缺岗位的优先级选择。')).toBeNull()
     expect(screen.queryByRole('button', { name: '填写答案' })).toBeNull()
     const custom = screen.getByPlaceholderText('输入你的答案')
     fireEvent.change(custom, { target: { value: '要能独立排查线上问题' } })
