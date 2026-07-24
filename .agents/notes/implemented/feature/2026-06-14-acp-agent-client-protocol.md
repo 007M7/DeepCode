@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-06-14-acp-agent-client-protocol.zh.md)
+
 > Superseded by [ACP as an automation-only protocol](../simplification/2026-07-23-acp-automation-only-protocol.md). This note records the retired editor-facing bridge design.
 
 ## Problem

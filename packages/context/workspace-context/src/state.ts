@@ -145,7 +145,7 @@ function visibleInstructionChanges(
   const visibleSeqs = new Set(agent.session.surface.nodes)
   const visible = new Map<string, WorkspaceInstructionChange>()
   for (const [seq, event] of agent.session.events.entries()) {
-    if (event.type !== 'context/message' || !isWorkspaceContextSource(event.data.source)) continue
+    if (event.type !== 'user/message' || !isWorkspaceContextSource(event.data.source)) continue
     const changes = workspaceInstructionChanges(event.data.meta)
     for (const change of changes) {
       const waiting = pending.get(change.scope)
@@ -281,7 +281,7 @@ export function observeInstructionSessionEvent(
   if (pending === undefined) return
 
   switch (event.type) {
-    case 'context/message': {
+    case 'user/message': {
       if (!isWorkspaceContextSource(event.data.source)) return
       for (const change of workspaceInstructionChanges(event.data.meta)) {
         const waiting = pending.get(change.scope)

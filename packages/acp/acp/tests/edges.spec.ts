@@ -49,7 +49,7 @@ describe('ACP automation output boundary', () => {
       sessionId: SessionId('foreign'),
       agentOptions: { provider: 'mock', model: 'mock' },
     })
-    agent.send([{ type: 'text', text: 'go' }])
+    agent.followup([{ type: 'text', text: 'go' }])
     await agent.whenIdle()
     expect(harness.updates).toHaveLength(0)
   })

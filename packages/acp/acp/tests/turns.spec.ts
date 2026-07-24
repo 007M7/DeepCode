@@ -69,7 +69,7 @@ describe('ACP prompt lifecycle', () => {
     const sessionId = await newSession(harness)
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
     let injected = false
-    harness.ctx.on('agent/queued', (subject) => {
+    harness.ctx.on('agent/inbox/enqueue', (subject) => {
       if (subject === agent && !injected) {
         injected = true
         agent.inject([{ type: 'text', text: 'context' }], { source: { kind: 'plugin', plugin: 'test' } })
@@ -86,8 +86,8 @@ describe('ACP prompt lifecycle', () => {
     const sessionId = await newSession(harness)
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
     let inserted = false
-    harness.ctx.on('agent/queued', (subject, _content, info) => {
-      if (subject !== agent || info.source.kind !== 'user' || inserted) return
+    harness.ctx.on('agent/inbox/enqueue', (subject, message) => {
+      if (subject !== agent || message.source.kind !== 'user' || inserted) return
       inserted = true
       const source = { kind: 'plugin', plugin: 'test' } as const
       agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source } })

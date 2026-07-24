@@ -1,5 +1,7 @@
 # Session Query
 
+English | [中文](session-query.zh.md)
+
 Query vocabulary over the live-preferred logical session corpus. The [interface package](../../packages/session-query/session-query) owns exact reads, source precedence, relationship tracing, semantic extraction, and provider-independent filters, while the [SQLite package](../../packages/session-query/session-query-sqlite) owns the concrete full-text index lifecycle.
 
 Source: [`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
@@ -25,7 +27,17 @@ interface SessionRecord {
 }
 ```
 
-`SessionSurfaceSnapshot` is one exact-read observation rather than a retained subscription. Its raw-log boundary and folded events come from the same live-preferred load.
+`SessionLogSnapshot` is the complete detached, replay-validated raw log used by resume preflight. `SessionSurfaceSnapshot` is one exact-read surface observation rather than a retained subscription.
+
+```ts type-equiv
+/** One validated detached observation of a logical session's complete raw log. */
+interface SessionLogSnapshot {
+  /** Cloned session header selected from the same observation as `events`. */
+  session: SessionHeader
+  /** Cloned contiguous raw events after persistence repair and replay validation. */
+  events: SessionEvent[]
+}
+```
 
 ```ts type-equiv
 /** One atomic live-preferred observation of a session's current model surface. */

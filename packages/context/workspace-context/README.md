@@ -28,7 +28,7 @@ Instructions from: AGENTS.md
 </system-reminder>
 ```
 
-Newly reached scopes use a durable raw `context/message`:
+Newly reached scopes use a durable injected `user/message` (plugin source):
 
 ```md
 <system-reminder>
@@ -42,11 +42,11 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 
 A same-file edit starts with `Updated instructions from: <path>` and says to use the new content instead of the previously loaded content. When a candidate disappears or becomes a per-directory duplicate of an earlier candidate, the message is `Instructions removed: <path>` followed by `The previously loaded instructions from this file no longer apply.` Literal `</system-reminder>` text inside an instruction file is escaped so file content cannot close the plugin-owned frame.
 
-The plugin owns the complete `<system-reminder>` framing, and every `context/message` (from this plugin or any other) reaches the model verbatim as a user-role message with no wrapping.
+The plugin owns the complete `<system-reminder>` framing, and every injected `user/message` (from this plugin or any other) reaches the model verbatim as a user-role message with no wrapping.
 
 ## State And Refresh
 
-Model-visible text contains no hidden state markers. Each dynamic context event instead carries JSON metadata with a versioned list of `{ action, scope, path, digest? }` changes. On every relevant tool touch, the plugin reconstructs loaded state from its visible session events and overlays a short in-memory pending window for context present on the immutable top-level `tools/result` but not yet appended by the loop. A matching durable `context/message` confirms the pending transition. If the owning `step/end` arrives before a matching context reaches the log, the plugin clears the pending transition and its version fast path so the next successful touch can load it again. Nested Code Mode results stage pending changes under the outer execution token for same-run duplicate suppression; the outer result rolls that state back and recommits only contexts that survived outer policy.
+Model-visible text contains no hidden state markers. Each dynamic context event instead carries JSON metadata with a versioned list of `{ action, scope, path, digest? }` changes. On every relevant tool touch, the plugin reconstructs loaded state from its visible session events and overlays a short in-memory pending window for context present on the immutable top-level `tools/result` but not yet appended by the loop. A matching durable `user/message` confirms the pending transition. If the owning `step/end` arrives before a matching context reaches the log, the plugin clears the pending transition and its version fast path so the next successful touch can load it again. Nested Code Mode results stage pending changes under the outer execution token for same-run duplicate suppression; the outer result rolls that state back and recommits only contexts that survived outer policy.
 
 An unchanged path and SHA-1 content digest is not injected again. A per-session, per-scope metadata cache stores only `{ path, version, digest, trimmedDigest }`: when the provider's opaque `FsVersion` and the effective visible state both match, reconciliation skips the content read; a changed version triggers a bounded read and SHA-1 confirmation before any model-visible update. The `trimmedDigest` — SHA-1 over the whitespace-trimmed content — is the per-directory duplicate key, so an unchanged file can still be removed when an earlier candidate converges on its content. Resume works because SHA-1 state is persisted in the session log, while an empty in-memory version cache merely causes one confirming read. Compaction re-arms a scope after its context event leaves the visible surface even when the cached version is unchanged. A removal is a tombstone, so a later candidate reappearance is loaded again. Only model-visible changes actually rendered within the byte budget enter metadata, pending state, and the version cache; an omitted change remains eligible for a later touch, while a same-digest version refresh updates metadata only.
 
@@ -111,7 +111,7 @@ Prefix-stable within one loop instance because the baseline is frozen. A new or 
 
 #### What the model sees
 
-After a successful first-party filesystem call reaches a deeper directory, the next request includes one retained raw `context/message` with the newly applicable instruction file.
+After a successful first-party filesystem call reaches a deeper directory, the next request includes one retained injected `user/message` with the newly applicable instruction file.
 
 ##### Additional instruction template
 

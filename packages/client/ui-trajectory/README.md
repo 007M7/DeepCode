@@ -1,6 +1,6 @@
 # @deepseek-ai/dsh-client-ui-trajectory
 
-Trajectory/Waterfall placeholder views; the pure-consumer minimal plugin exemplar (registers two view tabs into the conversation's `'conversation.view'` slot ring, provides no service, declares no Context merge). Contract: api-contracts v3 §8.
+Trajectory turn-list chrome (sticky Turn / Message·Step groups / step cells) plus Waterfall placeholder; the pure-consumer minimal plugin exemplar (registers two view tabs into the conversation's `'conversation.view'` slot ring, provides no service, declares no Context merge). Contract: api-contracts v3 §8.
 
 ## Model Experience
 
@@ -12,4 +12,4 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **Both views are placeholders by charter** — coarse span derivation with no visual acceptance bar; the real implementations, anchor deep-linking, and span-click selection handoff are the P-III project.
+- **In-flight Time stays blank** — `partial` / `runningCalls` rows render with `—` until a live clock policy lands; selected styling is local-only (not wired to chat details); anchor deep-linking remains deferred.

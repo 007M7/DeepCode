@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-04-drop-image-content-block.zh.md)
+
 ## Problem
 
 `ImageBlock` (`packages/llm/llm/src/types.ts`) had no production producer, and every consumer on every path DROPPED it: the DeepSeek adapter's serializer skipped image blocks (a documented MVP limitation), the pi-ai converter skipped them as unrepresentable, and the compaction estimator charged a flat token constant and rendered `[image]`. ACP independently rejected image prompt content. An `ImageBlock` constructed then would silently vanish from the provider wire — the vocabulary advertised a capability no path honored, which is the silent-data-loss shape AGENTS.md's defensive patterns warn against. The only constructors anywhere were tests pinning the skip/drop/estimate branches.

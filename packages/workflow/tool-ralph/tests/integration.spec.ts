@@ -70,7 +70,7 @@ describe('dsh-tool-ralph over the real spawn and worker-thread stack', () => {
       agentOptions: { provider: 'mock', model: 'mock' },
     })
     const parent = parentHandle.agent
-    parent.send([{ type: 'text', text: 'PARENT_PROMPT_MARKER' }])
+    parent.followup([{ type: 'text', text: 'PARENT_PROMPT_MARKER' }])
     await parent.whenIdle()
 
     const children: Agent[] = []

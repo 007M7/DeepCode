@@ -1,8 +1,10 @@
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
+import { logPath, toHeaderLine } from '../../../packages/session-persistence/session-persistence-jsonl/src/format.ts'
 import { runTuiPtySmoke, type TuiPtySmokeOptions } from './pty-harness.ts'
 
 const binScript = fileURLToPath(new URL('../../../packages/examples/tui-demo/src/bin.ts', import.meta.url))
@@ -42,6 +44,31 @@ function seedWorkspace(
       await writeFile(file, content)
     }
   }
+}
+
+/** Seed one real plaintext JSONL session for the `/resume` selector and host handoff smoke. */
+async function seedResumeSession(cwd: string): Promise<void> {
+  const sessionCwd = await realpath(cwd)
+  const id = SessionId('resume-target')
+  const meta: SessionHeader = { version: 0, id, createdAt: 1_700_000_000_000, cwd: sessionCwd }
+  const events: SessionEvent[] = [
+    { type: 'turn/start', seq: 0, time: 1_700_000_000_001, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'user/message', seq: 1, time: 1_700_000_000_002, data: { content: [{ type: 'text', text: 'persisted prompt' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { type: 'step/start', seq: 2, time: 1_700_000_000_003, data: { turn: 1, step: 1 } },
+    { type: 'request/header', seq: 3, time: 1_700_000_000_004, data: { header: { config: { provider: 'tui-scripted', model: 'tui-scripted-model' } }, reason: 'initial' } },
+    { type: 'assistant/message', seq: 4, time: 1_700_000_000_005, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'persisted answer' }], provenance: { provider: 'tui-scripted', model: 'tui-scripted-model' } }, surfaceOp: 'append' },
+    { type: 'step/end', seq: 5, time: 1_700_000_000_006, data: { turn: 1, step: 1 } },
+    { type: 'session/title', seq: 6, time: 1_700_000_000_007, data: { title: 'Resume selector design', messageSeqs: [1], source: { kind: 'fallback' } } },
+    { type: 'todo/write', seq: 7, time: 1_700_000_000_008, data: { todos: [{ content: 'Preserve restored state', status: 'in_progress' }] } },
+    { type: 'turn/end', seq: 8, time: 1_700_000_000_009, data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  const file = logPath(join(cwd, '.sessions'), sessionCwd, id, 'none')
+  await mkdir(dirname(file), { recursive: true })
+  await writeFile(file, [
+    JSON.stringify(toHeaderLine(meta)),
+    ...events.map(event => JSON.stringify(event)),
+    '',
+  ].join('\n'))
 }
 
 /** The rendered system prompt from the first `request/header` in the workspace's persisted session log. */
@@ -233,6 +260,27 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
 })
 
 describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
+  it('exec-replaces the TUI for /resume and restores the same session state', async () => {
+    const output = await smoke({
+      label: 'dsh in-place resume',
+      tempDirPrefix: 'dsh-in-place-resume-',
+      binScript: dshBinScript,
+      configArgs: [scriptedConfigPath],
+      prepare: seedResumeSession,
+      actions: [
+        { waitFor: 'scripted TUI ready.', send: '/resume\r' },
+        { waitFor: 'Resume selector design', send: 'Resume selector design' },
+        { waitFor: '⌕ Resume selector design', send: '\r' },
+        { waitFor: 'Preserve restored state', send: '/exit\r' },
+      ],
+    })
+    const released = output.indexOf('\u001B[?2004l')
+    const restored = output.indexOf('Resume selector design — DeepSeek Harness')
+    expect(released).toBeGreaterThanOrEqual(0)
+    expect(restored).toBeGreaterThan(released)
+    expect(output).toContain('Preserve restored state')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('boots the shipped default config with no arguments and no personal overlay', async () => {
     const output = await smoke({
       label: 'dsh default boot',

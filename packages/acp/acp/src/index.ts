@@ -244,18 +244,18 @@ export function apply(ctx: Context, config: AcpConfig): void {
         if (text.trim().length === 0) throw invalidParams('empty prompt')
 
         const stopReason = await new Promise<StopReason>((resolve, reject) => {
-          // Arm the slot before send() so a listener-driven synchronous turn
-          // cannot slip past correlation; a synchronous send() failure (an
-          // agent disposed outside the bridge, e.g. an agent-loop-only reload)
-          // must free the slot again or the session would reject every later
-          // prompt as already in flight.
+          // Arm the slot before followup() so a listener-driven synchronous
+          // turn cannot slip past correlation; a synchronous followup()
+          // failure (an agent disposed outside the bridge, e.g. an
+          // agent-loop-only reload) must free the slot again or the session
+          // would reject every later prompt as already in flight.
           record.inflight = { resolve, reject, turn: undefined }
           try {
-            record.agent.send([{ type: 'text', text }])
+            record.agent.followup([{ type: 'text', text }])
           } catch (error: unknown) {
             record.inflight = undefined
-            // send() throws only Errors (disposed agent / invalid input); the
-            // String arm is a defensive fallback for a non-Error throw.
+            // followup() throws only Errors (disposed agent / invalid input);
+            // the String arm is a defensive fallback for a non-Error throw.
             /* v8 ignore next */
             const detail = error instanceof Error ? error.message : String(error)
             throw internalError(`prompt was not queued: ${detail}`)

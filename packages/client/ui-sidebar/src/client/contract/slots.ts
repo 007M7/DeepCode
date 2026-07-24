@@ -25,8 +25,8 @@ export type SidebarRootInjected = {
   /** Open (switch to) a session. */
   onOpen: (id: SessionId) => void
   /**
-   * Create a session and open it; cwd targets a project group (the
-   * sidebar's three creation entries all land in the new session).
+   * New-session affordance: no cwd clears selection onto the empty-state
+   * launch; a cwd create-then-opens a session in that project group.
    */
   onCreate: (cwd?: string) => void
   /** Collapse the sidebar column (layout service action; owner share stays {collapsed,width}). */

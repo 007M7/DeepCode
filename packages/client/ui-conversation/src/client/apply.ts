@@ -160,6 +160,10 @@ export function apply(ctx: Context): void {
         if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable')
         return conversation.startSession(opts)
       },
+      createWorkspaceSession: async (name) => {
+        const id = await sessions.createWorkspace(name)
+        sessions.open(id)
+      },
     }),
   }, EmptyState)
 }

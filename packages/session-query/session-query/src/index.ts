@@ -5,7 +5,7 @@
  */
 
 import { Context, Service } from 'cordis'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import { Session, type SessionId } from '@deepseek-ai/dsh-session'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleSnapshot } from '@deepseek-ai/dsh-session-title'
 import type {
@@ -19,6 +19,7 @@ import type {
   SessionEventTraceRequest,
   SessionEventWindow,
   SessionLineageTrace,
+  SessionLogSnapshot,
   SessionRecord,
   SessionResultFilter,
   SessionSearchExecContext,
@@ -116,6 +117,21 @@ export abstract class SessionQueryService extends Service {
    */
   listSessions(): Promise<SessionRecord[]> {
     return this._corpus.listSessions()
+  }
+
+  /**
+   * Read and replay-validate one complete logical session log without making it live.
+   * @param sessionId - live or persisted session id to read.
+   * @returns cloned header and complete raw event log from one observation.
+   * @throws when persistence, header compatibility, or replay validation fails.
+   */
+  async readSession(sessionId: SessionId): Promise<SessionLogSnapshot> {
+    const loaded = await this._corpus.load(sessionId)
+    new Session(sessionId, loaded.events, loaded.header)
+    return {
+      session: structuredClone(loaded.header),
+      events: loaded.events.map(event => structuredClone(event)),
+    }
   }
 
   /**

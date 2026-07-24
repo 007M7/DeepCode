@@ -2,6 +2,8 @@
 
 Status: implemented
 
+English | [中文](2026-07-06-approval-seam.zh.md)
+
 ## Problem
 
 Two callers need one closed decision — "may this specific action proceed?": `tools/pre-execute`'s `ask` decision (including the Claude-Code hook bridge's `permissionDecision: ask`) and the [sandbox Agent Note](2026-07-06-sandbox.md)'s post-denial one-shot escalation retry. A shared seam keeps them from inventing separate outcome vocabularies, channel routing, cancellation, and audit trails, while guaranteeing that a deployment with no answerer can never grant an unanswerable request. The answerer may be an interactive host or an automated controller.

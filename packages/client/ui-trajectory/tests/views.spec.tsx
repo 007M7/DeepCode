@@ -3,9 +3,9 @@
  * View registration acceptance on the real framework stack: the plugin fiber
  * registers trajectory/waterfall into a real SlotsService view ring, tabs
  * switch inside ConversationRoot (renderSlot share driven by the same tab
- * projection apply uses) without collapsing chat, the span stats header
- * renders inside both view bodies, and fiber disposal removes both tabs.
- * Span derivation edge cases ride along.
+ * projection apply uses) without collapsing chat, trajectory renders the
+ * turn-list chrome (no span stats bar), waterfall keeps in-body stats, and
+ * fiber disposal removes both tabs. Span derivation edge cases ride along.
  */
 import { Context } from 'cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -36,19 +36,26 @@ afterEach(cleanup)
 // The chat store persists under its declared key; clear so one case's active
 // view cannot rehydrate into the next.
 beforeEach(() => {
-  localStorage.clear()
+  // Node 22+ exposes an experimental localStorage global that is undefined
+  // without --localstorage-file; only clear when a real Storage is present.
+  if (typeof localStorage !== 'undefined') localStorage.clear()
 })
 
 /** Node fixture: user prologue, two turns, one tool result inside turn 1. */
 const NODES = [
-  { kind: 'user', seq: 1, content: [], source: null },
-  { kind: 'assistant', seq: 2, turn: 1, step: 1, blocks: [] },
-  { kind: 'tool-result', seq: 3, callId: 'c1', call: null, content: [], isError: false, callView: null, resultView: null },
-  { kind: 'assistant', seq: 4, turn: 2, step: 1, blocks: [] },
+  { kind: 'user', seq: 1, time: 1_000, content: [], source: null },
+  { kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1, blocks: [] },
+  {
+    kind: 'tool-result', seq: 3, time: 3_000, callId: 'c1', call: null, callTime: null,
+    content: [], isError: false, callView: null, resultView: null,
+  },
+  { kind: 'assistant', seq: 4, time: 4_000, turn: 2, step: 1, blocks: [] },
 ] as unknown as ConversationSnapshot['nodes']
 
 function fakeSession(nodes: ConversationSnapshot['nodes']) {
-  const store = createSnapshotStore<{ nodes: ConversationSnapshot['nodes'] }>({ nodes })
+  const store = createSnapshotStore({
+    nodes, partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'],
+  })
   return { store, useSession: bindSnapshotSelector(store) as unknown as UseSession<ConversationSnapshot> }
 }
 
@@ -99,8 +106,9 @@ function tabsOf(slots: SlotsService): ViewTab[] {
 
 /** Mount ConversationRoot over the ring ledger with an outlet-faithful renderSlot. */
 function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES) {
-  const sessionSnapshot = createSnapshotStore<{ running: boolean; removed: boolean; promptError: null; nodes: ConversationSnapshot['nodes'] }>({
+  const sessionSnapshot = createSnapshotStore({
     running: false, removed: false, promptError: null, nodes,
+    partial: null, runningCalls: [] as ConversationSnapshot['runningCalls'],
   })
   const useSession = bindSnapshotSelector(sessionSnapshot) as unknown as UseSession<ConversationSnapshot>
   const chat = createChatStore().create()
@@ -158,17 +166,20 @@ describe('plugin registration', () => {
 })
 
 describe('tab switching in ConversationRoot', () => {
-  it('renders all three tabs, defaults to chat, and switches to trajectory with its header stats', async () => {
+  it('renders all three tabs, defaults to chat, and switches to trajectory without stats chrome', async () => {
     const b = await bench()
     mount(b.slots)
     expect(screen.getByTestId('chat-body')).toBeTruthy()
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Chat', 'Trajectory', 'Waterfall'])
 
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
-    // In-body header stats over NODES: turns 0/1/2, 2 assistant steps, 1 tool call.
-    expect(screen.getByText('3 turns · 2 steps · 1 tool calls')).toBeTruthy()
-    expect(screen.getByText('turn 0')).toBeTruthy()
-    expect(screen.getByText('1 steps · 1 calls · 2 nodes')).toBeTruthy()
+    // Trajectory no longer mounts the span stats bar; the turn-list chrome owns the body.
+    expect(screen.queryByText(/turns ·/)).toBeNull()
+    expect(screen.getByText('Turn 1')).toBeTruthy()
+    expect(screen.getByText('Turn 2')).toBeTruthy()
+    expect(screen.getAllByText('Message').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Step 1').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Input').length).toBeGreaterThan(0)
     expect(screen.queryByTestId('chat-body')).toBeNull()
   })
 

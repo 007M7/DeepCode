@@ -27,6 +27,9 @@
       "path": "../../packages/ui/app-boot"
     },
     {
+      "path": "../../packages/ui/tui"
+    },
+    {
       "path": "../../packages/util/paths"
     },
     {
