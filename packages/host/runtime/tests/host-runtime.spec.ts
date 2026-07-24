@@ -496,7 +496,8 @@ describe('sessions.prompt / cancel', () => {
 
     const { sessionId: nestedSession } = expectOk(await host.api.sessions.create(request({})))
     const nestedAgent = host.ctx.agents.get(nestedSession) as Agent
-    nestedAgent.session.append('context/message', {
+    // Injected context is a user/message with a non-user source (send-unify).
+    nestedAgent.session.append('user/message', {
       content: [
         null,
         [],
@@ -511,7 +512,7 @@ describe('sessions.prompt / cancel', () => {
           content: [{ type: 'image', attachment: image.attachment }],
         },
       ] as never,
-      source: { kind: 'user' },
+      source: { kind: 'plugin', plugin: 'spec' },
     }, { surfaceOp: 'append' })
     expectOk(await host.api.sessions.attachment(request({
       sessionId: nestedSession,
@@ -534,9 +535,9 @@ describe('sessions.prompt / cancel', () => {
       ...image.attachment,
       attachmentId: `sha256:${'b'.repeat(64)}` as never,
     }
-    streamedAgent.session.append('context/message', {
+    streamedAgent.session.append('user/message', {
       content: [{ type: 'image', attachment: missingRef }],
-      source: { kind: 'user' },
+      source: { kind: 'plugin', plugin: 'spec' },
     }, { surfaceOp: 'append' })
     const missing = await host.api.sessions.attachment(request({
       sessionId: streamedSession,
