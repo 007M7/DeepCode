@@ -129,8 +129,10 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
   if (record.id !== id) {
     throw new Error(`session header id "${String(record.id)}" does not match session id "${id}"`)
   }
-  if (typeof record.createdAt !== 'number' || !Number.isFinite(record.createdAt)) {
-    throw new Error('session header createdAt must be a finite number')
+  if (typeof record.createdAt !== 'number'
+    || !Number.isSafeInteger(record.createdAt)
+    || record.createdAt < 0) {
+    throw new Error('session header createdAt must be a non-negative safe integer')
   }
   if (record.cwd !== undefined) {
     if (typeof record.cwd !== 'string') throw new Error('session header cwd must be a string')
