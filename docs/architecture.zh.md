@@ -67,7 +67,7 @@ waterfall（瀑布式事件）的行为类似环绕中间件：监听器调用 `
 
 **会话**采用仅追加方式。每个普通**轮次**领取一项已排队的 `send()` 输入；注入不领取输入。后续轮次会等待前一个已领取轮次的检查点，但可以与其共用同一个 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）。模型和插件停止轮次时，该轮次结束；一个**步骤**包含一次模型请求及其工具。在[下文时序](agent-lifecycle.md)中，引号标记持久事件。
 
-未提供 id 时会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建，而 `resumeSessionId` 要求已有历史。恢复流程在加载前领取活跃会话租约，在发布前还原沿袭关系和委托深度，并在系统停稳后释放租约。初始化失败会发出 `agent-loop/config-start-failed`；其余拆卸过程保持静默。
+未提供 id 时会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建，而 `resumeSessionId` 要求已有历史。恢复流程会在发布前还原沿袭关系和委托深度。初始化失败会发出 `agent-loop/config-start-failed`；其余拆卸过程保持静默。
 
 ### 轮次流程
 

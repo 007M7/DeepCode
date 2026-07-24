@@ -6,17 +6,15 @@ English | [中文](2026-07-21-tui-resume-command.zh.md)
 
 ## Problem
 
-The original `/resume` printed shell commands. It did not let a keyboard user inspect titles or outcomes, distinguish corruption from a missing adapter, detect another live owner, or safely transfer the terminal. Leaving the TUI and manually launching a command also hid the required ordering: finish current work, flush it, release the UI and app, then restore the exact persisted identity without silently creating a replacement.
+The original `/resume` printed shell commands. It did not let a keyboard user inspect titles or outcomes, distinguish corruption from a missing adapter, or safely transfer the terminal. Leaving the TUI and manually launching a command also hid the required ordering: finish current work, flush it, release the UI and app, then restore the exact persisted identity without silently creating a replacement.
 
 ## Decision
 
-`/resume` uses the TUI's existing interactive overlay seam. It lists the current workspace by last logged activity and searches log-backed title or id. Each candidate displays current/live/persisted state, last turn outcome, recent provider/model, durable goal phase when present, and the id as secondary text. The current session and another live owner's session remain visible but disabled.
+`/resume` uses the TUI's existing interactive overlay seam. It lists the current workspace by last logged activity and searches log-backed title or id. Each candidate displays current/live/persisted state, last turn outcome, recent provider/model, durable goal phase when present, and the id as secondary text. The current session and sessions already live in this runtime remain visible but disabled.
 
-`session-query.readSession()` supplies a detached complete log validated by the same core replay boundary used by resume. The TUI folds title and goal state from that log. A candidate load failure is local to that row; selecting a candidate repeats the load, cwd, occupancy, and route checks so a stale listing cannot bypass preflight. A missing adapter reports an intact session with an unavailable route. Running agents are never switched or cancelled implicitly.
+`session-query.readSession()` supplies a detached complete log validated by the same core replay boundary used by resume. The TUI folds title and goal state from that log. A candidate load failure is local to that row; selecting a candidate revalidates the log, `cwd`, route, current agent's idle status, and the exclusions for the current session and sessions already live in this runtime, so a stale listing cannot bypass preflight. A missing adapter reports an intact session with an unavailable route. This preflight does not lock the target or exclude another process.
 
-First-party persistence backends implement a cross-process live lease under the shared coordinator. JSONL uses an owner-only lock record; SQLite uses a `live_session_leases` row. Both retain PID plus an exec-stable nonce, reject another live process, reclaim a dead PID or a same-PID different-incarnation owner, and release only after the exact session lifecycle drains. A final process-local release excludes reacquisition until the physical lease settles. `AgentLoop.resume()` claims before load, closing the preflight/start race.
-
-After preflight, the TUI claims the target's exec-stable live lease before flushing the current session. A lost claim race remains in the current TUI; any later recoverable failure releases the reservation. The TUI then stops the terminal before calling `TuiRuntime.handoffResume`. The shipped `dsh` host disposes the root app and uses `process.execve` with a normalized `--resume` argument, atomically replacing the process while retaining the target reservation rather than spawning a second terminal owner. The resumed app publishes the same `SessionId`; ordinary replay restores transcript, title, todos, and durable goal state. Goal activation is intentionally disarmed, and the TUI asks for human confirmation or `/goal resume`.
+After preflight, the TUI flushes the current session, confirms that its agent remains idle, then stops the terminal before calling `TuiRuntime.handoffResume`. The shipped `dsh` host disposes the root app and uses `process.execve` with a normalized `--resume` argument, atomically replacing the process rather than starting a child. The resumed app publishes the same `SessionId`; ordinary replay restores transcript, title, todos, and durable goal state. Goal activation is intentionally disarmed, and the TUI asks for human confirmation or `/goal resume`.
 
 `resumeCommand` remains an exit and no-host fallback. The TUI substitutes `{session}` only for display and never executes arbitrary shell text. The exit hint still appears only after the current session is durable.
 
@@ -32,10 +30,10 @@ After preflight, the TUI claims the target's exec-stable live lease before flush
 
 ## Consequences
 
-- Persistence schema and artifact layout include live leases; SQLite advances its unreleased schema version and rejects older databases under the repository's pre-release policy.
+- Concurrent processes can select or resume the same persisted session because preflight does not serialize them.
 - `/resume` depends on `session-query` for discovery and complete-log reads, but persistence and host handoff remain optional; without a host, the command fallback stays usable.
 - Process replacement intentionally restarts Loader composition. Runtime-only state is rebuilt, while only logged or header-backed session state survives.
 
 ## Testing
 
-TUI tests cover keyboard navigation, title/id search, Escape cancellation, running-agent refusal, route absence, occupied and corrupt rows, fallback commands, and stop-before-handoff ordering. Session-query tests pin detached full-log validation. Persistence contracts retain valid/corrupt/interrupted behavior, while a real JSONL child process proves another owner is disabled and its crashed lease is reclaimed. Agent-loop resume tests pin exact identity and history; title, todo, and goal replay suites pin restored projections and disarmed goal activation. The keyless TUI snapshot owns the visible selector frame.
+TUI tests cover keyboard navigation, title/id search, Escape cancellation, refusal of the current session and sessions already live in this runtime, route absence, corrupt rows, preflight revalidation, fallback commands, and stop-before-handoff ordering. Session-query tests pin detached full-log validation. Agent-loop resume tests pin exact identity and history; title, todo, and goal replay suites pin restored projections and disarmed goal activation. The keyless TUI snapshot owns the visible selector frame.

@@ -8,7 +8,7 @@ A SQLite durable session-persistence backend — a second `SessionPersistence` i
 
 ## Storage model
 
-Each `SessionEvent` maps 1:1 onto a row in an `events` table `(session_id, seq, type, time, data, source_event_seqs, surface_op)` — `data` is the event payload as JSON text, so the row shape is the event verbatim (including `assistant/chunk`, keeping `seq` contiguous). The two `TEXT` columns `source_event_seqs` and `surface_op` are nullable; they store the event's optional surface-metadata fields (see [session surface](../../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md)). Out-of-log metadata (`SessionHeader`), a per-materialization incarnation id, and a monotonic per-log revision live in a `sessions` row; a singleton state row carries the immutable store id, and `live_session_leases` stores one PID and exec-stable nonce per live session. A `sessions` row is written only by the first `append` — its existence is the lazy-materialization signal (`list` reports exactly the sessions that have a row).
+Each `SessionEvent` maps 1:1 onto a row in an `events` table `(session_id, seq, type, time, data, source_event_seqs, surface_op)` — `data` is the event payload as JSON text, so the row shape is the event verbatim (including `assistant/chunk`, keeping `seq` contiguous). The two `TEXT` columns `source_event_seqs` and `surface_op` are nullable; they store the event's optional surface-metadata fields (see [session surface](../../../.agents/notes/implemented/architecture/2026-06-18-session-surface.md)). Out-of-log metadata (`SessionHeader`), a per-materialization incarnation id, and a monotonic per-log revision live in a `sessions` row; a singleton state row carries the immutable store id. A `sessions` row is written only by the first `append` — its existence is the lazy-materialization signal (`list` reports exactly the sessions that have a row).
 
 The repository's Node range supports unflagged `node:sqlite`. The database enables foreign keys and uses the configured journal mode (`wal` by default; use a rollback mode where WAL shared-memory files are unsuitable). `PRAGMA user_version` stores the table-layout version; databases with any other version are rejected because this unreleased format has no migrations.
 
@@ -33,7 +33,7 @@ interface Config {
 
 ## Write path
 
-Like the JSONL backend, the plugin copies each frozen `session/event` into one controller per live session and starts an eager drain. A live lease is acquired in a `BEGIN IMMEDIATE` transaction before flush or resume and released after the exact lifecycle retires. Concurrent events share the current transaction; events admitted during it form a follow-up batch, while `session/flush` waits until both current and pending batches are durable. The controller persists a fork's seed once, keeps a write cursor so resume never re-appends stored events, and seeds live sessions on apply because HMR does not replay `session/created`. Dispose drains every retained controller before closing the database.
+Like the JSONL backend, the plugin copies each frozen `session/event` into one controller per live session and starts an eager drain. Concurrent events share the current transaction; events admitted during it form a follow-up batch, while `session/flush` waits until both current and pending batches are durable. The controller persists a fork's seed once, keeps a write cursor so resume never re-appends stored events, and seeds live sessions on apply because HMR does not replay `session/created`. Dispose drains every retained controller before closing the database.
 
 ## Model Experience
 
@@ -57,4 +57,3 @@ SQLite storage does not mutate live request prefixes. A resumed loop can reuse p
 - **Write contention has no wait or retry policy** — the backend sets no busy timeout and retries no locked-database error, so another connection holding a write transaction makes the operation reject immediately.
 - **Only the current `SCHEMA_VERSION` opens** — a database with any other schema version is rejected rather than migrated (unreleased software; no persisted user data to preserve).
 - **Nothing deletes stored sessions** — rows accumulate until removed externally (the seam has no deletion surface; `ON DELETE CASCADE` is wired for such out-of-band cleanup).
-- **Foreign PID reuse is fail-closed** — same-PID claimants compare the exec-stable nonce, while other processes conservatively retain a stale row until the reused PID exits or an operator verifies and removes it.

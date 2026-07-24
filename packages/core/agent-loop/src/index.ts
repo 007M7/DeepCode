@@ -25,7 +25,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionHeader } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
-import type { SessionLiveLease, SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import {
   bindReactLoopAgentContext,
   prepareReactLoopAgent,
@@ -114,7 +114,6 @@ class AgentCreationTransaction {
   private scope: Scope | undefined
   private session: Session | undefined
   private lifecycleDispose: (() => Promise<void> | void) | undefined
-  private liveLease: SessionLiveLease | undefined
   private detachSession: (() => void) | undefined
   private detachAgent: (() => void) | undefined
   private publishing = false
@@ -187,12 +186,6 @@ class AgentCreationTransaction {
     ])
   }
 
-  /** Retain a pre-load persistence lease until this transaction fully tears down. */
-  holdLiveLease(lease: SessionLiveLease): void {
-    this.assertActive()
-    this.liveLease = lease
-  }
-
   /** Construct the driver and scope, then install their complete ordered lifecycle. */
   prepare(options: AgentOptions, session: Session, maxParallelToolCalls: number): ReactLoopAgent {
     this.assertActive()
@@ -226,11 +219,6 @@ class AgentCreationTransaction {
       // First yielded, disposed last.
       yield () => { this.finish() }
       yield scope.rawDispose
-      yield async () => {
-        const lease = this.liveLease
-        this.liveLease = undefined
-        await lease?.release()
-      }
       yield () => {
         this.detachSession?.()
         this.detachSession = undefined
@@ -327,13 +315,7 @@ class AgentCreationTransaction {
         try {
           await this.scope?.dispose()
         } finally {
-          try {
-            const lease = this.liveLease
-            this.liveLease = undefined
-            await lease?.release()
-          } finally {
-            this.finish()
-          }
+          this.finish()
         }
       }
     })())
@@ -625,15 +607,6 @@ export class AgentLoop extends Service implements AgentFactory {
       options.signal,
     )
     try {
-      const claiming = persistence.claimLive(options.resumeSessionId)
-      let lease: SessionLiveLease
-      try {
-        lease = await transaction.waitFor(claiming)
-      } catch (error) {
-        void claiming.then(claim => claim.release(), () => {})
-        throw error
-      }
-      transaction.holdLiveLease(lease)
       const loaded = await transaction.waitFor(persistence.load(options.resumeSessionId))
       transaction.assertActive()
       const session = this.runtime.ctx.sessions.prepare(options.resumeSessionId, {

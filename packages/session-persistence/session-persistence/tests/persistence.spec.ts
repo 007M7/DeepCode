@@ -4,7 +4,7 @@ import SessionStore, { SessionId, isJsonValue } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
-  type PersistenceBackend, type SessionLiveOwner, type SessionPersistenceSnapshot, type StoredPrefix,
+  type PersistenceBackend, type SessionPersistenceSnapshot, type StoredPrefix,
 } from '../src/index.ts'
 import { runPersistenceContract, meta, oneTurnLog } from './contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from './coordinator-contract.ts'
@@ -345,46 +345,6 @@ describe('PersistenceCoordinator stored identity', () => {
       await fiber.dispose()
       await ctx.fiber.dispose()
     }
-  })
-})
-
-describe('PersistenceCoordinator live leases', () => {
-  it('degrades without backend hooks and retries a failed final release', async () => {
-    const fallbackCtx = new Context()
-    await fallbackCtx.plugin(SessionStore)
-    const fallback = new PersistenceCoordinator(fallbackCtx, new ControlledBackend())
-    const fallbackClaim = await fallback.claimLive(SessionId('fallback-live'))
-    expect(await fallback.isLive(SessionId('fallback-live'))).toBe(false)
-    await fallbackClaim.release()
-    await fallbackCtx.fiber.dispose()
-
-    class LeaseBackend extends ControlledBackend {
-      releaseAttempts = 0
-      async acquireLive(_id: SessionId, _owner: SessionLiveOwner): Promise<() => Promise<void>> {
-        return async () => {
-          this.releaseAttempts += 1
-          if (this.releaseAttempts === 1) throw new Error('lease release failed')
-        }
-      }
-      inspectLive(): Promise<boolean> {
-        return Promise.resolve(true)
-      }
-    }
-
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    const backend = new LeaseBackend()
-    const coordinator = new PersistenceCoordinator(ctx, backend)
-    const first = await coordinator.claimLive(SessionId('leased'))
-    const second = await coordinator.claimLive(SessionId('leased'))
-    expect(await coordinator.isLive(SessionId('leased'))).toBe(true)
-    await first.release()
-    await expect(second.release()).rejects.toThrow('lease release failed')
-    await expect(second.release()).resolves.toBeUndefined()
-    await expect(second.release()).resolves.toBeUndefined()
-    expect(backend.releaseAttempts).toBe(2)
-    expect(await coordinator.isLive(SessionId('leased'))).toBe(true)
-    await ctx.fiber.dispose()
   })
 })
 
@@ -834,21 +794,5 @@ describe('SessionPersistence service registration', () => {
     } finally {
       await fiber.dispose()
     }
-  })
-
-  it('provides a reference-counted process-local lease fallback', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(MemoryPersistence)
-    const id = SessionId('local-live')
-    const first = await ctx.sessionPersistence.claimLive(id)
-    const second = await ctx.sessionPersistence.claimLive(id)
-    expect(await ctx.sessionPersistence.isLive(id)).toBe(true)
-    await first.release()
-    await first.release()
-    expect(await ctx.sessionPersistence.isLive(id)).toBe(true)
-    await second.release()
-    expect(await ctx.sessionPersistence.isLive(id)).toBe(false)
-    await ctx.fiber.dispose()
   })
 })

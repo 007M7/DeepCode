@@ -1,24 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { spawn } from 'node:child_process'
 import { Context } from 'cordis'
-import { access, appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { sessionLiveOwner } from '@deepseek-ai/dsh-session-persistence'
 import { encodeSegment, eventLines, logPath, scanLog, sessionDir, toHeaderLine } from '../src/format.ts'
 import { runPersistenceContract, meta, oneTurnLog, appendLog } from '../../session-persistence/tests/contract.ts'
 import { runCoordinatorContract, type CoordinatorFixture } from '../../session-persistence/tests/coordinator-contract.ts'
 
 let root: string
 const dirs: string[] = []
-const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
-const leaseChild = fileURLToPath(new URL('./fixtures/live-lease-child.ts', import.meta.url))
-const leaseRaceChild = fileURLToPath(new URL('./fixtures/live-lease-race-child.ts', import.meta.url))
-const tsxLoader = fileURLToPath(import.meta.resolve('tsx'))
 
 type MutableSessionHeader = { -readonly [K in keyof SessionHeader]: SessionHeader[K] }
 
@@ -147,186 +140,6 @@ describe('SessionPersistenceJsonl: format helpers', () => {
     })
     await fiber.dispose()
   })
-})
-
-describe('SessionPersistenceJsonl: cross-process live leases', () => {
-  it('reference-counts one physical lease across backend instances in the process', async () => {
-    const dir = await freshRoot()
-    const contexts = [new Context(), new Context()]
-    for (const ctx of contexts) {
-      await ctx.plugin(SessionStore)
-      await ctx.plugin(SessionPersistenceJsonl, { root: dir, compression: 'none' })
-    }
-    try {
-      const first = await contexts[0]!.sessionPersistence.claimLive(SessionId('shared-live'))
-      const second = await contexts[1]!.sessionPersistence.claimLive(SessionId('shared-live'))
-      await first.release()
-      await expect(contexts[1]!.sessionPersistence.isLive(SessionId('shared-live'))).resolves.toBe(true)
-      await second.release()
-      await expect(contexts[1]!.sessionPersistence.isLive(SessionId('shared-live'))).resolves.toBe(false)
-    } finally {
-      await Promise.all(contexts.map(ctx => ctx.fiber.dispose()))
-    }
-  })
-
-  it('disables another live owner and reclaims its lease after the process exits', async () => {
-    const dir = await freshRoot()
-    const marker = join(dir, 'lease-held')
-    const child = spawn(process.execPath, ['--import', tsxLoader, leaseChild, dir, marker], {
-      cwd: repoRoot,
-      env: { ...process.env, TSX_TSCONFIG_PATH: join(repoRoot, 'tsconfig.json') },
-      stdio: ['ignore', 'ignore', 'pipe'],
-    })
-    let stderr = ''
-    child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (chunk: string) => { stderr += chunk })
-    try {
-      await vi.waitFor(() => access(marker), { timeout: 30_000 })
-      const ctx = new Context()
-      await ctx.plugin(SessionStore)
-      await ctx.plugin(SessionPersistenceJsonl, { root: dir, compression: 'none' })
-      try {
-        await expect(ctx.sessionPersistence.isLive(SessionId('leased-session'))).resolves.toBe(true)
-        await expect(ctx.sessionPersistence.claimLive(SessionId('leased-session')))
-          .rejects.toThrow('occupied by another live process')
-        const closed = new Promise<void>(resolve => child.once('close', () => { resolve() }))
-        child.kill()
-        await closed
-        await expect(ctx.sessionPersistence.isLive(SessionId('leased-session'))).resolves.toBe(false)
-        const leasePath = join(dir, '.live', `${encodeSegment('leased-session')}.lock`)
-        await writeFile(leasePath, `${JSON.stringify({ pid: child.pid, nonce: 'dead-owner' })}\n`)
-        const claim = await ctx.sessionPersistence.claimLive(SessionId('leased-session'))
-        await claim.release()
-      } finally {
-        await ctx.fiber.dispose()
-      }
-    } catch (error) {
-      throw new Error(`live-lease child failed: ${stderr}`, { cause: error })
-    } finally {
-      if (child.exitCode === null && child.signalCode === null) child.kill()
-    }
-  }, 40_000)
-
-  it('fails closed on malformed lease records and surfaces lease read errors', async () => {
-    const dir = await freshRoot()
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionPersistenceJsonl, { root: dir, compression: 'none' })
-    const liveDir = join(dir, '.live')
-    await mkdir(liveDir, { recursive: true })
-    try {
-      const malformed = [
-        'not json',
-        JSON.stringify(null),
-        JSON.stringify({ pid: 1.5, nonce: 'x' }),
-        JSON.stringify({ pid: 0, nonce: 'x' }),
-        JSON.stringify({ pid: process.pid, nonce: 1 }),
-        JSON.stringify({ pid: process.pid, nonce: '' }),
-      ]
-      for (const [index, content] of malformed.entries()) {
-        const id = SessionId(`malformed-${index}`)
-        const path = join(liveDir, `${encodeSegment(id)}.lock`)
-        await writeFile(path, content)
-        await expect(ctx.sessionPersistence.isLive(id)).resolves.toBe(true)
-        await expect(ctx.sessionPersistence.claimLive(id)).rejects.toThrow('occupied by another live process')
-      }
-
-      const unreadable = SessionId('unreadable-lease')
-      await mkdir(join(liveDir, `${encodeSegment(unreadable)}.lock`))
-      await expect(ctx.sessionPersistence.isLive(unreadable)).rejects.toThrow()
-
-      const replaced = SessionId('replaced-release')
-      const claim = await ctx.sessionPersistence.claimLive(replaced)
-      const replacedPath = join(liveDir, `${encodeSegment(replaced)}.lock`)
-      await writeFile(replacedPath, JSON.stringify({ pid: process.pid, nonce: 'replacement' }))
-      await claim.release()
-      expect(await readFile(replacedPath, 'utf8')).toContain('replacement')
-
-      const inherited = SessionId('inherited-owner')
-      const inheritedPath = join(liveDir, `${encodeSegment(inherited)}.lock`)
-      await writeFile(inheritedPath, JSON.stringify(sessionLiveOwner()))
-      await expect(ctx.sessionPersistence.isLive(inherited)).resolves.toBe(true)
-      const inheritedClaim = await ctx.sessionPersistence.claimLive(inherited)
-      await inheritedClaim.release()
-
-      const reusedPid = SessionId('reused-pid')
-      const reusedPidPath = join(liveDir, `${encodeSegment(reusedPid)}.lock`)
-      await writeFile(reusedPidPath, JSON.stringify({ pid: process.pid, nonce: 'prior-incarnation' }))
-      await expect(ctx.sessionPersistence.isLive(reusedPid)).resolves.toBe(false)
-      const reusedPidClaim = await ctx.sessionPersistence.claimLive(reusedPid)
-      await reusedPidClaim.release()
-
-      await expect(ctx.sessionPersistence.claimLive(SessionId('x'.repeat(300))))
-        .rejects.toThrow()
-
-      const guarded = SessionId('guarded-reclaim')
-      const guardedPath = join(liveDir, `${encodeSegment(guarded)}.lock`)
-      await writeFile(guardedPath, JSON.stringify({ pid: 2_147_483_647, nonce: 'dead-owner' }))
-      await writeFile(`${guardedPath}.reclaim`, 'busy')
-      await expect(ctx.sessionPersistence.claimLive(guarded))
-        .rejects.toThrow('reclamation is already in progress')
-    } finally {
-      await ctx.fiber.dispose()
-    }
-  })
-
-  it('allows exactly one process to reclaim a stale lease', async () => {
-    const dir = await freshRoot()
-    const liveDir = join(dir, '.live')
-    await mkdir(liveDir, { recursive: true })
-    const sessionId = SessionId('reclaim-race')
-    await writeFile(
-      join(liveDir, `${encodeSegment(sessionId)}.lock`),
-      JSON.stringify({ pid: 2_147_483_647, nonce: 'dead-owner' }),
-    )
-    const gate = join(dir, 'race-start')
-    const markers = [join(dir, 'race-a'), join(dir, 'race-b')]
-    const children = markers.map(marker => spawn(
-      process.execPath,
-      ['--import', tsxLoader, leaseRaceChild, dir, gate, marker, sessionId],
-      {
-        cwd: repoRoot,
-        env: { ...process.env, TSX_TSCONFIG_PATH: join(repoRoot, 'tsconfig.json') },
-        stdio: ['ignore', 'ignore', 'pipe'],
-      },
-    ))
-    const errors = ['', '']
-    children.forEach((child, index) => {
-      child.stderr.setEncoding('utf8')
-      child.stderr.on('data', (chunk: string) => { errors[index] = (errors[index] ?? '') + chunk })
-    })
-    try {
-      await writeFile(gate, 'go')
-      await vi.waitFor(() => Promise.all(markers.map(marker => access(marker))), { timeout: 30_000 })
-      const outcomes = await Promise.all(markers.map(marker => readFile(marker, 'utf8')))
-      expect(outcomes.filter(outcome => outcome === 'claimed')).toHaveLength(1)
-      expect(outcomes.filter(outcome => outcome.startsWith('rejected:'))).toHaveLength(1)
-
-      const winner = children[outcomes.findIndex(outcome => outcome === 'claimed')]!
-      const loser = children[outcomes.findIndex(outcome => outcome.startsWith('rejected:'))]!
-      if (loser.exitCode === null && loser.signalCode === null) {
-        await new Promise<void>(resolve => loser.once('close', () => { resolve() }))
-      }
-      const ctx = new Context()
-      await ctx.plugin(SessionStore)
-      await ctx.plugin(SessionPersistenceJsonl, { root: dir, compression: 'none' })
-      try {
-        await expect(ctx.sessionPersistence.claimLive(sessionId))
-          .rejects.toThrow('occupied by another live process')
-      } finally {
-        await ctx.fiber.dispose()
-      }
-      const closed = new Promise<void>(resolve => winner.once('close', () => { resolve() }))
-      winner.kill()
-      await closed
-    } catch (error) {
-      throw new Error(`live-lease race children failed: ${errors.join('\n')}`, { cause: error })
-    } finally {
-      for (const child of children) {
-        if (child.exitCode === null && child.signalCode === null) child.kill()
-      }
-    }
-  }, 40_000)
 })
 
 describe('SessionPersistenceJsonl: durability and crash semantics', () => {

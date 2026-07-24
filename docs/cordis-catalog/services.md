@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:416`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:398`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -961,29 +961,11 @@ abstract list(): Promise<SessionHeader[]>
  * @returns one header and opaque revision per materialized session without loading full logs.
  */
 abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>
-
-/**
- * Atomically acquire this process's live ownership of a session id.
- * Reentrant claims share one backend lease. First-party backends override
- * this process-local fallback to reject another live process and reclaim a
- * dead owner.
- * @param id - session identity that is about to become live.
- * @returns a single-release reference owned by the caller.
- */
-claimLive(id: SessionId): Promise<SessionLiveLease>
-
-/**
- * Check whether any process currently owns a live lease for this session.
- * The base implementation reports only claims on this service instance.
- * @param id - persisted or prospective session identity.
- * @returns true while a non-stale lease exists, including this process's lease.
- */
-isLive(id: SessionId): Promise<boolean>
 ```
 
-Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLiveLease](../core-data-structures/persistence.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md)
+Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md)
 
-Source: [`packages/session-persistence/session-persistence/src/index.ts:60`](../../packages/session-persistence/session-persistence/src/index.ts)
+Source: [`packages/session-persistence/session-persistence/src/index.ts:52`](../../packages/session-persistence/session-persistence/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService` (abstract seam)
 

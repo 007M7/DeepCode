@@ -6,9 +6,6 @@ The JSONL durable session-persistence backend — a concrete `SessionPersistence
 
 ```
 <root>/
-  .live/
-    <encoded-id>.lock               # PID + nonce cross-process live lease
-    <encoded-id>.lock.reclaim       # ephemeral stale-owner takeover guard
   cwd-<sha256(cwd)[:12]>/        # per-project bucket (or _no-cwd/ when no cwd)
     <encoded-id>.jsonl.zstd      # default: checksummed header frame + append frames
     <encoded-id>.jsonl           # only with compression: 'none'
@@ -46,7 +43,7 @@ A root belongs to one encoding. Startup discovery and targeted lookup reject the
 
 ## Write path
 
-The plugin copies frozen session events into one controller per live session and starts an eager drain. Before a session can flush or resume, the coordinator claims an exclusive `.live/<encoded-id>.lock` containing the process PID and an exec-stable nonce; another live process is rejected, while a dead owner is reclaimed under the separate `.reclaim` guard. Concurrent events share the current write; events admitted during it form a follow-up batch, while `session/flush` waits until both current and pending batches are durable. A per-session cursor prevents resumed sessions from re-appending stored events, and live sessions are seeded when the plugin loads. Disposal drains every retained controller before releasing its lease.
+The plugin copies frozen session events into one controller per live session and starts an eager drain. Concurrent events share the current write; events admitted during it form a follow-up batch, while `session/flush` waits until both current and pending batches are durable. A per-session cursor prevents resumed sessions from re-appending stored events, and live sessions are seeded when the plugin loads. The owning backend instance serializes operations for one session; disposal drains every retained controller before teardown.
 
 ## Model Experience
 
@@ -69,6 +66,5 @@ JSONL storage does not mutate live request prefixes. A resumed loop can reuse pr
 - **Only the configured encoding and current `SESSION_FORMAT_VERSION` (v0) load** — changing compression requires a separate/fresh root or selecting the legacy raw mode; the pre-release format has no migration.
 - **Compressed files are not directly line-readable** — use the backend to load them, or select `compression: 'none'` before writing a fresh root when text fixtures or external line readers are required.
 - **Nothing deletes session files** — logs accumulate under `root` until removed externally (the seam has no deletion surface).
-- **Lease scope is local-host advisory ownership** — PID plus same-process nonce checks prevent two ordinary local Harness processes from resuming the same id, but foreign PID reuse remains fail-closed and this is not a distributed lease for shared network filesystems or hostile principals.
-- **A crash during stale-lease takeover fails closed** — if the reclaiming process itself crashes while holding the short-lived `.reclaim` guard, an operator must remove that guard after confirming no recovery is active.
+- **One live writer per session** — append and repair are coordinated only inside the owning backend instance. Another backend instance or process must not write the same session until that owner reaches quiescent disposal; initial same-id publication remains collision-safe through the POSIX no-overwrite hard link or Windows write-through rename without replacement.
 - **POSIX materialization requires hard-link support** — first append uses `link()` so same-id races fail instead of overwriting a committed log; Windows uses write-through rename without replacement.

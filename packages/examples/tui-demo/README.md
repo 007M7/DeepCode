@@ -45,7 +45,7 @@ Swappable LLM, bash, filesystem, and other capability providers remain in the le
 | `ui` | owner defaults | TUI presentation settings such as reasoning, color, and card height |
 | `resumeSessionId` | — | Exact persisted session to resume |
 
-Fresh runs mint a `main-session-<uuid>` session id and pass it to both the TUI and configured agent. Resumed runs bind both components to `resumeSessionId`. The TUI mounts before the spine so it can render a matching config-start failure instead of leaving a blank terminal. The app composes persistence and session query for `/resume`; an embedding host may additionally provide `tuiResumeHost` for safe in-place process handoff.
+Fresh runs mint a `main-session-<uuid>` session id and pass it to both the TUI and configured agent. Resumed runs bind both components to `resumeSessionId`. The TUI mounts before the spine so it can render a matching config-start failure instead of leaving a blank terminal. The app composes persistence and session query for `/resume`; an embedding host may additionally provide `tuiResumeHost` for in-place process handoff.
 
 ## The bin
 

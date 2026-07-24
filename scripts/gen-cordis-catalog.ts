@@ -95,7 +95,6 @@ export const LINK_MAP: Record<string, string> = {
   CreateSessionOptions: 'persistence.md',
   SessionHeader: 'persistence.md',
   SessionLocation: 'persistence.md',
-  SessionLiveLease: 'persistence.md',
   SessionPersistenceSnapshot: 'persistence.md',
   ConfinedArgv: 'sandbox.md',
   SandboxExecutionPolicy: 'sandbox.md',

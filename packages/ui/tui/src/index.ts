@@ -79,7 +79,7 @@ import type {
 } from '@deepseek-ai/dsh-session-query'
 // Type import also declaration-merges the optional `sessionPersistence`
 // service onto `Context` so `ctx.get('sessionPersistence')` is typed.
-import type { SessionLiveLease } from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { SkillDefinition, SkillResourceBase, SkillService } from '@deepseek-ai/dsh-skill'
 import type {
   FileDiff,
@@ -349,7 +349,7 @@ export interface TuiRuntime {
   formatCwd?: (cwd: string | undefined) => string
   /** Monotonic-enough wall clock for elapsed status rendering. Defaults to `Date.now`. */
   now?(): number
-  /** Host-owned safe process handoff; absent leaves `resumeCommand` as the fallback. */
+  /** Host-owned process handoff; absent leaves `resumeCommand` as the fallback. */
   handoffResume?: TuiResumeHost['handoff']
 }
 
@@ -1283,7 +1283,6 @@ interface ResumeRoute {
 
 interface ResumeCandidate {
   record: SessionRecord
-  occupied: boolean
   title: string
   lastActivityAt: number
   lastTurn: string
@@ -1324,7 +1323,6 @@ function summarizeResumeCandidate(
   snapshot: SessionLogSnapshot,
   currentId: SessionId,
   cwd: string | undefined,
-  occupied: boolean,
   availableProviders: ReadonlySet<string>,
 ): ResumeCandidate {
   const title = foldSessionTitle(snapshot.events)?.title ?? 'Untitled session'
@@ -1332,14 +1330,13 @@ function summarizeResumeCandidate(
   const foldedGoal = foldGoal(snapshot.events).goal
   let disabledReason: string | undefined
   if (record.header.id === currentId) disabledReason = 'current session'
-  else if (record.live || occupied) disabledReason = 'occupied by another live agent'
+  else if (record.live) disabledReason = 'session is already live in this runtime'
   else if (record.header.cwd !== cwd) disabledReason = 'different workspace'
   else if (route !== undefined && !availableProviders.has(route.provider)) {
     disabledReason = `session is complete, but route is currently unavailable (${route.provider}/${route.model})`
   }
   return {
     record,
-    occupied,
     title,
     lastActivityAt: snapshot.events.at(-1)?.time ?? snapshot.session.createdAt,
     lastTurn: resumeTurnLabel(snapshot),
@@ -1422,7 +1419,7 @@ class ResumeDialog implements Component, Focusable {
       const selected = index === this.selectedIndex
       const status = [
         candidate.disabledReason === 'current session' ? 'current' : undefined,
-        candidate.record.live || candidate.occupied ? 'live' : undefined,
+        candidate.record.live ? 'live' : undefined,
         candidate.record.persisted ? 'persisted' : undefined,
       ].filter((value): value is string => value !== undefined).join(' · ')
       const lead = `${selected ? '›' : ' '} ${displayText(candidate.title)}`
@@ -1841,8 +1838,6 @@ export function createTuiChat(
   let modelOverlay: TuiOverlaySession | undefined
   let resumeOverlay: TuiOverlaySession | undefined
   let resumeInFlight = false
-  let resumeReservation: SessionLiveLease | undefined
-  let resumeReservationCommitted = false
   let resumeScan = 0
   let tuiServiceFiber: Fiber | undefined
   const target: AgentLlmTargetRef = { current: initialTarget(agent), assembled: undefined }
@@ -1855,12 +1850,6 @@ export function createTuiChat(
   const now = (): number => runtime.now?.() ?? Date.now()
   const agentStatus = (): AgentStatus => agent.status
   const isDisposed = (): boolean => disposed
-  const releaseResumeReservation = async (): Promise<void> => {
-    const reservation = resumeReservation
-    if (reservation === undefined) return
-    await reservation.release()
-    resumeReservation = undefined
-  }
 
   // A configured subtitle renders as a banner line; when absent, the banner has
   // no subtitle. The banner itself sweeps in on start (see startBannerReveal).
@@ -2444,8 +2433,6 @@ export function createTuiChat(
     shuttingDown ??= (async () => {
       disposed = true
       overlayManager.beginShutdown()
-      /* v8 ignore else -- the committed branch is the non-returning exec handoff covered by the keyless PTY test */
-      if (!resumeReservationCommitted) await releaseResumeReservation()
       contextResolution = undefined
       clearStatus()
       for (const controller of commandControllers) controller.abort(new Error('TUI disposed'))
@@ -2825,9 +2812,6 @@ export function createTuiChat(
     providers: ReadonlySet<string>,
   ): Promise<ResumeCandidate> => {
     try {
-      const occupied = record.live || (record.persisted && persistence !== undefined
-        ? await persistence.isLive(record.header.id)
-        : false)
       let snapshot: SessionLogSnapshot
       const live = ctx.sessions.get(record.header.id)
       if (live !== undefined) {
@@ -2845,13 +2829,11 @@ export function createTuiChat(
         snapshot,
         agent.session.id,
         agent.session.header.cwd,
-        occupied,
         providers,
       )
     } catch (error: unknown) {
       return {
         record,
-        occupied: record.live,
         title: 'Unreadable session',
         lastActivityAt: record.header.createdAt,
         lastTurn: 'log unavailable',
@@ -2895,14 +2877,8 @@ export function createTuiChat(
           : `This host cannot hand off in place. Exit and run: ${fallback}`, 'warning')
         return
       }
-      if (persistence === undefined) {
-        throw new Error('Resume is unavailable: session persistence is not mounted.')
-      }
-      resumeReservation = await persistence.claimLive(checked.record.header.id)
-      if (disposed) {
-        await releaseResumeReservation()
-        return
-      }
+      /* v8 ignore next -- shutdown during preflight invalidates an awaited service read or reaches this guard */
+      if (disposed) return
       await ctx.sessions.flush(agent.session)
       // Disposal can run while the flush promise is pending; TypeScript does not model that reentry.
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
@@ -2916,29 +2892,18 @@ export function createTuiChat(
       if (disposed) return
       ui.stop()
       terminalReleased = true
-      resumeReservationCommitted = true
       await hostHandoff(checked.record.header.id)
       throw new Error('resume host returned without replacing the process')
     } catch (error: unknown) {
-      /* v8 ignore next -- a committed host disposes this TUI and never returns; recoverable rejection keeps it live */
       if (!disposed) {
-        resumeReservationCommitted = false
-        let reported = error
-        try {
-          await releaseResumeReservation()
-        } catch (releaseError: unknown) {
-          reported = new Error(
-            `${errorChain(error)}; target reservation release failed: ${errorChain(releaseError)}`,
-          )
-        }
         if (terminalReleased) {
           ui.start()
           ui.setFocus(editor)
-          appendNotice(`Resume handoff failed: ${errorChain(reported)}`, 'error')
+          appendNotice(`Resume handoff failed: ${errorChain(error)}`, 'error')
         } else {
           await overlay.close()
           resumeOverlay = undefined
-          appendNotice(`Resume failed: ${errorChain(reported)}`, 'error')
+          appendNotice(`Resume failed: ${errorChain(error)}`, 'error')
         }
       }
     } finally {

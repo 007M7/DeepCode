@@ -67,7 +67,7 @@ The shipped loop runs prompt-to-checkpoint work through plugin services and even
 
 A **session** is append-only. Each ordinary **turn** claims one queued `send()` item; injection claims none. A successor awaits the preceding claimed turn's checkpoint but may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)). A turn ends when model and plugins stop it; a **step** is one model request plus tools. In the [sequence below](agent-lifecycle.md), quotes mark durable events.
 
-Creation without an id mints `<config-id>-session-<uuid>`; `sessionId` restores-or-creates, while `resumeSessionId` requires history. Resume claims a live lease before load, restores lineage and delegation depth before publication, and releases after quiescence. Startup failures emit `agent-loop/config-start-failed`; teardown is otherwise silent.
+Creation without an id mints `<config-id>-session-<uuid>`; `sessionId` restores-or-creates, while `resumeSessionId` requires history. Resume restores lineage and delegation depth before publication. Startup failures emit `agent-loop/config-start-failed`; teardown is otherwise silent.
 
 ### Turn Flow
 

@@ -15,9 +15,8 @@ import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import {
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
-  sessionLeaseOwnerIsLive, shareSessionLiveLease,
-  type PersistenceBackend, type SessionLiveLease, type SessionLiveOwner,
-  type SessionLocation, type SessionPersistenceSnapshot, type StoredPrefix,
+  type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
+  type StoredPrefix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -162,14 +161,6 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return this.coordinator.inspect(id)
   }
 
-  override claimLive(id: SessionId): Promise<SessionLiveLease> {
-    return this.coordinator.claimLive(id)
-  }
-
-  override isLive(id: SessionId): Promise<boolean> {
-    return this.coordinator.isLive(id)
-  }
-
   // One method serves both public `list` and the backend hook; delegating it to
   // the coordinator would call this hook recursively.
 
@@ -280,55 +271,6 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     }))
   }
 
-  /** Atomically acquire one SQLite-backed process lease. */
-  async acquireLive(id: SessionId, owner: SessionLiveOwner): Promise<() => Promise<void>> {
-    await this.ready
-    return shareSessionLiveLease(
-      `sqlite:${this.storeIdentity}:${id}`,
-      () => Promise.resolve().then(() => this.acquireLiveRow(id, owner)),
-    )
-  }
-
-  private acquireLiveRow(id: SessionId, owner: SessionLiveOwner): () => Promise<void> {
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      const current = this.liveLeaseFor(id)
-      if (current !== undefined
-        && (current.pid !== owner.pid || current.nonce !== owner.nonce)) {
-        if (sessionLeaseOwnerIsLive(current, owner)) {
-          throw new Error(`session "${id}" is occupied by another live process`)
-        }
-        this.db.prepare('DELETE FROM live_session_leases WHERE session_id = ?').run(id)
-      }
-      this.db.prepare(`
-        INSERT INTO live_session_leases (session_id, pid, nonce) VALUES (?, ?, ?)
-        ON CONFLICT(session_id) DO UPDATE SET pid = excluded.pid, nonce = excluded.nonce
-      `).run(id, owner.pid, owner.nonce)
-      this.db.exec('COMMIT')
-    } catch (error) {
-      this.db.exec('ROLLBACK')
-      throw error
-    }
-    return async () => {
-      await this.ready
-      this.db.prepare(
-        'DELETE FROM live_session_leases WHERE session_id = ? AND pid = ? AND nonce = ?',
-      ).run(id, owner.pid, owner.nonce)
-    }
-  }
-
-  /** Report a non-stale SQLite lease and remove a crashed owner's row. */
-  async inspectLive(id: SessionId, owner: SessionLiveOwner): Promise<boolean> {
-    await this.ready
-    const current = this.liveLeaseFor(id)
-    if (current === undefined) return false
-    if ((current.pid === owner.pid && current.nonce === owner.nonce)
-      || sessionLeaseOwnerIsLive(current, owner)) return true
-    this.db.prepare('DELETE FROM live_session_leases WHERE session_id = ? AND pid = ? AND nonce = ?')
-      .run(id, current.pid, current.nonce)
-    return false
-  }
-
   /** Close the database handle (awaited by the coordinator's dispose, post-drain). */
   async close(): Promise<void> {
     await this.ready
@@ -340,11 +282,6 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   /** Fetch a session's row, or undefined if absent. */
   private rowFor(id: SessionId): SessionRow | undefined {
     return this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as unknown as SessionRow | undefined
-  }
-
-  private liveLeaseFor(id: SessionId): { pid: number; nonce: string } | undefined {
-    return this.db.prepare('SELECT pid, nonce FROM live_session_leases WHERE session_id = ?')
-      .get(id) as { pid: number; nonce: string } | undefined
   }
 
   /**

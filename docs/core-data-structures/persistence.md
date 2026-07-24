@@ -34,18 +34,6 @@ interface SessionLocation {
 }
 ```
 
-## `SessionLiveLease` — live ownership capability
-
-`claimLive(id)` returns one idempotent release capability. The base service tracks only its own process; first-party backends additionally reject another live process and reclaim a dead owner's lease. `isLive(id)` reports either local or backend ownership without claiming it.
-
-```ts type-equiv
-/** Idempotent capability releasing one acquired live-session lease reference. */
-interface SessionLiveLease {
-  /** Release this caller's lease reference after its live session reaches quiescence. */
-  release(): Promise<void>
-}
-```
-
 ## `SessionHeader` — metadata beside the log
 
 Per-session metadata travels **separately** from the event log: format version, cwd, lineage, and the seed boundary are storage concerns, not conversation events, so they stay out of `SessionEventMap` and never reach `deriveMessages()`. The header is attached to a `Session` via `session.header`.

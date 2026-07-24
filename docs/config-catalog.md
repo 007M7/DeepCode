@@ -113,7 +113,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:378`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:360`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
@@ -957,7 +957,7 @@ export interface Config {
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:40`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-jsonl/src/index.ts:39`](../packages/session-persistence/session-persistence-jsonl/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-sqlite`
 
@@ -996,7 +996,7 @@ export interface Config {
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
-Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:59`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
+Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:58`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-query-sqlite`
 

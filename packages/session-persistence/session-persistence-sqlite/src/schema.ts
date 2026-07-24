@@ -17,7 +17,7 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 9
+export const SCHEMA_VERSION = 8
 
 /**
  * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
@@ -68,7 +68,7 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
  * rather than being migrated in place.
  * @param path - the SQLite database file to open (created when absent).
  * @param journalMode - validated journal pragma.
- * @returns the open handle with pragmas applied and all tables ensured.
+ * @returns the open handle with pragmas applied and all three tables ensured.
  */
 export function openDatabase(path: string, journalMode: JournalMode): DatabaseSync {
   const db = new DatabaseSync(path)
@@ -126,13 +126,6 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
       source_event_seqs TEXT,
       surface_op        TEXT,
       PRIMARY KEY (session_id, seq)
-    ) STRICT
-  `)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS live_session_leases (
-      session_id TEXT PRIMARY KEY,
-      pid        INTEGER NOT NULL,
-      nonce      TEXT NOT NULL
     ) STRICT
   `)
 }

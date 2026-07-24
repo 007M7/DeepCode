@@ -260,7 +260,7 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
 })
 
 describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
-  it('hands /resume to one exec-replaced terminal owner and restores the same session state', async () => {
+  it('exec-replaces the TUI for /resume and restores the same session state', async () => {
     const output = await smoke({
       label: 'dsh in-place resume',
       tempDirPrefix: 'dsh-in-place-resume-',

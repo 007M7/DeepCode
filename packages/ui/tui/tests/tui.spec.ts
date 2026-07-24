@@ -396,7 +396,7 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('keeps persisted query records readable when live-lease inspection is unavailable', async () => {
+  it('keeps persisted query records readable without a persistence service', async () => {
     const target = header('query-only-persisted', 10, '/workspace')
     const result = await setup({
       cwd: '/workspace',
@@ -503,21 +503,19 @@ describe('resume command and /resume', () => {
     expect(result.terminal.stopped).toBeGreaterThan(0)
   })
 
-  it('preflights route availability and occupied or corrupt sessions without losing the current TUI', async () => {
+  it('preflights route availability and corrupt sessions without losing the current TUI', async () => {
     const missing = header('missing-route', 10, '/workspace')
-    const occupied = header('occupied', 20, '/workspace')
     const corrupt = header('corrupt', 30, '/workspace')
     const result = await setup({
       cwd: '/workspace',
       config: { resumeCommand: RESUME },
       sessionPersistence: {
-        list: async () => [missing, occupied, corrupt],
-        isLive: async id => id === occupied.id,
+        list: async () => [missing, corrupt],
         load: async (id) => {
           if (id === corrupt.id) throw new Error('checksum mismatch')
           return {
-            meta: id === missing.id ? missing : occupied,
-            events: resumeEvents(id === missing.id ? 'Missing adapter' : 'Busy session', id === missing.id ? 'absent-provider' : 'deepseek'),
+            meta: missing,
+            events: resumeEvents('Missing adapter', 'absent-provider'),
           }
         },
       },
@@ -527,13 +525,44 @@ describe('resume command and /resume', () => {
     await tick(); await tick()
     expect(result.terminal.output).toContain('Missing adapter')
     expect(result.terminal.output).toContain('absent-provider/model-1')
-    expect(result.terminal.output).toContain('Busy session')
     expect(result.terminal.output).toContain('Unreadable session')
     result.terminal.send('Missing adapter')
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('route is currently unavailable')
     expect(result.terminal.stopped).toBe(0)
+    await dispose(result)
+  })
+
+  it('keeps a session already live in this runtime visible but disabled', async () => {
+    const target = header('live-target', 10, '/workspace')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        ctx.provide('sessionQuery', {
+          listSessions: () => Promise.resolve([{
+            header: target,
+            live: true,
+            persisted: true,
+          }]),
+          readSession: () => Promise.resolve({
+            session: target,
+            events: resumeEvents('Live target'),
+          }),
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('Live target')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('session is already live in this runtime')
+    expect(handoff).not.toHaveBeenCalled()
     await dispose(result)
   })
 
@@ -562,8 +591,6 @@ describe('resume command and /resume', () => {
 
   it('flushes, releases the terminal, and invokes one host handoff for the same SessionId', async () => {
     const target = header('target-session', 10, '/workspace')
-    const releaseReservation = vi.fn(() => Promise.resolve())
-    const claimLive = vi.fn(async () => ({ release: releaseReservation }))
     const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(() => Promise.reject(new Error('test host retained process')))
     const result = await setup({
       cwd: '/workspace',
@@ -571,7 +598,6 @@ describe('resume command and /resume', () => {
       sessionPersistence: {
         list: async () => [target],
         load: async () => ({ meta: target, events: resumeEvents('Target session') }),
-        claimLive,
       },
     })
     result.terminal.send('/resume')
@@ -582,8 +608,6 @@ describe('resume command and /resume', () => {
     await tick(); await tick()
     expect(handoff).toHaveBeenCalledTimes(1)
     expect(handoff).toHaveBeenCalledWith(target.id)
-    expect(claimLive).toHaveBeenCalledWith(target.id)
-    expect(releaseReservation).toHaveBeenCalledTimes(1)
     expect(result.terminal.stopped).toBeGreaterThan(0)
     expect(result.terminal.output).toContain('Resume handoff failed: test host retained process')
     await dispose(result)
@@ -635,39 +659,46 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('keeps the current TUI when the target reservation loses the preflight race', async () => {
-    const target = header('reservation-race', 10, '/workspace')
+  it('does not flush or hand off when disposal begins during selected-session preflight', async () => {
+    const target = header('dispose-during-preflight', 10, '/workspace')
+    const secondListing = Promise.withResolvers<SessionRecord[]>()
     const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
     const flush = vi.fn()
+    let listings = 0
+    const record: SessionRecord = { header: target, live: false, persisted: true }
     const result = await setup({
       cwd: '/workspace',
       handoffResume: handoff,
       async configureContext(ctx) {
         ctx.provide('tools', { get: () => undefined } as never)
         ctx.on('session/flush', flush)
-      },
-      sessionPersistence: {
-        list: async () => [target],
-        load: async () => ({ meta: target, events: resumeEvents('Reservation race') }),
-        claimLive: () => Promise.reject(new Error('occupied after preflight')),
+        ctx.provide('sessionQuery', {
+          listSessions: () => ++listings === 1 ? Promise.resolve([record]) : secondListing.promise,
+          readSession: () => Promise.resolve({
+            session: target,
+            events: resumeEvents('Dispose during preflight'),
+          }),
+        } as never)
       },
     })
     result.terminal.send('/resume')
     result.terminal.send('\r')
-    await tick(); await tick()
-    result.terminal.send('Reservation race')
+    await tick()
+    result.terminal.send('Dispose during preflight')
     result.terminal.send('\r')
-    await tick(); await tick()
-    expect(result.terminal.output).toContain('Resume failed: occupied after preflight')
+    await vi.waitFor(() => { expect(listings).toBe(2) })
+    await dispose(result)
+    secondListing.resolve([record])
+    await tick()
     expect(flush).not.toHaveBeenCalled()
     expect(handoff).not.toHaveBeenCalled()
-    expect(result.terminal.stopped).toBe(0)
-    await dispose(result)
   })
 
-  it('refuses host handoff when a query backend has no persistence lease service', async () => {
+  it('hands off a validated session exposed by a query backend without a persistence service', async () => {
     const target = header('query-without-persistence', 10, '/workspace')
-    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(
+      () => Promise.reject(new Error('test host retained process')),
+    )
     const result = await setup({
       cwd: '/workspace',
       handoffResume: handoff,
@@ -692,42 +723,14 @@ describe('resume command and /resume', () => {
     result.terminal.send('Query without persistence')
     result.terminal.send('\r')
     await tick(); await tick()
-    expect(result.terminal.output).toContain('session persistence is not mounted')
-    expect(handoff).not.toHaveBeenCalled()
+    expect(handoff).toHaveBeenCalledWith(target.id)
+    expect(result.terminal.output).toContain('Resume handoff failed: test host retained process')
     await dispose(result)
-  })
-
-  it('releases a reservation that resolves after TUI disposal', async () => {
-    const target = header('late-reservation', 10, '/workspace')
-    const claiming = Promise.withResolvers<{ release(): Promise<void> }>()
-    const release = vi.fn(() => Promise.resolve())
-    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
-    const result = await setup({
-      cwd: '/workspace',
-      handoffResume: handoff,
-      sessionPersistence: {
-        list: async () => [target],
-        load: async () => ({ meta: target, events: resumeEvents('Late reservation') }),
-        claimLive: () => claiming.promise,
-      },
-    })
-    result.terminal.send('/resume')
-    result.terminal.send('\r')
-    await tick(); await tick()
-    result.terminal.send('Late reservation')
-    result.terminal.send('\r')
-    await tick()
-    await dispose(result)
-    claiming.resolve({ release })
-    await tick()
-    expect(release).toHaveBeenCalledTimes(1)
-    expect(handoff).not.toHaveBeenCalled()
   })
 
   it('does not hand off after disposal begins during the current-session flush', async () => {
     const target = header('dispose-during-flush', 10, '/workspace')
     const flushing = Promise.withResolvers<undefined>()
-    const release = vi.fn(() => Promise.resolve())
     const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
     const result = await setup({
       cwd: '/workspace',
@@ -739,7 +742,6 @@ describe('resume command and /resume', () => {
       sessionPersistence: {
         list: async () => [target],
         load: async () => ({ meta: target, events: resumeEvents('Dispose during flush') }),
-        claimLive: async () => ({ release }),
       },
     })
     result.terminal.send('/resume')
@@ -752,14 +754,12 @@ describe('resume command and /resume', () => {
     await tick()
     flushing.resolve(undefined)
     await disposing
-    expect(release).toHaveBeenCalledTimes(1)
     expect(handoff).not.toHaveBeenCalled()
   })
 
   it('does not hand off after disposal begins while terminal input drains', async () => {
     const target = header('dispose-during-drain', 10, '/workspace')
     const draining = Promise.withResolvers<undefined>()
-    const release = vi.fn(() => Promise.resolve())
     const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
     const result = await setup({
       cwd: '/workspace',
@@ -767,7 +767,6 @@ describe('resume command and /resume', () => {
       sessionPersistence: {
         list: async () => [target],
         load: async () => ({ meta: target, events: resumeEvents('Dispose during drain') }),
-        claimLive: async () => ({ release }),
       },
     })
     result.terminal.drainInput.mockImplementationOnce(() => draining.promise)
@@ -780,36 +779,33 @@ describe('resume command and /resume', () => {
     await dispose(result)
     draining.resolve(undefined)
     await tick()
-    expect(release).toHaveBeenCalledTimes(1)
     expect(handoff).not.toHaveBeenCalled()
   })
 
-  it('reports a target reservation release failure after a recoverable host rejection', async () => {
-    const target = header('release-failure', 10, '/workspace')
-    let releases = 0
+  it('does not restart the terminal when a pending host rejects during disposal', async () => {
+    const target = header('host-rejects-during-disposal', 10, '/workspace')
+    const host = Promise.withResolvers<never>()
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(() => host.promise)
     const result = await setup({
       cwd: '/workspace',
-      handoffResume: () => Promise.reject(new Error('host rejected')),
+      handoffResume: handoff,
       sessionPersistence: {
         list: async () => [target],
-        load: async () => ({ meta: target, events: resumeEvents('Release failure') }),
-        claimLive: async () => ({
-          release: () => ++releases === 1
-            ? Promise.reject(new Error('lock unavailable'))
-            : Promise.resolve(),
-        }),
+        load: async () => ({ meta: target, events: resumeEvents('Host disposal') }),
       },
     })
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick(); await tick()
-    result.terminal.send('Release failure')
+    result.terminal.send('Host disposal')
     result.terminal.send('\r')
-    await tick(); await tick()
-    expect(result.terminal.output).toContain('target reservation release failed')
-    expect(result.terminal.output).toContain('release failed: lock')
+    await vi.waitFor(() => { expect(handoff).toHaveBeenCalled() })
+    const startsBeforeDispose = result.terminal.started
     await dispose(result)
-    expect(releases).toBe(2)
+    host.reject(new Error('host rejected after disposal'))
+    await tick()
+    expect(result.terminal.started).toBe(startsBeforeDispose)
+    expect(result.terminal.output).not.toContain('host rejected after disposal')
   })
 
   it('rejects a candidate whose cwd changes between listing and preflight', async () => {

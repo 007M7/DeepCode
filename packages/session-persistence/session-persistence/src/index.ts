@@ -8,18 +8,10 @@
 import { Context, Service } from 'cordis'
 import type { SessionEvent, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from './revision.ts'
-import type { SessionLiveLease } from './lease.ts'
 
 // Re-export the metadata vocabulary so consumers import it from the seam.
 export type { SessionHeader } from '@deepseek-ai/dsh-session'
 export { SessionPersistenceRevision } from './revision.ts'
-export {
-  sessionLeaseOwnerIsLive,
-  sessionLeaseProcessIsLive,
-  sessionLiveOwner,
-  shareSessionLiveLease,
-} from './lease.ts'
-export type { SessionLiveLease, SessionLiveOwner } from './lease.ts'
 
 /** Lightweight immutable source identity returned without loading a full log. */
 export interface SessionPersistenceSnapshot {
@@ -58,8 +50,6 @@ export interface SessionLocation {
  * rewriting committed events.
  */
 export abstract class SessionPersistence extends Service {
-  private readonly localLiveClaims = new Map<SessionId, number>()
-
   constructor(ctx: Context) {
     super(ctx, 'sessionPersistence')
   }
@@ -133,39 +123,6 @@ export abstract class SessionPersistence extends Service {
    * @returns one header and opaque revision per materialized session without loading full logs.
    */
   abstract listSnapshots(): Promise<SessionPersistenceSnapshot[]>
-
-  /**
-   * Atomically acquire this process's live ownership of a session id.
-   * Reentrant claims share one backend lease. First-party backends override
-   * this process-local fallback to reject another live process and reclaim a
-   * dead owner.
-   * @param id - session identity that is about to become live.
-   * @returns a single-release reference owned by the caller.
-   */
-  claimLive(id: SessionId): Promise<SessionLiveLease> {
-    this.localLiveClaims.set(id, (this.localLiveClaims.get(id) ?? 0) + 1)
-    let released = false
-    return Promise.resolve({
-      release: () => {
-        if (released) return Promise.resolve()
-        released = true
-        const refs = this.localLiveClaims.get(id) as number
-        if (refs <= 1) this.localLiveClaims.delete(id)
-        else this.localLiveClaims.set(id, refs - 1)
-        return Promise.resolve()
-      },
-    })
-  }
-
-  /**
-   * Check whether any process currently owns a live lease for this session.
-   * The base implementation reports only claims on this service instance.
-   * @param id - persisted or prospective session identity.
-   * @returns true while a non-stale lease exists, including this process's lease.
-   */
-  isLive(id: SessionId): Promise<boolean> {
-    return Promise.resolve(this.localLiveClaims.has(id))
-  }
 }
 
 export default SessionPersistence
