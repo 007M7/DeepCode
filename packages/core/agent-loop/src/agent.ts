@@ -12,6 +12,7 @@ import { Agent, AgentMessageId, agentCarrier, agentInterruptReasonOf, assembleCo
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import type {
+  AgentMessage,
   AgentMessageId as AgentMessageIdType,
   CancelOptions,
   AgentInterruptReason,
@@ -25,26 +26,17 @@ import {
   BlockAssembler, LlmError, deepFreeze, errorChain, isHarnessError, llmFailureOf, markAgentLoopRequest,
 } from '@deepseek-ai/dsh-llm'
 import type {
-  ContentBlock, GenerateOptions, LlmCallConfig, Message, MessageSource,
+  ContentBlock, GenerateOptions, LlmCallConfig, Message,
 } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
-import type { PromptMessageData, Session, SessionId, TurnEndReason, TurnTrigger } from '@deepseek-ai/dsh-session'
+import type { Session, SessionId, TurnEndReason, TurnTrigger, UserMessageData } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
 
 /** One message waiting in the queued or steering inbox. */
-interface PendingMessage {
-  id: AgentMessageIdType
-  content: ContentBlock[]
-  source: MessageSource
+interface PendingMessage extends AgentMessage {
   wakeup: boolean
-}
-
-/** Model-facing input awaiting the next step boundary. */
-interface OutboxItem extends PromptMessageData {
-  /** Present only when this input is a live inbox item. */
-  steering?: PendingMessage
 }
 
 function withoutToolCalls(message: Message): Message {
@@ -59,7 +51,7 @@ export class ReactLoopAgent extends Agent {
   /** Prompts awaiting individual turns. */
   private queued: PendingMessage[] = []
   /** Input taken into the session log at step boundaries. */
-  private outbox: OutboxItem[] = []
+  private outbox: (UserMessageData | PendingMessage)[] = []
 
   /** Whether observers see a running interval; consecutive turns share it. */
   private busy = false
@@ -120,7 +112,7 @@ export class ReactLoopAgent extends Agent {
       wakeup,
     }
     if (steering) {
-      this.outbox.push({ content: message.content, source: message.source, steering: message })
+      this.outbox.push(message)
     } else {
       this.queued.push(message)
     }
@@ -145,7 +137,7 @@ export class ReactLoopAgent extends Agent {
     if (!options.keepInbox) {
       const discarded = [
         ...this.queued,
-        ...this.outbox.map(item => item.steering).filter(steering => steering !== undefined),
+        ...this.outbox.filter((item): item is PendingMessage => 'id' in item),
       ]
       // Clear before abort observers run: replacement work belongs to the next turn.
       this.queued.length = 0
@@ -246,7 +238,7 @@ export class ReactLoopAgent extends Agent {
         step += 1
         const { continueTurn, maxTokens } = await this.step(turn, step, signal)
         if (maxTokens) reason = { kind: 'max-tokens' }
-        if (continueTurn || this.outbox.some(item => item.steering !== undefined)) continue
+        if (continueTurn || this.outbox.some(item => 'id' in item)) continue
         await this.loopCtx.serial(agentCarrier(this), 'agent/stopping', this, turn, signal)
         signal.throwIfAborted()
         if (!this.drainOutbox(turn)) break
@@ -438,14 +430,17 @@ export class ReactLoopAgent extends Agent {
   private drainOutbox(turn: number): boolean {
     let steered = false
     for (const item of this.outbox.splice(0)) {
-      const { steering: message, ...data } = item
-      if (message === undefined) {
-        this.session.append('user/message', data, { surfaceOp: 'append' })
+      if (!('id' in item)) {
+        this.session.append('user/message', item, { surfaceOp: 'append' })
         continue
       }
       steered = true
-      emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', message)
-      this.session.append('steering/message', { turn, ...data }, { surfaceOp: 'append' })
+      emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', item)
+      this.session.append(
+        'steering/message',
+        { turn, content: item.content, source: item.source },
+        { surfaceOp: 'append' },
+      )
     }
     return steered
   }

@@ -185,13 +185,13 @@ export interface EpochHeader {
 export type RequestHeaderReason = 'initial' | 'resume' | 'change'
 
 /**
- * Shared payload for user, injected-context, and steering prompt messages. A
+ * Shared payload for user, injected-context, and steering messages. A
  * direct human prompt, a synthetic `agent.inject()` context, and mid-turn
  * steering all project into the model transcript as verbatim user-role content;
  * they are told apart by `source` (a non-`user` kind marks injected context),
  * not by event type.
  */
-export interface PromptMessageData {
+export interface UserMessageData {
   /** Exact model-facing blocks. */
   content: ContentBlock[]
   /** Producer provenance. */
@@ -228,7 +228,7 @@ export interface SessionEventMap {
    * project their `content` verbatim; `source` tells them apart. An idle
    * injection may append this event between turns without running the model.
    */
-  'user/message': PromptMessageData
+  'user/message': UserMessageData
   /**
    * Durable record of a prompt veto and its reason. It is log-only: the blocked
    * prompt never enters the model-visible surface, and its turn runs zero steps.
@@ -270,7 +270,7 @@ export interface SessionEventMap {
     meta?: JsonValue
   }
   /** Steering content injected between steps of a running turn. */
-  'steering/message': PromptMessageData & { turn: number }
+  'steering/message': UserMessageData & { turn: number }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**

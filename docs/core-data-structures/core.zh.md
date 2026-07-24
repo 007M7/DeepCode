@@ -430,11 +430,9 @@ type AgentMessageId = Branded<'AgentMessageId'>
  * message's enqueue, dequeue, and discard events. Source defaults are already
  * applied, so these are the exact values the item was accepted with.
  */
-interface AgentMessage {
+interface AgentMessage extends UserMessageData {
   /** The id `send` returned for this message. */
   id: AgentMessageId
-  content: ContentBlock[]
-  source: MessageSource
 }
 ```
 
@@ -573,38 +571,26 @@ cause 是由 TypeScript 强制约束的同进程输入。活跃的 `TurnCancella
 
 ## 拦截决策
 
-每个 `agent/*` 拦截 waterfall 都返回一个小型、特定于 seam 的类型化联合——统一的 Decision 惯用形状（[tools.md](tools.md) 中工具 seam 的 `PreToolDecision`/`PostToolDecision` 也采用相同形状）。CC/Codex 钩子桥接层把其 `permissionDecision`/`decision`/`continue`/`additionalContext` 字段映射到这些联合上；原生插件则直接返回它们。提示词决策与工具后决策共享一种面向模型的上下文形状 `HookContext`，它必须携带 `source`（缺少 source 会默认成 `{kind:'user'}`，从而把插件上下文错标为用户提示词）。其中的 `content` 作为 user-role 输入逐字到达模型；类型化 source 变体保留对模型隐藏的领域 provenance。未指定放置方式或指定为 `separate` 时，上下文会成为一条注入的 `user/message`；`prompt-prefix` 放置方式可用于提示词和 steering 收件箱附件，会在同一条消息中把上下文置于最终生效的请求之前。两种决策都携带 `additionalContexts[]`，使每一项保留各自的 provenance 与放置方式。Continuation reason 则是 steering 消息，并有意使用更窄的 content/source 形状。
+每个 `agent/*` 拦截 waterfall 都返回一个小型、特定于 seam 的类型化联合——统一的 Decision 惯用形状（[tools.md](tools.md) 中工具 seam 的 `PreToolDecision`/`PostToolDecision` 也采用相同形状）。CC/Codex 钩子桥接层把其 `permissionDecision`/`decision`/`continue`/`additionalContext` 字段映射到这些联合上；原生插件则直接返回它们。提示词决策与工具后决策共享 `AdditionalContext`，它与持久用户角色输入使用相同的 `UserMessageData` content/source 形状。每个 `additionalContexts` 项都会成为一条单独注入的 `user/message`，并保留其 provenance。Continuation reason 则是 steering 消息，并使用同一个 content/source 基础类型。
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
 ```ts type-equiv
-/** Model-facing context injected by a listener or atomically attached to one inbox message. */
-interface HookContext {
-  content: ContentBlock[]
-  source: MessageSource
-  /**
-   * Model placement. Absent or `separate` records an independent injected
-   * `user/message`; `prompt-prefix` prepends this context and a stable
-   * request delimiter to the same user-role message as its attached prompt.
-   */
-  placement?: 'separate' | 'prompt-prefix'
-}
+/** Additional model-facing context produced beside a prompt or tool result. */
+type AdditionalContext = UserMessageData
 ```
 
 `agent/prompt-submit` 返回 `PromptDecision`（允许该轮次已领取的排队消息——可选地改写其 `content` 或附加 `additionalContexts`——或者记录 `prompt/blocked` 并以 `rejected` 结束这个零步骤轮次）：
 
 ```ts type-equiv
 /**
- * Prompt interception result. `allow.content` replaces the prompt. Each
- * `additionalContexts` entry follows its declared placement: separate context
- * message by default, or a prefix inside the prompt's user-role message.
- * `block` records a durable `prompt/blocked` and ends the claimed prompt's
- * zero-step turn as rejected. An `allow` returned by a listener is
- * authoritative: a listener wrapping `next()` preserves downstream `content`
- * and `additionalContexts` unless it intentionally replaces them.
+ * Prompt interception result. `allow.content` replaces the prompt, while
+ * `additionalContexts` appends model-facing context before the turn starts.
+ * An `allow` returned by a listener is authoritative: a listener wrapping
+ * `next()` preserves both fields unless it intentionally replaces them.
  */
 type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: HookContext[] }
+  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: AdditionalContext[] }
   | { kind: 'block'; reason: string }
 ```
 

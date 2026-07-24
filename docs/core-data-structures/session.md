@@ -12,19 +12,17 @@ The append-only event types. Merge-extensible: a plugin declares extra event typ
 
 ```ts type-equiv
 /**
- * Shared payload for user, injected-context, and steering prompt messages. A
+ * Shared payload for user, injected-context, and steering messages. A
  * direct human prompt, a synthetic `agent.inject()` context, and mid-turn
  * steering all project into the model transcript as verbatim user-role content;
  * they are told apart by `source` (a non-`user` kind marks injected context),
  * not by event type.
  */
-interface PromptMessageData {
-  /** Exact model-facing blocks, including any baked prompt-prefix contexts. */
+interface UserMessageData {
+  /** Exact model-facing blocks. */
   content: ContentBlock[]
-  /** Producer provenance for the direct prompt. */
+  /** Producer provenance. */
   source: MessageSource
-  /** Present only when prompt-prefix contexts were baked into `content`. */
-  envelope?: PromptMessageEnvelope
 }
 ```
 
@@ -37,10 +35,7 @@ interface PromptMessageData {
  */
 interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started it — one claimed queued
-   * message or an idle-time injection. The turn is the durability/replay
-   * boundary: every event sits between a `turn/start` and its matching
-   * `turn/end` (the turn-enclosure invariant).
+   * Opens turn `turn`. `trigger` records what started the model loop.
    */
   'turn/start': { turn: number; trigger: TurnTrigger }
   /**
@@ -59,11 +54,10 @@ interface SessionEventMap {
    * (the queued message claimed for this turn), a synthetic `agent.inject()`
    * context (file-change notices, subdir AGENTS.md, skill content, cron
    * notifications, …), or an admitted goal continuation round. All three
-   * project their `content` verbatim; `source` (with a non-`user` kind marking
-   * injected context) is the only channel that tells them apart. An idle
-   * injection wraps this event in a one-shot turn so the log stays turn-enclosed.
+   * project their `content` verbatim; `source` tells them apart. An idle
+   * injection may append this event between turns without running the model.
    */
-  'user/message': PromptMessageData
+  'user/message': UserMessageData
   /**
    * Durable record of a prompt veto and its reason. It is log-only: the blocked
    * prompt never enters the model-visible surface, and its turn runs zero steps.
@@ -105,7 +99,7 @@ interface SessionEventMap {
     meta?: JsonValue
   }
   /** Steering content injected between steps of a running turn. */
-  'steering/message': PromptMessageData & { turn: number }
+  'steering/message': UserMessageData & { turn: number }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
@@ -116,7 +110,7 @@ interface SessionEventMap {
 }
 ```
 
-`PromptMessageData.content` is always the exact model-facing content. When attached context declares `prompt-prefix` placement, AgentLoop concatenates its blocks, a `## My request:` delimiter, and the effective direct prompt into that array. The optional model-hidden `envelope` retains `displayContent` plus ordered prefix-context sources, so transcript, title, and re-reference consumers can present the human prompt without changing reconstructable history. `displayPromptContent()` performs that selection and falls back to `content` for ordinary and older events.
+`UserMessageData` is the durable `content` and `source` base shared by ordinary prompts, injected context, and steering. Live inbox events extend the same shape with an `AgentMessageId`; the loop adds only driver-owned routing state while an item remains pending.
 
 ### `OutOfBandSessionEventMap` — narrow late-append opt-in
 

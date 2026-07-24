@@ -9,7 +9,7 @@ import type { Context } from 'cordis'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { ContentBlock, LlmCallConfig, LlmFailure, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionId, UserMessageData } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
@@ -85,11 +85,9 @@ export function AgentMessageId(id: string): AgentMessageId {
  * message's enqueue, dequeue, and discard events. Source defaults are already
  * applied, so these are the exact values the item was accepted with.
  */
-export interface AgentMessage {
+export interface AgentMessage extends UserMessageData {
   /** The id `send` returned for this message. */
   id: AgentMessageId
-  content: ContentBlock[]
-  source: MessageSource
 }
 
 /** Options for {@link Agent.cancel}. */
@@ -111,10 +109,7 @@ export interface CancelOptions {
 export type AgentStatus = 'idle' | 'running'
 
 /** Additional model-facing context produced beside a prompt or tool result. */
-export interface AdditionalContext {
-  content: ContentBlock[]
-  source: MessageSource
-}
+export type AdditionalContext = UserMessageData
 
 /**
  * Prompt interception result. `allow.content` replaces the prompt, while

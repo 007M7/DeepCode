@@ -12,9 +12,9 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 ## 决策
 
-**一个原语，三个预设别名。** `Agent` 现在是一个抽象类，其唯一的抽象方法 `send(content, { target, wakeup, source, contexts })` 覆盖 (`target` × `wakeup`) 矩阵。`followup`（`next-turn`/wakeup）、`steer`（`next-step`/wakeup）和 `inject`（`next-step`/no-wakeup）是基类上的具体委托方法，因此具体驱动器只需实现一次 `send`，就能继承这些好用的预设。`wakeup` 意为“让模型运行”：为一个 `next-turn` 队列项唤醒处于停泊状态的驱动器，或为一个运行中的 `next-step` 队列项强制继续执行。`send` 默认使用 `{ target: 'next-turn', wakeup: true }`，因此此前每一次裸调用 `agent.send(content)` 都保持完全相同的行为。`next-turn`/no-wakeup（入队但不唤醒）现在可以表达，只是没有别名，也没有当前调用方。
+**一个原语，三个预设别名。** `Agent` 现在是一个抽象类，其唯一的抽象方法 `send(content, { target, wakeup, source })` 覆盖 (`target` × `wakeup`) 矩阵。`followup`（`next-turn`/wakeup）、`steer`（`next-step`/wakeup）和 `inject`（`next-step`/no-wakeup）是基类上的具体委托方法，因此具体驱动器只需实现一次 `send`，就能继承这些好用的预设。`wakeup` 意为“让模型运行”：为一个 `next-turn` 队列项唤醒处于停泊状态的驱动器，或为一个运行中的 `next-step` 队列项强制继续执行。`send` 默认使用 `{ target: 'next-turn', wakeup: true }`，因此此前每一次裸调用 `agent.send(content)` 都保持完全相同的行为。`next-turn`/no-wakeup（入队但不唤醒）现在可以表达，只是没有别名，也没有当前调用方。
 
-**inject 保留其机制。** `next-step`/no-wakeup 路径正是旧的 `inject`：在当前日志位置追加的持久、面向模型的上下文（在执行中的工具批处理之后延迟处理），或在空闲时的一次性 `injection` 轮次。它完全绕过 FIFO 队列，并把来源默认设为 `{ kind: 'plugin', plugin: '' }`，绝不是 `{ kind: 'user' }`。
+**inject 保留其机制。** `next-step`/no-wakeup 路径正是旧的 `inject`：持久的面向模型上下文会追加到当前日志位置；轮次打开时，它会延迟到执行中的工具批处理之后，空闲时则直接追加在两个轮次之间。它完全绕过 FIFO 队列，并把来源默认设为 `{ kind: 'plugin', plugin: '' }`，绝不是 `{ kind: 'user' }`。
 
 **context/message 已移除。** 注入的上下文现在是一条 `user/message`，其 `source` 为非 `user` 类别。类型化 source 变体携带所有特定于领域的持久 provenance。对外接口、派生逻辑和 `SurfaceEventType` 都不再包含 `context/message`；需要判断“这是不是一条人类提示词？”的消费方改为读取 `source.kind === 'user'`，而不是事件类型。这让 goal-authority 的人类授权检查与此前一样严格——注入的消息默认使用 plugin 来源，永远无法满足 `source.kind === 'user'`。
 
@@ -24,19 +24,21 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 **三个 inbox 事件取代 agent/queued。** `agent/inbox/enqueue`（一个队列项进入某个 FIFO）、`agent/inbox/dequeue`（驱动器认领了一个）和 `agent/inbox/discard`（`cancel()` 丢弃了待处理项）都将各自的 `AgentMessage` 载荷类型限定为仅包含被接受消息所返回的 `id`、内容和来源；调用方因此可以把一个排队项与其生命周期关联起来，而无需依赖驱动器的路由状态。注入从不触及 FIFO，也不发出这些事件中的任何一个。每一次 FIFO 入队都会发布一个 enqueue 事件，包括由 loop 生成的携带继续原因的 steer（`agent/turn-continuation` 返回 `{ action: 'continue', reason }`），因此账目会与其后的 dequeue 或 discard 保持平衡。`dsh-agent` 的不变量配套断言 FIFO 守恒：一个按 agent 计的未结算计数，dequeue 和 discard 永远无法把它压到负数。
 
+**一条已接受消息只保留一种表示。** 持久的用户角色输入使用 `UserMessageData { content, source }`；同一形状也以 `AdditionalContext` 命名，公开的 `AgentMessage` 在此基础上增加用于关联的 `id`，循环私有的 `PendingMessage` 再增加 `wakeup`。一条成为 steering 的排队消息会以同一个 `PendingMessage` 对象进入 outbox，而注入和工具产生的上下文则以普通 `UserMessageData` 进入。因此，outbox 直接存储这两种类型的联合，而不再把 steering 与一份重复的内容和来源副本包装在一起。提供方原生的助手消息仍是适配器拥有的输出类型，不参与这套输入层级。
+
 **cancel 新增 keepInbox。** `cancel(cause, { keepInbox? })`；调用方显式选择 cause，且 `keepInbox: true` 会中止活跃轮次，同时保留排队项和 steering 项（不发出 discard 事件，尚未启动的工作也不会被丢弃）。
 
 ## 考虑过的替代方案
 
 - **为注入内容设立专门的 `MessageSource` 类别 `context`。** 不予采纳，因为 `plugin` 已经表示“不是人类”，因此第四种类别会增加一条平行的轴，让授权检查不得不去学习它。注入的上下文改为默认使用 plugin 来源。
-- **在 `PromptMessageData` 上设一个类型化的判别字段**（例如 `origin: 'prompt' | 'context'`）来取代事件类型的区分。不予采纳，转而采用 `source`——每个消费方都已经携带它，goal 系统也已经以它为键；第二个判别字段会重复这一事实。
+- **在 `UserMessageData` 上设一个类型化的判别字段**（例如 `origin: 'prompt' | 'context'`）来取代事件类型的区分。不予采纳，转而采用 `source`——每个消费方都已经携带它，goal 系统也已经以它为键；第二个判别字段会重复这一事实。
 - **在 inbox 事件之外保留 `agent/queued`。** 作为镜像而被否决：`agent/inbox/enqueue` 是同一个入队时刻的信号，只是多带了 `target`/`wakeup` 的事实，而 dequeue/discard 事件补全了单个事件无法描述的 FIFO 生命周期。
 
 ## 后果
 
-投递接口现在是一个原语加三个自解释的预设，(`target` × `wakeup`) 矩阵把此前无法表达的组合显式化。一种持久消息类型同时服务提示词、注入的上下文和 goal 轮次，因此对外接口的投影和每一处“是否人类提示词？”检查都简化为一次 `source` 判断。代价是：`Agent` 变成了抽象类，因此对象字面量形式的测试替身必须提供 `followup`，且无法在不重新做类型转换的情况下展开一个类类型的值（原型方法不可枚举）；goal 折叠的通道区分从事件类型改到了 `source.round`；此前过滤 `context/message` 的每个消费方现在改为按来源过滤 `user/message`。轮次封闭与重建的不变量保持不变——空闲状态下的一次注入仍然封装成一个一次性轮次，只是现在发出 `user/message` 而非 `context/message`。
+投递接口现在是一个原语加三个自解释的预设，(`target` × `wakeup`) 矩阵把此前无法表达的组合显式化。一种持久消息类型同时服务提示词、注入的上下文和 goal 轮次，因此对外接口的投影和每一处“是否人类提示词？”检查都简化为一次 `source` 判断。代价是：`Agent` 变成了抽象类，因此对象字面量形式的测试替身必须提供 `followup`，且无法在不重新做类型转换的情况下展开一个类类型的值（原型方法不可枚举）；goal 折叠的通道区分从事件类型改到了 `source.round`；此前过滤 `context/message` 的每个消费方现在改为按来源过滤 `user/message`。空闲状态下的注入会在两个轮次之间追加 `user/message`，既不打开轮次，也不运行模型。
 
-`wakeup` 是“模型是否应当运行”的信号，因此 inbox 会区分能唤醒的排队工作与任何可 dequeue 的项：一个孤立的 `next-turn`/no-wakeup 队列项会停泊在空闲状态，并随下一次唤醒 send 一同带出，而 `whenIdle`/`cancel` 依据唤醒信号来结算静默。每一次 FIFO 退出都恰好发布一个生命周期事件，特定于领域的持久事实则通过类型化消息 source 传递，而非通过平行的元数据通道。`gen-cordis-api` 收集导出的类（公开成员，剥除方法体），因此如今已是类的 `Agent` 及其传递涉及的形状仍会出现在面向模型的 API 目录中。
+`wakeup` 是“模型是否应当运行”的信号，因此 inbox 会区分能唤醒的排队工作与任何可 dequeue 的项：一个孤立的 `next-turn`/no-wakeup 队列项会停泊在空闲状态，并随下一次唤醒 send 一同带出，而 `whenIdle`/`cancel` 依据唤醒信号来结算静默。每一次 FIFO 退出都恰好发布一个生命周期事件，特定于领域的持久事实则通过类型化消息 source 传递，而非通过平行的元数据通道。直接使用待处理项的表示方式，使公开生命周期事件保持可关联，既无需维护第二个 steering 包装层，也避免其持久数据发生分歧。`gen-cordis-api` 收集导出的类（公开成员，剥除方法体），因此如今已是类的 `Agent` 及其传递涉及的形状仍会出现在面向模型的 API 目录中。
 
 ## 相关
 

@@ -108,7 +108,7 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "HookContext",
+      "symbol": "AdditionalContext",
       "source": "packages/core/agent/src/types.ts"
     },
     {
@@ -310,7 +310,7 @@
     },
     {
       "doc": "docs/core-data-structures/session.md",
-      "symbol": "PromptMessageData",
+      "symbol": "UserMessageData",
       "source": "packages/core/session/src/types.ts"
     },
     {

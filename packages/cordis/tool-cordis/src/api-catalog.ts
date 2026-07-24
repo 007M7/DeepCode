@@ -906,7 +906,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/inbox/enqueue',
     mode: 'emit',
     signature: '\'agent/inbox/enqueue\'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void',
-    jsDoc: '/**\n * A frozen item entered the queued or steering inbox.\n * @param agent - the owning agent.\n * @param message - accepted routing data and correlation identity.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    jsDoc: '/**\n * A frozen item entered the queued or steering inbox.\n * @param agent - the owning agent.\n * @param message - accepted content, source, and correlation identity.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'A frozen item entered the queued or steering inbox.',
   },
   {
@@ -1153,7 +1153,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AdditionalContext',
-    declaration: 'export interface AdditionalContext {\n    content: ContentBlock[];\n    source: MessageSource;\n}',
+    declaration: 'export type AdditionalContext = UserMessageData;',
   },
   {
     name: 'Agent',
@@ -1584,10 +1584,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PromptAssembly {\n    sections: AssembledSection[];\n    tools: ToolSchema[];\n    variables: Record<string, string | undefined>;\n}',
   },
   {
-    name: 'PromptMessageData',
-    declaration: 'export interface PromptMessageData {\n    content: ContentBlock[];\n    source: MessageSource;\n}',
-  },
-  {
     name: 'PromptSection',
     declaration: 'export interface PromptSection {\n    readonly name: string;\n    readonly order: number;\n    readonly text: string | ((context: AssembleContext) => string);\n}',
   },
@@ -1737,7 +1733,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': PromptMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': PromptMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n}',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessageData;\n    \'prompt/blocked\': {\n        content: ContentBlock[];\n        source: MessageSource;\n        reason: string;\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        content: ContentBlock[];\n        provenance: AssistantProvenance;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        content: ContentBlock[];\n        isError: boolean;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': UserMessageData & {\n        turn: number;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n}',
   },
   {
     name: 'SessionEventMetadataFilter',
@@ -2230,6 +2226,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'UserInteractionProvider',
     declaration: 'export interface UserInteractionProvider {\n    ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>;\n}',
+  },
+  {
+    name: 'UserMessageData',
+    declaration: 'export interface UserMessageData {\n    content: ContentBlock[];\n    source: MessageSource;\n}',
   },
   {
     name: 'WebFetchBody',

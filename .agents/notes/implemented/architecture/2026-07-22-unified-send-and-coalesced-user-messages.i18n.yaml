@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write
-2026-07-22-unified-send-and-coalesced-user-messages.md: 359ea62b77685a267b7a8c36e58929f67569d92f
-2026-07-22-unified-send-and-coalesced-user-messages.zh.md: d4a0f661900a10a0b74ebdb67077881b6a9d24ee
+2026-07-22-unified-send-and-coalesced-user-messages.md: 2fd77df51ebaaad2fa0bbe17d3f8493148b761bc
+2026-07-22-unified-send-and-coalesced-user-messages.zh.md: 2d4b678b6b3efb4c9ca68c79d8cadaf13b3eac04

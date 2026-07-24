@@ -12,19 +12,17 @@
 
 ```ts type-equiv
 /**
- * Shared payload for user, injected-context, and steering prompt messages. A
+ * Shared payload for user, injected-context, and steering messages. A
  * direct human prompt, a synthetic `agent.inject()` context, and mid-turn
  * steering all project into the model transcript as verbatim user-role content;
  * they are told apart by `source` (a non-`user` kind marks injected context),
  * not by event type.
  */
-interface PromptMessageData {
-  /** Exact model-facing blocks, including any baked prompt-prefix contexts. */
+interface UserMessageData {
+  /** Exact model-facing blocks. */
   content: ContentBlock[]
-  /** Producer provenance for the direct prompt. */
+  /** Producer provenance. */
   source: MessageSource
-  /** Present only when prompt-prefix contexts were baked into `content`. */
-  envelope?: PromptMessageEnvelope
 }
 ```
 
@@ -37,10 +35,7 @@ interface PromptMessageData {
  */
 interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started it — one claimed queued
-   * message or an idle-time injection. The turn is the durability/replay
-   * boundary: every event sits between a `turn/start` and its matching
-   * `turn/end` (the turn-enclosure invariant).
+   * Opens turn `turn`. `trigger` records what started the model loop.
    */
   'turn/start': { turn: number; trigger: TurnTrigger }
   /**
@@ -59,11 +54,10 @@ interface SessionEventMap {
    * (the queued message claimed for this turn), a synthetic `agent.inject()`
    * context (file-change notices, subdir AGENTS.md, skill content, cron
    * notifications, …), or an admitted goal continuation round. All three
-   * project their `content` verbatim; `source` (with a non-`user` kind marking
-   * injected context) is the only channel that tells them apart. An idle
-   * injection wraps this event in a one-shot turn so the log stays turn-enclosed.
+   * project their `content` verbatim; `source` tells them apart. An idle
+   * injection may append this event between turns without running the model.
    */
-  'user/message': PromptMessageData
+  'user/message': UserMessageData
   /**
    * Durable record of a prompt veto and its reason. It is log-only: the blocked
    * prompt never enters the model-visible surface, and its turn runs zero steps.
@@ -105,7 +99,7 @@ interface SessionEventMap {
     meta?: JsonValue
   }
   /** Steering content injected between steps of a running turn. */
-  'steering/message': PromptMessageData & { turn: number }
+  'steering/message': UserMessageData & { turn: number }
   /** Whole-list snapshot; latest write wins on replay. Log-only UI state; never derived history. */
   'todo/write': { todos: TodoItem[] }
   /**
@@ -116,7 +110,7 @@ interface SessionEventMap {
 }
 ```
 
-`PromptMessageData.content` 始终是确切的模型可见内容。当附加上下文声明 `prompt-prefix` 放置方式时，AgentLoop 会依次把它的块、一个 `## My request:` 分隔符以及最终生效的直接提示词拼接进该数组。可选且对模型隐藏的 `envelope` 会保留 `displayContent`，以及按顺序排列的前缀上下文 source，使 transcript（文本记录）、标题与重新引用消费方无需改变可重建历史，就能呈现人类提示词。`displayPromptContent()` 负责该选择，并为普通事件和较早的事件回退到 `content`。
+`UserMessageData` 是普通提示词、注入上下文和 steering 共享的持久基础类型，由 `content` 与 `source` 构成。实时 inbox 事件在同一形状上扩展 `AgentMessageId`；消息仍处于待处理状态时，循环只添加驱动器拥有的路由状态。
 
 ### `OutOfBandSessionEventMap`：受限的带外追加显式准入
 
