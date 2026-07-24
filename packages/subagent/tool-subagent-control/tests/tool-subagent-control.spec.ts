@@ -83,17 +83,27 @@ describe('dsh-tool-subagent-control', () => {
     expect(text(result)).toBe(`message started task subagent-2 continuing subagent ${started.childId}`)
     const collected = await callTool(ctx, 'task_output', { task_id: 'subagent-2', wait: true }, parent)
     expect(text(collected)).toBe('second answer\n[status: completed]')
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    const followUp = loaded.events.findLast(event =>
+      event.type === 'user/message',
+    )
+    expect(followUp?.type === 'user/message' && followUp.data.source).toEqual({
+      kind: 'coordinator',
+      senderSessionId: parent.id,
+    })
   })
 
   it('renders the steered route when the child is still running', async () => {
     // Script the child's single turn as two steps: the steer joins mid-turn.
     const { ctx, parent } = await setup([])
     let steered: string | undefined
+    let source: unknown
     // Reach past the tool into the control service to fake a running route
     // deterministically: the tool is a thin adapter, so its steered wording is
     // what this test pins.
-    ctx.subagentControl.sendMessage = (agent, _childId, message) => {
+    ctx.subagentControl.sendMessage = (agent, _childId, message, messageSource) => {
       steered = (message[0] as { text: string }).text
+      source = messageSource
       return { route: 'steered', taskId: ctx.tasks.list(agent)[0]?.id ?? ('subagent-9' as never) }
     }
     const result = await callTool(ctx, 'send_message', {
@@ -102,6 +112,7 @@ describe('dsh-tool-subagent-control', () => {
     }, parent)
     expect(result.isError).toBe(false)
     expect(steered).toBe('also consider Y')
+    expect(source).toEqual({ kind: 'coordinator', senderSessionId: parent.id })
     expect(text(result)).toBe('message delivered to running task subagent-9')
   })
 

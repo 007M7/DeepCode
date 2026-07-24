@@ -262,6 +262,7 @@ describe('startInProcessRun', () => {
     await expect(resumeInProcessRun({
       sessionId: SessionId('resumed-child'),
       prompt: [{ type: 'text', text: 'continue' }],
+      source: { kind: 'user' },
       parent,
       signal: controller.signal,
       descriptor: { version: SUBAGENT_DESCRIPTOR_VERSION, provider: 'spawn' },
@@ -309,6 +310,7 @@ describe('startInProcessRun', () => {
     const run = await resumeInProcessRun({
       sessionId: childId,
       prompt: [{ type: 'text', text: 'continue' }],
+      source: { kind: 'plugin', plugin: 'test-coordinator' },
       parent,
       signal: new AbortController().signal,
       descriptor: { version: SUBAGENT_DESCRIPTOR_VERSION, provider: 'spawn' },
@@ -384,7 +386,7 @@ describe('startInProcessRun', () => {
     const run = await startInProcessRun(request(parent), {})
     await run.result
     // The child is idle after its turn: Agent.steer() would silently QUEUE.
-    expect(() => { run.steer!([{ type: 'text', text: 'late' }]) })
+    expect(() => { run.steer!([{ type: 'text', text: 'late' }], { kind: 'user' }) })
       .toThrow(/not running; the message was not delivered/)
     const child = ctx.agents.get(run.id)!
     expect(child.session.events.some(event => event.type === 'steering/message')).toBe(false)
@@ -410,7 +412,9 @@ describe('startInProcessRun', () => {
       }, 5)
     })
     expect(child.status).toBe('running')
-    expect(() => { run.steer!([{ type: 'text', text: 'too late for this turn' }]) })
+    expect(() => {
+      run.steer!([{ type: 'text', text: 'too late for this turn' }], { kind: 'user' })
+    })
       .toThrow(/between steps; the message was not delivered/)
     releaseStop!()
     await run.result
@@ -427,10 +431,10 @@ describe('startInProcessRun', () => {
       if (session.header.parentSession === undefined || run === undefined) return
       if (event.type === 'assistant/chunk' && !seeded) {
         seeded = true
-        run.steer?.([{ type: 'text', text: 'accepted before the drain' }])
+        run.steer?.([{ type: 'text', text: 'accepted before the drain' }], { kind: 'user' })
       } else if (event.type === 'steering/message' && rejected === undefined) {
         try {
-          run.steer?.([{ type: 'text', text: 'after the drain began' }])
+          run.steer?.([{ type: 'text', text: 'after the drain began' }], { kind: 'user' })
         } catch (error: unknown) {
           rejected = error
         }
@@ -493,7 +497,9 @@ describe('startInProcessRun', () => {
     } as unknown as Agent
 
     const run = await startInProcessRun(request(parent), {})
-    expect(() => { run.steer!([{ type: 'text', text: 'unsupported strict delivery' }]) })
+    expect(() => {
+      run.steer!([{ type: 'text', text: 'unsupported strict delivery' }], { kind: 'user' })
+    })
       .toThrow(/does not support strict steering; the message was not delivered/)
     await run.dispose()
     await run.result
@@ -520,7 +526,7 @@ describe('startInProcessRun', () => {
       }, 5)
     })
     expect(child.status).toBe('running')
-    expect(() => { run.steer!([{ type: 'text', text: 'into the void' }]) })
+    expect(() => { run.steer!([{ type: 'text', text: 'into the void' }], { kind: 'user' }) })
       .toThrow(/turn has already closed; the message was not delivered/)
     releaseFlush!()
     await run.result

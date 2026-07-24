@@ -118,6 +118,7 @@ describe('SubagentService', () => {
     await expect(subagents.resume('one-shot', {
       sessionId,
       prompt: [{ type: 'text', text: 'continue' }],
+      source: { kind: 'user' },
       parent,
       signal,
       descriptor,

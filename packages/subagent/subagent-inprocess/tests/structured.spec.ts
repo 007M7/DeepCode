@@ -130,7 +130,7 @@ describe('in-process structured output', () => {
       if (session.header.parentSession === undefined || run === undefined
         || event.type !== 'tool/result' || rejected !== undefined) return
       try {
-        run.steer?.([{ type: 'text', text: 'one more thing' }])
+        run.steer?.([{ type: 'text', text: 'one more thing' }], { kind: 'user' })
       } catch (error: unknown) {
         rejected = error
       }

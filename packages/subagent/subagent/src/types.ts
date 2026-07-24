@@ -6,7 +6,7 @@
 
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
 import type { SubagentDescriptorData } from './descriptor.ts'
@@ -128,6 +128,8 @@ export interface SubagentResumeRequest {
   readonly sessionId: SessionId
   /** The follow-up message that starts the resumed activation's turn. */
   readonly prompt: ContentBlock[]
+  /** Attribution retained when the follow-up becomes the resumed turn's user-role message. */
+  readonly source: MessageSource
   /**
    * The live parent agent — the direct parent recorded in the persisted child
    * header. In-process backends reconstruct the child under this agent's
@@ -228,8 +230,10 @@ export interface SubagentRun {
    * this run has settled. Throws when delivery cannot join the turn. A run
    * represents one disposable activation, so it has no cold-resume operation;
    * resuming a settled child goes through {@link SubagentProvider.resume}.
+   * `source` is retained on the child's logged steering message without
+   * changing its user role in model history.
    */
-  steer?(content: ContentBlock[]): void
+  steer?(content: ContentBlock[], source: MessageSource): void
 }
 
 /**

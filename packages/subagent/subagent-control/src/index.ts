@@ -20,7 +20,7 @@ import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { foldSubagentDescriptor, snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
@@ -30,6 +30,19 @@ import type { TaskHooks, TaskId, TaskOutcome } from '@deepseek-ai/dsh-tasks'
 declare module 'cordis' {
   interface Context {
     subagentControl: SubagentControlService
+  }
+}
+
+/** Attribution for a model coordinator's follow-up to one of its children. */
+export interface CoordinatorMessageSource {
+  readonly kind: 'coordinator'
+  /** Session id of the agent whose tool call produced the follow-up. */
+  readonly senderSessionId: SessionId
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    coordinator: CoordinatorMessageSource
   }
 }
 
@@ -248,16 +261,20 @@ export class SubagentControlService extends Service {
    * @param parent - the live parent agent sending the message (model tool or
    *   human adapter); Task access is authorized by its session id.
    * @param childId - the stable child session id.
-   * @param message - the content to deliver.
+   * @param message - the user-role content to deliver.
+   * @param source - caller-supplied attribution retained across either route.
    * @returns whether the message `steered` the existing Task or `started` a new one.
    */
-  sendMessage(parent: Agent, childId: SessionId, message: ContentBlock[]): SendMessageResult {
+  sendMessage(parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource): SendMessageResult {
     this.assertOwnership(childId)
     const activation = this.activations.get(childId)
     if (activation !== undefined) {
-      return { route: 'steered', taskId: this.steerActivation(activation, parent, childId, message) }
+      return {
+        route: 'steered',
+        taskId: this.steerActivation(activation, parent, childId, message, source),
+      }
     }
-    return { route: 'started', taskId: this.resumeActivation(parent, childId, message) }
+    return { route: 'started', taskId: this.resumeActivation(parent, childId, message, source) }
   }
 
   /**
@@ -290,6 +307,7 @@ export class SubagentControlService extends Service {
     parent: Agent,
     childId: SessionId,
     message: ContentBlock[],
+    source: MessageSource,
   ): TaskId {
     const taskId = activation.taskId
     /* v8 ignore next 3 -- the install and Task registration share one synchronous frame, so an observed activation carries its Task id. */
@@ -316,7 +334,7 @@ export class SubagentControlService extends Service {
       )
     }
     try {
-      run.steer(message)
+      run.steer(message, source)
     } catch (error: unknown) {
       // Strict steering lost the race with turn settlement. Deliberately no
       // cold-resume fallback here: that would attach the message to a turn the
@@ -337,7 +355,12 @@ export class SubagentControlService extends Service {
    * activation, with cancellation rechecked after the un-signalled
    * persistence await so an early `task_kill` prevents any later child work.
    */
-  private resumeActivation(parent: Agent, childId: SessionId, message: ContentBlock[]): TaskId {
+  private resumeActivation(
+    parent: Agent,
+    childId: SessionId,
+    message: ContentBlock[],
+    source: MessageSource,
+  ): TaskId {
     const persistence = this.requirePersistence()
     return this.startActivation(childId, resumeLabel(message), parent, async (signal) => {
       let loaded: Awaited<ReturnType<typeof persistence.load>>
@@ -374,6 +397,7 @@ export class SubagentControlService extends Service {
       return this.ctx.subagents.resume(descriptor.provider, {
         sessionId: childId,
         prompt: message,
+        source,
         parent,
         signal,
         descriptor,

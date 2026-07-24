@@ -6,7 +6,7 @@ The subagent seam — an agent delegating work to a child agent. Like [bash](bas
 
 Interface: [dsh-subagent](../../packages/subagent/subagent) (`ctx.subagents` + the vocabulary below). Implementations are sibling packages (`dsh-subagent-spawn`, `-fork`, `-acp`); the model-facing consumers are [dsh-tool-subagent](../../packages/subagent/tool-subagent) (per-provider delegation) and [dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control) (the global `send_message`). Continuable-child orchestration lives on `ctx.subagentControl` in [dsh-subagent-control](../../packages/subagent/subagent-control). The proposals and rationale: [the subagent Agent Note](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md) and [the continuable background subagents Agent Note](../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md).
 
-Source: [`packages/subagent/subagent/src/types.ts`](../../packages/subagent/subagent/src/types.ts)
+Sources: [`packages/subagent/subagent/src/types.ts`](../../packages/subagent/subagent/src/types.ts) and [`packages/subagent/subagent-control/src/index.ts`](../../packages/subagent/subagent-control/src/index.ts)
 
 ## Two kinds of capability, discovered two ways
 
@@ -105,7 +105,16 @@ interface SubagentStartRequest {
 
 ## Continuable children: `SubagentContinuation` and `SubagentResumeRequest`
 
-A **continuable background subagent** is a durable child session with a series of Task-backed activations. `ctx.subagentControl` (`SubagentControlService` in [dsh-subagent-control](../../packages/subagent/subagent-control)) allocates the stable child id, snapshots the versioned `subagent/descriptor` payload, and passes both through the resolved start request; the provider publishes exactly that id and appends the descriptor inside the child's first turn. On follow-up, the control service loads the persisted child, authorizes the recorded `parentSession` as the direct parent, folds the descriptor, and dispatches a fully resolved resume request through `SubagentService.resume()` to `SubagentProvider.resume()`. The seam stays Task- and persistence-agnostic — descriptor lookup and Task association live only in the control service. `startContinuable()` returns a `ContinuableStart` (both identities), and `sendMessage()` returns a `SendMessageResult` reporting whether the message `steered` the running activation's existing Task or `started` a fresh one.
+A **continuable background subagent** is a durable child session with a series of Task-backed activations. `ctx.subagentControl` (`SubagentControlService` in [dsh-subagent-control](../../packages/subagent/subagent-control)) allocates the stable child id, snapshots the versioned `subagent/descriptor` payload, and passes both through the resolved start request; the provider publishes exactly that id and appends the descriptor inside the child's first turn. On follow-up, the control service loads the persisted child, authorizes the recorded `parentSession` as the direct parent, folds the descriptor, and dispatches a fully resolved resume request through `SubagentService.resume()` to `SubagentProvider.resume()`. The seam stays Task- and persistence-agnostic — descriptor lookup and Task association live only in the control service. `startContinuable()` returns a `ContinuableStart` (both identities), and `sendMessage()` returns a `SendMessageResult` reporting whether the message `steered` the running activation's existing Task or `started` a fresh one. Every sender supplies a `MessageSource`; the model-facing tool uses `CoordinatorMessageSource`, while a human adapter uses `{ kind: 'user' }`. Both project to a user-role model message, but the durable source remains distinct for policy and title consumers.
+
+```ts type-equiv
+/** Attribution for a model coordinator's follow-up to one of its children. */
+interface CoordinatorMessageSource {
+  readonly kind: 'coordinator'
+  /** Session id of the agent whose tool call produced the follow-up. */
+  readonly senderSessionId: SessionId
+}
+```
 
 ```ts type-equiv
 /**
@@ -134,6 +143,8 @@ interface SubagentResumeRequest {
   readonly sessionId: SessionId
   /** The follow-up message that starts the resumed activation's turn. */
   readonly prompt: ContentBlock[]
+  /** Attribution retained when the follow-up becomes the resumed turn's user-role message. */
+  readonly source: MessageSource
   /**
    * The live parent agent — the direct parent recorded in the persisted child
    * header. In-process backends reconstruct the child under this agent's
@@ -203,7 +214,7 @@ interface SubagentStopReasonMap {
 
 ## A live run: `SubagentRun`
 
-`SubagentRun` is the consumer-owned handle for a ready child — one disposable activation, never a durable child handle. Consumers await `result` and always dispose the run to reach quiescence. Child failures resolve with a non-completed stop reason; only unrepresentable infrastructure faults reject. A completed continuable result additionally means the provider confirmed the activation's final state durable; a failed required checkpoint rejects. The optional strict `steer` method advertises live delivery by presence; cold resume deliberately does NOT live here (a disposed run cannot be reconstructed after restart) — it is `SubagentProvider.resume`.
+`SubagentRun` is the consumer-owned handle for a ready child — one disposable activation, never a durable child handle. Consumers await `result` and always dispose the run to reach quiescence. Child failures resolve with a non-completed stop reason; only unrepresentable infrastructure faults reject. A completed continuable result additionally means the provider confirmed the activation's final state durable; a failed required checkpoint rejects. The optional strict `steer` method advertises live delivery by presence. Cold resume is a provider-level operation: `SubagentProvider.resume` reconstructs a fresh run from the child's persisted session because the process-local run ceases to exist after disposal or process restart.
 
 ```ts type-equiv
 /**
@@ -249,8 +260,10 @@ interface SubagentRun {
    * this run has settled. Throws when delivery cannot join the turn. A run
    * represents one disposable activation, so it has no cold-resume operation;
    * resuming a settled child goes through {@link SubagentProvider.resume}.
+   * `source` is retained on the child's logged steering message without
+   * changing its user role in model history.
    */
-  steer?(content: ContentBlock[]): void
+  steer?(content: ContentBlock[], source: MessageSource): void
 }
 ```
 

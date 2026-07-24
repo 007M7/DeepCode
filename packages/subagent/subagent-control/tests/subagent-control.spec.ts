@@ -107,6 +107,20 @@ function message(text: string) {
   return [{ type: 'text' as const, text }]
 }
 
+const coordinatorSource = {
+  kind: 'coordinator',
+  senderSessionId: SessionId('parent'),
+} as const
+
+function sendMessage(
+  ctx: Context,
+  parent: Agent,
+  childId: SessionId,
+  content: ReturnType<typeof message>,
+) {
+  return ctx.subagentControl.sendMessage(parent, childId, content, { kind: 'user' })
+}
+
 describe('SubagentControlService.startContinuable', () => {
   it('returns both identities immediately; the Task settles with the child result after disposal', async () => {
     const { ctx, parent } = await setup([textResponse('first answer')])
@@ -202,7 +216,7 @@ describe('SubagentControlService.startContinuable', () => {
     expect(snapshot.status).toBe('failed')
     expect(snapshot.detail).toContain('maxDepth')
     // The unmaterialized child id is reported unavailable on later use.
-    const followUp = ctx.subagentControl.sendMessage(parent, started.childId, message('hello?'))
+    const followUp = sendMessage(ctx, parent, started.childId, message('hello?'))
     expect(followUp.route).toBe('started')
     const failed = await waitTerminal(ctx, followUp.taskId, parent)
     expect(failed.status).toBe('failed')
@@ -250,14 +264,14 @@ describe('SubagentControlService.sendMessage', () => {
     await waitPublishedRun(ctx, started.childId)
 
     expect(descriptor).toEqual({ version: SUBAGENT_DESCRIPTOR_VERSION, provider: 'no-steer' })
-    expect(() => ctx.subagentControl.sendMessage(parent, started.childId, message('join')))
+    expect(() => sendMessage(ctx, parent, started.childId, message('join')))
       .toThrow(/provider does not accept live delivery/)
 
     let terminalDeliveryError: unknown
     ctx.tasks.onTaskDone((snapshot) => {
       if (snapshot.id !== started.taskId) return
       try {
-        ctx.subagentControl.sendMessage(parent, started.childId, message('after terminal'))
+        sendMessage(ctx, parent, started.childId, message('after terminal'))
       } catch (error: unknown) {
         terminalDeliveryError = error
       }
@@ -296,7 +310,7 @@ describe('SubagentControlService.sendMessage', () => {
     const started = ctx.subagentControl.startContinuable(startSpec(parent, 'mismatched-local'))
     await waitPublishedRun(ctx, started.childId)
 
-    expect(() => ctx.subagentControl.sendMessage(parent, started.childId, message('join')))
+    expect(() => sendMessage(ctx, parent, started.childId, message('join')))
       .toThrow(/registry agent is not the associated activation's agent/)
     result.resolve({ output: [{ type: 'text', text: 'done' }], stopReason: 'completed' })
     await waitTerminal(ctx, started.taskId, parent)
@@ -324,7 +338,12 @@ describe('SubagentControlService.sendMessage', () => {
       }, 5)
     })
 
-    const delivered = ctx.subagentControl.sendMessage(parent, started.childId, message('also consider Y'))
+    const delivered = ctx.subagentControl.sendMessage(
+      parent,
+      started.childId,
+      message('also consider Y'),
+      coordinatorSource,
+    )
     expect(delivered).toEqual({ route: 'steered', taskId: started.taskId })
     releaseFirst()
     const snapshot = await waitTerminal(ctx, started.taskId, parent)
@@ -334,6 +353,11 @@ describe('SubagentControlService.sendMessage', () => {
     // The steered content joined the SAME child turn and drove another step.
     const output = ctx.tasks.read(started.taskId, parent)
     expect(output.text).toBe('steered turn answer')
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    const steering = loaded.events.find(
+      (event): event is SessionEvent<'steering/message'> => event.type === 'steering/message',
+    )
+    expect(steering?.data.message.source).toEqual(coordinatorSource)
   })
 
   it('cold-resumes a settled child into a fresh Task and reports `started`', async () => {
@@ -342,7 +366,12 @@ describe('SubagentControlService.sendMessage', () => {
     await waitTerminal(ctx, started.taskId, parent)
     expect(ctx.agents.get(started.childId)).toBeUndefined()
 
-    const followUp = ctx.subagentControl.sendMessage(parent, started.childId, message('and then?'))
+    const followUp = ctx.subagentControl.sendMessage(
+      parent,
+      started.childId,
+      message('and then?'),
+      coordinatorSource,
+    )
     expect(followUp.route).toBe('started')
     expect(followUp.taskId).not.toBe(started.taskId)
     const snapshot = await waitTerminal(ctx, followUp.taskId, parent)
@@ -356,6 +385,8 @@ describe('SubagentControlService.sendMessage', () => {
     const userMessages = loaded.events.filter((event): event is SessionEvent<'user/message'> => event.type === 'user/message')
     expect(userMessages.map(event => (event.data.content[0] as { text: string }).text))
       .toEqual(['child task', 'and then?'])
+    expect(userMessages.map(event => event.data.source))
+      .toEqual([{ kind: 'user' }, coordinatorSource])
   })
 
   it('reconstructs the declared composition on cold resume', async () => {
@@ -378,7 +409,7 @@ describe('SubagentControlService.sendMessage', () => {
     expect(descriptor?.data.persona).toBe('You are the resumable child.')
     expect(descriptor?.data.toolFilter).toEqual({ deny: [] })
 
-    const followUp = ctx.subagentControl.sendMessage(parent, started.childId, message('continue'))
+    const followUp = sendMessage(ctx, parent, started.childId, message('continue'))
     const snapshot = await waitTerminal(ctx, followUp.taskId, parent)
     expect(snapshot.status).toBe('completed')
     // The resumed child's system prompt carried the persona back.
@@ -407,7 +438,7 @@ describe('SubagentControlService.sendMessage', () => {
     parent.followup(createUserMessage({ content: message('parent question two'), source: { kind: 'user' } }))
     await parent.whenIdle()
 
-    const followUp = ctx.subagentControl.sendMessage(parent, started.childId, message('follow up'))
+    const followUp = sendMessage(ctx, parent, started.childId, message('follow up'))
     await waitTerminal(ctx, followUp.taskId, parent)
     const resumed = await ctx.sessionPersistence.load(started.childId)
     // The persisted seed boundary is unchanged and parent turn two is absent.
@@ -423,7 +454,7 @@ describe('SubagentControlService.sendMessage', () => {
     const { ctx, parent } = await setup([textResponse('first'), textResponse('second')])
     const started = ctx.subagentControl.startContinuable(startSpec(parent))
     await waitTerminal(ctx, started.taskId, parent)
-    const followUp = ctx.subagentControl.sendMessage(parent, started.childId, message('go on'))
+    const followUp = sendMessage(ctx, parent, started.childId, message('go on'))
 
     const childAgents: Agent[] = []
     const stop = ctx.on('agent/created', (agent: Agent) => {
@@ -443,7 +474,7 @@ describe('SubagentControlService.sendMessage', () => {
     const started = ctx.subagentControl.startContinuable(startSpec(otherParent))
     await waitTerminal(ctx, started.taskId, otherParent)
 
-    const attempt = ctx.subagentControl.sendMessage(parent, started.childId, message('mine now'))
+    const attempt = sendMessage(ctx, parent, started.childId, message('mine now'))
     expect(attempt.route).toBe('started')
     const snapshot = await waitTerminal(ctx, attempt.taskId, parent)
     expect(snapshot.status).toBe('failed')
@@ -462,7 +493,7 @@ describe('SubagentControlService.sendMessage', () => {
     await handle.agent.whenIdle()
     await handle.dispose()
 
-    const attempt = ctx.subagentControl.sendMessage(parent, SessionId('plain-child'), message('continue?'))
+    const attempt = sendMessage(ctx, parent, SessionId('plain-child'), message('continue?'))
     const snapshot = await waitTerminal(ctx, attempt.taskId, parent)
     expect(snapshot.status).toBe('failed')
     expect(snapshot.detail).toContain(
@@ -472,9 +503,9 @@ describe('SubagentControlService.sendMessage', () => {
 
   it('derives fallback and bounded labels for resumed activations', async () => {
     const { ctx, parent } = await setup([])
-    const blank = ctx.subagentControl.sendMessage(parent, SessionId('blank-child'), message('   '))
+    const blank = sendMessage(ctx, parent, SessionId('blank-child'), message('   '))
     const longText = 'x'.repeat(100)
-    const long = ctx.subagentControl.sendMessage(parent, SessionId('long-child'), message(longText))
+    const long = sendMessage(ctx, parent, SessionId('long-child'), message(longText))
 
     expect(ctx.tasks.get(blank.taskId, parent).label).toBe('subagent follow-up')
     expect(ctx.tasks.get(long.taskId, parent).label).toBe(`${'x'.repeat(79)}…`)
@@ -492,9 +523,9 @@ describe('SubagentControlService.sendMessage', () => {
       meta: { parentSession: parent.id },
       agentOptions: { provider: 'mock', model: 'mock' },
     })
-    expect(() => ctx.subagentControl.sendMessage(parent, SessionId('rogue-child'), message('hello')))
+    expect(() => sendMessage(ctx, parent, SessionId('rogue-child'), message('hello')))
       .toThrow(SubagentControlError)
-    expect(() => ctx.subagentControl.sendMessage(parent, SessionId('rogue-child'), message('hello')))
+    expect(() => sendMessage(ctx, parent, SessionId('rogue-child'), message('hello')))
       .toThrow(/outside control-service ownership.*not delivered/)
     await handle.dispose()
   })
@@ -535,13 +566,13 @@ describe('SubagentControlService.sendMessage', () => {
 
     // Strict steering finds the settled child, fails loud, and does NOT start
     // a cold resume within this call.
-    expect(() => ctx.subagentControl.sendMessage(parent, started.childId, message('too late?')))
+    expect(() => sendMessage(ctx, parent, started.childId, message('too late?')))
       .toThrow(/not delivered/)
     expect(ctx.tasks.list(parent).map(task => task.id)).toEqual([started.taskId])
     releaseDispose()
     await waitTerminal(ctx, started.taskId, parent)
     // AFTER the Task settles, retry legitimately starts the next activation.
-    const retry = ctx.subagentControl.sendMessage(parent, started.childId, message('retry'))
+    const retry = sendMessage(ctx, parent, started.childId, message('retry'))
     expect(retry.route).toBe('started')
     await waitTerminal(ctx, retry.taskId, parent)
   })
@@ -550,7 +581,7 @@ describe('SubagentControlService.sendMessage', () => {
     const { ctx, parent } = await setup([textResponse('first'), textResponse('second')])
     const started = ctx.subagentControl.startContinuable(startSpec(parent))
     await waitTerminal(ctx, started.taskId, parent)
-    const followUp = ctx.subagentControl.sendMessage(parent, started.childId, message('more'))
+    const followUp = sendMessage(ctx, parent, started.childId, message('more'))
     const other = ctx.agentLoop.create(SessionId('intruder'), { provider: 'mock', model: 'mock' })
     expect(() => ctx.tasks.get(followUp.taskId, other)).toThrow(/belongs to another session/)
   })
@@ -569,7 +600,7 @@ describe('SubagentControlService.sendMessage', () => {
       return realLoad(id)
     }
 
-    const followUp = ctx.subagentControl.sendMessage(parent, started.childId, message('follow up'))
+    const followUp = sendMessage(ctx, parent, started.childId, message('follow up'))
     expect(ctx.tasks.kill(followUp.taskId, parent)).toBe('requested')
     releaseLoad()
     const snapshot = await waitTerminal(ctx, followUp.taskId, parent)
@@ -591,11 +622,11 @@ describe('SubagentControlService.sendMessage', () => {
       return realLoad(id)
     }
 
-    const first = ctx.subagentControl.sendMessage(parent, started.childId, message('first follow-up'))
+    const first = sendMessage(ctx, parent, started.childId, message('first follow-up'))
     expect(first.route).toBe('started')
     // The association is installed synchronously, so the competing caller
     // observes the pending activation instead of starting a duplicate resume.
-    expect(() => ctx.subagentControl.sendMessage(parent, started.childId, message('second follow-up')))
+    expect(() => sendMessage(ctx, parent, started.childId, message('second follow-up')))
       .toThrow(/not delivered/)
     releaseLoad()
     const snapshot = await waitTerminal(ctx, first.taskId, parent)

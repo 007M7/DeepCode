@@ -67,7 +67,12 @@ export function apply(ctx: Context): void {
         throw new Error('send_message requires a calling agent (exec.agent was undefined)')
       }
       const message: ContentBlock[] = [{ type: 'text', text: args.message }]
-      const result = ctx.subagentControl.sendMessage(parent, SessionId(args.subagent_id), message)
+      const result = ctx.subagentControl.sendMessage(
+        parent,
+        SessionId(args.subagent_id),
+        message,
+        { kind: 'coordinator', senderSessionId: parent.id },
+      )
       return Promise.resolve(result)
     },
   }))

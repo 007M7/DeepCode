@@ -246,7 +246,7 @@ describe('dsh-subagent-spawn', () => {
     // Strict live-only contract: after the child settles, delivery fails loud
     // rather than falling back to Agent.steer()'s idle queue (which would
     // start an untracked turn).
-    expect(() => { run.steer!([{ type: 'text', text: 'late' }]) })
+    expect(() => { run.steer!([{ type: 'text', text: 'late' }], { kind: 'user' }) })
       .toThrow(/not running; the message was not delivered/)
     await run.dispose()
   })

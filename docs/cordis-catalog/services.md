@@ -1980,15 +1980,16 @@ startContinuable(spec: ContinuableStartSpec): ContinuableStart
  * @param parent - the live parent agent sending the message (model tool or
  *   human adapter); Task access is authorized by its session id.
  * @param childId - the stable child session id.
- * @param message - the content to deliver.
+ * @param message - the user-role content to deliver.
+ * @param source - caller-supplied attribution retained across either route.
  * @returns whether the message `steered` the existing Task or `started` a new one.
  */
-sendMessage(parent: Agent, childId: SessionId, message: ContentBlock[]): SendMessageResult
+sendMessage(parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource): SendMessageResult
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [SendMessageResult](../core-data-structures/subagent.md) · [SessionId](../core-data-structures/core.md)
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageSource](../core-data-structures/core.md) · [SendMessageResult](../core-data-structures/subagent.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/subagent/subagent-control/src/index.ts:163`](../../packages/subagent/subagent-control/src/index.ts)
+Source: [`packages/subagent/subagent-control/src/index.ts:176`](../../packages/subagent/subagent-control/src/index.ts)
 
 ## `ctx.subagents` — `SubagentService`
 

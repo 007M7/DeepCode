@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
 import type { Agent, AgentHandle, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { findLastMessageTurnEnd, SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
-import { createUserMessage, errorChain, type ContentBlock } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, errorChain, type ContentBlock, type MessageSource } from '@deepseek-ai/dsh-llm'
 import { assertSubagentMaxDepth, delegationDepthOf, SubagentError } from '@deepseek-ai/dsh-subagent'
 import type {
   SubagentDescriptorData,
@@ -69,6 +69,14 @@ export interface InProcessRunOptions {
 
 /** Whether one activation must prove its final state durable before success. */
 type Durability = 'best-effort' | 'required'
+
+/** Activation-specific inputs to the shared in-process driver. */
+interface DriveTurnOptions {
+  readonly durability: Durability
+  /** Attribution for a resumed activation's follow-up prompt. */
+  readonly source?: MessageSource
+  readonly structured?: StructuredAttachment
+}
 
 /** Error used when cancellation wins before the child publication boundary. */
 function prePublicationAbort(): Error {
@@ -177,8 +185,10 @@ export async function startInProcessRun(
     request.prompt,
     childId,
     seedLength,
-    request.continuation === undefined ? 'best-effort' : 'required',
-    structured,
+    {
+      durability: request.continuation === undefined ? 'best-effort' : 'required',
+      ...structured === undefined ? {} : { structured },
+    },
   )
 }
 
@@ -214,7 +224,14 @@ export async function resumeInProcessRun(request: SubagentResumeRequest): Promis
   // The result boundary is this activation's own work: everything already in
   // the resumed transcript belongs to earlier turns.
   const resumePoint = handle.agent.session.events.length
-  return driveTurn(handle, request.signal, request.prompt, request.sessionId, resumePoint, 'required')
+  return driveTurn(
+    handle,
+    request.signal,
+    request.prompt,
+    request.sessionId,
+    resumePoint,
+    { durability: 'required', source: request.source },
+  )
 }
 
 /**
@@ -230,10 +247,10 @@ function driveTurn(
   prompt: ContentBlock[],
   childId: SessionId,
   boundary: number,
-  durability: Durability,
-  structured?: StructuredAttachment,
+  options: DriveTurnOptions,
 ): SubagentRun | Promise<never> {
   const child = handle.agent
+  const { durability, source, structured } = options
   // Agent creation detaches its creation-only abort listener before returning.
   // Close the narrow handoff race before installing the live-run listener.
   if (signal.aborted) {
@@ -249,7 +266,7 @@ function driveTurn(
 
   const result: Promise<SubagentResult> = (async () => {
     try {
-      child.followup(createUserMessage({ content: prompt, source: { kind: 'user' } }))
+      child.followup(createUserMessage({ content: prompt, source: source ?? { kind: 'user' } }))
       await child.whenIdle()
       if (durability === 'required') {
         try {
@@ -282,31 +299,27 @@ function driveTurn(
       flags.cancelled = true
       return handle.dispose()
     },
-    steer(content: ContentBlock[]): void {
-      // Strict live delivery: the synchronous checks and the Agent.steer()
-      // call share one frame, so delivery joins the observed turn or throws.
-      // Agent.steer()'s own idle fallback would instead QUEUE the message and
+    steer(content: ContentBlock[], steeringSource: MessageSource): void {
+      // Strict live delivery: the synchronous checks and Agent.trySteer() share
+      // one frame, so delivery joins the observed step or throws. The ordinary
+      // Agent.steer() idle fallback would instead queue the message and
       // start a new, untracked turn after this run's result was read.
       if (child.status !== 'running') {
         throw new Error(`subagent child "${childId}" is not running; the message was not delivered`)
       }
-      // The status stays `running` through the closed turn's durability flush,
-      // and the loop DISCARDS terminal-stopped steering drained after turn
-      // close instead of recording it. Requiring an open turn keeps
-      // acknowledged delivery honest.
+      // Status stays `running` through the closed turn's durability flush, when
+      // ordinary steering would queue a later turn. Requiring an open turn
+      // keeps this activation's acknowledged delivery honest.
       const lastBoundary = child.session.events.findLast(
         event => event.type === 'turn/start' || event.type === 'turn/end',
       )
       if (lastBoundary?.type !== 'turn/start') {
         throw new Error(`subagent child "${childId}" turn has already closed; the message was not delivered`)
       }
-      // Turn settlement only runs between steps: with no step open, the loop
-      // may be awaiting its continuation/turn-stopping checkpoint, where
-      // pending steering was already folded and a later arrival would miss
-      // this turn. A message accepted during an OPEN step is instead
-      // drained and recorded at that step's settlement checkpoint before any
-      // terminal decision (cancellation remains the documented shared-outcome
-      // race).
+      // Between steps there is no current step whose final drain can own strict
+      // delivery. A message accepted during an open step is recorded at that
+      // step's settlement checkpoint before the continuation decision
+      // (cancellation remains the documented shared-outcome race).
       const lastStep = child.session.events.findLast(
         event => event.type === 'step/start' || event.type === 'step/end',
       )
@@ -324,7 +337,7 @@ function driveTurn(
       if (child.trySteer === undefined) {
         throw new Error(`subagent child "${childId}" agent does not support strict steering; the message was not delivered`)
       }
-      if (!child.trySteer(createUserMessage({ content, source: { kind: 'user' } }))) {
+      if (!child.trySteer(createUserMessage({ content, source: steeringSource }))) {
         throw new Error(`subagent child "${childId}" passed its steering checkpoint; the message was not delivered`)
       }
     },

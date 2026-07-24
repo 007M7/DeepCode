@@ -889,8 +889,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Start a continuable background child: allocate its stable session id,\n * snapshot its durable descriptor, and register the initial activation\'s\n * Task. A synchronous validation failure (a non-JSON descriptor input,\n * missing persistence, Task preflight) throws without creating a Task; the\n * method otherwise returns both identities immediately, without waiting for\n * child publication or descriptor durability. Asynchronous startup failure\n * settles the returned Task as `failed` (or `killed` when cancelled) after\n * any published run is disposed, which can leave an unmaterialized child id\n * that later by-id operations report as unavailable.\n * @param spec - provider, Task label, and the delegation request.\n * @returns the stable child id and the initial activation\'s Task id.\n */',
       },
       {
-        signature: 'sendMessage(parent: Agent, childId: SessionId, message: ContentBlock[]): SendMessageResult',
-        jsDoc: '/**\n * Deliver one message to a known continuable child: steer its running\n * activation, or cold-resume the durable session into a fresh Task-backed\n * activation. The two routes are reported distinctly so timing-dependent\n * routing is observable. A throw means the message was NOT delivered — in\n * particular, losing a race with Task settlement does not fall through to\n * cold resume within the same call; a later retry after Task terminal may\n * start the next activation. The started Task owns descriptor lookup and\n * direct-parent authorization (its AbortSignal exists before that lookup),\n * so an unknown, foreign, or descriptor-less child settles the started Task\n * as `failed` with a detail reporting the id as unavailable.\n * @param parent - the live parent agent sending the message (model tool or\n *   human adapter); Task access is authorized by its session id.\n * @param childId - the stable child session id.\n * @param message - the content to deliver.\n * @returns whether the message `steered` the existing Task or `started` a new one.\n */',
+        signature: 'sendMessage(parent: Agent, childId: SessionId, message: ContentBlock[], source: MessageSource): SendMessageResult',
+        jsDoc: '/**\n * Deliver one message to a known continuable child: steer its running\n * activation, or cold-resume the durable session into a fresh Task-backed\n * activation. The two routes are reported distinctly so timing-dependent\n * routing is observable. A throw means the message was NOT delivered — in\n * particular, losing a race with Task settlement does not fall through to\n * cold resume within the same call; a later retry after Task terminal may\n * start the next activation. The started Task owns descriptor lookup and\n * direct-parent authorization (its AbortSignal exists before that lookup),\n * so an unknown, foreign, or descriptor-less child settles the started Task\n * as `failed` with a detail reporting the id as unavailable.\n * @param parent - the live parent agent sending the message (model tool or\n *   human adapter); Task access is authorized by its session id.\n * @param childId - the stable child session id.\n * @param message - the user-role content to deliver.\n * @param source - caller-supplied attribution retained across either route.\n * @returns whether the message `steered` the existing Task or `started` a new one.\n */',
       },
     ],
   },
@@ -2699,11 +2699,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentResumeRequest',
-    declaration: 'export interface SubagentResumeRequest {\n    readonly sessionId: SessionId;\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly descriptor: SubagentDescriptorData;\n}',
+    declaration: 'export interface SubagentResumeRequest {\n    readonly sessionId: SessionId;\n    readonly prompt: ContentBlock[];\n    readonly source: MessageSource;\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly descriptor: SubagentDescriptorData;\n}',
   },
   {
     name: 'SubagentRun',
-    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    steer?(content: ContentBlock[]): void;\n}',
+    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    steer?(content: ContentBlock[], source: MessageSource): void;\n}',
   },
   {
     name: 'SubagentStartRequest',

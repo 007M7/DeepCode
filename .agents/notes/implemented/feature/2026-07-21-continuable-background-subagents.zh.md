@@ -55,9 +55,9 @@ durable child Session
 
 ### 面向模型的 `send_message`
 
-模型获得一个由 `SubagentControlService.sendMessage()` 支撑的 `send_message(subagent_id, message)` 工具。控制操作负责在 steering 与恢复之间编排；它不同于 run 的 `SubagentRun.steer?()`，后者只能向已活跃的 run 发送消息。工具本身不执行生命周期路由。该工具位于单独加载的 `@deepseek-ai/dsh-tool-subagent-control` 包中，因此按提供方绑定的 `@deepseek-ai/dsh-tool-subagent` 实例可以继续为 spawn、fork 或 ACP 注册不同的委派工具，而不会重复注册全局控制工具。
+模型获得一个由 `SubagentControlService.sendMessage()` 支撑的 `send_message(subagent_id, message)` 工具。控制操作负责在 steering 与恢复之间编排；它不同于 run 的 `SubagentRun.steer?()`，后者只能向已活跃的 run 发送消息。工具本身不执行生命周期路由。该工具将后续消息的来源标记为 `{ kind: 'coordinator', senderSessionId: parent.id }`；控制服务要求调用方提供 `MessageSource`，并在在线 steering 与 cold resume 两条路径中传递该来源。child 模型收到的仍是普通的 user role 内容，而持久化的来源信息可防止模型生成的后续消息被归类为直接用户输入。用户适配器则提供 `{ kind: 'user' }`。该工具位于单独加载的 `@deepseek-ai/dsh-tool-subagent-control` 包中，因此按提供方绑定的 `@deepseek-ai/dsh-tool-subagent` 实例可以继续为 spawn、fork 或 ACP 注册不同的委派工具，而不会重复注册全局控制工具。
 
-- 如果 child 存在运行中的 Task 并支持在线消息，服务会调用 `run.steer(message)` 并返回现有 task id；它不会创建新 Task。
+- 如果 child 存在运行中的 Task 并支持在线消息，服务会调用 `run.steer(message, source)` 并返回现有 task id；它不会创建新 Task。
 - 如果 child 没有运行中的 Task，`send_message` 会创建新 Task，使用该消息从持久化存储恢复会话，并返回新的 task id。
 - 如果活跃提供方无法接收在线消息、严格 steering 在与 Task 结算的竞态中失败，或 Task 关联之外存在存活 child，`send_message` 会失败，而不会静默启动、恢复或接管未受跟踪的轮次。
 
@@ -107,8 +107,8 @@ Task 记录和活跃 run 关联都位于进程内。持久化使 child 会话可
 
 ## 测试
 
-- `packages/subagent/subagent-inprocess/tests/subagent-inprocess.spec.ts` 固定可继续执行的持久性边界：flush 持续失败时会以 `DURABILITY_FAILED` 拒绝并保留失败原因，循环检查点的瞬时失败可在最终确认成功后继续完成，resume 同样会确认持久性，而前台运行仍采用尽力而为策略。`packages/subagent/subagent-control/tests/subagent-control.spec.ts` 以无密钥方式驱动真实栈（agent loop、JSONL 持久化、spawn／fork 提供方、Task 服务与控制面、控制服务）：初始及恢复后的激活都会创建新 Task，并在进入终态前 dispose 各自的 run；描述符事件位于轮次内、对模型隐藏、带版本，并在控制服务分配的 child id 下持久化；在 run 运行期间或 cold resume 查找期间执行 `task_kill`，会在完全停稳后结算为 `killed`，且不产生任何 child 工作；steering 会加入运行中的 Task，而不创建第二个 Task；cold follow-up 会在一份持久化 transcript 中累积轮次，并重建声明的组合配置；恢复 fork 会保持持久化 seed 边界，绝不重新 fork parent 更新后的历史；恢复后的深度以持久化 header 为下界；外来 parent、无描述符及 unmaterialized 的 id 会带着「id 不可用」使其已启动的 Task 失败；所有权冲突和 steering 与结算的竞态会报告未送达，且不改用从持久化存储恢复路径；resume 加载期间竞争的发送只准入一次。
-- `packages/subagent/tool-subagent-control/tests/tool-subagent-control.spec.ts` 固定 `send_message` 的 schema、两种路由渲染、未送达失败、无 agent 时的拒绝，以及 HMR（热模块替换）dispose。
+- `packages/subagent/subagent-inprocess/tests/subagent-inprocess.spec.ts` 固定可继续执行的持久性边界：flush 持续失败时会以 `DURABILITY_FAILED` 拒绝并保留失败原因，循环检查点的瞬时失败可在最终确认成功后继续完成，resume 同样会确认持久性，而前台运行仍采用尽力而为策略。`packages/subagent/subagent-control/tests/subagent-control.spec.ts` 以无密钥方式驱动真实栈（agent loop、JSONL 持久化、spawn／fork 提供方、Task 服务与控制面、控制服务）：初始及恢复后的激活都会创建新 Task，并在进入终态前 dispose 各自的 run；描述符事件位于轮次内、对模型隐藏、带版本，并在控制服务分配的 child id 下持久化；在 run 运行期间或 cold resume 查找期间执行 `task_kill`，会在完全停稳后结算为 `killed`，且不产生任何 child 工作；steering 会加入运行中的 Task，不创建第二个 Task，并保留调用方来源；cold follow-up 会在一份持久化 transcript 中累积轮次，并重建其来源和声明的组合配置；恢复 fork 会保持持久化 seed 边界，绝不重新 fork parent 更新后的历史；恢复后的深度以持久化 header 为下界；外来 parent、无描述符及 unmaterialized 的 id 会带着「id 不可用」使其已启动的 Task 失败；所有权冲突和 steering 与结算的竞态会报告未送达，且不改用从持久化存储恢复路径；resume 加载期间竞争的发送只准入一次。
+- `packages/subagent/tool-subagent-control/tests/tool-subagent-control.spec.ts` 固定 `send_message` 的 schema、coordinator 来源标记、两种路由渲染、未送达失败、无 agent 时的拒绝，以及 HMR（热模块替换）dispose。
 - `packages/subagent/tool-subagent/tests/tool-subagent.spec.ts` 覆盖按功能分支的后台路由：可恢复的提供方会通过控制服务返回两个 id 并公开 `send_message`，一次性提供方保持普通的 task 确认消息，而缺少控制服务的可恢复提供方会明确失败。
 - 无密钥 ACP 快照场景 `subagent-continuable`（examples/acp-agent）固定模型可见的 transcript：双 id 确认消息、最终持久性确认失败（该失败通过 `task_output` 呈现，且不包含未经确认的 child 输出），以及一次 `send_message` 后续操作——其已启动的 Task 会带着「id 不可用」失败。
 
