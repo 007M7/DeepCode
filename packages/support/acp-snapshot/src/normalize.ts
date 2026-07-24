@@ -30,6 +30,19 @@ const SNAPSHOT_SPILL_PATH_RE = new RegExp(
   'g',
 )
 
+/**
+ * Extract every snapshot-mode spill path from a session log, keyed by spill
+ * filename. Used by refresh write-back to keep spill paths stable across runs.
+ */
+export function extractSnapshotSpillPaths(content: string): Map<string, string> {
+  const result = new Map<string, string>()
+  for (const match of content.matchAll(SNAPSHOT_SPILL_PATH_RE)) {
+    const name = match[1]
+    if (name) result.set(name, match[0])
+  }
+  return result
+}
+
 /** Convert separators only inside generated path-bearing text markers. */
 function canonicalizeEmbeddedPaths(value: string): string {
   return value
@@ -61,6 +74,11 @@ function scrubString(value: string, ctx: NormalizeContext, cwdPathMode: CwdPathM
   let out = value
   // cwd first (longest, most specific), then explicit session ids, then any
   // residual UUID (covers ids that appear in places we didn't enumerate).
+  // macOS symlinks /tmp → /private/tmp and /var → /private/var. The session
+  // header cwd may be recorded without the /private prefix while fs tools
+  // resolve symlinks, producing paths with the prefix inside tool results.
+  // Strip the prefix before the cwd replacement so both forms match.
+  out = out.split(`/private${ctx.cwd}`).join(ctx.cwd)
   out = out.split(ctx.cwd).join(CWD)
   out = out.split(`/private${CWD}`).join(CWD)
   if (cwdPathMode === 'canonical') {

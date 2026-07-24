@@ -23,6 +23,7 @@ import { type AgentUnderTest, type HarvestedLog, type InputScript, runScenario }
 import {
   type CwdPathMode,
   type NormalizeContext,
+  extractSnapshotSpillPaths,
   normalizeSessionLog,
   normalizeStdout,
   scrubRequestHeaders,
@@ -443,7 +444,7 @@ export function unknownToolCallIds(rawLog: string): string[] {
 }
 
 /**
- * Build the cross-log id/cwd replacements used by refresh write-back.
+ * Build the cross-log id/cwd/spill-path replacements used by refresh write-back.
  *
  * @param logs The freshly harvested logs, in fixture order.
  * @param fixtures The existing fixture contents, in matching order.
@@ -459,6 +460,16 @@ export function refreshFixtureReplacements(logs: HarvestedLog[], fixtures: strin
       const to = existing?.[field]
       if (typeof from === 'string' && typeof to === 'string' && from.length > 0 && from !== to) {
         replacements.push({ from, to })
+      }
+    }
+    // Stabilize snapshot spill paths: match by filename suffix so the raw
+    // fixture does not churn on every refresh from a different session run.
+    const freshSpills = extractSnapshotSpillPaths((logs[i] as HarvestedLog).content)
+    const existingSpills = extractSnapshotSpillPaths(fixtures[i] ?? '')
+    for (const [name, existingPath] of existingSpills) {
+      const freshPath = freshSpills.get(name)
+      if (freshPath !== undefined && freshPath !== existingPath) {
+        replacements.push({ from: freshPath, to: existingPath })
       }
     }
   }

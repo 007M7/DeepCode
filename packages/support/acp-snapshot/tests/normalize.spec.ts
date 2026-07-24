@@ -192,6 +192,21 @@ describe('normalizeSessionLog', () => {
     expect(out).not.toContain('/private{{spillLocator')
   })
 
+  it('scrubs macOS /private prefix on cwd-rooted fs tool result paths', () => {
+    const ev = JSON.stringify({
+      type: 'tool/result', seq: 2, time: 5,
+      data: {
+        content: [{
+          type: 'text',
+          text: `The file /private${ctx.cwd}/config.txt has been updated successfully.`,
+        }],
+      },
+    })
+    const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
+    expect(out).toContain('{{cwd}}/config.txt')
+    expect(out).not.toContain('/private{{cwd}}')
+  })
+
   it('scrubs fixed snapshot spill paths', () => {
     const ev = JSON.stringify({
       type: 'tool/result', seq: 2, time: 5,
