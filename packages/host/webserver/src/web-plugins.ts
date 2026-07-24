@@ -22,7 +22,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readFileSync, statSync } from 'node:fs'
+import { readFileSync, statSync, type Stats } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Context } from 'cordis'
 
@@ -105,13 +105,10 @@ export interface WebPluginRegistryDeps {
   /** Sink for rescan failures (the initial scan throws instead — misconfiguration fails loud at load). */
   onError: (err: Error) => void
   /**
-   * Dev-mode bundle watching: one registry-owned interval stat-polls every
-   * scanned row's client bundle (polling by design: network mounts deliver no
-   * inotify events) and re-hashes + notifies onRebuilt subscribers on change.
-   * Each row's stat baseline is captured synchronously before its content is
-   * hashed, so a rebuild landing while the registry constructs is still
-   * detected on the first tick (fs.watchFile's asynchronous baseline lost
-   * that window). Absent = no watching (prod composition).
+   * Dev-mode bundle watching: stat-poll every scanned row's client bundle
+   * with an explicit stat baseline (polling by design: network mounts deliver
+   * no inotify events) and re-hash + notify onRebuilt subscribers on change.
+   * Absent = no watching (prod composition).
    */
   watch?: {
     /** Stat-poll interval in milliseconds; default 500 (the build-side watcher's polling default). */
@@ -130,15 +127,13 @@ interface DshClientDeclaration {
 interface WebPluginRecord {
   entry: WebBootEntry
   clientPath: string
-  /**
-   * Bundle stat captured immediately BEFORE the content read that produced
-   * `entry.rev` — the watch baseline. The stat→read order makes a write
-   * racing the scan converge instead of being absorbed: landing between stat
-   * and read leaves the hash newer than the baseline (next tick re-hashes to
-   * the same rev, no spurious notify); landing after the read leaves the
-   * baseline older (next tick detects, re-hashes, notifies).
-   */
-  stat: { mtimeMs: number; size: number }
+}
+
+interface WatchedBundle {
+  path: string
+  mtimeMs: number
+  size: number
+  dirty: boolean
 }
 
 /** Narrow an unknown parsed JSON value to the dshClient declaration, throwing on malformed fields. */
@@ -215,59 +210,84 @@ export function createHostWebPluginRegistry(deps: WebPluginRegistryDeps): HostWe
     throw new Error(`web-plugins: watch.intervalMs must be a positive integer (got ${String(deps.watch?.intervalMs)})`)
   }
 
+  const stageWatches = (
+    candidateTable: Map<string, WebPluginRecord>,
+    currentWatches: Map<string, WatchedBundle>,
+  ): Map<string, WatchedBundle> => {
+    const candidateWatches = new Map<string, WatchedBundle>()
+    if (watchInterval === undefined) return candidateWatches
+    for (const [id, record] of candidateTable) {
+      const current = currentWatches.get(id)
+      if (current?.path === record.clientPath) {
+        candidateWatches.set(id, { ...current })
+        continue
+      }
+      const baseline = statSync(record.clientPath)
+      candidateWatches.set(id, {
+        path: record.clientPath,
+        mtimeMs: baseline.mtimeMs,
+        size: baseline.size,
+        dirty: false,
+      })
+    }
+    return candidateWatches
+  }
+
   let table = scan(deps)
   let graph = composeGraph(table)
+  let watched = stageWatches(table, new Map())
   const rebuildListeners = new Set<(id: string, rev: string) => void>()
 
   const rebuilt = (id: string): string | undefined => {
     const record = table.get(id)
     if (record === undefined) return undefined
-    // stat BEFORE read, like scan(): a write racing this pair converges (see
-    // WebPluginRecord.stat) instead of desynchronizing baseline and rev.
-    const stat = statSync(record.clientPath)
     const rev = shortHash(readFileSync(record.clientPath))
-    record.stat = { mtimeMs: stat.mtimeMs, size: stat.size }
     record.entry = graphRow(id, rev, record.entry.inject, record.entry.immediately === true)
     graph = composeGraph(table)
     return rev
   }
 
-  // Dev bundle watch: one registry-owned setInterval stat-polls every table
-  // row against the record's own baseline. fs.watchFile is unusable here: it
-  // captures its comparison baseline with an ASYNCHRONOUS first stat, so a
-  // rebuild landing between scan()'s content read and that stat is absorbed
-  // into the baseline and never reported — and the missed window is exactly
-  // registry construction, when a dev build is most likely to be finishing.
-  // The record baseline has no such window: scan()/rebuilt() stat before they
-  // read, so any write the hash missed is newer than the baseline and lands
-  // on the next tick. A torn read of a half-written bundle self-heals the
-  // same way — the ongoing write keeps changing the stats.
-  const pollTick = (): void => {
-    for (const [id, record] of table) {
-      let stat: { mtimeMs: number; size: number }
+  // Dev bundle watch: capture every row's baseline synchronously before the
+  // registry is returned, then poll those baselines. fs.watchFile establishes
+  // its first baseline asynchronously, so an immediate rebuild can otherwise
+  // become the baseline and disappear without an observed delta.
+  const pollWatches = (): void => {
+    for (const [id, watch] of watched) {
+      let current: Stats
       try {
-        stat = statSync(record.clientPath)
+        current = statSync(watch.path)
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code
-        if (code === 'ENOENT') continue // mid-rename window; the completed write lands on a later tick
+        if (code === 'ENOENT') {
+          watch.dirty = true
+          continue
+        }
         deps.onError(error instanceof Error ? error : new Error(String(error)))
         continue
       }
-      if (stat.mtimeMs === record.stat.mtimeMs && stat.size === record.stat.size) continue
-      const before = record.entry.rev
+      if (!watch.dirty && current.mtimeMs === watch.mtimeMs && current.size === watch.size) continue
+      const before = table.get(id)?.entry.rev
       let rev: string | undefined
       try {
         rev = rebuilt(id)
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code
-        if (code === 'ENOENT') continue // vanished between stat and read; same self-heal
+        if (code === 'ENOENT') {
+          watch.dirty = true
+          continue
+        }
+        watch.mtimeMs = current.mtimeMs
+        watch.size = current.size
         deps.onError(error instanceof Error ? error : new Error(String(error)))
         continue
       }
+      watch.mtimeMs = current.mtimeMs
+      watch.size = current.size
+      watch.dirty = false
       if (rev === undefined || rev === before) continue
       for (const notify of rebuildListeners) {
-        // A throwing subscriber must not skip later subscribers or escape
-        // into the timer callback (that would kill the process).
+        // A throwing subscriber must not skip later subscribers or escape the
+        // polling callback into the process event loop.
         try {
           notify(id, rev)
         } catch (error) {
@@ -276,8 +296,8 @@ export function createHostWebPluginRegistry(deps: WebPluginRegistryDeps): HostWe
       }
     }
   }
-  const pollTimer = watchInterval === undefined ? undefined : setInterval(pollTick, watchInterval)
-  pollTimer?.unref()
+  const watchTimer = watchInterval === undefined ? undefined : setInterval(pollWatches, watchInterval)
+  watchTimer?.unref()
 
   let pending = false
   const unsubscribe = deps.ctx.on('internal/plugin', () => {
@@ -286,10 +306,12 @@ export function createHostWebPluginRegistry(deps: WebPluginRegistryDeps): HostWe
     queueMicrotask(() => {
       pending = false
       try {
-        // The poll iterates `table` directly, so the swap also retargets the
-        // watch: fresh records carry fresh stat baselines from scan().
-        table = scan(deps)
-        graph = composeGraph(table)
+        const candidateTable = scan(deps)
+        const candidateGraph = composeGraph(candidateTable)
+        const candidateWatches = stageWatches(candidateTable, watched)
+        table = candidateTable
+        graph = candidateGraph
+        watched = candidateWatches
       } catch (error) {
         // Keep serving the previous graph: a mid-flight rescan failure must not
         // take down the boot manifest for plugins that were fine.
@@ -308,7 +330,8 @@ export function createHostWebPluginRegistry(deps: WebPluginRegistryDeps): HostWe
     },
     dispose: () => {
       unsubscribe()
-      if (pollTimer !== undefined) clearInterval(pollTimer)
+      if (watchTimer !== undefined) clearInterval(watchTimer)
+      watched.clear()
       rebuildListeners.clear()
     },
   }
@@ -330,13 +353,8 @@ function scan(deps: WebPluginRegistryDeps): Map<string, WebPluginRecord> {
       throw new Error(`web-plugins: ${name} declares dshClient but exports no "./client" bundle`)
     }
     const clientPath = join(dirname(pkgPath), clientRel)
-    const stat = statSync(clientPath)
     const rev = shortHash(readFileSync(clientPath))
-    table.set(name, {
-      entry: graphRow(name, rev, decl.inject, decl.immediately === true),
-      clientPath,
-      stat: { mtimeMs: stat.mtimeMs, size: stat.size },
-    })
+    table.set(name, { entry: graphRow(name, rev, decl.inject, decl.immediately === true), clientPath })
   }
   return table
 }

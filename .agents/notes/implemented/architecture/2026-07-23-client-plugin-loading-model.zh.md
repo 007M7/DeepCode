@@ -76,7 +76,7 @@ vendored Loader 经其 `internal` seam 消费模块系统——唯一调用点�
 
 热重载是否启用是一项组合决策：dev 图包含 `client-hmr` 行（一个常规的插件包）并开启 bundle 监视；prod 图两者皆无。
 
-重建好的 bundle 怎么变成重载信号？webserver 自己观察——没有构建器来通知它。注册表扫描本就握有每个插件的 bundle 路径（`clientPath`），因此 dev 模式下由注册表自持的单个定时器对每个已扫描的 bundle 文件做 stat 轮询，比对基线是扫描自己捕获的 stat（同步地、恰在哈希该内容之前采集——不用 `fs.watchFile`：它以异步首次 stat 建立基线，会把注册表构造期间落盘的写入静默吸收进基线）。轮询是刻意选择：inotify 在 weka 网络挂载上不触发，构建侧监视器需要 `--poll` 也是同一原因。mtime/size 一变，注册表就重哈希该行（`rebuilt(id)`）；当 `rev` 真的变了，才在 `GET /plugins/events` 上广播 `rebuilt` 帧——这是一条系统级 SSE（Server-Sent Events）通道，连接即发全量图，变更时发 `rebuilt` 帧，仅供呈现的 wire，永不进会话日志。轮询直接遍历活表，因此重扫天然重定向监视（新行自带新基线），dispose（资源释放）只需清掉那一个定时器。轮询间隔是一个经校验的配置字段（默认 500ms），不是常量。重建 bundle 则是任意一个 tsdown watch 进程的事——`scripts/dev-web.ts` 仍作为 watch 构建入口保留，其包清单在启动时扫描 `packages/*/*/package.json` 按 dshClient 发现——构建器与 host 共享零协议。写一半的 bundle 被撕裂读取会自愈：写入完成期间 stat 持续变化，下一个轮询节拍会再次重哈希并广播最终的 rev。
+重建好的 bundle 怎么变成重载信号？webserver 自己观察——没有构建器来通知它。注册表扫描本就握有每个插件的 bundle 路径（`clientPath`），因此 dev 模式下由注册表自持的单个定时器对每个已扫描的 bundle 文件做 stat 轮询，比对基线由注册表在构造返回之前同步捕获（不用 `fs.watchFile`：它以异步首次 stat 建立基线，会把注册表构造期间落盘的重建静默吸收进基线——CI 上复现过的漏报）。轮询是刻意选择：inotify 在 weka 网络挂载上不触发，构建侧监视器需要 `--poll` 也是同一原因。mtime/size 一变，注册表就重哈希该行（`rebuilt(id)`）；当 `rev` 真的变了，才在 `GET /plugins/events` 上广播 `rebuilt` 帧——这是一条系统级 SSE（Server-Sent Events）通道，连接即发全量图，变更时发 `rebuilt` 帧，仅供呈现的 wire，永不进会话日志。重扫对表、图、监视基线三者原子换入（重扫失败则三者都保持旧值）；轮询时 bundle 缺失会给该监视打上 dirty 标记，文件重现时即使元数据相同也强制重哈希；dispose（资源释放）只需清掉那一个定时器。轮询间隔是一个经校验的配置字段（默认 500ms），不是常量。重建 bundle 则是任意一个 tsdown watch 进程的事——`scripts/dev-web.ts` 仍作为 watch 构建入口保留，其包清单在启动时扫描 `packages/*/*/package.json` 按 dshClient 发现——构建器与 host 共享零协议。写一半的 bundle 被撕裂读取会自愈：写入完成期间 stat 持续变化，下一个轮询节拍会再次重哈希并广播最终的 rev。
 
 浏览器侧，驱动插件每帧重载一个插件，串行执行：
 
