@@ -91,7 +91,7 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
   const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
   const { application_id: applicationId } = db.prepare('PRAGMA application_id').get() as { application_id: number }
   const { count: userObjectCount } = db.prepare(
-    "SELECT COUNT(*) AS count FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+    "SELECT COUNT(*) AS count FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'",
   ).get() as { count: number }
   if (onDisk === 0 && (applicationId !== 0 || userObjectCount > 0)) {
     throw new Error(`session database at "${path}" has an unversioned schema or application identity`)

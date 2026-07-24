@@ -1148,6 +1148,26 @@ describe('SQLite schema, cancellation, and real persistence integration', () => 
     expect(stillForeign.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
     stillForeign.close()
 
+    const wildcardPath = await temporaryPath('sqlite-wildcard.db')
+    const wildcard = new DatabaseSync(wildcardPath)
+    wildcard.exec('PRAGMA journal_mode = WAL')
+    wildcard.exec('CREATE TABLE sqliteX(value TEXT)')
+    wildcard.exec("INSERT INTO sqliteX VALUES ('safe')")
+    wildcard.close()
+    const wildcardCtx = new Context()
+    await wildcardCtx.plugin(SessionStore)
+    await expect(wildcardCtx.plugin(SessionQuerySqlite, {
+      path: wildcardPath,
+      journalMode: 'delete',
+    })).rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
+    expect(wildcardCtx.sessionQuery).toBeUndefined()
+    const stillWildcard = new DatabaseSync(wildcardPath)
+    expect(stillWildcard.prepare('SELECT value FROM sqliteX').get()).toEqual({ value: 'safe' })
+    expect(stillWildcard.prepare('PRAGMA application_id').get()).toEqual({ application_id: 0 })
+    expect(stillWildcard.prepare('PRAGMA user_version').get()).toEqual({ user_version: 0 })
+    expect(stillWildcard.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' })
+    stillWildcard.close()
+
     const otherAppPath = await temporaryPath('other-app.db')
     const otherApp = new DatabaseSync(otherAppPath)
     otherApp.exec('PRAGMA application_id = 123')

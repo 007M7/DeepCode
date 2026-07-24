@@ -345,6 +345,23 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     unchanged.close()
   })
 
+  it('counts a sqliteX table as user-owned instead of mistaking it for SQLite metadata', async () => {
+    const path = await freshDbPath()
+    const unrelated = new DatabaseSync(path)
+    unrelated.exec('CREATE TABLE sqliteX (value TEXT)')
+    unrelated.exec("INSERT INTO sqliteX VALUES ('safe')")
+    unrelated.close()
+
+    expect(() => openDatabase(path, 'wal')).toThrow(/unversioned schema or application identity/)
+
+    const unchanged = new DatabaseSync(path)
+    expect(unchanged.prepare('SELECT value FROM sqliteX').get()).toEqual({ value: 'safe' })
+    expect(unchanged.prepare('PRAGMA application_id').get()).toEqual({ application_id: 0 })
+    expect(unchanged.prepare('PRAGMA user_version').get()).toEqual({ user_version: 0 })
+    expect(unchanged.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'delete' })
+    unchanged.close()
+  })
+
   it('rejects view-only and foreign-application unversioned databases without mutation', async () => {
     const viewPath = await freshDbPath()
     const viewOnly = new DatabaseSync(viewPath)

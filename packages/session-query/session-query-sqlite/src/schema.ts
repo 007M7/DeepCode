@@ -78,7 +78,7 @@ export async function openSearchDatabase(path: string, journalMode: JournalMode)
 
 function listUserTables(db: DatabaseSync): string[] {
   const rows = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*' ORDER BY name",
   ).all() as Array<{ name: string }>
   return rows.map(row => row.name)
 }
