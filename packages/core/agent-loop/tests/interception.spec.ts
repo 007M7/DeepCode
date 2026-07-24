@@ -42,7 +42,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 function events(agent: Agent): SessionEvent[] {
@@ -128,7 +128,7 @@ describe('agent/prompt-submit', () => {
         ? downstream
         : { ...downstream, content: [{ type: 'text', text: 'rewritten request' }] }
     })
-    agent.send([{ type: 'text', text: 'original request' }], {
+    agent.followup([{ type: 'text', text: 'original request' }], {
       contexts: [{
         content: [{ type: 'text', text: 'untrusted prefix' }],
         source: { kind: 'plugin', plugin: 'prefix' },
@@ -203,7 +203,7 @@ describe('agent/prompt-submit', () => {
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
-    agent.send([{ type: 'text', text: 'do something' }], {
+    agent.followup([{ type: 'text', text: 'do something' }], {
       contexts: [{ content: [{ type: 'text', text: 'must be dropped' }], source: { kind: 'plugin', plugin: 'test' } }],
     })
     await waitForIdle(ctx, agent)

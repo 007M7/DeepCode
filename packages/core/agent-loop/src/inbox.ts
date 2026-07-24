@@ -1,7 +1,7 @@
 /**
  * Per-agent message inbox: queued and steering FIFOs. Purely an in-memory
- * mechanism of the loop driver — the public surface is `Agent.send()` and its
- * fixed-preset aliases.
+ * mechanism of the loop driver — callers use `Agent`'s intent-named delivery
+ * methods instead.
  *
  * @module dsh-agent-loop/inbox
  */
@@ -10,7 +10,7 @@ import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type { AgentMessage, AgentMessageId, HookContext } from '@deepseek-ai/dsh-agent'
 
-/** One message waiting in an agent's inbox; `id` is the value `send` returned. */
+/** One message waiting in an agent's inbox; `id` is the value its accepting delivery method returned. */
 export interface InboxMessage {
   id: AgentMessageId
   content: ContentBlock[]
@@ -42,7 +42,7 @@ export function agentMessage(message: InboxMessage, steering: boolean): AgentMes
 /**
  * Per-agent inbox: a queued FIFO (dequeued once per turn start) and a steering FIFO
  * (drained between steps of a running turn). Purely an in-memory mechanism of
- * the loop — the public surface is `Agent.send()` and its aliases.
+ * the loop — the public surface is `Agent`'s intent-named delivery methods.
  */
 export class Inbox {
   private queuedMessages: InboxMessage[] = []
@@ -58,7 +58,7 @@ export class Inbox {
    * True while a queued message wants to wake the driver — the "should the loop
    * run" signal read by the idle wait's fast path, the loop's idle-publish
    * check, and `whenIdle`. A `wakeup:false` (quiet) item alone leaves this
-   * false, so the driver stays parked until a waking send (or a waking item
+   * false, so the driver stays parked until a waking follow-up (or a waking item
    * ahead of it in FIFO order) drives the loop; the quiet item then rides along.
    */
   get hasWakingQueued(): boolean {
@@ -85,7 +85,7 @@ export class Inbox {
   /**
    * Add a message to the steering FIFO. Deliberately no wakeup: steering is
    * drained between steps of a running turn, never by the idle wait —
-   * `Agent.steer()` on an idle agent falls back to a woken follow-up instead.
+   * `Agent.steer()` on an idle agent falls back to a waking ordinary turn instead.
    * @param message - the message to inject between steps of the running turn.
    */
   steer(message: InboxMessage): void {

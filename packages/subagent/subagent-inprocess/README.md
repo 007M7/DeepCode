@@ -11,7 +11,7 @@ The driver follows this sequence:
 1. Validate the parent depth and optional absolute `maxDepth`, then derive child depth as parent depth plus one and persist it in the child session header.
 2. Call `parent.ctx.agents.create` directly, passing the required request signal into the factory's creation transaction.
 3. During that transaction's unpublished setup window, install the requested persona, tool restriction, and structured-output runtime.
-4. Publish the child, retain the returned `AgentHandle`, and drive one task with `child.send(prompt)` followed by `child.whenIdle()`.
+4. Publish the child, retain the returned `AgentHandle`, and drive one task with `child.followup(prompt)` followed by `child.whenIdle()`.
 5. Read the child's own last assistant message and latest message-triggered turn reason, excluding any fork seed and later plugin-owned zero-step turns.
 
 The child gets the parent's working-directory/session lineage and inherits the parent model unless `request.agentOptions` overrides it. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.

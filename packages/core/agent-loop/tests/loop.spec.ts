@@ -42,7 +42,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 describe('agent loop', () => {
@@ -539,7 +539,7 @@ describe('agent loop', () => {
     }))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'go' }], { target: 'next-turn', wakeup: true, meta: { prompt: 1 } })
+    agent.followup([{ type: 'text', text: 'go' }], { meta: { prompt: 1 } })
     await waitForIdle(ctx, agent)
 
     const user = agent.session.events.find(e => e.type === 'user/message')
@@ -1083,9 +1083,9 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const idle = waitForIdle(ctx, agent)
-    agent.send([{ type: 'text', text: 'user message' }])
+    agent.followup([{ type: 'text', text: 'user message' }])
     await Promise.resolve()
-    agent.send(
+    agent.followup(
       [{ type: 'text', text: 'plugin message' }],
       { source: { kind: 'plugin', plugin: 'test' } },
     )

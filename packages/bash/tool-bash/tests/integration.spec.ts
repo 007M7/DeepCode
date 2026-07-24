@@ -109,7 +109,7 @@ describe('bash tool through the agent loop', () => {
     const location = ctx.sessionPersistence.locate(agent.session.header)
     expect(location?.kind).toBe('jsonl')
 
-    agent.send([{ type: 'text', text: 'inspect the current session' }])
+    agent.followup([{ type: 'text', text: 'inspect the current session' }])
     await waitForIdle(ctx, agent)
 
     const result = findEvent(events(agent), 'tool/result')
@@ -128,7 +128,7 @@ describe('bash tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-fg'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'run echo integration-ok' }])
+    agent.followup([{ type: 'text', text: 'run echo integration-ok' }])
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
@@ -160,7 +160,7 @@ describe('bash tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-exit'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'run exit 9' }])
+    agent.followup([{ type: 'text', text: 'run exit 9' }])
     await waitForIdle(ctx, agent)
 
     const toolResult = findEvent(events(agent), 'tool/result')
@@ -180,7 +180,7 @@ describe('bash tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-bg'), { provider: 'mock', model: 'mock' })
 
-    agent.send([{ type: 'text', text: 'run echo bg-ok in the background' }])
+    agent.followup([{ type: 'text', text: 'run echo bg-ok in the background' }])
     await waitForIdle(ctx, agent)
 
     const firstResult = findEvent(events(agent), 'tool/result')
@@ -200,7 +200,7 @@ describe('bash tool through the agent loop', () => {
     expect(notice.data.source).toEqual({ kind: 'plugin', plugin: 'tool-tasks' })
 
     // The next turn collects the output through the generic task tool.
-    agent.send([{ type: 'text', text: 'collect it' }])
+    agent.followup([{ type: 'text', text: 'collect it' }])
     await waitForIdle(ctx, agent)
     const readResult = findEvent(events(agent), 'tool/result', 'last')
     expect(readResult.data.isError).toBe(false)

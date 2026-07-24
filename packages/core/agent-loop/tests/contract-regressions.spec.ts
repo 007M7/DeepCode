@@ -50,7 +50,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 }
 
 function send(agent: Agent, text: string) {
-  agent.send([{ type: 'text', text }])
+  agent.followup([{ type: 'text', text }])
 }
 
 describe('session log records what agent/step-result actually produced', () => {
@@ -818,7 +818,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
       source: { kind: 'plugin', plugin: 'context-source' },
       meta: { version: 1 },
     }]
-    agent.send(content, { source, contexts })
+    agent.followup(content, { source, contexts })
     content[0]!.text = 'caller-mutated-send'
     source.plugin = 'caller-mutated-source'
     contexts[0]!.content[0] = { type: 'text', text: 'caller-mutated-context' }
@@ -874,7 +874,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
       notifiedContexts = info.contexts
     })
 
-    agent.send([{ type: 'text', text: 'start' }])
+    agent.followup([{ type: 'text', text: 'start' }])
     await entered.promise
     expect(agent.status).toBe('running')
     const content = [{ type: 'text' as const, text: 'accepted-steer' }]
@@ -991,7 +991,7 @@ describe('turn numbering continues across seeded sessions', () => {
 
     const turns: number[] = []
     ctx2.on('session/event', (_s, event) => { if (event.type === 'turn/start') turns.push(event.data.turn) })
-    forked.send([{ type: 'text', text: 'continue' }])
+    forked.followup([{ type: 'text', text: 'continue' }])
     await new Promise<void>((resolve) => {
       ctx2.on('agent/status', (subject, status) => {
         if (subject === forked && status === 'idle') resolve()

@@ -177,8 +177,8 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     options: {},
     session,
     status: 'idle',
-    send: () => AgentMessageId('stub'),
     followup: () => AgentMessageId('stub'),
+    queue: () => AgentMessageId('stub'),
     steer: () => AgentMessageId('stub'),
     inject(content, options) {
       session.append('user/message', {
@@ -188,6 +188,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
       }, { surfaceOp: 'append' })
       return AgentMessageId('stub')
     },
+    send: () => AgentMessageId('stub'),
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -1716,11 +1717,11 @@ describe('dynamic nested workspace context injection', () => {
         },
       }))
 
-      agent.send([{ type: 'text', text: 'read and abort' }])
+      agent.followup([{ type: 'text', text: 'read and abort' }])
       await agent.whenIdle()
       expect(agent.session.events.filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toHaveLength(1)
 
-      agent.send([{ type: 'text', text: 'retry the read' }])
+      agent.followup([{ type: 'text', text: 'retry the read' }])
       await agent.whenIdle()
 
       const contexts = agent.session.events.filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')

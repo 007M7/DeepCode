@@ -17,7 +17,7 @@ sequenceDiagram
   participant Session
   participant Persistence
   participant SDK as UI or SDK listener
-  User->>Agent: send(content)
+  User->>Agent: followup(content)
   Agent-->>SDK: <code>agent/inbox/enqueue</code>
   Agent->>Driver: queued work wakes driver
   Driver-->>SDK: <code>agent/status</code> running
