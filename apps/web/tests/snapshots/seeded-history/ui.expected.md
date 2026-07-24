@@ -1,0 +1,36 @@
+- banner:
+  - navigation "会话层级":
+    - button "Use the read tool twice" [disabled]
+    - text: · 1 turns
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+    - tab "Waterfall"
+- text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop."
+- button "Think The user wants me to read a.txt and b.txt, then reply with DONE. Let me read both files.":
+  - img
+  - text: Think The user wants me to read a.txt and b.txt, then reply with DONE. Let me read both files.
+- button:
+  - img
+- text: Read a.txt
+- button:
+  - img
+- text: Read b.txt
+- button "Think Both files have been read. a.txt contains \"alpha\" and b.txt contains \"beta\". Now I just need to reply with the single word DONE.":
+  - img
+  - text: Think Both files have been read. a.txt contains "alpha" and b.txt contains "beta". Now I just need to reply with the single word DONE.
+- paragraph: DONE
+- text: cache hit 97% · 15,959 tokens · 1 turns · 2 steps
+- textbox "输入消息，Enter 发送，Shift+Enter 换行"
+- button "添加":
+  - img
+- combobox "Plan mode":
+  - option "Plan" [selected]
+  - option "Agent"
+- combobox "Access mode":
+  - option "Read-only" [selected]
+  - option "Read-write"
+- combobox "Model":
+  - option "DeepSeek-V4-Pro High" [selected]
+  - option "DeepSeek-V4-Pro"
+- button "发送" [disabled]

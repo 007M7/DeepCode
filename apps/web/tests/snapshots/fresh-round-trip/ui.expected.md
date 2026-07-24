@@ -1,0 +1,31 @@
+- banner:
+  - navigation "会话层级":
+    - button "Use the bash tool to" [disabled]
+    - text: · 1 turns
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+    - tab "Waterfall"
+- text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop."
+- button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
+  - img
+  - text: Think The user wants me to run a simple bash command and reply with "DONE".
+- text: Print WEB_E2E_OK to stdout
+- button "Think The command executed successfully and printed \"WEB_E2E_OK\". I should now reply with \"DONE\".":
+  - img
+  - text: Think The command executed successfully and printed "WEB_E2E_OK". I should now reply with "DONE".
+- paragraph: DONE
+- text: cache hit 49% · 15,823 tokens · 1 turns · 2 steps
+- textbox "输入消息，Enter 发送，Shift+Enter 换行"
+- button "添加":
+  - img
+- combobox "Plan mode":
+  - option "Plan" [selected]
+  - option "Agent"
+- combobox "Access mode":
+  - option "Read-only" [selected]
+  - option "Read-write"
+- combobox "Model":
+  - option "DeepSeek-V4-Pro High" [selected]
+  - option "DeepSeek-V4-Pro"
+- button "发送" [disabled]
