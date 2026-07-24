@@ -17,7 +17,10 @@ import type { SessionEvent, SessionId, SessionHeader, SurfaceOp } from '@deepsee
  * layout; orthogonal to a session's own `version` (which versions the EVENT
  * vocabulary, stored per session in the `sessions` row).
  */
-export const SCHEMA_VERSION = 9
+export const SCHEMA_VERSION = 10
+
+/** SQLite application id protecting unrelated databases from persistence writes. */
+export const SESSION_PERSISTENCE_SQLITE_APPLICATION_ID = 0x44534850
 
 /**
  * A row of the `sessions` table — the out-of-log metadata ({@link SessionHeader}).
@@ -86,53 +89,77 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
   db.exec('PRAGMA foreign_keys = ON')
   // `PRAGMA user_version` always returns exactly one row { user_version }.
   const { user_version: onDisk } = db.prepare('PRAGMA user_version').get() as { user_version: number }
-  const { count: userTableCount } = db.prepare(
-    "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+  const { application_id: applicationId } = db.prepare('PRAGMA application_id').get() as { application_id: number }
+  const { count: userObjectCount } = db.prepare(
+    "SELECT COUNT(*) AS count FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
   ).get() as { count: number }
-  if (onDisk === 0 && userTableCount > 0) {
-    throw new Error(`session database at "${path}" has a nonempty unversioned schema`)
+  if (onDisk === 0 && (applicationId !== 0 || userObjectCount > 0)) {
+    throw new Error(`session database at "${path}" has an unversioned schema or application identity`)
   }
   if (onDisk !== 0 && onDisk !== SCHEMA_VERSION) {
     throw new Error(`session database at "${path}" has schema version ${onDisk}, incompatible with this build (${SCHEMA_VERSION})`)
   }
+  if (onDisk === SCHEMA_VERSION && applicationId !== SESSION_PERSISTENCE_SQLITE_APPLICATION_ID) {
+    throw new Error(
+      `session database at "${path}" has application id ${applicationId}, expected ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`,
+    )
+  }
   // The validated union is safe to interpolate into a non-bindable PRAGMA.
   // Apply it only after rejecting incompatible existing databases.
   db.exec(`PRAGMA journal_mode = ${journalMode.toUpperCase()}`)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS persistence_state (
-      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-      store_id  TEXT NOT NULL
-    ) STRICT
-  `)
-  db.prepare(
-    'INSERT OR IGNORE INTO persistence_state (singleton, store_id) VALUES (1, ?)',
-  ).run(randomUUID())
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id             TEXT PRIMARY KEY,
-      version        INTEGER NOT NULL,
-      created_at     REAL NOT NULL,
-      cwd              TEXT,
-      parent_session   TEXT,
-      seed_length      INTEGER,
-      delegation_depth INTEGER,
-      incarnation      TEXT NOT NULL,
-      revision         INTEGER NOT NULL
-    ) STRICT
-  `)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS events (
-      session_id        TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      seq               INTEGER NOT NULL,
-      type              TEXT NOT NULL,
-      time              INTEGER NOT NULL,
-      data              TEXT NOT NULL,
-      source_event_seqs TEXT,
-      surface_op        TEXT,
-      PRIMARY KEY (session_id, seq)
-    ) STRICT
-  `)
-  if (onDisk === 0) db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+  let began = false
+  try {
+    db.exec('BEGIN IMMEDIATE')
+    began = true
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS persistence_state (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        store_id  TEXT NOT NULL
+      ) STRICT;
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        id               TEXT PRIMARY KEY,
+        version          INTEGER NOT NULL,
+        created_at       INTEGER NOT NULL,
+        cwd              TEXT,
+        parent_session   TEXT,
+        seed_length      INTEGER,
+        delegation_depth INTEGER,
+        incarnation      TEXT NOT NULL,
+        revision         INTEGER NOT NULL
+      ) STRICT;
+
+      CREATE TABLE IF NOT EXISTS events (
+        session_id        TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        seq               INTEGER NOT NULL,
+        type              TEXT NOT NULL,
+        time              INTEGER NOT NULL,
+        data              TEXT NOT NULL,
+        source_event_seqs TEXT,
+        surface_op        TEXT,
+        PRIMARY KEY (session_id, seq)
+      ) STRICT
+    `)
+    db.prepare(
+      'INSERT OR IGNORE INTO persistence_state (singleton, store_id) VALUES (1, ?)',
+    ).run(randomUUID())
+    if (onDisk === 0) {
+      db.exec(`PRAGMA application_id = ${SESSION_PERSISTENCE_SQLITE_APPLICATION_ID}`)
+      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+    }
+    db.exec('COMMIT')
+  } catch (error: unknown) {
+    /* v8 ignore next -- a BEGIN failure leaves no transaction to roll back. */
+    if (began) {
+      /* v8 ignore next 5 -- preserve the original schema failure if SQLite also refuses rollback. */
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        // The original SQLite failure remains the actionable cause.
+      }
+    }
+    throw error
+  }
 }
 
 /**
@@ -141,6 +168,9 @@ function configureDatabase(db: DatabaseSync, path: string, journalMode: JournalM
  * @returns the header, `NULL` columns mapped to omitted optional fields.
  */
 export function rowToMeta(row: SessionRow): SessionHeader {
+  if (!Number.isSafeInteger(row.created_at) || row.created_at < 0) {
+    throw new Error('stored session createdAt must be a non-negative safe integer')
+  }
   return {
     version: row.version,
     id: row.id as SessionId,

@@ -5,7 +5,7 @@ import { mkdir, open } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
 /** Current derived-index schema version. Incompatible versions reset in place. */
-export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 4
+export const SESSION_QUERY_SQLITE_SCHEMA_VERSION = 5
 
 /** SQLite application id protecting unrelated databases from derived resets. */
 export const SESSION_QUERY_SQLITE_APPLICATION_ID = 0x44534851
@@ -112,7 +112,7 @@ function ensurePersistentSchema(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS persisted_sessions (
       id             TEXT PRIMARY KEY,
       version        INTEGER NOT NULL,
-      created_at     REAL NOT NULL,
+      created_at     INTEGER NOT NULL,
       cwd            TEXT,
       parent_session TEXT,
       seed_length    INTEGER,
@@ -141,7 +141,7 @@ function ensureTemporarySchema(db: DatabaseSync): void {
     CREATE TEMP TABLE IF NOT EXISTS live_sessions (
       id             TEXT PRIMARY KEY,
       version        INTEGER NOT NULL,
-      created_at     REAL NOT NULL,
+      created_at     INTEGER NOT NULL,
       cwd            TEXT,
       parent_session TEXT,
       seed_length    INTEGER,

@@ -167,22 +167,6 @@ async function liveContext(config: ConstructorParameters<typeof SessionQuerySqli
 }
 
 describe('SQLite session search', () => {
-  it('indexes finite fractional creation timestamps from live and persisted sources', async () => {
-    const persisted = header('fractional-persisted', 1.5)
-    TestPersistence.reset([{ meta: persisted, events: messageEvents('persisted fractional') }])
-    const ctx = await liveContext()
-    await ctx.plugin(TestPersistence)
-    const live = ctx.sessions.create(SessionId('fractional-live'), {
-      seed: messageEvents('live fractional'),
-      meta: { createdAt: 2.5 },
-    })
-
-    await expect(ctx.sessionQuery.searchSessions({ query: 'persisted' }))
-      .resolves.toMatchObject({ items: [{ header: { id: persisted.id, createdAt: 1.5 } }] })
-    await expect(ctx.sessionQuery.searchSessions({ query: 'live' }))
-      .resolves.toMatchObject({ items: [{ header: { id: live.id, createdAt: 2.5 } }] })
-  })
-
   it('searches two-character Unicode61 tokens in live-only sessions', async () => {
     const ctx = await liveContext({ path: ':memory:', snippetChars: 20 })
     const session = ctx.sessions.create(SessionId('live'), {

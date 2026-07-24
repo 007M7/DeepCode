@@ -757,7 +757,7 @@ describe('Session', () => {
       { header: 1, error: /not a plain JSON record/ },
       { header: null, error: /not a plain JSON record/ },
       { header: { ...base, version: 1 }, error: /header version/ },
-      { header: { ...base, createdAt: '123' }, error: /createdAt must be a finite number/ },
+      { header: { ...base, createdAt: '123' }, error: /createdAt must be a non-negative safe integer/ },
       { header: { ...base, cwd: 1 }, error: /header cwd must be a string/ },
       { header: { ...base, cwd: 'relative' }, error: /header cwd must be an absolute path/ },
       { header: { ...base, parentSession: 1 }, error: /header parentSession must be a string/ },
@@ -962,7 +962,7 @@ describe('SessionStore', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('plain'))
     expect(session.header).toMatchObject({ version: SESSION_FORMAT_VERSION, id: 'plain' })
-    expect(typeof session.header.createdAt).toBe('number')
+    expect(Number.isSafeInteger(session.header.createdAt)).toBe(true)
     expect(session.header.cwd).toBeUndefined()
     expect(session.header.parentSession).toBeUndefined()
   })
@@ -1001,7 +1001,10 @@ describe('SessionStore', () => {
       { meta: { parentSession: 1n }, error: /header is not losslessly JSON-serializable/ },
       { meta: { cwd: 1 }, error: /header cwd must be a string/ },
       { meta: { parentSession: 1 }, error: /header parentSession must be a string/ },
-      { meta: { createdAt: '123' }, error: /header createdAt must be a finite number/ },
+      { meta: { createdAt: '123' }, error: /header createdAt must be a non-negative safe integer/ },
+      { meta: { createdAt: 1.5 }, error: /header createdAt must be a non-negative safe integer/ },
+      { meta: { createdAt: -1 }, error: /header createdAt must be a non-negative safe integer/ },
+      { meta: { createdAt: Number.MAX_SAFE_INTEGER + 1 }, error: /header createdAt must be a non-negative safe integer/ },
       { meta: { seedLength: '1' }, error: /seedLength must be a non-negative safe integer/ },
       { meta: { seedLength: 0.5 }, error: /seedLength must be a non-negative safe integer/ },
       { meta: { seedLength: -1 }, error: /seedLength must be a non-negative safe integer/ },
