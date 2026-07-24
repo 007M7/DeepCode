@@ -44,7 +44,7 @@ The shipped ACP, TUI, and Web compositions all mount the consumer beside `ctx.se
 
 ## Verification
 
-Package tests pin argument validation, filter translation, timestamp normalization, exact-workspace authorization, missing-identity behavior, hidden-boundary pruning, current-step exclusion, internal provider paging, count caps, cancellation, title fallbacks, rendering, generic presentation, and disposable registration. Integration coverage uses the real SQLite FTS provider over live and persisted sessions. Loader and assembled-host coverage proves that ACP, TUI, and Web register the tools with timeout and spill support, while a keyless model transcript pins the prompt guidance, schemas, representative search/trace/read output, and oversized-result spill behavior.
+Package tests pin argument validation, filter translation, timestamp normalization, exact-workspace authorization, missing-identity behavior, hidden-boundary pruning, current-step exclusion, internal provider paging, count caps, cancellation, title fallbacks, representative search/trace/read rendering, generic presentation, and disposable registration. Integration coverage uses the real SQLite FTS provider over live and persisted sessions. Loader and assembled-host coverage proves that ACP, TUI, and Web register the tools with timeout and spill support, while keyless assembled ACP snapshots pin the prompt guidance and schemas plus exact event-read spill and retention behavior.
 
 ## Consequences
 
